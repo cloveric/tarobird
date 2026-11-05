@@ -49,6 +49,30 @@ async function fixture(page:Page, runtime=false, oldHost=false, openPermissions=
   return {root,hub,host,calls,grant,close:async()=>{await page.close();for(const channel of channels)await channel.disconnect();await hub.close();await rm(root,{recursive:true,force:true});}};
 }
 
+test("message grants hide internal workers but keep the dispatcher and same-name user Bots", async ({ page }) => {
+  const f = await fixture(page, false, false, false), p = panel(page);
+  try {
+    await f.hub.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('dispatcher','幕僚长','fixture','dispatcher'),('worker','幕僚长 · Claude','fixture','worker')");
+    await f.hub.store.db.run("UPDATE bots SET name='幕僚长 · Claude' WHERE id='gamma'");
+    await f.grant("worker", "alpha");
+    await openGrants(page);
+    const source = p.getByLabel("发起方 Bot", { exact: true });
+    await expect(source).toHaveValue("alpha");
+    await expect(source.locator('option')).toHaveCount(4);
+    await expect(source.locator('option[value="worker"]')).toHaveCount(0);
+    await expect(p.locator('.message-grants-target[data-bot-id="worker"]')).toHaveCount(0);
+    await expect(p.locator('.message-grants-incoming')).not.toContainText("幕僚长 · Claude");
+    await expect(source.locator('option[value="dispatcher"]')).toHaveText("幕僚长");
+    const peer = p.getByRole("checkbox", { name: "允许 研究助手 → 幕僚长 · Claude", exact: true });
+    await peer.check();
+    await p.getByRole("button", { name: "保存授权", exact: true }).click();
+    await expect(p.getByRole("status")).toHaveText("已保存，并从主机核对生效。");
+    expect((await f.hub.botMessages.readGrants("owner", guard)).grants).toContainEqual({ sourceBot: "alpha", targetBot: "gamma" });
+    await source.selectOption("dispatcher");
+    await expect(p.getByRole("checkbox", { name: "允许 幕僚长 → 研究助手", exact: true })).toBeVisible();
+  } finally { await f.close(); }
+});
+
 for (const width of [320, 390, 1360]) test(`Bot settings opens permissions for its offline Bot and protects drafts at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 844 });
   const f = await fixture(page, false, false, false);

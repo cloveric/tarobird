@@ -519,8 +519,11 @@ and the existing network/run/delete suites listed in that audit.
   and `BotMessageGrantsControl.tsx` from Bot settings (preselecting that Bot),
   `client-protocol/bot-message-grants.ts`, and `BotMessages.readGrants/updateGrants`
   reuse existing grants with atomic signed updates and conflict/readback checks.
-  CLI `messages grants` reads the same state. This does not modify Agent Bus or
-  task lifecycle. [Scope and verification](client/bot-message-permissions-2026-10-19.md).
+  CLI `messages grants` reads the same state. Both snapshots exclude internal
+  `worker` Bots and their grant edges by role; dispatchers and ordinary Bots
+  remain selectable. Stored worker grants and task history are retained, and
+  the existing snapshot validation rejects edits to hidden endpoints. This does
+  not modify Agent Bus or task lifecycle. [Scope and verification](client/bot-message-permissions-2026-10-19.md).
   Regressions: `hub-bot-message-grants`, existing Bot-message/auth/CLI tests,
   browser `bot-message-grants`/settings and native device-action signing checks.
 

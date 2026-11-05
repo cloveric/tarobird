@@ -22,6 +22,41 @@ beforeEach(async () => {
 });
 afterEach(async () => { await hub.close(); await rm(root, { recursive: true, force: true }); });
 
+it("hides internal workers and their edges without changing grants or queued work", async () => {
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('d','Dispatcher','fixture','dispatcher'),('w','Dispatcher · Claude','fixture','worker')");
+  // A user Bot with the same name must remain selectable: the role decides.
+  await hub.store.db.run("UPDATE bots SET name='Dispatcher · Claude' WHERE id='c'");
+  const host = messageHostId(hub.auth.publicKey);
+  await hub.botMessages.grant({ sourceHost: host, sourceBot: "a", targetBot: "w" }, guard);
+  await hub.botMessages.grant({ sourceHost: host, sourceBot: "w", targetBot: "b" }, guard);
+  await hub.botMessages.grant({ sourceHost: host, sourceBot: "a", targetBot: "b" }, guard);
+  const conversation = await hub.store.createConversation("owner", ["w"], "Worker task", "worker-task", { dispatchWorker: true });
+  const message = await hub.store.sendMessage("owner", { conversationId: conversation.id, clientMsgId: "work", text: "Continue the task", attachments: [] });
+  const worker = await hub.store.db.get("SELECT * FROM bots WHERE id='w'");
+  const pending = await hub.store.db.all("SELECT * FROM deliveries WHERE message_id=?", [message.message.id]);
+  expect(pending).toHaveLength(1);
+  const storedGrants = await hub.store.db.all("SELECT * FROM meta WHERE key LIKE 'bot-messages:grant:%' ORDER BY key");
+  const snapshot = await read();
+  expect(snapshot.bots.map(bot => bot.id)).toEqual(["a", "b", "c", "d"]);
+  expect(snapshot.grants).toEqual([{ sourceBot: "a", targetBot: "b" }]);
+  await update([{ targetBot: "b", allowed: true }]);
+  expect(await hub.store.db.all("SELECT * FROM meta WHERE key LIKE 'bot-messages:grant:%' ORDER BY key")).toEqual(storedGrants);
+  expect(await hub.store.db.get("SELECT * FROM bots WHERE id='w'")).toEqual(worker);
+  expect(await hub.store.db.all("SELECT * FROM deliveries WHERE message_id=?", [message.message.id])).toEqual(pending);
+  // Background worker creation must not invalidate an unrelated UI draft.
+  const revision = (await read()).revision;
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('w2','Dispatcher · Codex','fixture','worker')");
+  expect((await read()).revision).toBe(revision);
+});
+
+it("rejects hidden worker endpoints in grant edits without partial writes", async () => {
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('w','Worker','fixture','worker')");
+  await expect(update([{ targetBot: "b", allowed: true }, { targetBot: "w", allowed: true }])).rejects.toThrow("bot_deleted");
+  await expect(update([{ targetBot: "b", allowed: true }], "w")).rejects.toThrow("bot_deleted");
+  expect((await read()).grants).toEqual([]);
+  expect(await hub.store.db.all("SELECT * FROM audit_log WHERE kind='bot-message.grants-updated'")).toEqual([]);
+});
+
 it("reads existing CLI grants without writing or granting the reverse direction", async () => {
   const host = messageHostId(hub.auth.publicKey);
   await hub.botMessages.grant({ sourceHost: host, sourceBot: "a", targetBot: "b" }, guard);
@@ -140,6 +175,7 @@ it.each(["a", "b"])("keeps grants to %s across rename/restart and never inherits
 });
 
 it.each(["a", "b"])("requires owner and matching device proof for grants to %s; CLI reads the same records", async targetBot => {
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('w','Worker','fixture','worker')");
   const closeControl=await startHubControl(root,{running:true,pid:process.pid,url:hub.url,instanceUrl:hub.instanceUrl,publicKey:hub.auth.publicKey},()=>{}, {enrollController:value=>hub.enrollLocalController(value)});
   const client=await LocalHostClient.connect(root,{enroll:true});
   try {
@@ -150,7 +186,9 @@ it.each(["a", "b"])("requires owner and matching device proof for grants to %s; 
     expect((await read()).grants).toEqual([]);
     const good=await client.deviceAction({operation:"bot-message-grant",target:hashSecret(networkCanonical(input))});
     await client.request("/api/bot-messages/grants","POST",{command:input,proof:good});
-    expect((await runBotMessagesCommand(root,"grants",{}) as any).grants).toEqual([{sourceBot:"a",targetBot}]);
+    const cli = await runBotMessagesCommand(root,"grants",{}) as any;
+    expect(cli.grants).toEqual([{sourceBot:"a",targetBot}]);
+    expect(cli.bots.map((bot: { id: string }) => bot.id)).toEqual(["a", "b", "c"]);
     const unauthorized=await fetch(hub.url+"/api/bot-messages/grants"); expect(unauthorized.ok).toBe(false);
     const bot=await fetch(hub.instanceUrl+"/api/bot-messages/grants",{method:"POST",headers:{Authorization:`Instance a:${"secret-".repeat(8)}`},body:JSON.stringify({command:input,proof:good})}); expect(bot.ok).toBe(false);
     await hub.store.db.run("INSERT INTO users VALUES('member','Member','member')");

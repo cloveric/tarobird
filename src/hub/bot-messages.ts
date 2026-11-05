@@ -59,7 +59,9 @@ export class BotMessages {
     return { hostId: host.id, sourceBotId: input.sourceBot, botId: bot.id, revoked: input.revoke };
   }
   private async grantsInTransaction(): Promise<BotMessageGrantsSnapshot> {
-    const bots = await this.store.db.all<{ id: string; name: string; online: number }>("SELECT id,name,online FROM bots WHERE deleted_at IS NULL ORDER BY id");
+    // Internal dispatch workers are not user-selectable grant endpoints. Keep
+    // their stored grants and task history intact; filter only this snapshot.
+    const bots = await this.store.db.all<{ id: string; name: string; online: number }>("SELECT id,name,online FROM bots WHERE deleted_at IS NULL AND role!='worker' ORDER BY id");
     const ids = new Set(bots.map(bot => bot.id));
     const rows = await this.store.db.all<{ key: string; value: string }>("SELECT key,value FROM meta WHERE key LIKE 'bot-messages:grant:%' ORDER BY key");
     const local: Grant[] = [];
