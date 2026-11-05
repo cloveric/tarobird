@@ -1,7 +1,7 @@
 # baoyu-design canvas editor
 
 Source: https://github.com/JimLiu/baoyu-design
-Pinned commit: `8ec4b3d2c0d661cd8ba9bf5ec4758efaa97ea61f` (2.9.0).
+Pinned commit: `3ba4ecbcc9c3a468739f5515b30ac4f151563539` (2.9.2).
 Component: `skills/claude-design/scripts/editor` and its artifact format references.
 Mixed licensing: the maintainer's original work is MIT; the reconstructed editor, references and Anthropicons are outside that grant. Retain LICENSE, NOTICE.md and editor/third-party-licenses.txt. See upstream NOTICE.md for the stated scope; availability here does not expand its grant.
 

@@ -56,11 +56,17 @@ when required. The release manifest still binds their packaged bytes/source.
 
 Publish future releases only to `cloveric/tarobird`, with English titles and
 release notes. The clean repository migration publishes no release and imports
-no historical tags or assets. Retain current platform tags and asset names such
-as `macos-tarobot-v1.1.0`, `windows-tarobot-v1.1.0`,
-`android-tarobot-v1.1.0` and CLI `v1.1.0`; these carry the **same** version.
-An owner-authorized Windows manual preview uses `windows-preview-v1.1.0` and
-does not advertise automatic-update acceptance. Existing old tags remain as
+no historical tags or assets. Retain the current platform tag prefixes, such
+as `macos-tarobot-v1.2.0`, `windows-tarobot-v1.2.0`,
+`android-tarobot-v1.2.0` and CLI `v1.2.0`; these carry the **same** version.
+New distribution filenames come from `scripts/release-artifact-names.mjs` and
+use TaroBird. Compatibility update-manifest names retain their current spelling.
+
+The owner has accepted the running Windows version and requested formal releases
+from 1.2.0 onward. Publish Windows with `prerelease: false`, like macOS and Android.
+Do not turn a missing test into a passing receipt: record new-installer, upgrade,
+custom-path, uninstall and automatic-update validation separately. Historical
+manual previews keep their existing tags and prerelease flags. Existing old tags remain as
 historical records in the old archive. Existing installed clients still use that
 archive's update endpoint; the first release from this repository must document
 and verify its one-time upgrade path. See [repository migration](repository-migration.md).

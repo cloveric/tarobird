@@ -109,12 +109,12 @@ TaroBird is a self-hosted workspace for AI agents. It brings command-line agents
 - **Bring another computer's Bots into the team.** Connect the joining computer to an existing host, then confirm joining under **Settings → Network & connections → My network**. Authorized desktop and phone clients can access its Bots. Hosts must be online and mutually reachable for a handoff.
 - **Keep the work traceable.** Dedicated collaboration conversations retain tasks and replies, and the recipient sees the source host and Bot. Files you hand off are copied to the receiving host; joining a network does not merge workspaces or grant access to every Bot.
 
-**Choose who can communicate.** Today, manage same-host access in **Settings → Bot message permissions**; for cross-host access, the receiving host’s owner uses `tarobot messages allow` ([guide](docs/details.md#bot-to-bot-tasks-across-hosts)). In the next release, that screen adds a **Cross-host** tab to select a source host/Bot and receiving Bot, then allow or revoke by direction. Joining the network does not authorize messages. Replies to the original task do not need a reverse grant.
+**Choose who can communicate.** Manage same-host access in **Settings → Bot message permissions**. From 1.2.0, the receiving host’s owner can use its **Cross-host** tab to select a source host/Bot and receiving Bot, then allow or revoke by direction. Joining the network does not authorize messages. Replies to the original task do not need a reverse grant.
 
 <p align="center">
   <a href="assets/product/bot-permissions-en.png"><img src="assets/product/bot-permissions-en.png" width="85%" alt="Actual cross-host message permission settings: Studio Mac's Coordinator is allowed to contact Build PC's Build and test Bot; the receiving owner can revoke the permission."></a>
 </p>
-<p align="center"><sub>App permission UI: current-source preview for the next release · Real settings and signed authorization with disposable hosts and fictional data; no model ran · Existing releases retain <a href="docs/details.md#bot-to-bot-tasks-across-hosts">CLI authorization</a></sub></p>
+<p align="center"><sub>App permission UI in 1.2.0 · Real settings and signed authorization with disposable hosts and fictional data; no model ran · Also available through <a href="docs/details.md#bot-to-bot-tasks-across-hosts">CLI authorization</a></sub></p>
 
 This is a foundation for a coordinating Bot or a network of collaborating peers. Automatic host selection, cross-host scheduling and shared ticket tracking are future possibilities, not built-in capabilities today. **Agent Bus, groups and Chancellor ticket dispatch currently stay within one host**; cross-host work uses direct Bot messages.
 
@@ -238,7 +238,7 @@ Install and sign in to any one engine on the computer that runs your Bots to get
 
 ### 01 · Install the host
 
-1. Install the desktop App. On macOS, drag **TaroBird.app** into Applications; the App is notarized by Apple. On Windows, run the installer. The installer is not yet code-signed, so if SmartScreen appears, choose **More info → Run anyway**.
+1. Install the desktop App. On macOS, drag **TaroBird.app** into Applications; the App is notarized by Apple. On Windows, run the installer. The installer is not yet code-signed, so if SmartScreen appears, choose **More info → Run anyway**. Existing Mac users should use **Settings → General → App updates** to keep their current installation location; do not keep both TaroBot.app and TaroBird.app. For a manual upgrade, follow the [rename transition](docs/client/artifact-branding-2026-11-05.md#upgrading-an-existing-mac).
 2. On first launch, choose **Use this computer as a host** and name the computer.
 3. Create a Bot with an engine installed on this computer.
 

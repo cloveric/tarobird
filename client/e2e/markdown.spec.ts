@@ -24,6 +24,20 @@ test("CJK URL boundaries survive worker updates and question-card clicks on phon
         await expect(link).toHaveAttribute("href", url);
         await expect(page.locator(".markdown")).toHaveText("请再打开 " + url + suffix.replaceAll("`", ""));
       }
+      const adjacent = `${url}.，https://example.test/second)。https://example.test/third…继续——说明～结束`;
+      await page.evaluate(text => (window as unknown as { setMarkdown(text: string): void }).setMarkdown(text), adjacent);
+      await expect(page.locator(".markdown")).toHaveText(adjacent);
+      const adjacentLinks = page.locator(".markdown a");
+      await expect(adjacentLinks).toHaveText([url, "https://example.test/second", "https://example.test/third"]);
+      await expect(adjacentLinks.nth(0)).toHaveAttribute("href", url);
+      await expect(adjacentLinks.nth(1)).toHaveAttribute("href", "https://example.test/second");
+      await expect(adjacentLinks.nth(2)).toHaveAttribute("href", "https://example.test/third");
+      await page.screenshot({ path: info.outputPath(`adjacent-links-${width}.png`), animations: "disabled" });
+      const secondPopupPromise = page.waitForEvent("popup");
+      await adjacentLinks.nth(1).click();
+      const secondPopup = await secondPopupPromise;
+      await expect(secondPopup).toHaveURL("https://example.test/second");
+      await secondPopup.close();
       await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/question-focus.html");
       await page.addStyleTag({ content: "body{margin:0;padding:16px;font:16px/1.7 sans-serif}*{box-sizing:border-box}.native-question{max-width:650px}" });
       const question = page.getByRole("region", { name: "回答问题", exact: true });

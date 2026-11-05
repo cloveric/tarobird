@@ -8,7 +8,7 @@ The English overview is now the main [README](README.md). It is kept current the
 - [Chancellor](README.md#chancellor)
 - [Details](docs/details.md): features, engines and permissions, CLI, queues, architecture, updating, building and project status
 - [An assistant for your assistant](docs/details.md#an-assistant-for-your-assistant): let Dot, Grok or another assistant with host command access use TaroBird through its CLI
-- [Downloads](https://github.com/cloveric/tarobird/releases): future packages; this new repository has no Release yet. Existing installers remain in the [private archive](https://github.com/cloveric/tarobot/releases)
+- [Downloads](https://github.com/cloveric/tarobird/releases): current installers and matching standalone CLI archives
 - [ADHD workspace](README.md#adhd-workspace): desktop multi-conversation board, independent inputs and display settings
 - [Connected Bots](README.md#bot-network): same-host teamwork, cross-host delegation and permission management
 - [Bot isolation and sharing](docs/details.md#bot-isolation-and-sharing): conversation context, shared persona and files, session recovery and access boundaries

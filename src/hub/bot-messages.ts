@@ -10,7 +10,7 @@ import { HubError, type HubStore } from "./store.js";
 import type { HubAttachments } from "./attachments.js";
 import type { PrivateNetwork } from "./private-network.js";
 import { exchangeBotMessage } from "./bot-message-transport.js";
-import { botMessageGrantsCommandSchema, crossHostMessageGrantsCommandSchema, type BotMessageGrantsSnapshot, type CrossHostMessageGrantsSnapshot } from "../client-protocol/bot-message-grants.js";
+import { botMessageGrantsCommandSchema, crossHostMessageGrantsCommandSchema, messageHostIdSchema, type BotMessageGrantsSnapshot, type CrossHostMessageGrantsSnapshot } from "../client-protocol/bot-message-grants.js";
 
 export const messageHostId = (key: string) => `hub_${createHash("sha256").update(Buffer.from(key, "base64")).digest("hex")}`;
 const digest = (b: Buffer) => createHash("sha256").update(b).digest("hex");
@@ -26,6 +26,7 @@ const LOCAL_GRANTS_EPOCH = "bot-messages:local-grants-revision", CROSS_HOST_GRAN
 const storedMembershipHostsSchema = z.object({ membership: z.object({ manifest: z.object({ id: z.string(),
   hosts: z.array(z.object({ publicKey: z.string(), name: z.string(), state: z.string(), revoked: z.boolean() }).passthrough()) }).passthrough() }).passthrough().optional() }).passthrough();
 type CrossHostState = { snapshot: CrossHostMessageGrantsSnapshot; keys: Map<string, string>; live: Set<string>; listed: Set<string> };
+const resolutionCode = (error: TargetResolutionError): unknown => { try { return (JSON.parse(error.message) as { code?: unknown }).code; } catch { return undefined; } };
 
 /** A narrow peer protocol, independent of Agent Bus. All authority is checked
  * by the receiving Hub; the CLI never receives either Hub's signing key. */
@@ -52,18 +53,62 @@ export class BotMessages {
     return { hostId: host.id, hostName: host.name };
   }
   async grant(raw: unknown, guard: Guard, admit?: Guard, actor = "owner") {
-    const input = grantSchema.parse(raw), host = resolveBotTarget(input.sourceHost, await this.hosts(guard), "host");
-    const bot = resolveBotTarget(input.targetBot, await this.store.bots("owner"), "bot");
+    const input = grantSchema.parse(raw);
+    // Allow, and revocation of a current edge, keep the active-peer/live-Bot
+    // rules. Like the App's Cross-host scope, a revocation the current rules
+    // reject may still remove an existing stored edge (a removed or departed
+    // source Host, or a deleted recipient). Beyond the existing resolution
+    // (Hosts listed in current membership, live Bots), only an exact `hub_` Host
+    // ID or deleted Bot ID resolves such an edge. Without a current stored edge
+    // the original rejection stands, so no grant or tombstone is created.
+    let residual: unknown;
+    const resolve = async <T>(current: () => Promise<T>, exact: () => Promise<T | undefined>): Promise<T> => {
+      try { return await current(); }
+      catch (error) {
+        if (!input.revoke || !(error instanceof TargetResolutionError) || resolutionCode(error) !== "target_not_found") throw error;
+        const found = await exact();
+        if (!found) throw error;
+        residual ??= error; return found;
+      }
+    };
+    const host = await resolve<{ id: string; publicKey: string }>(async () => resolveBotTarget(input.sourceHost, await this.hosts(guard), "host"),
+      () => this.store.db.serial(async () => { await guard(); return this.storedSourceHost(input.sourceHost); }));
+    const bot = await resolve<{ id: string }>(async () => resolveBotTarget(input.targetBot, await this.store.bots("owner"), "bot"),
+      () => this.store.db.serial(async () => {
+        await guard();
+        return idSchema.safeParse(input.targetBot).success && await this.store.db.get("SELECT 1 FROM bots WHERE id=? AND deleted_at IS NOT NULL", [input.targetBot]) ? { id: input.targetBot } : undefined;
+      }));
     const key = memoKey("grant", host.publicKey, input.sourceBot, bot.id);
+    const stored = async () => {
+      const grant = await this.memo<Grant>(key);
+      return !!grant && !grant.revoked && grant.sourceKey === host.publicKey && grant.sourceBot === input.sourceBot && grant.targetBot === bot.id;
+    };
+    // Reject before spending the owner's one-use proof; repeated in the write.
+    if (residual && !await this.store.db.serial(stored)) throw residual;
     await this.store.db.transaction(async () => {
-      await guard(); await admit?.(); await this.network.requireMessagePeerInTransaction(host.publicKey);
-      if (!await this.store.db.get("SELECT 1 FROM bots WHERE id=? AND deleted_at IS NULL", [bot.id])) throw new HubError("bot_deleted", 410);
+      await guard(); await admit?.();
+      try { await this.network.requireMessagePeerInTransaction(host.publicKey); }
+      catch (error) { if (!input.revoke || !(error instanceof HubError)) throw error; residual ??= error; }
+      if (!await this.store.db.get("SELECT 1 FROM bots WHERE id=? AND deleted_at IS NULL", [bot.id])) {
+        if (!input.revoke) throw new HubError("bot_deleted", 410);
+        residual ??= new HubError("bot_deleted", 410);
+      }
+      if (residual && !await stored()) throw residual;
       await this.put(key, { sourceKey: host.publicKey, sourceBot: input.sourceBot, targetBot: bot.id, revoked: input.revoke } satisfies Grant);
       // Either tab's revision covers CLI writes, including allow/revoke ABA.
       await this.put(host.publicKey === this.auth.publicKey ? LOCAL_GRANTS_EPOCH : CROSS_HOST_GRANTS_EPOCH, randomUUID());
-      await this.store.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), actor, input.revoke ? "bot-message.grant-revoked" : "bot-message.granted", JSON.stringify({ hostId: host.id, sourceBot: input.sourceBot, targetBot: bot.id })]);
+      await this.store.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), actor, input.revoke ? "bot-message.grant-revoked" : "bot-message.granted", JSON.stringify({ hostId: host.id, sourceBot: input.sourceBot, targetBot: bot.id, ...(residual ? { residual: true } : {}) })]);
     });
     return { hostId: host.id, sourceBotId: input.sourceBot, botId: bot.id, revoked: input.revoke };
+  }
+  /** Caller holds the DB queue. The source key of a stored edge, by exact `hub_` ID only. */
+  private async storedSourceHost(id: string): Promise<{ id: string; publicKey: string } | undefined> {
+    if (!messageHostIdSchema.safeParse(id).success) return undefined;
+    for (const row of await this.store.db.all<{ key: string; value: string }>("SELECT key,value FROM meta WHERE key LIKE 'bot-messages:grant:%' ORDER BY key")) {
+      const grant = JSON.parse(row.value) as Grant;
+      if (row.key === memoKey("grant", grant.sourceKey, grant.sourceBot, grant.targetBot) && messageHostId(grant.sourceKey) === id) return { id, publicKey: grant.sourceKey };
+    }
+    return undefined;
   }
   private async grantsInTransaction(): Promise<BotMessageGrantsSnapshot> {
     // Internal dispatch workers are not user-selectable grant endpoints. Keep

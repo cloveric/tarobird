@@ -80,8 +80,8 @@ export function buildDesignSandbox(format: DesignFormat = "canvas"): string {
   js = js.replaceAll(runtimeUrls, 'return new URL(M,document.baseURI).href');
   }
   const resources: Record<string, { type: string; base64: string }> = {};
-  // Node-only exporter remains pinned and tested locally, never copied into a browser frame.
-  for (const name of Object.keys(manifest.files)) if (name.startsWith("editor/") && !name.startsWith("editor/node/")) {
+  // Keep standalone sharing and the Node exporter pinned, but out of the App frame.
+  for (const name of Object.keys(manifest.files)) if (name.startsWith("editor/") && !name.startsWith("editor/node/") && name !== "editor/share-ui.js") {
     resources[name.slice(7)] = { type: name.endsWith(".js") ? "text/javascript" : name.endsWith(".json") ? "application/json" : name.endsWith(".woff2") ? "font/woff2" : name.endsWith(".html") ? "text/html" : name.endsWith(".css") ? "text/css" : "text/plain", base64: readFileSync(new URL(name, root)).toString("base64") };
   }
   // Script/CSS are already inline, not duplicated in the resource map.

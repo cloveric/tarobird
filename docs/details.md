@@ -124,7 +124,7 @@ Use current App and host releases across participating devices. Joining a comput
 
 **Available since App 1.0.83 / CLI 0.1.431.** Use a current matching release on both hosts and the calling CLI; the feature minimum is not a recommendation to install an older runtime. Database schema support is declared in each package and release note. Follow the [upgrade instructions](host-cli-update.md); do not open an upgraded database with the old runtime.
 
-Same-host permissions are managed in **Settings → Bot message permissions** (phone: **Me → Settings**). Current source also adds a **Cross-host** scope on the receiving host: choose the source host/Bot and local recipient, then allow or revoke. This App UI is awaiting the next release; its [workflow and recovery rules](client/cross-host-message-permissions.md) share the existing grant records. Released versions can continue to authorize through a registered CLI terminal **on the recipient's host**:
+Same-host permissions are managed in **Settings → Bot message permissions** (phone: **Me → Settings**). Version 1.2.0 adds a **Cross-host** scope on the receiving host: choose the source host/Bot and local recipient, then allow or revoke. Its [workflow and recovery rules](client/cross-host-message-permissions.md) share the existing grant records. You can also authorize through a registered CLI terminal **on the recipient's host**:
 
 ```sh
 tarobot messages allow --from "Mac mini/SOURCE_BOT_ID" --bot "Reviewer" --json
@@ -194,10 +194,10 @@ The CLI provides Bot management, device pairing/revocation, private-network memb
 <details>
 <summary><b>Install and start a new headless host</b></summary>
 
-Install Node.js 22.12 or later (official Node 24 recommended), and prepare at least one [AI engine CLI](../README.md#supported-engines) under the same system account. On macOS, service installation also needs Xcode Command Line Tools for runtime verification (`xcode-select -p` checks availability). The new repository has no Release yet; use the existing standalone CLI archive from the [private historical archive](https://github.com/cloveric/tarobot/releases), then run from its directory, replacing `VERSION` with the version in the actual filename:
+Install Node.js 22.12 or later (official Node 24 recommended), and prepare at least one [AI engine CLI](../README.md#supported-engines) under the same system account. On macOS, service installation also needs Xcode Command Line Tools for runtime verification (`xcode-select -p` checks availability). Download the matching standalone CLI archive from [Releases](https://github.com/cloveric/tarobird/releases), then run from its directory, replacing `VERSION` with the version in the actual filename:
 
 ```sh
-npm install -g ./tarobot-VERSION.tgz
+npm install -g ./tarobird-VERSION.tgz
 tarobot --version
 tarobot init --name "Mac mini"
 tarobot doctor
@@ -298,7 +298,7 @@ VPS routes need no VPN on the phone. For each host, a device can keep one direct
 
 ## Updating an existing installation
 
-**App and bundled/standalone CLI use the same product version from 1.1.0.** See [versioning](versioning.md). This new repository has no Release yet; existing packages and their verification records stay in the [private archive](https://github.com/cloveric/tarobot/releases). New repository access and the first installer upgrade must be verified before the next release; see [migration](repository-migration.md). Phone delivery also requires a configured host, system permission and device registration. Updating a phone does not upgrade a remote host. Mac (from 1.0.85), Windows (from 1.0.86) and Android (from 1.0.89) install signed in-app updates after GitHub sign-in; earlier versions need one manual upgrade first. Publishing a package does not restart installed software.
+**App and bundled/standalone CLI use the same product version from 1.1.0.** See [versioning](versioning.md). Current packages are in [Releases](https://github.com/cloveric/tarobird/releases). Clients still using the historical repository need a one-time manual upgrade; see [migration](repository-migration.md). Android through 1.1.1 also needs one manual download of the TaroBird-named APK, installed over the existing App with the same signing key; do not uninstall it. Phone delivery also requires a configured host, system permission and device registration. Updating a phone does not upgrade a remote host. Mac (from 1.0.85), Windows (from 1.0.86) and Android (from 1.0.89) install signed in-app updates after GitHub sign-in; earlier versions need one manual upgrade first. Publishing a package does not restart installed software.
 
 | Installation | Update path |
 | :--- | :--- |
@@ -352,21 +352,10 @@ The standalone host includes the shared client, Hub, Gateway, engine helpers and
 
 ## Project status
 
-**Development preview.** The source product version is **1.1.0**, which was previously released in the [private historical archive](https://github.com/cloveric/tarobot/releases). This new repository has no Release yet, and the migration does not certify a new package or installed-device acceptance. Future release titles and notes will be English. See [migration boundaries](repository-migration.md).
-
-| Surface | Verified for this release | Still outside verification |
-| :--- | :--- | :--- |
-| Host / CLI 0.1.453 | 465 test files, 6,318 tests passed (5 skipped) and 77 native Rust tests; clean install and 0.1.452 → 0.1.453 upgrade preserve identity and data; five real Codex and five real Claude end-to-end checks | The full suite was not rerun after later client fixes, which have focused regressions |
-| macOS 1.0.106 | Developer ID signed; App and DMG notarized and accepted by Gatekeeper; production upgrade on the owner's Mac kept identity and history | Only selected screens inspected; no full native UI regression |
-| Windows 1.0.106 | Installer contents, embedded renderer, 886 shared host files and updater signature verified | No Authenticode signature; no native Windows install acceptance |
-| Android 1.0.106 | Same signing certificate as the prior release; build, 39 unit tests and lint passed | Physical-device upgrade and FCM push |
-| iOS 1.0.106 | Simulator build, signing, upload and internal TestFlight distribution | Physical installation and APNs push |
-| Remote connections | Host address/port display and read-only refresh | Full real-tailnet, cellular, P2P/DERP, multi-host and sustained-reconnect acceptance |
-
-All published assets were re-downloaded and matched against local packages, GitHub digests and SHA256SUMS. GitHub Actions could not start because of the account's billing limit, so local passes are not a green cloud CI run. [1.0.106 audit disposition](client/release-audit-1.0.106-2026-10-23.md) · [Acceptance gates](client/acceptance-gates.md)
+Current downloads, English release notes and platform-specific validation are recorded in [Releases](https://github.com/cloveric/tarobird/releases) and the [release verification records](releases/). Check the record for the exact version: source tests, signed packages, store processing and physical-device acceptance are separate evidence. Historical validation does not certify a newer package. [Acceptance gates](client/acceptance-gates.md)
 
 ## Naming and compatibility
 
-**TaroBot** is the product and repository name. New working attachments and generated files use `.tarobot-files` / `.tarobot-out`; shared configuration uses neutral names such as `bot.env`. Existing paths, session IDs and stored data remain readable. Native bundle IDs, URL schemes, keychain entries and existing state roots retain compatibility names such as `tarocub`; changing their labels is not a data migration. Existing persisted protocol fields keep their compatible identifiers; owner-selected external integrations retain their actual platform names. [Naming contract](neutral-naming.md).
+**TaroBird** is the product; the active repository is `cloveric/tarobird`. New installers use TaroBird names. New working attachments and generated files use `.tarobot-files` / `.tarobot-out`; shared configuration uses neutral names such as `bot.env`. Existing paths, session IDs and stored data remain readable. Native bundle IDs, URL schemes, keychain entries and existing state roots retain compatibility names such as `tarocub`; changing their labels is not a data migration. Existing persisted protocol fields keep their compatible identifiers; owner-selected external integrations retain their actual platform names. [Naming contract](neutral-naming.md).
 
 Credentials, chat databases, private attachments and raw local acceptance data stay out of source control. Release installers are published as release assets; curated demo images and sanitized verification summaries are included in the repository.

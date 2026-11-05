@@ -1,4 +1,4 @@
-//! tauri-plugin-updater 2.13.1 signature rules: a base64 minisign public key
+//! tauri-plugin-updater 2.14.1 signature rules: a base64 minisign public key
 //! and signature, verified with the same `minisign-verify` crate, then the
 //! signed `version:` field (read only after the global signature) must equal
 //! the announced version when `requireSignedVersion` is enabled.

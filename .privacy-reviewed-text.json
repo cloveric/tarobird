@@ -535,9 +535,9 @@
     },
     {
       "path": "client/vendor/baoyu-design/editor/share-ui.js",
-      "sha256": "8aa902510e3d745db1822ec79aa197cc06803b04d8db5526c3e5ebf93398f5c5",
+      "sha256": "7b6b6acd9d66b83c8d37979afa97c744816384a46dc9b192e6131d2f0a84b11f",
       "reviewer": "codex",
-      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
+      "note": "Reviewed the exact upstream 2.9.2 bytes: the unchanged numeric match is SVG path geometry, not a deployment address; other findings remain subject to scanning.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -611,9 +611,9 @@
     },
     {
       "path": "client/vendor/baoyu-slides/editor/share-ui.js",
-      "sha256": "8aa902510e3d745db1822ec79aa197cc06803b04d8db5526c3e5ebf93398f5c5",
+      "sha256": "7b6b6acd9d66b83c8d37979afa97c744816384a46dc9b192e6131d2f0a84b11f",
       "reviewer": "codex",
-      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
+      "note": "Reviewed the exact upstream 2.9.2 bytes: the unchanged numeric match is SVG path geometry, not a deployment address; other findings remain subject to scanning.",
       "findings": [
         {
           "kind": "non-example-public-ip",

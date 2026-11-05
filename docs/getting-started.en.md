@@ -1,11 +1,10 @@
-# Run TaroBot locally
+# Run TaroBird locally
 
 [Home](../README.md) · [Product guide](product-guide.md) · [中文](getting-started.md)
 
 This is a source-build guide. Desktop and mobile are the product interfaces;
 the loopback browser below is a convenient way to check a development Hub before
-opening the native App. There is no production installer release yet.
-This new repository has no Release yet. Existing installers remain in the [private archive](https://github.com/cloveric/tarobot/releases); future versions will use the [new Releases page](https://github.com/cloveric/tarobird/releases). See [migration and upgrade boundaries](repository-migration.md). To run without a desktop window, see the [host CLI guide](host-cli.md).
+opening the native App. For ready-to-install packages, use [Releases](https://github.com/cloveric/tarobird/releases). See [migration and upgrade boundaries](repository-migration.md). To run without a desktop window, see the [host CLI guide](host-cli.md).
 For a phone outside your LAN, use [Agent-assisted or manual remote setup](client/remote-access.en.md).
 
 ## 1. Prepare the host

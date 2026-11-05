@@ -3,7 +3,7 @@ name = "tarobot-desktop-updater"
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-rust-version = "1.89"
+rust-version = "1.90"
 publish = false
 description = "Signed GitHub/public update installer for the Electron desktop shell"
 
@@ -31,22 +31,22 @@ path = "src/bin/installer_helper.rs"
 
 # Versions match client/src-tauri so the shared policy, credential, request
 # and macOS install code behaves identically (keyring store, rustls verifier,
-# minisign verification used by tauri-plugin-updater 2.13.1).
+# the compatible minisign signature format).
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-base64 = "0.22"
-keyring = "4.2"
-uuid = { version = "1", features = ["v4"] }
-zeroize = "1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+base64 = "0.23.1"
+keyring = "4.2.0"
+uuid = { version = "1.29.0", features = ["v4"] }
+zeroize = "1.9.1"
 reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "stream"] }
-rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-platform-verifier = "=0.7.1"
-tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "time", "macros", "process", "io-util", "io-std"] }
-futures-util = "0.3"
-minisign-verify = "=0.2.5"
-flate2 = "1"
-tar = { version = "0.4", default-features = false }
+tokio = { version = "1.54.1", features = ["sync", "rt", "rt-multi-thread", "time", "macros", "process", "io-util", "io-std"] }
+futures-util = "0.3.34"
+minisign-verify = "=0.3.0"
+flate2 = "1.1.10"
+tar = { version = "0.4.46", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Launch guard (shared/macos_launch_guard.rs); same versions as already locked.

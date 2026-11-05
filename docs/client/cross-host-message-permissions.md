@@ -1,6 +1,6 @@
 # Cross-host Bot message permissions
 
-This guide describes current source awaiting the next release, including the
+Available from TaroBird 1.2.0, this guide covers the
 App Cross-host scope and CLI `messages grants --cross-host`. Existing released
 versions can use the receiving owner’s `messages allow` / `messages revoke`.
 
@@ -41,7 +41,10 @@ show an update instruction while Local permissions continue to work.
 The CLI remains available: `tarobird messages grants --cross-host --json`
 reads the same cross-host snapshot. `messages grants` without the flag still
 lists local grants, and existing `messages allow` / `messages revoke` commands
-retain their behavior. See [CLI usage](../host-cli.md).
+retain their behavior. `messages revoke` also removes a residual edge from a
+removed or departed source host, or to a deleted recipient, when given the exact
+`hub_…` host ID and Bot IDs (names resolve only hosts still listed in the current
+membership and undeleted Bots); no record is created when no current grant exists. See [CLI usage](../host-cli.md).
 
 Regression coverage includes owner/device proofs, replay and command tampering,
 revision changes, removed peers, deleted targets, CLI compatibility, both grant

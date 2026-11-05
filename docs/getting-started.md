@@ -2,7 +2,7 @@
 
 [English](getting-started.en.md) · [项目首页](../README.zh-CN.md)
 
-本指南面向开发者。新仓库暂未发布 Release；现有安装包保留在[私有历史档案](https://github.com/cloveric/tarobot/releases)，后续版本发布到[新仓库](https://github.com/cloveric/tarobird/releases)。迁移与升级边界见[迁库说明](repository-migration.md)，真机验收见[开发状态](details.zh-CN.md#开发状态)。
+本指南面向开发者。直接安装请从 [Releases](https://github.com/cloveric/tarobird/releases) 下载对应平台的安装包。迁移与升级边界见[迁库说明](repository-migration.md)，真机验收见[开发状态](details.zh-CN.md#开发状态)。
 无界面运行请看[主机 CLI 指南](host-cli.md)；手机外出连接
 已有主机请看[Agent 配置与手动部署](client/remote-access.md)。
 

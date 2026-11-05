@@ -108,7 +108,13 @@ export async function runBotMessagesCommand(directory: string, command: string, 
     if (process.env.TAROBOT_INSTANCE || process.env.TAROBOT_ACTIVE_INSTANCE) throw new Error("bot_message_grant_requires_owner_controller");
     const owner = await LocalHostClient.connect(directory);
     // --cross-host reads the App's cross-host tab snapshot; the default output is unchanged.
-    try { return await owner.request(options["cross-host"] ? "/api/bot-messages/cross-host-grants" : "/api/bot-messages/grants"); } finally { owner.close(); }
+    try { return await owner.request(options["cross-host"] ? "/api/bot-messages/cross-host-grants" : "/api/bot-messages/grants"); }
+    catch (error) {
+      if (options["cross-host"] && error instanceof HostCliError && error.status === 404 && error.code === "not_found") {
+        throw new Error("请先更新接收主机；当前运行的主机尚不支持查看跨主机消息授权。 / Update the receiving host before listing cross-host message permissions.");
+      }
+      throw error;
+    } finally { owner.close(); }
   }
   const sourceBot = options["source-bot"];
   if (!process.env.TAROBOT_INSTANCE && !process.env.TAROBOT_ACTIVE_INSTANCE && !sourceBot && !["allow", "revoke"].includes(command)) throw new Error("operator_requires_source_bot");

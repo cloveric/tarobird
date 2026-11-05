@@ -29,6 +29,49 @@ test('Windows unread counts use a taskbar overlay and remove it when read; other
   } finally { service.dispose(); }
 });
 
+test('Windows restores the latest unread overlay after returning from the tray without reviving a cleared count', async () => {
+  const window = new EventEmitter(), calls = [], tips = [];
+  let destroyed = false, visible = true, fail = false;
+  const image = { addRepresentation() {} };
+  const atlas = { isEmpty: () => false, getSize: () => ({ width: 640, height: 640 }), crop: () => ({ resize: () => ({ toPNG: () => Buffer.from('fixture') }) }) };
+  Object.assign(window, { isDestroyed: () => destroyed, isVisible: () => visible, isMinimized: () => false, webContents: { send() {} },
+    setOverlayIcon: (...args) => { if (fail) throw new Error('overlay_failed'); calls.push(args); } });
+  const electron = { app: { getLocale: () => 'en-US' }, nativeImage: { createFromPath: () => atlas, createEmpty: () => image } };
+  const service = new DesktopServices(window, electron, { platform: 'win32', badgeChanged: n => tips.push(n) });
+  try {
+    window.emit('show'); window.emit('restore'); assert.deepEqual(calls, []);
+    await service.request('unread_count', { count: 3 }, () => true);
+    visible = false; window.emit('hide');
+    await service.request('unread_count', { count: 5 }, () => true);
+    visible = true; window.emit('show'); window.emit('restore');
+    assert.deepEqual(calls.map(call => call[1]), ['3 unread messages', '5 unread messages', '5 unread messages', '5 unread messages']);
+    assert.deepEqual(tips, [3, 5]);
+    fail = true; await assert.rejects(service.request('unread_count', { count: 7 }, () => true), /overlay_failed/); fail = false;
+    window.emit('show'); assert.equal(calls.at(-1)[1], '5 unread messages');
+    await service.request('unread_count', { count: 0 }, () => true);
+    window.emit('show'); window.emit('restore');
+    assert.deepEqual(calls.slice(-3), [[null, ''], [null, ''], [null, '']]);
+    const before = calls.length;
+    destroyed = true; window.emit('show'); window.emit('restore'); assert.equal(calls.length, before);
+    destroyed = false; service.dispose(); window.emit('show'); window.emit('restore'); assert.equal(calls.length, before);
+    assert.equal(window.listenerCount('show'), 0); assert.equal(window.listenerCount('restore'), 0);
+  } finally { service.dispose(); }
+});
+
+test('show and restore do not introduce taskbar overlay calls on macOS or Linux', async () => {
+  for (const platform of ['darwin', 'linux']) {
+    const window = new EventEmitter(), counts = [];
+    Object.assign(window, { isDestroyed: () => false, isVisible: () => true, isMinimized: () => false, webContents: { send() {} },
+      setOverlayIcon() { assert.fail('taskbar overlays are Windows-only'); } });
+    const service = new DesktopServices(window, { app: { setBadgeCount: n => counts.push(n) } }, { platform });
+    try {
+      await service.request('unread_count', { count: 3 }, () => true);
+      window.emit('show'); window.emit('restore');
+      assert.deepEqual(counts, [3]);
+    } finally { service.dispose(); }
+  }
+});
+
 test('screen management IPC preserves status and permission receipts, and retry cannot request a grant', async () => {
   const window = new EventEmitter(), calls = [];
   Object.assign(window, { isDestroyed: () => false, webContents: { send() {} } });

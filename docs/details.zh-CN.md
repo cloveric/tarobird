@@ -124,7 +124,7 @@ flowchart TB
 
 **自 App 1.0.83 / CLI 0.1.431 起提供。** 两端主机与调用方 CLI 请使用当前匹配的发布版本，功能最低版本并非推荐安装的版本。请遵循[升级流程](host-cli-update.md)，不要让旧程序打开升级后的数据库。
 
-同机权限在 **设置 → Bot 消息授权** 中管理（手机：**我的 → 设置**）。当前源码已新增接收主机上的 **跨主机** 页：选择来源主机/Bot 和本机接收 Bot，再允许或撤销。该 App 界面待下一版发布，[操作与恢复说明](client/cross-host-message-permissions.md)沿用现有授权记录。已发布版本仍可由拥有者在**接收方主机**已登记的 CLI 终端授权：
+同机权限在 **设置 → Bot 消息授权** 中管理（手机：**我的 → 设置**）。从 1.2.0 起，接收主机上新增 **跨主机** 页：选择来源主机/Bot 和本机接收 Bot，再允许或撤销。[操作与恢复说明](client/cross-host-message-permissions.md)沿用现有授权记录。也可由拥有者在**接收方主机**已登记的 CLI 终端授权：
 
 ```sh
 tarobot messages allow --from "Mac mini/SOURCE_BOT_ID" --bot "审阅助手" --json
@@ -194,10 +194,10 @@ CLI 支持 Bot 管理、设备配对与撤销、私有组网、状态/日志/诊
 <details>
 <summary><b>安装并启动一台新的无界面主机</b></summary>
 
-准备 Node.js 22.12 或以上（建议官方 Node 24），并在同一系统账户下配置至少一种 [AI 引擎 CLI](../README.zh-CN.md#支持的引擎)。macOS 安装后台服务还需 Xcode Command Line Tools 检查运行时（用 `xcode-select -p` 检查是否可用）。新仓库暂未发布 Release；现有独立 CLI 压缩包保留在[私有历史档案](https://github.com/cloveric/tarobot/releases)，在下载目录执行以下命令，并将 `VERSION` 替换为文件名中的实际版本：
+准备 Node.js 22.12 或以上（建议官方 Node 24），并在同一系统账户下配置至少一种 [AI 引擎 CLI](../README.zh-CN.md#支持的引擎)。macOS 安装后台服务还需 Xcode Command Line Tools 检查运行时（用 `xcode-select -p` 检查是否可用）。从 [Releases](https://github.com/cloveric/tarobird/releases) 下载对应版本的独立 CLI 压缩包，在下载目录执行以下命令，并将 `VERSION` 替换为文件名中的实际版本：
 
 ```sh
-npm install -g ./tarobot-VERSION.tgz
+npm install -g ./tarobird-VERSION.tgz
 tarobot --version
 tarobot init --name "Mac mini"
 tarobot doctor
@@ -298,7 +298,7 @@ flowchart LR
 
 ## 已有安装如何升级
 
-**从 1.1.0 起，App 与内置/独立 CLI 采用统一产品版本号**，见[版本规则](versioning.md)。新仓库暂未发布 Release，现有安装包与验收记录保留在[私有历史档案](https://github.com/cloveric/tarobot/releases)。下次发版前需核验新库访问权限和首次安装升级路径，见[迁库说明](repository-migration.md)。手机通知还需要主机发送配置、系统权限和设备注册。更新手机不会替远程主机升级。Mac（1.0.85 起）、Windows（1.0.86 起）与 Android（1.0.89 起）均支持登录 GitHub 后在 App 内安装签名更新；更早版本需先手动升级一次。发布安装包本身不会重启已安装的程序。
+**从 1.1.0 起，App 与内置/独立 CLI 采用统一产品版本号**，见[版本规则](versioning.md)。当前安装包在 [Releases](https://github.com/cloveric/tarobird/releases)。仍指向历史仓库的旧客户端需手动升级一次，见[迁库说明](repository-migration.md)。Android 1.1.1 及以前版本还需手动下载一次 TaroBird 命名的 APK，使用原签名覆盖安装，无需卸载旧 App。手机通知还需要主机发送配置、系统权限和设备注册。更新手机不会替远程主机升级。Mac（1.0.85 起）、Windows（1.0.86 起）与 Android（1.0.89 起）均支持登录 GitHub 后在 App 内安装签名更新；更早版本需先手动升级一次。发布安装包本身不会重启已安装的程序。
 
 | 现有安装 | 升级方式 |
 | :--- | :--- |
@@ -352,21 +352,10 @@ node dist/src/index.js hub devices approve '<屏幕上的配对码>' --state-dir
 
 ## 开发状态
 
-**当前为开发预览版。** 源码产品版本为 **1.1.0**，此版本此前已在[私有历史档案](https://github.com/cloveric/tarobot/releases)发布。新仓库暂未发布 Release；迁库不代表新安装包或真机验收通过。后续 Release 标题与说明统一使用英文，见[迁库边界](repository-migration.md)。
-
-| 范围 | 本次验证 | 尚未覆盖 |
-| :--- | :--- | :--- |
-| 主机 / CLI 0.1.453 | 465 个测试文件、6,318 项测试通过（5 项跳过），77 项原生 Rust 测试；全新安装及 0.1.452 → 0.1.453 升级保留身份与数据；真实 Codex、Claude 各 5 项端到端检查 | 后续客户端修复后未重跑全量测试，以定向回归为准 |
-| macOS 1.0.106 | Developer ID 签名，App 与 DMG 已公证并通过 Gatekeeper；本机生产环境升级后身份与历史完整保留 | 仅核对了部分界面，未做全量原生 UI 回归 |
-| Windows 1.0.106 | 安装包内容、内嵌界面、886 个共享主机文件与更新签名校验 | 未做 Authenticode 签名；未在 Windows 真机安装验收 |
-| Android 1.0.106 | 签名证书与上一版一致；构建、39 项单元测试与 lint 通过 | 真机升级与 FCM 推送 |
-| iOS 1.0.106 | 模拟器构建、签名、上传与 TestFlight 内部测试分发 | 真机安装与 APNs 推送 |
-| 远程连接 | 主机地址与端口的显示与只读刷新 | 真实 tailnet、蜂窝网络、P2P/DERP、多主机与持续重连的完整验收 |
-
-所有发布资产均已重新下载，并与本地包、GitHub 摘要及 SHA256SUMS 核对一致。GitHub Actions 因账户付费额度限制未能启动，本地检查通过不等同于云端 CI 通过。[1.0.106 审计处置](client/release-audit-1.0.106-2026-10-23.md) · [验收门槛](client/acceptance-gates.md)
+当前下载、英文发版说明和各平台验证范围见 [Releases](https://github.com/cloveric/tarobird/releases) 与[发版验证记录](releases/)。请查看对应版本的记录：源码测试、签名安装包、商店处理和真机验收分别记录，历史验证不代表新安装包通过。[验收门槛](client/acceptance-gates.md)
 
 ## 名称与兼容
 
-**TaroBot** 是产品和仓库名称。新的附件工作副本、生成输出使用 `.tarobot-files` / `.tarobot-out`，共享配置使用 `bot.env` 等中性名称；旧路径、会话标识和存量数据继续兼容。原生应用 ID、URL scheme、钥匙串和已有状态目录保留 `tarocub` 等兼容标识，改显示名称不等于迁移数据。现有存储协议字段保留兼容标识；用户自行选择的外部集成仍使用其真实平台名称。[命名与兼容约定](neutral-naming.md)。
+产品名称为 **TaroBird**，当前仓库为 `cloveric/tarobird`，新安装包使用 TaroBird 名称。新的附件工作副本、生成输出使用 `.tarobot-files` / `.tarobot-out`，共享配置使用 `bot.env` 等中性名称；旧路径、会话标识和存量数据继续兼容。原生应用 ID、URL scheme、钥匙串和已有状态目录保留 `tarocub` 等兼容标识，改显示名称不等于迁移数据。现有存储协议字段保留兼容标识；用户自行选择的外部集成仍使用其真实平台名称。[命名与兼容约定](neutral-naming.md)。
 
 凭据、聊天数据库、私有附件和原始本地验收数据不进入源码仓库。安装包通过 Release 资产分发；仓库包含选定的演示图片和脱敏验证摘要。

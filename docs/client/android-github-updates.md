@@ -24,7 +24,9 @@ removes this updater's local credential and downloaded package, not host pairing
 - The native client scans the three latest 100-release pages, selects the
   highest numeric `android-tarobot-vX.Y.Z` above the installed version, and ignores
   draft, prerelease, legacy-ID, Mac and Windows releases.
-- Exactly one uploaded `TaroBot-X.Y.Z-android.apk` must have a numeric asset ID,
+- Prefer exactly one uploaded `TaroBird_X.Y.Z_android.apk`; accept the historical
+  `TaroBot-X.Y.Z-android.apk` only when the canonical asset is absent. A malformed
+  canonical asset must not fall back to an older name. The selected asset must have a numeric asset ID,
   bounded size (256 MiB maximum), an exact repository asset URL and GitHub's
   SHA-256 digest. Invalid newest metadata fails rather than silently selecting
   another release. Publication must verify that GitHub supplies the digest.

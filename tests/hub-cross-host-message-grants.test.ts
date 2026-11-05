@@ -242,6 +242,78 @@ it.each([
   expect(peers(revoked)).toEqual([]);
 });
 
+// The owner CLI must be able to clean up the same residual edges as the App.
+const cliRevoke = (from: string, bot = "target") => runBotMessagesCommand(bDir, "revoke", { from, bot });
+const cliAllow = (from: string, bot = "target") => runBotMessagesCommand(bDir, "allow", { from, bot });
+// Grant changes only; rejected attempts keep their separate `bot-message.rejected` audit.
+const grantAudits = () => b.store.db.all<{ kind: string; detail_json: string }>("SELECT kind,detail_json FROM audit_log WHERE kind IN ('bot-message.granted','bot-message.grant-revoked','bot-message.grants-updated','bot-message.cross-host-grants-updated') ORDER BY id");
+const changedRows = async (before: unknown[]) => (await grantRows()).filter((row, index) => JSON.stringify(row) !== JSON.stringify(before[index]));
+it.each([
+  ["removed source", (_s: any, m: any) => { entry(m, a.auth.publicKey).revoked = true; }, false],
+  ["host tombstone", (s: any, m: any) => { s.revokedHosts.push(`${m.id}:${a.auth.publicKey}`); }, true],
+  ["pending source", (_s: any, m: any) => { pendingHost(entry(m, a.auth.publicKey)); }, false],
+  ["retired network", (s: any, m: any) => { s.retiredNetworks.push(m.id); }, true],
+  ["this host removed", (_s: any, m: any) => { entry(m, b.auth.publicKey).revoked = true; }, true],
+  ["network left", (s: any) => { delete s.membership; }, false],
+] as const)("%s: the owner CLI revokes the residual edge by exact ID; allow, unknown edges and unlisted names write nothing", async (_name, change, listedByName) => {
+  await b.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('w','Worker','fixture','worker')");
+  await update([{ targetBot: "target", allowed: true }]);
+  await b.botMessages.grant({ sourceHost: macId, sourceBot: "source", targetBot: "w" }, guard);
+  await withOwnerClient(async () => {
+    await setNetwork(change);
+    const before = await read(), rows = await grantRows(), audit = await grantAudits();
+    expect(before.grants).toEqual([{ sourceHost: macId, sourceBot: "source", targetBot: "target" }]);
+    await expect(cliAllow(`${macId}/source`)).rejects.toThrow();
+    await expect(cliAllow(`${macId}/other`)).rejects.toThrow();
+    await expect(cliRevoke(`${macId}/other`)).rejects.toThrow();
+    await expect(cliRevoke(`hub_${"0".repeat(64)}/source`)).rejects.toThrow("target_not_found");
+    // A removed Host is never found by its old display name.
+    if (!listedByName) await expect(cliRevoke("Mac/source")).rejects.toThrow("target_not_found");
+    expect(await grantRows()).toEqual(rows); expect(await grantAudits()).toEqual(audit);
+    expect(await cliRevoke(`${macId}/source`)).toEqual({ hostId: macId, sourceBotId: "source", botId: "target", revoked: true });
+    const after = await read();
+    expect(after.grants).toEqual([]);
+    expect(after.revision).not.toBe(before.revision);
+    // Only the selected edge changes; the hidden worker record is untouched.
+    const changed = await changedRows(rows);
+    expect(changed).toHaveLength(1);
+    expect(JSON.parse((changed[0] as { value: string }).value)).toEqual({ sourceKey: a.auth.publicKey, sourceBot: "source", targetBot: "target", revoked: true });
+    expect((await grantAudits()).slice(audit.length).map(entry => [entry.kind, JSON.parse(entry.detail_json)])).toEqual([
+      ["bot-message.grant-revoked", { hostId: macId, sourceBot: "source", targetBot: "target", residual: true }]]);
+    // Nothing remains to revoke; the edge is not recreated or re-enabled.
+    const settled = await grantRows();
+    await expect(cliRevoke(`${macId}/source`)).rejects.toThrow();
+    expect(await grantRows()).toEqual(settled);
+  });
+});
+
+it("the owner CLI revokes a deleted recipient's residual edge by exact Bot ID only; live-target CLI semantics are unchanged", async () => {
+  await b.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('w','Worker','fixture','worker')");
+  await withOwnerClient(async () => {
+    await cliAllow(`${macId}/source`, "target"); await cliAllow(`${macId}/source`, "w"); await cliAllow(`${winId}/source`, "other");
+    await b.store.db.run("UPDATE bots SET deleted_at=? WHERE id IN ('target','other')", [Date.now()]);
+    const before = await read(), rows = await grantRows(), audit = await grantAudits();
+    expect(before.bots).toContainEqual({ id: "target", name: "Target", online: false, deleted: true });
+    await expect(cliAllow(`${macId}/source`, "target")).rejects.toThrow();
+    // No name fallback for deleted Bots, and no edge to revoke for "other".
+    await expect(cliRevoke(`${macId}/source`, "Target")).rejects.toThrow("target_not_found");
+    await expect(cliRevoke(`${macId}/source`, "other")).rejects.toThrow("target_not_found");
+    await expect(cliRevoke(`${macId}/source`, "missing")).rejects.toThrow("target_not_found");
+    expect(await grantRows()).toEqual(rows); expect(await grantAudits()).toEqual(audit);
+    expect(await cliRevoke(`${macId}/source`, "target")).toEqual({ hostId: macId, sourceBotId: "source", botId: "target", revoked: true });
+    const after = await read();
+    expect(after.grants).toEqual([]); expect(after.bots.map(bot => bot.id)).not.toContain("target");
+    expect(await changedRows(rows)).toHaveLength(1);
+    // A live worker target keeps the original CLI behavior.
+    expect(await cliRevoke(`${macId}/source`, "w")).toEqual({ hostId: macId, sourceBotId: "source", botId: "w", revoked: true });
+    // A local edge to a deleted Bot is also revocable; it advances the local revision only.
+    const local = (await b.botMessages.readGrants("owner", guard)).revision, cross = (await read()).revision;
+    expect(await cliRevoke(`${winId}/source`, "other")).toEqual({ hostId: winId, sourceBotId: "source", botId: "other", revoked: true });
+    expect((await b.botMessages.readGrants("owner", guard)).revision).not.toBe(local);
+    expect((await read()).revision).toBe(cross);
+  });
+});
+
 it("revokes only existing visible edges, keeps hidden worker records, exposes deleted targets for revocation only and rolls back failed batches", async () => {
   await b.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('w','Worker','fixture','worker')");
   await b.botMessages.grant({ sourceHost: "Mac", sourceBot: "source", targetBot: "w" }, guard);

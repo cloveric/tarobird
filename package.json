@@ -1,6 +1,6 @@
 {
   "name": "tarobot",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "TaroBird: desktop and mobile AI workspace with a self-hosted Hub, multi-engine Bots and optional VPS relay.",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -85,7 +85,7 @@
   },
   "devDependencies": {
     "@types/cross-spawn": "6.0.6",
-    "@types/node": "^24.6.0",
+    "@types/node": "24.19.2",
     "@types/qrcode-terminal": "^0.12.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
@@ -97,7 +97,7 @@
     "react-dom": "19.3.1",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
-    "vite": "8.3.5",
+    "vite": "8.3.6",
     "vite-plugin-singlefile": "^2.3.4",
     "vitest": "5.1.0",
     "typescript-api": "npm:typescript@6.0.3"

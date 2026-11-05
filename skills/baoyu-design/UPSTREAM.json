@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/JimLiu/baoyu-design",
-  "commit": "8ec4b3d2c0d661cd8ba9bf5ec4758efaa97ea61f",
-  "version": "2.9.0",
+  "commit": "3ba4ecbcc9c3a468739f5515b30ac4f151563539",
+  "version": "2.9.2",
   "component": "claude-design",
   "adapted": true,
   "upstreamFiles": {
@@ -19,7 +19,7 @@
     "artifact-type/reference/print.md": "f2b00538b800f8c3d1456baa916c72db1f2ab82c0ea886b0a3ef8c7a7d3e7c07",
     "artifact-type/reference/questions.md": "34139a6b25e7b6048b8c98afbb7892116c9c3dc7369f22b5cf9c88d06cab108e",
     "artifact-type/reference/view-state.md": "2b40c2de9bda3130f15d5c4fb5ec8529224d2eea8bf7df6426205dd52bbcb87c",
-    "scripts/artifact.mjs": "83e3c4cdda4b0f4a744087c74feb8f0ad008ad6c80be05d93eb40d9cef90cdaf",
-    "scripts/server.mjs": "148321b779c6c03bc80a8f704ee44f754442165d9d546a875cc13d303af6cea5"
+    "scripts/artifact.mjs": "a18d8299ffe7f169713cedbface89d0a14d848e1d48eb1c2b04bce6beb8b07d6",
+    "scripts/server.mjs": "c0cbd578e645c12d2dc170b80003a5a9313e8e40353fc254982ceab2af3447bd"
   }
 }

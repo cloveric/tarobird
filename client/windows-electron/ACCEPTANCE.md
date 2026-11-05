@@ -27,10 +27,10 @@ Never point it at someone's working PC.
 ```bat
 set TAROBOT_WINDOWS_ACCEPTANCE=disposable
 node client\scripts\windows-acceptance.mjs --confirm-disposable-windows ^
-  --installer  out\TaroBot_1.2.3_x64-setup.exe ^
+  --installer  out\TaroBird_1.2.3_x64-setup.exe ^
   --report     C:\acceptance.noindex\run-1 ^
   --legacy-installer  old\TaroBot_1.0.98_x64-setup.exe ^
-  --next-installer    out-next\TaroBot_1.2.4_x64-setup.exe ^
+  --next-installer    out-next\TaroBird_1.2.4_x64-setup.exe ^
   --native-tests      client\src-desktop-updater
 ```
 

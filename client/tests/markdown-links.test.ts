@@ -51,3 +51,36 @@ it("keeps code literal and existing English links and email addresses intact", a
     { href: "mailto:support@example.test", text: "support@example.test" },
   ]);
 });
+
+it.each([
+  ["https://example.test/path.，继续", "https://example.test/path"],
+  ["https://example.test/path)，继续", "https://example.test/path"],
+  ["https://example.test/a_(b))，继续", "https://example.test/a_(b)"],
+  ["https://example.test/path…继续", "https://example.test/path"],
+  ["https://example.test/path——继续", "https://example.test/path"],
+  ["https://example.test/path～继续", "https://example.test/path"],
+])("reapplies GFM endpoint punctuation after splitting %s", async (source, url) => {
+  expect(await render(source)).toEqual({ links: [{ href: url, text: url }], text: source });
+});
+
+it("keeps each adjacent bare web link clickable without interpreting the detached prose", async () => {
+  const source = "https://one.example.test/a，https://two.example.test/b)。www.three.example.test/c，javascript:alert(1)";
+  expect(await render(source)).toEqual({ links: [
+    { href: "https://one.example.test/a", text: "https://one.example.test/a" },
+    { href: "https://two.example.test/b", text: "https://two.example.test/b" },
+    { href: "http://www.three.example.test/c", text: "www.three.example.test/c" },
+  ], text: source });
+});
+
+it("keeps disambiguated punctuation, literal markup and ordinary Unicode URL parts intact", async () => {
+  const source = "https://example.test/文档—详情~more?q=x&n=2#part，继续";
+  expect((await render(source)).links).toEqual([{ href: "https://example.test/%E6%96%87%E6%A1%A3%E2%80%94%E8%AF%A6%E6%83%85~more?q=x&n=2#part", text: "https://example.test/文档—详情~more?q=x&n=2#part" }]);
+  for (const mark of ["…", "——", "～"]) {
+    const url = "https://example.test/a" + mark + "b";
+    expect((await render(`[${url}](${url})`)).links).toEqual([{ href: encodeURI(url), text: url }]);
+    expect((await render(`<${url}>`)).links).toEqual([{ href: encodeURI(url), text: url }]);
+    expect((await render(encodeURI(url) + "，继续")).links).toEqual([{ href: encodeURI(url), text: encodeURI(url) }]);
+  }
+  const literal = "https://example.test/a，**literal**";
+  expect((await render(literal)).text).toBe(literal);
+});

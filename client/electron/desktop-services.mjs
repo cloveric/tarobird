@@ -65,6 +65,12 @@ export class DesktopServices {
     this.watch('blur', () => this.screenViewers?.releaseAll());
     for (const name of ['hide', 'minimize']) this.watch(name, () => this.screenViewers?.windowVisibility(false));
     for (const name of ['show', 'restore']) this.watch(name, () => this.screenViewers?.windowVisibility(this.window.isVisible() && !this.window.isMinimized()));
+    // Electron does not retain the Windows overlay when a taskbar button is
+    // recreated. The renderer deduplicates unchanged counts, so replay the
+    // last successful value when the window returns from the tray/minimization.
+    for (const name of ['show', 'restore']) this.watch(name, () => {
+      if (this.platform === 'win32' && this.unreadOverlay && !this.window.isDestroyed()) this.window.setOverlayIcon(...this.unreadOverlay);
+    });
     this.watch('focus', () => this.emit('focus', null));
   }
   watch(name, fn) { this.window.on(name, fn); this.cleanups.push(() => this.window.removeListener(name, fn)); }
@@ -159,7 +165,9 @@ export class DesktopServices {
         if (this.platform === 'win32') {
           this.unreadBadge ??= windowsUnreadBadge(this.electron.nativeImage);
           const description = args.count ? (app.getLocale().startsWith('en') ? `${args.count} unread messages` : `${args.count} 条未读消息`) : '';
-          w.setOverlayIcon(this.unreadBadge(args.count), description);
+          const overlay = [this.unreadBadge(args.count), description];
+          w.setOverlayIcon(...overlay);
+          this.unreadOverlay = overlay;
         } else app.setBadgeCount(args.count);
         this.badgeChanged(args.count); return null;
       case 'desktop_notification_settings':

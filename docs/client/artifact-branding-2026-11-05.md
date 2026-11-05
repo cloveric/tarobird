@@ -44,6 +44,20 @@ and signing key so the package can update the existing App. Test that install on
 a physical device and explain it in English release notes; do not silently add
 an old-brand asset or claim older clients support the new discovery policy.
 
+## Upgrading an existing Mac
+
+Use **Settings → General → App updates** for an existing installation. The
+updater replaces the contents at the current App location, even when its bundle
+is still named `TaroBot.app`. Existing login items continue to point there.
+
+For a manual DMG upgrade, first let active tasks finish and quit the existing
+App. Keep its current location and filename: copy the new bundle into a temporary
+folder, give the copy the same filename as the existing bundle, then replace
+that bundle in Applications. Do not launch both copies or keep a second App with
+the same identity beside it. Renaming the outer bundle does not rename user data,
+Bot workspaces or credentials. Relaunch the retained App location and verify its
+version and Host connection. New installations use `TaroBird.app` directly.
+
 ## Verification boundary
 
 Focused tests cover the renamed archive root, preserved bytes/permissions,

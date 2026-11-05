@@ -25,7 +25,14 @@ export async function verifyElectronShell({ resources, frontend, version, commit
   if (JSON.stringify(shippedFiles) !== JSON.stringify(files.sort())) throw new Error('Electron frontend inventory differs');
   for (const file of files) if (!extractFile(archive, `dist/${file}`).equals(await readFile(path.join(frontend, file)))) throw new Error(`Electron frontend bytes differ: ${file}`);
   for (const entry of ['main.mjs', 'preload.cjs']) if (!extractFile(archive, entry).length) throw new Error('Electron bootstrap missing');
-  return { version, sourceCommit: metadata.sourceCommit, mode: metadata.mode, files: files.length, archiveSha256: createHash('sha256').update(await readFile(archive)).digest('hex') };
+  let badge;
+  try { badge = extractFile(archive, 'windows-unread-badges.png'); }
+  catch { throw new Error('Electron Windows unread badge missing'); }
+  const expectedBadge = await readFile(new URL('../electron/windows-unread-badges.png', import.meta.url));
+  if (!badge.equals(expectedBadge)) throw new Error('Electron Windows unread badge bytes differ');
+  return { version, sourceCommit: metadata.sourceCommit, mode: metadata.mode, files: files.length,
+    windowsUnreadBadgeSha256: createHash('sha256').update(badge).digest('hex'),
+    archiveSha256: createHash('sha256').update(await readFile(archive)).digest('hex') };
 }
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   const { values } = parseArgs({ options: { resources: { type: 'string' }, frontend: { type: 'string' }, version: { type: 'string' }, commit: { type: 'string' } } });
