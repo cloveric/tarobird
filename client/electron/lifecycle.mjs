@@ -79,7 +79,12 @@ export function installDesktopLifecycle(electron, { createWindow, addon, icon, p
     quitting = true;
   });
   app.on('window-all-closed', () => {});
-  app.on('will-quit', () => { if (restarting) app.relaunch(); globalShortcut.unregisterAll(); tray?.destroy(); });
+  app.on('will-quit', () => {
+    if (restarting) app.relaunch();
+    // A rejected second instance can quit before ready, when shortcut APIs throw.
+    if (app.isReady()) globalShortcut.unregisterAll();
+    tray?.destroy();
+  });
   handleArgs(process.argv);
   const start = async () => {
     if (icon) {

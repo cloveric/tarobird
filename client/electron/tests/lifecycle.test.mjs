@@ -9,11 +9,49 @@ function fixture(options = {}) {
   Object.assign(window, { webContents: Object.assign(new EventEmitter(), { send: (...value) => events.push(['send', ...value]) }),
     isDestroyed: () => false, isMinimized: () => false, show: () => events.push(['show']), focus: () => events.push(['focus']), hide: () => events.push(['hide']) });
   let created = 0, initialized = false;
-  const lifecycle = installDesktopLifecycle({ app, Menu: { buildFromTemplate: value => value, setApplicationMenu: value => events.push(['menu', value]) }, globalShortcut: { unregisterAll() {} }, dialog: { showMessageBoxSync: () => 0, showMessageBox: async () => events.push(['update-blocked']) } },
+  const lifecycle = installDesktopLifecycle({ app, Menu: { buildFromTemplate: value => value, setApplicationMenu: value => events.push(['menu', value]) }, globalShortcut: { unregisterAll() {
+    if (!app.isReady()) throw new Error('globalShortcut cannot be used before the app is ready');
+    events.push(['shortcuts-cleared']);
+  } }, dialog: { showMessageBoxSync: () => 0, showMessageBox: async () => events.push(['update-blocked']) } },
     { ...options, addon: { initializeNotifications: () => { initialized = true; }, notificationActivationArgs: () => assert.equal(initialized, true) },
       createWindow: async options => { created++; window.options = options; return window; } });
   return { app, window, events, lifecycle, created: () => created, initialized: () => initialized };
 }
+test('early quit before ready does not call Electron shortcut APIs or open a window', () => {
+  const f = fixture(); f.app.isReady = () => false;
+  assert.doesNotThrow(() => f.app.emit('will-quit'));
+  assert.equal(f.events.some(event => event[0] === 'shortcuts-cleared'), false);
+  assert.equal(f.created(), 0);
+});
+
+test('a rejected second instance can finish async quit preparation before ready', async () => {
+  let preparations = 0, failure;
+  const f = fixture({ prepareQuit: async () => { preparations++; return true; } });
+  f.app.isReady = () => false;
+  f.app.quit = () => {
+    let prevented = false;
+    f.app.emit('before-quit', { preventDefault() { prevented = true; } });
+    if (!prevented) {
+      try { f.app.emit('will-quit'); } catch (error) { failure = error; }
+    }
+  };
+  // main.mjs calls app.quit() when requestSingleInstanceLock() returns false.
+  f.app.quit();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(failure, undefined);
+  assert.equal(preparations, 1);
+  assert.equal(f.lifecycle.quitting, true);
+  assert.equal(f.created(), 0);
+  assert.equal(f.events.some(event => event[0] === 'shortcuts-cleared'), false);
+});
+
+test('ready exit still clears global shortcuts after normal startup', async () => {
+  const f = fixture(); await f.lifecycle.start();
+  f.app.emit('before-quit'); f.app.emit('will-quit');
+  assert.equal(f.events.filter(event => event[0] === 'shortcuts-cleared').length, 1);
+  assert.equal(f.lifecycle.quitting, true);
+});
+
 for (const locale of ['zh-CN', 'en-US']) test(`Windows menus keep native editing and window actions with consistent ${locale} labels`, async () => {
   const f = fixture({ platform: 'win32' }); f.app.getLocale = () => locale;
   await f.lifecycle.start();
