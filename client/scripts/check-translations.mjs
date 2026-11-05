@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 // The root build pins the JS compiler API; the client's TypeScript 7 compiler
 // intentionally exposes only its native CLI.
-const ts = createRequire(new URL("../../package.json", import.meta.url))("typescript");
+const ts = createRequire(new URL("../../package.json", import.meta.url))("typescript-api");
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const dictionary = JSON.parse(fs.readFileSync(path.join(root, "locales/en.json"), "utf8"));
 const problems = [];

@@ -1,6 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import ts from "typescript";
+import ts from "typescript-api";
 import { it, expect } from "vitest";
 
 it("keeps every whole-card constructor in the translation coverage ledger", async () => {

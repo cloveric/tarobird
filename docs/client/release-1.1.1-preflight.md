@@ -1,0 +1,15 @@
+# TaroBird 1.1.1 dependency and release preflight
+
+Checked on 2026-11-05 using official npm and project release feeds. All 68 direct runtime dependency entries were current. Electron advances from 45.2.2 to 45.2.3; the bundled Node.js 24 line advances from 24.14.0 to 24.22.2, with separate official archive checksums for macOS ARM64 and Windows x64. The Node runtime major stays at 24; its type definitions retain that major.
+
+Build tools now use current stable React, Vite, TypeScript, Vitest, esbuild and Playwright packages. TypeScript 7 exposes a native compiler instead of the previous stable JavaScript compiler API. The source/import and translation checkers explicitly use the independently pinned `typescript-api` alias for TypeScript 6.0.3, while compilation uses TypeScript 7.0.2. This follows the [upstream side-by-side guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/). The upgrade also exposed an asynchronous test assertion that was not awaited; its result is now awaited before the fixture advances.
+
+Excalidraw 0.18.1, Vditor 4.0.1 and the canvas/PPT integration 2.9.0 remain current. The official canvas/PPT archive matches 90 pinned editor, notice, skill, reference and helper files; two integration-specific README files match their local manifest hashes. Sarasa and JetBrains Mono pins are unchanged. Explicit optional-skill selection remains separate from ordinary PPT requests.
+
+The iOS title correction uses the existing title container: at extremely narrow widths it leaves the title and live status visible and moves avatar access to conversation details/the list. Other platforms retain their existing title presentation. The existing fold/rotate/split test reproduced the 52-pixel title and passes after rebuilding the corrected client.
+
+## Validation boundary
+
+Release preparation is in progress. Fresh lockfile installations and Host/client builds passed after the compiler API adaptation. Electron contracts, iOS release plans and focused iOS window regressions passed. The full source retake passed 639 files / 8,243 assertions, with six existing conditional skips; 20 independent Node checks passed. Chromium passed 85 of 86 journeys on its initial run; the remaining keyboard-navigation journey passed a focused retake. The WebKit revision 2359 control passed all 50 selected journeys. Native package, signature, updater migration and publication evidence must be recorded separately; this document does not claim a published or installed release.
+
+The Playwright 1.64.1 WebKit revision 2370 stalls when a standalone page stores a non-extractable Ed25519 CryptoKey in IndexedDB. The same isolated probe succeeds with cached revision 2359. This reproduction contains no TaroBird code. The latest Playwright runner/Chromium are retained; the prior WebKit engine is used as an explicitly identified compatibility control, not reported as a passing revision 2370 run. Native iOS uses its native identity signer and needs its separate native build/device evidence. No key-exportability or storage-security policy was weakened.

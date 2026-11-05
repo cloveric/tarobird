@@ -1,4 +1,4 @@
-import ts from 'typescript';
+import ts from 'typescript-api';
 import path from 'node:path';
 import { readdir, readFile, lstat } from 'node:fs/promises';
 

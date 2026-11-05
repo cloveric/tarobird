@@ -10,6 +10,8 @@ display-name compatibility, upload privacy gates and unified product versioning.
 See [privacy](repository-privacy.md) and [version policy](versioning.md) before
 pushing main/PR branches or preparing a release.
 
+[1.1.1 preflight](client/release-1.1.1-preflight.md) records the current runtime/toolchain updates, compiler API compatibility, narrow iOS title repair and separate release acceptance boundaries.
+
 [1.1.0 dependency inventory](client/release-1.1.0-dependency-inventory.md) records
 the requested foundation upgrades, ACP and notification adaptations, Node
 minimum for compatible CLI staging, native pins and validation boundaries.

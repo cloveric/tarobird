@@ -427,7 +427,7 @@ describe("Claude native steering", () => {
       await expect(adapter.steerActiveTurn(SESSION, { text: "x", throwOnError: true })).rejects.toMatchObject({ reason: "stale" });
       const { turn, child, uuid } = await startTurn(adapter, children, { text: "work", start: false });
       await expect(adapter.steerActiveTurn(SESSION, { text: "x", throwOnError: true })).rejects.toEqual(new EngineSteeringRejectedError("queued"));
-      expect(adapter.steerActiveTurn(SESSION, { text: "x" })).resolves.toBe(false);
+      await expect(adapter.steerActiveTurn(SESSION, { text: "x" })).resolves.toBe(false);
       lifecycle(child, uuid, "started");
       emit(child, { type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] });
       await expect(adapter.steerActiveTurn(SESSION, { text: "x", throwOnError: true })).rejects.toMatchObject({ reason: "unsupported" });

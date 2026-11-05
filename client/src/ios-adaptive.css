@@ -14,6 +14,11 @@
     clip-path: inset(50%); white-space: nowrap;
   }
 }
+@container ios-chat-title (max-width: 180px) {
+  /* In a narrow split, keep space for the name and live status. The avatar
+     remains available in conversation details and the conversation list. */
+  :root[data-platform=ios] .conversation-header .chat-identity > .profile-avatar { display: none; }
+}
 @media (max-width: 760px) {
   /* Keep the iPhone navigation stack compact while preserving the full gesture
      inset on its parent. Intrinsic icon/label spacing must fit the density row;

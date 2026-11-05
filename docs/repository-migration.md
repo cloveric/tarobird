@@ -20,7 +20,7 @@ titles and notes are written in English.
 
 Future builds must use `TAROBOT_GITHUB_REPOSITORY=cloveric/tarobird`. The existing
 desktop build planners validate this setting, and GitHub workflows use their own
-repository context. Before shipping, authorize the updater GitHub App for the
+repository context. Before shipping, authorize the updater's GitHub OAuth application for the
 new private repository, provision the required CI signing credentials through
 their approved secret stores, and verify the exact new manifest/download URLs,
 signature and source binding. Repository source does not carry those secrets.
