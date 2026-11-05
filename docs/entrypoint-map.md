@@ -12,6 +12,9 @@ pushing main/PR branches or preparing a release.
 
 [1.1.1 release verification](releases/1.1.1-verification.md) records the first current-version releases in the new private repository, actual updater OAuth download/signature checks, TestFlight readback and separate installed-device acceptance boundaries.
 
+[1.2.1 scoped patch](client/release-1.2.1-preflight.md) records the desktop
+pre-ready exit fix, affected-platform release and retained validation boundaries.
+
 [1.2.0 preflight](client/release-1.2.0-preflight.md) records the cross-host
 authorization release, synchronized upstream integrations, Rust build minimum,
 TaroBird distribution names and separate platform acceptance scopes.

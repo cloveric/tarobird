@@ -74,3 +74,12 @@ and verify its one-time upgrade path. See [repository migration](repository-migr
 Publishing still requires the owner's explicit release instruction and the
 [release checklist](release-checklist.md). Source tests and a synchronized
 manifest are not signed-package, store-processing or installed-device acceptance.
+
+## Platform-scoped patches
+
+An owner-authorized [scoped patch](release-checklist.md#scoped-patch-releases)
+may publish only affected platform channels. Every newly published App and CLI
+artifact still has the synchronized source version and commit. Unaffected
+channels retain their earlier version; do not rename, re-sign or re-upload old
+bytes as the patch version. Source mobile counters may advance without a store
+upload; the next actual upload must still be monotonic.

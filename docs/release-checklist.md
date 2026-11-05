@@ -22,7 +22,44 @@ release/update request. A completed audit, fix, commit or push is not that reque
 An instruction to wait for a new release request supersedes an earlier queued
 release/update: retain its artifacts and receipts, but do not publish or install.
 
-Before freezing the release source, complete the upstream integration update gate:
+## Scoped patch releases
+
+Use this profile only when the owner explicitly authorizes a small patch release.
+Record the last published source SHA, exact patch diff, affected entrypoints,
+published platforms and evidence scope before freezing. A PATCH version alone
+is not approval to reduce validation.
+
+- Keep dependency and integrated-skill pins unchanged. Compare dependency
+  resolution, vendor files and unaffected source blobs with the published
+  baseline; record exact hashes and baseline receipt links. This profile does
+  not require a fresh whole-project upstream upgrade cycle or unrelated
+  model/editor/physical-device regression runs. Do not label inherited evidence
+  as a new run. Any dependency, protocol/schema, authorization, updater or
+  signing change requires its corresponding broader validation before release.
+- Run failing-before/passing-after regressions for the fix, the affected existing
+  suites, fresh builds and relevant real-runtime acceptance. Steps 1, 2 and 5
+  below use this documented scope instead of unrelated full-suite/model runs.
+  Use clean frozen source and verified dependency locks; unchanged development
+  dependency installs may be reused only with their exact lock provenance.
+- Rebuild every artifact that will be published from the new source/version.
+  Always perform fresh package-content checks, signatures/notarization, unpacked
+  privacy scans, exact final-upload inventory checks and downloaded-byte readback.
+  Previous artifact approval never covers newly built bytes. Publication and
+  installed-device acceptance remain separate, including unavailable Windows
+  native tests; do not claim a missing test passed.
+- Publish only affected platform channels. Unaffected mobile channels may keep
+  their previous release; never relabel or replace their old packages. Source
+  version fields stay synchronized. Desktop releases include the matching
+  standalone CLI and check its clean install/upgrade and bundled-Host match.
+- Keep explicit release authorization, English notes, source/upload privacy
+  hooks, immutable released assets and the guarded cleanup requirements.
+
+The full profile below remains the default for feature releases and changes
+outside the recorded patch scope.
+
+## Full release upstream gate
+
+Before freezing a full release, complete the upstream integration update gate:
 
 - Inventory all integrated open-source projects from package manifests,
   vendored-source manifests and `LICENSING.md`, including Excalidraw, Vditor,

@@ -145,7 +145,11 @@ any previously prepared publication/installation and preserve its receipts.
 Follow `docs/release-checklist.md`. The retired Telegram/Lark adapters are not part of this repository. Do not
 restart old fleets or migrate their data as part of an App/CLI release. Do not publish to an external package registry as a release side effect.
 
-Before every release, check upstream updates for all integrated open-source
+For an explicitly owner-authorized scoped patch, follow the reduced validation
+profile in [the release checklist](docs/release-checklist.md#scoped-patch-releases).
+It may retain unchanged dependencies and baseline evidence for unaffected code;
+new artifact signatures, privacy scans and download readback are never inherited.
+For other releases, check upstream updates for all integrated open-source
 projects, including Excalidraw (whiteboard), Vditor (Markdown), baoyu-design
 (Baoyu Design and Baoyu PPT), and future integrations. Include upstream SKILL.md,
 references and helper scripts, not only editor/npm versions. Keep adapted skill
