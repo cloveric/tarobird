@@ -52,6 +52,7 @@ export async function packageDesktop(options) {
     cp(path.join(client, 'dist'), path.join(source, 'dist'), { recursive: true, dereference: true }),
     cp(path.join(client, 'src-tauri/icons/tray-macos.png'), path.join(source, 'tray-macos.png')),
     cp(path.join(client, 'src-tauri/icons/icon.png'), path.join(source, 'icon.png')),
+    cp(path.join(client, 'electron/windows-unread-badges.png'), path.join(source, 'windows-unread-badges.png')),
     cp(helper, path.join(native, platform === 'win32' ? 'tarobot-desktop-core.exe' : 'tarobot-desktop-core')),
     cp(addon, path.join(native, 'tarobot-desktop-native.node')),
     cp(await realpath(options.host), host, { recursive: true, dereference: true }),

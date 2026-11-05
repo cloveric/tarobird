@@ -3304,6 +3304,13 @@
       "reviewer": "codex",
       "method": "visual-review",
       "note": "Authored diagram visually inspected in both languages; OCR and PNG chunk inspection checked. Fictional roles and generic host labels only; no private device, account, chat, address or pairing data. Reproduction bytes match."
+    },
+    {
+      "path": "client/electron/windows-unread-badges.png",
+      "sha256": "2ee90f4bb6d8f68bd5782934b8bd2d10f9ac2758ffabdc1c35934d09d5e1012c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Reviewed generated red/white numeric badge atlas (1 through 99 and 99+), source generator, existing Sarasa font, deterministic regeneration and empty PNG metadata. No account, device or conversation content."
     }
   ]
 }

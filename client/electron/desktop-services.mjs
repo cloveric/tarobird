@@ -8,6 +8,7 @@ import { captureScreenshot } from './screenshot.mjs';
 import { DesktopUpdates, UPDATE_COMMANDS } from './updater.mjs';
 import { BROWSER_COMMANDS, BROWSER_EVENT, WorkbenchBrowser } from './browser.mjs';
 import { prepareDesignQuit, cancelDesignQuit } from './design-quit.mjs';
+import { windowsUnreadBadge } from './windows-unread-badge.mjs';
 
 const empty = z.object({}).strict();
 const point = z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) }).strict();
@@ -154,7 +155,13 @@ export class DesktopServices {
       case 'desktop_autostart_set':
         if (!this.autostart) throw new Error('autostart_requires_installed_app');
         await this.autostart.set(args.enabled); return null;
-      case 'unread_count': app.setBadgeCount(args.count); this.badgeChanged(args.count); return null;
+      case 'unread_count':
+        if (this.platform === 'win32') {
+          this.unreadBadge ??= windowsUnreadBadge(this.electron.nativeImage);
+          const description = args.count ? (app.getLocale().startsWith('en') ? `${args.count} unread messages` : `${args.count} 条未读消息`) : '';
+          w.setOverlayIcon(this.unreadBadge(args.count), description);
+        } else app.setBadgeCount(args.count);
+        this.badgeChanged(args.count); return null;
       case 'desktop_notification_settings':
         if (this.platform === 'darwin') {
           if (await shell.openPath('/System/Applications/System Settings.app')) throw new Error('notification_settings_unavailable');

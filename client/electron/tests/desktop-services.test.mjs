@@ -4,6 +4,31 @@ import { EventEmitter } from 'node:events';
 import { DesktopServices, externalURL } from '../desktop-services.mjs';
 import { validateViewRequest } from '../contract.mjs';
 
+test('Windows unread counts use a taskbar overlay and remove it when read; other platforms keep native badges', async () => {
+  const window = new EventEmitter(), calls = [], badgeCounts = [], tips = [];
+  const image = { addRepresentation() {} };
+  const atlas = { isEmpty: () => false, getSize: () => ({ width: 640, height: 640 }), crop: () => ({ resize: () => ({ toPNG: () => Buffer.from('fixture') }) }) };
+  Object.assign(window, { isDestroyed: () => false, webContents: { send() {} }, setOverlayIcon: (...args) => calls.push(args) });
+  const electron = { app: { setBadgeCount: n => badgeCounts.push(n), getLocale: () => 'zh-CN' }, nativeImage: { createFromPath: () => atlas, createEmpty: () => image } };
+  const service = new DesktopServices(window, electron, { platform: 'win32', badgeChanged: n => tips.push(n) });
+  try {
+    await service.request('unread_count', { count: 1 }, () => true);
+    assert.equal(calls.length, 1); assert.equal(calls[0][0], image); assert.match(calls[0][1], /1/);
+    await service.request('unread_count', { count: 120 }, () => true);
+    assert.match(calls[1][1], /120/);
+    await service.request('unread_count', { count: 0 }, () => true);
+    assert.equal(calls[2][0], null); assert.deepEqual(badgeCounts, []); assert.deepEqual(tips, [1, 120, 0]);
+    await assert.rejects(service.request('unread_count', { count: -1 }, () => true), /invalid_desktop_args/);
+    await assert.rejects(service.request('unread_count', { count: 2 }, () => false), /native_document_retired/);
+    assert.equal(calls.length, 3);
+    for (const platform of ['darwin', 'linux']) {
+      service.platform = platform;
+      await service.request('unread_count', { count: 7 }, () => true);
+    }
+    assert.deepEqual(badgeCounts, [7, 7]); assert.equal(calls.length, 3);
+  } finally { service.dispose(); }
+});
+
 test('screen management IPC preserves status and permission receipts, and retry cannot request a grant', async () => {
   const window = new EventEmitter(), calls = [];
   Object.assign(window, { isDestroyed: () => false, webContents: { send() {} } });
