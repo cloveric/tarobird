@@ -29,13 +29,21 @@ final class AndroidUpdatePolicy {
             if (compare(next, version) > 0) { version = next; best = release; }
         }
         if (best == null) return null;
-        JSONArray assets = best.getJSONArray("assets"); JSONObject selected = null;
+        JSONArray assets = best.getJSONArray("assets"); JSONObject canonical = null, legacy = null;
         for (int i = 0; i < assets.length(); i++) {
             JSONObject asset = assets.getJSONObject(i);
-            if (!asset.optString("name").equals("TaroBot-" + version + "-android.apk")) continue;
-            if (selected != null) throw new IllegalArgumentException("github_update_manifest");
-            selected = asset;
+            String name = asset.optString("name");
+            if (name.equals("TaroBird_" + version + "_android.apk")) {
+                if (canonical != null) throw new IllegalArgumentException("github_update_manifest");
+                canonical = asset;
+            } else if (name.equals("TaroBot-" + version + "-android.apk")) {
+                if (legacy != null) throw new IllegalArgumentException("github_update_manifest");
+                legacy = asset;
+            }
         }
+        // Validate the preferred artifact below; an invalid renamed APK must
+        // never silently fall back to a second asset with the legacy name.
+        JSONObject selected = canonical != null ? canonical : legacy;
         if (selected == null) throw new IllegalArgumentException("github_update_manifest");
         long id = selected.getLong("id"), size = selected.getLong("size");
         String digest = selected.optString("digest"), url = "https://api.github.com/repos/" + repo + "/releases/assets/" + id;

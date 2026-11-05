@@ -75,14 +75,18 @@ jobs:
       - name: Packaged host acceptance
         run: client/src-tauri/host/node scripts/verify-desktop-host.mjs client/src-tauri/host
       - name: Pack matching standalone CLI from the same source
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p test-results/macos-extra
+          mkdir -p "$RUNNER_TEMP/tarobird-cli-pack"
           cp "$TAROBOT_DESKTOP_OUTPUT"/artifacts.noindex/*.dmg test-results/macos-extra/
           npm ci --omit=dev --prefix dist/standalone-package
           node scripts/verify-standalone-package.mjs dist/standalone-package
           cd dist/standalone-package
-          npm pack --pack-destination ../../test-results/macos-extra
+          npm pack --pack-destination "$RUNNER_TEMP/tarobird-cli-pack"
           cd ../..
+          node scripts/release-artifact-names.mjs --kind cli --version "$APP_VERSION" --source "$RUNNER_TEMP/tarobird-cli-pack/tarobot-${APP_VERSION}.tgz" --output "$PWD/test-results/macos-extra"
           mkdir -p "$RUNNER_TEMP/tarobot-cli-extracted"
           tar -xzf test-results/macos-extra/*.tgz -C "$RUNNER_TEMP/tarobot-cli-extracted"
           npm ci --omit=dev --prefix "$RUNNER_TEMP/tarobot-cli-extracted/package"
@@ -98,17 +102,17 @@ jobs:
           TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
           APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          codesign --verify --deep --strict "$TAROBOT_DESKTOP_OUTPUT/package.noindex/packages/TaroBot-darwin-arm64/TaroBot.app"
-          node --input-type=module -e 'import {verifyDesktopUpdateArtifact} from "./client/scripts/desktop-update-manifest.mjs"; await verifyDesktopUpdateArtifact({platform:"macos",installer:process.env.TAROBOT_DESKTOP_OUTPUT+"/artifacts.noindex/TaroBot.app.tar.gz",publicKey:process.env.TAROBOT_UPDATE_PUBLIC_KEY,version:process.env.APP_VERSION});'
+          codesign --verify --deep --strict "$TAROBOT_DESKTOP_OUTPUT/package.noindex/packages/TaroBird-darwin-arm64/TaroBird.app"
+          node --input-type=module -e 'import {verifyDesktopUpdateArtifact} from "./client/scripts/desktop-update-manifest.mjs"; await verifyDesktopUpdateArtifact({platform:"macos",installer:process.env.TAROBOT_DESKTOP_OUTPUT+"/artifacts.noindex/TaroBird.app.tar.gz",publicKey:process.env.TAROBOT_UPDATE_PUBLIC_KEY,version:process.env.APP_VERSION});'
       - uses: actions/upload-artifact@v4
         with:
-          name: TaroBot-macos-arm64-signed-update
+          name: TaroBird-macos-arm64-signed-update
           path: |
             ${{ runner.temp }}/tarobot-electron-output.noindex/artifacts.noindex/*.app.tar.gz*
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: TaroBot-macos-arm64-bootstrap-and-cli
+          name: TaroBird-macos-arm64-bootstrap-and-cli
           path: test-results/macos-extra/*
           if-no-files-found: error
       - name: Retire this runner's signing credentials
@@ -129,11 +133,11 @@ jobs:
           node-version: 24
       - uses: actions/download-artifact@v4
         with:
-          name: TaroBot-macos-arm64-signed-update
+          name: TaroBird-macos-arm64-signed-update
           path: test-results/macos-signed
       - uses: actions/download-artifact@v4
         with:
-          name: TaroBot-macos-arm64-bootstrap-and-cli
+          name: TaroBird-macos-arm64-bootstrap-and-cli
           path: test-results/macos-extra
       - name: Publish and read back complete signed assets
         env:
@@ -145,4 +149,4 @@ jobs:
           test "${#files[@]}" = 2
           args=()
           for file in "${files[@]}"; do args+=(--file "$file"); done
-          node client/scripts/publish-macos-update.mjs --installer test-results/macos-signed/TaroBot.app.tar.gz --repository "$GITHUB_REPOSITORY" --version "$APP_VERSION" --commit "$GITHUB_SHA" --output test-results/private-macos-update-bundle "${args[@]}"
+          node client/scripts/publish-macos-update.mjs --installer test-results/macos-signed/TaroBird.app.tar.gz --repository "$GITHUB_REPOSITORY" --version "$APP_VERSION" --commit "$GITHUB_SHA" --output test-results/private-macos-update-bundle "${args[@]}"

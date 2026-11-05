@@ -8,7 +8,7 @@ const profile = await isolatedRoot(process.env.TAROBOT_DESKTOP_DEV_PROFILE);
 const args = process.argv.slice(2);
 if (args.includes('--production')) throw new Error('desktop:dev cannot build a production package');
 const result = await electronBuildCLI([...args, '--development', '--package-only']);
-const binary = process.platform === 'darwin' ? path.join(result.packaged.paths[0], 'TaroBot.app/Contents/MacOS/tarocub-client') : path.join(result.packaged.paths[0], 'tarocub-client.exe');
+const binary = process.platform === 'darwin' ? path.join(result.packaged.paths[0], 'TaroBird.app/Contents/MacOS/tarocub-client') : path.join(result.packaged.paths[0], 'tarocub-client.exe');
 const child = spawn(binary, [`--tarobot-development=${profile}`], { stdio: 'inherit', shell: false, env: helperEnvironment() });
 child.once('error', error => { console.error(error.message); process.exitCode = 1; });
 child.once('exit', code => { process.exitCode = code ?? 1; });

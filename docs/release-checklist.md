@@ -1,4 +1,4 @@
-# TaroBot release checklist
+# TaroBird release checklist
 
 Publish only to `cloveric/tarobird`. Write GitHub Release titles and notes in
 English. Do not import old releases; the first release here is the then-current
@@ -114,9 +114,9 @@ extraction. A held release keeps its `OWNER-HOLD.json` at the task root.
    required checks are `incomplete`, never pass. Cross-compilation and installer
    extraction alone do not satisfy these Windows gates.
 
-7. Check the final installers, not just the source icons: `python3 scripts/verify-release-icons.py --mac-app /Volumes/TaroBot/TaroBot.app --windows-exe /private/output/windows-extracted/tarocub-client.exe --windows-icon-group 1 --apk /private/output/TaroBot.apk --aapt2 /path/to/android-sdk/build-tools/36.0.0/aapt2 --receipt /private/output/icons.json` (Python 3 + Pillow; Windows also requires pefile). Use the App mounted from the final DMG, the main EXE extracted from the final Windows installer, and the signed APK; flags can be used separately per platform. Electron selects Windows icon group `1`; legacy Tauri verification keeps the default `32512`. The check validates the selected master, sealed macOS icon/version, Windows transparent alpha and all six ICO frames in its actual app icon resource, Android launcher manifest and adaptive references, background, and all 15 PNG density variants after decoding. Recheck the downloaded GitHub asset digests after upload; merged source alone does not update an existing release.
+7. Check the final installers, not just the source icons: `python3 scripts/verify-release-icons.py --mac-app /Volumes/TaroBird/TaroBird.app --windows-exe /private/output/windows-extracted/tarocub-client.exe --windows-icon-group 1 --apk /private/output/TaroBird.apk --aapt2 /path/to/android-sdk/build-tools/36.0.0/aapt2 --receipt /private/output/icons.json` (Python 3 + Pillow; Windows also requires pefile). Use the App mounted from the final DMG, the main EXE extracted from the final Windows installer, and the signed APK; flags can be used separately per platform. Electron selects Windows icon group `1`; legacy Tauri verification keeps the default `32512`. The check validates the selected master, sealed macOS icon/version, Windows transparent alpha and all six ICO frames in its actual app icon resource, Android launcher manifest and adaptive references, background, and all 15 PNG density variants after decoding. Recheck the downloaded GitHub asset digests after upload; merged source alone does not update an existing release.
 8. Commit only source changes and sanitized evidence. Create an accurate GitHub Release only when explicitly releasing.
-9. After publication and asset read-back, run `python3 scripts/cleanup-macos-artifacts.py --apply --keep-version APP_VERSION --receipt CLEANUP.json` (the Mac publisher invokes it automatically). Keep the newest `macos-ready` backup, skip six-hour/active-task/build/owner-hold/activation guards, and use `/usr/bin/trash` only. Record skipped paths, then run the Spotlight query in the artifact guide. Never touch `/Applications/TaroBot.app`.
+9. After publication and asset read-back, run `python3 scripts/cleanup-macos-artifacts.py --apply --keep-version APP_VERSION --receipt CLEANUP.json` (the Mac publisher invokes it automatically). Keep the newest `macos-ready` backup, skip six-hour/active-task/build/owner-hold/activation guards, and use `/usr/bin/trash` only. Record skipped paths, then run the Spotlight query in the artifact guide. Never touch installed Apps under `/Applications` (TaroBird or legacy TaroBot).
 
 Native ID transition gate: the owner selected `com.tarobot.client` on every
 platform. Follow [the transition record](client/native-app-identity-2026-10-28.md).
@@ -187,6 +187,34 @@ standalone prepack gate enforces the same rule for its service launcher. The
 launcher build uses static CRT linkage scoped to that executable.
 
 Do not call a release complete based only on a test count or browser preview. Keep `package.json` private; external package-registry publishing is not a release step. Local `npm pack` creates a reviewable archive and does not publish it. Never restart an unrelated service or migrate its data as a side effect of a TaroBot release.
+
+## Installer naming
+
+Use `scripts/release-artifact-names.mjs` as the distribution filename contract.
+New packages contain `TaroBird.app`; the DMG volume, Windows default directory
+and new shortcuts say TaroBird. Existing installation directories and user data
+remain in place. Never reuse a frozen historical release script's TaroBot asset
+names for a new release.
+
+After signing Android, stage the exact signed bytes before calculating the
+publication checksums; use the same helper for the standalone CLI archive:
+
+```sh
+node scripts/release-artifact-names.mjs --kind android --version VERSION --source /private/build/app-signed.apk --output /private/release
+node scripts/release-artifact-names.mjs --kind cli --version VERSION --source /private/build/tarobot-VERSION.tgz --output /private/release
+```
+
+The helper refuses overwrites and verifies byte identity. The npm package name
+and native identities remain compatible. Release review must reject old-brand
+installer filenames and inspect the actual DMG App/volume and Windows installer
+shortcuts/default directory. Existing published versions are not overwritten.
+
+Android clients through 1.1.1 only discover the old APK filename. The first
+TaroBird-only APK release requires a manual download for those existing users;
+include that transition in English release notes and verify an in-place upgrade
+on a physical device using the retained application ID and signing key. New
+clients accept the canonical TaroBird filename and historical TaroBot filenames.
+Do not rename an already published asset or silently add an old-brand alias.
 
 ## CLI parity and release gate
 

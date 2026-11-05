@@ -213,6 +213,13 @@ App IDs, credentials/keychain services, stored paths, deep links, updater URLs,
 release-channel tags and old `tarobot` CLI commands until an explicit migration
 is implemented and tested. The `tarobird` CLI alias uses the same host.
 
+New installers, App bundle names and default installation directories use
+**TaroBird**, including `TaroBird.app` and new Windows shortcuts. Do not retain
+TaroBot filenames as a compatibility shortcut. Use
+`scripts/release-artifact-names.mjs` for the distribution filenames. Existing
+install locations, data directories and Bot workspaces remain unchanged under
+the owner's current scope; do not move them as a branding side effect.
+
 ## Product version rule
 
 `release-version.json` is the single source of truth. Starting with the next

@@ -74,7 +74,7 @@ export async function packageDesktop(options) {
   const rights = path.join(root, 'signing-policy'); await mkdir(rights);
   for (const [role, names] of Object.entries(ELECTRON_RIGHTS)) await writeFile(path.join(rights, `${role}.plist`), entitlementsPlist(Object.fromEntries(names.map(name => [name, true]))));
   const identifier = production ? 'com.tarobot.client' : 'com.tarobot.electron.acceptance';
-  const paths = await packager({ dir: source, name: 'TaroBot', executableName: 'tarocub-client',
+  const paths = await packager({ dir: source, name: 'TaroBird', executableName: 'tarocub-client',
     platform, arch, appBundleId: identifier, appVersion: pkg.version, buildVersion: pkg.version,
     electronVersion: pkg.devDependencies.electron, out: path.join(root, 'packages'), overwrite: false,
     tmpdir: path.join(root, 'packager.noindex'), download: { cacheRoot: cache },
@@ -86,7 +86,7 @@ export async function packageDesktop(options) {
   });
   const frontendChecks = [];
   for (const directory of paths) {
-    const binary = platform === 'darwin' ? path.join(directory, 'TaroBot.app') : path.join(directory, 'tarocub-client.exe');
+    const binary = platform === 'darwin' ? path.join(directory, 'TaroBird.app') : path.join(directory, 'tarocub-client.exe');
     if (platform === 'darwin') await exec('/usr/bin/plutil', ['-replace', 'CFBundleDisplayName', '-string', 'TaroBird', path.join(binary, 'Contents/Info.plist')]);
     if (platform === 'darwin' && options.exporter) {
       const reader = await readFile(await realpath(options.exporter));

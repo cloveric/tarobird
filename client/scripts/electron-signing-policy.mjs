@@ -25,8 +25,8 @@ export function electronSigningRole(bundle, target) {
   if (relative === '' || relative === 'Contents/MacOS/tarocub-client') return 'app';
   if (relative.startsWith('../') || path.isAbsolute(relative)) throw new Error('signing_target_outside_bundle');
   if (relative === 'Contents/Resources/host/node') return 'host';
-  if (/^Contents\/Frameworks\/TaroBot Helper\.app(?:\/Contents\/MacOS\/TaroBot Helper)?$/.test(relative)) return 'chromiumMedia';
-  if (/^Contents\/Frameworks\/TaroBot Helper(?: \((?:Renderer|GPU|Plugin)\))?\.app(?:\/Contents\/MacOS\/[^/]+)?$/.test(relative)) return 'chromium';
+  if (/^Contents\/Frameworks\/Taro(?:Bird|Bot) Helper\.app(?:\/Contents\/MacOS\/Taro(?:Bird|Bot) Helper)?$/.test(relative)) return 'chromiumMedia';
+  if (/^Contents\/Frameworks\/Taro(?:Bird|Bot) Helper(?: \((?:Renderer|GPU|Plugin)\))?\.app(?:\/Contents\/MacOS\/[^/]+)?$/.test(relative)) return 'chromium';
   return 'native';
 }
 export function credentialCodeIdentifier(bundle, target, developerSigned) {

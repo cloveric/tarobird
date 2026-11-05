@@ -227,7 +227,7 @@ Install and sign in to any one engine on the computer that runs your Bots to get
 
 ### 01 · Install the host
 
-1. Install the desktop App. On macOS, drag **TaroBot.app** (the retained bundle name; the interface displays TaroBird) into Applications; the App is notarized by Apple. On Windows, run the installer. The installer is not yet code-signed, so if SmartScreen appears, choose **More info → Run anyway**.
+1. Install the desktop App. On macOS, drag **TaroBird.app** into Applications; the App is notarized by Apple. On Windows, run the installer. The installer is not yet code-signed, so if SmartScreen appears, choose **More info → Run anyway**.
 2. On first launch, choose **Use this computer as a host** and name the computer.
 3. Create a Bot with an engine installed on this computer.
 

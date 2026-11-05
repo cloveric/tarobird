@@ -7,6 +7,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { preparationEnvironment } from '../../scripts/build-environment.mjs';
+import { releaseArtifactNames } from '../../scripts/release-artifact-names.mjs';
 import { isolatedRoot } from '../electron/isolation.mjs';
 import { ELECTRON_RIGHTS, electronSignable, electronSigningRole } from './electron-signing-policy.mjs';
 import { inspectSignature, verifyForeignAddon } from './macos-signing.mjs';
@@ -19,7 +20,7 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 export function createMacUpdateArchive({ stage, archive, env = process.env }) {
-  run('/usr/bin/tar', ['--no-mac-metadata', '--no-xattrs', '--no-acls', '--no-fflags', '--uid', '0', '--gid', '0', '--uname', 'root', '--gname', 'wheel', '-czf', archive, '-C', stage, 'TaroBot.app'], { env: { ...env, COPYFILE_DISABLE: '1' } });
+  run('/usr/bin/tar', ['--no-mac-metadata', '--no-xattrs', '--no-acls', '--no-fflags', '--uid', '0', '--gid', '0', '--uname', 'root', '--gname', 'wheel', '-czf', archive, '-C', stage, 'TaroBird.app'], { env: { ...env, COPYFILE_DISABLE: '1' } });
 }
 export async function verifyElectronMac(app, { team, production = false, scratch }) {
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
@@ -74,10 +75,11 @@ export async function macosArtifacts({ app, out, version, production = false, te
     run('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', app]);
   }
   const stage = path.join(root, `dmg-stage-${randomUUID()}.noindex`); await mkdir(stage);
-  await cp(app, path.join(stage, 'TaroBot.app'), { recursive: true, dereference: false, verbatimSymlinks: true });
+  await cp(app, path.join(stage, 'TaroBird.app'), { recursive: true, dereference: false, verbatimSymlinks: true });
   await symlink('/Applications', path.join(stage, 'Applications'));
-  const dmg = path.join(root, `TaroBot_${version}_aarch64.dmg`), archive = path.join(root, 'TaroBot.app.tar.gz');
-  run('/usr/bin/hdiutil', ['create', '-volname', 'TaroBot', '-srcfolder', stage, '-ov', '-format', 'UDZO', dmg]);
+  const names = releaseArtifactNames(version);
+  const dmg = path.join(root, names.macos), archive = path.join(root, names.macosUpdate);
+  run('/usr/bin/hdiutil', ['create', '-volname', 'TaroBird', '-srcfolder', stage, '-ov', '-format', 'UDZO', dmg]);
   // BSD tar otherwise emits AppleDouble members that the Rust updaters
   // treat as real files, invalidating the sealed bundle.
   createMacUpdateArchive({ stage, archive, env });
@@ -85,7 +87,7 @@ export async function macosArtifacts({ app, out, version, production = false, te
   // macOS refuses a disk-image mount nested below some external volumes.
   // A unique .noindex mount point directly in /Volumes keeps its temporary App
   // outside Spotlight without moving the release artifacts off their disk.
-  const mountPoint = path.join('/Volumes', `TaroBot-${randomUUID()}.noindex`);
+  const mountPoint = path.join('/Volumes', `TaroBird-${randomUUID()}.noindex`);
   try { await lstat(mountPoint); throw new Error('Disk image mount point already exists'); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
   const attached = run('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-noautoopen', '-mountpoint', mountPoint, '-plist', dmg]);
@@ -93,7 +95,7 @@ export async function macosArtifacts({ app, out, version, production = false, te
   const mount = entities.find(entity => entity['mount-point'])?.['mount-point'];
   if (mount !== mountPoint) throw new Error('Disk image did not mount at its isolated .noindex path');
   let mounted;
-  try { mounted = await verifyElectronMac(path.join(mount, 'TaroBot.app'), { production, team }); }
+  try { mounted = await verifyElectronMac(path.join(mount, 'TaroBird.app'), { production, team }); }
   finally { run('/usr/bin/hdiutil', ['detach', mount]); }
   const extracted = path.join(root, `archive-readback-${randomUUID()}.noindex`);
   // The installed Tauri updater and the new Rust updater must both accept
@@ -103,7 +105,7 @@ export async function macosArtifacts({ app, out, version, production = false, te
     TAROBOT_UPDATER_REAL_ARCHIVE: archive, TAROBOT_UPDATER_REAL_OUTPUT: extracted,
     TAROBOT_UPDATER_REAL_VERSION: version, TAROBOT_UPDATER_REAL_IDENTIFIER: run('/usr/bin/plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', path.join(app, 'Contents/Info.plist')]).trim(),
   } });
-  const readback = await verifyElectronMac(path.join(extracted, 'desktop-updater/staged.noindex/TaroBot.app'), { production, team });
+  const readback = await verifyElectronMac(path.join(extracted, 'desktop-updater/staged.noindex/TaroBird.app'), { production, team });
   if (production) {
     run(process.execPath, [path.join(client, 'node_modules/@tauri-apps/cli/tauri.js'), 'signer', 'sign', '--app-version', version, archive], { env });
     await verifyDesktopUpdateArtifact({ platform: 'macos', installer: archive, publicKey, version });

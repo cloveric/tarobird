@@ -2,13 +2,19 @@
 
 The product display name is TaroBird. App desktop/mobile and the headless CLI
 use the same host implementation; `tarobird` and the retained `tarobot` command
-are aliases. Existing package names, bundle filenames (including `TaroBot.app`),
+are aliases. New installers and App bundles use TaroBird, including
+`TaroBird.app` and the Windows default install folder and shortcuts. Existing
+installation paths stay in place on upgrade. Internal npm package names, App
 IDs, keychain services, native plugin names, QR filename validators, stored
 paths, notification payload literals and updater channels remain compatibility
 contracts. Do not mass-replace them. Existing bot names/content are user-owned.
-The GitHub repository is still at its existing address; creating a new one is
-held for a separate discussion.
+The active repository is `cloveric/tarobird`; the former repository is a private
+historical archive. See [repository migration](repository-migration.md).
 New product names do not imply a connection to Feishu or Telegram.
+
+The owner limited this naming change to installers, application names and new
+installation directories. Data directories and Bot workspaces are deferred.
+See [artifact naming and verification](client/artifact-branding-2026-11-05.md).
 
 | Surface | Canonical name | Historical input retained |
 | --- | --- | --- |

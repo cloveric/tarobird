@@ -12,6 +12,10 @@ pushing main/PR branches or preparing a release.
 
 [1.1.1 release verification](releases/1.1.1-verification.md) records the first current-version releases in the new private repository, actual updater OAuth download/signature checks, TestFlight readback and separate installed-device acceptance boundaries.
 
+[Installer branding](client/artifact-branding-2026-11-05.md) defines TaroBird
+artifact and App names, fresh Windows installation paths and the retained
+existing-install/data boundaries.
+
 [1.1.1 preflight](client/release-1.1.1-preflight.md) records the current runtime/toolchain updates, compiler API compatibility, narrow iOS title repair and separate release acceptance boundaries.
 
 [1.1.0 dependency inventory](client/release-1.1.0-dependency-inventory.md) records

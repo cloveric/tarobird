@@ -7,7 +7,7 @@
 //
 //   set TAROBOT_WINDOWS_ACCEPTANCE=disposable
 //   node scripts/windows-acceptance.mjs --confirm-disposable-windows \
-//     --installer <TaroBot_x.y.z_x64-setup.exe> --report <dir containing .noindex> \
+//     --installer <TaroBird_x.y.z_x64-setup.exe> --report <dir containing .noindex> \
 //     [--legacy-installer <old Tauri TaroBot setup.exe>]   upgrade + migration path
 //     [--next-installer <newer Electron setup.exe>]        Electron -> Electron update
 //     [--native-tests <client/src-desktop-updater>]        ControlJob/guard/helper/handoff (needs cargo)
@@ -184,7 +184,7 @@ async function verifyElectron(sys, report, phase, directory, version) {
   const command = await reg.value(PROTOCOL_KEY, '(Default)');
   report.expect(phase, 'deep-link', same(command, `"${join(EXE)}" "%1"`), command ?? 'missing');
   const startMenu = sys.env.APPDATA && path.win32.join(sys.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs');
-  const shortcut = startMenu && [path.win32.join(startMenu, `${PRODUCT}.lnk`), path.win32.join(startMenu, PRODUCT, `${PRODUCT}.lnk`)].find(sys.exists);
+  const shortcut = startMenu && [path.win32.join(startMenu, `${DISPLAY_NAME}.lnk`), path.win32.join(startMenu, PRODUCT, `${DISPLAY_NAME}.lnk`), path.win32.join(startMenu, `${PRODUCT}.lnk`), path.win32.join(startMenu, PRODUCT, `${PRODUCT}.lnk`)].find(sys.exists);
   let target = '';
   if (shortcut) target = (await sys.powershell(`(New-Object -ComObject WScript.Shell).CreateShortcut('${shortcut.replaceAll("'", "''")}').TargetPath`)).stdout.trim();
   report.expect(phase, 'start-menu-shortcut', !!shortcut && same(target, join(EXE)), `${shortcut ?? 'missing'} → ${target}`);

@@ -24,6 +24,43 @@ public class AndroidUpdatePolicyTest {
             .put("assets", new JSONArray().put(new JSONObject().put("name", "TaroBot-" + version + "-android.apk").put("id", id).put("size", 100)
                 .put("digest", "sha256:" + "a".repeat(64)).put("state", "uploaded").put("url", "https://api.github.com/repos/owner/repo/releases/assets/" + id)));
     }
+    private JSONObject birdRelease(String version, long id) throws Exception {
+        JSONObject result = release(version, id);
+        result.getJSONArray("assets").getJSONObject(0).put("name", "TaroBird_" + version + "_android.apk");
+        return result;
+    }
+    @Test public void discoversRenamedApkAndRetainsLegacyCompatibility() throws Exception {
+        assertEquals(2, AndroidUpdatePolicy.select(new JSONArray().put(birdRelease("1.1.2", 2)), "1.1.1", "owner/repo").getLong("assetId"));
+        assertEquals(1, AndroidUpdatePolicy.select(new JSONArray().put(release("1.1.2", 1)), "1.1.1", "owner/repo").getLong("assetId"));
+    }
+    @Test public void canonicalApkWinsRegardlessOfAssetOrder() throws Exception {
+        for (boolean canonicalFirst : new boolean[]{true, false}) {
+            JSONObject canonical = birdRelease("1.1.2", 2).getJSONArray("assets").getJSONObject(0);
+            JSONObject legacy = release("1.1.2", 1).getJSONArray("assets").getJSONObject(0);
+            JSONObject mixed = release("1.1.2", 1).put("assets", new JSONArray()
+                .put(canonicalFirst ? canonical : legacy).put(canonicalFirst ? legacy : canonical));
+            assertEquals(2, AndroidUpdatePolicy.select(new JSONArray().put(mixed), "1.1.1", "owner/repo").getLong("assetId"));
+        }
+    }
+    @Test public void invalidCanonicalApkCannotFallBackToLegacy() throws Exception {
+        JSONObject broken = birdRelease("1.1.2", 2);
+        broken.getJSONArray("assets").getJSONObject(0).put("digest", "invalid");
+        broken.getJSONArray("assets").put(release("1.1.2", 1).getJSONArray("assets").getJSONObject(0));
+        assertThrows(Exception.class, () -> AndroidUpdatePolicy.select(new JSONArray().put(broken), "1.1.1", "owner/repo"));
+    }
+    @Test public void duplicateCanonicalApkIsRejected() throws Exception {
+        JSONObject duplicate = birdRelease("1.1.2", 2);
+        duplicate.getJSONArray("assets").put(birdRelease("1.1.2", 3).getJSONArray("assets").getJSONObject(0));
+        duplicate.getJSONArray("assets").put(release("1.1.2", 1).getJSONArray("assets").getJSONObject(0));
+        assertThrows(Exception.class, () -> AndroidUpdatePolicy.select(new JSONArray().put(duplicate), "1.1.1", "owner/repo"));
+    }
+    @Test public void renamedApkMustMatchVersionAndExactFilename() throws Exception {
+        for (String name : new String[]{"TaroBird_1.1.3_android.apk", "TaroBird_1.1.2_android.apk.sig", "TaroBird_1.1.2_android.apk.exe"}) {
+            JSONObject wrong = birdRelease("1.1.2", 2);
+            wrong.getJSONArray("assets").getJSONObject(0).put("name", name);
+            assertThrows(Exception.class, () -> AndroidUpdatePolicy.select(new JSONArray().put(wrong), "1.1.1", "owner/repo"));
+        }
+    }
     @Test public void picksNumericAndroidChannelAndIgnoresMacDraftAndDowngrades() throws Exception {
         JSONObject unknownChannel = release("6.0.0", 6); unknownChannel.remove("prerelease");
         JSONArray releases = new JSONArray().put(release("1.0.9", 1)).put(release("1.0.10", 2))

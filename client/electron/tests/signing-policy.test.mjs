@@ -18,6 +18,18 @@ test('only developer-signed credential readers preserve the legacy designated id
   assert.equal(credentialCodeIdentifier(app, `${app}/Contents/Resources/host/node`, true), undefined);
 });
 
+test('renamed TaroBird helpers retain their exact Chromium and capture entitlements', () => {
+  const app = '/lab.noindex/TaroBird.app';
+  assert.equal(electronSigningRole(app, `${app}/Contents/Frameworks/TaroBird Helper.app`), 'chromiumMedia');
+  assert.equal(electronSigningRole(app, `${app}/Contents/Frameworks/TaroBird Helper.app/Contents/MacOS/TaroBird Helper`), 'chromiumMedia');
+  for (const helper of ['Renderer', 'GPU', 'Plugin']) {
+    const bundle = `${app}/Contents/Frameworks/TaroBird Helper (${helper}).app`;
+    assert.equal(electronSigningRole(app, bundle), 'chromium');
+    assert.equal(electronSigningRole(app, `${bundle}/Contents/MacOS/TaroBird Helper (${helper})`), 'chromium');
+  }
+  assert.equal(credentialCodeIdentifier(app, `${app}/Contents/Resources/native/tarobot-desktop-core`, true), 'com.tarobot.client');
+});
+
 test('only the main executable and generic capture helper receive camera and microphone rights', () => {
   const app = '/lab.noindex/TaroBot.app';
   for (const file of ['', '/Contents/MacOS/tarocub-client', '/Contents/Frameworks/TaroBot Helper.app', '/Contents/Frameworks/TaroBot Helper.app/Contents/MacOS/TaroBot Helper']) {

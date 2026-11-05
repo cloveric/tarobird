@@ -9,7 +9,7 @@ import { createMacUpdateArchive } from '../../scripts/electron-macos-artifacts.m
 test('Mac update archive removes build-user ownership while retaining executable modes, bytes and symlinks', { skip: process.platform !== 'darwin' }, async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'archive-privacy-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const stage = path.join(root, 'stage.noindex'), app = path.join(stage, 'TaroBot.app'), executable = path.join(app, 'Contents/MacOS/app');
+  const stage = path.join(root, 'stage.noindex'), app = path.join(stage, 'TaroBird.app'), executable = path.join(app, 'Contents/MacOS/app');
   await mkdir(path.dirname(executable), { recursive: true });
   await writeFile(executable, 'fixture executable\n'); await chmod(executable, 0o755);
   await symlink('MacOS/app', path.join(app, 'Contents/alias'));

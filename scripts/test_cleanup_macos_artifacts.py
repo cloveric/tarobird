@@ -44,6 +44,13 @@ class CleanupTests(unittest.TestCase):
         report=self.plan()
         self.assertEqual(report["keep"],str(latest))
         self.assertEqual({i["path"] for i in report["items"] if i["action"]=="trash"},{str(old),str(fixture)})
+    def test_rebranded_backup_is_retained_alongside_legacy_app_discovery(self):
+        old=self.app("release-old/macos-ready/TaroBot.app","1.1.1")
+        latest=self.app("release-new/macos-ready/TaroBird.app","1.1.2")
+        self.age()
+        report=self.plan(keep_version="1.1.2")
+        self.assertEqual(report["keep"],str(latest))
+        self.assertEqual({i["path"] for i in report["items"] if i["action"]=="trash"},{str(old)})
     def case_alias(self):
         alias=self.root.with_name(self.root.name.removesuffix(".noindex").swapcase()+".noindex")
         if alias == self.root or not alias.exists() or not alias.samefile(self.root):

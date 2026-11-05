@@ -109,7 +109,7 @@ def collect(roots):
             task = root / relative.parts[0] if len(relative.parts) > 1 else root
             result.append({"path": p, "task": task, "root": root,
                            "version": str(metadata.get("CFBundleShortVersionString", "")),
-                           "backup": p.parent.name == "macos-ready" and p.name == "TaroBot.app" and metadata.get("CFBundleIdentifier") in ("com.tarobot.client", "com.tarocub.client")})
+                           "backup": p.parent.name == "macos-ready" and p.name in ("TaroBird.app", "TaroBot.app") and metadata.get("CFBundleIdentifier") in ("com.tarobot.client", "com.tarocub.client")})
             return
         if p.name in EXCLUDE or p.suffix == ".xcarchive" or (p.name == "build" and p.parent.name in ("debug", "release")):
             return

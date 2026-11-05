@@ -747,7 +747,7 @@ impl Service {
         let staged = self.args.work_dir.join("installers.noindex");
         let _ = std::fs::remove_dir_all(&staged);
         std::fs::create_dir_all(&staged).map_err(|_| "github_update_install")?;
-        let installer = staged.join(format!("TaroBot_{}_x64-setup.exe", offer.version));
+        let installer = staged.join(format!("TaroBird_{}_x64-setup.exe", offer.version));
         std::fs::rename(work.0.join("update.archive"), &installer).map_err(|_| "github_update_install")?;
         *self.handoff.lock().map_err(|_| "github_update_install")? = Some(installer);
         (self.emit)(&offer.id, DownloadEvent::Finished);

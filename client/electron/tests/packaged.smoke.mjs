@@ -12,7 +12,7 @@ const root = await isolatedRoot(output);
 // macOS control sockets have a 104-byte pathname limit. Artifact/report paths
 // can be descriptive; the real isolated Host state must obey the OS limit.
 const profiles = await isolatedRoot(stateRoot);
-if (Buffer.byteLength(path.join(profiles, 'fresh-XXXXXX/app-state/host/control.sock')) > 100) throw new Error('test_host_path_too_long');
+if (Buffer.byteLength(path.join(profiles, 'fresh-XXXXXX/app-state/host/hub-control.sock')) > 100) throw new Error('test_host_path_too_long');
 if (!binary.split(path.sep).some(part => part.endsWith('.noindex'))) throw new Error('isolated_package_required');
 const checks = [];
 for (const scenario of ['fresh', 'legacy']) {

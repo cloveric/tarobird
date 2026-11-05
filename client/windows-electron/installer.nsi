@@ -124,7 +124,7 @@ VIAddVersionKey "ProductVersion" "${VERSION}"
 
 !if "${INSTALLMODE}" == "both"
   !define MULTIUSER_MUI
-  !define MULTIUSER_INSTALLMODE_INSTDIR "${PRODUCTNAME}"
+  !define MULTIUSER_INSTALLMODE_INSTDIR "${DISPLAYNAME}"
   !define MULTIUSER_INSTALLMODE_COMMANDLINE
   !if "${ARCH}" == "x64"
     !define MULTIUSER_USE_PROGRAMFILES64
@@ -511,17 +511,17 @@ Function .onInit
     !if "${INSTALLMODE}" == "perMachine"
       ${If} ${RunningX64}
         !if "${ARCH}" == "x64"
-          StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
+          StrCpy $INSTDIR "$PROGRAMFILES64\${DISPLAYNAME}"
         !else if "${ARCH}" == "arm64"
-          StrCpy $INSTDIR "$PROGRAMFILES64\${PRODUCTNAME}"
+          StrCpy $INSTDIR "$PROGRAMFILES64\${DISPLAYNAME}"
         !else
-          StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
+          StrCpy $INSTDIR "$PROGRAMFILES\${DISPLAYNAME}"
         !endif
       ${Else}
-        StrCpy $INSTDIR "$PROGRAMFILES\${PRODUCTNAME}"
+        StrCpy $INSTDIR "$PROGRAMFILES\${DISPLAYNAME}"
       ${EndIf}
     !else if "${INSTALLMODE}" == "currentUser"
-      StrCpy $INSTDIR "$LOCALAPPDATA\${PRODUCTNAME}"
+      StrCpy $INSTDIR "$LOCALAPPDATA\${DISPLAYNAME}"
     !endif
 
     Call RestorePreviousInstallLocation
@@ -652,7 +652,7 @@ Section Install
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${DISPLAYNAME}"
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
@@ -770,7 +770,7 @@ Section Uninstall
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
 
-  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${DISPLAYNAME}"
 
   ; Delete the app directory and its content from disk
   ; Copy main executable
@@ -797,6 +797,28 @@ Section Uninstall
 
     ; Remove start menu shortcut
     !insertmacro MUI_STARTMENU_GETFOLDER Application $AppStartMenuFolder
+    !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Pop $0
+    ${If} $0 = 1
+      !insertmacro UnpinShortcut "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk"
+      Delete "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk"
+      RMDir "$SMPROGRAMS\$AppStartMenuFolder"
+    ${EndIf}
+    !insertmacro IsShortcutTarget "$SMPROGRAMS\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Pop $0
+    ${If} $0 = 1
+      !insertmacro UnpinShortcut "$SMPROGRAMS\${DISPLAYNAME}.lnk"
+      Delete "$SMPROGRAMS\${DISPLAYNAME}.lnk"
+    ${EndIf}
+
+    ; Remove desktop shortcuts
+    !insertmacro IsShortcutTarget "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Pop $0
+    ${If} $0 = 1
+      !insertmacro UnpinShortcut "$DESKTOP\${DISPLAYNAME}.lnk"
+      Delete "$DESKTOP\${DISPLAYNAME}.lnk"
+    ${EndIf}
+    ; Existing installations retain their legacy shortcut names.
     !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
     Pop $0
     ${If} $0 = 1
@@ -891,22 +913,39 @@ Function un.SkipIfPassive
   ${IfThen} $PassiveMode = 1  ${|} Abort ${|}
 FunctionEnd
 
+; Existing installations keep their owned shortcuts. New installations use
+; DISPLAYNAME; PRODUCTNAME remains only the registry/legacy shortcut identity.
+!macro TaroBirdUpdateLegacyShortcut DIRECTORY
+  !insertmacro IsShortcutTarget "${DIRECTORY}\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
+  Pop $0
+  ${If} $0 != 1
+    !insertmacro IsShortcutTarget "${DIRECTORY}\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Pop $0
+  ${EndIf}
+  ${If} $0 = 1
+    !insertmacro SetShortcutTarget "${DIRECTORY}\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    StrCpy $R0 1
+  ${EndIf}
+!macroend
+
 Function CreateOrUpdateStartMenuShortcut
   ; We used to use product name as MAINBINARYNAME
   ; migrate old shortcuts to target the new MAINBINARYNAME
   StrCpy $R0 0
+  !insertmacro TaroBirdUpdateLegacyShortcut "$SMPROGRAMS\$AppStartMenuFolder"
+  !insertmacro TaroBirdUpdateLegacyShortcut "$SMPROGRAMS"
 
-  !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
   Pop $0
   ${If} $0 = 1
-    !insertmacro SetShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro SetShortcutTarget "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
     StrCpy $R0 1
   ${EndIf}
 
-  !insertmacro IsShortcutTarget "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
+  !insertmacro IsShortcutTarget "$SMPROGRAMS\${DISPLAYNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
   Pop $0
   ${If} $0 = 1
-    !insertmacro SetShortcutTarget "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro SetShortcutTarget "$SMPROGRAMS\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
     StrCpy $R0 1
   ${EndIf}
 
@@ -925,21 +964,26 @@ Function CreateOrUpdateStartMenuShortcut
 
   !if "${STARTMENUFOLDER}" != ""
     CreateDirectory "$SMPROGRAMS\$AppStartMenuFolder"
-    CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
-    !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
+    CreateShortcut "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk"
   !else
-    CreateShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
-    !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+    CreateShortcut "$SMPROGRAMS\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro SetLnkAppUserModelId "$SMPROGRAMS\${DISPLAYNAME}.lnk"
   !endif
 FunctionEnd
 
 Function CreateOrUpdateDesktopShortcut
+  StrCpy $R0 0
+  !insertmacro TaroBirdUpdateLegacyShortcut "$DESKTOP"
+  ${If} $R0 = 1
+    Return
+  ${EndIf}
   ; We used to use product name as MAINBINARYNAME
   ; migrate old shortcuts to target the new MAINBINARYNAME
-  !insertmacro IsShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
+  !insertmacro IsShortcutTarget "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\$OldMainBinaryName"
   Pop $0
   ${If} $0 = 1
-    !insertmacro SetShortcutTarget "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro SetShortcutTarget "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
     Return
   ${EndIf}
 
@@ -952,6 +996,6 @@ Function CreateOrUpdateDesktopShortcut
     ${EndIf}
   ${EndIf}
 
-  CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
-  !insertmacro SetLnkAppUserModelId "$DESKTOP\${PRODUCTNAME}.lnk"
+  CreateShortcut "$DESKTOP\${DISPLAYNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+  !insertmacro SetLnkAppUserModelId "$DESKTOP\${DISPLAYNAME}.lnk"
 FunctionEnd

@@ -29,20 +29,20 @@ FunctionEnd
   ClearErrors
   ExecWait '"${HELPER}" --prepare-fresh-install' $R0
   ${If} ${Errors}
-    MessageBox MB_ICONSTOP|MB_OK "无法准备全新安装，原数据未被删除。请关闭 TaroBot 后重试。$\r$\nUnable to prepare a fresh start. Close TaroBot and retry." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "无法准备全新安装，原数据未被删除。请关闭 TaroBird 后重试。$\r$\nUnable to prepare a fresh start. Close TaroBird and retry." /SD IDOK
     Abort
   ${EndIf}
   ${If} $R0 == 21
-    MessageBox MB_ICONSTOP|MB_OK "这台电脑安装了共享数据的 TaroBot CLI 服务，暂不能清空。请先运行 tarobot service uninstall，再重新安装。$\r$\nA CLI service owns this host. Uninstall that service before resetting." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "这台电脑安装了共享数据的 TaroBird CLI 服务，暂不能清空。请先运行 tarobot service uninstall，再重新安装。$\r$\nA CLI service owns this host. Uninstall that service before resetting." /SD IDOK
     Abort
   ${ElseIf} $R0 == 22
-    MessageBox MB_ICONSTOP|MB_OK "本机主机仍在运行，或无法确认它已退出。请退出 TaroBot、停止本机 CLI 后重试。原数据会保留。$\r$\nHost shutdown could not be confirmed. Stop TaroBot and its CLI, then retry." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "本机主机仍在运行，或无法确认它已退出。请退出 TaroBird、停止本机 CLI 后重试。原数据会保留。$\r$\nHost shutdown could not be confirmed. Stop TaroBird and its CLI, then retry." /SD IDOK
     Abort
   ${ElseIf} $R0 == 24
     MessageBox MB_ICONSTOP|MB_OK "安装已停止：部分旧数据已备份，但恢复原位置失败。请保留 AppData 中的 TaroBot-backup 文件夹并联系支持，不要继续启动主机。$\r$\nReset rollback is incomplete. Preserve the TaroBot-backup folders and contact support." /SD IDOK
     Abort
   ${ElseIf} $R0 <> 0
-    MessageBox MB_ICONSTOP|MB_OK "无法完成全新安装，数据未被删除。请关闭 TaroBot 后重试；若仍失败，请联系支持。$\r$\nFresh start could not finish. Data has not been deleted. Close TaroBot and retry." /SD IDOK
+    MessageBox MB_ICONSTOP|MB_OK "无法完成全新安装，数据未被删除。请关闭 TaroBird 后重试；若仍失败，请联系支持。$\r$\nFresh start could not finish. Data has not been deleted. Close TaroBird and retry." /SD IDOK
     Abort
   ${EndIf}
   Pop $R0
@@ -65,8 +65,8 @@ FunctionEnd
     ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --register-notification-shortcut "${LINK}"' $R0
     ${If} ${Errors}
     ${OrIf} $R0 <> 0
-      DetailPrint "TaroBot notification shortcut registration failed."
-      MessageBox MB_ICONSTOP|MB_OK "TaroBot 通知注册失败，请保留开始菜单快捷方式后重试安装。$\r$\nNotification registration failed. Retry installation with a Start Menu shortcut." /SD IDOK
+      DetailPrint "TaroBird notification shortcut registration failed."
+      MessageBox MB_ICONSTOP|MB_OK "TaroBird 通知注册失败，请保留开始菜单快捷方式后重试安装。$\r$\nNotification registration failed. Retry installation with a Start Menu shortcut." /SD IDOK
       Abort
     ${EndIf}
     StrCpy $R1 1
@@ -105,7 +105,7 @@ FunctionEnd
     ${EndIf}
     ${If} ${Errors}
     ${OrIf} $R0 <> 0
-      MessageBox MB_ICONSTOP|MB_OK "无法停止本机主机，请退出 TaroBot 后重试。数据会保留。$\r$\nUnable to stop the local host. Please quit TaroBot and retry." /SD IDOK
+      MessageBox MB_ICONSTOP|MB_OK "无法停止本机主机，请退出 TaroBird 后重试。数据会保留。$\r$\nUnable to stop the local host. Please quit TaroBird and retry." /SD IDOK
       Abort
     ${EndIf}
     Pop $R0
@@ -124,10 +124,10 @@ FunctionEnd
     ${OrIf} ${FileExists} "$LOCALAPPDATA\com.tarobot.client"
     ${OrIf} ${FileExists} "$APPDATA\com.tarocub.client"
     ${OrIf} ${FileExists} "$LOCALAPPDATA\com.tarocub.client"
-      MessageBox MB_ICONQUESTION|MB_YESNOCANCEL|MB_DEFBUTTON2 "发现上次安装留下的 TaroBot 数据。是否全新开始？$\r$\n$\r$\n是：备份这台电脑的旧配置、配对和本地数据，安装后像第一次使用一样重新配置。$\r$\n否：继续使用旧数据。$\r$\n取消：停止安装。$\r$\n$\r$\n不会修改 Mac mini 或其他主机。旧数据会保留在 AppData 的 TaroBot-backup 文件夹。$\r$\n$\r$\nPrevious data found. Start fresh?$\r$\nYes: back up local data and set up again. No: keep existing data." IDYES tarobot_fresh_install IDNO tarobot_keep_data
+      MessageBox MB_ICONQUESTION|MB_YESNOCANCEL|MB_DEFBUTTON2 "发现上次安装留下的 TaroBird 数据。是否全新开始？$\r$\n$\r$\n是：备份这台电脑的旧配置、配对和本地数据，安装后像第一次使用一样重新配置。$\r$\n否：继续使用旧数据。$\r$\n取消：停止安装。$\r$\n$\r$\n不会修改 Mac mini 或其他主机。旧数据会保留在 AppData 的 TaroBot-backup 文件夹。$\r$\n$\r$\nPrevious data found. Start fresh?$\r$\nYes: back up local data and set up again. No: keep existing data." IDYES tarobot_fresh_install IDNO tarobot_keep_data
       Abort
       tarobot_fresh_install:
-      !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+      !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${DISPLAYNAME}"
       !insertmacro TaroBotStageRecovery
       !insertmacro TaroBotFreshStart "$PLUGINSDIR\tarobot-recovery.exe"
       StrCpy $TaroBotFreshPrepared 1
@@ -144,14 +144,20 @@ FunctionEnd
   Push $R0
   Push $R1
   StrCpy $R1 0
-  !insertmacro TaroBotRegisterNotificationShortcut "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
+  !insertmacro TaroBotRegisterNotificationShortcut "$SMPROGRAMS\$AppStartMenuFolder\${DISPLAYNAME}.lnk"
+  ${If} $R1 = 0
+    !insertmacro TaroBotRegisterNotificationShortcut "$SMPROGRAMS\${DISPLAYNAME}.lnk"
+  ${EndIf}
+  ${If} $R1 = 0
+    !insertmacro TaroBotRegisterNotificationShortcut "$SMPROGRAMS\$AppStartMenuFolder\${PRODUCTNAME}.lnk"
+  ${EndIf}
   ${If} $R1 = 0
     !insertmacro TaroBotRegisterNotificationShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk"
   ${EndIf}
   ${If} $R1 = 0
     ; /NS or an upgrade with a deleted shortcut: do not report notification-ready.
     Delete "$INSTDIR\tarocub-notification-shortcut.json"
-    DetailPrint "No owned Start Menu shortcut; TaroBot desktop notifications are unavailable."
+    DetailPrint "No owned Start Menu shortcut; TaroBird desktop notifications are unavailable."
   ${EndIf}
   ; Tauri -> Electron: an update skips the old uninstaller, so the Tauri Host
   ; runtime in host\ would stay forever. The helper takes no path: it removes
@@ -163,7 +169,7 @@ FunctionEnd
     ExecWait '"$INSTDIR\${TAROBOTHELPER}" --remove-legacy-host-runtime' $R0
     ${If} ${Errors}
     ${OrIf} $R0 <> 0
-      DetailPrint "TaroBot kept the previous host folder (code $R0)."
+      DetailPrint "TaroBird kept the previous host folder (code $R0)."
     ${EndIf}
   ${EndIf}
   Pop $R1
@@ -186,10 +192,10 @@ FunctionEnd
   !insertmacro TaroBotStopLocalHost 0
   ${If} $UpdateMode <> 1
   ${AndIf} $DeleteAppDataCheckboxState = 1
-    MessageBox MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2 "移除这台电脑的 TaroBot 配置并保留恢复备份？$\r$\n$\r$\n旧配置和本地数据会移入 AppData 的 TaroBot-backup 文件夹，重装后从首次配置开始。这不是安全擦除。不会更改其他主机。$\r$\n$\r$\nRemove local configuration and keep a recovery backup? This is not secure erasure." IDYES tarobot_uninstall_fresh
+    MessageBox MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2 "移除这台电脑的 TaroBird 配置并保留恢复备份？$\r$\n$\r$\n旧配置和本地数据会移入 AppData 的 TaroBot-backup 文件夹，重装后从首次配置开始。这不是安全擦除。不会更改其他主机。$\r$\n$\r$\nRemove local configuration and keep a recovery backup? This is not secure erasure." IDYES tarobot_uninstall_fresh
     Abort
     tarobot_uninstall_fresh:
-    !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+    !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${DISPLAYNAME}"
     !insertmacro TaroBotFreshStart "$INSTDIR\${TAROBOTHELPER}"
     ; The native helper has backed up the fixed Known Folders. Never let the
     ; template recursively delete shared CLI data or an environment-derived path.
@@ -206,7 +212,7 @@ FunctionEnd
       ExecWait '"$INSTDIR\${MAINBINARYNAME}.exe" --clear-notification-history' $R0
       ${If} ${Errors}
       ${OrIf} $R0 <> 0
-        MessageBox MB_ICONSTOP|MB_OK "无法清理 TaroCub 系统通知，请重试卸载。$\r$\nUnable to clear TaroBot notifications. Retry uninstalling." /SD IDOK
+        MessageBox MB_ICONSTOP|MB_OK "无法清理 TaroBird 系统通知，请重试卸载。$\r$\nUnable to clear TaroBird notifications. Retry uninstalling." /SD IDOK
         Abort
       ${EndIf}
     ${EndIf}

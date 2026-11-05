@@ -11,6 +11,7 @@ import { macosBuildPlan } from './macos-build-plan.mjs';
 import { windowsBuildPlan } from './windows-build-plan.mjs';
 import { verifyDesktopUpdateArtifact } from './desktop-update-manifest.mjs';
 import { preparationEnvironment } from '../../scripts/build-environment.mjs';
+import { releaseArtifactNames } from '../../scripts/release-artifact-names.mjs';
 import { releaseConfig } from './desktop-release.mjs';
 import { normalizeMacAddonIdentity } from './macos-addon-identity.mjs';
 const client = fileURLToPath(new URL('..', import.meta.url)), repository = path.dirname(client);
@@ -78,10 +79,10 @@ export async function buildElectronDesktop(options, env = process.env) {
     host: path.join(client, 'src-tauri/host'), updateConfig });
   let artifacts;
   if (options.packageOnly) artifacts = { packageOnly: true };
-  else if (plan.platform === 'darwin') artifacts = await macosArtifacts({ app: path.join(packaged.paths[0], 'TaroBot.app'), out: path.join(out, 'artifacts.noindex'), version: pkg.version,
+  else if (plan.platform === 'darwin') artifacts = await macosArtifacts({ app: path.join(packaged.paths[0], 'TaroBird.app'), out: path.join(out, 'artifacts.noindex'), version: pkg.version,
     production: plan.production, team: env.TAROBOT_APPLE_TEAM_ID, notaryProfile: env.TAROBOT_NOTARY_PROFILE, publicKey: env.TAROBOT_UPDATE_PUBLIC_KEY ?? env.TAROCUB_UPDATE_PUBLIC_KEY, env });
   else {
-    const installer = path.join(out, `TaroBot_${pkg.version}_x64-setup.exe`);
+    const installer = path.join(out, releaseArtifactNames(pkg.version).windows);
     await setupNsisPlugins(env.TAROBOT_NSIS_PLUGINS ? { pluginsDir: env.TAROBOT_NSIS_PLUGINS } : {});
     artifacts = await buildWindowsInstaller({ appDir: packaged.paths[0], helper: path.join(binaries.updater, 'tarobot-installer-helper.exe'), version: pkg.version, outFile: installer,
       ...(env.TAROBOT_NSIS_PLUGINS ? { pluginsDir: env.TAROBOT_NSIS_PLUGINS } : {}), installerIcon: path.join(client, 'src-tauri/icons/icon.ico') }, { workDir: path.join(out, 'nsis.noindex') });

@@ -35,7 +35,7 @@ publisher does this automatically):
     python3 scripts/cleanup-macos-artifacts.py --keep-version VERSION --receipt CLEANUP.json
     python3 scripts/cleanup-macos-artifacts.py --apply --keep-version VERSION --receipt CLEANUP.json
 
-Never touch /Applications/TaroBot.app. Cleanup only recognized temporary App
+Never touch installed Apps under /Applications (TaroBird.app or legacy TaroBot.app). Cleanup only recognized temporary App
 bundles inside the configured roots, never entire task/source/data directories.
 Skip directories or bundle contents modified within six hours; skip active
 process open files/cwd/arguments and incomplete local activation/rollback.
@@ -45,7 +45,7 @@ Keep the newest macos-ready backup and verify its signature before moving
 anything. A missing published-version backup means defer, not delete.
 Prepare and seal that backup in the release workspace before publication:
 ditto the stapled Electron App from TAROBOT_DESKTOP_OUTPUT/package.noindex/
-packages/TaroBot-darwin-arm64/TaroBot.app to macos-ready/TaroBot.app and verify it.
+packages/TaroBird-darwin-arm64/TaroBird.app to macos-ready/TaroBird.app and verify it.
 A held release keeps OWNER-HOLD.json at its task root; cleanup skips it.
 Use /usr/bin/trash on a .noindex envelope containing each retired App. Do not
 use rm -rf, empty the Trash, or reset Spotlight/Launch Services globally.

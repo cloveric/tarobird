@@ -150,7 +150,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: TaroBot-windows-acceptance-${{ inputs.arch }}
+          name: TaroBird-windows-acceptance-${{ inputs.arch }}
           path: |
             ${{ runner.temp }}/windows-acceptance.noindex/windows-acceptance.*
             ${{ runner.temp }}/windows-persisted-migration.noindex/*.json
@@ -182,7 +182,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.signed_updates }}
         with:
-          name: TaroBot-windows-${{ inputs.arch }}-unsigned
+          name: TaroBird-windows-${{ inputs.arch }}-unsigned
           path: |
             ${{ runner.temp }}/tarobot-electron-output.noindex/*-setup.exe
             ${{ runner.temp }}/tarobot-electron-output.noindex/*.sha256
@@ -190,7 +190,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: inputs.signed_updates
         with:
-          name: TaroBot-windows-${{ inputs.arch }}-signed-update
+          name: TaroBird-windows-${{ inputs.arch }}-signed-update
           path: test-results/windows-signed/*
           if-no-files-found: error
   publish-private-update:
@@ -208,7 +208,7 @@ jobs:
           node-version: 24
       - uses: actions/download-artifact@v4
         with:
-          name: TaroBot-windows-${{ inputs.arch }}-signed-update
+          name: TaroBird-windows-${{ inputs.arch }}-signed-update
           path: test-results/windows-signed
       - name: Publish complete verified assets to the private repository
         env:

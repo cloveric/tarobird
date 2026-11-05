@@ -18,7 +18,7 @@ const pluginsDir = process.env.TAROBOT_NSIS_PLUGINS_DIR ?? DEFAULT_PLUGINS_DIR;
 let root, helper;
 
 async function packaged(name, { host = 'resources/host', extra = {} } = {}) {
-  const dir = path.join(root, name, 'TaroBot-win32-x64');
+  const dir = path.join(root, name, 'TaroBird-win32-x64');
   const files = {
     [MAIN_BINARY]: 'MZ electron', 'ffmpeg.dll': 'MZ', 'resources.pak': 'pak', 'locales/zh-CN.pak': 'pak',
     'resources/app.asar': 'asar', 'resources/native/tarobot-desktop-updater.exe': 'MZ', 'resources/native/update-config.json': '{}',
@@ -50,6 +50,10 @@ test('fixed identity equals the Tauri installer that existing users have', async
   const define = name => nsi.match(new RegExp(`^!define ${name} "([^"]*)"`, 'm'))?.[1];
   assert.equal(define('PRODUCTNAME'), 'TaroBot', 'installation namespace remains compatible');
   assert.equal(define('DISPLAYNAME'), tauri.productName);
+  assert.match(nsi, /StrCpy \$INSTDIR "\$LOCALAPPDATA\\\$\{DISPLAYNAME\}"/);
+  assert.doesNotMatch(nsi, /StrCpy \$INSTDIR "\$(?:LOCALAPPDATA|PROGRAMFILES64?)\\\$\{PRODUCTNAME\}"/);
+  assert.match(nsi, /CreateShortcut "\$DESKTOP\\\$\{DISPLAYNAME\}\.lnk"/);
+  assert.match(nsi, /!macro TaroBirdUpdateLegacyShortcut DIRECTORY[\s\S]*?IsShortcutTarget[\s\S]*?SetShortcutTarget/);
   assert.equal(define('MANUFACTURER'), tauri.bundle.publisher);
   assert.equal(define('BUNDLEID'), tauri.identifier);
   assert.equal(define('MAINBINARYNAME'), cargo.match(/^name = "([^"]+)"/m)[1]);
@@ -126,7 +130,7 @@ test('plan refuses packages the Tauri upgrade path could not own', async () => {
 
 test('makensis compiles the installer; the payload holds the App, helper and recovery copy', { skip: !makensis && 'makensis not installed' }, async () => {
   const appDir = await packaged('build', { host: 'host' });
-  const outFile = path.join(root, 'out', 'TaroBot_1.2.3_x64-setup.exe');
+  const outFile = path.join(root, 'out', 'TaroBird_1.2.3_x64-setup.exe');
   const result = await buildWindowsInstaller({ appDir, helper, version: '1.2.3', outFile, pluginsDir }, { makensis, workDir: path.join(root, 'nsis-work') });
   assert.equal(result.host, 'host');
   assert.equal((await readFile(outFile)).subarray(0, 2).toString(), 'MZ');

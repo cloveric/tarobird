@@ -17,6 +17,7 @@ test('simulator builds use local ad-hoc signing without a team, preserving Keych
 test('TestFlight archives and exports with production signing and no version rewriting', () => {
   const plan = iosReleasePlan({ ...base, mode: 'testflight', teamId: 'ABCD123456' });
   assert.ok(plan.buildArgs.includes('archive'));
+  assert.ok(plan.archive.endsWith('/TaroBird.xcarchive'));
   assert.ok(plan.buildArgs.includes('APS_ENVIRONMENT=production'));
   assert.ok(!plan.buildArgs.includes('CODE_SIGNING_ALLOWED=NO'));
   assert.ok(!plan.buildArgs.includes('CODE_SIGN_IDENTITY=-'));

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { noIndexDirectory } from '../../scripts/macos-artifact-paths.mjs';
+import { stageNamedReleaseArtifact } from '../../scripts/release-artifact-names.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -101,7 +102,7 @@ try {
       run(xcode, ['-exportArchive', '-archivePath', plan.archive, '-exportPath', exported, '-exportOptionsPlist', exportPlist]);
       const ipas = (await readdir(exported)).filter((file) => file.endsWith('.ipa'));
       if (ipas.length !== 1) throw new Error('Export did not produce exactly one IPA.');
-      const ipa = path.join(exported, ipas[0]);
+      const { file: ipa } = await stageNamedReleaseArtifact({ kind: 'ios', version, source: path.join(exported, ipas[0]), output: path.join(output, 'artifacts') });
       const unpacked = path.join(output, 'verification');
       run('ditto', ['-x', '-k', ipa, unpacked]);
       const apps = (await readdir(path.join(unpacked, 'Payload'))).filter((file) => file.endsWith('.app'));

@@ -13,7 +13,7 @@ export function iosReleasePlan({ mode = 'simulator', version, buildNumber = '1',
   assert.ok(typeof output === 'string' && path.isAbsolute(output), 'output must be an absolute path');
   if (mode === 'testflight') assert.match(teamId ?? '', /^[A-Z0-9]{10}$/, 'TestFlight requires a 10-character Apple team ID');
   const derivedData = path.join(output, 'DerivedData');
-  const archive = path.join(output, 'TaroBot.xcarchive');
+  const archive = path.join(output, 'TaroBird.xcarchive');
   const buildArgs = [
     '-project', 'ios/App/App.xcodeproj', '-scheme', 'App', '-configuration', 'Release',
     '-derivedDataPath', derivedData, '-clonedSourcePackagesDirPath', path.join(output, 'SourcePackages'),
