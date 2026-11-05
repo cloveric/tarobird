@@ -215,6 +215,8 @@ test("old hosts explain the cross-host upgrade without breaking local grants", a
     await page.route('**/api/bot-messages/cross-host-grants', route => route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'not_found' }) }));
     await page.getByRole('button', { name: '跨主机', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveText('请更新接收主机后使用跨主机消息授权。');
+    const reload = page.getByRole('button', { name: '重新载入并核对', exact: true });
+    expect(await reload.evaluate(node => { const r = node.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === node; })).toBe(true);
     await page.getByRole('button', { name: '本机', exact: true }).click();
     await expect(panel(page).getByRole('checkbox', { name: '允许 研究助手 → 复核助手', exact: true })).toBeChecked();
   } finally { await f.close(); }
@@ -566,4 +568,58 @@ test("a late session cancellation after a committed grant stays unknown until re
     await expect(choice).toBeChecked(); await expect(p.getByRole("alert")).toHaveCount(0);
     expect(posts).toBe(1);
   } finally { await f.close(); }
+});
+
+
+for (const { width, safeBottom } of [{ width: 1360, safeBottom: 0 }, { width: 390, safeBottom: 34 }])
+test(`cross-host sticky feedback does not expose clipped text below its notice at ${width}px`, async ({ page }) => {
+  const f = await fixture(page, false, false, false), remote = await crossPeer(f);
+  try {
+    await openSettings(page);
+    await page.locator('#language').selectOption('en');
+    await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: /^Bot message permissions/ }).click();
+    await page.getByRole('button', { name: 'Cross-host', exact: true }).click();
+    const p = page.locator('.cross-host-message-grants');
+    await p.getByLabel('Source Bot ID', { exact: true }).fill('remote');
+    await p.getByRole('button', { name: 'Allow sending', exact: true }).click();
+    await expect(p.getByRole('status')).toContainText('Sending allowed and verified');
+    {
+      await page.setViewportSize({ width, height: 900 });
+      // Native safe-area input, not a screenshot-only layout override.
+      await page.evaluate(value => document.documentElement.style.setProperty('--app-safe-bottom', `${value}px`), safeBottom);
+      const clip = await p.evaluate(node => {
+        const scroller = node.closest('.settings-content')!;
+        const hint = node.querySelector('.cross-grants-existing > .message-grants-hint:last-child')!;
+        scroller.scrollTop += hint.getBoundingClientRect().top - (scroller.getBoundingClientRect().bottom - 20);
+        const feedback = node.querySelector('.cross-grants-feedback')!, r = feedback.getBoundingClientRect(), b = scroller.getBoundingClientRect();
+        if (scroller.scrollHeight <= scroller.clientHeight || scroller.scrollTop <= 0) throw new Error('Fixture did not scroll');
+        const hintBounds = hint.getBoundingClientRect();
+        if (hintBounds.top >= b.bottom || hintBounds.bottom <= r.bottom) throw new Error('Warning is not behind the sampled footer area');
+        const bg = getComputedStyle(feedback).backgroundColor.match(/\d+/g)!.slice(0, 3).map(Number);
+        return { x: Math.ceil(r.left + 12), y: Math.ceil(r.bottom + 1), width: Math.floor(r.width - 24), height: Math.floor(b.bottom - r.bottom - 2), bg };
+      });
+      expect(clip.height).toBeGreaterThan(8);
+      const pixels = await page.screenshot({ clip: { x: clip.x, y: clip.y, width: clip.width, height: clip.height } });
+      const ink = await page.evaluate(async ({ data, bg }) => {
+        const image = new Image(); image.src = `data:image/png;base64,${data}`; await image.decode();
+        const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+        const context = canvas.getContext('2d')!; context.drawImage(image, 0, 0);
+        const rgba = context.getImageData(0, 0, image.width, image.height).data;
+        let ink = 0;
+        for (let i = 0; i < rgba.length; i += 4) if (bg.some((channel, j) => Math.abs(rgba[i + j]! - channel) > 40)) ink++;
+        return ink;
+      }, { data: pixels.toString('base64'), bg: clip.bg });
+      expect(ink, `Text leaked below the sticky notice at ${width}px`).toBe(0);
+      // Covered controls must not receive clicks through the opaque footer.
+      expect(await page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.cross-grants-feedback'),
+        { x: clip.x + 8, y: clip.y + clip.height / 2 })).toBe(true);
+      // At the end, the whole warning is above the notice and remains readable.
+      const bounds = await p.evaluate(node => {
+        const scroller = node.closest('.settings-content')!; scroller.scrollTop = scroller.scrollHeight;
+        return { hintBottom: node.querySelector('.cross-grants-existing > .message-grants-hint:last-child')!.getBoundingClientRect().bottom,
+          noticeTop: node.querySelector('.cross-grants-feedback')!.getBoundingClientRect().top };
+      });
+      expect(bounds.hintBottom).toBeLessThanOrEqual(bounds.noticeTop);
+    }
+  } finally { await remote.peer.close(); await f.close(); }
 });

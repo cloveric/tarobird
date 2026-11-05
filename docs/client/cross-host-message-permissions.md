@@ -1,5 +1,9 @@
 # Cross-host Bot message permissions
 
+This guide describes current source awaiting the next release, including the
+App Cross-host scope and CLI `messages grants --cross-host`. Existing released
+versions can use the receiving owner’s `messages allow` / `messages revoke`.
+
 Open the **receiving host** in the App, then **Settings → Bot message permissions
 → Cross-host**. Bot settings opens the same permission page with that Bot as
 the recipient. The Local scope continues to manage messages within one host.
@@ -42,6 +46,10 @@ retain their behavior. See [CLI usage](../host-cli.md).
 Regression coverage includes owner/device proofs, replay and command tampering,
 revision changes, removed peers, deleted targets, CLI compatibility, both grant
 and revoke receipt loss, real isolated Hub messaging, source-name selection,
-and Chinese/English browser layouts at phone and desktop widths. Isolated Hub
+and Chinese/English browser layouts at phone and desktop widths. The sticky
+status notice covers the scroll container’s bottom inset without exposing or
+allowing clicks through to hidden content; pixel and hit-testing regressions
+cover desktop and phone safe areas. This presentation fix changes no CLI or
+authorization behavior. Isolated Hub
 and browser tests do not establish physical multi-machine, native mobile,
 installed-App or real-model acceptance.

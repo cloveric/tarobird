@@ -19,6 +19,9 @@
 .cross-grants-edge small{display:block;color:var(--muted)}
 .cross-grants-edge>button{flex:none;font-size:12px}
 .cross-grants-feedback{position:sticky;bottom:0;z-index:1;background:var(--bg);border-radius:8px;box-shadow:0 -4px 12px color-mix(in srgb,var(--bg) 90%,transparent)}
+/* Cover the scroll container bottom inset while the notice is sticky.
+   Keep the underlying warning in normal flow so it can still be scrolled into view. */
+.cross-grants-feedback:last-child::after{content:"";position:absolute;top:100%;left:0;right:0;height:max(28px,var(--app-safe-bottom,0px));background:var(--bg);pointer-events:auto}
 .cross-grants-feedback>p{margin:0}
 @media(max-width:480px){.cross-grants-form{grid-template-columns:1fr;padding:12px}.cross-grants-edge{align-items:flex-start;flex-wrap:wrap}.cross-grants-edge>div{flex-basis:100%}.cross-grants-edge>button{margin-left:auto}}
 .message-grants-entry { width: 100%; margin-top: 12px; text-align: left; }
