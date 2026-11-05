@@ -1060,6 +1060,8 @@ and the existing network/run/delete suites listed in that audit.
   narrow desktop windows; the regular desktop sidebar has separate tokens.
   Single-image drafts use a thumbnail without the duplicate file header;
   phone composer focus uses a quiet border. [Scope and browser evidence](client/phone-inbox-composer-2026-10-23.md).
+  `ios-adaptive.css` also fits the iOS bottom navigation to its density row
+  without reducing the gesture inset. [Navigation regression and evidence](client/ios-bottom-navigation-2026-11-05.md).
   The iPhone keyboard shell, edge-back gesture, safe-area fixes and client-local
   render/read/write coalescing are documented in the
   [iPhone UI audit and native acceptance](client/iphone-ui-audit-2026-10-23.md).

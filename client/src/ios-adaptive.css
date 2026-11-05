@@ -15,6 +15,18 @@
   }
 }
 @media (max-width: 760px) {
+  /* Keep the iPhone navigation stack compact while preserving the full gesture
+     inset on its parent. Intrinsic icon/label spacing must fit the density row;
+     min-height alone left Compact as tall as Standard. Let enlarged text grow. */
+  :root[data-platform=ios] .mobile-home .mh-tabbar .mh-tab {
+    min-height: max(49px, calc(var(--density-tab-height, 56px) - 4px));
+    gap: 2px;
+    padding: 3px 0;
+  }
+  :root[data-platform=ios] .mobile-home .mh-tab-icon { height: 26px; }
+  :root[data-platform=ios] .mobile-home .mh-tab-icon > svg { width: 24px; height: 24px; }
+  :root[data-platform=ios] .mobile-home .mh-tab-label { font-size: 12px; }
+
   /* Safe width alone still centred sheets in the full display, under the wider
      reserved edge. Position them inside the same safe rectangle. */
   :root[data-platform=ios] dialog.creation-dialog:not(.mobile-settings-dialog):not(.conversation-files):not(.conversation-details-phone):not(.markdown-table-dialog):not(.run-details):not(.device-detail):not(.prompt-queue-panel):not(.diff-viewer):not(.delegation-dialog) {

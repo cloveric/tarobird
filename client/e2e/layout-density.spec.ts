@@ -30,6 +30,7 @@ for (const platform of ['web', 'android', 'ios']) test(`${platform} keeps its ow
     }, platform);
     await page.reload(); await expect(mobileHome(page)).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-platform', platform);
+    await page.evaluate(() => document.documentElement.style.setProperty('--safe-area-inset-bottom', '34px'));
     const row = mobileHome(page).locator(`[data-conversation-id="${chat.id}"]`);
     const compact = platform === 'ios' ? { avatar: 44, title: 16, preview: 14, height: 64, gap: 12, padding: 8 } : { avatar: 40, title: 14, preview: 12.5, height: 60, gap: 10, padding: 6 };
     for (const density of ['compact', 'standard', 'comfortable', 'compact'] as const) {
@@ -45,6 +46,21 @@ for (const platform of ['web', 'android', 'ios']) test(`${platform} keeps its ow
       await expect(row).toHaveCSS('min-height', `${expected.height}px`);
       await expect(row).toHaveCSS('column-gap', `${expected.gap}px`);
       await expect(row).toHaveCSS('padding-top', `${expected.padding}px`);
+      const navigation = mobileHome(page).locator('.mh-tabbar');
+      await navigation.screenshot({ path: info.outputPath(`${platform}-${density}-navigation.png`) });
+      const tabHeight = (await navigation.locator('.mh-tab').first().boundingBox())!.height;
+      expect(tabHeight).toBeGreaterThanOrEqual(44);
+      if (platform === 'ios') {
+        // Check the rendered height: a min-height alone cannot constrain an
+        // oversized icon/label/padding stack in the compact layout.
+        expect(tabHeight).toBeLessThanOrEqual({ compact: 50, standard: 53, comfortable: 61 }[density]);
+      } else {
+        expect(tabHeight).toBeCloseTo(density === 'comfortable' ? 64 : 57.2, 0);
+      }
+      const navBox = (await navigation.boundingBox())!;
+      expect(navBox.y + navBox.height).toBeCloseTo(844, 0);
+      // Android reserves its inset in the native window, not again in CSS.
+      expect(navBox.height - tabHeight).toBeCloseTo(platform === 'android' ? 1 : 35, 0);
     }
     await page.reload(); await expect(mobileHome(page)).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
@@ -56,6 +72,45 @@ for (const platform of ['web', 'android', 'ios']) test(`${platform} keeps its ow
     await expect(bot.locator('.profile-avatar').first()).toHaveCSS('width', `${compact.avatar}px`);
     await expect(bot.locator('.mh-row-title')).toHaveCSS('font-size', `${compact.title}px`);
     await page.screenshot({ path: info.outputPath(`${platform}-bots-compact.png`), animations: 'disabled' });
+    if (platform === 'ios') {
+      // Small/large phones and a short split window use their actual inset,
+      // with no fixed safe-area subtraction to hide the bottom whitespace.
+      for (const [width, height, bottom] of [[320, 568, 0], [375, 812, 34], [393, 852, 34], [430, 932, 34], [466, 678, 34], [600, 400, 21]]) {
+        await page.setViewportSize({ width, height });
+        await page.evaluate(inset => document.documentElement.style.setProperty('--safe-area-inset-bottom', `${inset}px`), bottom);
+        const nav = mobileHome(page).locator('.mh-tabbar');
+        await expect.poll(async () => {
+          const settled = (await nav.boundingBox())!;
+          return Math.round(settled.y + settled.height);
+        }).toBe(height);
+        const box = (await nav.boundingBox())!;
+        expect(box.y + box.height).toBeCloseTo(height, 0);
+        for (const tab of await nav.locator('.mh-tab').all()) {
+          const target = (await tab.boundingBox())!;
+          expect(target.height).toBeGreaterThanOrEqual(44);
+          expect(target.y + target.height).toBeCloseTo(height - bottom, 0);
+          expect(await tab.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight)).toBe(true);
+        }
+        await nav.getByRole('button', { name: '我的', exact: true }).click();
+        await expect(mobileHome(page)).toHaveAttribute('data-tab', 'me');
+        await nav.getByRole('button', { name: 'Bot', exact: true }).click();
+        await expect(bot).toBeVisible();
+      }
+      await page.setViewportSize({ width: 320, height: 568 });
+      await openSettings(page);
+      await page.getByLabel('语言', { exact: true }).selectOption('en');
+      await closeSettings(page, true); await openMobileHome(page);
+      const navigation = mobileHome(page).locator('.mh-tabbar');
+      await expect(navigation.locator('.mh-tab-label').first()).toHaveText('Message');
+      // A larger accessibility label must grow the row instead of being
+      // clipped by a fixed height or spilling into the gesture area.
+      await page.addStyleTag({ content: '.mobile-home .mh-tab-label { font-size: 24px !important; }' });
+      for (const tab of await navigation.locator('.mh-tab').all()) {
+        expect(await tab.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight)).toBe(true);
+        const label = (await tab.locator('.mh-tab-label').boundingBox())!;
+        expect(label.y + label.height).toBeLessThanOrEqual(568 - 21);
+      }
+    }
   } finally { await page.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
 });
 
