@@ -9,11 +9,27 @@ function fixture(options = {}) {
   Object.assign(window, { webContents: Object.assign(new EventEmitter(), { send: (...value) => events.push(['send', ...value]) }),
     isDestroyed: () => false, isMinimized: () => false, show: () => events.push(['show']), focus: () => events.push(['focus']), hide: () => events.push(['hide']) });
   let created = 0, initialized = false;
-  const lifecycle = installDesktopLifecycle({ app, Menu: { buildFromTemplate: value => value, setApplicationMenu() {} }, globalShortcut: { unregisterAll() {} }, dialog: { showMessageBoxSync: () => 0, showMessageBox: async () => events.push(['update-blocked']) } },
+  const lifecycle = installDesktopLifecycle({ app, Menu: { buildFromTemplate: value => value, setApplicationMenu: value => events.push(['menu', value]) }, globalShortcut: { unregisterAll() {} }, dialog: { showMessageBoxSync: () => 0, showMessageBox: async () => events.push(['update-blocked']) } },
     { ...options, addon: { initializeNotifications: () => { initialized = true; }, notificationActivationArgs: () => assert.equal(initialized, true) },
       createWindow: async options => { created++; window.options = options; return window; } });
   return { app, window, events, lifecycle, created: () => created, initialized: () => initialized };
 }
+for (const locale of ['zh-CN', 'en-US']) test(`Windows menus keep native editing and window actions with consistent ${locale} labels`, async () => {
+  const f = fixture({ platform: 'win32' }); f.app.getLocale = () => locale;
+  await f.lifecycle.start();
+  const menu = f.events.find(event => event[0] === 'menu')[1];
+  assert.deepEqual(menu.map(item => item.label), locale === 'zh-CN' ? ['文件', '编辑', '视图', '窗口'] : ['File', 'Edit', 'View', 'Window']);
+  const actions = menu.flatMap(item => item.submenu).filter(item => item.type !== 'separator');
+  assert.equal(actions.some(item => ['zoom', 'front', 'hide'].includes(item.role)), false, 'macOS-only roles must not become dead Windows actions');
+  for (const role of ['undo', 'redo', 'cut', 'copy', 'paste', 'pasteAndMatchStyle', 'selectAll', 'close', 'togglefullscreen', 'minimize']) {
+    const item = actions.find(item => item.role === role);
+    assert.ok(item, `${role} remains a native action with its keyboard shortcut`);
+    assert.ok(item.label);
+    assert.equal(/[\u4e00-\u9fff]/u.test(item.label), locale === 'zh-CN');
+    assert.equal(item.click, undefined, 'native roles must not be replaced with custom renderer actions');
+  }
+});
+
 test('close hides one persistent window; cold links survive until renderer asks for them', async () => {
   const f = fixture(); assert.equal(f.initialized(), true);
   f.app.emit('open-url', { preventDefault() {} }, 'tarocub://conversation/c1');

@@ -17,10 +17,12 @@ export async function createDesktopWindow({ assets, preload, nativeConfig, parti
   if (await desktopSession.protocol.isProtocolHandled('tarobot-widget')) desktopSession.protocol.unhandle('tarobot-widget');
   desktopSession.protocol.handle('tarobot', assetHandler(assets, url => net.fetch(url)));
   desktopSession.protocol.handle('tarobot-widget', assetHandler(assets, url => net.fetch(url), { widget: true }));
-  const title = process.platform === 'win32' ? `TaroBird ${electron.app.getVersion()}` : 'TaroBird';
+  const title = 'TaroBird';
   // Electron's y is the top of the 14px controls, not the legacy Tauri anchor.
   // Centre them at y=28, alongside the 56px sidebar brand row.
   const window = new BrowserWindow({ title, width: 1200, height: 820, minWidth: 600, minHeight: 480,
+    // Keep Windows' native caption controls; reveal the menu only with Alt.
+    autoHideMenuBar: process.platform === 'win32',
     show: false, backgroundColor: '#f6f6f6', ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 21 } } : {}),
     webPreferences: { ...secureWebPreferences(preload, desktopSession), devTools: !production, backgroundThrottling: false } });
   secureContents(window.webContents);

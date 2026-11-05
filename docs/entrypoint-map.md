@@ -68,6 +68,14 @@ headless CLI are unaffected. The service/lifecycle regression and Electron
 native-image checks cover routing, image decoding and scale representations;
 native Windows taskbar appearance remains a separate acceptance check.
 
+The Windows main window keeps native caption controls and shows only the
+TaroBird title. Its menu bar is hidden by default and available with Alt;
+`electron/lifecycle.mjs` supplies consistently localized Windows menu labels
+while preserving native editing/window roles and accelerators. macOS/Linux
+menu layouts and headless CLI behavior are unchanged. Lifecycle tests cover
+both menu languages; Windows native Alt/menu and caption appearance require
+separate installed-device acceptance.
+
 Before connecting a legacy profile, `legacy-reader.mjs` launches the read-only
 WKWebView/WebView2 exporter (`src-tauri/legacy/`), main authenticates its logical
 snapshot, and `DesktopMigrationGate.tsx` imports it into Chromium. The source

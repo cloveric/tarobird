@@ -1,7 +1,7 @@
 /** Application lifetime is independent of its visible window and the Host.
  * Closing hides the main window; quitting retires the desktop bridge while the
  * canonical detached Host follows its existing service lifecycle. */
-export function installDesktopLifecycle(electron, { createWindow, addon, icon, production = false, updating = () => false, prepareQuit, quitCancelled = () => {}, stopSharing = () => {} }) {
+export function installDesktopLifecycle(electron, { createWindow, addon, icon, production = false, platform = process.platform, updating = () => false, prepareQuit, quitCancelled = () => {}, stopSharing = () => {} }) {
   const { app, Menu, Tray, nativeImage, globalShortcut, dialog } = electron;
   // Register before ready: cold-start notification activation must not be lost.
   addon?.initializeNotifications();
@@ -83,20 +83,32 @@ export function installDesktopLifecycle(electron, { createWindow, addon, icon, p
   handleArgs(process.argv);
   const start = async () => {
     if (icon) {
-      const size = process.platform === 'darwin' ? 22 : 18;
+      const size = platform === 'darwin' ? 22 : 18;
       const image = nativeImage.createFromPath(icon).resize({ width: size, height: size });
       if (!image.isEmpty()) {
-        if (process.platform === 'darwin') image.setTemplateImage(true);
+        if (platform === 'darwin') image.setTemplateImage(true);
         tray = new Tray(image); tray.setToolTip('TaroBird');
         trayMenu();
         tray.on('click', () => void show());
       }
     }
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
-      { label: app.getLocale().startsWith('en') ? 'File' : '文件', submenu: [{ role: 'close' }] },
+    const english = app.getLocale().startsWith('en');
+    const item = (role, en, zh) => ({ role, label: english ? en : zh });
+    // Windows' generated role menus use English labels even when our File and
+    // View menus are Chinese. Explicit labels retain the native role shortcuts.
+    Menu.setApplicationMenu(Menu.buildFromTemplate(platform === 'win32' ? [
+      { label: english ? 'File' : '文件', submenu: [item('close', 'Close window', '关闭窗口')] },
+      { label: english ? 'Edit' : '编辑', submenu: [item('undo', 'Undo', '撤销'), item('redo', 'Redo', '重做'), { type: 'separator' },
+        item('cut', 'Cut', '剪切'), item('copy', 'Copy', '复制'), item('paste', 'Paste', '粘贴'),
+        item('pasteAndMatchStyle', 'Paste and match style', '粘贴并匹配样式'), item('delete', 'Delete', '删除'),
+        { type: 'separator' }, item('selectAll', 'Select all', '全选')] },
+      { label: english ? 'View' : '视图', submenu: [item('togglefullscreen', 'Toggle full screen', '切换全屏')] },
+      { label: english ? 'Window' : '窗口', submenu: [item('minimize', 'Minimize', '最小化'), item('close', 'Close window', '关闭窗口')] },
+    ] : [
+      ...(platform === 'darwin' ? [{ role: 'appMenu' }] : []),
+      { label: english ? 'File' : '文件', submenu: [{ role: 'close' }] },
       { role: 'editMenu' },
-      { label: app.getLocale().startsWith('en') ? 'View' : '视图', submenu: [{ role: 'togglefullscreen' }] },
+      { label: english ? 'View' : '视图', submenu: [{ role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
     ]));
     if (production) {
