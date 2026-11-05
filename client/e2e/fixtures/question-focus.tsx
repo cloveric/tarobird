@@ -17,7 +17,7 @@ const connection = {
 } as unknown as HubConnection;
 const data: QuestionData = {
   version: 1, requestId: "focus-fixture", questions: [
-    { header: "第一题", question: "输入第一项", required: true, multiSelect: false, allowFreeText: true, options: [] },
+    { header: "第一题", question: "请再打开 https://example.test/login/device，输入新代码 `DEMO-CODE` 并完成授权。", required: true, multiSelect: false, allowFreeText: true, options: [] },
     { header: "第二题", question: "输入第二项", required: true, multiSelect: false, allowFreeText: true, options: [] },
   ],
 };

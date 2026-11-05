@@ -8,6 +8,40 @@ const rich = `[reference][source]\n\n${long}\n| Item | Value |\n|---|---|\n| Com
 const cjkConclusion = "因此，16日报备到18日报备，确实有约2个工作日的排程缓冲。";
 const cjkReply = `**${cjkConclusion}**这是后续正文。\n\n所以，**11月9日作为内部控制底线有依据；后段有缓冲。**这样既能保住26日。`;
 
+test("CJK URL boundaries survive worker updates and question-card clicks on phone and desktop", async ({ page, context }, info) => {
+  const server = await createServer({ server: { port: 0, strictPort: false, host: "127.0.0.1" } }); await server.listen();
+  const url = "https://example.test/login/device";
+  // Only synthetic pages: observe the actual click destination without opening
+  // a live authorization flow or sending any user data to an external service.
+  await context.route("https://example.test/**", route => route.fulfill({ body: "Link destination fixture" }));
+  try {
+    for (const width of [390, 1360]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/markdown.html");
+      for (const suffix of ["", "，", "，输入新代码", "，输入新代码 `DEMO-CODE` 并完成授权。"]) {
+        await page.evaluate(text => (window as unknown as { setMarkdown(text: string): void }).setMarkdown(text), "请再打开 " + url + suffix);
+        const link = page.getByRole("link", { name: url, exact: true });
+        await expect(link).toHaveAttribute("href", url);
+        await expect(page.locator(".markdown")).toHaveText("请再打开 " + url + suffix.replaceAll("`", ""));
+      }
+      await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/question-focus.html");
+      await page.addStyleTag({ content: "body{margin:0;padding:16px;font:16px/1.7 sans-serif}*{box-sizing:border-box}.native-question{max-width:650px}" });
+      const question = page.getByRole("region", { name: "回答问题", exact: true });
+      const link = question.getByRole("link", { name: url, exact: true });
+      await expect(link).toHaveAttribute("href", url);
+      await expect(question.locator(".markdown")).toHaveText("请再打开 " + url + "，输入新代码 DEMO-CODE 并完成授权。");
+      await expect(question.locator("code")).toHaveText("DEMO-CODE");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: info.outputPath(`question-link-${width}.png`), animations: "disabled" });
+      const popupPromise = page.waitForEvent("popup");
+      await link.click();
+      const popup = await popupPromise;
+      await expect(popup).toHaveURL(url);
+      await popup.close();
+    }
+  } finally { await page.close(); await server.close(); }
+});
+
 test("CJK punctuation beside strong markers preserves formatting and literal boundaries", async () => {
   const parse = async (text: string) => (await parseMarkdownChunks(text)).map(value => JSON.parse(value));
   const elements = (nodes: any[], tag: string): any[] => nodes.flatMap(node => [...(node.tagName === tag ? [node] : []), ...elements(node.children ?? [], tag)]);

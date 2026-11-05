@@ -2946,6 +2946,11 @@ and the existing network/run/delete suites listed in that audit.
   streaming text. This is App rendering only; stored text and CLI output stay
   unchanged. Parser and Worker regressions live in browser `markdown`.
   [Currency typography and compatibility](client/markdown-currency-2026-10-17.md).
+  `markdown-link-boundaries.ts` separates CJK sentence punctuation and following
+  prose from GFM bare web links before URL encoding. Explicit Markdown targets,
+  Unicode URL letters, encoded punctuation and code retain their meaning.
+  Question cards share this parser. Tests: `client/tests/markdown-links.test.ts`
+  and browser `markdown`. [Link boundary verification](client/markdown-link-boundaries-2026-11-05.md).
   ES-module Worker chunks
   are included in the offline precache. Browser tests: `markdown-dependencies`, `markdown`,
   `markdown-worker-lifecycle`, `markdown-recovery`, `markdown-recovery-app`,
