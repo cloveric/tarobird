@@ -3311,6 +3311,34 @@
       "reviewer": "codex",
       "method": "generated-from-reviewed-source",
       "note": "Reviewed generated red/white numeric badge atlas (1 through 99 and 99+), source generator, existing Sarasa font, deterministic regeneration and empty PNG metadata. No account, device or conversation content."
+    },
+    {
+      "path": "assets/product/bot-team-en.png",
+      "sha256": "5d6542e04490de7fed3fc82f20fa835fce01743739169c19be2f0055a64777c9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Authored bilingual collaboration diagram with fictional roles; no live-run claim or private identifiers."
+    },
+    {
+      "path": "assets/product/bot-team-zh.png",
+      "sha256": "f6a9fec3bbad43a2735b079b0123bb69eebf3b52bf13c1ca38b7a3aa4e0c09fd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Authored bilingual collaboration diagram with fictional roles; no live-run claim or private identifiers."
+    },
+    {
+      "path": "assets/product/bot-permissions-en.png",
+      "sha256": "3ee773377696215ce40de09e7627976ba5f2fe5f7482e013aba2c6497028e804",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Actual settings UI using disposable Hosts and fictional names; no model execution, real accounts, addresses or private identifiers."
+    },
+    {
+      "path": "assets/product/bot-permissions-zh.png",
+      "sha256": "c155910984371488b0f092702b25345c52b261edd31b9818d67f46aa91b15894",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Actual settings UI using disposable Hosts and fictional names; no model execution, real accounts, addresses or private identifiers."
     }
   ]
 }

@@ -94,20 +94,31 @@ TaroBird 是一款自托管的 AI 智能体工作空间。它把电脑或服务�
 - **讨论方式可选。** 支持普通群聊、并行回复、轮流讨论与独立评议。自动讨论可设置发言顺序和轮数，并可暂停、恢复或结束。
 
 <a id="bot-network"></a>
-<h3 align="center">Bot 互相通信 · 跨电脑一起完成任务</h3>
-<p align="center">让一个 Bot 向另一个 Bot 求助、传递文件，再带回结果。<br>更多电脑可以带着自己的 Bot，加入同一个私有网络。</p>
+<h3 align="center">Bot 联机协作 · 让多台电脑成为一个团队</h3>
+<p align="center">把目标交给一个 Bot，让不同电脑上的 Bot 各展所长。<br>任务、文件与结果在 Bot 之间传递，每台机器执行自己的分工。</p>
 
 <p align="center">
-  <a href="assets/product/bot-network-zh.png"><img src="assets/product/bot-network-zh.png" width="100%" alt="Bot 协作示意：Mac 上的研究与写作 Bot 同机协作，向 Windows 审阅 Bot 传递任务和文件、带回结果；另一台电脑带着自己的 Bot 加入私有网络。"></a>
+  <a href="assets/product/bot-team-zh.png"><img src="assets/product/bot-team-zh.png" width="100%" alt="Mac 上的协调 Bot 向 Windows 的构建、审阅 Bot 和服务器的研究、分析 Bot 分配任务并收回结果；已授权的 Bot 也可以在机器之间直接接力。"></a>
 </p>
-<p align="center"><sub>协作关系示意 · 每次委托均需具备相应授权 · Bot 在各自所属主机上执行 · <a href="assets/product/bot-network-zh.png">点击查看大图</a></sub></p>
+<p align="center"><sub>消息协作方式示意，并非实时运行画面 · 每个发任务的方向均需授权</sub></p>
 
-- **Bot 之间互相协作。** 在同一台主机上，让研究 Bot 把资料交给写作 Bot，或让编程 Bot 找审阅 Bot 复核。默认使用独立的协作对话，保留任务和回复记录。
-- **其他主机带着 Bot 加入。** 在要加入的电脑上连接已有主机，再到 **设置 → 网络与连接 → 我的网络** 确认加入。已授权的电脑和手机就能访问它的 Bot；Bot、对话和文件仍保存在原来的主机上。
-- **不同主机之间接力。** 对 Mac 上的 Bot 说：“把这份报告交给 Windows 电脑的审阅 Bot，再把意见和文件带回来。”两端处于同一私有网络、在线且互相可达时，已授权的 Bot 可传递任务、文字、文件和回复。
-- **由你决定谁能通信。** 同机权限在 **设置 → Bot 消息授权** 中管理；跨主机权限由拥有者在接收方主机通过 CLI 授予。加入网络本身不会自动开放 Bot 间通信。[授权与命令](docs/details.zh-CN.md#bot-给-bot-派任务支持跨主机) · [组网设置](docs/details.zh-CN.md#私有网络)
+> “让 Windows 上的 Bot 构建并测试这次改动，让服务器上的 Bot 分析数据，最后把各自的报告和文件汇总回来。”
 
-Agent Bus 流程和群组成员仍限定在同一主机内；跨主机接力使用 Bot 消息功能。
+- **一个 Bot，协调多台机器。** 在一次任务里，告诉一个 Bot 哪部分交给哪台主机上的 Bot。它作为统一入口，逐一取回回复，再汇总结果。接收方通过自己主机上的引擎，在各自权限范围内执行。
+- **机器之间，也能互相协作。** 审阅 Bot 可以向研究 Bot 索取背景，编程 Bot 可以把改动交给测试 Bot。同机和跨主机沿用同一套消息流程，不一定需要一个中心 Bot。
+- **新电脑带着自己的 Bot 加入。** 在要加入的电脑上连接已有主机，再到 **设置 → 网络与连接 → 我的网络** 确认加入。已授权的电脑和手机可以访问它的 Bot；任务交接时，各主机需要在线且互相可达。
+- **分工过程有记录。** 独立协作对话保留任务与回复，接收方能看到来源主机和 Bot。交接的文件会复制到接收主机；加入网络不会合并工作区，也不会自动开放所有 Bot 的访问权限。
+
+**由你决定谁能通信。** 目前同机权限在 **设置 → Bot 消息授权** 中管理；跨主机权限由接收方主机的拥有者执行 `tarobot messages allow`（[说明](docs/details.zh-CN.md#bot-给-bot-派任务支持跨主机)）。下一版起，同一页面新增 **跨主机** 标签，选择来源主机/Bot 与本机接收 Bot，再按方向允许或撤销。加入网络与消息授权分开确认；返回原任务结果无需反向授权。
+
+<p align="center">
+  <a href="assets/product/bot-permissions-zh.png"><img src="assets/product/bot-permissions-zh.png" width="85%" alt="真实跨主机授权设置：工作室 Mac 的统筹助手获准向构建电脑上的构建与测试 Bot 发送消息，接收主机拥有者可以撤销授权。"></a>
+</p>
+<p align="center"><sub>App 授权界面为当前源码预览，将随下一版发布 · 隔离主机上的真实设置与签名授权，使用虚构演示数据，未运行模型 · 已发布版本仍可通过 <a href="docs/details.zh-CN.md#bot-给-bot-派任务支持跨主机">CLI 授权</a></sub></p>
+
+这已经可以作为“一个 Bot 统筹、多台机器分工”或“Bot 彼此协作”的基础。自动选择机器、跨机调度和统一工单跟踪，是可以继续探索的方向，目前还没有内置这些能力。**当前 Agent Bus、群组与幕僚长工单派发仍限定在本机**；跨主机协作通过 Bot 直接消息完成。
+
+[授权与恢复](docs/client/cross-host-message-permissions.md) · [组网设置](docs/details.zh-CN.md#私有网络) · [命令与投递规则](docs/details.zh-CN.md#bot-给-bot-派任务支持跨主机)
 
 <a id="conversation-features"></a>
 <h3 align="center">讨论、可视化与审阅</h3>

@@ -469,6 +469,9 @@ links per README resolved, and the four raw-image hashes matched the manifest.
 
 ## Bot network illustration — 2026-11-05
 
+Superseded by the Connected Bots showcase below; no longer linked from the
+README. The following notes record the earlier illustration.
+
 `bot-network-en.png` and `bot-network-zh.png` illustrate same-host Bot
 collaboration, cross-host task/file/reply handoffs and another computer joining
 with its own Bots. They appear in the existing Bot network section after Groups,
@@ -491,3 +494,52 @@ are 2240 × 1560 pixels. Exact reviewed hashes are recorded in
 
 Documentation only: App, Host and CLI behavior and versions are unchanged;
 no release or installation is performed.
+
+## Connected Bots showcase — 2026-11-05
+
+`bot-team-en.png` and `bot-team-zh.png` expand the existing Bot network section
+with an illustrated task: a coordinating Bot collects work from Windows and
+server Bots, while authorized peers can also hand work to one another. They
+replace the section's inline diagram; the earlier `bot-network` illustrations
+are retained as historical assets but no longer linked from the chapter. The
+chapter stays after Groups, with the hero and chapter order unchanged. Task splitting is specified by the user. Automatic host selection,
+cross-host scheduling and shared ticket tracking are future possibilities;
+Agent Bus, groups and Chancellor ticket dispatch remain host-local.
+
+The diagrams use fictional roles, local Instrument Sans and the macOS PingFang
+SC fallback. Generate the 2240 × 1840 PNGs with:
+
+```sh
+node scripts/render-readme-bot-team.mjs /path/to/documentation-output
+```
+
+`bot-permissions-en.png` and `bot-permissions-zh.png` show the real settings
+interface from current source, labelled as a preview for the next release.
+`capture-readme-bot-permissions.mjs` creates two disposable Hosts, pairs the
+browser with both, uses a synthetic signed network membership, submits a real
+owner-signed grant through the unchanged App UI and verifies the receiving
+Host's saved grant. Studio Mac / Build PC and their Bots are fictional. No
+engine or model runs, and no production state, account or conversation is read.
+The screenshots capture only the settings dialog and exclude pairing data,
+addresses and generated identities. They use ordinary saved appearance
+preferences, not screenshot-specific CSS. Exact source/client and screenshot
+hashes are recorded in `bot-permissions-capture.json`; `sourceDirty` reflects the
+documentation changes present during capture.
+
+Build the Host and client first, install the client's Playwright Chromium, and
+use an isolated temporary directory (on the external disk on the owner's Mac):
+
+```sh
+npm run build
+npm --prefix client run build
+TMPDIR=/path/to/isolated-temp node scripts/capture-readme-bot-permissions.mjs /path/to/documentation-output
+```
+
+Both settings images are 1720 × 1280 pixels. This is browser/isolated-Host
+verification, not installed-App, physical cross-machine or real-model acceptance.
+All four images require exact-byte visual review and a matching entry in
+`.privacy-reviewed-media.json`. The documentation and capture helpers accompany
+a presentation fix that keeps underlying content from showing or receiving clicks below the sticky permission
+notice. Authorization and Host behavior are unchanged; CLI changes are not
+applicable to this display fix. No installer, version change or release is
+performed.

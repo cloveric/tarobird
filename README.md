@@ -94,20 +94,31 @@ TaroBird is a self-hosted workspace for AI agents. It brings command-line agents
 - **Choose a discussion mode.** Use group chat, parallel replies, roundtable or independent review. Automatic discussions support speaking order and round limits, with controls to pause, resume or end a discussion.
 
 <a id="bot-network"></a>
-<h3 align="center">Bot-to-Bot communication · Work together across computers</h3>
-<p align="center">Let one Bot ask another for help, send a file and bring back the result.<br>Connect more computers to your private network, each with its own Bots.</p>
+<h3 align="center">Connected Bots · One team across your computers</h3>
+<p align="center">Give one Bot a goal. Let authorized Bots on other computers contribute their part.<br>Tasks, files and results travel between Bots; each machine runs its own work.</p>
 
 <p align="center">
-  <a href="assets/product/bot-network-en.png"><img src="assets/product/bot-network-en.png" width="100%" alt="Bot collaboration: research and writing Bots share one Mac; tasks and files go to a Windows review Bot and feedback returns; another computer joins the private network with its own Bots."></a>
+  <a href="assets/product/bot-team-en.png"><img src="assets/product/bot-team-en.png" width="100%" alt="A coordinating Bot on a Mac delegates to build and review Bots on Windows and research and analysis Bots on a server. Results return to the coordinator; authorized peers can also hand work to each other."></a>
 </p>
-<p align="center"><sub>Illustrative workflow · Each handoff requires permission · Bots execute on their own hosts · <a href="assets/product/bot-network-en.png">Full-size diagram</a></sub></p>
+<p align="center"><sub>Illustrative messaging pattern, not a live run · Each task direction needs permission</sub></p>
 
-- **Bots can talk to one another.** On the same host, ask a research Bot to hand its findings to a writing Bot, or a coding Bot to request a review. Tasks and replies stay in dedicated collaboration conversations by default.
-- **Bring another host's Bots into the network.** On the joining computer, connect to an existing host and confirm joining under **Settings → Network & connections → My network**. Its Bots become accessible from authorized desktop and phone clients; Bots, conversations and files remain on their owning host.
-- **Hand work across computers.** Ask the Bot on your Mac: “Send this report to the review Bot on my Windows PC and bring back its feedback and file.” Authorized Bots exchange tasks, text, files and replies while both hosts are online and reachable in the same private network.
-- **Choose who can communicate.** Manage same-host access in **Settings → Bot message permissions**. Cross-host access is granted by the owner through the CLI on the receiving host; joining the network alone does not grant Bot-to-Bot access. [Permissions and commands](docs/details.md#bot-to-bot-tasks-across-hosts) · [Network setup](docs/details.md#private-network)
+> “Ask the Windows Bot to build and test this change, and the server Bot to analyze the data. Bring their reports and files back here.”
 
-Agent Bus workflows and group membership remain within one host; direct Bot messages provide the cross-host handoff.
+- **One Bot can coordinate several machines.** In one task, tell a Bot which parts to send to which hosts. It acts as your point of contact, collects those replies and combines the results. Each receiving Bot works through its own engine and permissions on its host.
+- **Peers can help one another.** A review Bot can ask a research Bot for context, or a coding Bot can hand a change to a test Bot. The same message flow works within one host and across hosts; a central Bot is optional.
+- **Bring another computer's Bots into the team.** Connect the joining computer to an existing host, then confirm joining under **Settings → Network & connections → My network**. Authorized desktop and phone clients can access its Bots. Hosts must be online and mutually reachable for a handoff.
+- **Keep the work traceable.** Dedicated collaboration conversations retain tasks and replies, and the recipient sees the source host and Bot. Files you hand off are copied to the receiving host; joining a network does not merge workspaces or grant access to every Bot.
+
+**Choose who can communicate.** Today, manage same-host access in **Settings → Bot message permissions**; for cross-host access, the receiving host’s owner uses `tarobot messages allow` ([guide](docs/details.md#bot-to-bot-tasks-across-hosts)). In the next release, that screen adds a **Cross-host** tab to select a source host/Bot and receiving Bot, then allow or revoke by direction. Joining the network does not authorize messages. Replies to the original task do not need a reverse grant.
+
+<p align="center">
+  <a href="assets/product/bot-permissions-en.png"><img src="assets/product/bot-permissions-en.png" width="85%" alt="Actual cross-host message permission settings: Studio Mac's Coordinator is allowed to contact Build PC's Build and test Bot; the receiving owner can revoke the permission."></a>
+</p>
+<p align="center"><sub>App permission UI: current-source preview for the next release · Real settings and signed authorization with disposable hosts and fictional data; no model ran · Existing releases retain <a href="docs/details.md#bot-to-bot-tasks-across-hosts">CLI authorization</a></sub></p>
+
+This is a foundation for a coordinating Bot or a network of collaborating peers. Automatic host selection, cross-host scheduling and shared ticket tracking are future possibilities, not built-in capabilities today. **Agent Bus, groups and Chancellor ticket dispatch currently stay within one host**; cross-host work uses direct Bot messages.
+
+[Permissions and recovery](docs/client/cross-host-message-permissions.md) · [Network setup](docs/details.md#private-network) · [Commands and delivery guarantees](docs/details.md#bot-to-bot-tasks-across-hosts)
 
 <a id="conversation-features"></a>
 <h3 align="center">Discuss, visualize and review</h3>

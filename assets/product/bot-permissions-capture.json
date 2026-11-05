@@ -1,0 +1,88 @@
+{
+  "format": 1,
+  "kind": "documentation-fixture",
+  "sourceRevision": "7a18692146610f9cf1fc8f15c4dc78b4f6e120b8",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-CGpBt9zw.js",
+    "sha256": "eaf5536c5f48f79358f289d1a58a8138e501bb89f2b04172747bd1db1bbe57db",
+    "indexSha256": "9d6851f844137654dd657fb4132a8dbedebaa660a276f4e95baf623e6ba86e5d"
+  },
+  "notes": "Real App settings and signed permission changes against disposable Hosts. Fictional names; no model execution or physical-network acceptance.",
+  "captures": [
+    {
+      "file": "bot-permissions-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1360,
+        "height": 980
+      },
+      "scale": 2,
+      "kind": "real-settings-dialog",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "sha256": "3ee773377696215ce40de09e7627976ba5f2fe5f7482e013aba2c6497028e804"
+    },
+    {
+      "file": "bot-permissions-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1360,
+        "height": 980
+      },
+      "scale": 2,
+      "kind": "real-settings-dialog",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "sha256": "c155910984371488b0f092702b25345c52b261edd31b9818d67f46aa91b15894"
+    }
+  ]
+}

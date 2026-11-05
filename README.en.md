@@ -10,7 +10,7 @@ The English overview is now the main [README](README.md). It is kept current the
 - [An assistant for your assistant](docs/details.md#an-assistant-for-your-assistant): let Dot, Grok or another assistant with host command access use TaroBird through its CLI
 - [Downloads](https://github.com/cloveric/tarobird/releases): future packages; this new repository has no Release yet. Existing installers remain in the [private archive](https://github.com/cloveric/tarobot/releases)
 - [ADHD workspace](README.md#adhd-workspace): desktop multi-conversation board, independent inputs and display settings
-- [Bot-to-Bot tasks](docs/details.md#bot-to-bot-tasks-across-hosts): authorization, commands and source-only availability
+- [Connected Bots](README.md#bot-network): same-host teamwork, cross-host delegation and permission management
 - [Bot isolation and sharing](docs/details.md#bot-isolation-and-sharing): conversation context, shared persona and files, session recovery and access boundaries
 - [Product guide](docs/product-guide.md): flows, setting scopes, sync and current limitations
 - [Remote phone access](docs/client/remote-access.en.md): Agent setup, manual VPS relay deployment and phone routes

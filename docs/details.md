@@ -124,7 +124,7 @@ Use current App and host releases across participating devices. Joining a comput
 
 **Available since App 1.0.83 / CLI 0.1.431.** Use a current matching release on both hosts and the calling CLI; the feature minimum is not a recommendation to install an older runtime. Database schema support is declared in each package and release note. Follow the [upgrade instructions](host-cli-update.md); do not open an upgraded database with the old runtime.
 
-Same-host permissions can be managed in **Settings → Bot message permissions** (phone: **Me → Settings → Bot message permissions**). Cross-host grants still require the owner to run this in a registered CLI terminal **on the recipient's host**:
+Same-host permissions are managed in **Settings → Bot message permissions** (phone: **Me → Settings**). Current source also adds a **Cross-host** scope on the receiving host: choose the source host/Bot and local recipient, then allow or revoke. This App UI is awaiting the next release; its [workflow and recovery rules](client/cross-host-message-permissions.md) share the existing grant records. Released versions can continue to authorize through a registered CLI terminal **on the recipient's host**:
 
 ```sh
 tarobot messages allow --from "Mac mini/SOURCE_BOT_ID" --bot "Reviewer" --json
