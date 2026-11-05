@@ -1,0 +1,111 @@
+/* Dedicated data colours follow the theme and its optional Monochrome accent.
+   Four stable slots match report.chart.values (max 4). Keep these available to
+   both fixed reports and sandboxed widgets. Keep the bare-root fallback aligned
+   with DEFAULT_PALETTE (mono), including initial widget token discovery.
+   Dark/system resolve through CSS,
+   so a theme change never recreates a report or resets its selection. */
+:root, :root[data-palette="mono"] {
+  --chart-series-1-light:#171717; --chart-series-2-light:#858585; --chart-series-3-light:#2f2f2f; --chart-series-4-light:#656565;
+  --chart-series-1-dark:#eeeeee; --chart-series-2-dark:#747474; --chart-series-3-dark:#cbcbcb; --chart-series-4-dark:#909090;
+}
+:root[data-palette="white-violet"] {
+  --chart-series-1-light:#54488d; --chart-series-2-light:#9d5366; --chart-series-3-light:#7a87b3; --chart-series-4-light:#20766c;
+  --chart-series-1-dark:#dbbcff; --chart-series-2-dark:#d98a9f; --chart-series-3-dark:#ccd8f0; --chart-series-4-dark:#6ebeb4;
+}
+:root[data-palette="white-blue"] {
+  --chart-series-1-light:#305795; --chart-series-2-light:#2d867e; --chart-series-3-light:#9483b7; --chart-series-4-light:#906740;
+  --chart-series-1-dark:#6da2e2; --chart-series-2-dark:#6fcfba; --chart-series-3-dark:#c3bdfc; --chart-series-4-dark:#d8ae86;
+}
+:root[data-palette="white-green"] {
+  --chart-series-1-light:#05623f; --chart-series-2-light:#75802a; --chart-series-3-light:#327f98; --chart-series-4-light:#bb7c63;
+  --chart-series-1-dark:#71ba82; --chart-series-2-dark:#cfde88; --chart-series-3-dark:#7dc9e7; --chart-series-4-dark:#daa98d;
+}
+:root[data-palette="white-rose"] {
+  --chart-series-1-light:#934460; --chart-series-2-light:#a17f9b; --chart-series-3-light:#96681a; --chart-series-4-light:#4f6d82;
+  --chart-series-1-dark:#db8397; --chart-series-2-dark:#e1bfe7; --chart-series-3-dark:#d9af6c; --chart-series-4-dark:#80b3d2;
+}
+:root[data-palette="white-orange"] {
+  --chart-series-1-light:#693900; --chart-series-2-light:#91813a; --chart-series-3-light:#8c5360; --chart-series-4-light:#448695;
+  --chart-series-1-dark:#f6bc76; --chart-series-2-dark:#a79e50; --chart-series-3-dark:#dc97aa; --chart-series-4-dark:#7fd1e6;
+}
+:root[data-palette="sage"] {
+  --chart-series-1-light:#055d54; --chart-series-2-light:#6a7a28; --chart-series-3-light:#4f7696; --chart-series-4-light:#ae7562;
+  --chart-series-1-dark:#57b39d; --chart-series-2-dark:#b7d893; --chart-series-3-dark:#92c2f0; --chart-series-4-dark:#dca48f;
+}
+:root[data-palette="ocean"] {
+  --chart-series-1-light:#205376; --chart-series-2-light:#338582; --chart-series-3-light:#9f7529; --chart-series-4-light:#89648d;
+  --chart-series-1-dark:#a7defa; --chart-series-2-dark:#61b8b1; --chart-series-3-dark:#d9c18a; --chart-series-4-dark:#cea7e0;
+}
+:root[data-palette="cli"] {
+  --chart-series-1-light:#25633f; --chart-series-2-light:#887a1b; --chart-series-3-light:#407895; --chart-series-4-light:#8b514d;
+  --chart-series-1-dark:#97d6a3; --chart-series-2-dark:#be9c4a; --chart-series-3-dark:#82bae3; --chart-series-4-dark:#ecb3a7;
+}
+/* One accent-led main series, with three stable neutral references. Graphite
+   and no accent share the same grayscale data. Concrete hex values also work
+   with older token-aware guests and avoid colour-format surprises in scripts. */
+:root[data-palette="mono"][data-mono-accent="graphite"] {
+  --chart-series-1-light:#171717; --chart-series-1-dark:#eeeeee;
+  --data-soft-light:#e8e8e8; --data-soft-dark:#313131;
+}
+:root[data-palette="mono"][data-mono-accent="warm-gray"] {
+  --chart-series-1-light:#554c42; --chart-series-1-dark:#b9ad9d;
+  --data-soft-light:#f0ede9; --data-soft-dark:#2d2a27;
+}
+:root[data-palette="mono"][data-mono-accent="mist"] {
+  --chart-series-1-light:#3b5779; --chart-series-1-dark:#8dacd2;
+  --data-soft-light:#ebeef2; --data-soft-dark:#272a2e;
+}
+:root[data-palette="mono"][data-mono-accent="sage"] {
+  --chart-series-1-light:#465d38; --chart-series-1-dark:#99b389;
+  --data-soft-light:#ecefeb; --data-soft-dark:#282b27;
+}
+:root[data-palette="mono"][data-mono-accent="rose"] {
+  --chart-series-1-light:#75483e; --chart-series-1-dark:#cf9b8f;
+  --data-soft-light:#f1edec; --data-soft-dark:#2e2928;
+}
+:root[data-palette="mono"][data-mono-accent="oat"] {
+  --chart-series-1-light:#695129; --chart-series-1-dark:#bfa57b;
+  --data-soft-light:#f0eeea; --data-soft-dark:#2c2a26;
+}
+:root[data-palette="mono"][data-mono-accent="mauve"] {
+  --chart-series-1-light:#5c4c73; --chart-series-1-dark:#b1a0cc;
+  --data-soft-light:#efedf1; --data-soft-dark:#2b292e;
+}
+/* Data-only roles: never change global App chrome, chat or semantic status.
+   One tone identifies the main series, headline and data-widget primary action
+   in both modes; it meets text as well as graphical contrast requirements. */
+:root[data-palette="mono"]:is([data-mono-accent="graphite"],[data-mono-accent="warm-gray"],[data-mono-accent="mist"],[data-mono-accent="sage"],[data-mono-accent="rose"],[data-mono-accent="oat"],[data-mono-accent="mauve"]) {
+  --data-accent-light:var(--chart-series-1-light);
+  --data-accent-dark:var(--chart-series-1-dark);
+  --data-primary-light:var(--chart-series-1-light);
+  --data-primary-dark:var(--chart-series-1-dark);
+}
+:root {
+  --data-accent:var(--data-accent-light,var(--accent));
+  --data-primary-bg:var(--data-primary-light,var(--primary-bg));
+  --data-accent-soft:var(--data-soft-light,var(--accent-soft));
+  --chart-series-1:var(--chart-series-1-light);
+  --chart-series-2:var(--chart-series-2-light);
+  --chart-series-3:var(--chart-series-3-light);
+  --chart-series-4:var(--chart-series-4-light);
+}
+:root[data-theme="dark"] {
+  --data-accent:var(--data-accent-dark,var(--accent));
+  --data-primary-bg:var(--data-primary-dark,var(--primary-bg));
+  --data-accent-soft:var(--data-soft-dark,var(--accent-soft));
+  --chart-series-1:var(--chart-series-1-dark);
+  --chart-series-2:var(--chart-series-2-dark);
+  --chart-series-3:var(--chart-series-3-dark);
+  --chart-series-4:var(--chart-series-4-dark);
+}
+@media (prefers-color-scheme:dark) {
+  :root[data-theme="system"] {
+    --data-accent:var(--data-accent-dark,var(--accent));
+    --data-primary-bg:var(--data-primary-dark,var(--primary-bg));
+    --data-accent-soft:var(--data-soft-dark,var(--accent-soft));
+    --chart-series-1:var(--chart-series-1-dark);
+    --chart-series-2:var(--chart-series-2-dark);
+    --chart-series-3:var(--chart-series-3-dark);
+    --chart-series-4:var(--chart-series-4-dark);
+  }
+}

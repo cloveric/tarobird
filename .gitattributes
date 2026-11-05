@@ -1,0 +1,22 @@
+* text=auto
+*.bat text eol=crlf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.jar binary
+*.zip binary
+
+# Keep third-party license notices verbatim, including their line endings/spaces.
+client/licenses/excalidraw/*.txt -text whitespace=-blank-at-eol
+
+# Pinned upstream bytes (including PDF string spaces) must hash identically on every OS.
+client/vendor/baoyu-design/** -text whitespace=-blank-at-eol linguist-vendored
+client/vendor/baoyu-slides/** -text whitespace=-blank-at-eol linguist-vendored
+skills/baoyu-*/references/** -text whitespace=-blank-at-eol
+skills/baoyu-*/NOTICE.md -text whitespace=-blank-at-eol
+skills/baoyu-*/LICENSE -text whitespace=-blank-at-eol

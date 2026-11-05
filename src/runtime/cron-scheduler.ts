@@ -1,0 +1,647 @@
+import { Cron } from "croner";
+
+import { appendAuditEvent } from "../state/audit-log.js";
+import { appendTimelineEventBestEffort } from "./timeline-events.js";
+import type { CronJobRecord } from "../state/cron-store-schema.js";
+import type { CronStore } from "../state/cron-store.js";
+import { isCronAccessDeniedError } from "./cron-errors.js";
+
+async function appendAuditEventBestEffort(
+  stateDir: string,
+  event: Parameters<typeof appendAuditEvent>[1],
+): Promise<void> {
+  try {
+    await appendAuditEvent(stateDir, event);
+  } catch {
+    // Best-effort audit. Cron must keep running even if disk is full.
+  }
+}
+
+export interface CronExecutionLifecycle {
+  /** Await the returned function on queue admission, before any side effects. */
+  deferTimeoutUntilStarted(): () => Promise<void>;
+}
+export type CronExecutor = (job: CronJobRecord, abortSignal?: AbortSignal, lifecycle?: CronExecutionLifecycle) => Promise<void>;
+class CronSchedulerStoppedError extends Error {
+  constructor() { super("cron scheduler stopped"); this.name = "CronSchedulerStoppedError"; }
+}
+export type CronFailureHandler = (job: CronJobRecord, error: string) => Promise<void>;
+
+export interface CronSchedulerOptions {
+  store: CronStore;
+  executor: CronExecutor;
+  /** Queued executors must await the lifecycle admission callback themselves. */
+  executorManagesAdmission?: boolean;
+  stateDir: string;
+  instanceName?: string;
+  logger?: Pick<Console, "error" | "warn">;
+  timeoutMsPerMinute?: number;
+  onJobFailure?: CronFailureHandler;
+}
+
+interface RunningJob {
+  stop: () => void;
+}
+
+const SHUTDOWN_DRAIN_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
+const RUN_ONCE_MISSED_GRACE_MS = 60 * 60_000;
+
+/**
+ * Validates a cron expression by attempting to construct a paused Cron instance.
+ * Returns the next-fire date if valid, or null if invalid.
+ */
+export function validateCronExpression(expr: string, timezone?: string): Date | null {
+  if (expr.trim().split(/\s+/).length !== 5) {
+    return null;
+  }
+  try {
+    const probe = new Cron(expr, { paused: true, timezone });
+    const next = probe.nextRun();
+    probe.stop();
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+export class CronScheduler {
+  private readonly running = new Map<string, RunningJob>();
+  private readonly inFlight = new Set<Promise<void>>();
+  private readonly activeJobIds = new Set<string>();
+  private readonly deferredOneShots = new Set<string>();
+  private readonly inFlightByJobId = new Map<string, AbortController>();
+  // Admission storage failures must not turn unrelated refreshes into retries.
+  // Keep the one-shot unconsumed; a manual run, explicit revision, or a new
+  // scheduler may retry. This also works when the failure cannot be persisted.
+  private readonly waitingForRetry = new Map<string, string>();
+  private readonly store: CronStore;
+  private readonly executor: CronExecutor;
+  private readonly executorManagesAdmission: boolean;
+  private readonly stateDir: string;
+  private readonly instanceName?: string;
+  private readonly logger: Pick<Console, "error" | "warn">;
+  private readonly timeoutMsPerMinute: number;
+  private readonly onJobFailure?: CronFailureHandler;
+  private stopped = false;
+  private admissionPaused = false;
+  private refreshRevision = 0;
+
+  constructor(options: CronSchedulerOptions) {
+    this.store = options.store;
+    this.executor = options.executor;
+    this.executorManagesAdmission = options.executorManagesAdmission ?? false;
+    this.stateDir = options.stateDir;
+    this.instanceName = options.instanceName;
+    this.logger = options.logger ?? console;
+    this.timeoutMsPerMinute = options.timeoutMsPerMinute ?? 60_000;
+    this.onJobFailure = options.onJobFailure;
+  }
+
+  /** Load all jobs from the store and schedule the enabled ones. */
+  async start(): Promise<void> {
+    if (this.stopped) {
+      throw new Error("CronScheduler has already been stopped");
+    }
+    for (const job of await this.store.recoverRunOnceExecutions()) {
+      await appendTimelineEventBestEffort(this.stateDir, {
+        type: "cron.skipped", instanceName: this.instanceName, channel: job.channel,
+        chatId: job.chatId, userId: job.userId, outcome: "skipped", detail: job.lastError,
+        metadata: { cronJobId: job.id, reason: "execution_unconfirmed", claimId: job.runOnceExecution?.id },
+      });
+    }
+    await this.refresh();
+  }
+
+  /**
+   * Re-read the store and reconcile in-memory schedules with persisted state.
+   * Use this after CRUD operations from the helper server / Telegram commands.
+   */
+  async refresh(): Promise<void> {
+    if (this.stopped || this.admissionPaused) {
+      return;
+    }
+    const revision = ++this.refreshRevision;
+    const retryRevisions = new Map(this.waitingForRetry);
+    const jobs = await this.store.list();
+    if (this.stopped || this.admissionPaused || revision !== this.refreshRevision) return;
+    const seen = new Set<string>();
+    for (const job of jobs) {
+      seen.add(job.id);
+      if (job.enabled) {
+        this.scheduleJob(job);
+      } else {
+        this.isWaitingForRetry(job);
+        this.unscheduleJob(job.id);
+      }
+    }
+    for (const [id, retryRevision] of retryRevisions) {
+      if (!seen.has(id) && this.waitingForRetry.get(id) === retryRevision) this.waitingForRetry.delete(id);
+    }
+    for (const id of [...this.running.keys()]) {
+      if (!seen.has(id)) {
+        this.unscheduleJob(id);
+      }
+    }
+  }
+
+  scheduleJob(job: CronJobRecord): void {
+    if (this.stopped || this.admissionPaused) {
+      return;
+    }
+    this.unscheduleJob(job.id);
+    if (this.isWaitingForRetry(job)) return;
+    if (job.runOnce) {
+      this.scheduleRunOnceJob(job);
+      return;
+    }
+    if (validateCronExpression(job.cronExpr, job.timezone) === null) {
+      // Disable rather than silently skip: an invalid expression never fires, so leaving
+      // the job "enabled" hides a dead reminder (the user thinks it's set). Disabling
+      // surfaces it as ✗ in /cron list so it's visible and removable.
+      this.logger.warn(`cron: disabling job ${job.id} with invalid expression "${job.cronExpr}"`);
+      if (job.enabled) {
+        void this.store.update(job.id, { enabled: false }, job.updatedAt).catch(() => {});
+      }
+      return;
+    }
+    const cron = new Cron(job.cronExpr, { timezone: job.timezone }, () => {
+      void this.runJob(job.id).catch((error) => this.reportSchedulerFailure(job.id, error));
+    });
+    this.running.set(job.id, { stop: () => cron.stop() });
+  }
+
+  unscheduleJob(id: string): void {
+    const entry = this.running.get(id);
+    if (!entry) {
+      return;
+    }
+    entry.stop();
+    this.running.delete(id);
+  }
+
+  /**
+   * Stop all timers and wait up to {@link SHUTDOWN_DRAIN_TIMEOUT_MS} for
+   * currently-running jobs to finish. Pending fires are dropped.
+   */
+  async stop(): Promise<void> {
+    this.stopped = true;
+    for (const id of [...this.running.keys()]) {
+      this.unscheduleJob(id);
+    }
+    for (const controller of this.inFlightByJobId.values()) {
+      controller.abort(new CronSchedulerStoppedError());
+    }
+    if (this.inFlight.size === 0) {
+      return;
+    }
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...this.inFlight]),
+        new Promise<void>((resolve) => {
+          drainTimer = setTimeout(resolve, SHUTDOWN_DRAIN_TIMEOUT_MS);
+          drainTimer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (drainTimer) {
+        clearTimeout(drainTimer);
+      }
+    }
+  }
+
+  /** Manually trigger a job by id. Used by `/cron run` and tests. */
+  async runJobNow(id: string): Promise<void> {
+    return this.runJob(id, "manual");
+  }
+
+  /** @internal — number of jobs currently scheduled (testing). */
+  countScheduled(): number {
+    return this.running.size;
+  }
+
+  /** Maintenance pauses future fires without aborting a running job. */
+  pauseAdmission(): void {
+    this.admissionPaused = true; this.refreshRevision++;
+    for (const id of [...this.running.keys()]) this.unscheduleJob(id);
+  }
+  async resumeAdmission(): Promise<void> { this.admissionPaused = false; await this.refresh(); }
+  activeCount(): number { return this.activeJobIds.size; }
+
+  private async runJob(id: string, trigger: "scheduled" | "manual" = "scheduled"): Promise<void> {
+    if (this.stopped || this.admissionPaused) {
+      return;
+    }
+    if (this.activeJobIds.has(id)) {
+      await this.appendSkippedAlreadyRunning(id);
+      return;
+    }
+    this.activeJobIds.add(id);
+    let trackedStarted = false;
+    try {
+      const job = await this.store.get(id);
+      if (!job) {
+        this.waitingForRetry.delete(id);
+        this.unscheduleJob(id);
+        return;
+      }
+      if (!job.enabled) {
+        this.waitingForRetry.delete(id);
+        return;
+      }
+      if (trigger === "manual") this.waitingForRetry.delete(id);
+      else if (this.isWaitingForRetry(job)) return;
+      if (this.stopped || this.admissionPaused) {
+        return;
+      }
+
+      const ranAt = new Date().toISOString();
+      await appendTimelineEventBestEffort(this.stateDir, {
+        type: "cron.triggered",
+        instanceName: this.instanceName,
+        channel: job.channel,
+        chatId: job.chatId,
+        userId: job.userId,
+        metadata: {
+          cronJobId: job.id,
+          cronExpr: job.cronExpr,
+          timezone: job.timezone,
+          sessionMode: job.sessionMode,
+          mute: job.mute,
+        },
+      });
+
+      // Logging is asynchronous. A maintenance pause may have arrived while
+      // the timeline write was waiting on disk; do not admit work afterward.
+      if (this.stopped || this.admissionPaused) return;
+
+      const controller = new AbortController();
+      this.inFlightByJobId.set(id, controller);
+      const tracked = this.executeWithTracking(job, controller, trigger);
+      trackedStarted = true;
+      let executionPending = true, bookkeepingPending = true;
+      let bookkeepingDone!: () => void;
+      const bookkeeping = new Promise<void>(resolve => { bookkeepingDone = resolve; });
+      const release = () => {
+        if (executionPending || bookkeepingPending) return;
+        this.activeJobIds.delete(id);
+        if (this.inFlightByJobId.get(id) === controller) {
+          this.inFlightByJobId.delete(id);
+        }
+        if (this.deferredOneShots.delete(id)) {
+          void this.rearmDeferredOneShot(id).catch(error => this.reportSchedulerFailure(id, error));
+        }
+      };
+      const execution = tracked.finished.catch(() => undefined).finally(() => { executionPending = false; release(); });
+      const finished = Promise.all([execution, bookkeeping]).then(() => { this.inFlight.delete(finished); });
+      this.inFlight.add(finished);
+      try {
+        let executionError: unknown;
+        try {
+          await tracked.reported;
+        } catch (error) {
+          executionError = error;
+        }
+        const admissionConflict = !tracked.started() && executionError instanceof Error && executionError.message === "schedule_conflict";
+
+        if (controller.signal.reason instanceof CronSchedulerStoppedError) {
+          // Shutdown is an interruption, not evidence that a scheduled task is
+          // defective. Do not increment failures or auto-disable recurring jobs.
+          await appendTimelineEventBestEffort(this.stateDir, {
+            type: "cron.skipped", instanceName: this.instanceName, channel: job.channel,
+            chatId: job.chatId, userId: job.userId, outcome: "skipped",
+            detail: "scheduler stopped", metadata: { cronJobId: job.id, reason: "scheduler_stopped", started: tracked.started() },
+          });
+          const claim = tracked.job().runOnceExecution;
+          if (tracked.started() && claim) await this.store.markRunOnceUnconfirmed(id, claim.id);
+        } else if (admissionConflict) {
+          await appendTimelineEventBestEffort(this.stateDir, {
+            type: "cron.skipped", instanceName: this.instanceName, channel: job.channel,
+            chatId: job.chatId, userId: job.userId, outcome: "skipped",
+            metadata: { cronJobId: job.id, reason: "schedule_conflict" },
+          });
+        } else if (executionError === undefined) {
+          await this.recordRunBestEffort(tracked.job(), { success: true, ranAt });
+          await appendTimelineEventBestEffort(this.stateDir, {
+            type: "cron.completed",
+            instanceName: this.instanceName,
+            channel: job.channel,
+            chatId: job.chatId,
+            userId: job.userId,
+            outcome: "success",
+            metadata: { cronJobId: job.id },
+          });
+        } else {
+          const detail = executionError instanceof Error ? executionError.message : String(executionError);
+          const unstartedOneShot = job.runOnce && !tracked.started();
+          const message = unstartedOneShot && tracked.admissionRequested()
+            ? `未执行，等待重试：${detail}` : detail;
+          if (unstartedOneShot) {
+            this.waitingForRetry.set(id, job.updatedAt);
+            this.unscheduleJob(id);
+          }
+          const accessDenied = isCronAccessDeniedError(executionError);
+          this.logger.error(`cron: job ${id} failed: ${message}`);
+          const failedRecord = await this.recordRunBestEffort(tracked.job(), {
+            success: false,
+            error: message,
+            ranAt,
+            failedBeforeAdmission: !tracked.admissionRequested(),
+          });
+          if (unstartedOneShot && failedRecord) {
+            if (failedRecord.enabled) this.waitingForRetry.set(id, failedRecord.updatedAt);
+            else this.waitingForRetry.delete(id);
+          }
+          if (failedRecord?.runOnce && !failedRecord.enabled) this.unscheduleJob(id);
+          await appendTimelineEventBestEffort(this.stateDir, {
+            type: "cron.completed",
+            instanceName: this.instanceName,
+            channel: job.channel,
+            chatId: job.chatId,
+            userId: job.userId,
+            outcome: "error",
+            detail: message,
+            metadata: { cronJobId: job.id },
+          });
+          if (failedRecord && accessDenied) {
+            await this.disableAfterFailures(
+              failedRecord,
+              "cron job disabled because the target chat is no longer authorized",
+              "access_denied",
+            );
+          } else if (failedRecord && !failedRecord.runOnce && failedRecord.failureCount >= failedRecord.maxFailures) {
+            await this.disableAfterFailures(failedRecord);
+          }
+          await appendAuditEventBestEffort(this.stateDir, {
+            type: "cron.failed",
+            instanceName: this.instanceName,
+            chatId: job.chatId,
+            userId: job.userId,
+            outcome: "error",
+            detail: message,
+            metadata: { cronJobId: job.id },
+          });
+          if (!accessDenied) {
+            await this.notifyJobFailure(job, message);
+          }
+        }
+      } finally {
+        bookkeepingPending = false;
+        release();
+        bookkeepingDone();
+      }
+    } catch (error) {
+      await this.reportSchedulerFailure(id, error);
+    } finally {
+      if (!trackedStarted) {
+        this.activeJobIds.delete(id);
+      }
+    }
+  }
+
+  private async rearmDeferredOneShot(id: string): Promise<void> {
+    const revision = this.refreshRevision;
+    const job = await this.store.get(id);
+    if (this.stopped || this.admissionPaused || revision !== this.refreshRevision || this.activeJobIds.has(id)) return;
+    // A revised reminder can become due while the previous execution still owns
+    // the slot. Re-read it after release; never replay a claimed or disabled run.
+    if (job?.enabled && job.runOnce && !job.runOnceExecution) this.scheduleJob(job);
+  }
+
+  private isWaitingForRetry(job: CronJobRecord): boolean {
+    const revision = this.waitingForRetry.get(job.id);
+    if (revision === undefined) return false;
+    // A late refresh may contain a snapshot older than failure bookkeeping.
+    // Only a newer persisted revision is evidence of an explicit user change.
+    if (Date.parse(job.updatedAt) <= Date.parse(revision)) return true;
+    this.waitingForRetry.delete(job.id);
+    return false;
+  }
+
+  private async appendSkippedAlreadyRunning(id: string): Promise<void> {
+    const job = await this.store.get(id);
+    await appendTimelineEventBestEffort(this.stateDir, {
+      type: "cron.skipped",
+      instanceName: this.instanceName,
+      channel: job?.channel ?? "telegram",
+      chatId: job?.chatId,
+      userId: job?.userId,
+      outcome: "skipped",
+      detail: "cron job is already running",
+      metadata: { cronJobId: id, reason: "already_running" },
+    });
+  }
+
+  private async recordRunBestEffort(
+    job: CronJobRecord,
+    result: Parameters<CronStore["recordRun"]>[1],
+  ): Promise<CronJobRecord | null> {
+    try {
+      return await this.store.recordRun(job.id, { ...result, ranAt: job.runOnceExecution?.startedAt ?? result.ranAt, claimId: job.runOnceExecution?.id }, job.updatedAt);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`cron: failed to record run for job ${job.id}: ${detail}`);
+      await appendAuditEventBestEffort(this.stateDir, {
+        type: "cron.bookkeeping_failed",
+        instanceName: this.instanceName,
+        chatId: job.chatId,
+        userId: job.userId,
+        outcome: "error",
+        detail,
+        metadata: {
+          cronJobId: job.id,
+          operation: "record_run",
+          executionSucceeded: result.success,
+        },
+      });
+      return null;
+    }
+  }
+
+  private async reportSchedulerFailure(id: string, error: unknown): Promise<void> {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.logger.error(`cron: scheduler failed for job ${id}: ${detail}`);
+    await appendAuditEventBestEffort(this.stateDir, {
+      type: "cron.scheduler_failed",
+      instanceName: this.instanceName,
+      outcome: "error",
+      detail,
+      metadata: { cronJobId: id },
+    });
+  }
+
+  private async notifyJobFailure(job: CronJobRecord, message: string): Promise<void> {
+    if (!this.onJobFailure) {
+      return;
+    }
+    try {
+      await this.onJobFailure(job, message);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`cron: failed to notify job ${job.id} failure: ${detail}`);
+      await appendTimelineEventBestEffort(this.stateDir, {
+        type: "cron.failure_notification_failed",
+        instanceName: this.instanceName,
+        channel: job.channel,
+        chatId: job.chatId,
+        userId: job.userId,
+        outcome: "error",
+        detail,
+        metadata: { cronJobId: job.id },
+      });
+    }
+  }
+
+  private async disableAfterFailures(
+    job: CronJobRecord,
+    detail = `cron job disabled after ${job.failureCount} consecutive failure(s)`,
+    reason = "max_failures",
+  ): Promise<void> {
+    try {
+      await this.store.update(job.id, { enabled: false }, job.updatedAt);
+      await this.refresh();
+      await appendTimelineEventBestEffort(this.stateDir, {
+        type: "cron.disabled_after_failures",
+        instanceName: this.instanceName,
+        channel: job.channel,
+        chatId: job.chatId,
+        userId: job.userId,
+        outcome: "disabled",
+        detail,
+        metadata: {
+          cronJobId: job.id,
+          failureCount: job.failureCount,
+          maxFailures: job.maxFailures,
+          reason,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "schedule_conflict") return;
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`cron: failed to disable job ${job.id} after max failures: ${detail}`);
+      await appendTimelineEventBestEffort(this.stateDir, {
+        type: "cron.disabled_after_failures",
+        instanceName: this.instanceName,
+        channel: job.channel,
+        chatId: job.chatId,
+        userId: job.userId,
+        outcome: "error",
+        detail: `failed to disable cron job after max failures: ${detail}`,
+        metadata: {
+          cronJobId: job.id,
+          failureCount: job.failureCount,
+          maxFailures: job.maxFailures,
+        },
+      });
+    }
+  }
+
+  private scheduleRunOnceJob(job: CronJobRecord): void {
+    if (!job.targetAt) {
+      this.logger.warn(`cron: skipping one-shot job ${job.id} without targetAt`);
+      return;
+    }
+    const targetMs = new Date(job.targetAt).getTime();
+    if (Number.isNaN(targetMs)) {
+      this.logger.warn(`cron: skipping one-shot job ${job.id} with invalid targetAt "${job.targetAt}"`);
+      return;
+    }
+    const overdueMs = Date.now() - targetMs;
+    if (overdueMs > RUN_ONCE_MISSED_GRACE_MS) {
+      void this.markRunOnceMissed(job, overdueMs);
+      return;
+    }
+    const delay = Math.max(0, targetMs - Date.now());
+    const timer = setTimeout(() => {
+      if (delay > MAX_TIMEOUT_DELAY_MS) {
+        this.scheduleJob(job);
+        return;
+      }
+      if (this.activeJobIds.has(job.id)) this.deferredOneShots.add(job.id);
+      void this.runJob(job.id).catch((error) => this.reportSchedulerFailure(job.id, error));
+    }, Math.min(delay, MAX_TIMEOUT_DELAY_MS));
+    timer.unref?.();
+    this.running.set(job.id, { stop: () => clearTimeout(timer) });
+  }
+
+  private async markRunOnceMissed(job: CronJobRecord, overdueMs: number): Promise<void> {
+    const message = `missed scheduled run after downtime (${Math.round(overdueMs / 60_000)} minutes late)`;
+    const ranAt = new Date().toISOString();
+    try {
+      const failed = await this.store.recordRun(job.id, { success: false, error: message, ranAt }, job.updatedAt);
+      if (!failed) return;
+      await this.store.update(job.id, { enabled: false }, failed.updatedAt);
+      await appendTimelineEventBestEffort(this.stateDir, {
+        type: "cron.skipped",
+        instanceName: this.instanceName,
+        channel: job.channel,
+        chatId: job.chatId,
+        userId: job.userId,
+        outcome: "error",
+        detail: message,
+        metadata: {
+          cronJobId: job.id,
+          reason: "missed_run_once",
+          overdueMs,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "schedule_conflict") return;
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`cron: failed to mark one-shot job ${job.id} as missed: ${detail}`);
+    }
+    // A reminder the user asked for silently vanishing is the worst outcome:
+    // they think it is still armed. Tell them through the same channel a job
+    // failure uses (which already honors job.mute / job.silent), AFTER the
+    // store/timeline bookkeeping so a delivery failure cannot lose the record.
+    await this.notifyJobFailure(job, message);
+  }
+
+  private executeWithTracking(
+    job: CronJobRecord,
+    controller: AbortController,
+    trigger: "scheduled" | "manual",
+  ): { reported: Promise<void>; finished: Promise<void>; started: () => boolean; admissionRequested: () => boolean; job: () => CronJobRecord } {
+    const timeoutMs = job.timeoutMins > 0 ? job.timeoutMins * this.timeoutMsPerMinute : 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let started = false;
+    let executionJob = job;
+    let starting: Promise<void> | undefined;
+    let rejectReported!: (error: unknown) => void;
+    const start = (): Promise<void> => starting ??= (async () => {
+      controller.signal.throwIfAborted();
+      if (job.runOnce) {
+        executionJob = await this.store.claimRunOnce(job.id, job.updatedAt, trigger, controller.signal);
+        if (controller.signal.aborted) {
+          await this.store.releaseUnstartedRunOnce(job.id, executionJob.runOnceExecution!.id, executionJob.updatedAt);
+          controller.signal.throwIfAborted();
+        }
+      }
+      started = true;
+      if (job.runOnce) this.unscheduleJob(job.id);
+      if (timeoutMs > 0) timer = setTimeout(() => {
+        const error = new Error(`cron job timed out after ${job.timeoutMins} minute(s)`);
+        controller.abort(error); rejectReported(error);
+      }, timeoutMs);
+    })();
+    const execution = Promise.resolve().then(async () => {
+      controller.signal.throwIfAborted();
+      if (!this.executorManagesAdmission) await start();
+      await this.executor(job, controller.signal, {
+        deferTimeoutUntilStarted: () => start,
+      });
+      if (job.runOnce && !started) {
+        throw new Error("cron job was not executed: executor returned without queue admission");
+      }
+    });
+    const reported = new Promise<void>((resolve, reject) => {
+      rejectReported = reject;
+      const onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+      const cleanup = () => { if (timer) clearTimeout(timer); controller.signal.removeEventListener("abort", onAbort); };
+      execution.then(value => { cleanup(); resolve(value); }, error => { cleanup(); reject(error); });
+    });
+    return { reported, finished: execution, started: () => started, admissionRequested: () => starting !== undefined, job: () => executionJob };
+  }
+}

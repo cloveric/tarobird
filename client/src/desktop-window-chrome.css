@@ -1,0 +1,49 @@
+/* macOS desktop: the content runs under a transparent title bar. The traffic
+   lights sit in the sidebar's top row (Electron trafficLightPosition 18,21: 14px buttons from x 18 to 77, centred 28px down), so reserve
+   their room wherever the window's top-left corner is something else. Full
+   screen hides them. */
+:root[data-window-chrome=mac-overlay]:not([data-window-fullscreen]){--window-controls-width:88px}
+/* The viewer normally lets blank toolbar areas pass through to the image.
+   Only its visible action row becomes a Mac drag target, not export feedback
+   or the fading gradient below it. Fullscreen keeps the image gesture surface. */
+:root[data-window-chrome=mac-overlay]:not([data-window-fullscreen]) .image-preview-lightbox:not([data-controls=hidden])>.image-preview-toolbar>.image-preview-actions{pointer-events:auto}
+/* At the minimum sidebar width the native buttons leave less room for the
+   wordmark; ellipsize its flex item before it can paint over Agent Bus. */
+:root[data-window-chrome=mac-overlay] .sidebar>.brand .wordmark-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
+@media(min-width:761px){
+  :root[data-window-chrome=mac-overlay]:not([data-window-fullscreen]) :is(.app-shell,.adhd-shell)>.sidebar>.brand{padding-left:calc(var(--window-controls-width) - 10px)}
+  :root[data-window-chrome=mac-overlay]:not([data-window-fullscreen]) .image-preview-toolbar{padding-left:var(--window-controls-width)}
+}
+/* Narrow desktops hide the sidebar while details are open; the header takes the corner. */
+@media(min-width:761px) and (max-width:1100px){
+  :root[data-window-chrome=mac-overlay]:not([data-window-fullscreen]) .host-workspace>.app-shell:has(>.conversation-details)>.conversation-main>.conversation-header{padding-left:var(--window-controls-width)}
+}
+/* The phone layout keeps the traffic lights (21-34px) in a strip above its headers via the shared top inset. */
+@media(max-width:760px){
+  :root[data-window-chrome=mac-overlay]:not([data-window-fullscreen]){--app-safe-top:40px}
+}
+/* Keep native regions local to window handles. Electron 44+ can subtract an
+   offscreen no-drag rectangle from a title bar even when a scroll container
+   clips it. Marking every history button no-drag therefore breaks dragging
+   after scrolling. Content outside a handle needs no region declaration. */
+:root[data-desktop-engine="electron"] [data-tauri-drag-region]:not([data-tauri-drag-region="false"]) { -webkit-app-region: drag; app-region: drag; }
+:root[data-desktop-engine="electron"] [data-tauri-drag-region]:not([data-tauri-drag-region="false"]) :is(button, input, textarea, select, a, summary, label, [role], [tabindex], [contenteditable], [data-tauri-drag-region="false"], .desktop-menu) { -webkit-app-region: no-drag; app-region: no-drag; }
+/* Full-page handles mark only their background; preserve text selection and
+   form interaction in their content. Deep title rows still include blank space. */
+:root[data-desktop-engine="electron"] [data-tauri-drag-region=""] > * { -webkit-app-region: no-drag; app-region: no-drag; }
+
+/* Fixed host notices overlap title-bar handles without being their children.
+   Native hit regions ignore z-index: exclude only the visible notice rectangle
+   so its close button and text work while the remaining title bar still drags.
+   A modal makes the notice inert; it must not cut into that modal's handles. */
+:root[data-desktop-engine="electron"]:not(:has(dialog:modal)) .host-error { -webkit-app-region: no-drag; app-region: no-drag; }
+
+/* Electron native hit regions do not follow HTML modal stacking. A modal
+   without window handles (settings, creation, reports, expanded widgets,
+   workbench dialogs) suspends every handle, including those of a lightbox
+   below it, so its title/controls remain usable over the main title bar. A
+   full-window lightbox keeps its own toolbar handle and suspends the rest.
+   Do not add viewport-sized no-drag rectangles; they can outlive clipping and
+   cover unrelated handles. */
+:root[data-desktop-engine="electron"]:has(dialog:modal:not(.lightbox)) [data-tauri-drag-region] { -webkit-app-region: initial; app-region: initial; }
+:root[data-desktop-engine="electron"]:has(dialog.lightbox:modal) [data-tauri-drag-region]:not(dialog.lightbox:modal [data-tauri-drag-region], dialog.lightbox:modal [data-tauri-drag-region] *) { -webkit-app-region: initial; app-region: initial; }

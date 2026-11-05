@@ -1,0 +1,218 @@
+{
+  "clientVersion": "1.1.0",
+  "sourceRevision": "a0411ba26bfac96a5372e1022d838447eaa584af",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-BYzlevgr.js",
+    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+  },
+  "captured": "2026-11-04T10:53:06.853Z",
+  "source": "Built shared client in two browser contexts (desktop and phone) paired with an isolated loopback Hub. Conversations are synthetic; the phone message is typed in the real composer and the single Bot reply comes from a scripted gateway bridge. No model call, approval, repository operation or native-device acceptance.",
+  "animations": [
+    {
+      "file": "inbox-demo-en.gif",
+      "locale": "en",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [],
+      "visibleAvatars": {
+        "desktopChats": [
+          "cream-bunny",
+          "mini-bluebird",
+          "mini-clownfish",
+          "mini-matcha",
+          "mini-octopus",
+          "pastel-fox",
+          "peach-patch-cat"
+        ],
+        "desktopBots": [
+          "cream-bunny",
+          "mini-bluebird",
+          "mini-clownfish",
+          "mini-matcha",
+          "mini-octopus",
+          "pastel-fox",
+          "peach-patch-cat"
+        ],
+        "phone": [
+          "cream-bunny",
+          "mini-bluebird",
+          "mini-clownfish",
+          "mini-matcha",
+          "mini-octopus",
+          "pastel-fox",
+          "peach-patch-cat"
+        ]
+      },
+      "duration": 12.96,
+      "fps": 10,
+      "size": {
+        "width": 1280,
+        "height": 650
+      },
+      "labelBand": 60,
+      "desktopRect": {
+        "x": 28,
+        "y": 60,
+        "w": 928,
+        "h": 557
+      },
+      "phoneRect": {
+        "x": 992,
+        "y": 60,
+        "w": 257,
+        "h": 557
+      },
+      "desktopViewport": {
+        "width": 1200,
+        "height": 720
+      },
+      "phoneViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenes": [
+        {
+          "at": 0,
+          "action": "Both devices show the conversation list (desktop Chats, phone Message)"
+        },
+        {
+          "at": 2.2,
+          "action": "Desktop: Bots"
+        },
+        {
+          "at": 4.67,
+          "action": "Desktop: Chats"
+        },
+        {
+          "at": 6.02,
+          "action": "Phone: open Launch plan"
+        },
+        {
+          "at": 7.41,
+          "action": "Phone: type and send a continuation"
+        },
+        {
+          "at": 9.04,
+          "action": "Desktop: the phone message arrives in the open conversation"
+        },
+        {
+          "at": 10.36,
+          "action": "Scripted Bot reply shown on both devices"
+        }
+      ],
+      "consoleErrors": 0,
+      "fixtureCapabilityProbes": {
+        "409 tasks": 2,
+        "503 steer": 2
+      },
+      "bytes": 1316194,
+      "sha256": "ea5a759e07c486b55ce0d7aa4de95b376582b78699ec54e614ae296c33cab338"
+    },
+    {
+      "file": "inbox-demo-zh.gif",
+      "locale": "zh",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [],
+      "visibleAvatars": {
+        "desktopChats": [
+          "cream-bunny",
+          "mini-bluebird",
+          "mini-clownfish",
+          "mini-matcha",
+          "mini-octopus",
+          "pastel-fox",
+          "peach-patch-cat"
+        ],
+        "desktopBots": [
+          "cream-bunny",
+          "mini-bluebird",
+          "mini-clownfish",
+          "mini-matcha",
+          "mini-octopus",
+          "pastel-fox",
+          "peach-patch-cat"
+        ],
+        "phone": [
+          "cream-bunny",
+          "mini-bluebird",
+          "mini-clownfish",
+          "mini-matcha",
+          "mini-octopus",
+          "pastel-fox",
+          "peach-patch-cat"
+        ]
+      },
+      "duration": 12.46,
+      "fps": 10,
+      "size": {
+        "width": 1280,
+        "height": 650
+      },
+      "labelBand": 60,
+      "desktopRect": {
+        "x": 28,
+        "y": 60,
+        "w": 928,
+        "h": 557
+      },
+      "phoneRect": {
+        "x": 992,
+        "y": 60,
+        "w": 257,
+        "h": 557
+      },
+      "desktopViewport": {
+        "width": 1200,
+        "height": 720
+      },
+      "phoneViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenes": [
+        {
+          "at": 0,
+          "action": "Both devices show the conversation list (desktop Chats, phone Message)"
+        },
+        {
+          "at": 2.2,
+          "action": "Desktop: 按 Bot"
+        },
+        {
+          "at": 4.63,
+          "action": "Desktop: 按对话"
+        },
+        {
+          "at": 5.98,
+          "action": "Phone: open 发布计划"
+        },
+        {
+          "at": 7.36,
+          "action": "Phone: type and send a continuation"
+        },
+        {
+          "at": 8.55,
+          "action": "Desktop: the phone message arrives in the open conversation"
+        },
+        {
+          "at": 9.86,
+          "action": "Scripted Bot reply shown on both devices"
+        }
+      ],
+      "consoleErrors": 0,
+      "fixtureCapabilityProbes": {
+        "409 tasks": 2,
+        "503 steer": 2
+      },
+      "bytes": 1271268,
+      "sha256": "3140ec91ee7e490131d5b347998a2f3c383558aee3a2b55102cbb1ded23cc702"
+    }
+  ]
+}

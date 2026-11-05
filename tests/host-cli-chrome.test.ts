@@ -1,0 +1,52 @@
+import { it, expect, vi } from "vitest";
+import { randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { runHostCli } from "../src/host-cli/cli.js";
+import { HostManagement } from "../src/host-cli/management.js";
+import { initializeHost } from "../src/host-cli/setup.js";
+import { LocalHostClient } from "../src/host-cli/client.js";
+import { startHubControl } from "../src/hub/service.js";
+import { HubServer } from "../src/hub/server.js";
+import { hashSecret } from "../src/hub/auth.js";
+import { attachGateway } from "../src/gateway/service.js";
+import { createCoreServiceRuntime } from "../src/core/runtime.js";
+
+it("CLI and App share owner-only Chrome settings, conflicts and audit without sending prompts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "chrome-cli-"));
+  await initializeHost(root, "Chrome fixture"); const hub = await HubServer.start({ stateDir: root });
+  const stateDir = path.join(root, "bot"); await mkdir(stateDir);
+  await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude", workspacePath: "/unchanged" }));
+  await writeFile(path.join(stateDir, "session.json"), "unchanged");
+  const secret = randomBytes(32).toString("base64url");
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('bot','Test',?)", [hashSecret(secret)]);
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('other','Other','unused')");
+  let engineCalls = 0;
+  const gateway = await attachGateway({ stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: "bot", engine: "claude", runtime: createCoreServiceRuntime(), bridge: { handleAuthorizedMessage: async () => { engineCalls++; return { text: "unused" }; } } });
+  const control = await startHubControl(root, { running: true, pid: process.pid, url: hub.url, instanceUrl: hub.instanceUrl, publicKey: hub.auth.publicKey }, () => {}, { enrollController: value => hub.enrollLocalController(value) });
+  const local = await LocalHostClient.connect(root, { enroll: true }), management = new HostManagement(local);
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const cli = (args: string[]) => runHostCli(["bots", "chrome", "bot", ...args, "--state-dir", root, "--json"]);
+  try {
+    await cli([]); const before = JSON.parse(log.mock.calls.at(-1)![0] as string); expect(before.enabled).toBe(false);
+    await expect(cli(["--enabled", "on"])).rejects.toThrow("--revision");
+    await expect(cli(["--enabled", "maybe", "--revision", before.revision])).rejects.toThrow("on 或 off");
+    await cli(["--enabled", "on", "--revision", before.revision]);
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string).enabled).toBe(true);
+    await expect(management.botChrome("bot", { enabled: false, revision: before.revision })).rejects.toThrow("chrome_conflict");
+    const current = await management.botChrome("bot");
+    await cli(["--enabled", "off", "--revision", current.revision]);
+    expect(await management.botChrome("bot")).toMatchObject({ enabled: false });
+    expect(await hub.store.db.get("SELECT COUNT(*) AS count FROM audit_log WHERE kind='bot.chrome_updated'")).toEqual({ count: 2 });
+    expect(JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8"))).toMatchObject({ engine: "claude", claudeChrome: false, workspacePath: "/unchanged" });
+    expect(await readFile(path.join(stateDir, "session.json"), "utf8")).toBe("unchanged");
+    expect((await fetch(`${hub.url}/api/bots/bot/chrome`)).status).toBe(401);
+    await expect(management.botChrome("missing")).rejects.toThrow("bot_forbidden");
+    await expect(management.botChrome("other")).rejects.toThrow("bot_offline");
+    await hub.store.db.run("UPDATE users SET role='member' WHERE id='owner'");
+    await expect(management.botChrome("bot")).rejects.toThrow();
+    await expect(management.botChrome("bot", { enabled: true, revision: current.revision })).rejects.toThrow();
+    expect(engineCalls).toBe(0); expect(await hub.store.db.get("SELECT COUNT(*) AS count FROM messages")).toEqual({ count: 0 });
+  } finally { log.mockRestore(); local.close(); await gateway.disconnect(); await control(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});

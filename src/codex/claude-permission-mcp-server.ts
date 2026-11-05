@@ -1,0 +1,175 @@
+import { z } from "zod";
+
+import { APPROVAL_BRIDGE_FETCH_TIMEOUT_MS } from "../core/shared/approval-timeouts.js";
+
+type JsonRpcRequest = {
+  jsonrpc?: string;
+  id?: string | number;
+  method?: string;
+  params?: {
+    name?: string;
+    arguments?: Record<string, unknown>;
+    protocolVersion?: string;
+  };
+};
+
+const ApprovalBridgeResponseSchema = z.object({
+  behavior: z.enum(["allow", "deny"]),
+  updatedInput: z.unknown().optional(),
+  message: z.string().optional(),
+}).passthrough();
+
+function sendResponse(id: string | number | undefined, result: Record<string, unknown>): void {
+  if (id === undefined) {
+    return;
+  }
+
+  process.stdout.write(JSON.stringify({
+    jsonrpc: "2.0",
+    id,
+    result,
+  }) + "\n");
+}
+
+function sendError(id: string | number | undefined, code: number, message: string): void {
+  if (id === undefined) {
+    return;
+  }
+
+  process.stdout.write(JSON.stringify({
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code,
+      message,
+    },
+  }) + "\n");
+}
+
+async function resolvePermission(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const approvalUrl = process.env.CCTB_CLAUDE_APPROVAL_URL;
+  if (!approvalUrl) {
+    return {
+      behavior: "deny",
+      message: "Approval bridge is not configured.",
+    };
+  }
+
+  try {
+    const response = await fetch(approvalUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(args),
+      signal: AbortSignal.timeout(APPROVAL_BRIDGE_FETCH_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return {
+        behavior: "deny",
+        message: `Approval bridge returned HTTP ${response.status}.`,
+      };
+    }
+
+    const payload = ApprovalBridgeResponseSchema.safeParse(await response.json());
+    if (payload.success) {
+      return payload.data;
+    }
+  } catch (error) {
+    return {
+      behavior: "deny",
+      message: error instanceof Error ? error.message : "Approval bridge failed.",
+    };
+  }
+
+  return {
+    behavior: "deny",
+    message: "Approval bridge returned an invalid response.",
+  };
+}
+
+async function handleRequest(message: JsonRpcRequest): Promise<void> {
+  if (message.method === "initialize") {
+    sendResponse(message.id, {
+      protocolVersion: message.params?.protocolVersion ?? "2025-11-25",
+      capabilities: {
+        tools: {},
+      },
+      serverInfo: {
+        name: "cctb_approval",
+        version: "1.0.0",
+      },
+    });
+    return;
+  }
+
+  if (message.method === "tools/list") {
+    sendResponse(message.id, {
+      tools: [
+        {
+          name: "approve",
+          description: "Ask the TaroCub Telegram chat to approve or deny a Claude Code tool call.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+            additionalProperties: true,
+          },
+        },
+      ],
+    });
+    return;
+  }
+
+  if (message.method === "tools/call") {
+    if (message.params?.name !== "approve") {
+      sendError(message.id, -32601, "Unknown tool");
+      return;
+    }
+
+    const args = message.params.arguments ?? {};
+    const decision = await resolvePermission(args);
+    sendResponse(message.id, {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(decision),
+        },
+      ],
+    });
+    return;
+  }
+
+  if (message.id !== undefined) {
+    sendError(message.id, -32601, "Method not found");
+  }
+}
+
+let buffer = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  if (Buffer.byteLength(buffer, "utf8") > 1_048_576 && !/[\r\n]/.test(buffer)) {
+    console.error("Claude permission MCP input line exceeded 1 MiB and was discarded.");
+    buffer = "";
+    return;
+  }
+  const lines = buffer.split(/\r?\n/);
+  buffer = lines.pop() ?? "";
+  for (const line of lines) {
+    if (Buffer.byteLength(line, "utf8") > 1_048_576) continue;
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    let message: JsonRpcRequest;
+    try {
+      message = JSON.parse(trimmed) as JsonRpcRequest;
+    } catch {
+      continue;
+    }
+    void handleRequest(message).catch((error) => {
+      sendError(message.id, -32603, error instanceof Error ? error.message : "Internal error");
+    });
+  }
+});

@@ -1,0 +1,31 @@
+.voice-transcript { min-width: 0; }
+.voice-transcript-preview {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  max-height: 8em;
+  overflow: hidden;
+}
+.voice-transcript-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--blue);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.voice-transcript-toggle:hover { background: var(--surface); }
+.voice-transcript-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.voice-transcript-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+@media (pointer: coarse) { .voice-transcript-toggle { min-height: 44px; } }

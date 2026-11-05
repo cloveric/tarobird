@@ -1,0 +1,12 @@
+/* Opt in on authored Bot reply surfaces, not task metadata, process logs,
+   user messages or document readers. The selected reading size is unchanged.
+   Terminal families retain their more-specific 1em heading rules and markers. */
+.markdown.reply-prose :is(h1,h2,h3,h4,h5,h6){font-size:1em;font-weight:600;line-height:1.45}
+.markdown.reply-prose h1{font-size:1.12em}
+.markdown.reply-prose h2{font-size:1.06em}
+.markdown.reply-prose :is(strong,b){font-weight:600}
+.markdown.reply-prose :is(h1,h2,h3,h4,h5,h6) :is(strong,b){font-weight:inherit}
+/* Keep structure visible with breathing room rather than large type. Existing
+   first/last-block and nested-list rules still own their boundary spacing. */
+.markdown.reply-prose>.markdown-chunk>:is(h1,h2){margin-block:1.2em .4em}
+.markdown.reply-prose>.markdown-chunk>:is(h3,h4,h5,h6){margin-block:1em .35em}

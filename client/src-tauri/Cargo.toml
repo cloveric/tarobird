@@ -1,0 +1,118 @@
+[package]
+name = "tarocub-client"
+version = "1.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.88"
+default-run = "tarocub-client"
+
+[workspace]
+members = ["host-launcher"]
+resolver = "2"
+
+[features]
+native-transport-audit = []
+desktop-migration-exporter = ["tauri/custom-protocol"]
+
+[[bin]]
+name = "tarobot-migration-exporter"
+path = "legacy/exporter.rs"
+required-features = ["desktop-migration-exporter"]
+
+[[bin]]
+name = "migration-audit"
+path = "audit/migration_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[[bin]]
+name = "widget-audit"
+path = "audit/widget_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[[bin]]
+name = "transport-audit"
+path = "audit/native_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[[bin]]
+name = "screenshot-audit"
+path = "audit/screenshot_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[[bin]]
+name = "window-audit"
+path = "audit/window_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[[bin]]
+name = "macos-update-audit"
+path = "audit/macos_update_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[[bin]]
+name = "image-viewer-audit"
+path = "audit/image_viewer_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[[bin]]
+name = "side-window-audit"
+path = "audit/side_window_runtime.rs"
+required-features = ["native-transport-audit"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+serde_json = "1"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+keyring = "4.2"
+ed25519-dalek = "3"
+getrandom = "0.4"
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
+ring = "=0.17.14"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-updater = "2"
+# All Hub HTTP and WebSocket traffic uses the same certificate-pinned native
+# client. rustls-platform-verifier keeps normal OS trust/hostname verification.
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "stream"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "=0.7.1"
+tokio = { version = "1", features = ["sync", "rt", "time", "macros", "process", "io-util"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", features = ["sink"] }
+sha2 = "0.10"
+bytes = "1"
+fs2 = "0.4.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Launch guard of the migration exporter (shared/macos_launch_guard.rs).
+security-framework = "=3.7.0"
+core-foundation = "=0.10.1"
+objc2 = "=0.6.4"
+block2 = "=0.6.2"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSDictionary", "NSError", "NSObject", "NSString", "NSURL"] }
+objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+dirs = "=7.0.0"
+# Forward protocol activation before other plugins. 2.4.4 preserves this
+# crate's Rust 1.88 MSRV; the 2.5 series requires Rust 1.90.
+tauri-plugin-single-instance = { version = "=2.4.4", features = ["deep-link"] }
+# Native toast status, protocol activation, scoped history and shortcut identity.
+windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "Foundation_Metadata", "UI_Notifications", "Win32_System_WinRT", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell_PropertiesSystem", "Win32_Storage_EnhancedStorage", "Win32_Storage_FileSystem", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_Foundation", "Win32_Security", "Win32_System_Diagnostics_ToolHelp"] }
+png = "=0.18.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

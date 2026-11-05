@@ -1,0 +1,20 @@
+.document-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;background:var(--surface);border-radius:8px;padding:20px}
+.document-page{max-width:760px;margin:0 auto;padding:24px 32px;background:var(--bg);color:var(--text);font-size:15px;line-height:1.65;overflow-wrap:anywhere}
+.document-preview-note{flex:none;margin:0 0 12px!important;padding:0!important;color:var(--muted);font-size:12px;line-height:1.5}
+.docx-document p{margin:0 0 10px}.docx-document h1{font-size:1.6em}.docx-document h2{font-size:1.3em}.docx-document h3{font-size:1.1em}
+.docx-document h1,.docx-document h2,.docx-document h3,.docx-document h4{line-height:1.4;margin:20px 0 10px}.docx-document>:first-child{margin-top:0}
+.docx-document ul,.docx-document ol{padding-inline-start:24px;margin:8px 0}.docx-document li{margin:4px 0}.docx-document li>p{margin:4px 0}
+.docx-document img{display:block;max-width:100%;height:auto;margin:12px auto}.docx-document a{color:var(--accent)}
+.docx-document table{display:block;overflow:auto;border-collapse:collapse;max-width:100%;margin:14px 0;font-size:14px}.docx-document td,.docx-document th{border:1px solid var(--border);padding:7px 10px;min-width:72px;vertical-align:top}.docx-document td>p,.docx-document th>p{margin:0}
+.docx-document blockquote{border-inline-start:3px solid var(--border);margin:12px 0;padding-inline-start:14px;color:var(--muted)}
+@media(max-width:760px){.document-scroll{padding:0;background:var(--bg)}.document-page{padding:12px 6px;font-size:15px}.document-preview-note{font-size:11px}.file-preview header{align-items:flex-start}.file-preview header strong{align-self:center;font-size:13px;line-height:1.4}.file-preview header>button{flex-shrink:0}}
+
+.file-preview:has(.external-open) header{flex-wrap:wrap}.file-preview header .external-open{font-size:12px}
+@media(max-width:760px){.file-preview:has(.external-open) header strong{flex-basis:100%}}
+.file-preview header.native-file-header{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:0 8px;align-items:center;padding:8px 12px}
+.native-file-header>strong{overflow-wrap:anywhere;min-width:0}
+.file-preview .native-file-close{width:44px;min-height:44px;padding:0;display:grid;place-items:center;justify-self:end}
+.native-file-actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:0 4px}
+/* Compact 32px fills inside 44px touch targets; the actions use content widths. */
+.file-preview .native-file-actions>button{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:4px;min-width:44px;min-height:44px;padding:0 8px;border:6px solid transparent;border-inline-width:0;font-size:11px;line-height:16px;border-radius:12px;background:var(--surface-alt);background-clip:padding-box;white-space:nowrap}
+.native-file-actions>button>svg{flex:none;width:14px;height:14px}

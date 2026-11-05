@@ -1,0 +1,89 @@
+apply plugin: 'com.android.application'
+
+android {
+    buildFeatures { buildConfig true }
+    namespace = "com.tarobot.client"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        // TaroBot has a new native identity. Old com.tarocub.client installs are
+        // separate apps and must pair again; never weaken updater identity checks.
+        applicationId providers.gradleProperty('tarobotApplicationId').orElse('com.tarobot.client').get()
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // Increase the code for each installable build so Android can update
+        // the existing app without discarding its paired hosts and local data.
+        versionCode providers.gradleProperty('tarobotVersionCode').orElse('2026110402').get().toInteger()
+        versionName providers.gradleProperty('tarobotVersionName').orElse('1.1.0').get()
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Public OAuth application identity only. User credentials stay in AndroidKeyStore.
+        def updateRepository = providers.gradleProperty('tarobotUpdateRepository').orElse(providers.environmentVariable('TAROBOT_GITHUB_REPOSITORY')).getOrElse('')
+        def updateClientId = providers.gradleProperty('tarobotUpdateClientId').orElse(providers.environmentVariable('TAROBOT_GITHUB_CLIENT_ID')).getOrElse('')
+        if (updateRepository && !(updateRepository ==~ /[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/)) throw new GradleException('Invalid update repository')
+        if (updateClientId && !(updateClientId ==~ /[A-Za-z0-9._-]{8,128}/)) throw new GradleException('Invalid public OAuth client ID')
+        buildConfigField 'String', 'TAROBOT_UPDATE_REPOSITORY', '"' + updateRepository + '"'
+        buildConfigField 'String', 'TAROBOT_UPDATE_CLIENT_ID', '"' + updateClientId + '"'
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    sourceSets { androidTest.assets.srcDir("../../e2e/fixtures/media") }
+    testOptions {
+        unitTests.all { systemProperty "tarobot.repoRoot", rootProject.projectDir.parentFile.parentFile.absolutePath }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach {
+    doFirst {
+        if (android.defaultConfig.buildConfigFields['TAROBOT_UPDATE_REPOSITORY'].value == '""' || android.defaultConfig.buildConfigFields['TAROBOT_UPDATE_CLIENT_ID'].value == '""') {
+            throw new GradleException('Android releases require TAROBOT_GITHUB_REPOSITORY and TAROBOT_GITHUB_CLIENT_ID (public OAuth client ID)')
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation "com.squareup.okhttp3:okhttp:5.5.0"
+    implementation "org.java-websocket:Java-WebSocket:1.6.0"
+    implementation "org.slf4j:slf4j-api:2.0.16"
+    runtimeOnly "org.slf4j:slf4j-nop:2.0.16"
+    implementation "org.bouncycastle:bcprov-jdk15to18:1.86"
+    implementation "org.unifiedpush.android:connector:3.3.5"
+    implementation "com.google.firebase:firebase-messaging:25.0.1"
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation "org.json:json:20240303"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    androidTestImplementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+def updaterAcceptance = providers.gradleProperty('tarobotUpdaterAcceptance').getOrElse('false') == 'true'
+if (updaterAcceptance && android.defaultConfig.applicationId != 'com.tarobot.client.updatetest') throw new GradleException('Updater acceptance requires its isolated application ID')
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text && !updaterAcceptance) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

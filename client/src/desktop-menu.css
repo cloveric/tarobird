@@ -1,0 +1,51 @@
+/* Anchored desktop menus. Shared visual tokens and keyboard behavior. */
+@keyframes tc-menu-down{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+
+@media(min-width:761px){
+  .composer-attachment-menu{position:relative;display:flex;flex:none}
+  /* ---------- Popover panel (DesktopMenu.tsx) ---------- */
+  .desktop-menu{position:absolute;z-index:40;display:grid;gap:1px;min-width:236px;max-width:320px;max-height:calc(100dvh - 100px);overflow-y:auto;overscroll-behavior:contain;padding:5px;border-radius:var(--radius-xl);background:var(--raised);box-shadow:var(--elev-2);color:var(--text);text-align:left}
+  .desktop-menu-down-end{top:calc(100% + 4px);right:0;transform-origin:top right;animation:tc-menu-down var(--t-med) var(--ease-out) both}
+  .desktop-menu-down-start{top:calc(100% + 4px);left:0;transform-origin:top left;animation:tc-menu-down var(--t-med) var(--ease-out) both}
+  .desktop-menu-up-start{bottom:calc(100% + 6px);left:0;transform-origin:bottom left;animation:tc-pop var(--t-med) var(--ease-out) both}
+  .desktop-menu-up-end{bottom:calc(100% + 6px);right:0;transform-origin:bottom right;animation:tc-pop var(--t-med) var(--ease-out) both}
+  .desktop-menu>button{display:flex;align-items:center;justify-content:flex-start;gap:10px;width:100%;min-width:0;min-height:34px;padding:6px 10px;border:0;border-radius:var(--radius);background:transparent;color:var(--text);font-size:13px;font-weight:500;line-height:1.35;text-align:left}
+  .desktop-menu>button:hover:not(:disabled){background:var(--surface)}
+  .desktop-menu>button:active:not(:disabled){background:var(--surface-alt)}
+  .desktop-menu>button:focus-visible{outline-offset:-2px}
+  .desktop-menu>button:disabled{opacity:.5}
+  .desktop-menu>button>svg{flex-shrink:0;color:var(--muted)}
+  .desktop-menu>button:has(.desktop-menu-text){align-items:flex-start;padding-block:8px}
+  .desktop-menu>button:has(.desktop-menu-text)>svg{margin-top:1px}
+  .desktop-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .desktop-menu-value{flex:none;margin-left:auto;color:var(--muted);font-size:12px;font-weight:450;font-variant-numeric:tabular-nums}
+  .desktop-menu-text{display:grid;gap:2px;flex:1;min-width:0}
+  .desktop-menu-text>small{font-size:11.5px;font-weight:400;line-height:1.45;white-space:normal;color:var(--muted)}
+  .desktop-menu hr{height:1px;margin:4px 6px;border:0;background:var(--border)}
+  .desktop-menu-heading{display:flex;align-items:center;gap:7px;min-width:0;margin:0;padding:6px 10px 5px;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .desktop-menu-heading>span:not(.desktop-menu-value){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .desktop-menu-details{display:grid;gap:5px;margin:0;padding:6px 10px 2px;font-size:12px;line-height:1.4}
+  .desktop-menu-details>div{display:flex;justify-content:space-between;gap:14px;min-width:0}
+  .desktop-menu-details dt{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .desktop-menu-details dd{min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--grey);font-variant-numeric:tabular-nums}
+  .desktop-menu-note{display:flex;align-items:center;gap:6px;margin:0;padding:6px 10px 7px;font-size:11.5px;color:var(--muted)}
+  .desktop-menu-note>svg{flex-shrink:0}
+  /* The source of an open popover keeps a tinted open state. */
+  :is(.sidebar-create-trigger,.mobile-chat-more)[aria-expanded=true],:is(.sidebar-create-trigger,.mobile-chat-more)[aria-expanded=true]:hover:not(:disabled){background:var(--accent-soft);color:var(--accent)}
+
+
+}
+
+/* Pointer context menus live outside the scrolling conversation tree. */
+.desktop-menu.desktop-menu-context{position:fixed;z-index:80;display:grid;min-width:188px;max-width:calc(100vw - 16px);padding:5px;border-radius:var(--radius-xl,10px);background:var(--raised,var(--bg));box-shadow:var(--elev-2,var(--shadow));color:var(--text);text-align:left}
+.desktop-menu-context>button{display:flex;align-items:center;justify-content:flex-start;gap:10px;min-height:36px;padding:8px 10px;border-radius:var(--radius,6px);font-size:13px}
+.desktop-menu-context>button>kbd{margin-left:auto;color:var(--muted);font:11px var(--font-mono,monospace)}
+.rename-conversation form>label{display:flex;flex-direction:column;gap:8px;font-size:13px}
+.rename-conversation input{width:100%;min-height:44px}
+.rename-conversation-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:24px}
+.rename-conversation-actions>button{min-height:38px;min-width:72px}
+
+.desktop-menu>button.text-danger,.desktop-menu>button.text-danger>svg{color:var(--red)}
+
+/* Pane menus remain anchored, but are not clipped by the conversation card. */
+.desktop-menu.desktop-menu-floating{position:fixed;z-index:80;right:auto;bottom:auto;width:max-content;max-width:min(320px,calc(100vw - 16px));animation:none}

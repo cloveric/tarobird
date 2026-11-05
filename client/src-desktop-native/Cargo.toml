@@ -1,0 +1,40 @@
+[package]
+name = "tarobot-desktop-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[workspace]
+[lib]
+crate-type = ["cdylib", "rlib"]
+[features]
+default = ["addon"]
+addon = ["dep:napi", "dep:napi-derive"]
+[build-dependencies]
+napi-build = "=2.6.0"
+[dependencies]
+napi = { version = "=3.15.0", optional = true, default-features = false, features = ["napi8", "tokio_rt"] }
+napi-derive = { version = "=3.6.13", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["sync", "rt", "time", "macros"] }
+base64 = "0.22"
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "=0.6.4"
+block2 = "=0.6.2"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSBundle", "NSDictionary", "NSError", "NSObject", "NSString", "NSURL"] }
+objc2-user-notifications = { version = "=0.3.2", default-features = false, features = ["std", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger", "UNUserNotificationCenter"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+dirs = "=7.0.0"
+# The exact login-item backend of tauri-plugin-autostart 2.7.0, so existing
+# `HKCU\...\Run\TaroBot` entries keep working and stay controllable.
+auto-launch = "=0.6.0"
+# Native toast status, protocol activation, scoped history and shortcut identity.
+windows = { version = "=0.62.2", features = ["Data_Xml_Dom", "Foundation_Metadata", "UI_Notifications", "Win32_System_WinRT", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell_PropertiesSystem", "Win32_Storage_EnhancedStorage", "Win32_Storage_FileSystem", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_LibraryLoader", "Win32_System_Threading"] }
+png = "=0.18.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

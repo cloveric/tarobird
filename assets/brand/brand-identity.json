@@ -1,0 +1,37 @@
+{
+  "brand": "TaroBird phoenix",
+  "selectedAt": "2026-11-04",
+  "cutoutSha256": "9a33605e77b4d1b7a5a177488ac74ce8f23d1bcd845eafdf7f7c7547ae258714",
+  "process": "Owner-selected chubby phoenix generated with GPT Image (flat style of the former fox, new character); lower tail flame recoloured light purple at the owner's request. Background removed by colour distance without rescaling.",
+  "rawArtSha256": "4104e4234ca12a7b2a01f9414c60f1b94ea64a15f97e5472feffad36dec16f2a",
+  "packaging": "phoenix-cutout.svg frames the approved square close-up of phoenix-art.png without redrawing artwork",
+  "launcher": {
+    "art": "assets/brand/launcher-art.png",
+    "sha256": "52ec63cbeecf41b63740d8cfb571869a295766984faf3147cb8651c22872626c",
+    "selectedAt": "2026-11-04",
+    "background": "#e3dbd5",
+    "treatment": "Owner-selected alternate close-up phoenix leaning from the lower edge, with a light-purple lower tail flame and warm-gray paper background. Exact archived artwork; platform masks and monochrome glyphs remain separate.",
+    "android": {
+      "imageRect": [
+        18,
+        18,
+        72,
+        72
+      ],
+      "criticalEyeBounds": [
+        [
+          0.188,
+          0.391,
+          0.284,
+          0.509
+        ],
+        [
+          0.451,
+          0.467,
+          0.551,
+          0.588
+        ]
+      ]
+    }
+  }
+}

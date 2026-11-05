@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-30",
+  "feature": "Vditor Markdown workbench notes",
+  "library": "vditor@4.0.1",
+  "releasePublished": false,
+  "installedAppChanged": false,
+  "builds": {
+    "client": "passed (translations, TypeScript, Vite)",
+    "host": "passed (471 modules)"
+  },
+  "tests": {
+    "hostProtocolGatewayCli": {
+      "passed": 51
+    },
+    "clientUnitAndMigration": {
+      "passed": 39
+    },
+    "chromium": {
+      "markdown": 4,
+      "storage": 7,
+      "sendRegression": 7
+    },
+    "webkit": {
+      "markdown": 4,
+      "storage": 7
+    },
+    "electronMigration": {
+      "passed": 25
+    },
+    "rustMigration": {
+      "passed": 5,
+      "ignored": 1
+    }
+  },
+  "realModel": {
+    "engine": "Codex",
+    "passed": true,
+    "boundary": "Chromium App -> isolated Hub/Gateway -> real Codex -> revisioned saved Markdown",
+    "steps": [
+      "App sends frozen note context",
+      "markdown.read",
+      "markdown.patch using returned revision",
+      "markdown.read verifies exact saved text"
+    ],
+    "savedRevision": 1,
+    "productionTouched": false,
+    "reportSha256": "a4af026437f84bf0dccf7b2d3643e10503d0c2c7f3e2bde6057488892aaaf465"
+  },
+  "broaderBaseline": {
+    "suite": "60 files / 1076 tests",
+    "passed": 1074,
+    "failed": 2,
+    "details": [
+      "reports v4 contract fixture mismatch also fails on unchanged base",
+      "gateway-discussion-voice-reuse exceeded 5 s under parallel load; two isolated reruns passed"
+    ],
+    "fullRepositoryTypecheck": "138 baseline diagnostics; changed-file diagnostic count zero in the recorded comparison; not a full typecheck pass"
+  },
+  "limits": [
+    "No release or installed App update",
+    "No physical iPhone, Android or Windows acceptance",
+    "Emergency recovery cannot guarantee data after forced process termination when all browser storage is unavailable"
+  ],
+  "logs": {
+    "clientBuild": "e3f629f9f18b0b3d3f51015bf9708b47b89be848f24b83910019eb368c64a685",
+    "clientUnit": "5ff5ae496aa823b92f98e6afdaa507e68aa56e190ac03e9fae93ac306938ea9f",
+    "chromiumMarkdown": "4d0fdc110c00c421671b4d9783d49ca3f22d39ed2ab4f506bd45123f5d1eddb5",
+    "chromiumSplit": "b669965691248919438b15366fcd77cdab3b9ed4bf8830222e1090a8bb5af58a",
+    "chromiumStorage": "333daae5b616496de4a74ed482af154cdb36f8a0b84fdaebdc1f87d8a63bcce7",
+    "chromiumSendRegression": "4ca39266d89048931cf9e0ef4edbc6e539fc9f2c3dd1aec241dd29c6fa968021",
+    "webkitMarkdown": "4dcb47360ac5cd44e8885c8243da2f607bb50da8202a3317dc8569ff8d77c42d",
+    "webkitSplit": "81b791d7460dcd4818a62163e9a6ed65bff259589617c1601096f24574aefd09",
+    "webkitStorage": "6d11fdb875cabdb823daf39aa34c8218a2771b7d91864ccc4b4c4c889fb324d3",
+    "realModel": "dfbbbb6c09c0fcb58cf38734e5bf9eb59f2b56b8b97f26ac5eb977c02a9a213a",
+    "electronMigration": "caf3269cbdf682d254f634ae5c72815b09debf5641569a5bfb4529a721a86cb1",
+    "rustMigration": "876588ffb8e41fb0cd8f3295f8a934c6dafac644b3540647786ae9c2e8d631f6",
+    "chromiumRecovery": "b16bcbd3f786d1828768b7b0562f32f5085606e945a92461da503f755df3a7f9",
+    "webkitRecovery": "2bbd336d80c76440f3ec2bf0a5ca3195750f72d7b1a93d6f282cecf379f9e596",
+    "opusFinalReview": "bd7e39eac243b3a8bb276604a9a27077077d6ce1f5b9ccea6fefde5d3c292552"
+  },
+  "opusReview": {
+    "model": "Claude Opus 5.5",
+    "status": "no blocking findings in reviewed paths",
+    "followups": "N1 N2 N4 recovery/line-ending issues fixed; N3 local removal text clarified",
+    "boundary": "independent static review plus focused tests; not physical-device acceptance"
+  }
+}

@@ -1,0 +1,44 @@
+.conversation-folder{margin:0 0 6px;min-width:0}
+.folder-heading{display:flex;align-items:center;width:100%;min-height:32px;padding:5px 8px;gap:5px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--muted);text-align:left;box-shadow:none;font-size:12px;font-weight:500}
+/* Section headings toggle content, not selection. Touch browsers can retain
+   :hover after tapping, so also override the shared button hover background. */
+.folder-heading:is(:hover,:active):not(:disabled){background:transparent}
+.folder-heading{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.folder-heading>svg{flex:none}.folder-label{display:flex;flex:1;align-items:center;gap:6px;min-width:0}.folder-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.folder-count{flex:none;font-size:11px;font-variant-numeric:tabular-nums}
+.folder-heading .unread-badge{font-size:10px;min-width:16px;height:16px;line-height:16px}.folder-attention{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.folder-empty{margin:2px 24px 10px;color:var(--muted);font-size:12px}
+.folder-dialog{width:min(420px,calc(100vw - 32px))}.folder-dialog input{width:100%;margin-top:8px}.folder-dialog label{display:block}
+.folder-dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+.folder-choices{display:flex;flex-direction:column;gap:4px;max-height:45vh;overflow:auto;margin-bottom:12px}
+.folder-choices>button{display:flex;align-items:center;gap:10px;min-height:44px;padding:8px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--text);box-shadow:none;text-align:left}
+.folder-choices>button:hover,.folder-choices>button[aria-pressed=true]{background:var(--surface-alt)}
+.folder-choices>button>span{flex:1;min-width:0;overflow-wrap:anywhere}.folder-choices svg{flex:none}
+.folder-new-choice{width:100%;justify-content:flex-start;gap:10px;background:transparent;border:0;box-shadow:none;min-height:44px;padding:8px 10px;color:var(--muted)}
+.folder-name-form{display:flex;align-items:flex-end;gap:10px}.folder-name-form>label{flex:1;min-width:0}
+.mh-folder-host-title{margin:14px 18px 0;color:var(--muted);font-size:12px;font-weight:500}
+.folder-order-hint{margin:0 0 12px;font-size:13px;line-height:1.5}
+.folder-order-list{list-style:none;padding:0;margin:0;max-height:45vh;max-height:min(45dvh,420px);overflow:auto;overscroll-behavior:contain}
+.folder-order-list>li{min-height:52px;padding:4px;border-radius:var(--radius-sm);border:1px solid transparent}
+.folder-manager-row{display:flex;align-items:center;gap:2px;min-height:44px;padding-left:8px}
+.folder-manager-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:4px;background:var(--surface-alt);border-radius:var(--radius-sm)}
+.folder-manager-options>button{justify-content:flex-start;min-height:44px;padding:8px;gap:6px;border:0;background:transparent;box-shadow:none;font-size:12px;white-space:normal}
+.folder-manager-options>button:hover:not(:disabled){background:var(--hover)}
+.folder-manager-options svg{flex:none}
+.folder-manager-dialog .folder-new-choice{margin-top:8px;border:1px dashed var(--border);border-radius:var(--radius-sm);color:var(--text)}
+.folder-order-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px}
+.folder-order-list .icon-button{flex:none;width:36px;height:40px;min-height:40px;color:var(--muted)}
+.folder-order-handle{touch-action:none;cursor:grab;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.folder-order-list[data-dragging] .folder-order-handle{cursor:grabbing}
+.folder-order-list>li[data-dragging]{background:var(--surface-alt);border-color:var(--border)}
+.folder-order-announcement{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.folder-order-conflict{margin-top:12px;font-size:13px}.folder-order-conflict p{margin:0 0 8px}
+@media(max-width:760px){.mobile-home .folder-heading{padding:8px 18px;min-height:40px;font-size:13px}.mobile-home .folder-empty{margin-left:37px}.mobile-home .conversation-folder{margin-bottom:0}.mobile-home .mh-folder-host-title{margin-top:6px}.folder-dialog{width:100%;max-width:100%}.folder-name-form{flex-wrap:wrap}.folder-name-form>label{flex-basis:100%}.folder-order-list .icon-button{width:44px;height:44px;min-height:44px}}
+
+.folder-action-name{margin:0;padding:6px 10px 8px;font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.folder-action-list{display:grid;gap:4px}
+.folder-action-list>button{justify-content:flex-start;gap:12px;min-height:48px;padding:10px;border:0;background:transparent;text-align:left}
+.folder-action-list>button:hover:not(:disabled){background:var(--surface-alt)}
+.folder-action-note{margin:0;padding:8px 10px;font-size:12px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+.folder-actions-menu{max-width:280px}
+
+.folder-pin{flex:none;color:var(--muted)}

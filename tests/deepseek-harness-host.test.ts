@@ -1,0 +1,1097 @@
+import { lstat, mkdtemp, mkdir, readFile, readlink, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  createDeepSeekHarnessProtocolOptions,
+  DeepSeekHarnessHost,
+  prepareDeepSeekHarnessHome,
+  type DeepSeekHarnessChildProcess,
+  type SpawnDeepSeekHarness,
+} from "../src/codex/deepseek-harness-host.js";
+import type {
+  DeepSeekHarnessProtocolHandlers,
+  DeepSeekHarnessServerRequest,
+} from "../src/codex/deepseek-harness-protocol.js";
+import { removeTempRoot } from "./helpers/temp-files.js";
+
+const roots: string[] = [];
+
+const SEARCH_PLUGIN_NAME = "deepseek-harness-web-search-plugin";
+const LEGACY_SEARCH_PLUGIN_NAME = "tarocub-deepseek-harness-plugin";
+
+async function installSearchPlugin(
+  sharedHome: string,
+  manifest: Record<string, unknown>,
+  options: {
+    packageName?: string;
+    createEntrypoint?: boolean;
+    createPatch?: boolean;
+    patchContents?: string;
+  } = {},
+): Promise<void> {
+  const packageName = options.packageName ?? SEARCH_PLUGIN_NAME;
+  const packageRoot = path.join(
+    sharedHome,
+    "profiles",
+    "web",
+    "node_modules",
+    packageName,
+  );
+  await mkdir(path.join(packageRoot, "dist"), { recursive: true });
+  await writeFile(
+    path.join(packageRoot, "package.json"),
+    `${JSON.stringify({
+      name: packageName,
+      dsh: { bundle: { patch: "./cordis.patch.yml" } },
+      ...manifest,
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  if (options.createEntrypoint !== false) {
+    await writeFile(path.join(packageRoot, "dist", "search-mcp.js"), "export {};\n", "utf8");
+  }
+  if (options.createPatch !== false) {
+    await writeFile(
+      path.join(packageRoot, "cordis.patch.yml"),
+      options.patchContents ?? [
+        "- insert:",
+        "    - id: mcp-cctb-search",
+        "      name: '@deepseek-ai/dsh-mcp-client'",
+        "      config:",
+        "        serverName: cctb_search",
+        "        args:",
+        "          - ./dist/search-mcp.js",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+  }
+}
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => removeTempRoot(root)));
+});
+
+describe("prepareDeepSeekHarnessHome", () => {
+  it("isolates mutable settings while linking shared profiles and credentials", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-home-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    const instructionsPath = path.join(root, "agent.md");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "profiles", "web", "package.json"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, "settings.yaml"), "theme: dark\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "secret: never-copy-me\n", "utf8");
+    await writeFile(instructionsPath, "Persistent bot instructions\n", "utf8");
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      instructionsPath,
+      appPluginPath: "/Applications/Taro Cub/deepseek-app-plugin.js",
+    });
+
+    expect(prepared.home).toBe(path.join(stateDir, "dsh-home"));
+    expect(await readFile(prepared.patchPath, "utf8")).toContain('name: "/Applications/Taro Cub/deepseek-app-plugin.js"');
+    await expect(lstat(path.join(sharedHome, "cordis.patch.yml"))).rejects.toMatchObject({ code: "ENOENT" });
+    for (const name of ["profiles", ".credentials.yaml", "AGENTS.md"]) {
+      expect((await lstat(path.join(prepared.home, name))).isSymbolicLink()).toBe(true);
+    }
+    expect((await lstat(path.join(prepared.home, "settings.yaml"))).isSymbolicLink()).toBe(false);
+    expect(await readFile(path.join(prepared.home, "settings.yaml"), "utf8")).toBe("theme: dark\n");
+    expect(await readlink(path.join(prepared.home, "profiles"))).toBe(path.join(sharedHome, "profiles"));
+    expect(await readlink(path.join(prepared.home, ".credentials.yaml"))).toBe(
+      path.join(sharedHome, ".credentials.yaml"),
+    );
+    expect(await readlink(path.join(prepared.home, "AGENTS.md"))).toBe(instructionsPath);
+    expect(await readFile(path.join(prepared.home, ".credentials.yaml"), "utf8")).toBe(
+      "secret: never-copy-me\n",
+    );
+
+    await writeFile(path.join(prepared.home, "settings.yaml"), "model: bot-only\n", "utf8");
+    await writeFile(path.join(sharedHome, "settings.yaml"), "theme: light\n", "utf8");
+    await prepareDeepSeekHarnessHome({ sharedHome, stateDir, instructionsPath });
+
+    expect(await readFile(path.join(prepared.home, "settings.yaml"), "utf8")).toBe("theme: light\n");
+    expect(await readFile(path.join(sharedHome, "settings.yaml"), "utf8")).toBe("theme: light\n");
+  });
+
+  it("migrates the old shared settings symlink without writing through it", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-settings-migration-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    const privateHome = path.join(stateDir, "dsh-home");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await mkdir(privateHome, { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "theme: shared\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await symlink(path.join(sharedHome, "settings.yaml"), path.join(privateHome, "settings.yaml"));
+
+    await prepareDeepSeekHarnessHome({ sharedHome, stateDir });
+
+    expect((await lstat(path.join(privateHome, "settings.yaml"))).isSymbolicLink()).toBe(false);
+    expect(await readFile(path.join(privateHome, "settings.yaml"), "utf8")).toBe("theme: shared\n");
+    expect(await readFile(path.join(sharedHome, "settings.yaml"), "utf8")).toBe("theme: shared\n");
+  });
+
+  it("adds a sandboxed full-auto permission preset without weakening bypass mode", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-permissions-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await writeFile(
+      path.join(sharedHome, "cordis.patch.yml"),
+      "- id: session-title\n  config:\n    fallbackMaxWords: 7\n",
+      "utf8",
+    );
+
+    const prepared = await prepareDeepSeekHarnessHome({ sharedHome, stateDir });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(patch).toContain("fallbackMaxWords: 7");
+    expect(patch).toMatch(/full-auto:\s+?sandbox: workspace-write\s+?approval: never/s);
+    expect(patch).toMatch(/danger-full-access:\s+?sandbox: danger-full-access\s+?approval: never/s);
+    expect(patch).toMatch(/workspace-write:\s+?sandbox: workspace-write\s+?approval: ask/s);
+    expect(patch).not.toContain("never-copy-me");
+  });
+
+  it("replaces an empty-array shared patch with a valid permission patch sequence", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-empty-patch-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, "cordis.patch.yml"), "# no shared patches\n[]\n", "utf8");
+
+    const prepared = await prepareDeepSeekHarnessHome({ sharedHome, stateDir });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(patch).not.toMatch(/^\s*\[\]\s*$/m);
+    expect(patch).toMatch(/^- id: permission/m);
+    expect(patch).toMatch(/full-auto:\s+?sandbox: workspace-write\s+?approval: never/s);
+  });
+
+  it("disables the native Web GUI identity only inside the private bridge home", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-surface-")); roots.push(root);
+    const sharedHome = path.join(root, "shared"), stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n");
+    const sharedPatch = "- id: web-runtime\n  config:\n    surfaceContext: true\n";
+    await writeFile(path.join(sharedHome, "cordis.patch.yml"), sharedPatch);
+    for (let start = 0; start < 2; start++) {
+      const prepared = await prepareDeepSeekHarnessHome({ sharedHome, stateDir });
+      const patch = await readFile(prepared.patchPath, "utf8");
+      expect(patch).toMatch(/- id: web-runtime\s+config:\s+openBrowser: false\s+printUrl: true\s+surfaceContext: false\s+trustedHosts: \[\]/);
+      expect(patch.lastIndexOf("surfaceContext: false")).toBeGreaterThan(patch.indexOf("surfaceContext: true"));
+      expect(patch.match(/surfaceContext: false/g)).toHaveLength(1);
+      expect(await readFile(path.join(sharedHome, "cordis.patch.yml"), "utf8")).toBe(sharedPatch);
+    }
+  });
+
+  it("adds the TaroCub Search MCP without writing provider secrets into the private patch", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-search-mcp-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: {
+        command: "/Applications/Taro Cub/node",
+        args: ["/Applications/Taro Cub/search-mcp-server.js"],
+        cwd: "/Users/example/workspace",
+      },
+    });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(patch).toMatch(/^- insert:\s+?- id: mcp-cctb-search-bridge/m);
+    expect(patch).toContain("name: '@deepseek-ai/dsh-mcp-client'");
+    expect(patch).toContain("serverName: cctb_search");
+    expect(patch).toContain('command: "/Applications/Taro Cub/node"');
+    expect(patch).toContain('args: ["/Applications/Taro Cub/search-mcp-server.js"]');
+    expect(patch).toContain('cwd: "/Users/example/workspace"');
+    expect(patch).toContain("BRAVE_API_KEY: !!js process.env.BRAVE_API_KEY || ''");
+    expect(patch).toContain("TAVILY_API_KEY: !!js process.env.TAVILY_API_KEY || ''");
+    expect(patch).not.toContain("never-copy-me");
+    expect(prepared.searchMcpOwner).toBe("bridge");
+  });
+
+  it("keeps bridge ownership for a legacy companion-only plugin", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-legacy-plugin-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, { version: "0.1.278" });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+    });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(prepared.searchMcpOwner).toBe("bridge");
+    expect(patch).toContain("id: mcp-cctb-search-bridge");
+    expect(patch).not.toMatch(/^\s+- id: mcp-cctb-search$/m);
+  });
+
+  it("uses a valid plugin Search MCP without appending a duplicate private client", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-current-plugin-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.0",
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+    });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(prepared.searchMcpOwner).toBe("plugin");
+    expect(patch).not.toContain("id: mcp-cctb-search");
+  });
+
+  it("keeps recognizing the legacy package name after the public rebrand", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-renamed-plugin-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.3",
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    }, { packageName: LEGACY_SEARCH_PLUGIN_NAME });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+    });
+
+    expect(prepared.searchMcpOwner).toBe("plugin");
+  });
+
+  it("falls back with a diagnostic when a plugin claims Search MCP but lacks its entrypoint", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-broken-plugin-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    const diagnostics: string[] = [];
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.0",
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    }, { createEntrypoint: false });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(prepared.searchMcpOwner).toBe("bridge");
+    expect(patch).toContain("id: mcp-cctb-search-bridge");
+    expect(patch).not.toMatch(/^\s+- id: mcp-cctb-search$/m);
+    expect(diagnostics).toContainEqual(expect.stringMatching(/entrypoint.*missing/i));
+  });
+
+  it("falls back when a Search MCP plugin manifest points to a missing Harness patch", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-missing-plugin-patch-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    const diagnostics: string[] = [];
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.1",
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    }, { createPatch: false });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(prepared.searchMcpOwner).toBe("bridge");
+    expect(patch).toContain("id: mcp-cctb-search-bridge");
+    expect(diagnostics).toContainEqual(expect.stringMatching(/patch.*missing/i));
+  });
+
+  it("falls back when the plugin patch does not register the declared Search MCP", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-invalid-plugin-patch-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    const diagnostics: string[] = [];
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.1",
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    }, {
+      patchContents: "- insert:\n    - id: unrelated-plugin\n      name: unrelated\n",
+    });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+    const patch = await readFile(prepared.patchPath, "utf8");
+
+    expect(prepared.searchMcpOwner).toBe("bridge");
+    expect(patch).toContain("id: mcp-cctb-search-bridge");
+    expect(diagnostics).toContainEqual(expect.stringMatching(/does not register/i));
+  });
+
+  it("does not accept Search MCP tokens scattered across unrelated patch components", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-scattered-plugin-patch-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.1",
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    }, {
+      patchContents: [
+        "- insert:",
+        "    - id: mcp-cctb-search",
+        "      name: unrelated-client",
+        "    - id: unrelated-component",
+        "      name: '@deepseek-ai/dsh-mcp-client'",
+        "      config:",
+        "        serverName: cctb_search",
+        "        args:",
+        "          - ./dist/search-mcp.js",
+        "",
+      ].join("\n"),
+    });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+    });
+
+    expect(prepared.searchMcpOwner).toBe("bridge");
+  });
+
+  it("rejects a plugin patch path that escapes the installed package", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-escaping-plugin-patch-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    const diagnostics: string[] = [];
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.1",
+      dsh: { bundle: { patch: "../cordis.patch.yml" } },
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    });
+
+    const prepared = await prepareDeepSeekHarnessHome({
+      sharedHome,
+      stateDir,
+      searchMcp: { command: "node", args: ["search.js"], cwd: root },
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+
+    expect(prepared.searchMcpOwner).toBe("bridge");
+    expect(diagnostics).toContainEqual(expect.stringMatching(/patch.*escapes/i));
+  });
+});
+
+class FakeReadable extends EventEmitter {
+  emitData(value: string): void {
+    this.emit("data", Buffer.from(value, "utf8"));
+  }
+}
+
+class FakeChild extends EventEmitter implements DeepSeekHarnessChildProcess {
+  readonly stdout = new FakeReadable();
+  readonly stderr = new FakeReadable();
+  readonly killCalls: Array<NodeJS.Signals | undefined> = [];
+  // No real OS process belongs to this test double.
+  pid: number | undefined;
+
+  kill(signal?: NodeJS.Signals): boolean {
+    this.killCalls.push(signal);
+    queueMicrotask(() => this.emit("close", 0, signal ?? null));
+    return true;
+  }
+}
+
+class FakeProtocol {
+  readonly requests: Array<{ method: string; payload: unknown }> = [];
+  readonly responses: Array<{ rpcId: string; value: unknown }> = [];
+  handlers: DeepSeekHarnessProtocolHandlers | undefined;
+  closed = false;
+
+  async connect(handlers: DeepSeekHarnessProtocolHandlers): Promise<void> {
+    this.handlers = handlers;
+  }
+
+  async request(method: string, payload: unknown): Promise<unknown> {
+    this.requests.push({ method, payload });
+    return { accepted: true };
+  }
+
+  async respond(rpcId: string, value: unknown): Promise<{ accepted: true }> {
+    this.responses.push({ rpcId, value });
+    return { accepted: true };
+  }
+
+  async respondError(): Promise<{ accepted: true }> {
+    return { accepted: true };
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+  }
+
+  emitMux(frame: DeepSeekHarnessServerRequest): void {
+    void this.handlers?.onMuxFrame(frame);
+  }
+}
+
+class BlockingProtocol extends FakeProtocol {
+  connectStarted = false;
+  private releaseConnect!: () => void;
+  private readonly connectBarrier = new Promise<void>((resolve) => {
+    this.releaseConnect = resolve;
+  });
+
+  override async connect(handlers: DeepSeekHarnessProtocolHandlers): Promise<void> {
+    this.handlers = handlers;
+    this.connectStarted = true;
+    await this.connectBarrier;
+  }
+
+  release(): void {
+    this.releaseConnect();
+  }
+}
+
+describe("DeepSeekHarnessHost", () => {
+  it("surfaces contained protocol failures without logging the raw downlink frame", () => {
+    const diagnostics: string[] = [];
+    const options = createDeepSeekHarnessProtocolOptions((message) => diagnostics.push(message));
+
+    options.onMalformedFrame?.(new Error("invalid server request"), '{"token":"do-not-log"}');
+    options.onHandlerError?.(new Error("projection consumer failed"));
+
+    expect(diagnostics).toEqual([
+      "DeepSeek Harness ignored a malformed downlink frame: invalid server request",
+      "DeepSeek Harness downlink handler failed: projection consumer failed",
+    ]);
+    expect(diagnostics.join("\n")).not.toContain("do-not-log");
+  });
+
+  it("owns a private random-port dsh web process and delegates protocol traffic", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-process-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    await installSearchPlugin(sharedHome, {
+      version: "0.2.0",
+      tarocub: {
+        searchMcp: true,
+        searchMcpProtocol: 1,
+        searchMcpEntrypoint: "./dist/search-mcp.js",
+      },
+    });
+    const child = new FakeChild();
+    const spawnCalls: Parameters<SpawnDeepSeekHarness>[] = [];
+    const spawnDsh: SpawnDeepSeekHarness = (...args) => {
+      spawnCalls.push(args);
+      return child;
+    };
+    const protocol = new FakeProtocol();
+    const protocolFactory = vi.fn(() => protocol);
+    const host = new DeepSeekHarnessHost({
+      executable: "/opt/homebrew/bin/dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      childEnv: { HOME: "/Users/test" },
+      spawnDsh,
+      protocolFactory,
+      startupTimeoutMs: 1_000,
+    });
+    const received: DeepSeekHarnessServerRequest[] = [];
+
+    const connecting = host.connect({
+      onMuxFrame: (frame) => {
+        received.push(frame);
+      },
+      onHostFrame: () => {},
+    });
+    await vi.waitFor(() => expect(spawnCalls).toHaveLength(1));
+    child.stdout.emitData("booting\ndsh web: http://127.0.0.1:");
+    child.stdout.emitData("43123\n");
+    await connecting;
+
+    expect(spawnCalls[0]?.[0]).toBe("/opt/homebrew/bin/dsh");
+    expect(spawnCalls[0]?.[1]).toEqual([
+      "web",
+      "--no-open",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "0",
+    ]);
+    expect(spawnCalls[0]?.[2]).toMatchObject({
+      cwd: "/workspace",
+      stdio: ["ignore", "pipe", "pipe", "pipe", "pipe"],
+      env: {
+        HOME: "/Users/test",
+        DSH_HOME: path.join(stateDir, "dsh-home"),
+        DSH_PERMISSION_MODE: "workspace-write",
+        TAROCUB_SEARCH_MCP_OWNER: "plugin",
+      },
+    });
+    expect(protocolFactory).toHaveBeenCalledWith("http://127.0.0.1:43123");
+    expect(child.stdout.listenerCount("data")).toBeGreaterThan(0);
+    expect(child.stderr.listenerCount("data")).toBeGreaterThan(0);
+
+    await expect(host.request("session.cancel", { sessionId: "session-1" })).resolves.toEqual({
+      accepted: true,
+    });
+    expect(protocol.requests).toEqual([{
+      method: "session.cancel",
+      payload: { sessionId: "session-1" },
+    }]);
+
+    await host.close();
+    expect(protocol.closed).toBe(true);
+    expect(child.killCalls).toEqual(["SIGTERM"]);
+  });
+
+  it("passes the authenticated startup URL from current Harness releases to the protocol", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-auth-url-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const child = new FakeChild();
+    const protocolFactory = vi.fn(() => new FakeProtocol());
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => child,
+      protocolFactory,
+      startupTimeoutMs: 50,
+    });
+    const launchToken = "temporary-launch-token-123";
+
+    const connecting = host.connect({ onMuxFrame: () => {}, onHostFrame: () => {} });
+    await vi.waitFor(() => expect(child.stdout.listenerCount("data")).toBeGreaterThan(0));
+    child.stdout.emitData(`dsh web: http://127.0.0.1:43125/?token=${launchToken}\n`);
+    await connecting;
+
+    expect(protocolFactory).toHaveBeenCalledWith(
+      `http://127.0.0.1:43125/?token=${launchToken}`,
+    );
+    await host.close();
+  });
+
+  it("never includes a Harness launch token in startup diagnostics", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-auth-redaction-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const child = new FakeChild();
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => child,
+      protocolFactory: () => new FakeProtocol(),
+      startupTimeoutMs: 50,
+    });
+    const launchToken = "do-not-log-this-launch-token";
+
+    const connecting = host.connect({ onMuxFrame: () => {}, onHostFrame: () => {} });
+    await vi.waitFor(() => expect(child.stdout.listenerCount("data")).toBeGreaterThan(0));
+    child.stdout.emitData(`dsh web: http://localhost:43125/?token=${launchToken}\n`);
+
+    await expect(connecting).rejects.toThrow("unsafe startup URL");
+    await expect(connecting).rejects.not.toThrow(launchToken);
+    await host.close();
+  });
+
+  it("rejects startup immediately when dsh exits before publishing its URL", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-start-fail-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const child = new FakeChild();
+    let spawned = false;
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => {
+        spawned = true;
+        return child;
+      },
+      protocolFactory: () => new FakeProtocol(),
+      startupTimeoutMs: 5_000,
+    });
+
+    const connecting = host.connect({ onMuxFrame: () => {}, onHostFrame: () => {} });
+    await vi.waitFor(() => expect(spawned).toBe(true));
+    child.stderr.emitData("configuration failed\n");
+    child.emit("close", 2, null);
+
+    await expect(connecting).rejects.toThrow(/exited before startup.*configuration failed/i);
+    await host.close();
+  });
+
+  it("rejects startup when the host closes during protocol connection", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-close-during-connect-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const child = new FakeChild();
+    const protocol = new BlockingProtocol();
+    let spawned = false;
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => {
+        spawned = true;
+        return child;
+      },
+      protocolFactory: () => protocol,
+      startupTimeoutMs: 1_000,
+    });
+
+    const connecting = host.connect({ onMuxFrame: () => {}, onHostFrame: () => {} });
+    void connecting.catch(() => {});
+    await vi.waitFor(() => expect(spawned).toBe(true));
+    child.stdout.emitData("dsh web: http://127.0.0.1:43124\n");
+    await vi.waitFor(() => expect(protocol.connectStarted).toBe(true));
+    await host.close();
+    protocol.release();
+
+    await expect(connecting).rejects.toThrow("closed during startup");
+  });
+
+  it("restarts after a running dsh process crashes and only then reports reconnect", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-restart-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const children = [new FakeChild(), new FakeChild()];
+    const protocols = [new FakeProtocol(), new FakeProtocol()];
+    let spawnIndex = 0;
+    let protocolIndex = 0;
+    const onDisconnect = vi.fn();
+    const onReconnect = vi.fn();
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => children[spawnIndex++]!,
+      protocolFactory: () => protocols[protocolIndex++]!,
+      startupTimeoutMs: 1_000,
+      restartDelayMs: 1,
+    });
+
+    const connecting = host.connect({
+      onMuxFrame: () => {},
+      onHostFrame: () => {},
+      onDisconnect,
+      onReconnect,
+    });
+    await vi.waitFor(() => expect(spawnIndex).toBe(1));
+    children[0]!.stdout.emitData("dsh web: http://127.0.0.1:43123\n");
+    await connecting;
+
+    children[0]!.emit("close", 1, null);
+    await vi.waitFor(() => expect(spawnIndex).toBe(2));
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    expect(onReconnect).not.toHaveBeenCalled();
+    children[1]!.stdout.emitData("dsh web: http://127.0.0.1:43124\n");
+    await vi.waitFor(() => expect(onReconnect).toHaveBeenCalledTimes(1));
+    expect(onReconnect).toHaveBeenCalledWith({ reason: "host-restart" });
+
+    await host.request("session.list", {});
+    expect(protocols[0]!.closed).toBe(true);
+    expect(protocols[1]!.requests).toEqual([{ method: "session.list", payload: {} }]);
+    await host.close();
+  });
+
+  it("backs off exponentially when the replacement dsh keeps failing to start", async () => {
+    // A permanently failing spawn used to retry every restartDelayMs forever.
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-backoff-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const children: FakeChild[] = [];
+    const diagnostics: string[] = [];
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => {
+        const child = new FakeChild();
+        children.push(child);
+        // Every replacement dies immediately.
+        if (children.length > 1) {
+          setTimeout(() => child.emit("close", 1, null), 0);
+        }
+        return child;
+      },
+      protocolFactory: () => new FakeProtocol(),
+      startupTimeoutMs: 1_000,
+      restartDelayMs: 10,
+      onDiagnostic: (message) => {
+        diagnostics.push(message);
+      },
+    });
+
+    const connecting = host.connect({
+      onMuxFrame: () => {},
+      onHostFrame: () => {},
+      onDisconnect: () => {},
+      onReconnect: () => {},
+    });
+    await vi.waitFor(() => expect(children.length).toBe(1));
+    children[0]!.stdout.emitData("dsh web: http://127.0.0.1:43123\n");
+    await connecting;
+
+    children[0]!.emit("close", 1, null);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    // Fixed 10ms retries would have produced dozens of spawns in 400ms; with
+    // 10/20/40/80/160ms backoff only a handful fit.
+    expect(children.length).toBeGreaterThanOrEqual(3);
+    expect(children.length).toBeLessThanOrEqual(8);
+    expect(diagnostics.some((line) => /attempt \d+, next in \d+ms/.test(line))).toBe(true);
+    await host.close();
+  });
+
+  it("treats a runtime child-process error as a restartable host failure", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-runtime-error-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const children = [new FakeChild(), new FakeChild()];
+    const protocols = [new FakeProtocol(), new FakeProtocol()];
+    let spawnIndex = 0;
+    let protocolIndex = 0;
+    const onDisconnect = vi.fn();
+    const onReconnect = vi.fn();
+    const diagnostics: string[] = [];
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => children[spawnIndex++]!,
+      protocolFactory: () => protocols[protocolIndex++]!,
+      startupTimeoutMs: 1_000,
+      restartDelayMs: 1,
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+
+    const connecting = host.connect({
+      onMuxFrame: () => {},
+      onHostFrame: () => {},
+      onDisconnect,
+      onReconnect,
+    });
+    await vi.waitFor(() => expect(spawnIndex).toBe(1));
+    children[0]!.stdout.emitData("dsh web: http://127.0.0.1:43123\n");
+    await connecting;
+
+    children[0]!.emit("error", new Error("runtime pipe failed"));
+    await vi.waitFor(() => expect(spawnIndex).toBe(2));
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+    expect(diagnostics).toContainEqual(expect.stringContaining("runtime pipe failed"));
+    children[1]!.stdout.emitData("dsh web: http://127.0.0.1:43124\n");
+    await vi.waitFor(() => expect(onReconnect).toHaveBeenCalledWith({ reason: "host-restart" }));
+
+    await host.close();
+  });
+
+  it("still reports a host restart when an RPC request starts the replacement before the timer", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-request-restart-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const children = [new FakeChild(), new FakeChild()];
+    const protocols = [new FakeProtocol(), new FakeProtocol()];
+    let spawnIndex = 0;
+    let protocolIndex = 0;
+    const onReconnect = vi.fn();
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => children[spawnIndex++]!,
+      protocolFactory: () => protocols[protocolIndex++]!,
+      startupTimeoutMs: 1_000,
+      restartDelayMs: 60_000,
+    });
+
+    const connecting = host.connect({
+      onMuxFrame: () => {},
+      onHostFrame: () => {},
+      onReconnect,
+    });
+    await vi.waitFor(() => expect(spawnIndex).toBe(1));
+    children[0]!.stdout.emitData("dsh web: http://127.0.0.1:43123\n");
+    await connecting;
+
+    children[0]!.emit("close", 1, null);
+    const request = host.request("session.list", {});
+    await vi.waitFor(() => expect(spawnIndex).toBe(2));
+    children[1]!.stdout.emitData("dsh web: http://127.0.0.1:43124\n");
+
+    await expect(request).resolves.toEqual({ accepted: true });
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+    expect(onReconnect).toHaveBeenCalledWith({ reason: "host-restart" });
+    await host.close();
+  });
+
+  it("discards a replacement protocol when reconnect recovery fails", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-recovery-fail-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const children = [new FakeChild(), new FakeChild(), new FakeChild()];
+    const protocols = [new FakeProtocol(), new FakeProtocol(), new FakeProtocol()];
+    let spawnIndex = 0;
+    let protocolIndex = 0;
+    const onReconnect = vi.fn()
+      .mockRejectedValueOnce(new Error("history recovery failed"))
+      .mockResolvedValue(undefined);
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => children[spawnIndex++]!,
+      protocolFactory: () => protocols[protocolIndex++]!,
+      startupTimeoutMs: 1_000,
+      restartDelayMs: 60_000,
+    });
+
+    const connecting = host.connect({ onMuxFrame: () => {}, onHostFrame: () => {}, onReconnect });
+    await vi.waitFor(() => expect(spawnIndex).toBe(1));
+    children[0]!.stdout.emitData("dsh web: http://127.0.0.1:43123\n");
+    await connecting;
+
+    children[0]!.emit("close", 1, null);
+    const failedRequest = host.request("session.list", {});
+    await vi.waitFor(() => expect(spawnIndex).toBe(2));
+    children[1]!.stdout.emitData("dsh web: http://127.0.0.1:43124\n");
+    await expect(failedRequest).rejects.toThrow("history recovery failed");
+    expect(protocols[1]!.closed).toBe(true);
+
+    const retriedRequest = host.request("session.list", {});
+    await vi.waitFor(() => expect(spawnIndex).toBe(3));
+    children[2]!.stdout.emitData("dsh web: http://127.0.0.1:43125\n");
+    await expect(retriedRequest).resolves.toEqual({ accepted: true });
+    expect(onReconnect).toHaveBeenCalledTimes(2);
+    await host.close();
+  });
+
+  it("preserves restart identity when the replacement crashes during reconnect recovery", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-recovery-crash-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles"), { recursive: true });
+    await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n", "utf8");
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n", "utf8");
+    const children = [new FakeChild(), new FakeChild(), new FakeChild()];
+    const protocols = [new FakeProtocol(), new FakeProtocol(), new FakeProtocol()];
+    let spawnIndex = 0;
+    let protocolIndex = 0;
+    let finishFirstRecovery!: () => void;
+    const firstRecovery = new Promise<void>((resolve) => {
+      finishFirstRecovery = resolve;
+    });
+    const onReconnect = vi.fn()
+      .mockImplementationOnce(async () => await firstRecovery)
+      .mockResolvedValue(undefined);
+    const host = new DeepSeekHarnessHost({
+      executable: "dsh",
+      sharedHome,
+      stateDir,
+      workspacePath: "/workspace",
+      spawnDsh: () => children[spawnIndex++]!,
+      protocolFactory: () => protocols[protocolIndex++]!,
+      startupTimeoutMs: 1_000,
+      restartDelayMs: 60_000,
+    });
+
+    const connecting = host.connect({ onMuxFrame: () => {}, onHostFrame: () => {}, onReconnect });
+    await vi.waitFor(() => expect(spawnIndex).toBe(1));
+    children[0]!.stdout.emitData("dsh web: http://127.0.0.1:43123\n");
+    await connecting;
+
+    children[0]!.emit("close", 1, null);
+    const interruptedRequest = host.request("session.list", {});
+    await vi.waitFor(() => expect(spawnIndex).toBe(2));
+    children[1]!.stdout.emitData("dsh web: http://127.0.0.1:43124\n");
+    await vi.waitFor(() => expect(onReconnect).toHaveBeenCalledTimes(1));
+
+    children[1]!.emit("close", 1, null);
+    await vi.waitFor(() => expect(protocols[1]!.closed).toBe(true));
+    finishFirstRecovery();
+    await expect(interruptedRequest).rejects.toThrow("exited during reconnect recovery");
+
+    const recoveredRequest = host.request("session.list", {});
+    await vi.waitFor(() => expect(spawnIndex).toBe(3));
+    children[2]!.stdout.emitData("dsh web: http://127.0.0.1:43125\n");
+    await expect(recoveredRequest).resolves.toEqual({ accepted: true });
+    expect(onReconnect).toHaveBeenCalledTimes(2);
+    expect(onReconnect).toHaveBeenNthCalledWith(2, { reason: "host-restart" });
+    await host.close();
+  });
+});
+
+
+it.runIf(process.platform !== "win32")("stops a real private Host's tool descendants even if they ignore SIGTERM", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "dsh-process-tree-")); roots.push(root);
+  const sharedHome = path.join(root, "home"), pidFile = path.join(root, "child.pid");
+  await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+  await writeFile(path.join(sharedHome, "settings.yaml"), "{}\n");
+  await writeFile(path.join(sharedHome, ".credentials.yaml"), "{}\n");
+  const childScript = "process.on('SIGTERM', () => {}); process.stdout.write('ready\\n'); setInterval(() => {}, 1000)";
+  const script = `const { spawn } = require('node:child_process'); const { writeFileSync } = require('node:fs');
+    const child = spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], { stdio: ['ignore', 'pipe', 'ignore'] });
+    child.stdout.once('data', () => { writeFileSync(${JSON.stringify(pidFile)}, String(child.pid)); console.log('dsh web: http://127.0.0.1:43123'); });
+    setInterval(() => {}, 1000);`;
+  let processChild: ReturnType<typeof spawn> | undefined, descendant: number | undefined;
+  const host = new DeepSeekHarnessHost({ executable: "fixture", sharedHome, stateDir: path.join(root, "state"), workspacePath: root,
+    spawnDsh: () => { processChild = spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "pipe"] }); return processChild as unknown as DeepSeekHarnessChildProcess; },
+    protocolFactory: () => new FakeProtocol(), startupTimeoutMs: 2000, shutdownTimeoutMs: 100,
+  });
+  try {
+    await host.connect({ onMuxFrame: () => {}, onHostFrame: () => {} });
+    descendant = Number(await readFile(pidFile, "utf8")); expect(descendant).toBeGreaterThan(1);
+    await host.close();
+    await vi.waitFor(() => { expect(() => process.kill(descendant!, 0)).toThrow(); }, { timeout: 3000, interval: 30 });
+  } finally {
+    await host.close(); processChild?.kill("SIGKILL");
+    if (descendant) { try { process.kill(descendant, "SIGKILL"); } catch { /* Already reaped. */ } }
+  }
+});

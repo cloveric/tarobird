@@ -1,0 +1,2612 @@
+[
+  {
+    "id": "taro",
+    "source": "cutouts-1.png",
+    "cell": [
+      0,
+      0,
+      433,
+      456
+    ],
+    "bounds": [
+      57,
+      81,
+      403,
+      434
+    ],
+    "bytes": 33732,
+    "sha256": "05c7acf61c92e047c3e9f479da3854abb91780fc10ed36bc39cdbba1a2ff3764"
+  },
+  {
+    "id": "vanilla-sprout",
+    "source": "cutouts-1.png",
+    "cell": [
+      433,
+      0,
+      820,
+      456
+    ],
+    "bounds": [
+      30,
+      98,
+      360,
+      433
+    ],
+    "bytes": 35082,
+    "sha256": "619d46a235f5f790a623687db3bf1409e556a8f4cf8f64223ecb5c1ea3cb0e52"
+  },
+  {
+    "id": "pink-bunny",
+    "source": "cutouts-1.png",
+    "cell": [
+      820,
+      0,
+      1254,
+      456
+    ],
+    "bounds": [
+      28,
+      93,
+      370,
+      434
+    ],
+    "bytes": 35120,
+    "sha256": "52362fd4ae48fb06c2bc79042238c61bfe507011a2912d9a33c0f3f248ae222d"
+  },
+  {
+    "id": "blue-cloud",
+    "source": "cutouts-1.png",
+    "cell": [
+      0,
+      456,
+      443,
+      834
+    ],
+    "bounds": [
+      48,
+      65,
+      433,
+      342
+    ],
+    "bytes": 25578,
+    "sha256": "533d999c450d43d8db67ed748d604ab3da34a23038c607ca55fd9528cdf44c30"
+  },
+  {
+    "id": "gold-star",
+    "source": "cutouts-1.png",
+    "cell": [
+      443,
+      456,
+      830,
+      834
+    ],
+    "bounds": [
+      11,
+      49,
+      363,
+      342
+    ],
+    "bytes": 31856,
+    "sha256": "e6a955f975f4e5370cf918c32603afaf90cd7b4dd0838b5585f6df9b13ddafb7"
+  },
+  {
+    "id": "jade-drop",
+    "source": "cutouts-1.png",
+    "cell": [
+      830,
+      456,
+      1254,
+      834
+    ],
+    "bounds": [
+      24,
+      23,
+      364,
+      352
+    ],
+    "bytes": 32994,
+    "sha256": "e54ef9c9d2a29eecb56820664096647eebb116e4846f187b1a17afb2b72535cd"
+  },
+  {
+    "id": "orange-cat",
+    "source": "cutouts-1.png",
+    "cell": [
+      0,
+      834,
+      438,
+      1254
+    ],
+    "bounds": [
+      54,
+      34,
+      410,
+      337
+    ],
+    "bytes": 31938,
+    "sha256": "32d1474657036618d435178b13196e2a33dce630dd5d2d87578e7cb79379aad6"
+  },
+  {
+    "id": "ivory-mochi",
+    "source": "cutouts-1.png",
+    "cell": [
+      438,
+      834,
+      809,
+      1254
+    ],
+    "bounds": [
+      29,
+      69,
+      355,
+      334
+    ],
+    "bytes": 29762,
+    "sha256": "d1fa829235fe8e35742dda9716adc82f4c3ae1553d288ffc102a99f0ffe98454"
+  },
+  {
+    "id": "indigo-planet",
+    "source": "cutouts-1.png",
+    "cell": [
+      809,
+      834,
+      1254,
+      1254
+    ],
+    "bounds": [
+      16,
+      27,
+      420,
+      334
+    ],
+    "bytes": 30524,
+    "sha256": "432142616e5685e057ec9a2c462e98be598affef0c6602ba603951280f033b55"
+  },
+  {
+    "id": "rose-flame",
+    "source": "cutouts-2.png",
+    "cell": [
+      0,
+      0,
+      432,
+      448
+    ],
+    "bounds": [
+      59,
+      56,
+      399,
+      416
+    ],
+    "bytes": 32146,
+    "sha256": "908c8337dc7471d78fb63b990470828941ca4e8a72239451204deef47c0408a0"
+  },
+  {
+    "id": "mint-sprout",
+    "source": "cutouts-2.png",
+    "cell": [
+      432,
+      0,
+      816,
+      448
+    ],
+    "bounds": [
+      33,
+      81,
+      352,
+      419
+    ],
+    "bytes": 37846,
+    "sha256": "47ff7996cf61dfddeec249531c3383e35f71641039c4891653d43250466a4698"
+  },
+  {
+    "id": "honey-cat",
+    "source": "cutouts-2.png",
+    "cell": [
+      816,
+      0,
+      1254,
+      448
+    ],
+    "bounds": [
+      32,
+      109,
+      377,
+      417
+    ],
+    "bytes": 34854,
+    "sha256": "80284f0578865da664638471b5a5b5fb946067fa80829db6b6e35898cb936851"
+  },
+  {
+    "id": "lilac-horns",
+    "source": "cutouts-2.png",
+    "cell": [
+      0,
+      448,
+      424,
+      811
+    ],
+    "bounds": [
+      62,
+      35,
+      400,
+      338
+    ],
+    "bytes": 34524,
+    "sha256": "44d98d2e3415f05c41bd6607cec91d0b73c35857d467475effc8744cc32fbaca"
+  },
+  {
+    "id": "sky-cloud",
+    "source": "cutouts-2.png",
+    "cell": [
+      424,
+      448,
+      831,
+      811
+    ],
+    "bounds": [
+      25,
+      53,
+      384,
+      338
+    ],
+    "bytes": 29532,
+    "sha256": "d9330bf5f077fec3ddaa709fcac92c8f4b2582e6553d60c274f549d927f8854e"
+  },
+  {
+    "id": "coral-star",
+    "source": "cutouts-2.png",
+    "cell": [
+      831,
+      448,
+      1254,
+      811
+    ],
+    "bounds": [
+      24,
+      30,
+      366,
+      341
+    ],
+    "bytes": 34000,
+    "sha256": "da1deb7bada324e526738e8df3ad0c7e4246d3d0f28634671303644084b93eab"
+  },
+  {
+    "id": "aqua-shell",
+    "source": "cutouts-2.png",
+    "cell": [
+      0,
+      811,
+      434,
+      1254
+    ],
+    "bounds": [
+      59,
+      23,
+      404,
+      368
+    ],
+    "bytes": 37746,
+    "sha256": "04f75dd1dc381c683bc5ebd685b6dd60689447d55b8edb08924b996a53c9f078"
+  },
+  {
+    "id": "cream-mochi",
+    "source": "cutouts-2.png",
+    "cell": [
+      434,
+      811,
+      822,
+      1254
+    ],
+    "bounds": [
+      30,
+      91,
+      355,
+      364
+    ],
+    "bytes": 31168,
+    "sha256": "117e5db0962cd96468d99dc2f7e5dbfcdfb1e9c58caf73e934dcd6cc59128c97"
+  },
+  {
+    "id": "violet-moon",
+    "source": "cutouts-2.png",
+    "cell": [
+      822,
+      811,
+      1254,
+      1254
+    ],
+    "bounds": [
+      33,
+      24,
+      367,
+      368
+    ],
+    "bytes": 33904,
+    "sha256": "aed79af97411e25b154ab79b40a926aba3ed65e5339e9df1cf8e50f3ac9b156f"
+  },
+  {
+    "id": "pink-mushroom",
+    "source": "cutouts-3.png",
+    "cell": [
+      0,
+      0,
+      439,
+      446
+    ],
+    "bounds": [
+      47,
+      108,
+      416,
+      419
+    ],
+    "bytes": 32852,
+    "sha256": "10190ba43bfbf4b16c80ca0466b1c40a215643ff48f94cd1ba2e01c6df394f5e"
+  },
+  {
+    "id": "cream-bunny",
+    "source": "cutouts-3.png",
+    "cell": [
+      439,
+      0,
+      807,
+      446
+    ],
+    "bounds": [
+      24,
+      83,
+      350,
+      420
+    ],
+    "bytes": 37100,
+    "sha256": "1b1933119bea39db18cdf4b57dc91e14aa64fc6bc4e7392b6136903085f4086a"
+  },
+  {
+    "id": "lavender-planet",
+    "source": "cutouts-3.png",
+    "cell": [
+      807,
+      0,
+      1254,
+      446
+    ],
+    "bounds": [
+      19,
+      89,
+      419,
+      417
+    ],
+    "bytes": 31248,
+    "sha256": "1d1475e09050c4a3c3d19cef584431ebb49f1b546725ae36c5aa5548f3c25a8c"
+  },
+  {
+    "id": "caramel-bear",
+    "source": "cutouts-3.png",
+    "cell": [
+      0,
+      446,
+      438,
+      819
+    ],
+    "bounds": [
+      56,
+      38,
+      413,
+      348
+    ],
+    "bytes": 37050,
+    "sha256": "3eefafd2c4dd1584e344fada79368c0e4fb391ad61831691fe418fdf1107074f"
+  },
+  {
+    "id": "mint-drop",
+    "source": "cutouts-3.png",
+    "cell": [
+      438,
+      446,
+      823,
+      819
+    ],
+    "bounds": [
+      26,
+      27,
+      361,
+      352
+    ],
+    "bytes": 33958,
+    "sha256": "80cc6d53bb7cc2fd86585bae02f982b517352e7d4489c5472487809a3bf15c7b"
+  },
+  {
+    "id": "rose-flower",
+    "source": "cutouts-3.png",
+    "cell": [
+      823,
+      446,
+      1254,
+      819
+    ],
+    "bounds": [
+      24,
+      29,
+      386,
+      350
+    ],
+    "bytes": 31830,
+    "sha256": "d62070acb1ff33c5c6c338df4ddb45294ba36630fa9d808b9e9532d5c18926ca"
+  },
+  {
+    "id": "amber-flame",
+    "source": "cutouts-3.png",
+    "cell": [
+      0,
+      819,
+      430,
+      1254
+    ],
+    "bounds": [
+      60,
+      22,
+      405,
+      362
+    ],
+    "bytes": 34532,
+    "sha256": "c011bc48498c6ffd9c68897fd7bf977eb8a1ed6f153c2092fedd9df2a852ba8f"
+  },
+  {
+    "id": "blue-pebble",
+    "source": "cutouts-3.png",
+    "cell": [
+      430,
+      819,
+      830,
+      1254
+    ],
+    "bounds": [
+      26,
+      79,
+      371,
+      361
+    ],
+    "bytes": 30440,
+    "sha256": "de09c04980e8bc8f9580bec674c92e3ddbf16d461d0f250fec4da5840127b7a5"
+  },
+  {
+    "id": "pink-heart",
+    "source": "cutouts-3.png",
+    "cell": [
+      830,
+      819,
+      1254,
+      1254
+    ],
+    "bounds": [
+      29,
+      23,
+      370,
+      362
+    ],
+    "bytes": 34230,
+    "sha256": "c03c3b27e07699b2e85846b50ef3c288de2f4a56808008b94ee17344e14d483f"
+  },
+  {
+    "id": "rose-swirl",
+    "source": "cutouts-4.png",
+    "cell": [
+      0,
+      0,
+      436,
+      435
+    ],
+    "bounds": [
+      64,
+      132,
+      406,
+      408
+    ],
+    "bytes": 28660,
+    "sha256": "c9dcb41165231086885a95a7935cb72daed4bbebf7f88636811bc6bbb7990d4f"
+  },
+  {
+    "id": "clover-leaf",
+    "source": "cutouts-4.png",
+    "cell": [
+      436,
+      0,
+      816,
+      435
+    ],
+    "bounds": [
+      30,
+      81,
+      352,
+      409
+    ],
+    "bytes": 37312,
+    "sha256": "8cb369fc12780a456ec1ed6d518c4d2a33e1dde9c728afe9ae0b4a844457cbe1"
+  },
+  {
+    "id": "periwinkle-drop",
+    "source": "cutouts-4.png",
+    "cell": [
+      816,
+      0,
+      1254,
+      435
+    ],
+    "bounds": [
+      29,
+      88,
+      370,
+      412
+    ],
+    "bytes": 32056,
+    "sha256": "250ede71601cdd7472fd7d66d075e493e9e0d74186392cf7786d9c870698da05"
+  },
+  {
+    "id": "lemon-twin",
+    "source": "cutouts-4.png",
+    "cell": [
+      0,
+      435,
+      438,
+      824
+    ],
+    "bounds": [
+      54,
+      92,
+      420,
+      339
+    ],
+    "bytes": 27552,
+    "sha256": "bd79c05121c33b0a13993a81bbed66ad8647dc5b1b113185a6da84d2ef63f4cc"
+  },
+  {
+    "id": "lilac-swirl",
+    "source": "cutouts-4.png",
+    "cell": [
+      438,
+      435,
+      825,
+      824
+    ],
+    "bounds": [
+      19,
+      23,
+      359,
+      352
+    ],
+    "bytes": 35288,
+    "sha256": "5125f9a56cf2b45220d7bba1d92ccbf14a4fa51775e09203cf2aeb86f6545391"
+  },
+  {
+    "id": "peach-crown",
+    "source": "cutouts-4.png",
+    "cell": [
+      825,
+      435,
+      1254,
+      824
+    ],
+    "bounds": [
+      28,
+      36,
+      360,
+      354
+    ],
+    "bytes": 33772,
+    "sha256": "ebccd46414e4e52441a5ec47a9e318511cd31b86a1f6ac5bf08f67872771da58"
+  },
+  {
+    "id": "blue-mountain",
+    "source": "cutouts-4.png",
+    "cell": [
+      0,
+      824,
+      428,
+      1254
+    ],
+    "bounds": [
+      59,
+      36,
+      411,
+      331
+    ],
+    "bytes": 28602,
+    "sha256": "1985e45ad1a078f119e1980f29d467f332f36b51296a217248e7cd0a271aadc9"
+  },
+  {
+    "id": "rose-wave",
+    "source": "cutouts-4.png",
+    "cell": [
+      428,
+      824,
+      829,
+      1254
+    ],
+    "bounds": [
+      18,
+      77,
+      381,
+      331
+    ],
+    "bytes": 28082,
+    "sha256": "a3746190b5ceff62c81357532a3d5a8633d9ff53802a7a78b58e4178be342f34"
+  },
+  {
+    "id": "vanilla-swirl",
+    "source": "cutouts-4.png",
+    "cell": [
+      829,
+      824,
+      1254,
+      1254
+    ],
+    "bounds": [
+      21,
+      38,
+      363,
+      333
+    ],
+    "bytes": 29810,
+    "sha256": "4270fd97e223329437e8a017e3324ecf7349fd1a4b3a0a7234c9277a7d96d77b"
+  },
+  {
+    "id": "peach-patch-cat",
+    "source": "cutouts-5.png",
+    "cell": [
+      0,
+      0,
+      431,
+      445
+    ],
+    "bounds": [
+      62,
+      110,
+      406,
+      420
+    ],
+    "bytes": 36572,
+    "sha256": "b44173f6f94b3c49fe2e0f0b5a637c97d9cd45da5ce0ef47c9f941fa159a0362"
+  },
+  {
+    "id": "azure-bear",
+    "source": "cutouts-5.png",
+    "cell": [
+      431,
+      0,
+      828,
+      445
+    ],
+    "bounds": [
+      26,
+      104,
+      367,
+      421
+    ],
+    "bytes": 38228,
+    "sha256": "b89287c1f2a7b023973548368c0574d23a7b7dca25730db5a8d82bb5c69e847c"
+  },
+  {
+    "id": "rose-bunny",
+    "source": "cutouts-5.png",
+    "cell": [
+      828,
+      0,
+      1254,
+      445
+    ],
+    "bounds": [
+      31,
+      66,
+      368,
+      425
+    ],
+    "bytes": 36730,
+    "sha256": "5fc057a13b4bdc05a066ac2bdd2a138057644e7015dca7034aa5d7bed2aef10c"
+  },
+  {
+    "id": "violet-imp",
+    "source": "cutouts-5.png",
+    "cell": [
+      0,
+      445,
+      432,
+      825
+    ],
+    "bounds": [
+      55,
+      40,
+      413,
+      359
+    ],
+    "bytes": 34360,
+    "sha256": "32e492b759217adb356c351177ab8817eb17c71988257979459169349fe78055"
+  },
+  {
+    "id": "gold-crown",
+    "source": "cutouts-5.png",
+    "cell": [
+      432,
+      445,
+      828,
+      825
+    ],
+    "bounds": [
+      20,
+      25,
+      369,
+      358
+    ],
+    "bytes": 33882,
+    "sha256": "cc190affe0f6e194ece42f0b378c762b41d4d72314d570efc02916093e5805e2"
+  },
+  {
+    "id": "mint-curl",
+    "source": "cutouts-5.png",
+    "cell": [
+      828,
+      445,
+      1254,
+      825
+    ],
+    "bounds": [
+      28,
+      21,
+      373,
+      361
+    ],
+    "bytes": 35500,
+    "sha256": "1034a079da8722ff10ec78a9d828ba324798c3084b37adddd1e5c2c4fc14223b"
+  },
+  {
+    "id": "rose-butterfly",
+    "source": "cutouts-5.png",
+    "cell": [
+      0,
+      825,
+      429,
+      1254
+    ],
+    "bounds": [
+      55,
+      35,
+      411,
+      362
+    ],
+    "bytes": 36092,
+    "sha256": "e5fd169050658702b8fb255e152aae32bdbd008bbbc557f2d083a7936117864e"
+  },
+  {
+    "id": "ivory-puff",
+    "source": "cutouts-5.png",
+    "cell": [
+      429,
+      825,
+      831,
+      1254
+    ],
+    "bounds": [
+      18,
+      21,
+      380,
+      365
+    ],
+    "bytes": 33302,
+    "sha256": "e4b0b137f61f5b3fdacb43c23247b61b4765df2fc4258a484cd0b0a9def1f94b"
+  },
+  {
+    "id": "blue-curl",
+    "source": "cutouts-5.png",
+    "cell": [
+      831,
+      825,
+      1254,
+      1254
+    ],
+    "bounds": [
+      23,
+      19,
+      375,
+      363
+    ],
+    "bytes": 34548,
+    "sha256": "dda008f3a317271b8b6e6c3bd0f200a5a8b3079ee23f4830c8052eda441807cc"
+  },
+  {
+    "id": "spring-sprout",
+    "source": "cutouts-6.png",
+    "cell": [
+      0,
+      0,
+      422,
+      452
+    ],
+    "bounds": [
+      53,
+      69,
+      396,
+      424
+    ],
+    "bytes": 40234,
+    "sha256": "e7ebd945c3a4952ca3766eb6ffeabb695f690749bbe4c3a41486cff006a1b63d"
+  },
+  {
+    "id": "sakura-flower",
+    "source": "cutouts-6.png",
+    "cell": [
+      422,
+      0,
+      827,
+      452
+    ],
+    "bounds": [
+      27,
+      90,
+      384,
+      423
+    ],
+    "bytes": 36448,
+    "sha256": "553fdeb6aeafffc95e231d9f821aa1dd2b373c14ac192339e2a130245166b04e"
+  },
+  {
+    "id": "moon-cloud",
+    "source": "cutouts-6.png",
+    "cell": [
+      827,
+      0,
+      1254,
+      452
+    ],
+    "bounds": [
+      22,
+      122,
+      393,
+      424
+    ],
+    "bytes": 32426,
+    "sha256": "54734116bc5a3d17b9b7c359268de1c4d922d9f7363ba23e65c98a49e40285f6"
+  },
+  {
+    "id": "rain-drop",
+    "source": "cutouts-6.png",
+    "cell": [
+      0,
+      452,
+      414,
+      836
+    ],
+    "bounds": [
+      61,
+      28,
+      392,
+      365
+    ],
+    "bytes": 36074,
+    "sha256": "1d387743383a4a45e01efc6f6d732b4528cc6e2e880cfa4da006dce884d47574"
+  },
+  {
+    "id": "lemon-leaf",
+    "source": "cutouts-6.png",
+    "cell": [
+      414,
+      452,
+      842,
+      836
+    ],
+    "bounds": [
+      23,
+      29,
+      406,
+      364
+    ],
+    "bytes": 34144,
+    "sha256": "ccc9c13f93404c11c59f5bf0e2253ed0a7de99492aa4a51bc4d52bbf05a3ce4f"
+  },
+  {
+    "id": "jade-leaf",
+    "source": "cutouts-6.png",
+    "cell": [
+      842,
+      452,
+      1254,
+      836
+    ],
+    "bounds": [
+      23,
+      34,
+      366,
+      365
+    ],
+    "bytes": 41652,
+    "sha256": "d47a233d029786b2d6fcabd12535aa760715f45d2d4c994578cceb11c9f37761"
+  },
+  {
+    "id": "lilac-shell",
+    "source": "cutouts-6.png",
+    "cell": [
+      0,
+      836,
+      426,
+      1254
+    ],
+    "bounds": [
+      45,
+      20,
+      405,
+      362
+    ],
+    "bytes": 37030,
+    "sha256": "93a1864054c181c44bcecc8fd44bcb08b9086cb2c9992769988116956300bfa6"
+  },
+  {
+    "id": "clover-pebble",
+    "source": "cutouts-6.png",
+    "cell": [
+      426,
+      836,
+      837,
+      1254
+    ],
+    "bounds": [
+      21,
+      64,
+      399,
+      356
+    ],
+    "bytes": 31058,
+    "sha256": "19d1ff59a72867832e1053e3ccdfa87a9d7efe803f61355d90a0d5317e8e61d6"
+  },
+  {
+    "id": "star-kitten",
+    "source": "cutouts-6.png",
+    "cell": [
+      837,
+      836,
+      1254,
+      1254
+    ],
+    "bounds": [
+      12,
+      51,
+      378,
+      362
+    ],
+    "bytes": 33920,
+    "sha256": "b3ebb439c5a935f81b9b678b3699051b625396aa480ab5cb1c9b93f08cdd1332"
+  },
+  {
+    "id": "candy-heart",
+    "source": "cutouts-7.png",
+    "cell": [
+      0,
+      0,
+      439,
+      435
+    ],
+    "bounds": [
+      45,
+      94,
+      429,
+      413
+    ],
+    "bytes": 31328,
+    "sha256": "f951a602f38028fcdcc1c3413103dde6651cd6f87c896fdb943e35308247a33e"
+  },
+  {
+    "id": "violet-peak",
+    "source": "cutouts-7.png",
+    "cell": [
+      439,
+      0,
+      823,
+      435
+    ],
+    "bounds": [
+      10,
+      89,
+      364,
+      412
+    ],
+    "bytes": 30788,
+    "sha256": "596d23db16cef427c36a99cd3bbd2fb5067e2eb372f54915480514b74c06b599"
+  },
+  {
+    "id": "gold-bean",
+    "source": "cutouts-7.png",
+    "cell": [
+      823,
+      0,
+      1254,
+      435
+    ],
+    "bounds": [
+      20,
+      88,
+      394,
+      415
+    ],
+    "bytes": 30310,
+    "sha256": "e6aa7524bfbd331ec6a401c56b36148298e777dba0f53c16df17692615ff43e6"
+  },
+  {
+    "id": "coral-mushroom",
+    "source": "cutouts-7.png",
+    "cell": [
+      0,
+      435,
+      428,
+      817
+    ],
+    "bounds": [
+      50,
+      28,
+      424,
+      368
+    ],
+    "bytes": 35032,
+    "sha256": "805f6ca1be365bdbc9950a486295c29e03437f752db6bdbdbece9eed9a892f2d"
+  },
+  {
+    "id": "lilac-planet",
+    "source": "cutouts-7.png",
+    "cell": [
+      428,
+      435,
+      850,
+      817
+    ],
+    "bounds": [
+      4,
+      24,
+      415,
+      361
+    ],
+    "bytes": 30200,
+    "sha256": "3e952678421e390f449641173bee924ea7fb2b7c7ef0cbd025d8f88f33dcac13"
+  },
+  {
+    "id": "coral-flame",
+    "source": "cutouts-7.png",
+    "cell": [
+      850,
+      435,
+      1254,
+      817
+    ],
+    "bounds": [
+      7,
+      20,
+      346,
+      375
+    ],
+    "bytes": 32978,
+    "sha256": "e00bbd6ef13c9f3ce1b86f9e248bdbaf42cfd07099535638026ecabbcdc66307"
+  },
+  {
+    "id": "sky-drop",
+    "source": "cutouts-7.png",
+    "cell": [
+      0,
+      817,
+      436,
+      1254
+    ],
+    "bounds": [
+      72,
+      23,
+      410,
+      373
+    ],
+    "bytes": 31326,
+    "sha256": "fb0469de5ffd5234fbf32947a44a7aa8d9adb13e330f677ffb3cebbd5cff1d34"
+  },
+  {
+    "id": "spring-clover",
+    "source": "cutouts-7.png",
+    "cell": [
+      436,
+      817,
+      825,
+      1254
+    ],
+    "bounds": [
+      27,
+      8,
+      359,
+      368
+    ],
+    "bytes": 32182,
+    "sha256": "73d8cc7004bc715df18e9e38cbadbd09fbf13ce27a84a79f59caab848a0b9bcc"
+  },
+  {
+    "id": "rose-cube",
+    "source": "cutouts-7.png",
+    "cell": [
+      825,
+      817,
+      1254,
+      1254
+    ],
+    "bounds": [
+      31,
+      39,
+      381,
+      363
+    ],
+    "bytes": 36744,
+    "sha256": "98158ace1b327e226bc27474c84e612ae1176f6715bf955b66e9a5d5f3bdee26"
+  },
+  {
+    "id": "pastel-rabbit",
+    "source": "cutouts-8.png",
+    "cell": [
+      0,
+      0,
+      418,
+      449
+    ],
+    "bounds": [
+      36,
+      51,
+      396,
+      427
+    ],
+    "bytes": 38274,
+    "sha256": "9517a5097ba9f55b036573b0f85ea2d649e8961f61ce9b53e5d9323a3299cc0b"
+  },
+  {
+    "id": "pastel-bear",
+    "source": "cutouts-8.png",
+    "cell": [
+      418,
+      0,
+      832,
+      449
+    ],
+    "bounds": [
+      22,
+      110,
+      394,
+      424
+    ],
+    "bytes": 38026,
+    "sha256": "c44868a843cde4540a056b38630803314d8073cec3b2d541902c8624a12c23bf"
+  },
+  {
+    "id": "pastel-cat",
+    "source": "cutouts-8.png",
+    "cell": [
+      832,
+      0,
+      1254,
+      449
+    ],
+    "bounds": [
+      20,
+      97,
+      394,
+      426
+    ],
+    "bytes": 37128,
+    "sha256": "5d24fed46d5805c688fa32686a9fd72c34be005e3bf299eb025ea83e4773acc7"
+  },
+  {
+    "id": "pastel-fox",
+    "source": "cutouts-8.png",
+    "cell": [
+      0,
+      449,
+      443,
+      830
+    ],
+    "bounds": [
+      35,
+      23,
+      436,
+      365
+    ],
+    "bytes": 37208,
+    "sha256": "496a470061aee166182cff1920d4e695f7acf01f9d9332f58cfeb2f8b072e2dc"
+  },
+  {
+    "id": "pastel-chick",
+    "source": "cutouts-8.png",
+    "cell": [
+      443,
+      449,
+      827,
+      830
+    ],
+    "bounds": [
+      7,
+      22,
+      361,
+      365
+    ],
+    "bytes": 35788,
+    "sha256": "3126a42f7c21d49b9aaeadeeeb51bbd20a7455b2f92111fbb279acb97619ddcd"
+  },
+  {
+    "id": "pastel-frog",
+    "source": "cutouts-8.png",
+    "cell": [
+      827,
+      449,
+      1254,
+      830
+    ],
+    "bounds": [
+      23,
+      40,
+      396,
+      365
+    ],
+    "bytes": 39360,
+    "sha256": "e9ac02a5cf3b62b9092076f91c478a978977edf422b5b05c646d348e4ecb0bda"
+  },
+  {
+    "id": "pastel-panda",
+    "source": "cutouts-8.png",
+    "cell": [
+      0,
+      830,
+      424,
+      1254
+    ],
+    "bounds": [
+      36,
+      40,
+      407,
+      371
+    ],
+    "bytes": 39324,
+    "sha256": "6c65eeecae7161d743c83c5c473a7db1b079a7e37d1dadb1a474f0dad1427603"
+  },
+  {
+    "id": "pastel-mouse",
+    "source": "cutouts-8.png",
+    "cell": [
+      424,
+      830,
+      829,
+      1254
+    ],
+    "bounds": [
+      17,
+      28,
+      390,
+      371
+    ],
+    "bytes": 41944,
+    "sha256": "db48f443009325a333cced3475dd46ae160e6b3bcaf25900fc4b5b4488e926a1"
+  },
+  {
+    "id": "pastel-deer",
+    "source": "cutouts-8.png",
+    "cell": [
+      829,
+      830,
+      1254,
+      1254
+    ],
+    "bounds": [
+      15,
+      16,
+      394,
+      371
+    ],
+    "bytes": 41694,
+    "sha256": "5b9ef80e90103af02b4bb16f11618a12883e4e708a7b62db35740db8071faf44"
+  },
+  {
+    "id": "pastel-puppy",
+    "source": "cutouts-9.png",
+    "cell": [
+      0,
+      0,
+      434,
+      437
+    ],
+    "bounds": [
+      49,
+      130,
+      424,
+      390
+    ],
+    "bytes": 29180,
+    "sha256": "e70ac91c8ad35fd09d3c710b323ba62c1ba83dc1cfe63b565db87af2bbada4d4"
+  },
+  {
+    "id": "pastel-koala",
+    "source": "cutouts-9.png",
+    "cell": [
+      434,
+      0,
+      841,
+      437
+    ],
+    "bounds": [
+      10,
+      107,
+      384,
+      392
+    ],
+    "bytes": 31676,
+    "sha256": "b303ec9e622aa95e1d5557df436ac8bc64ebb363a0adc60ba1209fcc1a16c91c"
+  },
+  {
+    "id": "pastel-pig",
+    "source": "cutouts-9.png",
+    "cell": [
+      841,
+      0,
+      1254,
+      437
+    ],
+    "bounds": [
+      23,
+      113,
+      343,
+      392
+    ],
+    "bytes": 37124,
+    "sha256": "49c78e5f449bec8eaf701d473f884ab7d0989f43de617ea8fdefb43c3d82a6f3"
+  },
+  {
+    "id": "pastel-lamb",
+    "source": "cutouts-9.png",
+    "cell": [
+      0,
+      437,
+      442,
+      812
+    ],
+    "bounds": [
+      48,
+      47,
+      429,
+      339
+    ],
+    "bytes": 28288,
+    "sha256": "d8973f12b496a59951fb942fcd45a5a97e01b525a4b813f99a58737a39ad5009"
+  },
+  {
+    "id": "pastel-tiger",
+    "source": "cutouts-9.png",
+    "cell": [
+      442,
+      437,
+      812,
+      812
+    ],
+    "bounds": [
+      14,
+      45,
+      356,
+      341
+    ],
+    "bytes": 41558,
+    "sha256": "35a259fae36f8d118a989e75e27efb818ace4a79c24223af2968d31db84c884f"
+  },
+  {
+    "id": "pastel-penguin",
+    "source": "cutouts-9.png",
+    "cell": [
+      812,
+      437,
+      1254,
+      812
+    ],
+    "bounds": [
+      14,
+      56,
+      410,
+      341
+    ],
+    "bytes": 27626,
+    "sha256": "1f026f35b34a50dcaef8408a71f84e7643b23231c8f4d2ff31ee98a25cb40a14"
+  },
+  {
+    "id": "pastel-owl",
+    "source": "cutouts-9.png",
+    "cell": [
+      0,
+      812,
+      440,
+      1254
+    ],
+    "bounds": [
+      49,
+      39,
+      421,
+      352
+    ],
+    "bytes": 36570,
+    "sha256": "69a26cbdeb8059c3186fffdb28df3a0cc03482a43a843acbbb739ca7aba850eb"
+  },
+  {
+    "id": "pastel-duck",
+    "source": "cutouts-9.png",
+    "cell": [
+      440,
+      812,
+      819,
+      1254
+    ],
+    "bounds": [
+      19,
+      34,
+      354,
+      349
+    ],
+    "bytes": 34830,
+    "sha256": "33a9108ff10b5d04f077d9f243cd1589e94dc7f5129380be60d652190d7cbec6"
+  },
+  {
+    "id": "pastel-raccoon",
+    "source": "cutouts-9.png",
+    "cell": [
+      819,
+      812,
+      1254,
+      1254
+    ],
+    "bounds": [
+      26,
+      50,
+      412,
+      351
+    ],
+    "bytes": 33902,
+    "sha256": "ba23b37c2fdc72b8d69d65d8fd458c3cfbb0a59c931eb61032cbc970e000953c"
+  },
+  {
+    "id": "pastel-lion",
+    "source": "cutouts-10.png",
+    "cell": [
+      0,
+      0,
+      425,
+      433
+    ],
+    "bounds": [
+      48,
+      85,
+      414,
+      392
+    ],
+    "bytes": 34108,
+    "sha256": "fbe76cf95783a93107b7ada1f18132b310cf14507d05b1d8c1bdc356da74181a"
+  },
+  {
+    "id": "pastel-monkey",
+    "source": "cutouts-10.png",
+    "cell": [
+      425,
+      0,
+      845,
+      433
+    ],
+    "bounds": [
+      11,
+      93,
+      400,
+      394
+    ],
+    "bytes": 28324,
+    "sha256": "8bd5d9c51078e4c427b392f44e94f86b9e108c6108b090a96373cd6969a3efb3"
+  },
+  {
+    "id": "pastel-hamster",
+    "source": "cutouts-10.png",
+    "cell": [
+      845,
+      0,
+      1254,
+      433
+    ],
+    "bounds": [
+      20,
+      111,
+      353,
+      396
+    ],
+    "bytes": 35594,
+    "sha256": "dd3c418d477561a567b8953b5f52a002d68c5913cdcc864bfe037230b1ed77d2"
+  },
+  {
+    "id": "pastel-hedgehog",
+    "source": "cutouts-10.png",
+    "cell": [
+      0,
+      433,
+      413,
+      821
+    ],
+    "bounds": [
+      36,
+      38,
+      404,
+      347
+    ],
+    "bytes": 35380,
+    "sha256": "701d31a360a3ef5e11ed7b2c2e22988b8afc69d425b91c4fcdc0946312aa23ec"
+  },
+  {
+    "id": "pastel-elephant",
+    "source": "cutouts-10.png",
+    "cell": [
+      413,
+      433,
+      846,
+      821
+    ],
+    "bounds": [
+      9,
+      78,
+      426,
+      345
+    ],
+    "bytes": 29668,
+    "sha256": "51677c4cd8df705fcf4a06021e2869b0b4d1522fa80ebe12796b082b447952bd"
+  },
+  {
+    "id": "pastel-cow",
+    "source": "cutouts-10.png",
+    "cell": [
+      846,
+      433,
+      1254,
+      821
+    ],
+    "bounds": [
+      7,
+      47,
+      380,
+      347
+    ],
+    "bytes": 32864,
+    "sha256": "8a099bcd70ccc5e4557006d36939a239aa04df231f768b2bf969a284e853e9a8"
+  },
+  {
+    "id": "pastel-sheep",
+    "source": "cutouts-10.png",
+    "cell": [
+      0,
+      821,
+      425,
+      1254
+    ],
+    "bounds": [
+      46,
+      41,
+      410,
+      355
+    ],
+    "bytes": 31454,
+    "sha256": "309f314cb219275455e0fea700f74b2ba659ffc0ff4757929128064e95529ff6"
+  },
+  {
+    "id": "pastel-squirrel",
+    "source": "cutouts-10.png",
+    "cell": [
+      425,
+      821,
+      848,
+      1254
+    ],
+    "bounds": [
+      15,
+      55,
+      406,
+      350
+    ],
+    "bytes": 33486,
+    "sha256": "19c9e2f62b541a62166339db70713b47f8076cfd10819ee357b6b3e9ca1d76ae"
+  },
+  {
+    "id": "pastel-polar-bear",
+    "source": "cutouts-10.png",
+    "cell": [
+      848,
+      821,
+      1254,
+      1254
+    ],
+    "bounds": [
+      18,
+      62,
+      357,
+      349
+    ],
+    "bytes": 34312,
+    "sha256": "248c5c7aede54219de4ccfab8f6d47320c669b3186eb88943ac636825cac8405"
+  },
+  {
+    "id": "mini-rabbit",
+    "source": "cutouts-11.png",
+    "cell": [
+      0,
+      0,
+      183,
+      181
+    ],
+    "bounds": [
+      48,
+      36,
+      164,
+      169
+    ],
+    "bytes": 31758,
+    "sha256": "b4316879938f8fa571b45b4a86aedaaeea639058cfd7a1cda2cd9a49b61226e1"
+  },
+  {
+    "id": "mini-bear",
+    "source": "cutouts-11.png",
+    "cell": [
+      183,
+      0,
+      345,
+      181
+    ],
+    "bounds": [
+      19,
+      51,
+      143,
+      164
+    ],
+    "bytes": 36242,
+    "sha256": "fdf88d0fc477c908dfb03e0c29d4ebe73315ddef8b8cb44554c44d357038f3f9"
+  },
+  {
+    "id": "mini-panda",
+    "source": "cutouts-11.png",
+    "cell": [
+      345,
+      0,
+      514,
+      181
+    ],
+    "bounds": [
+      19,
+      51,
+      139,
+      163
+    ],
+    "bytes": 36878,
+    "sha256": "12b138848b447f6ad083a493dfe949d4b25fd834528708261e1458cfdbb5e8f4"
+  },
+  {
+    "id": "mini-whale",
+    "source": "cutouts-11.png",
+    "cell": [
+      514,
+      0,
+      693,
+      181
+    ],
+    "bounds": [
+      31,
+      48,
+      167,
+      167
+    ],
+    "bytes": 34506,
+    "sha256": "273b1853e8e1b6ae268a4d96302f3b09618cc3835e9da7fb190aa1d51ef5082d"
+  },
+  {
+    "id": "mini-octopus",
+    "source": "cutouts-11.png",
+    "cell": [
+      693,
+      0,
+      851,
+      181
+    ],
+    "bounds": [
+      12,
+      52,
+      143,
+      165
+    ],
+    "bytes": 34522,
+    "sha256": "e9c486f43087d52820dbe3f6c5940d1cf5c9690868041abbf2810d9614bae3df"
+  },
+  {
+    "id": "mini-jellyfish",
+    "source": "cutouts-11.png",
+    "cell": [
+      851,
+      0,
+      1020,
+      181
+    ],
+    "bounds": [
+      16,
+      52,
+      135,
+      169
+    ],
+    "bytes": 39856,
+    "sha256": "bff9c1125396b7a5afd18c3d25d05944573630cf4a3e1501c0f058c050a90ecc"
+  },
+  {
+    "id": "mini-hen",
+    "source": "cutouts-11.png",
+    "cell": [
+      1020,
+      0,
+      1197,
+      181
+    ],
+    "bounds": [
+      34,
+      38,
+      163,
+      167
+    ],
+    "bytes": 32416,
+    "sha256": "d278fbf4b023878e607e8c2bb23f448c0dc2d0d156a4795c27d55e1fc7f460c7"
+  },
+  {
+    "id": "mini-chick",
+    "source": "cutouts-11.png",
+    "cell": [
+      1197,
+      0,
+      1356,
+      181
+    ],
+    "bounds": [
+      14,
+      46,
+      143,
+      166
+    ],
+    "bytes": 32612,
+    "sha256": "b4361e0da6b5a786995c723821968221fa70be12ac913a39650491b37a1cceab"
+  },
+  {
+    "id": "mini-owl",
+    "source": "cutouts-11.png",
+    "cell": [
+      1356,
+      0,
+      1536,
+      181
+    ],
+    "bounds": [
+      17,
+      54,
+      143,
+      168
+    ],
+    "bytes": 40554,
+    "sha256": "ea2c86d5329629b7c6c4bb95c012d4c5aa24c2d8eb94903d91961916a5497bb9"
+  },
+  {
+    "id": "mini-tiger",
+    "source": "cutouts-11.png",
+    "cell": [
+      0,
+      181,
+      185,
+      335
+    ],
+    "bounds": [
+      41,
+      16,
+      172,
+      139
+    ],
+    "bytes": 38252,
+    "sha256": "eacec53a30c4c8a995cb8334145e2c86f7ebaa91fc4a115fa05971c3b0cd2a45"
+  },
+  {
+    "id": "mini-corgi",
+    "source": "cutouts-11.png",
+    "cell": [
+      185,
+      181,
+      344,
+      335
+    ],
+    "bounds": [
+      13,
+      12,
+      144,
+      139
+    ],
+    "bytes": 44762,
+    "sha256": "d157390a73969620ece693eee6c12e970eca35d40942612792d957ccc59d14f8"
+  },
+  {
+    "id": "mini-penguin",
+    "source": "cutouts-11.png",
+    "cell": [
+      344,
+      181,
+      516,
+      335
+    ],
+    "bounds": [
+      15,
+      17,
+      147,
+      138
+    ],
+    "bytes": 39702,
+    "sha256": "c230157269f8d4733ab9980f34af46dc383aae6046cbe354015f7e5613f579f0"
+  },
+  {
+    "id": "mini-clownfish",
+    "source": "cutouts-11.png",
+    "cell": [
+      516,
+      181,
+      690,
+      335
+    ],
+    "bounds": [
+      26,
+      23,
+      162,
+      132
+    ],
+    "bytes": 38864,
+    "sha256": "d30648c6009e78c7f43b75211ee327303503c1b6f2500b3417642926a8fa2e17"
+  },
+  {
+    "id": "mini-shark",
+    "source": "cutouts-11.png",
+    "cell": [
+      690,
+      181,
+      847,
+      335
+    ],
+    "bounds": [
+      12,
+      15,
+      147,
+      137
+    ],
+    "bytes": 37026,
+    "sha256": "7631991f26a51280f6407aa91c88deb42b68302e02c5c6c3652801b6c3a97648"
+  },
+  {
+    "id": "mini-crab",
+    "source": "cutouts-11.png",
+    "cell": [
+      847,
+      181,
+      1025,
+      335
+    ],
+    "bounds": [
+      10,
+      20,
+      151,
+      136
+    ],
+    "bytes": 39402,
+    "sha256": "11ffa2019e05591f64f85fe3787f021347203393fe4c1d1c9fd98d60d89ac17a"
+  },
+  {
+    "id": "mini-bluebird",
+    "source": "cutouts-11.png",
+    "cell": [
+      1025,
+      181,
+      1200,
+      335
+    ],
+    "bounds": [
+      28,
+      12,
+      160,
+      142
+    ],
+    "bytes": 34668,
+    "sha256": "09edc84cad2c530c24c1eeeabf88abdd9721bd7011b5ee07b919742e609f5c97"
+  },
+  {
+    "id": "mini-duck",
+    "source": "cutouts-11.png",
+    "cell": [
+      1200,
+      181,
+      1357,
+      335
+    ],
+    "bounds": [
+      15,
+      19,
+      142,
+      143
+    ],
+    "bytes": 33340,
+    "sha256": "f984080420d0b02f14124c2fd86fb2c233c7293c56864a196f55615f885ff029"
+  },
+  {
+    "id": "mini-cockatiel-grey",
+    "source": "cutouts-11.png",
+    "cell": [
+      1357,
+      181,
+      1536,
+      335
+    ],
+    "bounds": [
+      15,
+      17,
+      143,
+      142
+    ],
+    "bytes": 35722,
+    "sha256": "6b0cbe53d78465f9a9ca3fd36bf850c62746e7bab8381dc322b1fea5047588e3"
+  },
+  {
+    "id": "mini-frog",
+    "source": "cutouts-11.png",
+    "cell": [
+      0,
+      335,
+      185,
+      499
+    ],
+    "bounds": [
+      41,
+      22,
+      172,
+      145
+    ],
+    "bytes": 40294,
+    "sha256": "3feb0e722a9611e6131dabe1573960396b055e499b1359d2ef3f9ebe3806a2d5"
+  },
+  {
+    "id": "mini-pig",
+    "source": "cutouts-11.png",
+    "cell": [
+      185,
+      335,
+      341,
+      499
+    ],
+    "bounds": [
+      14,
+      23,
+      144,
+      144
+    ],
+    "bytes": 38052,
+    "sha256": "3c898b2e9902ba2391aef96d672a05b84c5ab2bb777d6f78c331f3420c8ebe21"
+  },
+  {
+    "id": "mini-sheep",
+    "source": "cutouts-11.png",
+    "cell": [
+      341,
+      335,
+      519,
+      499
+    ],
+    "bounds": [
+      12,
+      21,
+      155,
+      143
+    ],
+    "bytes": 32904,
+    "sha256": "1e38a5b1d59c2dc99a2192214041fcb8d732909b2233a762b6d6a0a18f3da978"
+  },
+  {
+    "id": "mini-ray",
+    "source": "cutouts-11.png",
+    "cell": [
+      519,
+      335,
+      692,
+      499
+    ],
+    "bounds": [
+      23,
+      19,
+      162,
+      148
+    ],
+    "bytes": 33326,
+    "sha256": "f35c92aeab640f994429f8c157867230c2c8d9bc01ea1ba0dc39f0836cad82fc"
+  },
+  {
+    "id": "mini-seal",
+    "source": "cutouts-11.png",
+    "cell": [
+      692,
+      335,
+      850,
+      499
+    ],
+    "bounds": [
+      12,
+      24,
+      148,
+      144
+    ],
+    "bytes": 31342,
+    "sha256": "925b0ff4e120f6f34b7574354b3d53987a2e8a0cb49ded3fd6f93b902077f02f"
+  },
+  {
+    "id": "mini-starfish",
+    "source": "cutouts-11.png",
+    "cell": [
+      850,
+      335,
+      1024,
+      499
+    ],
+    "bounds": [
+      11,
+      18,
+      149,
+      146
+    ],
+    "bytes": 31830,
+    "sha256": "d9b370263bc76a2bdd17986159eb6f3e65766accef1765bd9b9f10de6d0fb577"
+  },
+  {
+    "id": "mini-parrot",
+    "source": "cutouts-11.png",
+    "cell": [
+      1024,
+      335,
+      1201,
+      499
+    ],
+    "bounds": [
+      26,
+      12,
+      162,
+      152
+    ],
+    "bytes": 34818,
+    "sha256": "b59c3b6c8cdea4d509ff5e23358f6a198ca8551464e1ef7de91b763a22040c4d"
+  },
+  {
+    "id": "mini-cockatiel-yellow",
+    "source": "cutouts-11.png",
+    "cell": [
+      1201,
+      335,
+      1354,
+      499
+    ],
+    "bounds": [
+      16,
+      13,
+      136,
+      149
+    ],
+    "bytes": 33990,
+    "sha256": "3dcd313232de651240c59885aad908924a23163f480184bd79f8ccd72a6c5acd"
+  },
+  {
+    "id": "mini-blackbird",
+    "source": "cutouts-11.png",
+    "cell": [
+      1354,
+      335,
+      1536,
+      499
+    ],
+    "bounds": [
+      18,
+      18,
+      145,
+      149
+    ],
+    "bytes": 33216,
+    "sha256": "e4619ae599a6cc45d57f90b455e17d26bddba9c85514b434e75a1102dad9d33d"
+  },
+  {
+    "id": "mini-star",
+    "source": "cutouts-11.png",
+    "cell": [
+      0,
+      499,
+      190,
+      660
+    ],
+    "bounds": [
+      41,
+      25,
+      174,
+      149
+    ],
+    "bytes": 32156,
+    "sha256": "7f3bc2fff2b41e540590d9f50f76d5b86b9b4e8dac8250cf4e33c205c866db1d"
+  },
+  {
+    "id": "mini-moon",
+    "source": "cutouts-11.png",
+    "cell": [
+      190,
+      499,
+      340,
+      660
+    ],
+    "bounds": [
+      17,
+      29,
+      133,
+      151
+    ],
+    "bytes": 34492,
+    "sha256": "68bf04322c9b4ae814ce661fc12000f90bb0c31b0969b40376f02f1042191604"
+  },
+  {
+    "id": "mini-planet",
+    "source": "cutouts-11.png",
+    "cell": [
+      340,
+      499,
+      528,
+      660
+    ],
+    "bounds": [
+      17,
+      34,
+      167,
+      143
+    ],
+    "bytes": 33324,
+    "sha256": "d5995848f4f857dec1fe31b3c1d37eee7723089586d00d44570901818028a04e"
+  },
+  {
+    "id": "mini-apple",
+    "source": "cutouts-11.png",
+    "cell": [
+      528,
+      499,
+      690,
+      660
+    ],
+    "bounds": [
+      21,
+      13,
+      144,
+      148
+    ],
+    "bytes": 35446,
+    "sha256": "94b414d0e03e352a860ab15707dd90c0f03a2934dea2a60528a842cc8fb37355"
+  },
+  {
+    "id": "mini-orange",
+    "source": "cutouts-11.png",
+    "cell": [
+      690,
+      499,
+      853,
+      660
+    ],
+    "bounds": [
+      18,
+      20,
+      143,
+      147
+    ],
+    "bytes": 38288,
+    "sha256": "5ce4591e9617cfa5d21321073c5ef673ed118af4ba7acbfd889a56fcc7ace85b"
+  },
+  {
+    "id": "mini-lemon",
+    "source": "cutouts-11.png",
+    "cell": [
+      853,
+      499,
+      1021,
+      660
+    ],
+    "bounds": [
+      20,
+      21,
+      139,
+      147
+    ],
+    "bytes": 36024,
+    "sha256": "620b7888e33ae44a71bc49e0296a62f468760e45785c05089eb6c598b52dca02"
+  },
+  {
+    "id": "mini-pudding",
+    "source": "cutouts-11.png",
+    "cell": [
+      1021,
+      499,
+      1198,
+      660
+    ],
+    "bounds": [
+      29,
+      27,
+      162,
+      144
+    ],
+    "bytes": 36444,
+    "sha256": "a8dd2bb6c672ded646b1cf838c90b01c51bdbe47bc0327202eff3f44221d241d"
+  },
+  {
+    "id": "mini-macaron",
+    "source": "cutouts-11.png",
+    "cell": [
+      1198,
+      499,
+      1357,
+      660
+    ],
+    "bounds": [
+      15,
+      27,
+      144,
+      145
+    ],
+    "bytes": 36200,
+    "sha256": "507dd0aef845c1618399836f53f47e83b5ef8cbdd49c064253b0a77fbd4ffe3c"
+  },
+  {
+    "id": "mini-cookie",
+    "source": "cutouts-11.png",
+    "cell": [
+      1357,
+      499,
+      1536,
+      660
+    ],
+    "bounds": [
+      16,
+      27,
+      142,
+      146
+    ],
+    "bytes": 40024,
+    "sha256": "c918c318d8e4d3bd50789f11dbb167486b8a9827f2c746f8d6b82976ea06977d"
+  },
+  {
+    "id": "mini-sun",
+    "source": "cutouts-11.png",
+    "cell": [
+      0,
+      660,
+      186,
+      820
+    ],
+    "bounds": [
+      37,
+      11,
+      176,
+      144
+    ],
+    "bytes": 37392,
+    "sha256": "712859de53136c9e5011c655b146b1885bec1aee428a3033717e3136ce11e33c"
+  },
+  {
+    "id": "mini-cloud",
+    "source": "cutouts-11.png",
+    "cell": [
+      186,
+      660,
+      346,
+      820
+    ],
+    "bounds": [
+      11,
+      28,
+      150,
+      139
+    ],
+    "bytes": 27262,
+    "sha256": "1c101e276247223a69763de12b199ec11983e9ea80f8b9c96189d0999a5889f4"
+  },
+  {
+    "id": "mini-rainbow",
+    "source": "cutouts-11.png",
+    "cell": [
+      346,
+      660,
+      526,
+      820
+    ],
+    "bounds": [
+      11,
+      24,
+      157,
+      132
+    ],
+    "bytes": 37908,
+    "sha256": "b03e3cb2efb156b0fe8393cde6b2d879e32f73e915e8250958c624b5da713b65"
+  },
+  {
+    "id": "mini-grapes",
+    "source": "cutouts-11.png",
+    "cell": [
+      526,
+      660,
+      692,
+      820
+    ],
+    "bounds": [
+      26,
+      12,
+      143,
+      144
+    ],
+    "bytes": 39802,
+    "sha256": "38525fc922e6df6b09c833aa49eb96293e2233ba7bb34474dcc14cd25cd45b17"
+  },
+  {
+    "id": "mini-strawberry",
+    "source": "cutouts-11.png",
+    "cell": [
+      692,
+      660,
+      848,
+      820
+    ],
+    "bounds": [
+      23,
+      12,
+      138,
+      141
+    ],
+    "bytes": 39272,
+    "sha256": "63f7ef8cd4ef188bcf07de7c9088623901ef9d99bb4bfd501a9fad407b8e4a58"
+  },
+  {
+    "id": "mini-cherries",
+    "source": "cutouts-11.png",
+    "cell": [
+      848,
+      660,
+      1022,
+      820
+    ],
+    "bounds": [
+      18,
+      13,
+      144,
+      138
+    ],
+    "bytes": 48466,
+    "sha256": "be21d1d5cc1981fadedd12fff9539419a247b20ff61b002586c0d3d9772ef515"
+  },
+  {
+    "id": "mini-brownie",
+    "source": "cutouts-11.png",
+    "cell": [
+      1022,
+      660,
+      1198,
+      820
+    ],
+    "bounds": [
+      30,
+      22,
+      159,
+      136
+    ],
+    "bytes": 34034,
+    "sha256": "6263a3bce4ac67fff90760e9b21ddd18372d9c174a7cd1c8ad63c09ab3901276"
+  },
+  {
+    "id": "mini-toast",
+    "source": "cutouts-11.png",
+    "cell": [
+      1198,
+      660,
+      1354,
+      820
+    ],
+    "bounds": [
+      17,
+      19,
+      144,
+      136
+    ],
+    "bytes": 37386,
+    "sha256": "527695851917fa95ed6a545c401a8c2ee8e1c970c72130faa0ba2616eb1f104d"
+  },
+  {
+    "id": "mini-croissant",
+    "source": "cutouts-11.png",
+    "cell": [
+      1354,
+      660,
+      1536,
+      820
+    ],
+    "bounds": [
+      12,
+      25,
+      149,
+      127
+    ],
+    "bytes": 31420,
+    "sha256": "15b69823488e1d68596344cafcc868b0d8c504963d20f17414624a1ce7460e27"
+  },
+  {
+    "id": "mini-sprout",
+    "source": "cutouts-11.png",
+    "cell": [
+      0,
+      820,
+      184,
+      1024
+    ],
+    "bounds": [
+      52,
+      12,
+      161,
+      141
+    ],
+    "bytes": 40824,
+    "sha256": "1d1d5b086036ffc43970a9efc57f0d900a1135559a69ad9db2b6407dc70164e4"
+  },
+  {
+    "id": "mini-drop",
+    "source": "cutouts-11.png",
+    "cell": [
+      184,
+      820,
+      343,
+      1024
+    ],
+    "bounds": [
+      25,
+      10,
+      138,
+      145
+    ],
+    "bytes": 29808,
+    "sha256": "147855015371b57543958c047729e0852408d4c7c32c867f866f1b6f380f13b8"
+  },
+  {
+    "id": "mini-peach",
+    "source": "cutouts-11.png",
+    "cell": [
+      343,
+      820,
+      521,
+      1024
+    ],
+    "bounds": [
+      21,
+      6,
+      151,
+      142
+    ],
+    "bytes": 37868,
+    "sha256": "60b746066078bdcb2042ef313cd5404b2bc154da6cee3c3148bc9af889ed9143"
+  },
+  {
+    "id": "mini-avocado",
+    "source": "cutouts-11.png",
+    "cell": [
+      521,
+      820,
+      683,
+      1024
+    ],
+    "bounds": [
+      30,
+      8,
+      149,
+      146
+    ],
+    "bytes": 40594,
+    "sha256": "c809358aa1722b8e46fddfa07ec53efcd1119967c7c043909b8047b52dc08f6a"
+  },
+  {
+    "id": "mini-watermelon",
+    "source": "cutouts-11.png",
+    "cell": [
+      683,
+      820,
+      849,
+      1024
+    ],
+    "bounds": [
+      14,
+      8,
+      155,
+      142
+    ],
+    "bytes": 43890,
+    "sha256": "a3c440b2f9a03f619ff1475644376400b8d5c25413dad121e7e14348ea221a3c"
+  },
+  {
+    "id": "mini-mushroom",
+    "source": "cutouts-11.png",
+    "cell": [
+      849,
+      820,
+      1024,
+      1024
+    ],
+    "bounds": [
+      11,
+      12,
+      148,
+      142
+    ],
+    "bytes": 35878,
+    "sha256": "1ffe18737da0080d7cc5ae9252258f759a032665d12fc0f0db5e78f2eb8f06d5"
+  },
+  {
+    "id": "mini-rice-ball",
+    "source": "cutouts-11.png",
+    "cell": [
+      1024,
+      820,
+      1202,
+      1024
+    ],
+    "bounds": [
+      28,
+      21,
+      158,
+      139
+    ],
+    "bytes": 31004,
+    "sha256": "73bf16cc62e16f1727322e1e6b193db68162995fdaecdf3c576569c58af39328"
+  },
+  {
+    "id": "mini-ice-cream",
+    "source": "cutouts-11.png",
+    "cell": [
+      1202,
+      820,
+      1349,
+      1024
+    ],
+    "bounds": [
+      21,
+      10,
+      121,
+      143
+    ],
+    "bytes": 30518,
+    "sha256": "f48c1546382f4adfd8961e387c278993fadc5b9f7a1a21246062bffefa034382"
+  },
+  {
+    "id": "mini-matcha",
+    "source": "cutouts-11.png",
+    "cell": [
+      1349,
+      820,
+      1536,
+      1024
+    ],
+    "bounds": [
+      23,
+      7,
+      151,
+      144
+    ],
+    "bytes": 38780,
+    "sha256": "8ecf33cdc33e5db9350035f7763a3d7c53d3e28d4c6a2e89c489337fcdb4375c"
+  },
+  {
+    "id": "pastel-phoenix",
+    "source": "cutouts-12.png",
+    "cell": [
+      0,
+      0,
+      1254,
+      1254
+    ],
+    "bounds": [
+      177,
+      133,
+      1111,
+      1085
+    ],
+    "bytes": 32194,
+    "sha256": "6186f2ad2d5fa9dd265e614877be136f0ea2f34009ac9fa282243ad454abab51"
+  }
+]

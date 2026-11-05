@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/index.ts",
+    "src/codex/claude-permission-mcp-server.ts",
+    "src/codex/deepseek-app-plugin.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}

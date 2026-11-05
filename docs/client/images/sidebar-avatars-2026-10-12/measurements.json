@@ -1,0 +1,271 @@
+[
+  {
+    "phase": "before",
+    "browserName": "chromium",
+    "metrics": [
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 28,
+          "height": 28
+        },
+        "name": {
+          "x": 57,
+          "y": 140.5,
+          "width": 53.734375,
+          "height": 19
+        },
+        "chat": {
+          "x": 48,
+          "y": 178,
+          "width": 204,
+          "height": 18
+        },
+        "guide": {
+          "x": 31,
+          "y": 170,
+          "width": 230,
+          "height": 85
+        },
+        "scrollOverflow": false
+      },
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 28,
+          "height": 28
+        },
+        "name": {
+          "x": 57,
+          "y": 140.5,
+          "width": 53.734375,
+          "height": 19
+        },
+        "chat": {
+          "x": 48,
+          "y": 178,
+          "width": 204,
+          "height": 18
+        },
+        "guide": {
+          "x": 31,
+          "y": 170,
+          "width": 230,
+          "height": 85
+        },
+        "scrollOverflow": false
+      },
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 28,
+          "height": 28
+        },
+        "name": {
+          "x": 57,
+          "y": 140.5,
+          "width": 53.734375,
+          "height": 19
+        },
+        "chat": {
+          "x": 48,
+          "y": 178,
+          "width": 220,
+          "height": 18
+        },
+        "guide": {
+          "x": 31,
+          "y": 170,
+          "width": 246,
+          "height": 85
+        },
+        "scrollOverflow": false
+      }
+    ],
+    "phoneOverflow": false,
+    "errors": []
+  },
+  {
+    "phase": "after",
+    "browserName": "chromium",
+    "metrics": [
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 40,
+          "height": 40
+        },
+        "name": {
+          "x": 69,
+          "y": 146.5,
+          "width": 53.734375,
+          "height": 19
+        },
+        "chat": {
+          "x": 69,
+          "y": 190,
+          "width": 183,
+          "height": 18
+        },
+        "guide": {
+          "x": 38,
+          "y": 182,
+          "width": 223,
+          "height": 85
+        },
+        "scrollOverflow": false
+      },
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 40,
+          "height": 40
+        },
+        "name": {
+          "x": 69,
+          "y": 146.5,
+          "width": 53.734375,
+          "height": 19
+        },
+        "chat": {
+          "x": 69,
+          "y": 190,
+          "width": 183,
+          "height": 18
+        },
+        "guide": {
+          "x": 38,
+          "y": 182,
+          "width": 223,
+          "height": 85
+        },
+        "scrollOverflow": false
+      },
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 40,
+          "height": 40
+        },
+        "name": {
+          "x": 69,
+          "y": 146.5,
+          "width": 53.734375,
+          "height": 19
+        },
+        "chat": {
+          "x": 69,
+          "y": 190,
+          "width": 199,
+          "height": 18
+        },
+        "guide": {
+          "x": 38,
+          "y": 182,
+          "width": 239,
+          "height": 85
+        },
+        "scrollOverflow": false
+      }
+    ],
+    "phoneAvatar": 48,
+    "phoneOverflow": false,
+    "errors": []
+  },
+  {
+    "phase": "after",
+    "browserName": "webkit",
+    "metrics": [
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 40,
+          "height": 40
+        },
+        "name": {
+          "x": 69,
+          "y": 148,
+          "width": 53.3125,
+          "height": 16
+        },
+        "chat": {
+          "x": 69,
+          "y": 191,
+          "width": 183,
+          "height": 16
+        },
+        "guide": {
+          "x": 38,
+          "y": 182,
+          "width": 223,
+          "height": 81
+        },
+        "scrollOverflow": false
+      },
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 40,
+          "height": 40
+        },
+        "name": {
+          "x": 69,
+          "y": 148,
+          "width": 53.3125,
+          "height": 16
+        },
+        "chat": {
+          "x": 69,
+          "y": 191,
+          "width": 183,
+          "height": 16
+        },
+        "guide": {
+          "x": 38,
+          "y": 182,
+          "width": 223,
+          "height": 81
+        },
+        "scrollOverflow": false
+      },
+      {
+        "avatar": {
+          "x": 19,
+          "y": 136,
+          "width": 40,
+          "height": 40
+        },
+        "name": {
+          "x": 69,
+          "y": 148,
+          "width": 53.3125,
+          "height": 16
+        },
+        "chat": {
+          "x": 69,
+          "y": 191,
+          "width": 199,
+          "height": 16
+        },
+        "guide": {
+          "x": 38,
+          "y": 182,
+          "width": 239,
+          "height": 81
+        },
+        "scrollOverflow": false
+      }
+    ],
+    "phoneAvatar": 48,
+    "phoneOverflow": false,
+    "errors": []
+  }
+]

@@ -1,0 +1,16 @@
+/* History panel: same popover surface as the Design systems control. */
+.design-history{position:relative}
+.design-history>button{display:inline-flex;align-items:center;gap:4px}
+.design-history [role=dialog]{position:absolute;bottom:100%;inset-inline-start:0;min-width:280px;width:min(420px,86vw);max-height:min(460px,70vh);overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;box-shadow:0 4px 18px #0002;display:grid;gap:8px;z-index:30;font-size:12px}
+.design-history ol,.design-history ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.design-history ol>li{border-top:1px solid var(--border);padding-top:6px;display:grid;gap:4px}
+.design-history ul li,.design-history-row,.design-history-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.design-history ul li span,.design-history-row span,.design-history-head span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.design-history-muted{color:var(--text-muted,var(--muted))}
+.design-history-actions{display:flex;justify-content:flex-end;gap:6px}
+.design-history pre{margin:0;max-height:300px;overflow:auto;font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+.design-history-line.add{background:color-mix(in srgb,#2f8a4c 14%,transparent)}
+.design-history-line.del{background:color-mix(in srgb,#c13b2e 14%,transparent)}
+.design-history-line.skip{color:var(--text-muted,var(--muted))}
+.design-history [role=alert]{margin:0;color:var(--text-muted,var(--muted))}
+.design-history-warning{margin-inline-start:4px;color:var(--text-muted,var(--muted))}

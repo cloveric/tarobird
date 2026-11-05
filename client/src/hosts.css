@@ -1,0 +1,89 @@
+.host-workspace { height: 100%; }
+/* Host switcher: the native select stays (keyboard, a11y, e2e) but reads as a
+   quiet menu button; the label is the hit and hover surface. Selectors carry the
+   label so they outrank the generic select skin in brand-theme.css. */
+.host-controls { display: flex; align-items: center; gap: 2px; padding: 0 0 8px; }
+.host-controls label { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; height: 32px; padding: 0 2px 0 8px; border-radius: 8px; color: var(--muted); transition: background-color 120ms cubic-bezier(.2,0,0,1), box-shadow 120ms cubic-bezier(.2,0,0,1); }
+.host-controls label:hover { background: var(--canvas-hover); color: var(--grey); }
+.host-controls label:focus-within { background: var(--raised); box-shadow: 0 0 0 1px var(--composer-focus), 0 0 0 4px var(--ring); }
+.host-controls label select { width: 100%; min-width: 0; height: 32px; border: 0; background-color: transparent; font-size: 13px; font-weight: 600; letter-spacing: -.005em; padding: 0 24px 0 0; color: var(--text); cursor: pointer; background-position: calc(100% - 13px) 54%, calc(100% - 8px) 54%; }
+.host-controls label select:focus-visible { outline: none; box-shadow: none; }
+.host-controls .icon-button { width: 30px; height: 30px; padding: 7px; border-radius: 8px; color: var(--muted); }
+.host-controls .icon-button:hover:not(:disabled) { background: var(--canvas-hover); color: var(--text); }
+.host-directory { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.host-directory .conversation-list { overflow: visible; flex: initial; }
+/* The host is the top of the directory hierarchy (host → Bot/群组 → chats):
+   one step stronger than the section labels beneath it, still not a row. */
+.host-heading { display: flex; align-items: center; gap: 7px; width: 100%; padding: 12px 8px 2px; border: 0; background: transparent; color: var(--grey); text-align: left; font-size: 12px; font-weight: 620; letter-spacing: -.003em; }
+.host-heading strong { flex: 1; overflow: hidden; text-overflow: ellipsis; font-weight: 620; color: var(--text); }
+.host-heading svg { color: var(--muted); }
+.host-heading:hover:not(:disabled) { color: var(--text); }
+.host-directory-section + .host-directory-section { border-top: 1px solid var(--border); margin-top: 10px; }
+.host-unavailable { margin: 12px; font-size: 12px; }
+.runtime-host-label { display: block; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-error { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 250; padding: 12px; max-width: 92vw; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 16px #0002; border-radius: 10px; }
+.host-choices { display: grid; gap: 8px; }
+.host-choices button { display: flex; align-items: center; gap: 12px; padding: 14px; text-align: left; }
+.host-choices span, .host-manager-row label { display: grid; gap: 4px; }
+.host-choices small, .host-manager-row small { color: var(--muted); }
+/* Runtime hosts are list rows: keep their icon and copy columns aligned even
+   when the names have different lengths. First-run role cards keep their layout. */
+.creation-dialog .host-choices { grid-template-columns: minmax(0, 1fr); }
+.creation-dialog .host-choices > button { width: 100%; min-width: 0; justify-content: flex-start; white-space: normal; }
+.creation-dialog .host-choices > button > svg { flex: none; }
+.creation-dialog .host-choices > button > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.host-manager-row { padding: 14px 0; border-bottom: 1px solid var(--border); display: grid; gap: 8px; }
+
+.host-tools-label { padding: 12px 8px 4px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .06em; }
+.host-heading { position: sticky; top: 0; z-index: 1; background: var(--canvas); min-height: 34px; }
+.host-heading:hover:not(:disabled) { background: var(--canvas); }
+.host-heading-row { display:flex; align-items:center; position:sticky; top:0; z-index:1; padding-top:8px; background:var(--canvas); }
+.host-heading-row>.host-heading { flex:1; min-width:0; width:auto; position:static; min-height:28px; padding-top:2px; }
+
+@media (max-width: 760px) { .host-heading, .host-controls .icon-button { min-height: 44px; } .host-controls label { height: 44px; } .host-controls label select { height: 44px; font-size: 16px; } }
+
+.header-detail-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.header-detail-row .runtime-host-label { flex: 0 1 auto; max-width: 52%; }
+.header-detail-row .effort-control { min-width: 0; }
+.conversation-header { min-height: 62px; }
+.preferences-header:has(>.runtime-host-label), .settings-panel>header:has(>.runtime-host-label), .file-center-header:has(>.runtime-host-label) { flex-wrap: wrap; row-gap: 4px; }
+header>.runtime-host-label { flex-basis: 100%; margin: 0; }
+
+.draft-save-status { color: var(--muted); font-size: 11px; margin-left: 6px; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.draft-save-status:empty { display: none; }
+.composer-toolbar:has(.draft-save-status:not(:empty):not([hidden])) .composer-hint { display: none; }
+
+.network-change-notice { display:flex; flex:none; min-width:0; align-items:center; justify-content:space-between; gap:12px; padding:8px 16px; font-size:13px; background:var(--surface); border-bottom:1px solid var(--border); }
+.network-change-notice button { flex:none; background:transparent; min-height:32px; }
+
+.network-change-notice > span { min-width:0; }
+@media (max-width:760px) { .network-change-notice button { min-height:44px; } }
+
+/* A quiet frame around real conversation surfaces; theme tokens stay authoritative. */
+.adhd-entry{display:flex;align-items:center;gap:9px;min-height:36px;margin:0 12px 8px;padding:7px 10px;border:1px solid var(--border);border-radius:9px;background:var(--bg);color:var(--text);font-size:12px;text-align:left}
+.adhd-entry>svg{color:var(--accent,var(--blue))}.adhd-entry-hint{margin-left:auto;color:var(--muted);font-size:10px}
+.adhd-entry:hover:not(:disabled){border-color:var(--accent,var(--blue));background:var(--hover)}
+
+.adhd-entry-notice{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:16px;padding:12px 16px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);box-shadow:0 8px 32px #0002;font-size:12px}
+.adhd-entry-notice button{border:0;background:var(--hover);color:var(--text);border-radius:6px;padding:5px 9px}
+.adhd-leave-dialog{max-width:420px}.adhd-leave-dialog>p{font-size:13px;line-height:1.8;color:var(--muted)}.adhd-leave-dialog>footer{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
+
+.saved-host-manager{width:min(560px,calc(100vw - 32px))}
+.saved-host-heading{display:flex;align-items:center;gap:12px;min-width:0}
+.saved-host-heading>svg{flex:none;color:var(--muted)}
+.saved-host-heading>div{min-width:0;flex:1;display:grid;gap:4px}
+.saved-host-heading strong{font-size:14px;overflow-wrap:anywhere}
+.saved-host-heading small,.saved-host-state{font-size:11px;color:var(--muted)}
+.saved-host-manager .host-manager-row>.quick-actions{justify-content:flex-end;flex-wrap:wrap;gap:8px;margin:2px 0 0}
+.saved-host-manager>.muted,.saved-host-manager>.settings-dialog-body>.muted{font-size:12px;line-height:1.6}
+.saved-host-manager .host-manager-row{padding:16px 0;gap:12px}
+@media(max-width:760px){.saved-host-manager .quick-actions button{min-height:44px}.saved-host-manager .host-manager-row>.quick-actions{justify-content:flex-start}}
+
+.saved-host-manager .network-form{display:grid;gap:14px}
+.saved-host-manager .network-field{display:grid;gap:8px;font-size:13px;color:var(--muted)}
+.saved-host-manager .network-actions{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:18px}
+.saved-host-manager .network-actions>button{min-height:40px}
+.saved-host-manager .network-actions>.text-danger{padding:0 14px;border:1px solid var(--red);border-radius:var(--radius-sm);background:var(--raised);color:var(--red)}
+.saved-host-manager .network-actions>.text-danger:hover:not(:disabled){background:var(--red-soft)}
+@media(max-width:760px){.saved-host-manager .network-actions>button{min-height:44px}}
+.network-page-error>footer{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin-top:12px}

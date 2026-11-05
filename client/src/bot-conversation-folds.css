@@ -1,0 +1,30 @@
+/* A permanent disclosure affordance, distinct from the existing create (+).
+   Only the chevron animates: large chat lists never animate their height. */
+.bot-tree{--bot-disclosure-width:24px}
+.bot-tree-heading>.bot-tree-toggle,.bot-tree-disclosure-space{width:var(--bot-disclosure-width);flex:0 0 var(--bot-disclosure-width)}
+.bot-tree-heading>.bot-tree-toggle{height:44px;min-height:44px;padding:0;border:0;background:transparent;box-shadow:none;border-radius:6px;color:var(--muted)}
+.bot-tree-heading>.bot-tree-toggle:hover:not(:disabled){background:transparent;color:var(--text)}
+.bot-tree-toggle>svg{transition:transform 140ms var(--ease-out);pointer-events:none}
+.bot-tree-toggle[aria-expanded=true]>svg{transform:rotate(90deg)}
+/* Intrinsic name width shares space with the host badge, so long labels yield
+   without imposing a tiny fixed host slot on short-name or expanded rows. */
+.bot-tree-heading>.bot-identity{padding-left:0;flex:1 1 auto}
+.bot-tree .bot-tree-heading>.host-source-badge{flex-shrink:2;min-width:16px}
+.bot-tree .bot-tree-conversations{margin-left:calc(20px + var(--bot-disclosure-width))}
+.bot-tree-conversations[hidden]{display:none}
+.bot-identity.is-collapsed-current,.bot-identity.is-collapsed-current:hover:not(:disabled){background:var(--selected-row)}
+.bot-identity.is-collapsed-current .avatar i{border-color:var(--selected-row)}
+.bot-tree-toggle:focus-visible{outline-offset:-2px}
+.bot-fold-count{font-size:11px;font-weight:450;line-height:inherit;color:var(--muted);font-variant-numeric:tabular-nums;flex:none}
+.bot-fold-signals{display:flex;align-items:center;gap:5px;flex:none;margin-inline:4px}
+.bot-fold-signals .unread-badge{font-size:10px;min-width:17px;height:17px;line-height:17px;padding:0 4px}
+@media(hover:none),(pointer:coarse){
+  .bot-tree{--bot-disclosure-width:32px}
+  .bot-tree-heading>.bot-tree-toggle{height:44px;min-height:44px}
+}
+
+/* Counts share a right edge even when the row has no create action. Host badges
+   precede the count, so their intrinsic width cannot shift this column. */
+.conversation-list{--bot-row-action-width:28px}
+.bot-tree .bot-tree-heading>.icon-button,.bot-tree-action-space{width:var(--bot-row-action-width);flex:0 0 var(--bot-row-action-width)}
+@media(max-width:760px){.conversation-list{--bot-row-action-width:44px}}

@@ -1,0 +1,148 @@
+name: Signed macOS desktop update
+on:
+  workflow_dispatch:
+    inputs:
+      publish_update:
+        description: Publish the verified build to the private Mac update channel
+        type: boolean
+        default: false
+permissions:
+  contents: read
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      TAROBOT_SOURCE_COMMIT: ${{ github.sha }}
+      TAROBOT_APPLE_TEAM_ID: ${{ vars.TAROBOT_APPLE_TEAM_ID }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Configure desktop build directories
+        shell: bash
+        run: |
+          printf '%s\n' \
+            "TAROBOT_DESKTOP_OUTPUT=$RUNNER_TEMP/tarobot-electron-output.noindex" \
+            "TAROBOT_ELECTRON_CACHE=$RUNNER_TEMP/tarobot-electron-cache.noindex" \
+            "TAROBOT_DESKTOP_TARGET=$RUNNER_TEMP/tarobot-electron-target.noindex" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - name: Validate native runner and version
+        id: version
+        run: |
+          test "$(uname -m)" = arm64
+          node --input-type=module -e 'import fs from "node:fs"; const a=JSON.parse(fs.readFileSync("client/package.json")), b=JSON.parse(fs.readFileSync("client/src-tauri/tauri.conf.json")); if(a.version!==b.version) throw Error("App versions differ"); fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${a.version}\n`);'
+      - name: Validate signed updater settings before build
+        env:
+          TAROBOT_GITHUB_REPOSITORY: ${{ github.repository }}
+          TAROBOT_GITHUB_CLIENT_ID: ${{ vars.TAROBOT_GITHUB_CLIENT_ID }}
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: node --input-type=module -e 'import {macosBuildPlan} from "./client/scripts/macos-build-plan.mjs"; macosBuildPlan();'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri -> target
+      - uses: ./.github/actions/setup-host-cross
+      - run: npm ci
+      - run: npm ci --prefix client
+      - name: Prepare ephemeral Developer ID and notarization credentials
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ vars.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ vars.APPLE_NOTARY_ISSUER_ID }}
+        run: node client/scripts/macos-ci-signing.mjs
+      - name: Build signed archive and bootstrap DMG
+        env:
+          TAROBOT_GITHUB_REPOSITORY: ${{ github.repository }}
+          TAROBOT_GITHUB_CLIENT_ID: ${{ vars.TAROBOT_GITHUB_CLIENT_ID }}
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run desktop:macos --prefix client
+      - name: Packaged host acceptance
+        run: client/src-tauri/host/node scripts/verify-desktop-host.mjs client/src-tauri/host
+      - name: Pack matching standalone CLI from the same source
+        run: |
+          mkdir -p test-results/macos-extra
+          cp "$TAROBOT_DESKTOP_OUTPUT"/artifacts.noindex/*.dmg test-results/macos-extra/
+          npm ci --omit=dev --prefix dist/standalone-package
+          node scripts/verify-standalone-package.mjs dist/standalone-package
+          cd dist/standalone-package
+          npm pack --pack-destination ../../test-results/macos-extra
+          cd ../..
+          mkdir -p "$RUNNER_TEMP/tarobot-cli-extracted"
+          tar -xzf test-results/macos-extra/*.tgz -C "$RUNNER_TEMP/tarobot-cli-extracted"
+          npm ci --omit=dev --prefix "$RUNNER_TEMP/tarobot-cli-extracted/package"
+          node scripts/verify-standalone-package.mjs "$RUNNER_TEMP/tarobot-cli-extracted/package"
+      - name: Native regression tests
+        run: |
+          npm run test:electron --prefix client
+          cargo test --manifest-path client/src-desktop-core/Cargo.toml --locked -- --test-threads=1
+          cargo test --manifest-path client/src-desktop-native/Cargo.toml --locked --no-default-features
+          cargo test --manifest-path client/src-desktop-updater/Cargo.toml --locked
+      - name: Verify app seal, update signature and signed version
+        env:
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          codesign --verify --deep --strict "$TAROBOT_DESKTOP_OUTPUT/package.noindex/packages/TaroBot-darwin-arm64/TaroBot.app"
+          node --input-type=module -e 'import {verifyDesktopUpdateArtifact} from "./client/scripts/desktop-update-manifest.mjs"; await verifyDesktopUpdateArtifact({platform:"macos",installer:process.env.TAROBOT_DESKTOP_OUTPUT+"/artifacts.noindex/TaroBot.app.tar.gz",publicKey:process.env.TAROBOT_UPDATE_PUBLIC_KEY,version:process.env.APP_VERSION});'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TaroBot-macos-arm64-signed-update
+          path: |
+            ${{ runner.temp }}/tarobot-electron-output.noindex/artifacts.noindex/*.app.tar.gz*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TaroBot-macos-arm64-bootstrap-and-cli
+          path: test-results/macos-extra/*
+          if-no-files-found: error
+      - name: Retire this runner's signing credentials
+        if: always()
+        run: node client/scripts/macos-ci-signing.mjs cleanup
+  publish-private-update:
+    if: inputs.publish_update
+    needs: macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: macos-updates
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: TaroBot-macos-arm64-signed-update
+          path: test-results/macos-signed
+      - uses: actions/download-artifact@v4
+        with:
+          name: TaroBot-macos-arm64-bootstrap-and-cli
+          path: test-results/macos-extra
+      - name: Publish and read back complete signed assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          APP_VERSION: ${{ needs.macos.outputs.version }}
+        run: |
+          files=(test-results/macos-extra/*)
+          test "${#files[@]}" = 2
+          args=()
+          for file in "${files[@]}"; do args+=(--file "$file"); done
+          node client/scripts/publish-macos-update.mjs --installer test-results/macos-signed/TaroBot.app.tar.gz --repository "$GITHUB_REPOSITORY" --version "$APP_VERSION" --commit "$GITHUB_SHA" --output test-results/private-macos-update-bundle "${args[@]}"

@@ -1,0 +1,78 @@
+/* Outside the phone's single-line field: never trade typing width for controls. */
+.claude-send-choice{display:flex;align-items:center;justify-content:flex-end;gap:3px;min-width:0;margin:0 0 4px;color:var(--muted)}
+.claude-send-choice fieldset{--choice-inset:0px;position:relative;isolation:isolate;display:flex;align-items:center;gap:0;min-width:0;margin:0;padding:0 3px;border:0}
+/* The track groups both choices. Its visual height is independent of the
+   phone's full touch target; pseudo-elements never intercept a tap or pan. */
+.claude-send-choice fieldset::before{content:"";position:absolute;z-index:-1;inset:var(--choice-inset) 0;pointer-events:none;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.claude-send-choice [role=radio]{position:relative;isolation:isolate;display:flex;align-items:center;justify-content:center;gap:4px;min-height:32px;margin:0;padding:5px 9px;border:0;border-radius:var(--radius);background:transparent;color:var(--grey);font-size:12px;line-height:1.4;font-weight:400;white-space:nowrap;transition:none}
+.claude-send-choice [role=radio]:hover:not(:disabled){background:transparent}
+.claude-send-choice [role=radio]::before{content:"";position:absolute;z-index:-1;inset:calc(var(--choice-inset) + 3px) 0;pointer-events:none;border:1px solid transparent;border-radius:var(--radius-sm)}
+.claude-send-choice [role=radio]>svg{visibility:hidden;flex:none}
+.claude-send-choice [role=radio][aria-checked=true]{color:var(--accent)}
+.claude-send-choice [role=radio][aria-checked=true]::before{background:var(--accent-soft);border-color:var(--accent)}
+.claude-send-choice [role=radio][aria-checked=true]>svg{visibility:visible}
+.claude-send-choice [role=radio]:focus-visible{outline:0}
+.claude-send-choice [role=radio]:focus-visible::before{outline:2px solid var(--focus);outline-offset:-1px}
+.claude-send-choice [role=radio]:disabled{cursor:default;opacity:.5}
+@media(hover:hover){
+  .claude-send-choice [role=radio]:hover:not(:disabled):not([aria-checked=true])::before{background:var(--surface-alt)}
+  .claude-send-choice [role=radio][aria-checked=true]:hover:not(:disabled)::before{background:var(--accent-soft-hover)}
+}
+@media(forced-colors:active){
+  .claude-send-choice fieldset::before{border-color:ButtonText}
+  .claude-send-choice [role=radio][aria-checked=true]::before{border-color:Highlight}
+}
+.claude-send-choice .send-choice-help{display:flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--muted)}
+.send-choice-explanation{max-width:420px}
+.send-choice-explanation dl{margin:16px 0}
+.send-choice-explanation dt{font-weight:500;margin:16px 0 5px}
+.send-choice-explanation dd{margin:0;color:var(--grey);line-height:1.65;font-size:14px}
+.send-choice-explanation p{font-size:12px;line-height:1.6;color:var(--muted)}
+@media(max-width:760px){
+  .claude-send-choice{margin-bottom:2px}
+  .claude-send-choice fieldset{--choice-inset:6px}
+  .claude-send-choice [role=radio],.claude-send-choice .send-choice-help{min-height:44px}
+  .claude-send-choice [role=radio]{font-size:12px;padding:5px 8px}
+  .claude-send-choice .send-choice-help{width:44px;height:44px}
+}
+
+/* Share task management and send choice on desktop and phone. Pending
+   messages retain their own row; stopping impact belongs in its confirmation. */
+.composer-wrap:has(> .composer-accessories.is-compact) { container:composer-tools / inline-size; }
+.composer-accessories { display:contents; }
+/* Keep compact choices light: the selected tint carries the state instead of
+   a second dark outline and a checkmark that takes up another text column. */
+.composer-accessories.is-compact .claude-send-choice { --choice-mark:var(--mono-mark,var(--accent)); }
+.composer-accessories.is-compact .claude-send-choice [role=radio] { min-width:44px; }
+.composer-accessories.is-compact .claude-send-choice [role=radio]>svg { display:none; }
+.composer-accessories.is-compact .claude-send-choice [role=radio][aria-checked=true] { color:color-mix(in srgb,var(--choice-mark) 60%,var(--text)); }
+.composer-accessories.is-compact .claude-send-choice [role=radio][aria-checked=true]::before { border-color:transparent; background:color-mix(in srgb,var(--choice-mark) 32%,var(--raised)); }
+/* A group locator and native task manager remain distinct actions, but share
+   the send-choice row when their content fits. Long translations, extra group
+   counts and narrow panes wrap as whole controls instead of losing status. */
+.composer-accessories.is-compact:has(> .claude-send-choice):has(.has-dock) { display:flex; flex-wrap:wrap; align-items:center; gap:0 6px; flex:none; min-width:0; }
+.composer-accessories.is-compact:has(> .claude-send-choice):has(.has-dock) > .engine-tasks { display:contents; }
+.composer-accessories.is-compact:has(> .claude-send-choice) .conversation-task-bar.has-dock { flex:1 1 max-content; gap:0; margin:0; border:0; background:transparent; }
+.composer-accessories.is-compact:has(> .claude-send-choice) .has-dock > .background-task-dock { padding:4px; gap:4px; }
+.composer-accessories.is-compact:has(> .claude-send-choice) .has-dock .engine-tasks-trigger.is-compact { max-width:100%; padding:4px; border:0; border-radius:7px; }
+.composer-accessories.is-compact:has(> .claude-send-choice) .has-dock .engine-tasks-activity { display:none; }
+.composer-accessories.is-compact:has(.has-dock) > .claude-send-choice { flex:none; margin:0 0 0 auto; }
+.composer-accessories.is-compact:has(> .claude-send-choice):has(.has-dock) > .prompt-queue { order:-1; flex:0 0 100%; margin-inline:0; }
+@media(forced-colors:active) {
+  .composer-accessories.is-compact .claude-send-choice [role=radio][aria-checked=true]::before { border-color:Highlight; }
+}
+.composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:6px; flex:none; min-width:0; }
+.composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) > .engine-tasks { display:contents; }
+.composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) .conversation-task-bar { grid-column:1; grid-row:2; min-width:0; margin:0; border:0; background:transparent; }
+.composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) > .claude-send-choice { grid-column:2; grid-row:2; margin:0; }
+.composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) > .prompt-queue { grid-column:1 / -1; grid-row:1; }
+.composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) .engine-tasks-trigger:not(.is-compact) { min-height:32px; padding:0 4px; gap:4px; min-width:0; }
+
+@media(max-width:760px) {
+  .composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) .engine-tasks-trigger:not(.is-compact) { min-height:44px; }
+  /* Retain the queue preview above the task/send row, but remove its extra
+     vertical whitespace. The wide queue entry stays a separate hit target;
+     the task controls, send choices and typing field keep their sizes. */
+  .composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) > .prompt-queue { height:32px; margin-bottom:0; }
+  .composer-accessories.is-compact:has(> .claude-send-choice):not(:has(.has-dock)) > .prompt-queue > .prompt-queue-trigger { height:32px; min-height:32px; }
+}

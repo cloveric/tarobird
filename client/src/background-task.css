@@ -1,0 +1,21 @@
+.background-task-reference { margin: 2px 0 8px; padding: 4px 0 4px 10px; border-left: 2px solid var(--border); color: var(--muted); font-size: 12px; }
+.background-task-label { display: flex; gap: 6px; align-items: center; font-weight: 500; }
+.background-task-reference p { margin: 4px 0 0; }
+.background-task-source { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 6px 4px 2px 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.background-task-source > span { min-width: 0; }
+.background-task-source small { display: block; font-size: 11px; }
+.background-task-source > svg { flex-shrink: 0; }
+.background-task-excerpt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; color: var(--text); line-height: 1.5; }
+.background-task-source:hover { color: var(--text); }
+.background-task-source:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+@media (forced-colors: active) {
+  .background-task-reference { border-color: CanvasText; color: CanvasText; }
+  .background-task-source { color: LinkText; }
+  .background-task-source:focus-visible { outline-color: Highlight; }
+}
+.background-task-compact{min-width:0;font-size:11px;color:var(--muted);line-height:1.5;margin:4px 0}
+.background-task-compact>button{display:flex;align-items:center;gap:5px;min-width:0;max-width:100%;min-height:28px;padding:2px 0;border:0;background:none;color:inherit;text-align:left;font:inherit;cursor:pointer}
+.background-task-compact>button>svg{flex:none}
+.background-task-compact>button>span{min-width:0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.background-task-compact>button:hover{color:var(--text)}
+@media(max-width:760px),(hover:none) and (pointer:coarse){.background-task-compact>button{min-height:44px}}

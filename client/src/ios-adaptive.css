@@ -1,0 +1,93 @@
+/* iOS can cross the phone breakpoint without becoming a mouse-driven desktop.
+   Consume asymmetric insets only at the edges the content actually touches.
+   Android/desktop keep their existing skin. */
+:root[data-platform=ios] .conversation-header > .header-title {
+  container: ios-chat-title / inline-size;
+}
+@container ios-chat-title (max-width: 240px) {
+  /* Keep the conversation name readable in Split View. Bot details remain in
+     the conversation sheet; the live status keeps its accessible text. */
+  .header-heading-row > .header-bot-name { display: none; }
+  .header-heading-row > h1 { flex: 1; }
+  .header-heading-row > .header-activity > span {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+}
+@media (max-width: 760px) {
+  /* Safe width alone still centred sheets in the full display, under the wider
+     reserved edge. Position them inside the same safe rectangle. */
+  :root[data-platform=ios] dialog.creation-dialog:not(.mobile-settings-dialog):not(.conversation-files):not(.conversation-details-phone):not(.markdown-table-dialog):not(.run-details):not(.device-detail):not(.prompt-queue-panel):not(.diff-viewer):not(.delegation-dialog) {
+    left: var(--app-safe-left); right: var(--app-safe-right);
+    margin-left: auto; margin-right: auto;
+  }
+  :root[data-platform=ios] .conversation-details-phone > header {
+    padding-left: max(12px, var(--app-safe-left));
+    padding-right: max(12px, var(--app-safe-right));
+  }
+}
+@media (min-width: 761px) {
+  :root[data-platform=ios] .app-shell > .sidebar {
+    width: clamp(200px, var(--desktop-sidebar-width, calc(272px + var(--app-safe-left))), min(480px, calc(100% - 360px - var(--app-safe-right))));
+    padding-right: 12px;
+  }
+  :root[data-platform=ios] .app-shell:has(> .sidebar) > .conversation-main > :is(.conversation-header, .message-scroll, .composer-wrap, .group-topic-navigation) {
+    padding-left: 16px;
+  }
+  :root[data-platform=ios] :is(.conversation-header, .composer-toolbar, .sidebar .brand, .sidebar-footer, .host-controls) .icon-button,
+  :root[data-platform=ios] .sidebar :is(.workspace-footer-trigger, .sidebar-layout-switch > button, .bot-tree-heading > button, .group-toggle),
+  :root[data-platform=ios] .claude-send-choice :is([role=radio], .send-choice-help) {
+    min-height: 44px; min-width: 44px;
+  }
+  :root[data-platform=ios] .sidebar .conversation-row { min-height: 44px; }
+  :root[data-platform=ios] .sidebar .conversation-row strong { font-size: var(--density-row-title, 16px); }
+  :root[data-platform=ios] .sidebar .conversation-row small { font-size: var(--density-row-preview, 14px); }
+  :root[data-platform=ios] .sidebar :is(.search-box, .host-controls label, .host-controls select) { min-height: 44px; }
+  :root[data-platform=ios] .composer-toolbar { flex-wrap: wrap; }
+  :root[data-platform=ios] .composer-toolbar .composer-hint:is(.is-tip, .is-queue) { display: none; }
+  :root[data-platform=ios] .claude-send-choice fieldset { --choice-inset: 6px; }
+}
+
+:root[data-platform=ios] .native-run-actions { flex-wrap: wrap; }
+:root[data-platform=ios] .native-run-actions > button { flex-shrink: 0; max-width: 100%; min-height: 44px; }
+/* workbench-phone also marks the shell's mode. Its panel padding must not
+   inset that shell: the chat header/composer already own the screen edges. */
+:root[data-platform=ios] .app-shell.workbench-phone,
+:root[data-platform=ios] .workbench.workbench-phone { padding-block: 0; }
+:root[data-platform=ios] .workbench { padding-right: var(--app-safe-right); }
+:root[data-platform=ios] .workbench:is(.workbench-phone, .workbench-wide) { padding-left: var(--app-safe-left); }
+:root[data-platform=ios] .workbench :is(.workbench-tabs, .workbench-tab-actions, .workbench-tab-strip) > button {
+  min-height: 44px; min-width: 44px;
+}
+/* A pointing device does not turn an iOS window into a desktop WebView. The
+   native overlay still needs keyboard avoidance when touch media queries stop
+   matching. Keep this complement limited to that otherwise uncovered case. */
+@media (min-width: 761px) and (pointer: fine), (min-width: 761px) and (pointer: none), (min-width: 761px) and (hover: hover) {
+  :root[data-platform=ios] :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"]), select, textarea) { font-size: max(16px, 1em); }
+  :root[data-platform=ios][data-keyboard-resize=overlay] {
+    --shell-height: var(--app-height, 100dvh);
+    --shell-top: 0px;
+  }
+  :root[data-platform=ios][data-keyboard-resize=overlay] :is(.app-shell, .pairing-page, .loading-screen, .app-lock-screen) {
+    height: var(--shell-height);
+  }
+  :root[data-platform=ios][data-keyboard-resize=overlay] .app-shell { position: fixed; inset: 0 0 auto; }
+  :root[data-platform=ios] .conversation-main > .composer-wrap { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: calc(var(--shell-height) * .6); }
+  :root[data-platform=ios] .composer-wrap .composer { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  :root[data-platform=ios] .composer-wrap .composer > :is(.attachment-draft, .link-preview-draft) { flex: 0 40 auto; min-height: 3.25rem; overflow-y: auto; }
+  :root[data-platform=ios] .composer-wrap > .reply-preview { flex: 0 40 auto; min-height: 52px; max-height: min(160px, calc(var(--shell-height) * .2)); overflow-y: auto; }
+  :root[data-platform=ios] .composer-wrap .composer > textarea { flex: 0 1 auto; min-height: calc(1.5em + 20px); }
+  :root[data-platform=ios] .composer-wrap .composer > :is(.voice-recording, .composer-toolbar) { flex: none; }
+  :root[data-platform=ios] .composer-wrap .composer > .composer-toolbar { position: sticky; bottom: 0; z-index: 1; background: inherit; }
+  :root[data-platform=ios][data-keyboard-open=true] .composer-wrap { padding-bottom: 8px; }
+  :root[data-platform=ios][data-keyboard-open=true] .pairing-page { min-height: 0; overflow-y: auto; align-items: start; }
+  :root[data-platform=ios][data-keyboard-open=true] .modal-scrim { top: 0; bottom: auto; height: var(--shell-height); }
+  :root[data-platform=ios][data-keyboard-open=true] dialog.creation-dialog:not(.mobile-settings-dialog):modal { top: 0; bottom: calc(100% - var(--shell-height)); max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px); }
+  :root[data-platform=ios][data-keyboard-open=true] .modal-scrim > :is(.settings-panel, .new-chat-panel) { max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px); }
+  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion] .app-shell { transition: height var(--keyboard-motion, .25s ease-out); }
+  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion] .composer-wrap { transition: padding-bottom var(--keyboard-motion, .25s ease-out); }
+  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion] dialog:is(.creation-dialog, .preferences-dialog):modal { transition: bottom var(--keyboard-motion, .25s ease-out), max-height var(--keyboard-motion, .25s ease-out); }
+}
+@media (min-width: 761px) {
+  :root[data-platform=ios] .composer-toolbar .send-button { margin-left: auto; }
+}

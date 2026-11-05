@@ -1,0 +1,42 @@
+.desktop-host-invite { min-width: 0; text-align: left; }
+.desktop-host-invite .pair-qr { display: block; width: min(300px, 100%); height: auto; }
+.desktop-host-invite .pairing-network-choice { border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
+.pairing-network-choice legend { margin-bottom: 8px; font-weight: 600; }
+.pairing-network-choice > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.pairing-network-choice button { min-height: 44px; flex: 1 1 150px; border: 1px solid var(--border); }
+.pairing-network-choice button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.tailscale-instructions { padding-left: 22px; line-height: 1.65; }
+.tailscale-instructions li + li { margin-top: 6px; }
+.desktop-host-name { display: grid; gap: 8px; min-width: 0; margin: 0 0 22px; }
+.desktop-host-name label { font-size: 14px; font-weight: 600; }
+.desktop-host-name input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; }
+.desktop-host-name small { color: var(--muted); font-size: 12px; line-height: 1.65; }
+.local-connection-settings { min-width: 0; text-align: left; line-height: 1.6; }
+.local-access-lede { margin: 4px 0 20px; color: var(--muted); font-size: 13px; }
+.local-access-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.local-access-choices button { display: flex; align-items: center; gap: 10px; padding: 14px; min-width: 0; min-height: 76px; text-align: left; border: 1px solid var(--border); border-radius: 12px; background: transparent; }
+.local-access-choices button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.local-access-choices svg { flex: 0 0 auto; }
+.local-access-choices span { display: grid; gap: 2px; min-width: 0; }
+.local-access-choices strong { font-size: 14px; font-weight: 600; }
+.local-access-choices small { font-size: 12px; color: var(--muted); }
+.local-access-body { margin: 18px 0; }
+.local-access-body > p { margin: 0 0 12px; font-size: 14px; }
+.local-access-body .local-access-restart { font-size: 12px; }
+.local-access-body > button { min-height: 42px; }
+.local-access-body > button + button { margin-inline-start: 8px; }
+.local-access-ready, .local-access-body [role="status"] { display: flex; align-items: center; gap: 8px; }
+.local-access-ready { color: var(--accent); }
+.local-access-addresses { margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt); }
+.local-access-addresses > strong { font-size: 13px; font-weight: 600; }
+.local-access-addresses > p { margin: 6px 0; font-size: 12px; }
+.local-access-address { display: flex; align-items: center; gap: 8px; margin-top: 8px; min-width: 0; }
+.local-access-address code { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: all; font-size: 13px; }
+.local-access-address button { display: flex; align-items: center; justify-content: center; flex-shrink: 0; gap: 5px; min-height: 36px; font-size: 12px; }
+.local-access-body .local-access-refreshed { display: block; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.local-access-refreshed small { display: block; font-size: inherit; }
+.local-access-help { border-top: 1px solid var(--border); padding-top: 14px; font-size: 12px; color: var(--muted); }
+.local-access-help summary { cursor: pointer; font-size: 13px; }
+.local-access-help p { margin: 12px 0; }
+.local-access-help li { overflow-wrap: anywhere; }
+@media (max-width: 380px) { .local-access-choices button { padding: 10px; gap: 6px; } }

@@ -1,0 +1,7 @@
+.backup-days{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.backup-days input{width:92px;min-height:44px;text-align:right}
+.backup-settings .quick-actions{flex-wrap:wrap}
+.backup-settings .quick-actions button{min-height:44px}
+.backup-settings .quick-actions .primary{background:var(--primary-bg);border-color:var(--primary-bg);color:var(--on-primary)}
+.backup-settings .quick-actions .primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover);color:var(--on-primary)}
+.backup-settings .backup-storage{overflow-wrap:anywhere}

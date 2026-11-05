@@ -1,0 +1,29 @@
+@media (max-width: 760px) {
+  /* Keyboard focus may scroll a field to the top. Keep the sheet's title and
+     close action outside that scroller instead of clipping them at the rim. */
+  dialog.creation-dialog.conversation-creation[open] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-top: 16px;
+  }
+  .conversation-creation > header,
+  .conversation-creation > .runtime-host-label { flex: none; }
+  .conversation-creation > .runtime-host-label { margin: 0 0 12px; }
+  .conversation-creation > form {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 20px;
+    /* Keep the scrollport below the fixed caption even when native keyboard
+       focus scrolling ignores scroll margins. Horizontal bleed only reserves
+       room for focus rings without moving the aligned labels. */
+    margin: 0 -4px;
+    padding: 4px;
+  }
+  .conversation-creation > form > label > input {
+    /* Native focus scrolling should leave the field's label visible too. */
+    scroll-margin-top: 2em;
+  }
+}

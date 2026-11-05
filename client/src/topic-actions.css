@@ -1,0 +1,8 @@
+.topic-directory-item { display: flex; align-items: center; min-width: 0; border-radius: var(--radius-sm); }
+.topic-directory-item:has(> .topic-directory-row.selected) { background: var(--accent-soft); }
+.topic-directory-item > .topic-directory-row { flex: 1; min-width: 0; width: 0; border-bottom: 0; border-radius: var(--radius-sm); }
+.topic-directory-item > .topic-directory-row.selected { background: transparent; }
+.topic-directory-item > .topic-row-actions { flex: none; width: 44px; min-height: 44px; padding: 0; color: var(--muted); background: transparent; }
+.topic-directory-item > .topic-row-actions:hover { background: var(--hover); color: var(--text); }
+.topic-directory-item > .topic-row-actions:focus-visible { outline-offset: -2px; }
+.topic-action-title { margin: 0 0 12px; font-weight: 600; overflow-wrap: anywhere; }

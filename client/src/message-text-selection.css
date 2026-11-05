@@ -1,0 +1,20 @@
+/* Message chrome is operable UI, not part of the text copied by a drag range.
+   Keep the selection and native clipboard serialization in agreement; do not
+   hide selection paint alone or replace the reader's clipboard shortcuts. */
+.message :is(
+  .message-avatar,
+  .message-meta,
+  .native-run-heading,
+  .native-run-actions,
+  .usage-footer,
+  .run-status,
+  .markdown-table-tools,
+  .code-language,
+  .code-copy-status,
+  button,
+  [role="button"],
+  summary
+) {
+  -webkit-user-select: none;
+  user-select: none;
+}

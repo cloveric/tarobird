@@ -1,0 +1,27 @@
+.hold-voice{width:100%;min-width:0;color:var(--text)}
+.hold-voice-controls{display:flex;align-items:center;gap:10px;width:100%;padding:4px 0}
+.hold-voice .voice-keyboard{width:44px;height:52px;flex-shrink:0}
+.hold-voice .hold-voice-button{flex:1;min-width:0;min-height:56px;border-radius:16px;gap:10px;background:var(--accent-soft);color:var(--accent);font-size:15px;font-weight:600;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.hold-voice.is-recording .hold-voice-button{background:var(--primary-bg);color:var(--on-primary)}
+.hold-voice.is-cancelling .hold-voice-button{background:var(--red);color:white}
+.hold-voice-panel{position:relative;padding:16px 12px 12px;text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:20px;margin-bottom:10px;color:var(--recording-accent,color-mix(in srgb,var(--accent) 80%,var(--text)))}
+.hold-voice-status{font-size:12px;color:var(--muted);margin-bottom:4px}
+.hold-voice-panel time{display:block;font-size:24px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.4}
+.voice-waveform{position:relative;width:100%;min-width:0}
+.voice-waveform svg{display:block;width:100%;height:64px;fill:currentColor}
+/* Meter readiness must not grow/shrink the recording panel above the mic. */
+.voice-waveform small{position:absolute;inset-inline:0;bottom:0;display:block;font-size:11px;line-height:1.2;color:var(--muted)}
+.hold-voice-cancel-icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:var(--bg);color:var(--muted)}
+.hold-voice-panel p{font-size:14px;margin:8px 0 0;color:var(--muted)}
+.hold-voice.is-cancelling .hold-voice-panel{color:var(--red);border-color:var(--red)}
+.hold-voice.is-cancelling .hold-voice-panel p,.hold-voice.is-cancelling .hold-voice-cancel-icon{color:var(--red)}
+.hold-voice-draft-note{display:block;text-align:center;font-size:11px;color:var(--muted);padding-bottom:4px}
+.hold-voice-upload{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);padding-bottom:4px}
+.hold-voice-upload button{min-height:44px}
+.voice-recording .voice-waveform{flex-basis:100%}
+.voice-recording :is(time,.voice-waveform){color:var(--recording-accent,color-mix(in srgb,var(--accent) 80%,var(--text)))}
+.voice-recording .voice-waveform svg{height:38px}
+.voice-mic-shortcut{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.mic-hold-panel{position:absolute;bottom:100%;left:max(10px,var(--app-safe-left));right:max(10px,var(--app-safe-right));width:auto;z-index:5;max-height:calc(var(--app-viewport-height,100dvh) - 150px - var(--app-safe-top) - var(--app-safe-bottom));overflow:auto}
+.mic-hold-panel .hold-voice-panel{margin-bottom:0;box-shadow:var(--shadow)}
+@media(max-height:500px){.hold-voice-panel{padding:6px 12px}.hold-voice-panel time{font-size:17px}.hold-voice-panel .voice-waveform svg{height:36px}.hold-voice-cancel-icon{display:none}.hold-voice-panel p{margin:3px 0}.hold-voice-status{display:none}}

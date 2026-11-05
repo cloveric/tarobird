@@ -1,0 +1,70 @@
+.workbench-canvas{position:relative;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;isolation:isolate;background:var(--bg,#fff);color:var(--text,#222)}
+.workbench-canvas[hidden]{display:none}
+.workbench-canvas-tools{display:flex;align-items:center;flex-wrap:wrap;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border,#ddd);font-size:11px;flex:none}
+.workbench-canvas-tools button,.workbench-canvas-error button,.workbench-annotation-dialog button{border:1px solid var(--border,#ddd);border-radius:6px;padding:4px 7px;background:var(--bg,#fff);color:inherit;font:inherit;cursor:pointer}
+.workbench-canvas-tools button:disabled{opacity:.45;cursor:default}
+.workbench-canvas-status{flex:1 1 130px;color:var(--text-secondary,#666)}
+.workbench-canvas-tools .workbench-canvas-send{border-color:var(--accent,#897e74);color:var(--accent,#897e74)}
+.workbench-canvas-editor{flex:1;min-height:180px;min-width:0;position:relative}
+.workbench-canvas-editor>.excalidraw{position:absolute;inset:0;width:100%;height:100%;--color-primary:var(--accent,#897e74);--color-primary-darker:var(--accent,#897e74);--color-primary-darkest:var(--accent,#897e74);--color-primary-hover:var(--accent,#897e74);--color-primary-light:color-mix(in srgb,var(--accent,#897e74) 16%,var(--bg,#fff));--color-primary-light-darker:color-mix(in srgb,var(--accent,#897e74) 24%,var(--bg,#fff));--color-surface-high:color-mix(in srgb,var(--accent,#897e74) 7%,var(--bg,#fff));--color-surface-low:var(--bg-secondary,#f5f5f5)}
+/* The persisted transaction history is shared by Bot, toolbar and keyboard. */
+.workbench-canvas .workbench-canvas-editor>.excalidraw{--color-surface-primary-container:color-mix(in srgb,var(--accent,#897e74) 16%,var(--bg,#fff));--color-on-primary-container:var(--accent,#897e74);--color-brand-active:var(--accent,#897e74)}
+.workbench-canvas .excalidraw .undo-redo-buttons,.workbench-canvas .excalidraw [data-testid="button-undo"],.workbench-canvas .excalidraw [data-testid="button-redo"]{display:none}
+/* Narrow editors keep the main menu without reserving an otherwise empty
+   full-width bar. Selection tools and shape/scroll panels keep their layout. */
+.workbench-canvas .excalidraw .App-bottom-bar>.Island:not(:has(.App-mobile-menu,.dropdown-menu--mobile,.scroll-back-to-content,.App-toolbar-content>.ToolIcon:not(.ToolIcon_type_button--hide))){width:max-content;min-width:0}
+.workbench-canvas .excalidraw .App-bottom-bar .main-menu-trigger{min-width:44px;min-height:44px}
+/* iOS embeds the editor between the safe chat header and composer. Reserve
+   horizontal cutouts at the panel edge, not again inside every editor overlay.
+   Keep drawing controls independent of the user's chat reading font size. */
+:root[data-platform=ios] .workbench-canvas-editor{min-height:0;container:ios-whiteboard / size}
+:root[data-platform=ios] .workbench-canvas-editor>.excalidraw{
+  --sat:0px;--sab:0px;--sal:0px;--sar:0px;--editor-container-padding:8px;
+}
+:root[data-platform=ios] .workbench-canvas-tools>button{min-width:44px;min-height:44px}
+:root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar-container{
+  display:flex;flex-direction:column;align-items:stretch;max-width:100%;width:100%;gap:4px;
+}
+:root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar--mobile{
+  width:100%;max-width:100%;box-sizing:border-box;
+}
+:root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar--mobile>.Stack{
+  display:flex;flex-wrap:wrap;justify-content:center;gap:4px;
+}
+:root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar-container .ToolIcon__icon{
+  width:44px;height:44px;
+}
+:root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar-container .ToolIcon__icon svg{
+  width:20px;height:20px;
+}
+:root[data-platform=ios] .workbench-canvas .excalidraw--mobile .mobile-misc-tools-container{
+  position:static;align-self:flex-end;flex-direction:row;flex-shrink:0;
+  border:1px solid var(--sidebar-border-color);border-radius:var(--border-radius-lg);
+}
+:root[data-platform=ios] .workbench-canvas .excalidraw--mobile .mobile-misc-tools-container .default-sidebar-trigger{
+  width:44px;height:44px;min-width:44px;min-height:44px;
+}
+/* A rotated phone or keyboard can leave little drawing height. Keep one
+   swipeable tool row in that case; never let the canvas cover the composer. */
+@container ios-whiteboard (max-height:280px){
+  :root[data-platform=ios] .workbench-canvas-editor>.excalidraw{--editor-container-padding:4px}
+  :root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar-container{
+    flex-direction:row;align-items:flex-start;overflow-x:auto;overscroll-behavior-x:contain;
+    padding:1px;box-sizing:border-box;scrollbar-width:thin;
+  }
+  :root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar--mobile{
+    flex:0 0 auto;width:max-content;max-width:none;
+  }
+  :root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-toolbar--mobile>.Stack{flex-wrap:nowrap}
+  :root[data-platform=ios] .workbench-canvas .excalidraw--mobile .mobile-misc-tools-container{align-self:flex-start}
+  :root[data-platform=ios] .workbench-canvas .excalidraw--mobile .App-bottom-bar .App-toolbar-content{padding-block:2px}
+}
+.workbench-canvas-error{padding:6px 8px;font-size:12px;background:var(--error-bg,#fff1ef);color:var(--error,#993e30);overflow-wrap:anywhere;display:flex;align-items:center;gap:8px}
+.workbench-canvas-error button{margin-left:auto;white-space:nowrap}
+.workbench-annotation-backdrop{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:#0005;padding:14px}
+.workbench-annotation-dialog{background:var(--bg,#fff);border:1px solid var(--border,#ddd);border-radius:12px;padding:16px;max-width:400px;max-height:100%;overflow:auto;box-shadow:0 6px 30px #0002;font-size:13px}
+.workbench-annotation-dialog h3{margin:0 0 10px;font-size:15px}.workbench-annotation-dialog p{line-height:1.6;margin:10px 0}
+.workbench-annotation-dialog label{display:flex;gap:10px;align-items:center}.workbench-annotation-dialog select{max-width:65%;color:inherit;background:var(--bg,#fff);border:1px solid var(--border,#ddd);border-radius:5px;padding:5px}
+.workbench-annotation-dialog>div{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.workbench-annotation-preview{display:block;max-width:100%;max-height:180px;object-fit:contain;margin:12px auto;border:1px solid var(--border,#ddd);border-radius:6px}
+@media(max-width:760px){.workbench-canvas-tools{font-size:12px}.workbench-canvas-tools button{min-height:32px;padding:6px 8px}.workbench-canvas-status{flex-basis:100%}}

@@ -1,0 +1,52 @@
+import { it, expect, vi } from "vitest";
+import { randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { runHostCli } from "../src/host-cli/cli.js";
+import { HostManagement } from "../src/host-cli/management.js";
+import { initializeHost } from "../src/host-cli/setup.js";
+import { LocalHostClient } from "../src/host-cli/client.js";
+import { startHubControl } from "../src/hub/service.js";
+import { HubServer } from "../src/hub/server.js";
+import { hashSecret } from "../src/hub/auth.js";
+import { attachGateway } from "../src/gateway/service.js";
+import { createCoreServiceRuntime } from "../src/core/runtime.js";
+import { readBotPersona } from "../src/runtime/bot-instructions.js";
+
+it("CLI edits the same AGENTS.md section with conflict and owner checks, without starting a turn", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tarobot-persona-cli-"));
+  await initializeHost(root, "Persona fixture");
+  const hub = await HubServer.start({ stateDir: root }), stateDir = path.join(root, "bot");
+  await mkdir(path.join(stateDir, "workspace"), { recursive: true });
+  const file = path.join(stateDir, "workspace", "AGENTS.md"), patchFile = path.join(root, "patch.json");
+  await writeFile(file, "# Working rules\nPreserve me.\n");
+  await writeFile(path.join(stateDir, "config.json"), '{"engine":"codex"}');
+  const secret = randomBytes(32).toString("base64url");
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES(?,?,?)", ["bot", "Test", hashSecret(secret)]);
+  const handleAuthorizedMessage = vi.fn(async () => ({ text: "unused" }));
+  const gateway = await attachGateway({ stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: "bot", engine: "codex", runtime: createCoreServiceRuntime(), bridge: { handleAuthorizedMessage } });
+  const control = await startHubControl(root, { running: true, pid: process.pid, url: hub.url, instanceUrl: hub.instanceUrl, publicKey: hub.auth.publicKey }, () => {}, { enrollController: value => hub.enrollLocalController(value) });
+  const local = await LocalHostClient.connect(root, { enroll: true }), management = new HostManagement(local);
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  const cli = (args: string[]) => runHostCli(["bots", "persona", "bot", ...args, "--state-dir", root, "--json"]);
+  try {
+    await cli([]); const before = JSON.parse(log.mock.calls.at(-1)![0] as string);
+    await writeFile(patchFile, JSON.stringify({ revision: before.revision, text: "用中文回答。 Be concise." }));
+    await cli(["--from", patchFile]);
+    expect(readBotPersona(await readFile(file, "utf8"))).toBe("用中文回答。 Be concise.");
+    await expect(cli(["--from", patchFile])).rejects.toThrow("persona_conflict");
+    const current = await management.botPersona("bot");
+    await writeFile(patchFile, JSON.stringify({ revision: current.revision, text: "" }));
+    await cli(["--from", patchFile]);
+    expect(readBotPersona(await readFile(file, "utf8"))).toBe("");
+    expect(await readFile(file, "utf8")).toContain("# Working rules\nPreserve me.\n");
+    expect((await fetch(`${hub.url}/api/bots/bot/persona`)).status).toBe(401);
+    await expect(management.botPersona("missing")).rejects.toThrow("bot_forbidden");
+    await hub.store.db.run("UPDATE users SET role='member' WHERE id='owner'");
+    await expect(management.botPersona("bot")).rejects.toThrow();
+    await expect(management.botPersona("bot", { revision: current.revision, text: "denied" })).rejects.toThrow();
+    expect(handleAuthorizedMessage).not.toHaveBeenCalled();
+    expect(await hub.store.db.get("SELECT COUNT(*) AS count FROM messages")).toEqual({ count: 0 });
+  } finally { log.mockRestore(); local.close(); await gateway.disconnect(); await control(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});

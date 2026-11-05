@@ -1,0 +1,61 @@
+{
+  "testedAt": "2026-10-11T20:55:21.680Z",
+  "engine": "codex",
+  "model": "gpt-6-astra",
+  "version": "codex-cli 0.162.1",
+  "effort": "low",
+  "pairedBrowserContexts": 2,
+  "physicalDevices": false,
+  "attachmentCardActions": true,
+  "directForwardReplyEnabledByDefault": true,
+  "silentForwardNativeInputs": 0,
+  "originalSourceDeniedToTargetBot": true,
+  "recalledOriginalDownloadDeniedBeforeGc": true,
+  "sourceDeletedAndOrphansCollected": true,
+  "collectedOriginalAttachments": 2,
+  "copiedHashesMatch": true,
+  "quotedMessageOwnAttachments": 0,
+  "quotedNativeAttachmentCount": 2,
+  "forwardedNativeAttachmentCount": 2,
+  "nativeInputs": [
+    {
+      "at": 1791752090244,
+      "type": "input",
+      "files": [
+        {
+          "name": "image-01.png",
+          "sha256": "d3720d37d3a121af9c8867801029ca05a343f9f3f51cfd8e6fa68429a0fca031"
+        },
+        {
+          "name": "batch-reference.pdf",
+          "sha256": "4b02b57a088c2079355db2d039727a4f3d35119ff1600b7cb976e400f10d52ed"
+        }
+      ]
+    },
+    {
+      "at": 1791752108851,
+      "type": "input",
+      "files": [
+        {
+          "name": "image-01.png",
+          "sha256": "d3720d37d3a121af9c8867801029ca05a343f9f3f51cfd8e6fa68429a0fca031"
+        },
+        {
+          "name": "batch-reference.pdf",
+          "sha256": "4b02b57a088c2079355db2d039727a4f3d35119ff1600b7cb976e400f10d52ed"
+        }
+      ]
+    }
+  ],
+  "distinctNativeSessions": 2,
+  "imageCodeReadTwice": "PZ9HK2AN",
+  "pdfCodeReadTwice": "EHER8GAZ",
+  "unselectedBotPending": 0,
+  "repliesRenderedOnBothDevices": true,
+  "testedSchema": 11,
+  "ownedHubAndNativeChildrenStopped": true,
+  "ownedFixtureRemoved": true,
+  "codexThreadsArchived": true,
+  "claudeFixtureTranscriptsRemoved": false,
+  "kimiPrivateHome": false
+}

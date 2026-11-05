@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TaroCub Transport Audit",
+  "version": "1.0.0",
+  "identifier": "com.tarocub.transport-audit",
+  "build": { "frontendDist": "../../.native-audit-dist" },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self'"
+    }
+  },
+  "bundle": { "active": false, "icon": ["../icons/32x32.png"] }
+}

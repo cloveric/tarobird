@@ -1,0 +1,108 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`sanitizes actual engine choice cards, submits once and closes the original buttons > preserved_choice_submitted 1`] = `
+[
+  {
+    "elements": [
+      {
+        "actionId": "action:0",
+        "disabled": true,
+        "style": "default",
+        "text": "Continue",
+        "type": "button",
+      },
+      {
+        "text": "✅ Selected: **Continue**. The task will continue; no need to click again.",
+        "type": "markdown",
+      },
+    ],
+    "extra": {
+      "body": {},
+      "config": {
+        "update_multi": true,
+      },
+      "schema": "2.0",
+    },
+    "layout": {},
+    "type": "card",
+  },
+]
+`;
+
+exports[`stopping a pending AskUserQuestion closes the same native card without CardKit > AskUserQuestion_cancelled 1`] = `
+[
+  {
+    "elements": [
+      {
+        "text": "The task was stopped, so this choice no longer applies. To continue, just send a message describing what you want.",
+        "type": "markdown",
+      },
+    ],
+    "extra": {
+      "body": {
+        "direction": "vertical",
+        "padding": "12px 12px 12px 12px",
+      },
+      "config": {
+        "summary": {
+          "content": "Choice cancelled",
+        },
+        "update_multi": true,
+      },
+      "header": {
+        "title": {
+          "content": "⏹ Choice cancelled",
+          "tag": "plain_text",
+        },
+      },
+      "schema": "2.0",
+    },
+    "layout": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "summary": "Choice cancelled",
+    "title": "⏹ Choice cancelled",
+    "type": "card",
+  },
+]
+`;
+
+exports[`stopping a pending Bash closes the same native card without CardKit > Bash_cancelled 1`] = `
+[
+  {
+    "elements": [
+      {
+        "text": "The task was stopped, so this request (Bash) no longer needs a decision.",
+        "type": "markdown",
+      },
+    ],
+    "extra": {
+      "body": {
+        "direction": "vertical",
+        "padding": "12px 12px 12px 12px",
+      },
+      "config": {
+        "summary": {
+          "content": "Approval cancelled",
+        },
+        "update_multi": true,
+      },
+      "header": {
+        "title": {
+          "content": "⏹ Approval cancelled",
+          "tag": "plain_text",
+        },
+      },
+      "schema": "2.0",
+    },
+    "layout": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "summary": "Approval cancelled",
+    "title": "⏹ Approval cancelled",
+    "type": "card",
+  },
+]
+`;

@@ -1,0 +1,26 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Bundled TaroCub window; filesystem writes require a native save-dialog grant.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-start-dragging",
+    "core:webview:allow-set-webview-focus",
+    "notification:default",
+    "opener:default",
+    "deep-link:default",
+    "autostart:default",
+    "dialog:allow-save",
+    "fs:allow-open",
+    "fs:allow-ftruncate",
+    "fs:allow-write",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
+  ]
+}

@@ -1,0 +1,85 @@
+/* =============================================================================
+   Built-in PDF reader (PdfPreview.tsx), inside the file preview dialog.
+   - The paper keeps the document's own white in every theme; the stage around it,
+     the controls and the state cards follow the Atelier tokens.
+   - One control bar under the stage on every screen: page navigation and zoom as
+     two raised chip groups. Phones get 44px targets and 16px fields (no iOS focus
+     zoom); narrow readers drop the zoom steps (pinch and the zoom menu remain).
+   - No decorative motion. Spinners are the only loops and stop under reduced
+     motion (brand-theme.css); the page spinner appears only after a short wait.
+   ========================================================================== */
+.pdf-reader{container:pdf-reader / inline-size;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:10px}
+.pdf-reader-stage{position:relative;flex:1 1 auto;min-height:0;overflow:hidden;border-radius:var(--radius-lg);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border)}
+/* pan-x pan-y: the reader owns pinch zoom, the browser keeps native scrolling. */
+.pdf-reader-viewport{position:absolute;inset:0;overflow:auto;padding:20px;scrollbar-gutter:stable both-edges;overscroll-behavior:contain;touch-action:pan-x pan-y}
+.pdf-reader-viewport:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+
+/* ---------- Paper ---------- */
+.pdf-page{--user-unit:1;--total-scale-factor:calc(var(--scale-factor) * var(--user-unit));--scale-round-x:1px;--scale-round-y:1px;position:relative;margin:0 auto;direction:ltr;background:#fff;color-scheme:only light;box-shadow:var(--elev-2)}
+.pdf-page-canvas{position:absolute;inset:0;overflow:hidden}
+.pdf-page-canvas>canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+/* Shown only when a page takes a moment. */
+.pdf-page-pending{position:absolute;inset:0;display:grid;place-items:center;color:#8c8278;pointer-events:none;animation:pdf-reveal 0s linear .2s both}
+@keyframes pdf-reveal{from{visibility:hidden}}
+/* On the paper itself, so the light palette is fixed rather than themed. */
+.pdf-page-failed{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;text-align:center;font-size:13px;line-height:1.6;color:#4f4338;background:#fff}
+.pdf-page-failed button{min-height:34px;padding:0 16px;border:1px solid #d3cdc4;background:#fff;color:#241c16;font-weight:550}
+.pdf-page-failed button:hover:not(:disabled){background:#f4f2ee}
+
+/* ---------- Text layer: the PDF.js 6.4 TextLayer contract (web/pdf_viewer.css),
+   reduced to selection and copy. Runs are transparent over the canvas. ---------- */
+.pdf-text-layer{--min-font-size:1;--text-scale-factor:calc(var(--total-scale-factor) * var(--min-font-size));--min-font-size-inv:calc(1 / var(--min-font-size));position:absolute;inset:0;z-index:0;overflow:clip;opacity:1;line-height:1;letter-spacing:normal;word-spacing:normal;text-align:initial;-webkit-text-size-adjust:none;text-size-adjust:none;forced-color-adjust:none;transform-origin:0 0;caret-color:CanvasText;color-scheme:only light}
+.pdf-text-layer :is(span,br){position:absolute;color:transparent;white-space:pre;cursor:text;transform-origin:0% 0%;-webkit-user-select:text;user-select:text}
+.pdf-text-layer>:not(.markedContent),.pdf-text-layer .markedContent span:not(.markedContent){--font-height:0;--scale-x:1;--rotate:0deg;z-index:1;font-size:calc(var(--text-scale-factor) * var(--font-height));transform:rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv))}
+.pdf-text-layer .markedContent{display:contents}
+.pdf-text-layer span[role=img]{-webkit-user-select:none;user-select:none;cursor:default}
+.pdf-text-layer ::selection{background:rgba(0,90,255,.25);background:color-mix(in srgb,AccentColor,transparent 55%);color:transparent}
+.pdf-text-layer br::selection{background:transparent}
+.pdf-text-layer .endOfContent{position:absolute;inset:100% 0 0;z-index:0;display:block;cursor:default;-webkit-user-select:none;user-select:none}
+.pdf-text-layer.selecting .endOfContent{top:0}
+.pdf-text-layer[data-main-rotation="90"]{transform:rotate(90deg) translateY(-100%)}
+.pdf-text-layer[data-main-rotation="180"]{transform:rotate(180deg) translate(-100%,-100%)}
+.pdf-text-layer[data-main-rotation="270"]{transform:rotate(270deg) translateX(-100%)}
+
+/* ---------- Opening, password and failure states ---------- */
+.pdf-reader-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;overflow:auto;text-align:center;font-size:13px;color:var(--muted)}
+.pdf-reader-card{width:min(340px,100%);display:flex;flex-direction:column;align-items:center;gap:8px}
+.pdf-reader-card:focus{outline:none}
+.pdf-reader-card h3{margin-top:6px;font-size:15px;font-weight:600;line-height:1.4;color:var(--text)}
+.pdf-reader-card p{font-size:13px;line-height:1.6;color:var(--muted)}
+.pdf-reader-card p.error-text{color:var(--red)}
+.pdf-reader-card>[role=alert]{display:flex;flex-direction:column;gap:4px}
+.pdf-reader-card>button{margin-top:8px;min-height:34px;padding:0 16px;border:1px solid var(--border-strong);background:var(--raised);font-weight:550}
+.pdf-reader-emblem{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:var(--raised);box-shadow:var(--elev-1);color:var(--grey)}
+.pdf-password-row{align-self:stretch;display:flex;gap:8px;margin-top:8px}
+.pdf-password-row input{flex:1 1 auto;min-width:0;height:36px;padding:0 12px}
+.pdf-password-row button{flex:none;height:36px;padding:0 16px;border-radius:var(--radius-sm)}
+
+/* ---------- Control bar ---------- */
+.pdf-reader-bar{flex:none;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 8px}
+.pdf-reader-group{display:flex;align-items:center;gap:2px;padding:2px;border-radius:var(--radius);background:var(--raised);box-shadow:var(--elev-1)}
+.pdf-reader-group>button{width:32px;height:32px;padding:0;color:var(--grey)}
+.pdf-reader-group>button:hover:not(:disabled){color:var(--text)}
+.pdf-reader-group>button[aria-disabled=true]{opacity:.35;cursor:default}
+.pdf-reader-group>button[aria-disabled=true]:hover{background:transparent;color:var(--grey)}
+.pdf-page-position{display:flex;align-items:center;gap:5px;padding:0 6px 0 2px;white-space:nowrap;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* Fields are recessed fills inside the raised group and lift on focus. */
+.pdf-reader .pdf-page-field{width:calc(var(--digits) * 1ch + 18px);min-width:36px;height:28px;padding:0 4px;border-color:transparent;background:var(--surface);color:var(--text);text-align:center;font-size:13px;font-variant-numeric:tabular-nums}
+.pdf-reader .pdf-zoom-select{height:28px;min-width:0;padding:0 26px 0 10px;border-color:transparent;background-color:var(--surface);background-position:calc(100% - 14px) 52%,calc(100% - 9px) 52%;font-size:13px;color:var(--text)}
+.pdf-reader :is(.pdf-page-field,.pdf-zoom-select):focus-visible{background-color:var(--raised)}
+
+.pdf-reader-sr{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+
+/* ---------- Phones and touch screens ---------- */
+@media (max-width:760px),(pointer:coarse){
+  .pdf-reader-group>button{width:44px;height:44px}
+  .pdf-page-position{font-size:14px}
+  .pdf-reader .pdf-page-field{min-width:44px;height:44px;font-size:16px}
+  .pdf-reader .pdf-zoom-select{height:44px;font-size:16px}
+  .pdf-password-row input{height:44px;font-size:16px}
+  .pdf-password-row button,.pdf-reader-card>button,.pdf-page-failed button{min-height:44px}
+}
+@container pdf-reader (max-width:399px){
+  .pdf-reader-viewport{padding:10px}
+  .pdf-zoom-step{display:none}
+}

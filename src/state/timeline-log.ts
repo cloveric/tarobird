@@ -1,0 +1,262 @@
+import { mkdir, open } from "node:fs/promises";
+import path from "node:path";
+
+import { TimelineEventSchema, formatTimelineSchemaError } from "./timeline-log-schema.js";
+import { rotateOnAppendIfNeeded } from "./log-rotation.js";
+import { redactLogMetadata } from "./log-redaction.js";
+import { redactSecrets } from "../runtime/secret-redaction.js";
+
+export interface TimelineEvent {
+  timestamp?: string;
+  type:
+    | "input.received"
+    | "command.handled"
+    | "turn.started"
+    | "turn.completed"
+    | "turn.retried"
+    | "crew.run.started"
+    | "crew.stage.started"
+    | "crew.stage.completed"
+    | "crew.run.completed"
+    | "crew.run.failed"
+    | "crew.run.cancelled"
+    | "workflow.prepared"
+    | "workflow.failed"
+    | "workflow.completed"
+    | "engine.event"
+    | "engine.event.delivery_failed"
+    | "engine.event.card_finish"
+    | "engine.lock.waiting"
+    | "tool.executed"
+    | "service.error"
+    | "service.health"
+    | "delivery.ledger_mismatch"
+    | "delivery.recovered"
+    | "file.accepted"
+    | "file.rejected"
+    | "budget.blocked"
+    | "budget.threshold_reached"
+    | "cron.triggered"
+    | "cron.completed"
+    | "cron.skipped"
+    | "cron.disabled_after_failures"
+    | "cron.failure_notification_failed";
+  instanceName?: string;
+  channel?: "gateway" | "telegram" | "bus" | "lark";
+  chatId?: number;
+  messageThreadId?: number;
+  conversationKey?: string;
+  userId?: number;
+  updateId?: number;
+  outcome?: string;
+  detail?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TimelineSummary {
+  totalEvents: number;
+  lastTurnCompletionAt?: string;
+  lastRetryAt?: string;
+  lastBudgetBlockedAt?: string;
+  lastCrewRunAt?: string;
+  retryCount: number;
+  budgetBlockedCount: number;
+  serviceErrorCount: number;
+  serviceHealthCount: number;
+  lastServiceHealthAt?: string;
+  lastServiceHealthOutcome?: string;
+  fileRejectedCount: number;
+  workflowFailedCount: number;
+  turnPoolWaitCount: number;
+  lastTurnPoolWaitAt?: string;
+  crewRunsStartedCount: number;
+  crewRunsCompletedCount: number;
+  crewRunsFailedCount: number;
+}
+
+export interface TimelineEventFilter {
+  tail?: number;
+  type?: TimelineEvent["type"];
+  chatId?: number;
+  outcome?: string;
+  channel?: TimelineEvent["channel"];
+}
+
+export function resolveTimelineLogPath(stateDir: string): string {
+  return path.join(stateDir, "timeline.log.jsonl");
+}
+
+export async function appendTimelineEvent(stateDir: string, event: TimelineEvent): Promise<void> {
+  const filePath = resolveTimelineLogPath(stateDir);
+  const materialized = {
+    timestamp: event.timestamp ?? new Date().toISOString(),
+    ...event,
+    // Defense-in-depth: detail is frequently a raw error message that may carry a
+    // bearer token or `*_secret=...` assignment. Scrub before it lands on disk.
+    ...(typeof event.detail === "string" ? { detail: redactSecrets(event.detail) } : {}),
+    ...(event.metadata ? { metadata: redactLogMetadata(event.metadata) } : {}),
+  };
+  const result = TimelineEventSchema.safeParse(materialized);
+  if (!result.success) {
+    throw new Error(`invalid timeline event: ${formatTimelineSchemaError(result.error)}`);
+  }
+
+  await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  // Best-effort runtime rotation; a rotation failure must never drop the timeline event.
+  await rotateOnAppendIfNeeded(filePath).catch((error: unknown) => {
+    console.warn("Failed to rotate timeline log:", error instanceof Error ? error.message : error);
+  });
+  const line = `${JSON.stringify(result.data)}\n`;
+  const handle = await open(filePath, "a", 0o600);
+  try {
+    await handle.write(line, undefined, "utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+function isTimelineEvent(value: unknown): value is TimelineEvent {
+  return TimelineEventSchema.safeParse(value).success;
+}
+
+export function parseTimelineEvents(raw: string): TimelineEvent[] {
+  let droppedLines = 0;
+  const events = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        const parsed = JSON.parse(line) as unknown;
+        if (isTimelineEvent(parsed)) {
+          return [parsed];
+        }
+      } catch {
+        // fall through
+      }
+
+      droppedLines += 1;
+      return [];
+    });
+
+  if (droppedLines > 0) {
+    console.warn(`Dropped ${droppedLines} invalid timeline log line${droppedLines === 1 ? "" : "s"} while parsing timeline history.`);
+  }
+
+  return events;
+}
+
+export function summarizeTimelineEvents(events: TimelineEvent[]): TimelineSummary {
+  const summary: TimelineSummary = {
+    totalEvents: events.length,
+    retryCount: 0,
+    budgetBlockedCount: 0,
+    serviceErrorCount: 0,
+    serviceHealthCount: 0,
+    fileRejectedCount: 0,
+    workflowFailedCount: 0,
+    turnPoolWaitCount: 0,
+    crewRunsStartedCount: 0,
+    crewRunsCompletedCount: 0,
+    crewRunsFailedCount: 0,
+  };
+
+  for (const event of events) {
+    if (event.type === "turn.retried") {
+      summary.retryCount += 1;
+    }
+
+    if (event.type === "budget.blocked") {
+      summary.budgetBlockedCount += 1;
+    }
+
+    if (event.type === "service.error") {
+      summary.serviceErrorCount += 1;
+    }
+
+    if (event.type === "service.health") {
+      summary.serviceHealthCount += 1;
+    }
+
+    if (event.type === "file.rejected") {
+      summary.fileRejectedCount += 1;
+    }
+
+    if (event.type === "workflow.failed") {
+      summary.workflowFailedCount += 1;
+    }
+
+    if (event.type === "crew.run.started") {
+      summary.crewRunsStartedCount += 1;
+    }
+
+    if (event.type === "crew.run.completed") {
+      summary.crewRunsCompletedCount += 1;
+    }
+
+    if (event.type === "crew.run.failed") {
+      summary.crewRunsFailedCount += 1;
+    }
+
+    if (event.type === "engine.lock.waiting" && event.metadata?.reason === "turn_pool") {
+      summary.turnPoolWaitCount += 1;
+    }
+
+    if (!event.timestamp) {
+      continue;
+    }
+
+    if (event.type === "turn.completed") {
+      summary.lastTurnCompletionAt = event.timestamp;
+    }
+
+    if (event.type === "turn.retried") {
+      summary.lastRetryAt = event.timestamp;
+    }
+
+    if (event.type === "budget.blocked") {
+      summary.lastBudgetBlockedAt = event.timestamp;
+    }
+
+    if (event.type === "crew.run.started" || event.type === "crew.run.completed" || event.type === "crew.run.failed" || event.type === "crew.run.cancelled") {
+      summary.lastCrewRunAt = event.timestamp;
+    }
+
+    if (event.type === "service.health") {
+      summary.lastServiceHealthAt = event.timestamp;
+      summary.lastServiceHealthOutcome = event.outcome;
+    }
+
+    if (event.type === "engine.lock.waiting" && event.metadata?.reason === "turn_pool") {
+      summary.lastTurnPoolWaitAt = event.timestamp;
+    }
+  }
+
+  return summary;
+}
+
+export function filterTimelineEvents(events: TimelineEvent[], filter: TimelineEventFilter = {}): TimelineEvent[] {
+  let filtered = events;
+
+  if (filter.type) {
+    filtered = filtered.filter((event) => event.type === filter.type);
+  }
+
+  if (filter.chatId !== undefined) {
+    filtered = filtered.filter((event) => event.chatId === filter.chatId);
+  }
+
+  if (filter.outcome) {
+    filtered = filtered.filter((event) => event.outcome === filter.outcome);
+  }
+
+  if (filter.channel) {
+    filtered = filtered.filter((event) => event.channel === filter.channel);
+  }
+
+  if (filter.tail !== undefined) {
+    filtered = filtered.slice(-filter.tail);
+  }
+
+  return filtered;
+}

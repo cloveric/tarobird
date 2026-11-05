@@ -1,0 +1,604 @@
+{
+  "clientVersion": "1.1.0",
+  "sourceRevision": "cd89ecea117fea97eff06083d0695d25428d1d8b",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-BYzlevgr.js",
+    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+  },
+  "captured": "2026-11-04T10:02:25.194Z",
+  "source": "built shared client, isolated loopback Hub, synthetic data",
+  "images": [
+    {
+      "file": "desktop-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "pastel-fox",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny",
+        "mini-matcha",
+        "peach-patch-cat"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "979e54856e02560409cd3346c17bb7a9736679c7f5fd27da15b6ca4c3af87aea"
+    },
+    {
+      "file": "folders-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "1e845b4e524d4244b7d0c41ab4de80598be71e6c0ad1cdbd04d91a996eb56b13"
+    },
+    {
+      "file": "mono-light-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "1e845b4e524d4244b7d0c41ab4de80598be71e6c0ad1cdbd04d91a996eb56b13"
+    },
+    {
+      "file": "mono-dark-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "dark",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "0ad1264704af9d0636691acf954c54d834f7cb028cc0b315df29402c08b54356"
+    },
+    {
+      "file": "list-options-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "3ccfb3e92f37d32c68dd2a8725b92c7b41d48452f40e85ff76b7f37a06756765"
+    },
+    {
+      "file": "mobile-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "d4ee8b0efa2934f0f6e204b2f9ed35aad41184385e77b0e6aa7b05f7811e3601"
+    },
+    {
+      "file": "mobile-chat-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [],
+      "visibleAvatars": [
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "94e3281a9a76912f78aac009f2477b6b46ca62493b3604c7fc1cddaadaac0a9d"
+    },
+    {
+      "file": "desktop-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "pastel-fox",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny",
+        "mini-matcha",
+        "peach-patch-cat"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "018a34744c889d236d7a608eacfde09ac3db8cfbbb160406223f11cea8a2871a"
+    },
+    {
+      "file": "folders-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "04b9c200edaad963793ab2dadd3dc2d4928bb3eaa37d11b459e648badd524663"
+    },
+    {
+      "file": "mono-light-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "04b9c200edaad963793ab2dadd3dc2d4928bb3eaa37d11b459e648badd524663"
+    },
+    {
+      "file": "mono-dark-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "dark",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "02db65e7d85624b0cb39b79e3337c1230bc1260ec372c04b13c6bcc81c4ac361"
+    },
+    {
+      "file": "list-options-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1200,
+        "height": 780
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 247,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 79,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 79,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "58acb779da7939b67e49f18140b45f8db645810c9d86da1c4455041e6e3775b2"
+    },
+    {
+      "file": "mobile-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [],
+      "visibleAvatars": [
+        "peach-patch-cat",
+        "pastel-fox",
+        "mini-matcha",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "0996bebe93457680671dab141872489d575252cb12ec1881bcd2870a22e121dd"
+    },
+    {
+      "file": "mobile-chat-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [],
+      "visibleAvatars": [
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "8084bf3ec995f92760188c51f032c81a4a247116319b8b8365558c982eb2ab80"
+    }
+  ]
+}

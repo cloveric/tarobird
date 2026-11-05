@@ -1,0 +1,57 @@
+.preferences-dialog{width:min(820px,calc(100vw - 48px));height:min(690px,calc(100dvh - 48px));max-width:none;max-height:none;padding:0;border:1px solid var(--border);border-radius:14px;background:var(--bg);color:var(--text);box-shadow:0 20px 70px #0003;overflow:hidden}
+.preferences-dialog[open]{display:flex;flex-direction:column}
+.preferences-dialog.preferences-single-section{width:min(620px,calc(100vw - 48px))}
+.preferences-single-section .settings-content>section>h3{display:none}
+.device-approval-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:16px 0 24px}
+@media(max-width:760px),(hover:none) and (pointer:coarse){.preferences-dialog.preferences-single-section{width:100%}}
+.preferences-dialog::backdrop{background:#1c243c55;backdrop-filter:blur(2px)}
+.preferences-header{display:flex;align-items:center;gap:8px;min-height:72px;flex-shrink:0;padding:12px 20px;border-bottom:1px solid var(--border)}
+.preferences-header h2{order:-1;flex:1;font-size:18px}.preferences-header .icon-button{width:44px;height:44px}
+.preferences-body{display:flex;flex:1;min-height:0}.settings-navigation{width:200px;flex-shrink:0;padding:16px 10px;background:var(--surface);border-right:1px solid var(--border);overflow:auto}
+.settings-navigation>button{width:100%;text-align:left;justify-content:flex-start;padding:12px;gap:12px;min-height:48px;margin:2px 0}
+.settings-navigation>button[aria-current=page]{background:var(--selected);color:var(--blue)}.settings-navigation strong{font-weight:550;font-size:14px}.settings-navigation small,.settings-chevron{display:none}.settings-navigation svg{flex-shrink:0}
+.settings-unsaved-dot{width:7px;height:7px;flex-shrink:0;border-radius:50%;background:var(--orange);margin-left:auto}
+.settings-content{min-width:0;flex:1;padding:24px;overflow:auto;overscroll-behavior:contain}.settings-content h3{font-size:18px;margin:0 0 18px}.settings-content h4{font-size:14px;margin:24px 0 12px}.settings-content p{font-size:13px;line-height:1.7;margin:10px 0}.settings-content .muted{color:var(--grey)}
+.settings-content .settings-row{min-height:44px;flex-wrap:wrap}.settings-content .settings-row label{min-width:64px}.settings-content button{min-height:40px}.settings-content select{min-height:44px}.settings-content .quick-actions button,.settings-content .secondary,.settings-content .settings-row>button{border:1px solid var(--border)}
+.settings-content form>label{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}.settings-content input:not([type=range]):not([type=checkbox]){min-height:44px}.settings-content .device-row>div{min-width:0}.settings-content .device-name{overflow-wrap:anywhere}
+.settings-content .device-row{align-items:flex-start}.settings-content .device-row>svg{flex-shrink:0;margin-top:10px}.settings-content .device-row small{color:var(--grey)}
+.settings-danger{margin-top:28px;padding-top:4px;border-top:1px solid var(--border)}.settings-danger button{border:1px solid var(--red)}.settings-invite{padding:14px;background:var(--surface);border-radius:10px;text-align:center}.settings-invite .pair-qr{margin:0 auto;max-width:100%;height:auto}
+.connection-summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;background:var(--selected);border-radius:10px;font-size:13px}.connection-summary strong{overflow-wrap:anywhere}.connection-summary>span{flex-shrink:0;font-size:12px}.online-label{color:var(--green)}
+.saved-routes{list-style:none;padding:0;margin:12px 0 20px}.saved-routes li{border-bottom:1px solid var(--border);padding:14px 0;display:flex;flex-direction:column;gap:6px;font-size:13px}.saved-routes li>span{overflow-wrap:anywhere;color:var(--grey)}
+.settings-content .connection-footnote{margin-top:22px;padding-top:16px;border-top:1px solid var(--border)}
+.route-save-bar{position:sticky;bottom:-24px;z-index:1;margin:16px -24px -1px;padding:12px 24px;background:var(--bg);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px}.route-save-bar>span{font-size:12px;color:var(--grey);margin-right:auto}.route-save-bar button{flex-shrink:0}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root dialog.preferences-dialog:modal{position:fixed;inset:var(--shell-top,0px) 0 auto;width:100%;max-width:none;height:var(--shell-height,100dvh);max-height:var(--shell-height,100dvh);margin:0;border:0;border-radius:0;padding-left:var(--app-safe-left,0px);padding-right:var(--app-safe-right,0px);animation:none}
+  :root .preferences-dialog>.preferences-header{padding-left:12px;padding-right:12px}
+  .preferences-header h2{order:0}
+  .preferences-header{min-height:64px;padding:calc(8px + var(--app-safe-top)) 12px 8px}
+  .settings-navigation{width:100%;padding:12px 16px;border:0;background:var(--bg)}
+  /* Match the regular-weight entries on the preceding Me page. */
+  .preferences-dialog .settings-navigation strong{font-weight:400}
+  .settings-navigation>button{min-height:80px;margin:0;padding:16px 8px;border-bottom:1px solid var(--border);border-radius:0;gap:16px}.settings-navigation>button[aria-current=page]{color:var(--text);background:transparent}
+  .settings-navigation>button>span:not(.settings-unsaved-dot){flex:1;min-width:0}.settings-navigation small{display:block;margin-top:6px;line-height:1.5;color:var(--grey);font-size:12px}.settings-navigation strong{font-size:16px}.settings-chevron{display:block;color:var(--grey)}
+  .settings-overview .settings-content{display:none}.settings-detail .settings-navigation{display:none}
+  .settings-content{padding:20px 20px max(20px,var(--app-safe-bottom))}.settings-content h3{font-size:19px}.settings-content button{min-height:44px}.settings-content .settings-row>input[type=range]{max-width:140px}.settings-content .pair-approve{flex-wrap:wrap}.settings-content .pair-approve input{min-width:160px}
+  .route-save-bar{bottom:-20px;margin-inline:-20px;padding:12px 20px max(12px,var(--app-safe-bottom))}.route-save-bar>span{font-size:11px}.route-save-bar button{font-size:13px;padding-inline:10px}
+}
+/* Monochrome accent: a row of muted swatches under the palette cards; the native radio stays for keyboard and screen readers. */
+.mono-accent{display:grid;gap:10px;margin:12px 0 4px;padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius-xl,14px);background:var(--raised)}
+.mono-accent .settings-row-text{display:grid;gap:2px}
+.mono-accent .settings-row-text small{color:var(--muted);font-size:12px;line-height:1.5}
+.mono-accent-options{display:flex;flex-wrap:wrap;gap:6px 4px}
+.mono-accent-option{position:relative;display:grid;justify-items:center;gap:5px;min-width:52px;padding:6px 2px;border-radius:10px;cursor:pointer}
+.mono-accent-option>input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.mono-accent-swatch{width:26px;height:26px;border-radius:50%;background:var(--swatch,var(--raised));box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.mono-accent-swatch[data-accent=none]{background:linear-gradient(135deg,var(--raised) 50%,var(--text) 50%);box-shadow:inset 0 0 0 1px var(--border-strong)}
+.mono-accent-name{font-size:12px;color:var(--grey);white-space:nowrap}
+.mono-accent-option>input:checked~.mono-accent-swatch{box-shadow:0 0 0 2px var(--raised),0 0 0 3.5px var(--text)}
+.mono-accent-option>input:checked~.mono-accent-name{color:var(--text);font-weight:500}
+.mono-accent-option>input:focus-visible~.mono-accent-swatch{outline:2px solid var(--focus);outline-offset:4px}
+
+
+/* High-contrast mode suppresses swatch fills and shadows; retain the native
+   checked radio instead of leaving the selected option visually ambiguous. */
+@media(forced-colors:active){
+  .mono-accent-option>input{position:static;inset:auto;appearance:auto;opacity:1;width:18px;height:18px;min-height:0}
+  .mono-accent-swatch{display:none}
+}

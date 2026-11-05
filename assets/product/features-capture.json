@@ -1,0 +1,310 @@
+{
+  "clientVersion": "1.0.118",
+  "sourceRevision": "91853e0089edabf20e1e78c2975d9b578dcb14da",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-RhFUtkLt.js",
+    "sha256": "340c9a56c990b4d3f43d64bbc53cfd240586ac1e675789c6208f5a11742bd559",
+    "indexSha256": "9544e05ed20c00aa2ed16f22183e1abf793c0525c1891fa59bb74f14a126ae46"
+  },
+  "captured": "2026-10-28T04:55:39.037Z",
+  "source": "Built shared client; disposable Hub; synthetic conversations, report, recorded-diff HTTP responses and ASR readiness. Actual group settings and temporary voice policy. No model or cloud call. Not native-device acceptance.",
+  "images": [
+    {
+      "file": "feature-groups-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1240,
+        "height": 740
+      },
+      "scale": 2,
+      "crop": ".conversation-main",
+      "bounds": {
+        "x": 272,
+        "y": 0,
+        "width": 968,
+        "height": 740
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "cfe96f47377ae58a3201b1729fb1ff00aaf6c0b3f5060b73afc6f8a62334bfcb"
+    },
+    {
+      "file": "feature-group-modes-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1240,
+        "height": 740
+      },
+      "scale": 2,
+      "crop": ".group-discussion-options",
+      "bounds": {
+        "x": 374,
+        "y": 313,
+        "width": 492,
+        "height": 616.34375
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "4d1b207db13190ce3f9e619c9b6ba16f403f2a8a768bda609449278d098914c1"
+    },
+    {
+      "file": "feature-visual-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1240,
+        "height": 740
+      },
+      "scale": 2,
+      "crop": ".inline-widget",
+      "bounds": {
+        "x": 341,
+        "y": 81,
+        "width": 720,
+        "height": 517
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "43c927dcb71d76cf09396f7e5b478f52afcd0dabf56acc443aebf3d2c76fa291"
+    },
+    {
+      "file": "feature-changes-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1240,
+        "height": 700
+      },
+      "scale": 2,
+      "crop": ".diff-viewer",
+      "bounds": {
+        "x": 24.796875,
+        "y": 42,
+        "width": 1190.390625,
+        "height": 616
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "b5699774883249995a80412d9a81d8fbc8ab76216bdc28f0dae1854d508d31f8"
+    },
+    {
+      "file": "feature-voice-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 740,
+        "height": 1040
+      },
+      "scale": 2,
+      "crop": ".voice-cloud",
+      "bounds": {
+        "x": 16,
+        "y": 141.046875,
+        "width": 708,
+        "height": 620.75
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "68efd9a045ff855e470d46123d380d03c36afec41d955d550d0b07fb151f4db1"
+    },
+    {
+      "file": "feature-groups-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1240,
+        "height": 740
+      },
+      "scale": 2,
+      "crop": ".conversation-main",
+      "bounds": {
+        "x": 272,
+        "y": 0,
+        "width": 968,
+        "height": 740
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "55f25a20d7f56c514f5aa1d03b3d2a78e68061ad8241ebde69facd432c5a2922"
+    },
+    {
+      "file": "feature-group-modes-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1240,
+        "height": 740
+      },
+      "scale": 2,
+      "crop": ".group-discussion-options",
+      "bounds": {
+        "x": 374,
+        "y": 318,
+        "width": 492,
+        "height": 577.5625
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "c40c014c34fd9185e9a22264f2ab268d5b0047ba47113d023aa335859f66f7b7"
+    },
+    {
+      "file": "feature-visual-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1240,
+        "height": 740
+      },
+      "scale": 2,
+      "crop": ".inline-widget",
+      "bounds": {
+        "x": 341,
+        "y": 79,
+        "width": 720,
+        "height": 519
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "c6dea16c63b8f4f9eb869ef7c45b64f2cbad936db042c50b615e062eb0f8829f"
+    },
+    {
+      "file": "feature-changes-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1240,
+        "height": 700
+      },
+      "scale": 2,
+      "crop": ".diff-viewer",
+      "bounds": {
+        "x": 24.796875,
+        "y": 42,
+        "width": 1190.390625,
+        "height": 616
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox",
+        "peach-patch-cat",
+        "cream-bunny"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "b62fd2d8cb334f44961e678e237cf75095d4475df10cb0228c9293ea241d3862"
+    },
+    {
+      "file": "feature-voice-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 740,
+        "height": 1040
+      },
+      "scale": 2,
+      "crop": ".voice-cloud",
+      "bounds": {
+        "x": 16,
+        "y": 141.046875,
+        "width": 708,
+        "height": 613.5625
+      },
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "visibleAvatars": [
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "da9b8cdaeb5af2ed962d71a6993a519b08b7a648dc77d1dd71e2027ddcfb4d8f"
+    }
+  ]
+}

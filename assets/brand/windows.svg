@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Windows supplies no launcher mask: transparent corners, small outer
+       margin and the same approved warm-gray artwork. -->
+  <defs><clipPath id="tile"><rect x="32" y="32" width="960" height="960" rx="208"/></clipPath></defs>
+  <image x="32" y="32" width="960" height="960" xlink:href="tarobot-master.png" clip-path="url(#tile)"/>
+</svg>

@@ -1,0 +1,36 @@
+.settings-page-header>.settings-page-back{display:none}
+.operations-body{display:contents}
+.operations-body>h3{margin:22px 0 10px;padding-top:18px;border-top:1px solid var(--border);font-size:13px;font-weight:600}
+.operations-body>button{min-height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--raised);font-size:12.5px;font-weight:550}
+.operations-body>button:hover:not(:disabled){background:var(--hover);color:var(--text)}
+
+/* The scrim owns OS insets once. Android's native window supplies zero CSS
+   insets; browser/iOS reserve theirs here. Content follows the visible keyboard
+   viewport, including when a rotated phone crosses the desktop breakpoint. */
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root .modal-scrim.settings-page-scrim:has(>.mobile-settings-page){
+    top:var(--shell-top,0px);bottom:auto;height:var(--shell-height,100dvh);
+    padding:var(--app-safe-top,0px) var(--app-safe-right,0px) var(--app-safe-bottom,0px) var(--app-safe-left,0px);
+    align-items:stretch;background:var(--bg);overflow:hidden;animation:none;
+  }
+  :root .modal-scrim.settings-page-scrim>.settings-panel.mobile-settings-page{
+    display:flex;flex-direction:column;width:100%;max-width:100%;height:100%;max-height:100%;
+    min-height:0;min-width:0;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;overflow:hidden;animation:none;
+  }
+  :root .mobile-settings-page>.settings-page-header{
+    display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:8px;row-gap:0;
+    flex:none;min-height:60px;margin:0;padding:8px 16px 8px 8px;border-bottom:1px solid var(--border);
+  }
+  :root .settings-page-header>.settings-page-back{display:flex;grid-column:1;grid-row:1 / 3;width:44px;height:44px;margin:0}
+  :root .settings-page-header>.settings-page-close{display:none}
+  .settings-page-header>.settings-page-title{min-width:0}
+  :root .settings-page-header h2{margin:0;font-size:17px;line-height:1.4;overflow-wrap:anywhere}
+  .settings-page-header .capabilities-eyebrow{display:none}
+  :root .settings-page-header>.runtime-host-label{grid-column:2;max-width:100%;margin:0;font-size:11px}
+  :root .operations-panel>.operations-body{display:block;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:16px 16px 24px}
+  .operations-body>button{min-height:44px}
+  :root .mobile-settings-page>.capabilities-context{margin:8px 16px}
+  :root .mobile-settings-page>.capabilities-tabbar{margin:0 16px}
+  :root .mobile-settings-page>.capabilities-body{padding:0 16px 24px;scrollbar-gutter:auto}
+  html[data-keyboard-open="true"] .mobile-settings-page .capabilities-toolbar{position:static}
+}

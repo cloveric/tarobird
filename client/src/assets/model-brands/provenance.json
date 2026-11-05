@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/lobehub/lobe-icons",
+  "revision": "bcdb7c82792a854c2967f7328e11a30205ea584d",
+  "assets": [
+    {
+      "name": "openai",
+      "url": "https://raw.githubusercontent.com/lobehub/lobe-icons/bcdb7c82792a854c2967f7328e11a30205ea584d/packages/static-svg/icons/openai.svg",
+      "sha256": "a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186"
+    },
+    {
+      "name": "claude",
+      "url": "https://raw.githubusercontent.com/lobehub/lobe-icons/bcdb7c82792a854c2967f7328e11a30205ea584d/packages/static-svg/icons/claude.svg",
+      "sha256": "365a70a7eb3956d9b9a96086058ebe04e1dbd8e291a756ad964e8a283fbd6d38"
+    },
+    {
+      "name": "gemini",
+      "url": "https://raw.githubusercontent.com/lobehub/lobe-icons/bcdb7c82792a854c2967f7328e11a30205ea584d/packages/static-svg/icons/gemini.svg",
+      "sha256": "87d5b3c4be75a66f54c1936482a263df68185545b741129badd1b7c2449c18d3"
+    },
+    {
+      "name": "deepseek",
+      "url": "https://raw.githubusercontent.com/lobehub/lobe-icons/bcdb7c82792a854c2967f7328e11a30205ea584d/packages/static-svg/icons/deepseek.svg",
+      "sha256": "8f9443e351b6dacce71871790201b799d92e8bf96a45ef79aeb5e9bf4db423e2"
+    },
+    {
+      "name": "kimi",
+      "url": "https://raw.githubusercontent.com/lobehub/lobe-icons/bcdb7c82792a854c2967f7328e11a30205ea584d/packages/static-svg/icons/kimi.svg",
+      "sha256": "ed08131b46acf70e6e2144eceb775e74098b58ea65fa21eaee04be7b05cfe63b"
+    }
+  ]
+}

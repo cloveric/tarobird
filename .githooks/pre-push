@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+policy_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$(git rev-parse --show-toplevel)"
+node "$policy_root/scripts/release-version.mjs" check
+node "$policy_root/scripts/check-upload-privacy.mjs" pre-push "$1"
+bash "$policy_root/scripts/check-secrets.sh" history

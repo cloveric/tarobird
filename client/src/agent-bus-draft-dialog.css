@@ -1,0 +1,55 @@
+.creation-dialog.agent-bus-draft-dialog {
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  padding: 20px;
+  border-radius: var(--radius-xl);
+  color: var(--text);
+}
+.agent-bus-draft-dialog > header { gap: 16px; margin-bottom: 12px; }
+.agent-bus-draft-dialog > header h2 { min-width: 0; font-size: 16px; line-height: 1.5; }
+.agent-bus-draft-dialog > header .icon-button {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin-right: -6px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+}
+.agent-bus-draft-dialog > .agent-bus-draft-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--grey);
+  overflow-wrap: anywhere;
+}
+.agent-bus-draft-dialog > .agent-bus-draft-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.agent-bus-draft-dialog > .agent-bus-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
+}
+.agent-bus-draft-actions > button {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.agent-bus-draft-actions > .agent-bus-draft-discard { border-color: var(--border); background: var(--bg); color: var(--grey); }
+.agent-bus-draft-actions > .agent-bus-draft-discard:hover { background: var(--hover); color: var(--text); }
+.agent-bus-draft-actions > button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+@media (max-width: 760px) {
+  .creation-dialog.agent-bus-draft-dialog { width: 100%; max-width: 100%; padding-bottom: max(20px, var(--app-safe-bottom)); border-radius: 20px 20px 0 0; }
+  .agent-bus-draft-actions > button { min-height: 44px; }
+}

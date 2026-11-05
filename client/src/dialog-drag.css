@@ -1,0 +1,4 @@
+@media (min-width: 761px) {
+  :is(.creation-dialog, .preferences-dialog, .file-preview).is-movable > header { cursor: grab; user-select: none; }
+  :is(.creation-dialog, .preferences-dialog, .file-preview).is-movable[data-dragging] > header { cursor: grabbing; }
+}

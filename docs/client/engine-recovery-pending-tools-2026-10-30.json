@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-30",
+  "baseCommit": "feb3d66c76b5bb419f24497ae0c79de8f81e87a6",
+  "scope": "Codex pending-command reconciliation in shared Host recovery",
+  "sourceSha256": {
+    "src/codex/adapter.ts": "3c3374fa37f90f05173e4772fe863c2295bdac0d541b35cd12bb8e7110eebd73",
+    "src/codex/app-server-adapter.ts": "eb2ba13ee040c9ff2283e59c4f22036b5a5a99c2345d697623779fea2b96b5d2",
+    "src/codex/retry-tools.ts": "b97269ab854f3af2059e8f126b8584213f65670fe46042f40f01f0b28b6587ba",
+    "src/codex/turn-retry.ts": "c340ab80f166fd8c52bf1d41bcb8f047fe662fe89d981584e18403b5d31bd614",
+    "src/core/errors.ts": "955802bccf825a256f14f3874107b68aa42c1a666aa57ba48680a0730efb15f8",
+    "src/runtime/bridge.ts": "23c3fdb43f56360ed5e3c05ef24b0bf518f07437745ac66ec9d3b5d95f18d19a",
+    "src/runtime/engine-recovery.ts": "3079c138a7f961f2f62949c152567dbde0a7821e5ec4727e4f13047161c63d9d"
+  },
+  "priorTaskReconciliation": {
+    "deepseekAudit": "5c2ff906fa01cb1fa0dc174052387d83883e4a30",
+    "kimiAudit": "3cdb88642a2b8f458838f0e541cbf04d714efe0c",
+    "latencyStability": "feb3d66c76b5bb419f24497ae0c79de8f81e87a6",
+    "nativeCommands": {
+      "exitCodes": [
+        0,
+        0
+      ],
+      "durationsMs": [
+        419334,
+        973375
+      ]
+    },
+    "replayed": false
+  },
+  "verification": {
+    "tests": {
+      "passed": 448,
+      "files": 14,
+      "scope": "Recovery change before final stdout-only presentation adjustment"
+    },
+    "productionBuild": "passed",
+    "standaloneModules": 464,
+    "nativeSmoke": "passed; actual isolated command, no model call",
+    "testSourceTypecheck": {
+      "status": "preexisting diagnostics",
+      "candidate": 129,
+      "unchangedBase": 129,
+      "newDiagnostics": 0
+    },
+    "finalPresentationFollowup": {
+      "rootPassed": 150,
+      "rootSuites": 2,
+      "opusPinnedRecoveryPassed": 143,
+      "opusSuites": 4,
+      "countsOverlap": true
+    }
+  },
+  "independentReviewer": "Claude Opus 5.5",
+  "finalReview": {
+    "status": "no blocking issue found within scope",
+    "lastFinding": "F-1 fixed and independently verified",
+    "reports": [
+      "opus-final-review.md",
+      "opus-stdout-final.md"
+    ]
+  },
+  "evidenceSha256": {
+    "native-items-readback.json": "0c7a2c63bfb505c39ceb306c8d436f037690fc8db6842f7e4eff23b67911adf9",
+    "native-recovery-smoke.noindex/result.json": "55fb5bf88d9e07049ccd1b642488aa4d30f4edd9fa1c1747b28a79a0bc48b8a3",
+    "opus-items-probe.noindex/result.json": "3276c8a9cef97a9be8740c1db2643ceacc5ab49703b999d358b3ce27057a47c7",
+    "opus-investigation.md": "f68e6590fc0f67a21061beb4c2dd21abe81c18840563b999485eadd2add9b105",
+    "opus-wait-design.md": "e639f1c68b4e5a1fc475c5ceba199997dbfe7ae2a2e6291f0ca97eef680d2848",
+    "opus-code-review.md": "db432dd4ad167528c49ae0738d81df4aa92415ea812ac11ab5576446b1e08264",
+    "acceptance-tests.log": "d29dc714904e709dff00b8f0ea3b48479bcb2809c3431afb763e27891c324165",
+    "build.log": "ae3f93c0818503834615f159720bce9d40b123f1cdb933edcfb62d87d4698b72",
+    "typecheck-final.log": "f705d9a7a80df2fb5a2af6e6d600710268d2e37ec7d13dec2175b4a5177b5a9e",
+    "typecheck-baseline.log": "3c22745e9eb9e670bea16890fb8f33561f623bdbb24552ff8cd8a1add1c1ae13",
+    "stdout-followup.log": "c5f686b1b000f10db6b66a2b114f8423b322a5c4bb80cd420235c19d3ed4508e",
+    "opus-final-review.md": "851bc6f6a7514f97a0bfd1dd6c67c500392b42f160fa1c68a917c3ce4868ceb4",
+    "opus-stdout-final.md": "79a7f06772b857ddaa3f413ea6908ce49077662263a0bd743679050b480f5274",
+    "opus-stdout-final.json": "987718bd67f5f4addb899d67c2f0e70f7fa68eb91718c34e3212843c755e59db",
+    "opus-final-review.noindex/native-smoke-rerun.noindex/result.json": "f6b5c70dfee22b22b2e6683f1c829181859feba0927efe564e879b82349ca090"
+  },
+  "boundaries": {
+    "published": false,
+    "installedAppUpdated": false,
+    "productionHostRestarted": false,
+    "realProviderCapacityFailureReinduced": false,
+    "otherAdaptersChanged": false,
+    "windowsDeviceAcceptance": false
+  }
+}

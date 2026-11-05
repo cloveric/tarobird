@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TaroBot Window Acceptance",
+  "version": "1.0.0",
+  "identifier": "com.tarocub.window-audit",
+  "build": { "frontendDist": "../window-ui" },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": true,
+    "security": { "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; script-src 'self'; style-src 'self'" }
+  },
+  "bundle": { "active": false, "icon": ["../../icons/32x32.png"] }
+}

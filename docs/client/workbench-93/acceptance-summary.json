@@ -1,0 +1,484 @@
+{
+  "version": 1,
+  "baseCommit": "cf2cf5674b859e63f2fd90e30da0df4acc8da748",
+  "date": "2026-10-30",
+  "status": "implemented_pending_full_acceptance",
+  "productionTouched": false,
+  "released": false,
+  "installed": false,
+  "imageEdit": {
+    "passed": true,
+    "rounds": 2,
+    "savedRevisions": [
+      3,
+      5
+    ],
+    "originalOfSecondRoundMatchesFirstResult": true
+  },
+  "nativeResources": {
+    "boundary": "Actual full React App + Electron and all descendant processes including Rust helper; isolated loopback Hub, synthetic pages/real generated PNG; no physical-phone network claim",
+    "budget": {
+      "inputNextFrameP95Ms": 50,
+      "hostPublicationToDomP95Ms": 250
+    },
+    "notes": [
+      "Budgets are local acceptance thresholds, not a pre-agreed device SLA. CPU sampled over 2s."
+    ],
+    "editorCountAfterHide": 0,
+    "passed": true,
+    "samples": [
+      {
+        "label": "board_without_image",
+        "rssMB": 435.375,
+        "cpuPercent": 1.9637176574054236,
+        "cpuWindowMs": 2036.9527080000844,
+        "input": {
+          "count": 20,
+          "p95": 18
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 97.7589999998454
+        }
+      },
+      {
+        "label": "board_with_real_image",
+        "rssMB": 561.828125,
+        "cpuPercent": 5.395946697972913,
+        "cpuWindowMs": 2038.5672090000007,
+        "input": {
+          "count": 20,
+          "p95": 19.099999994039536
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 89.0465410000179
+        }
+      },
+      {
+        "label": "board_after_3_reopens",
+        "rssMB": 703.453125,
+        "cpuPercent": 5.887146108358957,
+        "cpuWindowMs": 2038.3390830000862,
+        "input": {
+          "count": 20,
+          "p95": 18.400000005960464
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 92.8695000000298
+        }
+      },
+      {
+        "label": "workbench_hidden",
+        "rssMB": 706.03125,
+        "cpuPercent": 0.9822017875838089,
+        "cpuWindowMs": 2036.2414579999167,
+        "input": {
+          "count": 20,
+          "p95": 16.099999994039536
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 85.20612500002608
+        }
+      },
+      {
+        "label": "1_visible_pages",
+        "rssMB": 602.28125,
+        "cpuPercent": 0.9915881922654731,
+        "cpuWindowMs": 2016.9663329999894,
+        "input": {
+          "count": 20,
+          "p95": 17.400000005960464
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 93.66424999991432
+        }
+      },
+      {
+        "label": "2_visible_pages",
+        "rssMB": 744.4375,
+        "cpuPercent": 0,
+        "cpuWindowMs": 2016.480666999938,
+        "input": {
+          "count": 20,
+          "p95": 15.699999988079071
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 97.21249999990687
+        }
+      },
+      {
+        "label": "4_visible_pages",
+        "rssMB": 960,
+        "cpuPercent": 0.9837720247673236,
+        "cpuWindowMs": 2032.991333000129,
+        "input": {
+          "count": 20,
+          "p95": 17.299999997019768
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 87.29637500015087
+        }
+      },
+      {
+        "label": "all_pages_closed",
+        "rssMB": 584.96875,
+        "cpuPercent": 3.434579769709845,
+        "cpuWindowMs": 2038.095042000059,
+        "input": {
+          "count": 20,
+          "p95": 15.799999997019768
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 94.73937500012107
+        }
+      },
+      {
+        "label": "hidden_after_10s_idle",
+        "rssMB": 595.453125,
+        "cpuPercent": 6.413029963497366,
+        "cpuWindowMs": 2027.1229159999639,
+        "input": {
+          "count": 20,
+          "p95": 23.5
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 91.23783400002867
+        }
+      }
+    ]
+  },
+  "assets": {
+    "boundary": "Uncompressed production client/dist; same Electron baseline and installed dependencies; not installer size or full Electron migration delta",
+    "baseCommit": "cf2cf5674b859e63f2fd90e30da0df4acc8da748",
+    "base": {
+      "totalBytes": 35328969,
+      "files": 539,
+      "javascriptBytes": 6490649,
+      "cssBytes": 750192,
+      "fontBytes": 17902812
+    },
+    "workbench": {
+      "totalBytes": 56714114,
+      "files": 964,
+      "javascriptBytes": 14156630,
+      "cssBytes": 907779,
+      "fontBytes": 31020356
+    },
+    "delta": {
+      "totalBytes": 21385145,
+      "files": 425,
+      "javascriptBytes": 7665981,
+      "cssBytes": 157587,
+      "fontBytes": 13117544
+    },
+    "excalidrawVersion": "0.18.1",
+    "fontFiles": 233,
+    "distributedFontBytes": 13036400,
+    "fontMetric": "fontBytes counts .woff2 in both builds; other asset types remain in totalBytes"
+  },
+  "rootTsc": {
+    "baseDiagnostics": 138,
+    "branchDiagnostics": 138,
+    "affectedFiles": 60,
+    "finalComparison": "per-file path and TypeScript diagnostic-code counts; final line/column equality is not claimed",
+    "pathCodeCountsEqual": true
+  },
+  "pending": [
+    "Windows actual native runtime",
+    "physical iPhone/Android interaction and concurrent network reconnect",
+    "multi-DPI displays and physical IME",
+    "human native dialogs",
+    "signed package/install acceptance",
+    "restored-chat cold start and extended video/resource soak"
+  ],
+  "coldStart": {
+    "boundary": "Actual React App onboarding with preload, native migration gate and real Rust helper; fresh profile each sample; shared Electron45.1.0/current native shell; unpaired, not restored-chat startup or signed build",
+    "samples": [
+      {
+        "label": "base",
+        "index": 0,
+        "launchToOnboardingMs": 1306.9325000000001,
+        "editorResourcesRequested": []
+      },
+      {
+        "label": "workbench",
+        "index": 0,
+        "launchToOnboardingMs": 1255.888792,
+        "editorResourcesRequested": []
+      },
+      {
+        "label": "base",
+        "index": 1,
+        "launchToOnboardingMs": 1143.7494590000006,
+        "editorResourcesRequested": []
+      },
+      {
+        "label": "workbench",
+        "index": 1,
+        "launchToOnboardingMs": 1295.8576670000002,
+        "editorResourcesRequested": []
+      },
+      {
+        "label": "base",
+        "index": 2,
+        "launchToOnboardingMs": 1280.3140410000005,
+        "editorResourcesRequested": []
+      },
+      {
+        "label": "workbench",
+        "index": 2,
+        "launchToOnboardingMs": 1414.8479580000012,
+        "editorResourcesRequested": []
+      }
+    ],
+    "passed": true
+  },
+  "nativeMultiBoard": {
+    "boundary": "Actual Electron full React App, current assets, real native helper, isolated local Hub; 2/3/4 boards plus real generated PNG, full Electron descendant process RSS",
+    "registration": {
+      "passed": true,
+      "authentications": 2,
+      "windowId": "1c8abbb8-2615-4df2-9670-fe138c8e2e84"
+    },
+    "boards": [
+      "board_79386b4aec1b9d3937f91b5e9e44e485bc67df53",
+      "board_d8e7a62c16a3196350ef06c449e20cdf35f96fbd",
+      "board_8ce3e54711da081a7baad1aa247dc66ff69965e2",
+      "board_52d57e9d5f42bf573fd90c4e24fee00ed92ed503"
+    ],
+    "passed": true,
+    "samples": [
+      {
+        "label": "2_native_whiteboards",
+        "rssMB": 678.234375,
+        "cpuPercent": 6.883914400245534,
+        "cpuWindowMs": 2033.7266250001267,
+        "input": {
+          "count": 20,
+          "p95": 23
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 92.07133400021121
+        }
+      },
+      {
+        "label": "3_native_whiteboards",
+        "rssMB": 786.421875,
+        "cpuPercent": 9.318262433412274,
+        "cpuWindowMs": 2039.006750000175,
+        "input": {
+          "count": 20,
+          "p95": 28.099999994039536
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 115.76508299959823
+        }
+      },
+      {
+        "label": "4_native_whiteboards",
+        "rssMB": 845.34375,
+        "cpuPercent": 5.400739914526618,
+        "cpuWindowMs": 2036.7579580000602,
+        "input": {
+          "count": 20,
+          "p95": 28.200000002980232
+        },
+        "hostToDom": {
+          "count": 10,
+          "p95": 112.55529099982232
+        }
+      }
+    ]
+  },
+  "structuredWhiteboard": {
+    "passed": true,
+    "rounds": 2,
+    "savedRevisions": [
+      3,
+      4
+    ],
+    "elementsAfterEachRound": 8,
+    "existingContentPreserved": true
+  },
+  "chart": {
+    "passed": true,
+    "boundary": "Actual main chat model -> report publication -> same native React App chart Tab -> next-turn chart.update",
+    "tabId": "chart_4f6447a4b439a00e88ddc6a4c6a9031f6e5de9ca",
+    "firstSource": {
+      "messageId": "msg_7fa1ddd71eee3425991d8978b2d0ce86",
+      "blockIndex": 0,
+      "version": 1
+    },
+    "secondSource": {
+      "messageId": "msg_aaee5f950331b9f4c06675d3633be6f4",
+      "blockIndex": 0,
+      "version": 1
+    },
+    "report": {
+      "version": 1,
+      "columns": [
+        "月份",
+        "数值",
+        "对比"
+      ],
+      "rows": [
+        [
+          "一月",
+          10,
+          8
+        ],
+        [
+          "二月",
+          20,
+          18
+        ],
+        [
+          "三月",
+          15,
+          12
+        ]
+      ],
+      "chart": {
+        "kind": "line",
+        "category": 0,
+        "values": [
+          1,
+          2
+        ]
+      },
+      "source": "隔离测试数据"
+    },
+    "renderedSeries": 2,
+    "notes": [
+      "Create required a corrective turn to read wrapped tool receipt; original failure retained.",
+      "Tab ID and tab ordering read back unchanged; split preservation additionally tested in controller/browser suites."
+    ]
+  },
+  "nativeFit": {
+    "passed": true,
+    "boundary": "Actual full React App in Electron with production client build; Shift+1 each of four real persisted boards after layout settles",
+    "boards": [
+      {
+        "id": "board_79386b4aec1b9d3937f91b5e9e44e485bc67df53",
+        "top": 234,
+        "width": 986,
+        "height": 244.5,
+        "zoom": 0.2,
+        "scrollX": 1735,
+        "scrollY": 413.75,
+        "visibleContent": true,
+        "offscreen": false
+      },
+      {
+        "id": "board_d8e7a62c16a3196350ef06c449e20cdf35f96fbd",
+        "top": 559.5,
+        "width": 986,
+        "height": 244.5,
+        "zoom": 1,
+        "scrollX": 363,
+        "scrollY": 75.25,
+        "visibleContent": true,
+        "offscreen": false
+      },
+      {
+        "id": "board_8ce3e54711da081a7baad1aa247dc66ff69965e2",
+        "top": 559.5,
+        "width": 986,
+        "height": 244.5,
+        "zoom": 0.2,
+        "scrollX": 2015,
+        "scrollY": 413.75,
+        "visibleContent": true,
+        "offscreen": false
+      },
+      {
+        "id": "board_52d57e9d5f42bf573fd90c4e24fee00ed92ed503",
+        "top": 234,
+        "width": 986,
+        "height": 244.5,
+        "zoom": 1,
+        "scrollX": 363,
+        "scrollY": 75.25,
+        "visibleContent": true,
+        "offscreen": false
+      }
+    ]
+  },
+  "evidenceSHA256": {
+    "client-assets-comparison.json": "8ca15ad2e72da6379d3ebcca68ba3e8633b5e2b73388055659427d7e4aca34f6",
+    "cold-start-report.json": "7d87dae5abe0e3163f031be147479f2097683b5d58f88ca35dbb7fef0bd93dd9",
+    "native-app-r5/actual-browser-model-readback.json": "a2789f33dd3ce094d6ed31a25bd6319d22931a0d2edd8ded28543896cbf54f17",
+    "native-app-r5/chart-verified.json": "5a2c919dd8571ac5bf450331cde9d6415a4c46c366651c64d69ed475b594e808",
+    "native-app-r5/final-refresh.json": "da8ace32a2bf88bef35d3e480bce5c6bd77c993474a88d3099a9d0c3707d2a9c",
+    "native-app-r5/integrated-report.json": "b3312a813b56bda39a5ad4f2c733218b1be9c7a572ad255a9cd47cdd80c2ba4a",
+    "native-app-r5/native-fit-verified.json": "d94341fe277a27857b08b6d2136d70c4baf648e672df6910ec7c0c6453ca07ee",
+    "native-app-r5/native-multiboard-resources.json": "3374e61c7fbe72d635b17d658cfae8a7fabe9e3d5a0899a5d9b4e24c5b068fb6",
+    "native-app-r5/resources-completed.json": "b6405fc037e9a95d6517802abac3533f00abbf134f468cc530b0814b0351f3d9",
+    "opus/final-edges.md": "98ba99b641d6b230223bc44b70b38a560b1e21c3ed51df0b910cedc5d9002298",
+    "real-model-1793364613363/report.json": "1b58730ee34eb48cb250545beeb53248a8e89a550edf41236d4216ab9defc78c",
+    "surface-multiboard-summary.json": "61e4fa94a8c0b2a2cf4ef32f48f5bdc17ffa2fc2f9e66ae9f0bfda250e381a49",
+    "tsc-baseline-comparison.json": "87b6159e06f2e6473adddeb74f6e29289312f26df328fc2c4cb5f7249b031c95",
+    "surface-local-journey/workbench-local-journey-lo-b7941-side-session-preserve-state/local-journey-evidence.json": "0de84dc5c765726fdd435069866fdfb3cc243142902371a64e5d2fdc62c8a91f",
+    "host-final-guidance-regression.log": "5d3d6ffa57a511d71d0a5b71d3cc3e7e1389cdccac61d6941cf371e0cb263282",
+    "host-final-guidance-build.log": "46fb96fee837938a6f53bc5917a8e6b56805d6f2148bf6230dc7175a3d4166db",
+    "host-final-guidance-tsc-comparison.json": "dd77a345a39dd1da5c2f607ff10761c95cc8582c7c63b9a1cd2e9bbf56876711",
+    "final-guidance-tool-hashes.json": "f20beb66dd11aeb08307958e5653e0f530747287756e2ace3946a453106915f7",
+    "canvas/zoom-e2e-final.log": "45637759655020136c2480a323862f4e7987e4fc6e3e15cb07df7e9938d38788",
+    "surface-local-journey.log": "a61f476e3e42ca9340b9432417a7be8259171b69536a3954095bc583959b7ed5",
+    "host-cli-fallback-final-tests.log": "f8ff2bfd0d4f2e634e99277084a858ec87cce287a92a2f5e5aae1aef7e43ef80",
+    "host-cli-fallback-build.log": "46fb96fee837938a6f53bc5917a8e6b56805d6f2148bf6230dc7175a3d4166db",
+    "host-cli-fallback-tsc-comparison.json": "2fbc56596930c5b9ea58049e7cb2f48a452dae68ec6073ee595ebad94beabb6a",
+    "cli-fallback-tool-hashes.json": "f20beb66dd11aeb08307958e5653e0f530747287756e2ace3946a453106915f7",
+    "host-cli-built-guide-browser.json": "c1aade59adedbe694d3d30e07becac54e50fa9596c820cd4b676d7f0f2d01274",
+    "host-cli-built-guide-widgets.json": "13c710c37602b0b6ace9542cd6cd3d45115baf385987d9b50ecf9df7391586f7",
+    "opus/final-guide-fix-review.md": "0f534e135bf09651aa214e57d356a77df7d5a6afe18387d9ee027caae0cab423",
+    "publish-version-before.log": "aec0c05051164b29800372c4c3fe56ee3181115605d52bf1c10b68afff1a711f",
+    "publish-version-after.log": "6b664ad7fa6076e2553180981bb50302f0c8346592b8b327698f0945ed56eac2",
+    "root-final-host-build.log": "46fb96fee837938a6f53bc5917a8e6b56805d6f2148bf6230dc7175a3d4166db",
+    "opus/final-source-review.md": "59a53f1609fcde7d824413bf6c2fac3c70858d6cf03624eaee535aedfe6af99e",
+    "opus/final-cli-review.md": "ba13fd9e620007666f2af02e50ff7e67f41e5a34222466596c1bbf5fc172ec0a"
+  },
+  "localJourney": {
+    "passed": true,
+    "boundary": "Actual React App and isolated Hub/Gateway, fixture side engine, simulated HTTP and WS offline; not offline cold start or physical phone",
+    "checks": [
+      "rename/reorder tabs",
+      "keyboard row/column ratio and composer focus",
+      "offline drawing/save/reopen then online reload",
+      "live side task/answer/draft/attachment preserved while switching workbench"
+    ]
+  },
+  "hostFinalValidation": {
+    "focusedTests": 87,
+    "files": 7,
+    "buildModules": 471,
+    "enabledAndMinimalToolSchemasUnchanged": true,
+    "nonNativeCli": [
+      "guide",
+      "context",
+      "publish"
+    ],
+    "actualOtherModelsRun": false,
+    "publicationVersionGuard": {
+      "before": "confirmed replay acquired changed source version",
+      "after": "idempotency_conflict",
+      "focusedSocketTests": 8,
+      "finalHostBuildModules": 471
+    }
+  },
+  "review": {
+    "reviewer": "Opus 5.5",
+    "latestResult": "no remaining confirmed finding after source, CLI and publication-version follow-up",
+    "rootIndependentVersionGuardReproduction": true
+  }
+}

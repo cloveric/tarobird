@@ -1,0 +1,3249 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Gateway card translation > captures choice and authored-card constructors through actual tool delivery > authored_card 1`] = `
+[
+  {
+    "elements": [
+      {
+        "text": "**检查结果**
+已经保存",
+        "type": "markdown",
+      },
+      {
+        "children": [
+          {
+            "layout": {
+              "textSize": "notation",
+            },
+            "text": "_点击下方按钮选择此项。_",
+            "type": "markdown",
+          },
+          {
+            "actionId": "action:1.1",
+            "extra": {
+              "behaviors": [
+                {
+                  "type": "callback",
+                  "value": {
+                    "bridgeChatType": "private",
+                    "cctb_lark": "choice",
+                    "conversationKey": "lark:fixture",
+                    "label": "继续",
+                    "value": "continue",
+                  },
+                },
+              ],
+            },
+            "layout": {
+              "width": "fill",
+            },
+            "style": "primary",
+            "text": "选择",
+            "type": "button",
+            "value": {
+              "bridgeChatType": "private",
+              "cctb_lark": "choice",
+              "conversationKey": "lark:fixture",
+              "label": "继续",
+              "value": "continue",
+            },
+          },
+        ],
+        "extra": {
+          "header": {
+            "icon": {
+              "size": "16px 16px",
+              "tag": "standard_icon",
+              "token": "down-small-ccm_outlined",
+            },
+            "icon_expanded_angle": -180,
+            "icon_position": "follow_text",
+            "title": {
+              "content": "**A. 继续**",
+              "tag": "markdown",
+            },
+            "vertical_align": "center",
+          },
+        },
+        "layout": {
+          "border": {
+            "color": "blue",
+            "corner_radius": "5px",
+          },
+          "padding": "8px 8px 8px 8px",
+          "verticalSpacing": "8px",
+        },
+        "open": true,
+        "text": "**A. 继续**",
+        "type": "collapsible",
+      },
+    ],
+    "extra": {
+      "body": {
+        "direction": "vertical",
+      },
+      "config": {
+        "summary": {
+          "content": "示例卡片",
+        },
+        "update_multi": true,
+      },
+      "header": {
+        "title": {
+          "content": "示例卡片",
+          "tag": "plain_text",
+        },
+      },
+      "schema": "2.0",
+    },
+    "layout": {
+      "direction": "vertical",
+    },
+    "summary": "示例卡片",
+    "title": "示例卡片",
+    "type": "card",
+  },
+]
+`;
+
+exports[`Gateway card translation > captures choice and authored-card constructors through actual tool delivery > choice 1`] = `
+[
+  {
+    "elements": [
+      {
+        "text": "下一步怎么做？",
+        "type": "markdown",
+      },
+      {
+        "children": [
+          {
+            "layout": {
+              "textSize": "notation",
+            },
+            "text": "继续验证当前结果",
+            "type": "markdown",
+          },
+          {
+            "actionId": "action:1.1",
+            "extra": {
+              "behaviors": [
+                {
+                  "type": "callback",
+                  "value": {
+                    "bridgeChatType": "private",
+                    "cctb_lark": "choice",
+                    "conversationKey": "lark:fixture",
+                    "label": "继续",
+                    "value": "continue",
+                  },
+                },
+              ],
+            },
+            "layout": {
+              "width": "fill",
+            },
+            "style": "primary",
+            "text": "选择",
+            "type": "button",
+            "value": {
+              "bridgeChatType": "private",
+              "cctb_lark": "choice",
+              "conversationKey": "lark:fixture",
+              "label": "继续",
+              "value": "continue",
+            },
+          },
+        ],
+        "extra": {
+          "header": {
+            "icon": {
+              "size": "16px 16px",
+              "tag": "standard_icon",
+              "token": "down-small-ccm_outlined",
+            },
+            "icon_expanded_angle": -180,
+            "icon_position": "follow_text",
+            "title": {
+              "content": "**A. 继续**",
+              "tag": "markdown",
+            },
+            "vertical_align": "center",
+          },
+        },
+        "layout": {
+          "border": {
+            "color": "blue",
+            "corner_radius": "5px",
+          },
+          "padding": "8px 8px 8px 8px",
+          "verticalSpacing": "8px",
+        },
+        "open": true,
+        "text": "**A. 继续**",
+        "type": "collapsible",
+      },
+      {
+        "type": "divider",
+      },
+      {
+        "children": [
+          {
+            "layout": {
+              "textSize": "notation",
+            },
+            "text": "_点击下方按钮选择此项。_",
+            "type": "markdown",
+          },
+          {
+            "actionId": "action:3.1",
+            "extra": {
+              "behaviors": [
+                {
+                  "type": "callback",
+                  "value": {
+                    "bridgeChatType": "private",
+                    "cctb_lark": "choice",
+                    "conversationKey": "lark:fixture",
+                    "label": "改写",
+                    "value": "rewrite",
+                  },
+                },
+              ],
+            },
+            "layout": {
+              "width": "fill",
+            },
+            "style": "primary",
+            "text": "选择",
+            "type": "button",
+            "value": {
+              "bridgeChatType": "private",
+              "cctb_lark": "choice",
+              "conversationKey": "lark:fixture",
+              "label": "改写",
+              "value": "rewrite",
+            },
+          },
+        ],
+        "extra": {
+          "header": {
+            "icon": {
+              "size": "16px 16px",
+              "tag": "standard_icon",
+              "token": "down-small-ccm_outlined",
+            },
+            "icon_expanded_angle": -180,
+            "icon_position": "follow_text",
+            "title": {
+              "content": "**B. 改写**",
+              "tag": "markdown",
+            },
+            "vertical_align": "center",
+          },
+        },
+        "layout": {
+          "border": {
+            "color": "grey",
+            "corner_radius": "5px",
+          },
+          "padding": "8px 8px 8px 8px",
+          "verticalSpacing": "8px",
+        },
+        "open": false,
+        "text": "**B. 改写**",
+        "type": "collapsible",
+      },
+    ],
+    "extra": {
+      "body": {
+        "direction": "vertical",
+      },
+      "config": {
+        "summary": {
+          "content": "选择执行方向",
+        },
+        "update_multi": true,
+      },
+      "header": {
+        "title": {
+          "content": "选择执行方向",
+          "tag": "plain_text",
+        },
+      },
+      "schema": "2.0",
+    },
+    "layout": {
+      "direction": "vertical",
+    },
+    "summary": "选择执行方向",
+    "title": "选择执行方向",
+    "type": "card",
+  },
+]
+`;
+
+exports[`Gateway card translation > captures the actual claude question form with its submit callback > ask_claude 1`] = `
+{
+  "elements": [
+    {
+      "actionId": "askq_form",
+      "children": [
+        {
+          "text": "**选择（多选；至少 1 项，最多 2 项）**
+选择功能",
+          "type": "markdown",
+        },
+        {
+          "layout": {
+            "textSize": "notation",
+          },
+          "text": "A. **搜索**
+B. **导出**",
+          "type": "markdown",
+        },
+        {
+          "actionId": "q0",
+          "extra": {
+            "placeholder": {
+              "content": "可多选",
+              "tag": "plain_text",
+            },
+          },
+          "max": 2,
+          "min": 1,
+          "multiple": true,
+          "name": "q0",
+          "options": [
+            {
+              "label": "搜索",
+              "value": "0",
+            },
+            {
+              "label": "导出",
+              "value": "1",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "q0_other",
+          "extra": {
+            "placeholder": {
+              "content": "其他 —— 不合适就自己填（选填）",
+              "tag": "plain_text",
+            },
+          },
+          "name": "q0_other",
+          "type": "input",
+        },
+        {
+          "actionId": "askq_submit",
+          "extra": {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "action": "form_submit",
+                  "cctb_lark": "ask_user_question",
+                  "requestId": "request_fixture",
+                },
+              },
+            ],
+            "form_action_type": "submit",
+          },
+          "layout": {
+            "width": "fill",
+          },
+          "name": "askq_submit",
+          "style": "primary",
+          "text": "提交",
+          "type": "button",
+          "value": {
+            "action": "form_submit",
+            "cctb_lark": "ask_user_question",
+            "requestId": "request_fixture",
+          },
+        },
+      ],
+      "extra": {
+        "tarocub_questions": {
+          "questions": [
+            {
+              "allowFreeText": true,
+              "header": "选择",
+              "maxSelections": 2,
+              "minSelections": 1,
+              "multiSelect": true,
+              "options": [
+                {
+                  "label": "搜索",
+                },
+                {
+                  "label": "导出",
+                },
+              ],
+              "question": "选择功能",
+              "required": true,
+            },
+          ],
+          "requestId": "request_fixture",
+          "version": 1,
+        },
+      },
+      "name": "askq_form",
+      "type": "form",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Claude 请求选择",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "选择",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Claude 请求选择",
+  "title": "选择",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > captures the actual deepseek question form with its submit callback > ask_deepseek 1`] = `
+{
+  "elements": [
+    {
+      "actionId": "askq_form",
+      "children": [
+        {
+          "text": "**选择（多选；至少 1 项，最多 2 项）**
+选择功能",
+          "type": "markdown",
+        },
+        {
+          "layout": {
+            "textSize": "notation",
+          },
+          "text": "A. **搜索**
+B. **导出**",
+          "type": "markdown",
+        },
+        {
+          "actionId": "q0",
+          "extra": {
+            "placeholder": {
+              "content": "可多选",
+              "tag": "plain_text",
+            },
+          },
+          "max": 2,
+          "min": 1,
+          "multiple": true,
+          "name": "q0",
+          "options": [
+            {
+              "label": "搜索",
+              "value": "0",
+            },
+            {
+              "label": "导出",
+              "value": "1",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "q0_other",
+          "extra": {
+            "placeholder": {
+              "content": "其他 —— 不合适就自己填（选填）",
+              "tag": "plain_text",
+            },
+          },
+          "name": "q0_other",
+          "type": "input",
+        },
+        {
+          "actionId": "askq_submit",
+          "extra": {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "action": "form_submit",
+                  "cctb_lark": "ask_user_question",
+                  "requestId": "request_fixture",
+                },
+              },
+            ],
+            "form_action_type": "submit",
+          },
+          "layout": {
+            "width": "fill",
+          },
+          "name": "askq_submit",
+          "style": "primary",
+          "text": "提交",
+          "type": "button",
+          "value": {
+            "action": "form_submit",
+            "cctb_lark": "ask_user_question",
+            "requestId": "request_fixture",
+          },
+        },
+      ],
+      "extra": {
+        "tarocub_questions": {
+          "questions": [
+            {
+              "allowFreeText": true,
+              "header": "选择",
+              "maxSelections": 2,
+              "minSelections": 1,
+              "multiSelect": true,
+              "options": [
+                {
+                  "label": "搜索",
+                },
+                {
+                  "label": "导出",
+                },
+              ],
+              "question": "选择功能",
+              "required": true,
+            },
+          ],
+          "requestId": "request_fixture",
+          "version": 1,
+        },
+      },
+      "name": "askq_form",
+      "type": "form",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "DeepSeek Harness 请求选择",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "选择",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "DeepSeek Harness 请求选择",
+  "title": "选择",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > captures the actual image-batch constructor with titles and opaque image keys > image_batch 1`] = `
+{
+  "elements": [
+    {
+      "text": "图 1 · 示例",
+      "type": "markdown",
+    },
+    {
+      "attachmentId": "attachment_image_1",
+      "extra": {
+        "alt": {
+          "content": "图 1 · 示例",
+          "tag": "plain_text",
+        },
+      },
+      "text": "图 1 · 示例",
+      "type": "image",
+    },
+    {
+      "text": "图 2 · 示例",
+      "type": "markdown",
+    },
+    {
+      "attachmentId": "attachment_image_2",
+      "extra": {
+        "alt": {
+          "content": "图 2 · 示例",
+          "tag": "plain_text",
+        },
+      },
+      "text": "图 2 · 示例",
+      "type": "image",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > captures the actual kimi question form with its submit callback > ask_kimi 1`] = `
+{
+  "elements": [
+    {
+      "actionId": "askq_form",
+      "children": [
+        {
+          "text": "**选择（多选；至少 1 项，最多 2 项）**
+选择功能",
+          "type": "markdown",
+        },
+        {
+          "layout": {
+            "textSize": "notation",
+          },
+          "text": "A. **搜索**
+B. **导出**",
+          "type": "markdown",
+        },
+        {
+          "actionId": "q0",
+          "extra": {
+            "placeholder": {
+              "content": "可多选",
+              "tag": "plain_text",
+            },
+          },
+          "max": 2,
+          "min": 1,
+          "multiple": true,
+          "name": "q0",
+          "options": [
+            {
+              "label": "搜索",
+              "value": "0",
+            },
+            {
+              "label": "导出",
+              "value": "1",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "askq_submit",
+          "extra": {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "action": "form_submit",
+                  "cctb_lark": "ask_user_question",
+                  "requestId": "request_fixture",
+                },
+              },
+            ],
+            "form_action_type": "submit",
+          },
+          "layout": {
+            "width": "fill",
+          },
+          "name": "askq_submit",
+          "style": "primary",
+          "text": "提交",
+          "type": "button",
+          "value": {
+            "action": "form_submit",
+            "cctb_lark": "ask_user_question",
+            "requestId": "request_fixture",
+          },
+        },
+      ],
+      "extra": {
+        "tarocub_questions": {
+          "questions": [
+            {
+              "allowFreeText": false,
+              "header": "选择",
+              "maxSelections": 2,
+              "minSelections": 1,
+              "multiSelect": true,
+              "options": [
+                {
+                  "label": "搜索",
+                },
+                {
+                  "label": "导出",
+                },
+              ],
+              "question": "选择功能",
+              "required": true,
+            },
+          ],
+          "requestId": "request_fixture",
+          "version": 1,
+        },
+      },
+      "name": "askq_form",
+      "type": "form",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Kimi 请求选择",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "选择",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Kimi 请求选择",
+  "title": "选择",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > account 1`] = `
+{
+  "elements": [
+    {
+      "text": "📋 **当前飞书应用**
+
+**App ID**: \`cli_exam****ture\`
+**租户**: 飞书（国内）
+**实例**: Fixture
+**状态目录**: \`/workspace/instance\`
+
+_要更换绑定的 app，请在本机运行 \`lark wizard\` 扫码绑定（不在聊天里输入 secret）。_",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "当前飞书应用",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "当前飞书应用",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > approval 1`] = `
+{
+  "elements": [
+    {
+      "text": "**请求审批**
+ExampleTool
+
+\`\`\`json
+{
+  "command": "echo example"
+}
+\`\`\`",
+      "type": "markdown",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:1.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "cctb_lark": "approval",
+                      "decision": "allow_once",
+                      "requestId": "example_request",
+                    },
+                  },
+                ],
+              },
+              "style": "primary",
+              "text": "允许一次",
+              "type": "button",
+              "value": {
+                "cctb_lark": "approval",
+                "decision": "allow_once",
+                "requestId": "example_request",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+        {
+          "children": [
+            {
+              "actionId": "action:1.1.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "cctb_lark": "approval",
+                      "decision": "allow_session",
+                      "requestId": "example_request",
+                    },
+                  },
+                ],
+              },
+              "style": "default",
+              "text": "本轮允许",
+              "type": "button",
+              "value": {
+                "cctb_lark": "approval",
+                "decision": "allow_session",
+                "requestId": "example_request",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+        {
+          "children": [
+            {
+              "actionId": "action:1.2.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "cctb_lark": "approval",
+                      "decision": "deny",
+                      "requestId": "example_request",
+                    },
+                  },
+                ],
+              },
+              "style": "danger",
+              "text": "拒绝",
+              "type": "button",
+              "value": {
+                "cctb_lark": "approval",
+                "decision": "deny",
+                "requestId": "example_request",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "请求审批：ExampleTool",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "请求审批：ExampleTool",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > cancelled 1`] = `
+{
+  "elements": [
+    {
+      "text": "✅ 已取消此排队任务。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "已取消此排队任务。",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "已取消此排队任务。",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > compact 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务处理中...**",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "actionId": "action:2",
+      "extra": {
+        "behaviors": [
+          {
+            "type": "callback",
+            "value": {
+              "cctb_lark": "stop",
+              "conversationKey": "lark:test",
+            },
+          },
+        ],
+      },
+      "style": "danger",
+      "text": "停止",
+      "type": "button",
+      "value": {
+        "cctb_lark": "stop",
+        "conversationKey": "lark:test",
+      },
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "任务处理中",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "任务处理中",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > completed 1`] = `
+{
+  "elements": [
+    {
+      "text": "**已完成**",
+      "type": "markdown",
+    },
+    {
+      "text": "Complete",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "Complete",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Complete",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > continuation 1`] = `
+{
+  "elements": [
+    {
+      "layout": {
+        "textSize": "notation",
+      },
+      "text": "↪ 接上 · 1/2",
+      "type": "markdown",
+    },
+    {
+      "text": "More text",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "↪ 接上 · 1/2",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "↪ 接上 · 1/2",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > error 1`] = `
+{
+  "elements": [
+    {
+      "text": "**执行失败**",
+      "type": "markdown",
+    },
+    {
+      "text": "⚠️ Example error",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "执行失败",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "执行失败",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > goal_completed 1`] = `
+{
+  "elements": [
+    {
+      "text": "**已完成**",
+      "type": "markdown",
+    },
+    {
+      "id": "run_goal_banner",
+      "text": "🎯 **目标:** 完成示例任务",
+      "type": "markdown",
+    },
+    {
+      "text": "目标完成",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "目标完成",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "目标完成",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > goal_running 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务处理中...**",
+      "type": "markdown",
+    },
+    {
+      "id": "run_goal_banner",
+      "text": "🎯 **目标:** 完成示例任务",
+      "type": "markdown",
+    },
+    {
+      "layout": {
+        "textSize": "notation",
+      },
+      "text": "🧠 正在思考",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "actionId": "action:4",
+      "extra": {
+        "behaviors": [
+          {
+            "type": "callback",
+            "value": {
+              "cctb_lark": "stop",
+              "conversationKey": "lark:test",
+            },
+          },
+        ],
+      },
+      "style": "danger",
+      "text": "停止",
+      "type": "button",
+      "value": {
+        "cctb_lark": "stop",
+        "conversationKey": "lark:test",
+      },
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_config": {
+        "print_frequency_ms": {
+          "android": 25,
+          "default": 25,
+          "ios": 25,
+          "pc": 25,
+        },
+        "print_step": {
+          "android": 3,
+          "default": 3,
+          "ios": 3,
+          "pc": 3,
+        },
+        "print_strategy": "fast",
+      },
+      "streaming_mode": true,
+      "summary": {
+        "content": "任务处理中",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "任务处理中",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > interrupted 1`] = `
+{
+  "elements": [
+    {
+      "text": "**已中断**",
+      "type": "markdown",
+    },
+    {
+      "layout": {
+        "textSize": "notation",
+      },
+      "text": "_⏹ 已被中断_",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "已中断",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "已中断",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > minimal 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务处理中...**",
+      "type": "markdown",
+    },
+    {
+      "layout": {
+        "textSize": "notation",
+      },
+      "text": "_完整回复见下方消息。_",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "任务处理中",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "任务处理中",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > notification 1`] = `
+{
+  "elements": [
+    {
+      "text": "**Notification**",
+      "type": "markdown",
+    },
+    {
+      "text": "Example notification",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Notification",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Notification",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > queue 1`] = `
+{
+  "elements": [
+    {
+      "text": "**正在排队等待当前任务**
+同一个会话里还有任务在运行。这条消息已等待约 1 秒，前一个任务结束后会自动继续。
+
+不想等了？可点下面取消这条排队任务。要停止*正在运行*的任务，请发送 \`/stop\`。",
+      "type": "markdown",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:1.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "cctb_lark": "stop",
+                      "conversationKey": "lark:test",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "danger",
+              "text": "取消此排队任务",
+              "type": "button",
+              "value": {
+                "cctb_lark": "stop",
+                "conversationKey": "lark:test",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+        {
+          "children": [
+            {
+              "actionId": "action:1.1.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "cctb_lark": "noop",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "继续等待",
+              "type": "button",
+              "value": {
+                "cctb_lark": "noop",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "正在排队等待当前任务",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "正在排队等待当前任务",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > reminder 1`] = `
+{
+  "elements": [
+    {
+      "text": "**⏰ 提醒**",
+      "type": "markdown",
+    },
+    {
+      "text": "Example reminder",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_mode": false,
+      "summary": {
+        "content": "⏰ Example reminder",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "⏰ Example reminder",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > preserves actual card constructors as golden protocol fixtures > running 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务处理中...**",
+      "type": "markdown",
+    },
+    {
+      "layout": {
+        "textSize": "notation",
+      },
+      "text": "🧠 正在思考",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "actionId": "action:3",
+      "extra": {
+        "behaviors": [
+          {
+            "type": "callback",
+            "value": {
+              "cctb_lark": "stop",
+              "conversationKey": "lark:test",
+            },
+          },
+        ],
+      },
+      "style": "danger",
+      "text": "停止",
+      "type": "button",
+      "value": {
+        "cctb_lark": "stop",
+        "conversationKey": "lark:test",
+      },
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "streaming_config": {
+        "print_frequency_ms": {
+          "android": 25,
+          "default": 25,
+          "ios": 25,
+          "pc": 25,
+        },
+        "print_step": {
+          "android": 3,
+          "default": 3,
+          "ios": 3,
+          "pc": 3,
+        },
+        "print_strategy": "fast",
+      },
+      "streaming_mode": true,
+      "summary": {
+        "content": "任务处理中",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "任务处理中",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > archive 1`] = `
+{
+  "elements": [
+    {
+      "text": "**📦 压缩包摘要** · example.zip
+文件数：2
+关键文件：README.md
+主要类型：.md (2)
+
+目录：
+README.md
+notes.md",
+      "type": "markdown",
+    },
+    {
+      "text": "需要继续深入分析，点下方按钮或回复 \`/continue\`。",
+      "type": "markdown",
+    },
+    {
+      "actionId": "action:2",
+      "extra": {
+        "behaviors": [
+          {
+            "type": "callback",
+            "value": {
+              "bridgeChatType": "private",
+              "cctb_lark": "continue_archive",
+              "conversationKey": "lark:fixture",
+              "uploadId": "upload_fixture",
+            },
+          },
+        ],
+      },
+      "style": "primary",
+      "text": "继续分析",
+      "type": "button",
+      "value": {
+        "bridgeChatType": "private",
+        "cctb_lark": "continue_archive",
+        "conversationKey": "lark:fixture",
+        "uploadId": "upload_fixture",
+      },
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "压缩包摘要",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "压缩包摘要",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > board_blocked 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务**
+验证结果",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:2.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board unblock task_fixture",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "解除阻塞",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board unblock task_fixture",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "flexMode": "flow",
+      },
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Board 任务 task_fixture",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "red",
+      "title": {
+        "content": "Board 任务 task_fixture",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Board 任务 task_fixture",
+  "template": "red",
+  "title": "Board 任务 task_fixture",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > board_done 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务**
+验证结果",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Board 任务 task_fixture",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "green",
+      "title": {
+        "content": "Board 任务 task_fixture",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Board 任务 task_fixture",
+  "template": "green",
+  "title": "Board 任务 task_fixture",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > board_ready 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务**
+验证结果",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:2.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board run task_fixture",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "运行",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board run task_fixture",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "flexMode": "flow",
+      },
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Board 任务 task_fixture",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "blue",
+      "title": {
+        "content": "Board 任务 task_fixture",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Board 任务 task_fixture",
+  "template": "blue",
+  "title": "Board 任务 task_fixture",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > board_review 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务**
+验证结果",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:2.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board approve task_fixture",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "通过",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board approve task_fixture",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+        {
+          "children": [
+            {
+              "actionId": "action:2.1.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board reject task_fixture rejected from card",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "danger",
+              "text": "退回",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board reject task_fixture rejected from card",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "flexMode": "flow",
+      },
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Board 任务 task_fixture",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "blue",
+      "title": {
+        "content": "Board 任务 task_fixture",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Board 任务 task_fixture",
+  "template": "blue",
+  "title": "Board 任务 task_fixture",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > board_running 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务**
+验证结果",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:2.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board heartbeat task_fixture card ping",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "心跳",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board heartbeat task_fixture card ping",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+        {
+          "children": [
+            {
+              "actionId": "action:2.1.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board done task_fixture",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "完成",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board done task_fixture",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+        {
+          "children": [
+            {
+              "actionId": "action:2.2.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board block task_fixture blocked from card",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "danger",
+              "text": "阻塞",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board block task_fixture blocked from card",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "flexMode": "flow",
+      },
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Board 任务 task_fixture",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "blue",
+      "title": {
+        "content": "Board 任务 task_fixture",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Board 任务 task_fixture",
+  "template": "blue",
+  "title": "Board 任务 task_fixture",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > board_todo 1`] = `
+{
+  "elements": [
+    {
+      "text": "**任务**
+验证结果",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:2.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "board",
+                      "command": "/board ready task_fixture",
+                      "conversationKey": "lark:fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "标记 Ready",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "board",
+                "command": "/board ready task_fixture",
+                "conversationKey": "lark:fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "flexMode": "flow",
+      },
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Board 任务 task_fixture",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "blue",
+      "title": {
+        "content": "Board 任务 task_fixture",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Board 任务 task_fixture",
+  "template": "blue",
+  "title": "Board 任务 task_fixture",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > config 1`] = `
+{
+  "elements": [
+    {
+      "text": "**飞书配置面板**
+
+- 聊天: fixture
+- 引擎: claude
+- 模型: 默认（Claude CLI 默认；未设置 --model 覆盖）
+- 推理强度: 默认（Claude CLI 默认；未设置 --effort 覆盖）
+- Codex Fast Mode: 关闭
+- YOLO: unsafe/bypass
+- 语言: zh
+- 访问: 0 个配对用户，0 个白名单用户
+- 工作区: /workspace/example
+- 群聊: 私聊",
+      "type": "markdown",
+    },
+    {
+      "actionId": "lark_config_form",
+      "children": [
+        {
+          "text": "**引导式设置**
+可以一次调整多项配置后提交。下面的快捷按钮仍然可以单点修改。",
+          "type": "markdown",
+        },
+        {
+          "actionId": "engine",
+          "extra": {
+            "initial_option": "claude",
+          },
+          "multiple": false,
+          "name": "engine",
+          "options": [
+            {
+              "label": "Codex",
+              "value": "codex",
+            },
+            {
+              "label": "Claude",
+              "value": "claude",
+            },
+            {
+              "label": "Kimi",
+              "value": "kimi",
+            },
+            {
+              "label": "DeepSeek Harness",
+              "value": "deepseek",
+            },
+            {
+              "label": "Antigravity",
+              "value": "antigravity",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "fast",
+          "extra": {
+            "initial_option": "off",
+          },
+          "multiple": false,
+          "name": "fast",
+          "options": [
+            {
+              "label": "Fast 开",
+              "value": "on",
+            },
+            {
+              "label": "Fast 关",
+              "value": "off",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "yolo",
+          "extra": {
+            "initial_option": "unsafe",
+          },
+          "multiple": false,
+          "name": "yolo",
+          "options": [
+            {
+              "label": "YOLO 开",
+              "value": "on",
+            },
+            {
+              "label": "YOLO 关",
+              "value": "off",
+            },
+            {
+              "label": "Unsafe bypass",
+              "value": "unsafe",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "locale",
+          "extra": {
+            "initial_option": "zh",
+          },
+          "multiple": false,
+          "name": "locale",
+          "options": [
+            {
+              "label": "中文",
+              "value": "zh",
+            },
+            {
+              "label": "English",
+              "value": "en",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "action:1.5",
+          "extra": {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "action": "submit",
+                  "bridgeChatId": 42,
+                  "bridgeChatType": "private",
+                  "cctb_lark": "config",
+                  "conversationKey": "lark:fixture",
+                  "larkChatId": "fixture",
+                  "revision": "render_revision_fixture",
+                },
+              },
+            ],
+            "form_action_type": "submit",
+          },
+          "layout": {
+            "width": "fill",
+          },
+          "style": "primary",
+          "text": "保存设置",
+          "type": "button",
+          "value": {
+            "action": "submit",
+            "bridgeChatId": 42,
+            "bridgeChatType": "private",
+            "cctb_lark": "config",
+            "conversationKey": "lark:fixture",
+            "larkChatId": "fixture",
+            "revision": "render_revision_fixture",
+          },
+        },
+      ],
+      "name": "lark_config_form",
+      "type": "form",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "text": "**引擎**",
+              "type": "markdown",
+            },
+            {
+              "actionId": "action:2.0.1",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "engine",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "codex",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "Codex",
+              "type": "button",
+              "value": {
+                "action": "engine",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "codex",
+              },
+            },
+            {
+              "actionId": "action:2.0.2",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "engine",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "claude",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "✓ Claude",
+              "type": "button",
+              "value": {
+                "action": "engine",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "claude",
+              },
+            },
+            {
+              "actionId": "action:2.0.3",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "engine",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "kimi",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "Kimi",
+              "type": "button",
+              "value": {
+                "action": "engine",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "kimi",
+              },
+            },
+            {
+              "actionId": "action:2.0.4",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "engine",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "deepseek",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "DeepSeek Harness",
+              "type": "button",
+              "value": {
+                "action": "engine",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "deepseek",
+              },
+            },
+            {
+              "actionId": "action:2.0.5",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "engine",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "antigravity",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "Antigravity",
+              "type": "button",
+              "value": {
+                "action": "engine",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "antigravity",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "background": "default",
+        "flexMode": "none",
+      },
+      "type": "columns",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "text": "**速度**",
+              "type": "markdown",
+            },
+            {
+              "actionId": "action:3.0.1",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "fast",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "on",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "Fast 开",
+              "type": "button",
+              "value": {
+                "action": "fast",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "on",
+              },
+            },
+            {
+              "actionId": "action:3.0.2",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "fast",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "off",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "✓ Fast 关",
+              "type": "button",
+              "value": {
+                "action": "fast",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "off",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "background": "default",
+        "flexMode": "none",
+      },
+      "type": "columns",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "text": "**审批**",
+              "type": "markdown",
+            },
+            {
+              "actionId": "action:4.0.1",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "yolo",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "on",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "YOLO 开",
+              "type": "button",
+              "value": {
+                "action": "yolo",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "on",
+              },
+            },
+            {
+              "actionId": "action:4.0.2",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "yolo",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "off",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "YOLO 关",
+              "type": "button",
+              "value": {
+                "action": "yolo",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "off",
+              },
+            },
+            {
+              "actionId": "action:4.0.3",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "yolo",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "unsafe",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "danger",
+              "text": "✓ Unsafe",
+              "type": "button",
+              "value": {
+                "action": "yolo",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "unsafe",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "background": "default",
+        "flexMode": "none",
+      },
+      "type": "columns",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "text": "**语言**",
+              "type": "markdown",
+            },
+            {
+              "actionId": "action:5.0.1",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "locale",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "zh",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "✓ 中文",
+              "type": "button",
+              "value": {
+                "action": "locale",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "zh",
+              },
+            },
+            {
+              "actionId": "action:5.0.2",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "locale",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "en",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "English",
+              "type": "button",
+              "value": {
+                "action": "locale",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "en",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "background": "default",
+        "flexMode": "none",
+      },
+      "type": "columns",
+    },
+    {
+      "text": "**访问和工作区**
+- \`/invite group\` / \`/remove group\`：允许或移除当前群。
+- \`/invite user @某人\` / \`/remove user @某人\`：管理群内可操作用户。
+- \`/ws list|save|use|remove\`：管理已保存工作区目录。",
+      "type": "markdown",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "text": "**工具**",
+              "type": "markdown",
+            },
+            {
+              "actionId": "action:7.0.1",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "refresh",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "revision": "render_revision_fixture",
+                      "value": "now",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "刷新",
+              "type": "button",
+              "value": {
+                "action": "refresh",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "revision": "render_revision_fixture",
+                "value": "now",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "background": "default",
+        "flexMode": "none",
+      },
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "飞书配置面板",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "飞书配置面板",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > resume 1`] = `
+{
+  "elements": [
+    {
+      "text": "**恢复历史会话**
+选择一个历史会话，当前飞书会话会绑定到这段上下文。",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "children": [
+        {
+          "layout": {
+            "textSize": "notation",
+          },
+          "text": "session: \`session_fixture\`
+workspace: \`/workspace/example\`",
+          "type": "markdown",
+        },
+        {
+          "actionId": "action:2.1",
+          "extra": {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "bridgeChatType": "private",
+                  "cctb_lark": "resume",
+                  "conversationKey": "lark:fixture",
+                  "dirName": "example",
+                  "displayName": "示例会话",
+                  "engine": "claude",
+                  "sessionId": "session_fixture",
+                  "workspacePath": "/workspace/example",
+                },
+              },
+            ],
+          },
+          "layout": {
+            "width": "fill",
+          },
+          "style": "primary",
+          "text": "恢复此会话",
+          "type": "button",
+          "value": {
+            "bridgeChatType": "private",
+            "cctb_lark": "resume",
+            "conversationKey": "lark:fixture",
+            "dirName": "example",
+            "displayName": "示例会话",
+            "engine": "claude",
+            "sessionId": "session_fixture",
+            "workspacePath": "/workspace/example",
+          },
+        },
+      ],
+      "extra": {
+        "header": {
+          "icon": {
+            "size": "16px 16px",
+            "tag": "standard_icon",
+            "token": "down-small-ccm_outlined",
+          },
+          "icon_expanded_angle": -180,
+          "icon_position": "follow_text",
+          "title": {
+            "content": "**A. 示例会话** · 5 分钟前",
+            "tag": "markdown",
+          },
+          "vertical_align": "center",
+        },
+      },
+      "layout": {
+        "border": {
+          "color": "blue",
+          "corner_radius": "5px",
+        },
+        "padding": "8px 8px 8px 8px",
+        "verticalSpacing": "8px",
+      },
+      "open": true,
+      "text": "**A. 示例会话** · 5 分钟前",
+      "type": "collapsible",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "恢复历史会话",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "blue",
+      "title": {
+        "content": "恢复历史会话",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "恢复历史会话",
+  "template": "blue",
+  "title": "恢复历史会话",
+  "type": "card",
+}
+`;
+
+exports[`Gateway card translation > translates actual config, board, status, resume and archive callbacks > status 1`] = `
+{
+  "elements": [
+    {
+      "text": "**状态**：就绪",
+      "type": "markdown",
+    },
+    {
+      "type": "divider",
+    },
+    {
+      "children": [
+        {
+          "children": [
+            {
+              "actionId": "action:2.0.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "action": "refresh",
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "config",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                      "value": "now",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "primary",
+              "text": "打开配置",
+              "type": "button",
+              "value": {
+                "action": "refresh",
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "config",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+                "value": "now",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+        {
+          "children": [
+            {
+              "actionId": "action:2.1.0",
+              "extra": {
+                "behaviors": [
+                  {
+                    "type": "callback",
+                    "value": {
+                      "bridgeChatId": 42,
+                      "bridgeChatType": "private",
+                      "cctb_lark": "resume_scan",
+                      "conversationKey": "lark:fixture",
+                      "larkChatId": "fixture",
+                    },
+                  },
+                ],
+              },
+              "layout": {
+                "width": "fill",
+              },
+              "style": "default",
+              "text": "恢复会话",
+              "type": "button",
+              "value": {
+                "bridgeChatId": 42,
+                "bridgeChatType": "private",
+                "cctb_lark": "resume_scan",
+                "conversationKey": "lark:fixture",
+                "larkChatId": "fixture",
+              },
+            },
+          ],
+          "layout": {
+            "weight": 1,
+            "width": "weighted",
+          },
+          "type": "column",
+        },
+      ],
+      "layout": {
+        "flexMode": "flow",
+      },
+      "type": "columns",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "飞书会话状态",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "blue",
+      "title": {
+        "content": "飞书会话状态",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "飞书会话状态",
+  "template": "blue",
+  "title": "飞书会话状态",
+  "type": "card",
+}
+`;

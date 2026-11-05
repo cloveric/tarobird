@@ -1,0 +1,112 @@
+{
+  "clientVersion": "1.1.0",
+  "sourceRevision": "cd89ecea117fea97eff06083d0695d25428d1d8b",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-BYzlevgr.js",
+    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+  },
+  "captured": "2026-11-04T10:02:22.614Z",
+  "source": "Built shared client in two browser contexts (desktop and phone) paired with an isolated loopback Hub. The approval and completion are driven by a scripted bridge: no model call, no real repository push, no native-device acceptance.",
+  "images": [
+    {
+      "file": "approval-demo-en.gif",
+      "locale": "en",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "visibleAvatars": [
+        "pastel-fox",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-matcha",
+        "mini-octopus",
+        "cream-bunny",
+        "peach-patch-cat"
+      ],
+      "firstBotAvatar": {
+        "botId": "codex",
+        "avatar": "pastel-fox"
+      },
+      "duration": 11.19,
+      "fps": 10,
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "desktopViewport": {
+        "width": 1200,
+        "height": 720
+      },
+      "phoneViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenes": [
+        {
+          "label": "Assign a task on your computer",
+          "start": 0
+        },
+        {
+          "label": "Approve from your phone",
+          "start": 3.74
+        },
+        {
+          "label": "Return to the completed result",
+          "start": 6.61
+        }
+      ],
+      "bytes": 1179265,
+      "sha256": "48bafd309cf033a80ef140c86e087703d346d4b3039d1b6f04a89964b3933c6f"
+    },
+    {
+      "file": "approval-demo-zh.gif",
+      "locale": "zh",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "visibleAvatars": [
+        "pastel-fox",
+        "mini-bluebird",
+        "mini-clownfish",
+        "mini-matcha",
+        "mini-octopus",
+        "cream-bunny",
+        "peach-patch-cat"
+      ],
+      "firstBotAvatar": {
+        "botId": "codex",
+        "avatar": "pastel-fox"
+      },
+      "duration": 10.73,
+      "fps": 10,
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "desktopViewport": {
+        "width": 1200,
+        "height": 720
+      },
+      "phoneViewport": {
+        "width": 390,
+        "height": 844
+      },
+      "scenes": [
+        {
+          "label": "在电脑上派任务",
+          "start": 0
+        },
+        {
+          "label": "在手机上批准",
+          "start": 3.23
+        },
+        {
+          "label": "回到电脑，查看结果",
+          "start": 6.12
+        }
+      ],
+      "bytes": 1138153,
+      "sha256": "718e11f1fdb865dc8f4d8cca3bef34199e3ddaf0e849df7187cb609293ae167d"
+    }
+  ]
+}

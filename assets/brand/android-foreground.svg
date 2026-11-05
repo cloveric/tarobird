@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="108" height="108" viewBox="0 0 108 108">
+  <!-- Keep the approved close-up unchanged in the central 72dp viewport.
+       Its body/tail reach the image edges: extend the outermost source pixels
+       into the adaptive motion field so launcher movement reveals no cut seam. -->
+  <defs><image id="edge-source" width="1254" height="1254" xlink:href="launcher-art.png"/></defs>
+  <rect width="108" height="108" fill="#e3dbd5"/>
+  <svg x="18" y="0" width="72" height="18" viewBox="0 0 1254 1" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <svg x="18" y="90" width="72" height="18" viewBox="0 1253 1254 1" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <svg x="0" y="18" width="18" height="72" viewBox="0 0 1 1254" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <svg x="90" y="18" width="18" height="72" viewBox="1253 0 1 1254" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <svg x="0" y="0" width="18" height="18" viewBox="0 0 1 1" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <svg x="90" y="0" width="18" height="18" viewBox="1253 0 1 1" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <svg x="0" y="90" width="18" height="18" viewBox="0 1253 1 1" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <svg x="90" y="90" width="18" height="18" viewBox="1253 1253 1 1" preserveAspectRatio="none"><use xlink:href="#edge-source"/></svg>
+  <image x="18" y="18" width="72" height="72" xlink:href="launcher-art.png"/>
+</svg>

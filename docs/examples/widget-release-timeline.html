@@ -1,0 +1,33 @@
+<style>
+#delivery{max-width:880px;margin:auto}
+#delivery .lead{font-size:1.14rem;font-weight:600;line-height:1.45;margin:0 0 8px}
+#delivery .subtitle{color:var(--muted);font-size:max(12px,.86rem);margin-bottom:12px}
+#delivery .chart{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;align-items:end;height:165px;margin:12px 0 6px;border-bottom:1px solid var(--border)}
+#delivery .day{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;padding:0 2px;min-width:0;align-self:stretch;justify-content:flex-end;color:var(--text)}
+#delivery .bar{width:100%;max-width:52px;border-radius:5px 5px 0 0;background:var(--muted);min-height:12px}#delivery .day:hover .bar,#delivery .day:focus-visible .bar,#delivery .day[data-peak=true] .bar{background:var(--accent)}#delivery .day-label{font-size:12px;white-space:nowrap;color:var(--muted);padding-bottom:6px}
+#delivery .chart-note{font-size:12px;color:var(--muted);margin:10px 0 20px}
+#delivery .ledger{overflow:auto}#delivery .ledger td:last-child{font-size:12px;color:var(--muted)}#delivery footer{margin-top:12px;font-size:12px;color:var(--muted)}
+@media(max-width:400px){#delivery .chart{gap:5px}}
+</style>
+<section id="delivery">
+  <p class="lead insight">10 月 20 日贡献本周三分之一的交付。</p>
+  <p class="subtitle">示例数据 · 10/16–21 · 合计 <span id="total-items">24</span> 项</p>
+  <div class="tabs" role="group" aria-label="报告视图"><button aria-pressed="true" id="overview-tab">概览</button><button aria-pressed="false" id="details-tab">交付明细</button></div>
+  <div id="overview"><div class="row"><strong>每日交付</strong><span class="muted">单位：项</span></div><div class="chart" aria-label="每日交付柱状图"></div><p class="chart-note">点击任意柱子，查看当日明细。</p></div>
+  <div id="details" hidden><div class="row"><label for="day-filter">日期</label><select id="day-filter"><option value="all">全部日期</option></select><span id="result-count" class="muted"></span></div><div class="ledger"><table><thead><tr><th>日期</th><th>事项</th><th>类别</th></tr></thead><tbody></tbody></table></div></div>
+  <footer>交互演示 · 示例数据，不代表项目的实际统计。筛选在本地完成。</footer>
+</section>
+<script>
+(() => {
+  const root=document.getElementById('delivery');
+  const counts=[2,3,4,2,8,5], kinds=['体验','可靠性','协作'];
+  const rows=counts.flatMap((count,i)=>Array.from({length:count},(_,j)=>({day:String(16+i),name:['聊天布局优化','消息恢复验证','权限校验完善','同步流程调整','主题适配更新','交互细节修正','数据展示改进','边界情况处理'][j],kind:kinds[j%3]})));
+  const total=rows.length, peak=Math.max(...counts), peakDay=16+counts.indexOf(peak);
+  root.querySelector('#total-items').textContent=String(total);root.querySelector('.insight').textContent='10 月 '+peakDay+' 日完成 '+peak+' 项，占本周交付的 '+Math.round(peak/total*100)+'%。';
+  const filter=root.querySelector('#day-filter'), body=root.querySelector('tbody');
+  const show=view=>{for(const id of ['overview','details']){root.querySelector('#'+id).hidden=id!==view;root.querySelector('#'+id+'-tab').setAttribute('aria-pressed',String(id===view));}};
+  const render=()=>{const selected=rows.filter(row=>filter.value==='all'||row.day===filter.value);body.replaceChildren(...selected.map(row=>{const tr=document.createElement('tr');for(const text of ['10/'+row.day,row.name,row.kind]){const td=document.createElement('td');td.textContent=text;tr.append(td)}return tr}));root.querySelector('#result-count').textContent=selected.length+' 项交付';};
+  counts.forEach((count,i)=>{const day=String(16+i),button=document.createElement('button');button.className='day';button.dataset.peak=String(count===peak);button.setAttribute('aria-label','10 月 '+day+' 日，'+count+' 项');const label=document.createElement('span');label.textContent=String(count);const bar=document.createElement('span');bar.className='bar';bar.style.height=(count/peak*125)+'px';const date=document.createElement('span');date.className='day-label';date.textContent='10/'+day;button.append(label,bar,date);button.onclick=()=>{filter.value=day;show('details');render()};root.querySelector('.chart').append(button);const option=document.createElement('option');option.value=day;option.textContent='10 月 '+day+' 日';filter.append(option)});
+  root.querySelector('#overview-tab').onclick=()=>show('overview');root.querySelector('#details-tab').onclick=()=>{show('details');render()};filter.onchange=render;render();
+})();
+</script>

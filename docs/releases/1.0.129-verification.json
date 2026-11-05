@@ -1,0 +1,345 @@
+{
+  "appVersion": "1.0.129",
+  "hostVersion": "0.1.474",
+  "sourceCommit": "c29e51a230cf4c5de2b0a1549e68163c47695c25",
+  "protocol": 1,
+  "hubSchemaRange": [
+    1,
+    25
+  ],
+  "publication": {
+    "mac": {
+      "url": "https://github.com/cloveric/tarobot/releases/tag/macos-tarobot-v1.0.129",
+      "assets": [
+        {
+          "name": "TaroBot.app.tar.gz",
+          "size": 304455994,
+          "sha256": "d6b14b7900f6fee5a3b72afbc4a186b055f8982a93c979ab5ef630b72ef7ceb8"
+        },
+        {
+          "name": "TaroBot.app.tar.gz.sig",
+          "size": 428,
+          "sha256": "31a34e95d334e0626e9d2185717beffa290c13b68b48afa5a3bcf390b7b3b69e"
+        },
+        {
+          "name": "TaroBot_1.0.129_aarch64.dmg",
+          "size": 358363148,
+          "sha256": "44db3c2098cc95303b6228dcfe81bf24cb5b6d584bdb3995fd8596a29a74f2e3"
+        },
+        {
+          "name": "tarobot-0.1.474.tgz",
+          "size": 53243960,
+          "sha256": "09fb991dc04c3cb3de527b5f569e5135d4c07a38c51f0314884ab0ab66c15278"
+        },
+        {
+          "name": "macos-tarobot-latest.json",
+          "size": 1822,
+          "sha256": "a765040143f170b8ae0a94b3863a77942192c9137e724d884f4681ee1e52d3a8"
+        },
+        {
+          "name": "SHA256SUMS",
+          "size": 446,
+          "sha256": "c5007e0d529f254156427d8a8e3be80ba6601606b1a7b6025947a3707bee3b85"
+        }
+      ],
+      "downloadedUpdateSignatureVerified": true
+    },
+    "android": {
+      "url": "https://github.com/cloveric/tarobot/releases/tag/android-tarobot-v1.0.129",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 180,
+          "sha256": "186d5e0ea3bb83ca364a0061cff662dd8d84097732a02e1a7793843d5bdaa077"
+        },
+        {
+          "name": "tarobot-0.1.474.tgz",
+          "size": 53243960,
+          "sha256": "09fb991dc04c3cb3de527b5f569e5135d4c07a38c51f0314884ab0ab66c15278"
+        },
+        {
+          "name": "TaroBot-1.0.129-android.apk",
+          "size": 63319328,
+          "sha256": "254b436167bd8e2c20f3573889b6da6c8ced3cc3578d8fe71d046cc1a2e16ef7"
+        }
+      ],
+      "tagMatchesSource": true
+    },
+    "ios": {
+      "version": "1.0.129",
+      "buildNumber": "1",
+      "processingState": "VALID",
+      "internalBuildState": "IN_BETA_TESTING",
+      "internalGroupAssigned": true,
+      "testerCount": 1,
+      "zhHansNotesSet": true,
+      "enUsNotesSet": true,
+      "preserved": {
+        "betaAppTestInformation": true,
+        "betaAppReviewDetail": true,
+        "internalGroupSettings": true,
+        "publicAppStoreMetadata": true
+      }
+    },
+    "windows": "deferred_by_owner"
+  },
+  "checks": {
+    "sourceSuite": {
+      "files": 636,
+      "passedTests": 8201,
+      "skipped": 6,
+      "originalFullHookPassed": true
+    },
+    "nativeCore": {
+      "passed": 63,
+      "failed": 0,
+      "ignored": 2
+    },
+    "nativeAddon": {
+      "passed": 33,
+      "failed": 0,
+      "ignored": 0
+    },
+    "nativeUpdater": {
+      "passed": 71,
+      "failed": 0,
+      "ignored": 0
+    },
+    "legacyNative": {
+      "passed": 104,
+      "failed": 0,
+      "ignored": 0
+    },
+    "realUpdaterLab": {
+      "passed": 15
+    },
+    "artifactPathTests": {
+      "passed": 8
+    },
+    "iosPlanTests": {
+      "passed": 6
+    },
+    "productionDependencyAudit": {
+      "root": 0,
+      "client": 0
+    },
+    "electron": {
+      "firstRunPassed": 367,
+      "firstRunTotal": 368,
+      "unchangedBrowserRetakePassed": 37,
+      "combinedUniquePassed": 368,
+      "firstFailureRetained": true
+    },
+    "canvasPpt": {
+      "native": {
+        "design": 17,
+        "slides": 11
+      },
+      "browsers": {
+        "chromium": {
+          "startTime": "2026-11-03T15:28:00.186Z",
+          "duration": 233686.498,
+          "expected": 7,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        },
+        "webkit": {
+          "startTime": "2026-11-03T15:31:55.126Z",
+          "duration": 218426.98799999998,
+          "expected": 8,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      "fixtureInputHashesVerifiedAfterRuns": true
+    },
+    "android": {
+      "assembleRelease": true,
+      "testDebugUnitTest": true,
+      "lintRelease": true,
+      "unitTests": {
+        "suites": 9,
+        "tests": 45,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "lint": {
+        "issues": 15,
+        "bySeverity": {
+          "Warning": 15
+        }
+      },
+      "lintSuppressionLinesAddedSinceBaseline": null
+    },
+    "cli": {
+      "cleanInstall": true,
+      "extractedInstall": true,
+      "previousHostVersion": "0.1.473",
+      "newHostVersion": "0.1.474",
+      "schemaBefore": 25,
+      "schemaAfter": 25,
+      "identityAndHistoryPreserved": true,
+      "realCodexClaudeJourneys": 10
+    },
+    "packagedModel": true,
+    "packagedSkillFileComparisons": 72,
+    "globalSkillRootsVerified": 3,
+    "globalSkillRootsChanged": 0,
+    "packagedModelFirstRun": {
+      "passed": false,
+      "failure": "DeepSeek Harness startup timed out after 15000ms",
+      "unchangedRetakePassed": true,
+      "timeoutOrAssertionRelaxed": false,
+      "rootCause": "not established"
+    }
+  },
+  "ci": {
+    "sourceCommit": "c29e51a230cf4c5de2b0a1549e68163c47695c25",
+    "verifiedRemoteMain": "c29e51a230cf4c5de2b0a1549e68163c47695c25",
+    "workflowRuns": [
+      {
+        "id": 41662810569,
+        "name": "Source checks",
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/cloveric/tarobot/actions/runs/41662810569",
+        "jobs": [
+          {
+            "id": 126010173113,
+            "name": "desktop-native",
+            "status": "completed",
+            "conclusion": "cancelled",
+            "steps": 0,
+            "annotations": [
+              {
+                "level": "failure",
+                "message": "The job was not acquired by Runner of type hosted even after multiple attempts"
+              },
+              {
+                "level": "notice",
+                "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times."
+              },
+              {
+                "level": "notice",
+                "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times."
+              },
+              {
+                "level": "notice",
+                "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times."
+              }
+            ]
+          },
+          {
+            "id": 126010173352,
+            "name": "source",
+            "status": "completed",
+            "conclusion": "failure",
+            "steps": 0,
+            "annotations": [
+              {
+                "level": "failure",
+                "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+              },
+              {
+                "level": "notice",
+                "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 41662810551,
+        "name": "Secret scanning",
+        "status": "completed",
+        "conclusion": "failure",
+        "url": "https://github.com/cloveric/tarobot/actions/runs/41662810551",
+        "jobs": [
+          {
+            "id": 126010172937,
+            "name": "gitleaks",
+            "status": "completed",
+            "conclusion": "failure",
+            "steps": 0,
+            "annotations": [
+              {
+                "level": "failure",
+                "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+              },
+              {
+                "level": "notice",
+                "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "ciPassed": false,
+    "at": "2026-11-03T16:09:14.550793+00:00"
+  },
+  "localHistorySecretScanPassed": true,
+  "review": {
+    "actualModel": "claude-opus-5-5",
+    "assistantRecordsVerified": 68,
+    "scope": "read-only static review",
+    "R1": "unchanged focused retake; original failure retained",
+    "R2": "fresh native runs plus unchanged fixture hashes",
+    "R3": "shared loader scope corrected; Chromium/WebKit checked"
+  },
+  "publicationRecovery": {
+    "androidInitialReadback": "missing local CLI metadata; stopped before downloads",
+    "canonicalVerifiedMetadataCopiedByteForByte": true,
+    "readOnlyRetakePassed": true,
+    "macOrAndroidRepublished": false
+  },
+  "acceptance": {
+    "installed": true,
+    "appStaged": true,
+    "installationPreflightVerified": true,
+    "terminalCliInstalled": "0.1.474",
+    "installedGui": false,
+    "functionalAcceptanceComplete": false,
+    "status": "installed_window_version_connection_verified_pending_canvas_ppt",
+    "physicalPhone": false,
+    "wideAreaNetwork": false,
+    "remoteScreenFirstConnect": "previous unresolved issue outside this repair",
+    "motion": "excluded",
+    "installedRuntimeModelVerified": true,
+    "identityAndHistoryPreserved": true,
+    "installedGuiWindowVerified": true,
+    "installedGuiVersionVerified": true,
+    "observedConnection": {
+      "host": "macmini",
+      "route": "direct",
+      "latencyMs": 35
+    },
+    "pending": [
+      "PPT fullscreen button and F-key entry/exit",
+      "Return to PPT editor, edit/save/close/reopen",
+      "Canvas edit/save/close/reopen"
+    ],
+    "guiInterruption": "Native CUA user-change interruptions and one timeout; owner interaction preserved."
+  },
+  "updatedAt": "2026-11-03T23:09:31.778585+00:00",
+  "retention": {
+    "automaticBroadDiscovery": "deferred after directory discovery bound; original failure retained",
+    "scopedPass": "current release only",
+    "trashed": 0,
+    "retained": 25,
+    "reasons": {
+      "directory-modified-within-six-hours": 24,
+      "latest-macos-ready": 1
+    },
+    "sealedBackupVerified": true,
+    "spotlightCounts": {
+      "requiredNameQuery": 1,
+      "bundleIdentityQuery": 73
+    },
+    "new129TemporaryAppIndexed": false,
+    "historicalIosRecordsOutsideScope": 72
+  }
+}

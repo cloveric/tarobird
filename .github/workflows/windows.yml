@@ -1,0 +1,222 @@
+name: Windows desktop installer
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Windows CPU architecture
+        type: choice
+        options: [x64]
+        default: x64
+      signed_updates:
+        description: Build a signed installer with private GitHub login updates
+        type: boolean
+        default: false
+      publish_update:
+        description: Publish the verified signed build as a private Windows release
+        type: boolean
+        default: false
+permissions:
+  contents: read
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAROBOT_SOURCE_COMMIT: ${{ github.sha }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Configure desktop build directories
+        shell: bash
+        run: |
+          printf '%s\n' \
+            "TAROBOT_DESKTOP_OUTPUT=$RUNNER_TEMP/tarobot-electron-output.noindex" \
+            "TAROBOT_ELECTRON_CACHE=$RUNNER_TEMP/tarobot-electron-cache.noindex" \
+            "TAROBOT_DESKTOP_TARGET=$RUNNER_TEMP/tarobot-electron-target.noindex" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - name: Read application version
+        id: version
+        shell: pwsh
+        run: |
+          $client = Get-Content client/package.json -Raw | ConvertFrom-Json
+          $app = Get-Content client/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if ($client.version -ne $app.version) { throw "Client and native application versions differ" }
+          "version=$($app.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - name: Validate explicit updater build settings
+        env:
+          SIGNED_UPDATES: ${{ inputs.signed_updates }}
+          PUBLISH_UPDATE: ${{ inputs.publish_update }}
+          TAROBOT_GITHUB_REPOSITORY: ${{ github.repository }}
+          TAROBOT_GITHUB_CLIENT_ID: ${{ vars.TAROBOT_GITHUB_CLIENT_ID }}
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        shell: pwsh
+        run: |
+          if ($env:PUBLISH_UPDATE -eq 'true' -and $env:SIGNED_UPDATES -ne 'true') { throw "Publishing requires signed_updates" }
+          node --input-type=module -e "import { windowsBuildPlan } from './client/scripts/windows-build-plan.mjs'; windowsBuildPlan({ signedUpdates: process.env.SIGNED_UPDATES === 'true' });"
+          if ($LASTEXITCODE -ne 0) { throw "Updater configuration is incomplete" }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri -> target
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - run: npm ci
+      - run: npm ci --prefix client
+      - name: Build full Windows host installer
+        if: ${{ !inputs.signed_updates }}
+        run: npm run desktop:windows --prefix client -- --arch ${{ inputs.arch }}
+      - name: Build signed private GitHub updater installer
+        if: inputs.signed_updates
+        env:
+          TAROBOT_GITHUB_REPOSITORY: ${{ github.repository }}
+          TAROBOT_GITHUB_CLIENT_ID: ${{ vars.TAROBOT_GITHUB_CLIENT_ID }}
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run desktop:windows --prefix client -- --arch ${{ inputs.arch }} --signed-updates
+      - name: Packaged host end-to-end smoke
+        run: client/src-tauri/host/node.exe scripts/verify-desktop-host.mjs client/src-tauri/host
+      - name: Windows host control and engine discovery
+        run: npx vitest run tests/windows-host.test.ts tests/windows-state-sync.test.ts tests/host-cli-package.test.ts
+      - name: Final installer runtime dependencies
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "$env:TAROBOT_DESKTOP_OUTPUT/*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "No Windows installer was produced" }
+          7z x $installer.FullName -owindows-installer-extracted -y
+          if ($LASTEXITCODE -ne 0) { throw "Installer extraction failed" }
+          node scripts/verify-windows-runtime.mjs windows-installer-extracted
+          if ($LASTEXITCODE -ne 0) { throw "Installer requires an unbundled runtime" }
+      - name: Native Rust regressions on the x64 runner
+        if: inputs.arch == 'x64'
+        shell: pwsh
+        env:
+          TAROBOT_TEST_NODE: ${{ github.workspace }}/client/src-tauri/host/node.exe
+          CARGO_TARGET_DIR: ${{ runner.temp }}/windows-native-tests.noindex
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo test --manifest-path client/src-desktop-core/Cargo.toml --locked -- --test-threads=1
+          if ($LASTEXITCODE -ne 0) { throw "Desktop core regressions failed" }
+          cargo test --manifest-path client/src-desktop-native/Cargo.toml --locked --no-default-features
+          if ($LASTEXITCODE -ne 0) { throw "Desktop native regressions failed" }
+          cargo test --manifest-path client/src-desktop-updater/Cargo.toml --locked --lib --bins --test real_archive
+          if ($LASTEXITCODE -ne 0) { throw "Desktop updater regressions failed" }
+      - name: Real Windows install, first launch and uninstall
+        shell: pwsh
+        env:
+          TAROBOT_WINDOWS_ACCEPTANCE: disposable
+          CARGO_TARGET_DIR: ${{ runner.temp }}/windows-native-tests.noindex
+          CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          $installers = @(Get-ChildItem "$env:TAROBOT_DESKTOP_OUTPUT/*-setup.exe")
+          if ($installers.Count -ne 1) { throw "Expected exactly one Windows installer" }
+          node client/scripts/windows-acceptance.mjs --confirm-disposable-windows --installer $installers[0].FullName `
+            --version '${{ steps.version.outputs.version }}' --report "$env:RUNNER_TEMP/windows-acceptance.noindex" `
+            --native-tests client/src-desktop-updater --scope install,native
+          if ($LASTEXITCODE -ne 0) { throw "Windows installation or native acceptance failed; see the receipt" }
+      - name: Build isolated Windows migration acceptance package
+        shell: pwsh
+        run: |
+          npm run desktop:build --prefix client -- --platform win32 --arch x64 --development --package-only `
+            --out "$env:RUNNER_TEMP/windows-migration-package.noindex"
+          if ($LASTEXITCODE -ne 0) { throw "Migration acceptance package build failed" }
+      - name: Persistent WebView2 data to Electron content acceptance
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/windows-migration-target.noindex
+        run: |
+          $build = Get-Content "$env:RUNNER_TEMP/windows-migration-package.noindex/desktop-build.json" -Raw | ConvertFrom-Json
+          if ($build.production -or $build.packaged.paths.Count -ne 1) { throw "Expected one isolated development package" }
+          node client/scripts/desktop-persisted-migration-audit.mjs "$env:RUNNER_TEMP/windows-persisted-migration.noindex" $build.packaged.paths[0]
+          if ($LASTEXITCODE -ne 0) { throw "Persistent WebView2 to Electron migration failed" }
+      - name: Upload Windows acceptance evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: TaroBot-windows-acceptance-${{ inputs.arch }}
+          path: |
+            ${{ runner.temp }}/windows-acceptance.noindex/windows-acceptance.*
+            ${{ runner.temp }}/windows-persisted-migration.noindex/*.json
+            ${{ runner.temp }}/windows-persisted-migration.noindex/*.log
+          if-no-files-found: warn
+      - name: Installer checksums
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem "$env:TAROBOT_DESKTOP_OUTPUT/*-setup.exe"
+          if (-not $files) { throw "No Windows installer was produced" }
+          $files | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Set-Content -Encoding ascii "$($_.FullName).sha256"
+          }
+      - name: Verify signed installer and stage private update assets
+        if: inputs.signed_updates
+        env:
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem "$env:TAROBOT_DESKTOP_OUTPUT/*-setup.exe")
+          if ($files.Count -ne 1) { throw "Expected exactly one Windows installer" }
+          node client/scripts/windows-update-manifest.mjs --verify-only --installer $files[0].FullName --version $env:APP_VERSION
+          if ($LASTEXITCODE -ne 0) { throw "Updater signature or signed version did not verify" }
+          New-Item -ItemType Directory -Path test-results/windows-signed -Force | Out-Null
+          Copy-Item -LiteralPath $files[0].FullName -Destination test-results/windows-signed
+          Copy-Item -LiteralPath ($files[0].FullName + '.sig') -Destination test-results/windows-signed
+      - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.signed_updates }}
+        with:
+          name: TaroBot-windows-${{ inputs.arch }}-unsigned
+          path: |
+            ${{ runner.temp }}/tarobot-electron-output.noindex/*-setup.exe
+            ${{ runner.temp }}/tarobot-electron-output.noindex/*.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: inputs.signed_updates
+        with:
+          name: TaroBot-windows-${{ inputs.arch }}-signed-update
+          path: test-results/windows-signed/*
+          if-no-files-found: error
+  publish-private-update:
+    if: inputs.publish_update && inputs.signed_updates
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: windows-updates
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: TaroBot-windows-${{ inputs.arch }}-signed-update
+          path: test-results/windows-signed
+      - name: Publish complete verified assets to the private repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ vars.TAROBOT_UPDATE_PUBLIC_KEY }}
+          APP_VERSION: ${{ needs.windows.outputs.version }}
+        shell: bash
+        run: |
+          mapfile -t installers < <(find test-results/windows-signed -maxdepth 1 -type f -name '*-setup.exe')
+          if [[ ${#installers[@]} -ne 1 ]]; then echo 'Expected one verified installer'; exit 1; fi
+          node client/scripts/publish-windows-update.mjs --installer "${installers[0]}" --repository "$GITHUB_REPOSITORY" --version "$APP_VERSION" --commit "$GITHUB_SHA" --output test-results/private-windows-update-bundle

@@ -1,0 +1,300 @@
+{
+  "clientVersion": "1.1.0",
+  "sourceRevision": "f3b901aa3e52bc965415ad120425257016502508",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-9GiM-HZ8.js",
+    "sha256": "74cbe56cf76368188cf53ed25985530b5274ca89b67d88f89cea397823bb730e",
+    "indexSha256": "43c8f7193dbb21d66c1ca1dba246ce501c586e620787544dd21337f4fbc73a54"
+  },
+  "captured": "2026-11-04T08:42:20.373Z",
+  "source": "Built shared desktop client; isolated loopback Hub; synthetic Bots, replies, streaming state and draft. No model invoked, no native-device acceptance.",
+  "images": [
+    {
+      "file": "adhd-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1920,
+        "height": 900
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "mini-bluebird",
+        "mini-matcha",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny",
+        "peach-patch-cat",
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-adhd-codex-0",
+        "avatar": "pastel-fox"
+      },
+      "availableBots": 7,
+      "selectedConversations": 4,
+      "panes": 4,
+      "columns": 4,
+      "rows": 1,
+      "fontSize": 13,
+      "paneBounds": [
+        {
+          "x": 300,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        },
+        {
+          "x": 704.5,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        },
+        {
+          "x": 1109,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        },
+        {
+          "x": 1513.5,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        }
+      ],
+      "sha256": "9a3c0398de1e5d888aaa75ef61677275a4090ff6237eb3a3fda394b48bb4ff33"
+    },
+    {
+      "file": "adhd-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1920,
+        "height": 900
+      },
+      "scale": 2,
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "mini-bluebird",
+        "mini-matcha",
+        "mini-clownfish",
+        "mini-octopus",
+        "cream-bunny",
+        "peach-patch-cat",
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-adhd-codex-0",
+        "avatar": "pastel-fox"
+      },
+      "availableBots": 7,
+      "selectedConversations": 4,
+      "panes": 4,
+      "columns": 4,
+      "rows": 1,
+      "fontSize": 13,
+      "paneBounds": [
+        {
+          "x": 300,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        },
+        {
+          "x": 704.5,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        },
+        {
+          "x": 1109,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        },
+        {
+          "x": 1513.5,
+          "y": 58,
+          "width": 394.5,
+          "height": 832
+        }
+      ],
+      "sha256": "0c99f37e473e823d10b89625b4ac7672e0d7cd0bdba09980172d1f47959bc594"
+    }
+  ],
+  "animationClientVersion": "1.1.0",
+  "animationProvenance": {
+    "sourceRevision": "cd89ecea117fea97eff06083d0695d25428d1d8b",
+    "sourceDirty": true,
+    "clientEntry": {
+      "file": "assets/index-BYzlevgr.js",
+      "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+      "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+    }
+  },
+  "animationsCaptured": "2026-11-04T10:07:21.213Z",
+  "animationSource": "Real built shared desktop client driven by Playwright clicks in the conversation list and pane header; isolated loopback Hub; synthetic Bots and replies. No model invoked; not native-device acceptance.",
+  "animations": [
+    {
+      "file": "adhd-demo-en.gif",
+      "frames": 42,
+      "duration": 8.981,
+      "bytes": 496115,
+      "sha256": "de87370ea71ddbdb92195230cfa453856c6a652e084632e0626a4df806e1fd61",
+      "locale": "en",
+      "viewport": {
+        "width": 1600,
+        "height": 900
+      },
+      "scale": 1.5,
+      "listMode": "conversations",
+      "startPanes": 2,
+      "endPanes": 4,
+      "columns": 4,
+      "fontSize": 13,
+      "consoleErrors": 0,
+      "fixtureCapabilityProbes": {
+        "409 tasks": 13,
+        "503 steer": 13
+      },
+      "actions": [
+        "Check pane 3 in the conversation list",
+        "Check pane 4 in the conversation list",
+        "Expand this pane (Launch plan)",
+        "Return to board overview"
+      ],
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "adhd-demo-zh.gif",
+      "frames": 41,
+      "duration": 8.777,
+      "bytes": 438641,
+      "sha256": "27cf4e517c19b79c0676e19fd86915b5e3d9d3d0ad9e6860a2f94dd55f66cd4c",
+      "locale": "zh",
+      "viewport": {
+        "width": 1600,
+        "height": 900
+      },
+      "scale": 1.5,
+      "listMode": "conversations",
+      "startPanes": 2,
+      "endPanes": 4,
+      "columns": 4,
+      "fontSize": 13,
+      "consoleErrors": 0,
+      "fixtureCapabilityProbes": {
+        "409 tasks": 13,
+        "503 steer": 13
+      },
+      "actions": [
+        "Check pane 3 in the conversation list",
+        "Check pane 4 in the conversation list",
+        "放大此面板 (发布计划)",
+        "回到面板总览"
+      ],
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

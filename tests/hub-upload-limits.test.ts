@@ -1,0 +1,43 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { MAX_FILE_BYTES, uploadSchema } from "../src/client-protocol/index.js";
+import { HubAttachments } from "../src/hub/attachments.js";
+import { hubConfigSchema, readHubConfig } from "../src/hub/config.js";
+import { HubStore } from "../src/hub/store.js";
+
+let directory: string | undefined, store: HubStore | undefined;
+afterEach(async () => { await store?.db.close(); if (directory) await rm(directory, { recursive: true, force: true }); directory = undefined; store = undefined; });
+it("loads the default or configured safe byte limit and rejects malformed configuration", async () => {
+  directory = await mkdtemp(path.join(os.tmpdir(), "hub-limits-"));
+  expect((await readHubConfig(directory)).maxFileBytes).toBe(MAX_FILE_BYTES);
+  await writeFile(path.join(directory, "config.json"), JSON.stringify({ maxFileBytes: 1024 ** 3 }));
+  expect((await readHubConfig(directory)).maxFileBytes).toBe(1024 ** 3);
+  for (const maxFileBytes of [0, -1, 1.5, "1024", null, Number.MAX_SAFE_INTEGER + 1]) expect(hubConfigSchema.safeParse({ maxFileBytes }).success).toBe(false);
+  await writeFile(path.join(directory, "config.json"), '{"maxFileBytes":0}');
+  await expect(readHubConfig(directory)).rejects.toThrow();
+});
+it("enforces one policy for user and Bot imports without deleting receipts or blocking old downloads", async () => {
+  directory = await mkdtemp(path.join(os.tmpdir(), "hub-limit-files-")); store = await HubStore.open(directory);
+  await store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','Alpha','fixture')");
+  const conversation = await store.createConversation("owner", ["alpha"], "Files", "files");
+  const bytes = Buffer.from("test content"), input = { conversationId: conversation.id, name: "file.txt", mime: "text/plain", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+  const files = new HubAttachments(store, directory, bytes.length); await files.initialize();
+  const { id } = await files.create("owner", input); await files.putChunk("owner", id, 0, bytes);
+  const reduced = new HubAttachments(store, directory, bytes.length - 1);
+  await expect(reduced.putChunk("owner", id, 0, bytes)).rejects.toMatchObject({ code: "file_too_large", status: 413 });
+  await expect(reduced.complete("owner", id)).rejects.toMatchObject({ code: "file_too_large" });
+  expect((await reduced.status("owner", id)).chunks).toEqual([0]);
+  await expect(reduced.importForBot("alpha", { ...input, name: "bot.txt" }, bytes)).rejects.toMatchObject({ code: "file_too_large" });
+  await expect(reduced.create("stranger", input)).rejects.toMatchObject({ code: "conversation_forbidden" });
+  await files.complete("owner", id);
+  expect(await readFile((await reduced.download({ userId: "owner" }, id)).path)).toEqual(bytes);
+  const increased = new HubAttachments(store, directory, MAX_FILE_BYTES + 1);
+  const large = { ...input, name: "larger.bin", size: MAX_FILE_BYTES + 1 };
+  expect(uploadSchema.safeParse(large).success).toBe(true);
+  await expect(new HubAttachments(store, directory).create("owner", large)).rejects.toMatchObject({ code: "file_too_large" });
+  const accepted = await increased.create("owner", large); expect((await increased.status("owner", accepted.id)).size).toBe(MAX_FILE_BYTES + 1);
+  for (const size of [0, -1, 1.1, Number.MAX_SAFE_INTEGER + 1]) expect(uploadSchema.safeParse({ ...input, size }).success).toBe(false);
+});

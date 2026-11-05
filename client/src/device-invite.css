@@ -1,0 +1,22 @@
+.device-invite { min-width: 0; }
+.device-invite .pair-qr { display: block; width: min(264px, 100%); height: auto; margin: 6px auto 2px; background: white; border-radius: 12px; }
+.device-invite .pair-code-actions { justify-content: center; }
+.device-invite-route { margin-bottom: 8px; }
+.device-invite-route label { display: grid; gap: 8px; font-size: 13px; }
+.device-invite-route select { width: 100%; min-height: 44px; box-sizing: border-box; }
+.device-invite-options { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px; }
+.device-invite-options summary { cursor: pointer; min-height: 32px; }
+.device-invite .settings-note { margin: 8px 0 0; }
+/* Scan-first invite: QR, one row of QR actions, then validity with regeneration. */
+.connection-invite-code { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.connection-invite-code .pair-code-actions { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 12px; margin: 0; }
+.connection-invite-code .pair-code-actions > button { min-height: 40px; padding: 0 2px; }
+.connection-invite-code .pair-code-actions > button:disabled { opacity: .6; }
+.connection-invite-code .pair-code-actions > :is(small, textarea) { flex-basis: 100%; }
+.connection-invite-code .invite-validity { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 10px; }
+.connection-invite-code .invite-validity > p { margin: 0; }
+.connection-invite-code .invite-validity > button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; }
+/* Long press belongs to the QR's own menu: no system callout, selection or drag. */
+.pair-qr[data-save] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.device-invite-route .settings-warning { margin: 8px 0 0; text-align: left; }
+.device-invite .device-invite-note { margin: 8px 0 0; }

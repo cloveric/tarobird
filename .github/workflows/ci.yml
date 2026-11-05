@@ -1,0 +1,98 @@
+name: Source checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    # Cold packaging also downloads the MSVC SDK and builds the native launcher.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri -> target
+      - uses: ./.github/actions/setup-host-cross
+      - run: npm ci
+      - run: npm ci --prefix client
+      - name: Electron bridge and packaging regressions
+        run: |
+          node client/scripts/windows-electron-installer.mjs setup-nsis
+          node --import tsx --test client/electron/tests/*.test.mjs client/scripts/electron-notarization.test.mjs client/scripts/windows-electron-installer.test.mjs
+        env:
+          TAROBOT_UPDATER_LAB_ROOT: ${{ runner.temp }}/electron-contracts.noindex
+          TAROBOT_NSIS_PLUGINS_DIR: ${{ runner.temp }}/electron-contracts.noindex/nsis-plugins
+      - run: npm run build
+      - run: mkdir -p /tmp/t
+      - run: npm test -- --maxWorkers=2 --testTimeout=15000
+        env:
+          TMPDIR: /tmp/t
+      - run: npm run build --prefix client
+      - run: npm run pack:standalone
+      - name: Verify production install excludes Feishu
+        run: |
+          cp -R dist/standalone-package /tmp/tarobot-package
+          cd /tmp/tarobot-package
+          npm ci --omit=dev
+          node -e 'try { require.resolve("@larksuiteoapi/node-sdk"); process.exit(1) } catch (e) { if (e.code !== "MODULE_NOT_FOUND") throw e }'
+          npm start -- --help
+          node "$GITHUB_WORKSPACE/scripts/verify-standalone-package.mjs" /tmp/tarobot-package
+  desktop-native:
+    # These are isolated native fixtures, not signed production installation or
+    # Windows acceptance. No credentials, certificates or user profile is used.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Isolate native build and fixture output
+        run: |
+          mkdir -p /tmp/tarobot-desktop-ci.noindex
+          echo "TMPDIR=/tmp/tarobot-desktop-ci.noindex" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/desktop-native-target.noindex" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            client/src-desktop-core -> ${{ runner.temp }}/desktop-native-target.noindex
+            client/src-desktop-native -> ${{ runner.temp }}/desktop-native-target.noindex
+            client/src-desktop-updater -> ${{ runner.temp }}/desktop-native-target.noindex
+      - run: npm ci
+      - run: npm ci --prefix client
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Native core, OS addon and updater regressions
+        run: |
+          cargo test --manifest-path client/src-desktop-core/Cargo.toml --locked -- --test-threads=1
+          cargo test --manifest-path client/src-desktop-native/Cargo.toml --locked --no-default-features
+          cargo test --manifest-path client/src-desktop-updater/Cargo.toml --locked
+      - name: Build isolated updater lab
+        run: cargo build --manifest-path client/src-desktop-updater/Cargo.toml --locked --features lab --bin tarobot-desktop-updater --target-dir "$RUNNER_TEMP/updater-lab-target.noindex"
+      - name: Real updater download, cancellation and rollback fixtures
+        run: node --test client/src-desktop-updater/tests/lab.test.mjs
+        env:
+          TAROBOT_UPDATER_LAB_BIN: ${{ runner.temp }}/updater-lab-target.noindex/debug/tarobot-desktop-updater
+          TAROBOT_UPDATER_LAB_ROOT: /tmp/tarobot-desktop-ci.noindex/updater-lab.noindex

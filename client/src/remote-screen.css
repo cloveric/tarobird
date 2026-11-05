@@ -1,0 +1,80 @@
+.remote-screen-panel{overflow:hidden;container-type:inline-size}
+.remote-screen-panel[hidden]{display:none!important}
+.screen-wide{z-index:15;flex:none;border:1px solid var(--border)}
+.remote-screen-panel:fullscreen{display:flex;position:fixed!important;inset:0!important;width:100%!important;height:100%!important;max-width:none!important;min-width:0!important;margin:0!important;background:var(--bg);border:0;animation:none!important;transform:none!important}
+.screen-chrome{position:relative;z-index:3;flex:none;background:var(--bg);border-bottom:1px solid var(--border)}
+.screen-heading{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-height:44px;padding:5px 8px;box-sizing:border-box}
+.screen-title{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+.screen-title strong{display:flex;align-items:center;gap:5px;flex:none;font-size:13px;font-weight:550;white-space:nowrap}
+.screen-title small{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px}
+.screen-window-actions{display:flex;align-items:center;flex:none;gap:2px}
+.screen-window-actions .icon-button{width:28px;height:28px;min-width:28px;min-height:28px;padding:4px}
+.screen-toolbar{order:2;display:flex;align-items:center;flex-wrap:wrap;flex:1 0 100%;gap:4px;min-width:0}
+.screen-toolbar select{max-width:110px;min-width:0}.screen-toolbar select[aria-label]{text-overflow:ellipsis}
+.screen-toolbar button{white-space:nowrap}.screen-disconnect{display:grid;place-items:center;min-width:30px}
+.screen-state{font-size:11px;color:var(--muted);padding:0 10px 5px;margin:0;line-height:1.4;overflow-wrap:anywhere}
+.screen-viewport{flex:1;min-height:80px;overflow:auto;background:#151515;position:relative;overscroll-behavior:contain}
+.screen-fit{container-type:size;display:flex;justify-content:center;align-items:center}
+.screen-fit canvas{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+.screen-viewport canvas{display:block;touch-action:none;flex:none;outline-offset:-3px}
+.screen-viewport canvas:focus-visible{outline:2px solid var(--accent)}.screen-stale{opacity:.55}
+.screen-settings button,.remote-screen-panel button:not(.icon-button),.remote-screen-panel select,.screen-settings select{border:1px solid var(--border);border-radius:6px;background-color:var(--surface);color:var(--text);padding:5px 8px;font-size:12px}
+.remote-screen-panel button:disabled{opacity:.45}
+/* Retain the select chevron gutter across theme/panel stylesheet load order. */
+.remote-screen-panel select,.screen-settings select{padding-right:30px}
+.screen-tools-popover{position:absolute;right:8px;top:calc(100% + 5px);width:min(350px,calc(100% - 16px));max-height:calc(100dvh - 150px);overflow:auto;background:var(--bg);border:1px solid var(--border);border-radius:9px;box-shadow:0 6px 24px #0002;padding:8px;box-sizing:border-box}
+.screen-display{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px}.screen-display select{min-width:0;max-width:240px}.screen-state button{margin-left:8px}
+.screen-shortcuts{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0}.screen-shortcuts select{max-width:100%}
+.screen-shortcuts details{font-size:12px}.screen-shortcuts summary{cursor:pointer;padding:5px 0}
+.screen-shortcuts details>div{display:flex;flex-wrap:wrap;gap:5px;padding:6px 0}
+.screen-bottom{display:flex;align-items:center;gap:8px;padding:6px 0}
+.screen-bottom span{font-size:10px;color:var(--muted);line-height:1.5}
+.screen-text{padding-top:6px;border-top:1px solid var(--border)}
+.screen-text textarea{box-sizing:border-box;width:100%;min-height:70px}.screen-text p{font-size:11px;color:var(--muted)}
+@container (min-width:680px){
+ .screen-heading{flex-wrap:nowrap;min-height:42px}
+ .screen-toolbar{order:0;flex:0 1 auto;flex-wrap:nowrap}
+ .screen-title{max-width:230px}.screen-window-actions{margin-left:auto}
+}
+/* Fullscreen keeps the canvas edge-to-edge; hidden controls cannot take input. */
+.screen-fullscreen .screen-chrome{position:absolute;top:8px;left:8px;right:8px;border:1px solid var(--border);border-radius:8px;box-shadow:0 3px 16px #0003;transition:opacity .15s,transform .15s}
+.screen-fullscreen .screen-chrome-hidden{opacity:0;transform:translateY(calc(-100% - 10px));pointer-events:none}
+.screen-fullscreen .screen-viewport{min-height:0;width:100%;height:100%}
+.remote-screen-panel .screen-reveal{position:absolute;z-index:4;top:0;left:50%;transform:translateX(-50%);border-top:0;border-radius:0 0 6px 6px;padding:3px 16px;background:var(--bg);opacity:.8}
+.screen-connection-dialog{width:min(1100px,calc(100vw - 40px));max-width:calc(100vw - 40px);height:min(760px,calc(100dvh - 40px));padding:0}
+.screen-connection-dialog>.remote-screen-panel{position:relative;display:flex;flex-direction:column;width:100%;height:100%;max-width:none;flex:1;border:0;--side-panel-width:100%}
+.screen-connection-dialog .screen-viewport{flex:1;min-height:0}
+
+/* Keep readiness, system permissions and device grants distinct without
+   repeating the service state or separating each status from its action. */
+.screen-settings{margin-block:22px;padding-top:18px;border-top:1px solid var(--border);min-width:0;font-size:13px}
+.screen-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.screen-settings .screen-settings-heading h3{font-size:15px;line-height:1.4;font-weight:600;margin:0}
+.screen-enable{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.screen-enable input{accent-color:var(--mono-mark,var(--accent));flex:none}
+.screen-settings .screen-settings-intro{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 12px}
+.screen-overview{padding:0 0 14px;border-bottom:1px solid var(--border)}
+.screen-readiness{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0 0 14px;font-size:12px}
+.screen-readiness>div{min-width:0}.screen-readiness dt{color:var(--muted);font-size:11px;margin-bottom:5px}.screen-readiness dd{margin:0;overflow-wrap:anywhere;font-weight:500;line-height:1.5}
+.screen-entry-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.screen-settings .screen-view-button{padding:7px 14px;background:color-mix(in srgb,var(--mono-mark,var(--accent)) 14%,var(--surface));border-color:color-mix(in srgb,var(--mono-mark,var(--accent)) 40%,var(--border));font-weight:500}
+.screen-settings .screen-text-action{border-color:transparent;background:transparent;color:var(--muted);padding:5px 2px}
+.screen-settings .screen-text-action:hover:not(:disabled){color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.screen-entry-help{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.6}
+.screen-settings .screen-entry-help p{margin:0}.screen-entry-help .screen-text-action{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.screen-settings button:disabled{opacity:.5;cursor:default}
+.screen-settings :is(button,summary,select):focus-visible{outline:2px solid var(--focus,var(--accent));outline-offset:2px}
+.screen-service-recovery:empty{display:none}.screen-service-recovery{font-size:12px;line-height:1.6;margin-top:10px}.screen-service-recovery>p{margin:5px 0}.screen-service-recovery>button{margin-top:4px}
+.screen-settings .screen-notice{font-size:12px;line-height:1.6;margin:10px 0;padding:9px 11px;border-radius:6px;background:color-mix(in srgb,var(--accent) 7%,var(--surface));color:var(--text);overflow-wrap:anywhere}
+.screen-settings :is(.screen-system-permissions,.screen-active-sessions)>h4{font-size:12px;font-weight:600;margin:18px 0 6px;color:var(--text)}
+.screen-permissions{display:grid;gap:0}.screen-permission-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);min-width:0}
+.screen-permission-row:last-child{border-bottom:0}.screen-permission-row>div{min-width:0}.screen-permission-row small{display:block;color:var(--muted);font-size:11px;margin-top:2px;line-height:1.4}.screen-permission-value{min-width:6.2em;text-align:right;font-size:12px;color:var(--muted);white-space:nowrap}.screen-permission-value[data-ready=true]{color:var(--text)}
+.screen-permission-value[data-ready=true]::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:6px;background:var(--mono-mark,var(--accent));vertical-align:2px}
+.screen-permission-row>button{min-width:48px}
+.screen-permission-help{font-size:12px;color:var(--muted);line-height:1.6;background:var(--surface);border-radius:6px;padding:8px 11px;margin-top:6px}.screen-permission-help p{margin:4px 0}
+.screen-settings details{margin-top:12px}.screen-settings summary{cursor:pointer;line-height:1.6}.screen-device-permissions{border-top:1px solid var(--border);padding-top:12px}.screen-device-permissions summary{font-weight:500}.screen-settings details>p{font-size:12px;color:var(--muted);line-height:1.6;margin:8px 0}
+.screen-setting-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}.screen-setting-row>span{min-width:0;overflow-wrap:anywhere}.screen-setting-row small{display:block;font-size:11px;color:var(--muted);line-height:1.5}.screen-setting-row select{max-width:50%;min-width:0}.screen-setting-row:last-child{border-bottom:0}
+.screen-permission-explanation{font-size:12px;color:var(--muted)}
+@media(max-width:440px){.screen-readiness{gap:8px}.screen-permission-row{gap:8px}.screen-settings-heading{gap:6px}.screen-setting-row{flex-wrap:wrap}.screen-setting-row select{max-width:100%}}
+
+.screen-resolution{white-space:nowrap;font-variant-numeric:tabular-nums}

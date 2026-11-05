@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-25",
+  "tool": "built-in image_gen",
+  "transparent_background": true,
+  "purpose": "Background extraction of four owner-supplied avatar sheets; image edits do not imply pixel identity with originals.",
+  "source_sha256": {
+    "original-8.png": "51197cd6ff388cee4ac544de1b22d1888f89b78383bbefb20af3118c3d30801a",
+    "original-9.png": "49339e58f9b0465cc5d94e9da1839eefe41f2983665ce09720606d0317027876",
+    "original-10.png": "f8b351264fd9d204015f28f46939b09277a7fc7ae42730120ab00fced56b0c54",
+    "original-11.png": "6c7712889e004d31598874643b04d338517eaf458e9f4644b8377eefa3dc15f5"
+  },
+  "edits": [
+    {
+      "source": "original-8.png",
+      "output": "intermediate sheet 8 (superseded by cleanup)",
+      "prompt": "Use case: background-extraction for an existing app avatar library. Edit target: the supplied 3 by 3 sheet of NINE distinct pastel animal mascots. Remove ALL nine rounded-square pastel background tiles, the outer white background, and the oval ground shadows. Keep ONLY the nine original mascot silhouettes with their eyes, ears, horns, tails, body markings, original colours, highlights, shading, proportions and exact identities. Do not invent or redesign any character. Preserve every disconnected character part. Deliver one square RGBA transparent PNG sprite sheet with EXACTLY 3 columns and 3 rows in the SAME source reading order. Each complete mascot must be inside its own equal square cell with generous transparent margins; center it in that cell; never overlap cell boundaries. Actual alpha transparency outside the mascots, including spaces between ears and antlers. No tile, badge, frame, backdrop, checkerboard pixels, text, outline, or ground shadows. Keep pale cream and white body areas fully opaque; do not erase them as background. Used as individual avatars on white and dark app backgrounds. Source identities by row: pink rabbit, brown bear, cream-and-orange patch cat; orange fox with tail, yellow chick-like tufted mascot, green frog; panda, lavender-blue mouse, spotted fawn with antlers."
+    },
+    {
+      "source": "previous sheet 8 result",
+      "output": "cutouts-8.png",
+      "prompt": "Background extraction, edit the supplied original artwork, preserve every mascot's exact shape, colours, highlights, eyes and distinctive parts. Remove all rounded-square tiles, outside background and oval ground shadows. Deliver a CLEAN production RGBA sprite sheet with actual transparency: the empty space and margins must have alpha exactly zero, with NO stray coloured specks, white fringes, fragments, residual shadow or backdrop. Mascot interiors fully opaque, including white/cream parts. Only a narrow clean antialiased contour. Keep the original grid, reading order and character count. Generous completely empty gutters between cells. No new design, characters, text, badges, checkerboard pattern or ground plane. This edit target is the previous transparent cutout result. Fix ONLY its alpha and stray background noise: there are unwanted coloured and white specks outside the nine mascots, especially beneath the cat, fox, panda, mouse and deer and above the rabbit. Remove these completely. Preserve all nine real characters and their ear/antler/tail details. Arrange exactly 3 columns by 3 rows, all complete with empty margins; do not crop any character."
+    },
+    {
+      "source": "original-9.png",
+      "output": "cutouts-9.png",
+      "prompt": "Background extraction, edit the supplied original artwork, preserve every mascot's exact shape, colours, highlights, eyes and distinctive parts. Remove all rounded-square tiles, outside background and oval ground shadows. Deliver a CLEAN production RGBA sprite sheet with actual transparency: the empty space and margins must have alpha exactly zero, with NO stray coloured specks, white fringes, fragments, residual shadow or backdrop. Mascot interiors fully opaque, including white/cream parts. Only a narrow clean antialiased contour. Keep the original grid, reading order and character count. Generous completely empty gutters between cells. No new design, characters, text, badges, checkerboard pattern or ground plane. Exactly 9 characters in 3 columns by 3 rows. Source order: cream puppy, lavender koala, pink pig; white wool sheep, orange tiger, navy penguin; brown owl, yellow duck, violet raccoon with striped tail."
+    },
+    {
+      "source": "original-10.png",
+      "output": "cutouts-10.png",
+      "prompt": "Background extraction, edit the supplied original artwork, preserve every mascot's exact shape, colours, highlights, eyes and distinctive parts. Remove all rounded-square tiles, outside background and oval ground shadows. Deliver a CLEAN production RGBA sprite sheet with actual transparency: the empty space and margins must have alpha exactly zero, with NO stray coloured specks, white fringes, fragments, residual shadow or backdrop. Mascot interiors fully opaque, including white/cream parts. Only a narrow clean antialiased contour. Keep the original grid, reading order and character count. Generous completely empty gutters between cells. No new design, characters, text, badges, checkerboard pattern or ground plane. Exactly 9 characters in 3 columns by 3 rows. Source order: yellow-orange lion with mane, brown monkey, orange hamster; brown hedgehog with spines, blue elephant with trunk, spotted cream cow with horns; fluffy white sheep, orange squirrel with tail, white polar bear."
+    },
+    {
+      "source": "original-11.png",
+      "output": "cutouts-11.png",
+      "prompt": "Background extraction, edit the supplied original artwork, preserve every mascot's exact shape, colours, highlights, eyes and distinctive parts. Remove all rounded-square tiles, outside background and oval ground shadows. Deliver a CLEAN production RGBA sprite sheet with actual transparency: the empty space and margins must have alpha exactly zero, with NO stray coloured specks, white fringes, fragments, residual shadow or backdrop. Mascot interiors fully opaque, including white/cream parts. Only a narrow clean antialiased contour. Keep the original grid, reading order and character count. Generous completely empty gutters between cells. No new design, characters, text, badges, checkerboard pattern or ground plane. This is a dense sheet containing exactly FIFTY-FOUR distinct small mascots arranged in NINE columns and SIX rows, separated into six 3x3 panels. Keep that exact 9x6 arrangement and all 54 original designs. Remove both the small tile backgrounds and the six panel backdrops. Preserve the whale water spout, raccoon tail, rays of sun, rings of Saturn, bird crests, fish fins, fruit leaves, stems and cherry pair. The top half panels are land animals, sea creatures, birds. Bottom half panels are nature/sky, fruit, food. No omissions or duplication. Landscape transparent sheet with clearly empty straight gutters between every adjacent row and column."
+    }
+  ],
+  "notes": [
+    "Inspect transparency on composited white/dark backgrounds: raw RGB under zero alpha is not a visible pixel defect.",
+    "Only selected final cutouts are versioned. The packaging script performs crop, aspect-preserving resize and lossless WebP encoding."
+  ]
+}

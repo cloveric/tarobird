@@ -1,0 +1,63 @@
+{
+  "sourceRevision": "cd89ecea117fea97eff06083d0695d25428d1d8b",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-BYzlevgr.js",
+    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+  },
+  "captured": "2026-11-04T10:12:03.145Z",
+  "source": "Production RemoteScreenPanel rendered in a documentation fixture; simulated transport with the synthetic ADHD capture as its frame. No native screen capture, network connection or keyboard/mouse input.",
+  "images": [
+    {
+      "file": "remote-screen-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1200,
+        "height": 540
+      },
+      "capture": "Complete viewer dialog, excluding the browser backdrop",
+      "sha256": "c09556ade352955037941bbedfaa0a3c0c8a6e3f47ff2e20a654523742c3127e"
+    },
+    {
+      "file": "remote-screen-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1200,
+        "height": 540
+      },
+      "capture": "Complete viewer dialog, excluding the browser backdrop",
+      "sha256": "f25703e51b791e408dc01a9854fe6b480dc6f2f4152cedc0bbf8b8c7e296134b"
+    }
+  ],
+  "animations": [
+    {
+      "file": "screen-demo-zh.gif",
+      "frames": 21,
+      "duration": 4.251,
+      "bytes": 148719,
+      "sha256": "5c91d5e8e0cfd62a9330fe74bfea353fe65474a9db8859135895fa3aecdd3c90",
+      "locale": "zh",
+      "actions": [
+        "View screen",
+        "Start control",
+        "Stop control"
+      ],
+      "simulatedTransport": true
+    },
+    {
+      "file": "screen-demo-en.gif",
+      "frames": 21,
+      "duration": 4.269,
+      "bytes": 168204,
+      "sha256": "6f633872099b00cde147951eb64b0ddfed5e23baf11037c23e9694a1aa2d6954",
+      "locale": "en",
+      "actions": [
+        "View screen",
+        "Start control",
+        "Stop control"
+      ],
+      "simulatedTransport": true
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "android": {
+    "versionName": "0.1.408-test.1",
+    "versionCode": 2026101223,
+    "signed": true,
+    "sameCertificate": true,
+    "matchedAssets": 372
+  },
+  "mac": {
+    "appVersion": "1.0.35",
+    "hostVersion": "0.1.408",
+    "sealedAppVerified": true,
+    "matchedAssets": 664,
+    "compiledAfterFinalFrontend": true
+  },
+  "checks": {
+    "releaseHook": true,
+    "coreFiles": 222,
+    "corePassed": 2871,
+    "coreSkipped": 1,
+    "chromiumJourneys": 13,
+    "webkitQuestionJourneys": 4,
+    "legacyQuestionChoicePassed": 30,
+    "realCodexAsyncFreeText": true,
+    "androidReleaseUnitLint": true,
+    "standaloneArchiveOutsideRepo": true
+  }
+}

@@ -1,0 +1,29 @@
+.connection-dialog{width:min(620px,calc(100vw - 48px))}
+.connection-dialog .connection-back{display:none}
+.connection-dialog.connection-subpage .connection-back{display:block}
+.connection-dialog.connection-subpage .connection-close{display:none}
+.connection-dialog .connection-host-name{font-weight:600;margin-top:0;overflow-wrap:anywhere}
+.connection-dialog .settings-content .settings-lede{color:var(--muted);margin:8px 0 18px}
+.route-entry-help{color:var(--muted);font-size:12px;line-height:1.6}
+.routes-editor .route-entry-help{margin:-6px 0 18px}
+.direct-route-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.direct-route-groups .direct-route-group{min-width:0;margin:12px 0}
+.routes-editor .direct-route-group .route-entry-help{margin:8px 0 12px}
+.direct-route-entry{display:flex;align-items:end;gap:8px;margin:8px 0}
+.direct-route-entry label{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
+.direct-route-entry input{min-width:0;width:100%;box-sizing:border-box}
+@media(max-width:600px){.direct-route-groups{grid-template-columns:minmax(0,1fr);gap:0}}
+.local-relay-settings{margin-top:24px;padding-top:8px;border-top:1px solid var(--border);min-width:0}
+.local-relay-settings .saved-routes li>div{min-width:0}
+.local-relay-settings .saved-routes li>button{flex-shrink:0}
+.local-relay-settings .route-save-bar{justify-content:flex-end}
+.local-relay-share{display:grid;justify-items:center;gap:12px;margin:12px 0}
+.local-relay-share .pair-qr{width:min(240px,100%);height:auto}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  .connection-dialog{width:100%}
+  .connection-dialog .connection-back{display:block}
+  .connection-dialog .connection-close{display:none}
+}
+.host-route-status dl { display: grid; gap: 8px; margin: 12px 0; }
+.host-route-status dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+.host-route-status dd { margin: 0; color: var(--muted); }

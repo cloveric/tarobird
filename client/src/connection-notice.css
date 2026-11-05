@@ -1,0 +1,11 @@
+.phone-connection-notice{flex:none;min-width:0;border-bottom:1px solid var(--border);background:var(--surface);color:var(--grey);font-size:12px;line-height:1.5}
+.phone-connection-notice>summary{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 12px;cursor:pointer;list-style:none}
+.phone-connection-notice>summary::-webkit-details-marker{display:none}
+.phone-connection-notice>summary::marker{content:""}
+.phone-connection-notice>summary>svg{flex:none;color:var(--muted)}
+.phone-connection-notice .connection-notice-host{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:400}
+.connection-notice-action{flex:none;color:var(--muted);font-size:11px}
+.phone-connection-notice>div{padding:0 12px 10px 34px;overflow-wrap:anywhere}
+.phone-connection-notice>div>p+p{margin-top:4px}
+.phone-connection-notice[open]>summary>svg:last-child{transform:rotate(180deg)}
+.phone-connection-notice>summary:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}

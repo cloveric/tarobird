@@ -1,0 +1,9 @@
+# Bounded Bus admission retry — 2026-11-01
+
+Issue #103 finding F-04. Independent Opus probes confirmed that separate four-wide workflows can together exceed a member's eight-request admission cap. Immediate capacity rejection is valid protection, but the client previously failed the stage without a short bounded retry and the App did not explain member saturation.
+
+Only HTTP 503 with a valid `server_busy`, `retryable: true` response from the intended member is retried. That response is emitted before the Bus handler runs. There are at most three retries, after 200, 400 and 800 ms, under the same original timeout and abort signal. Outgoing Bus permission, target membership and maximum depth are re-read before each retry; the receiving server continues its own checks. No capacity limits are increased.
+
+HTTP 200 engine failures (even the same error code), other statuses/errors, a mismatched member identity, unreadable replies, connection loss and timeouts are not retried. Those outcomes may follow side effects and cannot establish that the task was never executed. Busy feedback therefore asks the user to inspect existing records rather than promising that nothing ran. CLI/workflows share the transport and preserve the structured diagnostic.
+
+Regression evidence includes a real local HTTP Bus with eight held tasks: the ninth is rejected at admission, retried after capacity is released, and its handler executes exactly once. Other cases cover the retry cap, cancellation, deadline, withdrawn peer permission, disabled Bus, wrong responder and post-execution errors. Capacity, transport and display suites: 95 passed. Cancellation/timeout/delegation/Gateway boundaries: 73 passed, two opt-in long-duration tests skipped here (already passed in the audit baseline). `npm run build` passed (481 modules). Independent review is retained in the final audit index. No production data, Host restart, release or installed-App replacement.

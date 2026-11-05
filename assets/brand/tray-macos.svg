@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <!-- Line-style little bird for the 18pt macOS status item (2026-11-04): side
+       view, full body outline with a beak and a short level tail, an eye dot
+       and one full wing drawn on its side; no feet. Pure alpha mask; AppKit
+       supplies colour in template mode. Android and CLI-style scenes use the
+       separate fox-monochrome.svg. -->
+  <defs><mask id="bird">
+    <g fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M 26.4 16.8 L 31.2 17.6 C 30.8 19.6 29.4 20.8 27.6 21.4 C 26.8 26 22.4 29.4 17 29.4 C 11.2 29.4 6.6 25 6.6 19 L 6.6 18.8 L 3 17.3 L 6.9 15.6 C 8.2 11.2 12.2 8.6 17 8.6 C 21.4 8.6 25 11.6 26.4 16.8 Z"/>
+      <path d="M 14.6 19.6 C 17.4 17.4 22.4 17.8 25.2 20.8 C 23.6 24.2 19.2 25.8 15.8 23.4 C 14.8 22.4 14.4 21 14.6 19.6 Z"/>
+    </g>
+    <circle cx="12.2" cy="15.6" r="1.7" fill="#fff"/>
+  </mask></defs>
+  <rect width="36" height="36" fill="#000" mask="url(#bird)"/>
+</svg>

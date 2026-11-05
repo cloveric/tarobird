@@ -1,0 +1,237 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { CronStore } from "../src/state/cron-store.js";
+import {
+  extractInvalidDeliveryPseudoTagMatches,
+  stripInvalidDeliveryPseudoTags,
+} from "../src/core/shared/delivery-tags.js";
+import { deliverCoreResponse } from "../src/core/delivery.js";
+import {
+  preflightCoreResponseDeliveryDirectives,
+  renderCoreMergedDeliveryRepairDirectives,
+} from "../src/core/delivery-followup.js";
+import { createCoreServiceRuntime } from "../src/core/runtime.js";
+import type { CoreChannelLike } from "../src/core/types.js";
+
+function fakeChannel(): CoreChannelLike {
+  return {
+    send: vi.fn(async () => ({ messageId: "sent_1" })),
+    stream: vi.fn(),
+    downloadResource: vi.fn(async () => Buffer.alloc(0)),
+  } as unknown as CoreChannelLike;
+}
+
+function tool(name: string, payload: Record<string, unknown>): string {
+  return `[tool:${JSON.stringify({ name, payload })}]`;
+}
+
+describe("Core delivery protocol guards", () => {
+  it("detects and strips pseudo send tags while ignoring quoted examples", () => {
+    const text = [
+      "result",
+      "[send.batch={\"images\":[\"/tmp/p.png\"]}]",
+      "`[send.file=/tmp/example.txt]`",
+      "> [send.image=/tmp/quoted.png]",
+    ].join("\n");
+
+    expect(extractInvalidDeliveryPseudoTagMatches(text)).toEqual([
+      expect.objectContaining({ tag: '[send.batch={"images":["/tmp/p.png"]}]' }),
+    ]);
+    expect(stripInvalidDeliveryPseudoTags(text)).not.toContain("[send.batch=");
+    expect(stripInvalidDeliveryPseudoTags(text)).toContain("`[send.file=/tmp/example.txt]`");
+    expect(stripInvalidDeliveryPseudoTags(text)).toContain("> [send.image=/tmp/quoted.png]");
+  });
+
+  it("marks pseudo send tags as invalid preflight directives", async () => {
+    const result = await preflightCoreResponseDeliveryDirectives("[send.batch=/tmp/p.png]");
+    expect(result).toMatchObject({ sawDirective: true, artifactCount: 0 });
+    expect(result.issues).toEqual([
+      expect.objectContaining({ reason: "invalid-directive" }),
+    ]);
+  });
+
+  it("accepts a message-only send.batch without asking for artifact repair", async () => {
+    const result = await preflightCoreResponseDeliveryDirectives(tool("send.batch", { message: "Status only" }));
+    expect(result).toMatchObject({ sawDirective: true, artifactCount: 0, issues: [] });
+    expect(result.deliveryMessages).toEqual(["Status only"]);
+  });
+
+  it("preserves send.batch messages while merging repaired artifacts", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-repair-message-"));
+    const outsideDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-repair-message-outside-"));
+    const workspace = path.join(stateDir, "workspace");
+    const good = path.join(workspace, "good.txt");
+    const repaired = path.join(workspace, "repaired.txt");
+    const outside = path.join(outsideDir, "outside.txt");
+    await mkdir(workspace, { recursive: true });
+    await Promise.all([
+      writeFile(good, "good"),
+      writeFile(repaired, "repaired"),
+      writeFile(outside, "outside"),
+    ]);
+    try {
+      const initial = await preflightCoreResponseDeliveryDirectives(tool("send.batch", {
+        message: "两份报告如下",
+        files: [good, outside],
+      }), { stateDir });
+      const fixed = await preflightCoreResponseDeliveryDirectives(tool("send.batch", {
+        files: [repaired],
+      }), { stateDir });
+      const merged = renderCoreMergedDeliveryRepairDirectives(initial, fixed);
+
+      expect(merged).toContain("两份报告如下");
+      expect(merged).toContain(good);
+      expect(merged).toContain(repaired);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("counts repeated paths and aliases as one repaired artifact", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-repair-identity-"));
+    const workspace = path.join(stateDir, "workspace");
+    const repaired = path.join(workspace, "repaired.txt");
+    const alias = path.join(workspace, "alias.txt");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(repaired, "repaired");
+    await symlink(repaired, alias);
+    try {
+      const result = await preflightCoreResponseDeliveryDirectives(tool("send.batch", {
+        files: [repaired, repaired, alias],
+      }), { stateDir });
+
+      expect(result).toMatchObject({ artifactCount: 3, issues: [] });
+      expect(result.acceptedArtifacts).toEqual([
+        expect.objectContaining({ path: repaired, kind: "file" }),
+      ]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("never exposes a pseudo send tag as visible reply text", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-pseudo-tag-"));
+    const channel = fakeChannel();
+    try {
+      const result = await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: "Here it is\n[send.batch=/tmp/p.png]",
+        stateDir,
+      });
+      const sent = JSON.stringify((channel.send as ReturnType<typeof vi.fn>).mock.calls);
+      expect(result.ok).toBe(false);
+      expect(sent).toContain("Here it is");
+      expect(sent).toContain("无法执行的发送指令");
+      expect(sent).not.toContain("send.batch=");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes unsupported math in ordinary markdown delivery", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-markdown-normalize-"));
+    const channel = fakeChannel();
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: "Fee $5 \\rightarrow $10",
+        stateDir,
+      });
+      const sent = JSON.stringify((channel.send as ReturnType<typeof vi.fn>).mock.calls);
+      expect(sent).toContain("Fee $5 → $10");
+      expect(sent).not.toContain("\\\\rightarrow");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks cron mutations emitted by a scheduled run", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-recursion-"));
+    const store = new CronStore(stateDir);
+    const runtime = createCoreServiceRuntime({
+      cronRuntime: { store, scheduler: { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) } },
+    });
+    const channel = fakeChannel();
+    try {
+      const result = await deliverCoreResponse({
+        channel,
+        runtime,
+        chatId: "oc_chat",
+        text: tool("cron.add", { in: "10m", prompt: "spawn another" }),
+        stateDir,
+        allowCronMutations: false,
+      });
+      expect(result.ok).toBe(true);
+      expect(await store.list()).toHaveLength(0);
+      expect(JSON.stringify((channel.send as ReturnType<typeof vi.fn>).mock.calls)).toContain("本次请求已忽略");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("allows a scheduled run to inspect schedules without mutating them", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-list-"));
+    const store = new CronStore(stateDir);
+    const runtime = createCoreServiceRuntime({
+      cronRuntime: { store, scheduler: { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) } },
+    });
+    const channel = fakeChannel();
+    try {
+      const result = await deliverCoreResponse({
+        channel,
+        runtime,
+        chatId: "oc_chat",
+        text: tool("cron.list", {}),
+        stateDir,
+        allowCronMutations: false,
+      });
+      expect(result.ok).toBe(true);
+      expect(JSON.stringify((channel.send as ReturnType<typeof vi.fn>).mock.calls)).toContain("暂无定时任务");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps recurring and one-shot schedules even when their descriptions match", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-dedupe-"));
+    const store = new CronStore(stateDir);
+    const runtime = createCoreServiceRuntime({
+      cronRuntime: { store, scheduler: { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) } },
+    });
+    const channel = fakeChannel();
+    try {
+      const result = await deliverCoreResponse({
+        channel,
+        runtime,
+        chatId: "oc_chat",
+        text: [
+          tool("cron.add", { cron: "0 10 * * 1", prompt: "weekly summary" }),
+          tool("cron.add", { cron: "0 16 * * 5", prompt: "weekly summary" }),
+          tool("cron.add", { at: "2030-01-01T09:00:00+08:00", prompt: "project meeting" }),
+          '[cron-add:{"in":"5m","prompt":"weekly summary"}]',
+        ].join("\n"),
+        stateDir,
+      });
+      expect(result.ok).toBe(true);
+      const jobs = await store.list();
+      expect(jobs).toHaveLength(4);
+      expect(jobs).toEqual(expect.arrayContaining([
+        expect.objectContaining({ cronExpr: "0 10 * * 1", prompt: "weekly summary" }),
+        expect.objectContaining({ cronExpr: "0 16 * * 5", prompt: "weekly summary" }),
+        expect.objectContaining({ runOnce: true, prompt: "project meeting" }),
+        expect.objectContaining({ runOnce: true, prompt: "weekly summary" }),
+      ]));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+});

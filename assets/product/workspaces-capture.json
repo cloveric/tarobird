@@ -1,0 +1,193 @@
+{
+  "sourceRevision": "a0411ba26bfac96a5372e1022d838447eaa584af",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-BYzlevgr.js",
+    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+  },
+  "captured": "2026-11-04T10:54:43.655Z",
+  "source": "Real built App, disposable loopback Hubs, fictional projects and ticket states; no model execution",
+  "images": [
+    {
+      "file": "workbench-canvas-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "e7cb89efdcab0f328c6b5c979a8784abf5b434741453856e81fe120f2bb3a83f"
+    },
+    {
+      "file": "workbench-whiteboard-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "2a767783305b254125775fed1ba6e7660177a1de2acd257a87208a417602b0c8"
+    },
+    {
+      "file": "workbench-notes-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "6fde9a64cc47afbca695874f4210c736a109a4f9ca63fa22fa201f82c3b5d32b"
+    },
+    {
+      "file": "workbench-side-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "2fbe1f4352b8b2f7ce6334a0c23dfac3b9a2c2d486fa675af1eb28e6a701ebe5"
+    },
+    {
+      "file": "chancellor-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 760
+      },
+      "sha256": "719a556994320c928942648d009a1c0d393a77c21768775eb26f345b16a227c8"
+    },
+    {
+      "file": "workbench-canvas-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "fc3d61b00f38e5a3ada510d2afcc256e79a89c2e4934be88af5eb7a4d01df10f"
+    },
+    {
+      "file": "workbench-whiteboard-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "73ac1e23ea07da055323871ed61ff9f27df578283062b7401d2623c8e777ca4d"
+    },
+    {
+      "file": "workbench-notes-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "0236aa134dfa7dd2358fdd165fc71e9aef0cd620c7f00c06ad4c2030c3f8abf3"
+    },
+    {
+      "file": "workbench-side-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "3e7e932467689dbd507bd37529ec6bdcc45304e222a085179b66051ff608d253"
+    },
+    {
+      "file": "chancellor-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 760
+      },
+      "sha256": "5270a5c835fbf9a3ef3f6f7fc1b8d292f624b13d096e8ddf3d54cb62286dcc8a"
+    }
+  ],
+  "animations": [
+    {
+      "file": "canvas-demo-zh.gif",
+      "frames": 32,
+      "duration": 6.251,
+      "bytes": 116929,
+      "sha256": "8b41d37d6cdae82cbc60e53a6141b1f2d50b123402a778a6a41d999eda629d66",
+      "locale": "zh",
+      "actions": [
+        "Canvas launch page",
+        "Double-click and edit heading",
+        "Review the updated canvas"
+      ]
+    },
+    {
+      "file": "workbench-tools-demo-zh.gif",
+      "frames": 34,
+      "duration": 6.557,
+      "bytes": 199829,
+      "sha256": "b13127dd38c9e197ddb44067b714bb9810b8c478e959c47ee55fddb66b9f1f66",
+      "locale": "zh",
+      "actions": [
+        "Side panel",
+        "Expand workbench",
+        "Whiteboard",
+        "Markdown note"
+      ]
+    },
+    {
+      "file": "chancellor-demo-zh.gif",
+      "frames": 21,
+      "duration": 3.99,
+      "bytes": 128641,
+      "sha256": "b7d132c5169f585a64409f38ada8bf0f7a6fc844afc16bac9e9c238bed46a647",
+      "locale": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 760
+      },
+      "actions": [
+        "Ticket summary",
+        "Expand ticket list"
+      ],
+      "simulatedTicketState": true
+    },
+    {
+      "file": "canvas-demo-en.gif",
+      "frames": 31,
+      "duration": 6.233,
+      "bytes": 131759,
+      "sha256": "b7631ad737b0c94115a01aab97dec0ad89cf8cbe48fffb99e894d1b089fc10b9",
+      "locale": "en",
+      "actions": [
+        "Canvas launch page",
+        "Double-click and edit heading",
+        "Review the updated canvas"
+      ]
+    },
+    {
+      "file": "workbench-tools-demo-en.gif",
+      "frames": 34,
+      "duration": 6.566,
+      "bytes": 213635,
+      "sha256": "c8ecfeb4c2371cf3d558ff650247cf4c43bfe5417f92209a06152beaa68ddae2",
+      "locale": "en",
+      "actions": [
+        "Side panel",
+        "Expand workbench",
+        "Whiteboard",
+        "Markdown note"
+      ]
+    },
+    {
+      "file": "chancellor-demo-en.gif",
+      "frames": 20,
+      "duration": 3.925,
+      "bytes": 138589,
+      "sha256": "ab3ab1dba2fe1051bbcfd13cd153a0d750ebfd69d6c7d28a5149aa8c46af8efb",
+      "locale": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 760
+      },
+      "actions": [
+        "Ticket summary",
+        "Expand ticket list"
+      ],
+      "simulatedTicketState": true
+    }
+  ]
+}

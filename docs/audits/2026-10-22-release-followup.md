@@ -1,0 +1,23 @@
+# Three-day release follow-up, 2026-10-22
+
+This supplements the [earlier joint review](2026-10-22-three-day-joint-review.md). The inventory contains 77 commits dated October 20–22 through `7a91f54`; the earlier review covered the first 55 through `d9c87fb`. Codex reviewed incremental snapshots, activity indexing, client merging, UI and upgrade coordination. Independent Claude Opus 5.5 (`claude-opus-5-5[1m]`, xhigh) reviewed temporary side sessions, transient recovery, unfinished tool/agent work, cost accounting and packaging/retention. This document records reproduced defects, not speculative risks.
+
+## Additional defects repaired
+
+- **Side sessions:** 1,024 sequential open/close operations exhausted the Bot-wide open-receipt limit even with no live handles. Evict the oldest receipts for closed handles at the limit, retaining live handles and recent replay protection. `3ad3a4a`; the regression performs 1,100 cycles across three devices.
+- **Claude automatic continuation:** after tool work and a retryable native error, the recovery note told Claude not to resume a stopped task while the host simultaneously requested continuation. Bridge now marks automatic continuations and the Claude adapter omits that conflicting note only for those continuations. Manual next messages retain the interrupted-work receipt until success. `13a22c3`; adapter and Bridge regressions cover continuation followed by a further failure and manual resumption. Model compliance with the corrected prompt is not inferred from these tests.
+- **Widget lifetime:** Chromium delivered an entering and a leaving observation for the same widget in one IntersectionObserver callback. `entries.some` retained the stale visible state. In a real 40-widget history, three entirely offscreen frames remained mounted after five seconds. Use the latest observation. The deterministic batch regression checks removal and subsequent restoration, and the real long-history case passed five repetitions after the fix. The full widget suite passed Chromium 12 / 1 skipped and WebKit 11 / 2 skipped.
+
+## Validation and disposition
+
+The pre-fix candidate passed the full source gate: 6,110 tests and 77 native tests. The two Host fixes passed 6,112 tests, with five skips. An independent-worktree native tail encountered an old Windows runtime receipt while targeting macOS; that is a build-preparation mismatch, not a passed native gate. Its remaining native checks are recorded separately in the release verification.
+
+The broad browser pass ran 154 cases in each engine: Chromium 148 passed, four skipped, two failed; WebKit 148 passed, five skipped, one failed. One failure was the widget bug above. The other was a stale cache-error assertion: a registry failure is `controller_failed`, not proof of invalid credentials. Updating that test passed the focused Chromium and WebKit rechecks. The long-history assertion now waits for asynchronous visibility delivery and retains its measurements on failure; it still failed before the product fix, so waiting alone did not conceal the defect.
+
+An actual isolated Tauri WKWebView exercised the production widget sandbox protocol. A looping guest was retired while the parent remained responsive (maximum timer gap 30 ms), interaction and data images worked, and native/parent/storage/worker transport escapes were blocked. This closes the previous locked-Mac observation gap for that harness, not physical Windows/Android/iPhone acceptance.
+
+The previous release candidate also passed the real native macOS updater against a copied App and synthetic Host: tampered signature rejection, installed version, restarted Host, identity, pairing, history and file retention. The final rebuilt artifacts and publication/local installation receipts belong in the release verification; these results alone do not establish a production installation.
+
+GitHub Source checks on `7a91f54` did not start because account payments/spending limits blocked Actions. Local validation is not represented as a successful GitHub CI run. No physical Windows, Android or iPhone is attached. Earlier package candidates were retained as superseded and were never published.
+
+Final UI integration on the frozen artifact source passed WebKit 15/15 (side conversations, recovery, snapshots). Chromium passed 14/15; its engine-switch fixture changed configuration while the panel was still preparing, before any native handle existed, so expecting one disposal was invalid. The test now waits for a real opened handle and passed three Chromium repetitions. Earlier late-open cleanup remains separately covered. This is a test-only correction after the release source freeze.

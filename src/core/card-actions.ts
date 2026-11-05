@@ -1,0 +1,3523 @@
+import { deliverEngineQuestion } from "./engine-question.js";
+import { deliverBackgroundTaskResponse } from "./background-task-delivery.js";
+import { createScopedRunPresentation, finishScopedRunPresentation } from "./scoped-run-presentation.js";
+import { asyncAnswerFeedback, questionFeedback, type AsyncAnswerPhase } from "./question-feedback.js";
+import type { AnswerFollowup } from "../client-protocol/answer-followup.js";
+import { backgroundTaskBody, backgroundTaskContext, backgroundTaskReplyTo } from "./background-task-notice.js";
+import { approvalScope, approvalScopeLabel, unsupportedApprovalScope } from "./approval-scopes.js";
+import { randomUUID } from "node:crypto";
+import { mkdir, realpath, stat } from "node:fs/promises";
+import path from "node:path";
+import { channelProfile } from "./channel-profile.js";
+import { workspaceArtifactRoot } from "./artifact-paths.js";
+import { EngineSteeringRejectedError } from "../codex/adapter.js";
+import { APP_USER_STOP_REASON } from "../runtime/turn-cancellation.js";
+
+import type {
+  EngineApprovalDecision,
+  EngineApprovalRequest,
+  EngineAnswerProgress,
+  EngineStreamEvent,
+} from "../codex/adapter.js";
+import { checkBudgetAvailability, recordBridgeTurnUsage } from "../runtime/bridge-turn.js";
+import { resolveConversationResume } from "../runtime/conversation-resume.js";
+import { prepareArchiveContinueWorkflow } from "../runtime/file-workflow.js";
+import { scanRecentAntigravityConversations, scanRecentClaudeSessions } from "../runtime/session-scanner.js";
+import {
+  appendTimelineEventBestEffort,
+  engineEventTimelineMetadata,
+  shouldPersistEngineTimelineEvent,
+} from "../runtime/timeline-events.js";
+import { FileWorkflowStore } from "../state/file-workflow-store.js";
+import { SessionStore } from "../state/session-store.js";
+import { CORE_APPROVAL_TIMEOUT_MS } from "./shared/approval-timeouts.js";
+import { loadInstanceConfig, resolveInstanceWorkspacePath, updateInstanceConfig, type ResumeState } from "../state/instance-config.js";
+import { applyConversationResumeScope } from "../runtime/conversation-resume.js";
+import type { Locale } from "../runtime/locale.js";
+import { larkAgentInstructions, larkMediaTaskInstruction } from "./agent-instructions.js";
+import { handleCoreBoardCommand } from "./bus.js";
+import { sendCoreCardWithFallback } from "./card-delivery.js";
+import { cleanCardText, renderCoreApprovalCard, renderCoreQueueCancelledCard } from "./card-renderer.js";
+import { renderCoreResumeScanCard } from "./command-cards.js";
+import {
+  applyCoreConfigCardAction,
+  isCoreConfigCardActionValue,
+  renderCoreConfigCard,
+} from "./config-card.js";
+import { deliverCoreUserInputRequest, deliverCoreResponse, sendCoreMarkdown } from "./delivery.js";
+import { renderCoreUserFacingError } from "./errors.js";
+import { safeSegment } from "./files.js";
+import { assertStableCoreIdMappings } from "./id-map.js";
+import { coreOperatorRawId } from "./identity.js";
+import { appendCoreTimelineEvent } from "./timeline.js";
+import {
+  renderCoreApprovalExpired,
+  renderCoreBackgroundTaskHeader,
+  renderCoreOperatorAccessDenied,
+  renderCoreQueuedTaskSkipped,
+  renderCoreStopResult,
+  resolveCoreLocale,
+} from "./locale.js";
+import { sendManagedCard, settleThenUpdateManagedCard, updateManagedCard } from "./managed-card.js";
+import { claimCoreRunSlot, isCoreRunActive, CoreGoalRunController } from "./bus.js";
+import { coreAccessChatIdFromConversationKey, coreAccessConversationKeyFromConversationKey, stableCoreNumericId } from "./message-normalizer.js";
+import { redactCoreErrorDetail } from "./redaction.js";
+import type { CoreChoiceCardRef, CoreServiceRuntime, PendingCoreApproval, PendingCoreBatch } from "./runtime.js";
+import type { CoreBridgeLike, CoreChannelLike, CoreSendOptions } from "./types.js";
+
+type CoreApprovalChoice = "once" | "session" | "deny";
+
+type AskUserQuestionOption = {
+  label: string;
+  description?: string;
+  preview?: string;
+};
+
+type AskUserQuestionCardQuestion = {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  required: boolean;
+  allowFreeText: boolean;
+  minSelections?: number;
+  maxSelections?: number;
+  options: AskUserQuestionOption[];
+};
+
+function isAskUserQuestionRequest(request: EngineApprovalRequest): boolean {
+  return (request.engine === "claude" || request.engine === "kimi" || request.engine === "deepseek" || request.engine === "codex")
+    && request.toolName === "AskUserQuestion";
+}
+
+function renderApprovalEngineLabel(engine: EngineApprovalRequest["engine"] | undefined): string {
+  if (engine === "deepseek") {
+    return "DeepSeek Harness";
+  }
+  if (engine === "kimi") {
+    return "Kimi";
+  }
+  if (engine === "codex") {
+    return "Codex";
+  }
+  if (engine === "antigravity") {
+    return "Antigravity";
+  }
+  return "Claude";
+}
+
+export type CoreApprovalTextCommandResult =
+  | { handled: false }
+  | {
+    handled: true;
+    outcome: "success" | "noop";
+    choice: CoreApprovalChoice;
+    requestId?: string;
+    reason?: "no-pending" | "different-conversation" | "different-user" | "ask-user-question" | "unsupported-scope";
+  };
+
+export async function requestCoreApproval(input: {
+  channel: CoreChannelLike;
+  runtime: CoreServiceRuntime;
+  chatId: string;
+  conversationKey?: string;
+  bridgeChatType?: "private" | "group";
+  requesterUserId?: number;
+  replyTo?: string;
+  replyInThread?: boolean;
+  locale?: Locale;
+  request: EngineApprovalRequest;
+  asyncQuestion?: PendingCoreApproval["asyncQuestion"];
+  onPresented?: () => void;
+  abortSignal?: AbortSignal;
+}): Promise<EngineApprovalDecision> {
+  if (input.abortSignal?.aborted) {
+    return { behavior: "deny" };
+  }
+
+  const requestId = randomUUID();
+  return await new Promise<EngineApprovalDecision>((resolve, reject) => {
+    const cleanup = () => cleanupPendingApproval(input.runtime, requestId);
+    const timer = setTimeout(() => {
+      const pending = input.runtime.pendingApprovals.get(requestId);
+      if (!pending) {
+        return;
+      }
+      pending.cancelled = true;
+      cleanup();
+      pending.resolve({ behavior: "deny" });
+      const locale = input.locale ?? "zh";
+      pending.closedCard = renderCorePendingTimedOutCard(pending, locale);
+      // Flip the pending card read-only IN PLACE so it stops looking answerable
+      // (a silent in-place edit doesn't push-notify, so the text notice below
+      // still goes out as the audible signal).
+      if (pending.managedCard) {
+        void updateManagedCard(input.channel, pending.managedCard, pending.closedCard)
+          .catch(() => undefined);
+      }
+      const expiredText = isAskUserQuestionRequest(input.request)
+        ? (locale === "en"
+          ? "Question expired after 29 minutes without an answer. Send a message if you still want to respond."
+          : "问题已过期（29 分钟未提交），没有代你选择答案。仍需回答时可以直接发消息。")
+        : renderCoreApprovalExpired(locale);
+      void input.channel.send(
+        input.chatId,
+        { text: expiredText },
+        coreReplyOptions(input.replyTo, input.replyInThread),
+      ).catch(() => undefined);
+    }, CORE_APPROVAL_TIMEOUT_MS);
+
+    const pending: PendingCoreApproval = {
+      requestId,
+      asyncQuestion: input.asyncQuestion,
+      chatId: input.chatId,
+      ...(input.conversationKey ? { conversationKey: input.conversationKey } : {}),
+      ...(input.bridgeChatType ? { bridgeChatType: input.bridgeChatType } : {}),
+      ...(input.requesterUserId !== undefined ? { requesterUserId: input.requesterUserId } : {}),
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+      ...(input.replyInThread ? { replyInThread: true } : {}),
+      ...(isAskUserQuestionRequest(input.request) ? { askUserQuestionInput: input.request.toolInput } : {}),
+      approvalEngine: input.request.engine,
+      approvalToolName: input.request.toolName,
+      approvalToolInput: input.request.toolInput,
+      approvalScopes: input.request.approvalScopes,
+      supportsAnswerProgress: input.request.supportsAnswerProgress,
+      resolve,
+      reject,
+      timer,
+      abortSignal: input.abortSignal,
+    };
+
+    if (input.abortSignal || input.asyncQuestion) {
+      pending.abortHandler = () => {
+        pending.cancelled = true;
+        pending.closedCard = renderCorePendingInterruptedCard(pending, input.locale ?? "zh");
+        cleanup();
+        resolve({ behavior: "deny" });
+        // Same treatment as the timeout: flip the pending card read-only IN
+        // PLACE so it visibly dies with the turn (/stop, stop button, preempt,
+        // goal abort) instead of lingering fully answerable. No extra text
+        // notice here — the stop flow already posts its own confirmation.
+        if (pending.managedCard) {
+          void updateManagedCard(input.channel, pending.managedCard, pending.closedCard)
+            .catch(() => undefined);
+        }
+      };
+      input.abortSignal?.addEventListener("abort", pending.abortHandler, { once: true });
+    }
+
+    input.runtime.pendingApprovals.set(requestId, pending);
+    if (isAskUserQuestionRequest(input.request)) {
+      const askCard = renderCoreAskUserQuestionCard({
+        requestId,
+        toolInput: input.request.toolInput,
+        engine: input.request.engine,
+        replyInThread: input.replyInThread,
+        locale: input.locale,
+      });
+      pending.presentation = (async () => {
+        // Prefer a CardKit managed card: the form can then be turned read-only
+        // IN PLACE after submit (CardKit updates survive post-interaction, where
+        // im.message.patch reverts a just-submitted form). Track the handle on
+        // the pending approval so the submit handler can update it. Falls back to
+        // the normal card send (recall workaround on submit) when CardKit is off.
+        const handle = await sendManagedCard(input.channel, input.chatId, askCard, {
+          ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+          ...(input.replyInThread ? { replyInThread: true } : {}),
+        });
+        if (handle) {
+          pending.managedCard = handle;
+          if (handle.native && !input.runtime.pendingApprovals.has(requestId)) {
+            if (pending.closedCard) await updateManagedCard(input.channel, handle, pending.closedCard);
+            else await input.channel.recallMessage?.(handle.messageId);
+          }
+          return;
+        }
+        if (!input.runtime.pendingApprovals.has(requestId)) return;
+        await sendCoreCardWithFallback({
+          channel: input.channel,
+          chatId: input.chatId,
+          card: askCard,
+          fallbackText: renderCoreAskUserQuestionFallbackText(
+            input.request.toolInput,
+            input.locale ?? "zh",
+            0,
+            input.request.engine,
+          ),
+          options: coreReplyOptions(input.replyTo, input.replyInThread),
+          locale: input.locale ?? "zh",
+        });
+      })().then(() => input.onPresented?.()).catch((error) => {
+        cleanup();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      });
+      return;
+    }
+
+    const approvalCard = renderCoreApprovalCard({
+      requestId,
+      toolName: input.request.toolName,
+      toolInput: input.request.toolInput,
+      approvalScopes: input.request.approvalScopes,
+      replyInThread: input.replyInThread,
+      locale: input.locale,
+    });
+    pending.presentation = (async () => {
+      // Prefer a CardKit managed card so the decision handler can flip it to a
+      // resolved state IN PLACE (buttons removed) after the operator decides —
+      // same UX as the AskUserQuestion form / run / goal / config cards. Track the
+      // handle on the pending approval. Falls back to a normal card send (the card
+      // then lingers + a separate "decided" reply is posted) when CardKit is off.
+      const handle = await sendManagedCard(input.channel, input.chatId, approvalCard, {
+        ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+        ...(input.replyInThread ? { replyInThread: true } : {}),
+      });
+      if (handle) {
+        pending.managedCard = handle;
+        if (handle.native && !input.runtime.pendingApprovals.has(requestId)) {
+          if (pending.closedCard) await updateManagedCard(input.channel, handle, pending.closedCard);
+          else await input.channel.recallMessage?.(handle.messageId);
+        }
+        return;
+      }
+      if (!input.runtime.pendingApprovals.has(requestId)) return;
+      await sendCoreCardWithFallback({
+        channel: input.channel,
+        chatId: input.chatId,
+        card: approvalCard,
+        fallbackText: renderCoreApprovalFallbackText(requestId, input.request, input.locale ?? "zh"),
+        options: coreReplyOptions(input.replyTo, input.replyInThread),
+        locale: input.locale ?? "zh",
+      });
+    })().catch((error) => {
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    });
+  });
+}
+
+function renderCoreApprovalFallbackText(requestId: string, request: EngineApprovalRequest, locale: Locale): string {
+  const toolInput = typeof request.toolInput === "string" ? request.toolInput : JSON.stringify(request.toolInput, null, 2);
+  const choices = (["once", "session", "deny"] as const).filter((choice) => approvalScope(request.approvalScopes, choice)).map((choice) =>
+    `${choice === "once" ? "/approve" : choice === "session" ? "/approve-session" : "/deny"} ${requestId} (${approvalScopeLabel(request.approvalScopes, choice, locale)})`).join(locale === "en" ? ", " : "、");
+  if (locale === "en") {
+    return [
+      `Approval required: ${request.toolName}`,
+      toolInput,
+      `Reply with ${choices}.`,
+    ].join("\n\n");
+  }
+  return [
+    `需要审批：${request.toolName}`,
+    toolInput,
+    `请回复 ${choices}。`,
+  ].join("\n\n");
+}
+
+function askFormFieldName(index: number): string {
+  return `q${index}`;
+}
+
+function askFormOtherFieldName(index: number): string {
+  return `q${index}_other`;
+}
+
+/** Selected option values for one field of a rejected submit, as a string list. */
+function askFormSelectedValues(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.filter((entry): entry is string => typeof entry === "string");
+  }
+  if (typeof raw !== "string") {
+    return [];
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return [];
+  }
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) {
+        return parsed.filter((entry): entry is string => typeof entry === "string");
+      }
+    } catch {
+      // Fall through: treat it as a single opaque value.
+    }
+  }
+  return [trimmed];
+}
+
+function renderCoreAskUserQuestionCard(input: {
+  requestId: string;
+  toolInput: unknown;
+  engine?: EngineApprovalRequest["engine"];
+  replyInThread?: boolean;
+  locale?: Locale;
+  /**
+   * Raw form_value of a submit that was rejected for a missing answer. Replayed
+   * as the components' initial values so re-rendering the form does not throw
+   * away the picks the user already made.
+   */
+  selections?: Record<string, unknown>;
+  /** Why the previous submit was rejected; shown at the top of the form. */
+  notice?: string;
+}): Record<string, unknown> {
+  const locale = input.locale ?? "zh";
+  const questions = normalizeAskUserQuestions(input.toolInput);
+  // One card, one form: every question is a native select component whose
+  // selection lives client-side, so picking/unpicking never round-trips to the
+  // server (no card re-render, no collapse, no lag). Changing a choice before
+  // submit is the built-in "undo". Everything resolves on a single Submit.
+  const formElements: unknown[] = [];
+  if (input.notice) {
+    formElements.push({ tag: "markdown", content: `<font color="red">${input.notice}</font>` });
+  }
+  questions.forEach((question, index) => {
+    if (index > 0) {
+      formElements.push({ tag: "hr" });
+    }
+    const limitHint = question.multiSelect
+      ? [
+        question.minSelections !== undefined
+          ? (locale === "en" ? `at least ${question.minSelections}` : `至少 ${question.minSelections} 项`)
+          : undefined,
+        question.maxSelections !== undefined
+          ? (locale === "en" ? `at most ${question.maxSelections}` : `最多 ${question.maxSelections} 项`)
+          : undefined,
+      ].filter(Boolean).join(locale === "en" ? ", " : "，")
+      : "";
+    const multiHint = question.multiSelect
+      ? (locale === "en" ? ` (multi-select${limitHint ? `; ${limitHint}` : ""})` : `（多选${limitHint ? `；${limitHint}` : ""}）`)
+      : "";
+    formElements.push({
+      tag: "markdown",
+      content: `**${question.header}${multiHint}**\n${question.question}`,
+    });
+    const lines = question.options
+      .map((option, optionIndex) => {
+        const marker = optionMarker(optionIndex);
+        return option.description
+          ? `${marker}. **${option.label}** — ${option.description}`
+          : `${marker}. **${option.label}**`;
+      })
+      .join("\n");
+    if (lines) {
+      formElements.push({ tag: "markdown", content: lines, text_size: "notation" });
+    }
+    const selectOptions = question.options.map((option, optionIndex) => ({
+      text: { tag: "plain_text", content: option.label },
+      // Value is the option's index, not its label: labels aren't guaranteed
+      // unique within a question (duplicates / templated / i18n), so a label-keyed
+      // value maps an ambiguous selection back to the wrong option. The submit
+      // handler translates the index back to the label.
+      value: String(optionIndex),
+    }));
+    // Carry a rejected submit's picks back into the re-rendered form. Without
+    // this the user has to redo every choice they already made just because one
+    // question was missed.
+    const selected = askFormSelectedValues(input.selections?.[askFormFieldName(index)])
+      .filter((value) => selectOptions.some((option) => option.value === value));
+    if (selectOptions.length) formElements.push({
+      tag: question.multiSelect ? "multi_select_static" : "select_static",
+      ...(channelProfile() === "gateway" ? {
+        ...(question.minSelections !== undefined ? { min_selected_count: question.minSelections } : {}),
+        ...(question.maxSelections !== undefined ? { max_selected_count: question.maxSelections } : {}),
+      } : {}),
+      name: askFormFieldName(index),
+      // Not Feishu-`required`: the "Other" free-text below is a valid alternative,
+      // so "answered" = a pick OR an Other value (enforced by the submit backstop).
+      placeholder: {
+        tag: "plain_text",
+        content: question.multiSelect
+          ? (locale === "en" ? "Select one or more" : "可多选")
+          : (locale === "en" ? "Select one" : "请选择"),
+      },
+      options: selectOptions,
+      ...(selected.length > 0
+        ? (question.multiSelect
+          ? { initial_options: selected }
+          : { initial_option: selected[0] })
+        : {}),
+    });
+    // Kimi ACP only returns advertised option IDs. Claude and DeepSeek
+    // Harness both support a free-text custom answer, so preserve that UX.
+    if (input.engine !== "kimi" && question.allowFreeText) {
+      const otherValue = stringValue(input.selections?.[askFormOtherFieldName(index)]) ?? "";
+      formElements.push({
+        tag: "input",
+        name: askFormOtherFieldName(index),
+        placeholder: {
+          tag: "plain_text",
+          content: question.options.length
+            ? (locale === "en" ? "Other — type your own (optional)" : "其他 —— 不合适就自己填（选填）")
+            : (locale === "en" ? "Type your answer" : "填写你的回答"),
+        },
+        ...(otherValue ? { default_value: otherValue } : {}),
+      });
+    }
+  });
+
+  formElements.push({
+    tag: "button",
+    text: { tag: "plain_text", content: locale === "en" ? "Submit" : "提交" },
+    type: "primary",
+    width: "fill",
+    // A button inside a form container REQUIRES a globally-unique `name` (Feishu Card 2.0
+    // form-button spec: name is required + must be unique within the card). Without it,
+    // Feishu rejects the form SUBMIT with "出错了 code: 200530" (业务错误) BEFORE the
+    // card.action.trigger callback is sent — so the bot never even sees it. The select /
+    // "Other" inputs already carry names (askFormFieldName / askFormOtherFieldName); only
+    // this submit button was missing one.
+    name: "askq_submit",
+    form_action_type: "submit",
+    behaviors: [callbackBehavior({
+      cctb_lark: "ask_user_question",
+      action: "form_submit",
+      requestId: input.requestId,
+      ...(input.replyInThread ? { replyInThread: true } : {}),
+    })],
+  });
+
+  const title = questions.length > 1
+    ? (locale === "en" ? `${questions.length} questions` : `${questions.length} 个问题`)
+    : (questions[0]?.header || (locale === "en" ? "Question" : "请选择"));
+
+  return {
+    schema: "2.0",
+    config: {
+      update_multi: true,
+      summary: {
+        content: locale === "en"
+          ? `${renderApprovalEngineLabel(input.engine)} is asking a question`
+          : `${renderApprovalEngineLabel(input.engine)} 请求选择`,
+      },
+    },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: title,
+      },
+    },
+    body: {
+      direction: "vertical",
+      padding: "12px 12px 12px 12px",
+      elements: [
+        {
+          tag: "form",
+          name: "askq_form",
+          // The native client renders the structured questions directly. Keep
+          // the ordinary elements for older clients and the shared callback.
+          ...(channelProfile() === "gateway" ? { tarocub_questions: {
+            version: 1, requestId: input.requestId,
+            questions: questions.map((question) => ({ ...question, allowFreeText: input.engine !== "kimi" && question.allowFreeText })),
+            ...(input.notice ? { notice: input.notice } : {}),
+          } } : {}),
+          elements: formElements,
+        },
+      ],
+    },
+  };
+}
+
+/** Submitted answers stay read-only; an admitted follow-up may be cancelled while queued. */
+function renderCoreAskUserQuestionSubmittedCard(
+  toolInput: unknown,
+  answers: Record<string, string>,
+  locale: Locale,
+  feedback?: string,
+  followup?: AnswerFollowup,
+  cancelValue?: Record<string, unknown>,
+): Record<string, unknown> {
+  const questions = normalizeAskUserQuestions(toolInput);
+  const none = locale === "en" ? "(none)" : "（未选）";
+  const lines = questions
+    .map((question) => {
+      const answer = (answers[question.question] ?? "").trim();
+      return `**${question.header}**: ${answer || none}`;
+    })
+    .join("\n");
+  const title = locale === "en" ? "Submitted" : "已提交";
+  return {
+    schema: "2.0",
+    ...(followup ? { answerFollowup: followup } : {}),
+    config: { update_multi: true, summary: { content: title } },
+    header: { title: { tag: "plain_text", content: `✅ ${title}` } },
+    body: {
+      direction: "vertical",
+      padding: "12px 12px 12px 12px",
+      elements: [
+        { tag: "markdown", content: lines || none },
+        ...(feedback ? [{ tag: "markdown", ...(followup ? { element_id: "answer_followup_status" } : {}), content: feedback }] : []),
+        ...(cancelValue ? [{ tag: "button", text: { tag: "plain_text", content: locale === "en" ? "Cancel follow-up" : "取消后续处理" }, type: "default",
+          behaviors: [{ type: "callback", value: cancelValue }] }] : []),
+      ],
+    },
+  };
+}
+
+/** Terminal replacement for an invalid form after a fresh retry card is sent. */
+function renderCoreAskUserQuestionRetrySentCard(notice: string, locale: Locale): Record<string, unknown> {
+  const title = locale === "en" ? "Please complete the new form" : "请填写新表单";
+  const guidance = locale === "en"
+    ? "This form is no longer active. A fresh form was sent below so Submit works normally."
+    : "这张表单已停用。下方已发送一张新表单，请在那里填写并提交。";
+  return {
+    schema: "2.0",
+    config: { update_multi: true, summary: { content: title } },
+    header: { title: { tag: "plain_text", content: title } },
+    body: {
+      direction: "vertical",
+      padding: "12px 12px 12px 12px",
+      elements: [
+        { tag: "markdown", content: `<font color="red">${notice}</font>` },
+        { tag: "markdown", content: guidance },
+      ],
+    },
+  };
+}
+
+/**
+ * Read-only replacement for a pending card whose 29-minute wait expired. The
+ * form/buttons visually "die" in place — without this the expired card kept
+ * looking answerable, and a late submit only produced an easily-missed text
+ * reply (the operator hit exactly that: picked options an hour later and
+ * concluded the submit button was broken).
+ */
+function renderCorePendingTimedOutCard(
+  pending: { askUserQuestionInput?: unknown; approvalToolName?: string },
+  locale: Locale,
+): Record<string, unknown> {
+  const isAsk = pending.askUserQuestionInput !== undefined;
+  const en = locale === "en";
+  const title = isAsk
+    ? (en ? "Choice timed out" : "选择已超时")
+    : (en ? "Approval timed out" : "审批已超时");
+  const body = isAsk
+    ? (en
+      ? "No answer was submitted within 29 minutes. No default answer was chosen for you. You can still respond in a new message."
+      : "29 分钟内未收到答案，没有代你选择默认选项。仍需回答时可以直接发消息。")
+    : (en
+      ? `No decision within 29 minutes — the request${pending.approvalToolName ? ` (${pending.approvalToolName})` : ""} was denied and the turn moved on.`
+      : `29 分钟内未作决定，该请求${pending.approvalToolName ? `（${pending.approvalToolName}）` : ""}已按拒绝处理。`);
+  return renderCorePendingClosedCard("⏳", title, body);
+}
+
+/**
+ * Read-only replacement for a pending card whose turn was aborted (/stop, the
+ * stop button, a preempting turn, or a goal abort). Same treatment as the
+ * timeout flip: the form/buttons visibly die in place instead of lingering
+ * answerable after the task is already gone.
+ */
+function renderCorePendingInterruptedCard(
+  pending: { askUserQuestionInput?: unknown; approvalToolName?: string },
+  locale: Locale,
+): Record<string, unknown> {
+  const isAsk = pending.askUserQuestionInput !== undefined;
+  const en = locale === "en";
+  const title = isAsk
+    ? (en ? "Choice cancelled" : "选择已取消")
+    : (en ? "Approval cancelled" : "审批已取消");
+  const body = isAsk
+    ? (en
+      ? "The task was stopped, so this choice no longer applies. To continue, just send a message describing what you want."
+      : "任务已停止，这次选择不再需要。想继续的话，直接发消息说明你的选择即可。")
+    : (en
+      ? `The task was stopped, so this request${pending.approvalToolName ? ` (${pending.approvalToolName})` : ""} no longer needs a decision.`
+      : `任务已停止，该请求${pending.approvalToolName ? `（${pending.approvalToolName}）` : ""}无需再审批。`);
+  return renderCorePendingClosedCard("⏹", title, body);
+}
+
+/** Shared read-only shell for the timed-out / interrupted pending-card flips. */
+function renderCorePendingClosedCard(icon: string, title: string, body: string): Record<string, unknown> {
+  return {
+    schema: "2.0",
+    config: { update_multi: true, summary: { content: title } },
+    header: { title: { tag: "plain_text", content: `${icon} ${title}` } },
+    body: {
+      direction: "vertical",
+      padding: "12px 12px 12px 12px",
+      elements: [{ tag: "markdown", content: body }],
+    },
+  };
+}
+
+function renderCoreAskUserQuestionFallbackText(
+  toolInput: unknown,
+  locale: Locale,
+  questionIndex = 0,
+  engine?: EngineApprovalRequest["engine"],
+): string {
+  const questions = normalizeAskUserQuestions(toolInput);
+  const question = questions[questionIndex] ?? questions[0];
+  if (!question) {
+    const engineName = renderApprovalEngineLabel(engine);
+    return locale === "en" ? `${engineName} is asking a question.` : `${engineName} 需要你选择。`;
+  }
+  const options = question.options
+    .map((option, index) => {
+      const description = option.description ? ` — ${option.description}` : "";
+      return `${optionMarker(index)}. ${option.label}${description}`;
+    })
+    .join("\n");
+  return [`**${question.header}**`, question.question, options].filter(Boolean).join("\n");
+}
+
+function normalizeAskUserQuestions(toolInput: unknown): AskUserQuestionCardQuestion[] {
+  const root = objectValue(toolInput);
+  const rawQuestions = Array.isArray(root?.questions) ? root.questions : [];
+  return rawQuestions
+    .map((entry): AskUserQuestionCardQuestion | null => {
+      const question = objectValue(entry);
+      if (!question) {
+        return null;
+      }
+      const text = stringValue(question.question);
+      const options = Array.isArray(question.options)
+        ? question.options
+          .map((option): AskUserQuestionOption | null => {
+            const optionObject = objectValue(option);
+            if (!optionObject && typeof option !== "string") {
+              return null;
+            }
+            const label = typeof option === "string" ? option : stringValue(optionObject?.label) ?? stringValue(optionObject?.value);
+            if (!label) {
+              return null;
+            }
+            return {
+              label,
+              ...(stringValue(optionObject?.description) ? { description: stringValue(optionObject?.description) } : {}),
+              ...(stringValue(optionObject?.preview) ? { preview: stringValue(optionObject?.preview) } : {}),
+            };
+          })
+          .filter((option): option is AskUserQuestionOption => option !== null)
+        : [];
+      if (!text || options.length === 0 && question.allowFreeText !== true) {
+        return null;
+      }
+      return {
+        question: text,
+        header: stringValue(question.header) ?? "Question",
+        // The live can_use_tool payload may snake_case the flag; accept both so
+        // multi-select questions are not silently rendered as single-select.
+        multiSelect: question.multiSelect === true || question.multi_select === true,
+        // Claude and legacy payloads require every answer. Kimi ACP form
+        // elicitation marks optional schema properties explicitly false.
+        required: question.required !== false,
+        allowFreeText: question.allowFreeText !== false,
+        ...(question.multiSelect === true || question.multi_select === true
+          ? normalizeAskSelectionBounds(question)
+          : {}),
+        options,
+      };
+    })
+    .filter((question): question is AskUserQuestionCardQuestion => question !== null);
+}
+
+function normalizeAskSelectionBounds(question: Record<string, unknown>): {
+  minSelections?: number;
+  maxSelections?: number;
+} {
+  const minRaw = question.minSelections ?? question.min_selections;
+  const maxRaw = question.maxSelections ?? question.max_selections;
+  const minSelections = typeof minRaw === "number" && Number.isInteger(minRaw) && minRaw >= 0
+    ? minRaw
+    : undefined;
+  const maxSelections = typeof maxRaw === "number" && Number.isInteger(maxRaw) && maxRaw >= 0
+    ? maxRaw
+    : undefined;
+  return {
+    ...(minSelections !== undefined ? { minSelections } : {}),
+    ...(maxSelections !== undefined ? { maxSelections } : {}),
+  };
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function optionMarker(index: number): string {
+  if (index >= 0 && index < 26) {
+    return String.fromCharCode("A".charCodeAt(0) + index);
+  }
+  return String(index + 1);
+}
+
+function callbackBehavior(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: "callback",
+    value,
+  };
+}
+
+/**
+ * Cancel a conversation's PENDING attachment batch (the quiet window that
+ * coalesces a multi-image send plus its caption, or waits for an explicitly
+ * announced follow-up attachment, before creating one turn).
+ *
+ * A burst parked in its window is invisible to every stop control: /stop and the
+ * card's stop button used to report "nothing running" and then the burst fired a
+ * moment later anyway. Dropping it here resolves its waiters (their promises are
+ * the ones `handleLarkMessage` returns — leaving them pending would hang the
+ * caller) and returns the dropped batch so the caller can report it and
+ * terminalize its members' timeline entries.
+ *
+ * Lives here rather than in message-handler.ts because BOTH stop entry points
+ * need it and message-handler.ts already imports this module (the reverse import
+ * would be a cycle).
+ */
+export function dropPendingCoreAttachmentBurst(
+  runtime: CoreServiceRuntime,
+  conversationKey: string,
+): PendingCoreBatch | undefined {
+  const batch = runtime.pendingBatches.get(conversationKey);
+  if (!batch) {
+    return undefined;
+  }
+  clearTimeout(batch.timer);
+  runtime.pendingBatches.delete(conversationKey);
+  // Resolve (never reject): a rejected waiter would surface as a service-level
+  // error reply for a burst the user themselves cancelled.
+  for (const resolve of batch.resolve) {
+    resolve(true);
+  }
+  return batch;
+}
+
+export function renderCoreDroppedBurstNotice(count: number, locale: Locale): string {
+  return locale === "en"
+    ? `Also cancelled ${count} message(s) still waiting to be merged into a turn.`
+    : `已同时取消 ${count} 条尚未合并成任务的待发送消息。`;
+}
+
+/** Shared by /stop, the run card and Gateway's composer stop control.
+ * Call only after surface authorization. Queued turns are intentionally kept. */
+export async function stopCoreConversation(runtime: CoreServiceRuntime, conversationKey: string, stateDir?: string) {
+  const active = runtime.activeRuns.get(conversationKey);
+  const reason = channelProfile() === "gateway" ? APP_USER_STOP_REASON : undefined;
+  // Let a goal route stop to its live ordinary turns before they are aborted;
+  // otherwise it mistakes this same stop request for a second goal-level stop.
+  active?.abortController.abort(reason);
+  for (const run of runtime.concurrentRuns.get(conversationKey) ?? []) run.abortController.abort(reason);
+  // A goal's own question closes with the goal's signal. When this stop was
+  // routed to an attached ordinary turn, the surviving pursuit keeps it.
+  const survivingGoal = active?.abortController instanceof CoreGoalRunController && !active.abortController.signal.aborted
+    ? active.abortController.signal : undefined;
+  const cancelledQuestions = [...runtime.pendingApprovals.values()].filter(p => p.asyncQuestion && p.conversationKey === conversationKey
+    && (!survivingGoal || p.abortSignal !== survivingGoal));
+  for (const pending of cancelledQuestions) pending.abortHandler?.();
+  const droppedBurst = dropPendingCoreAttachmentBurst(runtime, conversationKey);
+  if (droppedBurst && stateDir) {
+    await Promise.allSettled(droppedBurst.members.map((member) => appendCoreTimelineEvent(stateDir, member, {
+      type: "command.handled", outcome: "noop", detail: "batch-cancelled",
+    })));
+  }
+  return { active, droppedBurst, cancelledQuestions: cancelledQuestions.length };
+}
+
+/** Stops only the run executing one queued input, never another turn of the
+ * same conversation that may have started after it. */
+export function stopCoreRunForMessage(runtime: CoreServiceRuntime, conversationKey: string, messageId: string): { stopped: boolean } {
+  // The Hub may have handed this input to a worker that is still finishing
+  // other work. Cancel only this queued task; its existing onSkipped path
+  // publishes the receipt once the queue advances.
+  const queued = runtime.chatQueue.cancel(conversationKey, messageId);
+  const reason = channelProfile() === "gateway" ? APP_USER_STOP_REASON : undefined;
+  const runs = [runtime.activeRuns.get(conversationKey), ...(runtime.concurrentRuns.get(conversationKey) ?? [])]
+    .filter((run): run is NonNullable<typeof run> => run?.sourceMessageId === messageId && !run.abortController.signal.aborted);
+  for (const run of runs) run.abortController.abort(reason);
+  // Asynchronous questions bound to this run's signal close with it.
+  if (runs.length) for (const pending of runtime.pendingApprovals.values()) if (pending.asyncQuestion && pending.conversationKey === conversationKey && pending.abortSignal?.aborted) pending.abortHandler?.();
+  return { stopped: queued || runs.length > 0 };
+}
+
+export function renderCoreConversationStop(result: Awaited<ReturnType<typeof stopCoreConversation>>, locale: Locale): string | undefined {
+  const { active, droppedBurst } = result;
+  const notice = droppedBurst ? renderCoreDroppedBurstNotice(droppedBurst.members.length, locale) : "";
+  // A live run card supplies its own acknowledgment. A dropped burst has no card.
+  if (active?.hasRunCard) return notice || undefined;
+  return [renderCoreStopResult(Boolean(active) || Boolean(droppedBurst) || result.cancelledQuestions > 0, locale), notice].filter(Boolean).join("\n");
+}
+
+export function isCoreApprovalTextCommand(text: string): boolean {
+  return parseCoreApprovalTextCommand(text) !== null;
+}
+
+export async function handleCoreApprovalTextCommand(input: {
+  channel: CoreChannelLike;
+  runtime: CoreServiceRuntime;
+  chatId: string;
+  messageId: string;
+  conversationKey: string;
+  bridgeChatType: "private" | "group";
+  userId?: number;
+  replyInThread?: boolean;
+  text: string;
+  locale?: Locale;
+}): Promise<CoreApprovalTextCommandResult> {
+  const parsed = parseCoreApprovalTextCommand(input.text);
+  if (!parsed) {
+    return { handled: false };
+  }
+  const locale = input.locale ?? "zh";
+
+  const pending = parsed.kind === "id"
+    ? input.runtime.pendingApprovals.get(parsed.requestId)
+    : findOldestPendingCoreApproval(input.runtime, input);
+  if (!pending) {
+    await input.channel.send(input.chatId, { text: renderApprovalNoPending(locale) }, coreReplyOptions(input.messageId, input.replyInThread));
+    return { handled: true, outcome: "noop", choice: parsed.choice, reason: "no-pending" };
+  }
+  if (!pendingMatchesCoreConversation(pending, input)) {
+    await input.channel.send(input.chatId, { text: renderApprovalDifferentConversation(locale) }, coreReplyOptions(input.messageId, input.replyInThread));
+    return {
+      handled: true,
+      outcome: "noop",
+      choice: parsed.choice,
+      requestId: pending.requestId,
+      reason: "different-conversation",
+    };
+  }
+  if (pending.requesterUserId !== undefined && pending.requesterUserId !== input.userId) {
+    await input.channel.send(input.chatId, { text: renderApprovalDifferentUser(locale) }, coreReplyOptions(input.messageId, input.replyInThread));
+    return {
+      handled: true,
+      outcome: "noop",
+      choice: parsed.choice,
+      requestId: pending.requestId,
+      reason: "different-user",
+    };
+  }
+  if (pending.askUserQuestionInput !== undefined && parsed.choice !== "deny") {
+    await input.channel.send(input.chatId, { text: renderAskUserQuestionNeedsCard(locale) }, coreReplyOptions(input.messageId, input.replyInThread));
+    return {
+      handled: true,
+      outcome: "noop",
+      choice: parsed.choice,
+      requestId: pending.requestId,
+      reason: "ask-user-question",
+    };
+  }
+
+  if (!approvalScope(pending.approvalScopes, parsed.choice)) {
+    await input.channel.send(input.chatId, { text: unsupportedApprovalScope(locale) }, coreReplyOptions(input.messageId, input.replyInThread));
+    return { handled: true, outcome: "noop", choice: parsed.choice, requestId: pending.requestId, reason: "unsupported-scope" };
+  }
+  cleanupPendingApproval(input.runtime, pending.requestId);
+  pending.resolve(renderTextApprovalDecision(parsed.choice));
+  const replyText = approvalScopeLabel(pending.approvalScopes, parsed.choice, locale, true);
+  const cardStatus = `${parsed.choice === "deny" ? "⛔" : "✅"} ${replyText}`;
+  const postReply = async (): Promise<void> => {
+    await input.channel.send(input.chatId, { text: replyText }, coreReplyOptions(input.messageId, input.replyInThread));
+  };
+  // If the approval card was a CardKit managed card, resolve it in place too — so
+  // the card reflects the decision whether the operator tapped a button or typed
+  // /approve · /deny. Otherwise just post the reply.
+  if (pending.managedCard) {
+    const resolvedCard = renderCoreApprovalCard({
+      requestId: pending.requestId,
+      toolName: pending.approvalToolName ?? "",
+      toolInput: pending.approvalToolInput,
+      approvalScopes: pending.approvalScopes,
+      replyInThread: pending.replyInThread,
+      locale,
+      decidedStatus: cardStatus,
+    });
+    settleThenUpdateManagedCard(input.channel, pending.managedCard, resolvedCard, postReply);
+  } else {
+    await postReply();
+  }
+  return { handled: true, outcome: "success", choice: parsed.choice, requestId: pending.requestId };
+}
+
+export async function handleCoreCardAction(input: {
+  channel: CoreChannelLike;
+  bridge?: CoreBridgeLike;
+  runtime: CoreServiceRuntime;
+  stateDir?: string;
+  instanceName?: string;
+  /** Shared run presentation, injected to avoid a message-handler import cycle. */
+  createRunCard?: typeof import("./message-handler.js")["createCoreRunCardController"];
+  event: {
+    messageId: string;
+    chatId: string;
+    operator?: {
+      openId?: string;
+      userId?: string;
+      name?: string;
+    };
+    action: {
+      value: unknown;
+      form_value?: unknown;
+      formValue?: unknown;
+      input_value?: unknown;
+      inputValue?: unknown;
+      option?: unknown;
+      options?: unknown;
+    };
+    // Full raw Feishu event (present when the channel is created with
+    // includeRawEvent). This remains the compatibility source for SDK installs
+    // that have not applied TaroCub's normalizeCardAction field patch.
+    raw?: unknown;
+  };
+}): Promise<boolean> {
+  const value = actionValue(input.event.action.value);
+  if (!value) {
+    return false;
+  }
+  const replyInThread = value.replyInThread === true;
+  const locale = input.stateDir ? await resolveCoreLocale(input.stateDir) : "zh";
+
+  if (value.cctb_lark === "stop" && typeof value.conversationKey === "string") {
+    const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+    if (!await ensureCoreCardActionAccess({
+      ...input,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+      action: "stop",
+    })) {
+      return true;
+    }
+    // Receipt record, BEFORE acting: a stop tap used to leave no trace in the
+    // timeline, so when Feishu reported 108002 (callback ack timeout) there was
+    // no way to tell "callback never reached us" from "we received it and
+    // failed". One entry per arrival makes that question answerable.
+    if (input.stateDir) {
+      await appendCoreCardActionEngineEvent({
+        stateDir: input.stateDir,
+        chatId: input.event.chatId,
+        replyTo: input.event.messageId,
+        conversationKey: value.conversationKey,
+        bridgeChatType,
+        userId: stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`),
+      }, {
+        type: "engine.event",
+        action: "stop",
+        outcome: "received",
+        detail: "stop_button",
+        ...(typeof value.taskId === "string" ? { metadata: { taskId: value.taskId } } : {}),
+      });
+    }
+    // A queue card carries the id of its own still-queued task. If that task is
+    // still pending, cancel just it (the user can still /stop the running one).
+    const taskId = typeof value.taskId === "string" ? value.taskId : undefined;
+    if (taskId && input.runtime.cancelledQueueTaskIds.has(taskId)) {
+      // Already cancelled (e.g. a double-tap before the card re-rendered). Treat
+      // as a no-op — never fall through to abort the active run.
+      return true;
+    }
+    if (taskId && input.runtime.chatQueue.cancel(value.conversationKey, taskId)) {
+      const cancelledText = locale === "en" ? "Cancelled this queued task." : "已取消此排队任务。";
+      // Claim the task so the eventual queue skip stays silent (no duplicate
+      // notice), and forget its card so no wait/skip path re-renders it.
+      input.runtime.cancelledQueueTaskIds.add(taskId);
+      const ref = input.runtime.queueCards.get(taskId);
+      input.runtime.queueCards.delete(taskId);
+      if (ref?.onCancelled) {
+        ref.onCancelled();
+        return true;
+      }
+      // Fallback (CardKit unavailable, or the in-place update is rejected): post
+      // a fresh "已取消" notice and recall the now-useless interactive card.
+      const postCancelledFallback = async (): Promise<void> => {
+        await input.channel.send(input.event.chatId, { text: cancelledText }, {
+          ...(replyInThread ? { replyInThread: true } : {}),
+        });
+        if (ref?.messageId && input.channel.recallMessage) {
+          await input.channel.recallMessage(ref.messageId).catch(() => {
+            // Best-effort: if recall fails, the notice above still confirms it.
+          });
+        }
+      };
+      // Preferred: the queue card was sent as a CardKit managed card, so flip it
+      // to "已取消" IN PLACE — no recall, no extra notice. The update must be
+      // detached + delayed (settleThenUpdateManagedCard): an immediate update
+      // right after the cancel tap is reverted by the client's post-tap lock,
+      // snapping the card back to "排队中".
+      if (ref?.handle) {
+        settleThenUpdateManagedCard(input.channel, ref.handle, renderCoreQueueCancelledCard(locale, { profile: input.channel.profile, taskId, conversationKey: value.conversationKey }), postCancelledFallback);
+        return true;
+      }
+      await postCancelledFallback();
+      return true;
+    }
+    if (taskId) {
+      // A stop tap carrying a taskId comes from a QUEUE card. Its task is no
+      // longer pending (it already started or finished), so the card is stale —
+      // never fall through to abort whatever run is active NOW.
+      await input.channel.send(input.event.chatId, {
+        text: locale === "en" ? "This task is no longer in the queue." : "该任务已不在队列中。",
+      }, {
+        replyTo: input.event.messageId,
+        ...(replyInThread ? { replyInThread: true } : {}),
+      });
+      return true;
+    }
+    const stopped = await stopCoreConversation(input.runtime, value.conversationKey, input.stateDir);
+    const text = renderCoreConversationStop(stopped, locale);
+    if (text) {
+      await input.channel.send(input.event.chatId, { text }, {
+        replyTo: input.event.messageId,
+        ...(replyInThread ? { replyInThread: true } : {}),
+      });
+    }
+    return true;
+  }
+
+  if (value.cctb_lark === "noop") {
+    return true;
+  }
+
+  if (value.cctb_lark === "board" && typeof value.command === "string" && typeof value.conversationKey === "string") {
+    if (!input.bridge || !input.stateDir) {
+      return false;
+    }
+    const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+    if (!await ensureCoreCardActionAccess({
+      ...input,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+      action: "board",
+    })) {
+      return true;
+    }
+    const operatorRawId = coreOperatorRawId(input.event.operator);
+    const bridgeChatId = stableCoreNumericId(value.conversationKey);
+    const accessConversationKey = coreAccessConversationKeyFromConversationKey(value.conversationKey);
+    await handleCoreBoardCommand({
+      channel: input.channel,
+      bridge: input.bridge,
+      runtime: input.runtime,
+      stateDir: input.stateDir,
+      instanceName: input.instanceName,
+      requestApproval: async (requestInput) => await requestCoreApproval(requestInput),
+    }, {
+      messageId: input.event.messageId,
+      chatId: input.event.chatId,
+      senderId: operatorRawId,
+      bridgeChatId,
+      bridgeAccessChatId: coreAccessChatIdFromConversationKey(value.conversationKey),
+      bridgeUserId: stableCoreNumericId(`user:${operatorRawId}`),
+      bridgeChatType,
+      conversationKey: value.conversationKey,
+      accessConversationKey,
+      text: value.command,
+      mentions: [],
+      attachments: [],
+    }, value.command);
+    return true;
+  }
+
+  if (isCoreConfigCardActionValue(value)) {
+    if (!input.stateDir) {
+      return false;
+    }
+    const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+    if (!await ensureCoreCardActionAccess({
+      ...input,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+      action: "config",
+    })) {
+      return true;
+    }
+
+    const notice = await applyCoreConfigCardAction(
+      input.stateDir,
+      value,
+      locale,
+      coreCardActionFormValue(input.event),
+      {
+        appId: input.runtime.appInfo?.appId,
+        appSecret: input.runtime.appInfo?.appSecret,
+        domain: input.runtime.appInfo?.domain,
+        instanceName: input.instanceName,
+      },
+    );
+    const bridgeChatId = typeof value.bridgeChatId === "number" && Number.isInteger(value.bridgeChatId)
+      ? value.bridgeChatId
+      : stableCoreNumericId(value.conversationKey);
+    const card = await renderCoreConfigCard({
+      stateDir: input.stateDir,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      larkChatId: typeof value.larkChatId === "string" ? value.larkChatId : input.event.chatId,
+      bridgeChatId,
+      replyInThread,
+      locale: await resolveCoreLocale(input.stateDir),
+      notice,
+    });
+    if (input.channel.updateCard) {
+      try {
+        await input.channel.updateCard(input.event.messageId, card);
+      } catch {
+        await sendCoreCardWithFallback({
+          channel: input.channel,
+          chatId: input.event.chatId,
+          card,
+          fallbackText: notice,
+          options: coreReplyOptions(input.event.messageId, replyInThread),
+          locale,
+        });
+      }
+    } else {
+      await sendCoreCardWithFallback({
+        channel: input.channel,
+        chatId: input.event.chatId,
+        card,
+        fallbackText: notice,
+        options: coreReplyOptions(input.event.messageId, replyInThread),
+        locale,
+      });
+    }
+    // The "Save settings" button is a Card 2.0 form SUBMIT: Feishu's client locks
+    // a just-submitted form and reverts the in-place patch above, so the operator
+    // wouldn't see the result. Post the notice as a separate message so the save
+    // is visibly confirmed. The quick-action buttons are plain callbacks (no form
+    // lock, no revert), so they don't need this.
+    if (value.action === "submit" && notice) {
+      await input.channel.send(input.event.chatId, { text: notice }, coreReplyOptions(input.event.messageId, replyInThread));
+    }
+    await appendCoreCardActionTurnEvent({
+      stateDir: input.stateDir,
+      chatId: input.event.chatId,
+      replyTo: input.event.messageId,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      userId: stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`),
+    }, {
+      type: "turn.completed",
+      action: "config",
+      outcome: "success",
+      detail: "config",
+      metadata: {
+        configAction: value.action,
+        configValue: value.value,
+      },
+    });
+    return true;
+  }
+
+  if (value.cctb_lark === "resume_scan" && typeof value.conversationKey === "string") {
+    if (!input.stateDir) {
+      return false;
+    }
+    const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+    if (!await ensureCoreCardActionAccess({
+      ...input,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+      action: "resume",
+    })) {
+      return true;
+    }
+    const cfg = await loadInstanceConfig(input.stateDir);
+    if (cfg.engine === "codex") {
+      await input.channel.send(
+        input.event.chatId,
+        {
+          text: locale === "en"
+            ? "Codex does not provide a session scan here. Use /resume thread <thread-id>."
+            : "Codex 当前不支持在这里扫描 session，请使用 /resume thread <thread-id>。",
+        },
+        coreReplyOptions(input.event.messageId, replyInThread),
+      );
+      return true;
+    }
+    const kind = cfg.engine === "antigravity"
+      ? "antigravity"
+      : cfg.engine === "kimi"
+        ? "kimi"
+        : cfg.engine === "deepseek"
+          ? "deepseek"
+          : "claude";
+    const sessions = kind === "antigravity"
+      ? await scanRecentAntigravityConversations(24)
+      : (kind === "kimi" || kind === "deepseek") && input.bridge?.listExternalSessions
+        ? (await input.bridge.listExternalSessions({ limit: 20 })).map((session) => {
+            const modifiedAt = new Date(session.updatedAt ?? 0);
+            return {
+              sessionId: session.sessionId,
+              dirName: session.sessionId,
+              workspacePath: session.cwd,
+              modifiedAt: Number.isNaN(modifiedAt.getTime()) ? new Date(0) : modifiedAt,
+              displayName: session.title || session.sessionId,
+            };
+          })
+        : cfg.engine === "claude"
+        ? await scanRecentClaudeSessions(1)
+        : [];
+    const card = renderCoreResumeScanCard({
+      kind,
+      sessions,
+      locale,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+    });
+    await sendCoreCardWithFallback({
+      channel: input.channel,
+      chatId: input.event.chatId,
+      card,
+      fallbackText: locale === "en" ? "Recent sessions are available, but the resume card could not be displayed." : "已找到最近 session，但恢复卡片无法显示。",
+      options: coreReplyOptions(input.event.messageId, replyInThread),
+      locale,
+    });
+    return true;
+  }
+
+  if (
+    value.cctb_lark === "resume" &&
+    typeof value.conversationKey === "string" &&
+    typeof value.sessionId === "string" &&
+    (value.engine === "claude" || value.engine === "antigravity" || value.engine === "kimi" || value.engine === "deepseek")
+  ) {
+    if (!input.stateDir) {
+      return false;
+    }
+    const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+    if (!await ensureCoreCardActionAccess({
+      ...input,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+      action: "resume",
+    })) {
+      return true;
+    }
+    const currentConfig = await loadInstanceConfig(input.stateDir);
+    if (currentConfig.engine !== value.engine) {
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderCoreResumeEngineChanged(locale) },
+        coreReplyOptions(input.event.messageId, replyInThread),
+      );
+      return true;
+    }
+    let resumeValue = value;
+    if (value.engine === "kimi" || value.engine === "deepseek") {
+      const engineName = value.engine === "deepseek" ? "DeepSeek Harness" : "Kimi";
+      const validateHarnessSession = input.bridge?.validateCodexThread?.bind(input.bridge);
+      if (!validateHarnessSession) {
+        await input.channel.send(
+          input.event.chatId,
+          { text: locale === "en" ? `This ${engineName} runtime cannot validate session IDs.` : `当前 ${engineName} runtime 无法验证 session id。` },
+          coreReplyOptions(input.event.messageId, replyInThread),
+        );
+        return true;
+      }
+      try {
+        const validated = await validateHarnessSession(value.sessionId);
+        if (!validated?.cwd) {
+          throw new Error(`${engineName} session workspace is unavailable`);
+        }
+        resumeValue = {
+          ...value,
+          workspacePath: validated.cwd,
+          dirName: validated.sessionId,
+          displayName: validated.title || validated.sessionId,
+        };
+      } catch {
+        await input.channel.send(
+          input.event.chatId,
+          { text: locale === "en" ? `Could not load ${engineName} session: ${value.sessionId}` : `无法加载 ${engineName} session：${value.sessionId}` },
+          coreReplyOptions(input.event.messageId, replyInThread),
+        );
+        return true;
+      }
+    }
+    const result = await applyCoreResumeCardAction(input.stateDir, resumeValue, locale);
+    await input.channel.send(input.event.chatId, { text: result }, coreReplyOptions(input.event.messageId, replyInThread));
+    return true;
+  }
+
+  if (
+    value.cctb_lark === "ask_user_question" &&
+    typeof value.requestId === "string"
+  ) {
+    const pending = input.runtime.pendingApprovals.get(value.requestId);
+    if (!pending) {
+      if (input.channel.closeInactiveQuestion && await ensureCoreCardActionAccess({ ...input,
+        conversationKey: `lark:${input.event.chatId}`, bridgeChatType: await input.channel.getChatMode?.(input.event.chatId) === "group" ? "group" : "private",
+        replyInThread, action: "approval",
+      })) await input.channel.closeInactiveQuestion({ chatId: input.event.chatId, messageId: input.event.messageId,
+        requestId: value.requestId, card: renderCorePendingClosedCard("", locale === "en" ? "Question inactive" : "问题已失效", renderCoreChoiceNoLongerActive(locale)),
+      }).catch(() => undefined);
+      // A late submit on a dead form: say what actually happened instead of the
+      // terse "no pending approval" (which reads as a broken button). The copy
+      // stays cause-neutral — this handler can't tell a 29-minute timeout from
+      // a /stop-style abort, and claiming "expired, task continued with the
+      // default option" is a fabrication when the turn was stopped.
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderCoreChoiceNoLongerActive(locale) },
+        coreReplyOptions(input.event.messageId, replyInThread),
+      );
+      return true;
+    }
+    const approvalConversationKey = pending.conversationKey ?? `lark:${pending.chatId}`;
+    const approvalBridgeChatType = pending.bridgeChatType ?? "private";
+    if (!pendingCoreApprovalMatchesEvent(pending, input.event, approvalConversationKey)) {
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderApprovalNoPending(locale) },
+        coreReplyOptions(input.event.messageId, replyInThread),
+      );
+      return true;
+    }
+    if (
+      !await ensureCoreCardActionAccess({
+        ...input,
+        conversationKey: approvalConversationKey,
+        bridgeChatType: approvalBridgeChatType,
+        replyInThread: pending.replyInThread ?? replyInThread,
+        action: "approval",
+      })
+    ) {
+      return true;
+    }
+
+    // The published card may be clicked before its send acknowledgement binds
+    // managedCard. Wait for that receipt before choosing an in-place update or
+    // a fallback message, and respect cancellation while the receipt was pending.
+    await pending.presentation;
+    if (input.runtime.pendingApprovals.get(value.requestId) !== pending) {
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderCoreChoiceNoLongerActive(locale) },
+        coreReplyOptions(input.event.messageId, pending.replyInThread ?? replyInThread),
+      );
+      return true;
+    }
+    if (pending.submitting || (pending.asyncQuestion && pending.managedCard?.native && pending.managedCard.messageId !== input.event.messageId)) return true;
+    const replyOpts = coreReplyOptions(input.event.messageId, pending.replyInThread ?? replyInThread);
+    const questions = normalizeAskUserQuestions(pending.askUserQuestionInput);
+    const formInspection = inspectCoreCardActionFormValue(input.event);
+    const formValue = formInspection.value;
+    const selectedCounts = questions.map((question, index) => {
+      const selected = askFormSelectedValues(formValue[askFormFieldName(index)]).length;
+      const other = pending.approvalEngine === "kimi" || !question.allowFreeText
+        ? ""
+        : stringValue(formValue[askFormOtherFieldName(index)])?.trim() ?? "";
+      return selected + (other ? 1 : 0);
+    });
+
+    // Record that the submit ARRIVED, before any of the branches below can
+    // swallow it. Only the stop button was writing a timeline entry, so a
+    // "I pressed submit and nothing happened" report could not be told apart
+    // from "the click never reached the bridge" — the logs were silent either
+    // way. Field names only: the values are the operator's own answers.
+    const logCardSubmit = async (outcome: string, detail: string): Promise<void> => {
+      if (!input.stateDir) {
+        return;
+      }
+      await appendCoreCardActionEngineEvent({
+        stateDir: input.stateDir,
+        chatId: input.event.chatId,
+        replyTo: input.event.messageId,
+        conversationKey: approvalConversationKey,
+        bridgeChatType: approvalBridgeChatType,
+        userId: stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`),
+      }, {
+        type: "engine.event",
+        action: "choice",
+        outcome,
+        detail,
+        metadata: {
+          requestId: value.requestId,
+          questions: questions.length,
+          answeredFields: Object.keys(formValue).filter((key) => askFormSelectedValues(formValue[key]).length > 0),
+          formFields: Object.keys(formValue).sort(),
+          formValueSource: formInspection.source,
+          formValueCandidates: formInspection.candidatePaths,
+          normalizedActionFields: Object.keys(input.event.action).sort(),
+          rawTopLevelFields: Object.keys(objectValue(input.event.raw) ?? {}).sort().slice(0, 32),
+        },
+      });
+    };
+
+    const retryQuestion = async (notice: string) => {
+      const retryCard = renderCoreAskUserQuestionCard({
+        requestId: pending.requestId,
+        toolInput: pending.askUserQuestionInput,
+        engine: pending.approvalEngine,
+        ...(pending.replyInThread ?? replyInThread ? { replyInThread: true } : {}),
+        locale,
+        selections: formValue,
+        notice,
+      });
+      // A submitted card can remain client-locked even after an in-place update:
+      // the retry looks editable, but a second click never emits a callback. Do
+      // not reuse it. Send a brand-new card, then retire the old managed card.
+      const previousManagedCard = pending.managedCard;
+      const retryInThread = pending.replyInThread ?? replyInThread;
+      const managedRetry = await sendManagedCard(input.channel, input.event.chatId, retryCard, {
+        ...(pending.replyTo ? { replyTo: pending.replyTo } : {}),
+        ...(retryInThread ? { replyInThread: true } : {}),
+      });
+      if (managedRetry) {
+        pending.managedCard = managedRetry;
+        if (managedRetry.native && !input.runtime.pendingApprovals.has(pending.requestId)) {
+          if (pending.closedCard) await updateManagedCard(input.channel, managedRetry, pending.closedCard);
+          else await input.channel.recallMessage?.(managedRetry.messageId);
+          await logCardSubmit("rejected", "choice_no_longer_active");
+          return true;
+        }
+      } else {
+        await sendCoreCardWithFallback({
+          channel: input.channel,
+          chatId: input.event.chatId,
+          card: retryCard,
+          fallbackText: notice,
+          options: coreReplyOptions(pending.replyTo, retryInThread),
+          locale,
+        });
+        delete pending.managedCard;
+      }
+      if (previousManagedCard) {
+        settleThenUpdateManagedCard(
+          input.channel,
+          previousManagedCard,
+          renderCoreAskUserQuestionRetrySentCard(notice, locale),
+        );
+      }
+    };
+
+    // The whole form arrives in one submit. Each select carries the option's
+    // INDEX as its value (labels aren't unique per question); map each selected
+    // index back to its label (single = label, multi = joined labels). A value
+    // that isn't a valid index — e.g. a card rendered before this migration, or
+    // the legacy label-valued form — is used as-is for backward compatibility.
+    const labelForValue = (question: AskUserQuestionCardQuestion, rawValue: string): string => {
+      const trimmed = rawValue.trim();
+      const idx = Number(trimmed);
+      if (trimmed !== "" && Number.isInteger(idx) && idx >= 0 && idx < question.options.length) {
+        return question.options[idx]!.label;
+      }
+      return trimmed;
+    };
+    const joinLabels = (question: AskUserQuestionCardQuestion, arr: unknown[]): string =>
+      arr
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => labelForValue(question, entry))
+        .join(", ");
+    const answers: Record<string, string> = Object.create(null) as Record<string, string>;
+    questions.forEach((question, index) => {
+      const raw = formValue[askFormFieldName(index)];
+      let answer = "";
+      if (Array.isArray(raw)) {
+        // multi_select_static → array of selected option values (indices).
+        answer = joinLabels(question, raw);
+      } else if (typeof raw === "string") {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith("[")) {
+          // Some Feishu clients deliver a multi-select value as a JSON string.
+          try {
+            const parsed = JSON.parse(trimmed) as unknown;
+            answer = Array.isArray(parsed) ? joinLabels(question, parsed) : labelForValue(question, trimmed);
+          } catch {
+            answer = labelForValue(question, trimmed);
+          }
+        } else {
+          answer = labelForValue(question, trimmed);
+        }
+      } else {
+        answer = stringValue(raw) ?? "";
+      }
+      // Merge the free-text "Other": for single-select it stands in when nothing
+      // was picked; for multi-select it is appended to the chosen labels.
+      const other = pending.approvalEngine === "kimi" || !question.allowFreeText
+        ? "" : stringValue(formValue[askFormOtherFieldName(index)]) ?? "";
+      if (other) {
+        // answer is already resolved labels and other is free text — neither is an
+        // index, so join directly rather than re-running the index→label mapping.
+        answer = answer
+          ? (question.multiSelect ? [answer, other].join(", ") : answer)
+          : other;
+      }
+      answers[question.question] = answer;
+    });
+
+    // Backstop for clients that don't enforce the form's `required`: a
+    // required question must have an answer, including a required multi-select.
+    //
+    // Re-prompting with a plain text message is NOT enough. The client locks a
+    // submitted card, and even an in-place re-render can leave the replacement
+    // form looking editable while a second Submit emits no callback. The branch
+    // below therefore sends a fresh card and carries over any picks we received.
+    const missingRequired = questions.filter((question, index) => (
+      question.required && selectedCounts[index] === 0 && !(answers[question.question] ?? "").trim()
+    ));
+    const belowMinimum = questions.filter((question, index) => (
+      question.multiSelect
+      && question.minSelections !== undefined
+      && selectedCounts[index]! > 0
+      && selectedCounts[index]! < question.minSelections
+    ));
+    const aboveMaximum = questions.filter((question, index) => (
+      question.multiSelect
+      && question.maxSelections !== undefined
+      && selectedCounts[index]! > question.maxSelections
+    ));
+    if (missingRequired.length > 0 || belowMinimum.length > 0 || aboveMaximum.length > 0) {
+      const notices: string[] = [];
+      if (missingRequired.length > 0) {
+        const names = missingRequired.map((question) => question.header).join(locale === "en" ? ", " : "、");
+        notices.push(locale === "en" ? `Please choose an answer for: ${names}` : `请先选择：${names}`);
+      }
+      for (const question of belowMinimum) {
+        notices.push(locale === "en"
+          ? `${question.header}: choose at least ${question.minSelections} options`
+          : `${question.header}：请至少选择 ${question.minSelections} 项`);
+      }
+      for (const question of aboveMaximum) {
+        notices.push(locale === "en"
+          ? `${question.header}: choose at most ${question.maxSelections} options`
+          : `${question.header}：最多选择 ${question.maxSelections} 项`);
+      }
+      const notice = notices.join(locale === "en" ? ". " : "；");
+      pending.submitting = true;
+      try {
+        await retryQuestion(notice);
+        await logCardSubmit("rejected", "choice_invalid_selection_count");
+        return true;
+      } finally { pending.submitting = false; }
+    }
+    await logCardSubmit("received", "choice_submit");
+
+    // Re-check AFTER the access-check awaits: the 29-minute timer or a turn
+    // abort may have settled this approval inside that window (both delete the
+    // entry via cleanup). The resolve below would then be a silent no-op —
+    // flipping the card to "已提交" would acknowledge a decision the engine
+    // never received. Treat it as the no-pending case instead.
+    if (!input.runtime.pendingApprovals.has(value.requestId)) {
+      if (pending.managedCard) await updateManagedCard(input.channel, pending.managedCard,
+        renderCorePendingClosedCard("", locale === "en" ? "Question inactive" : "问题已失效", renderCoreChoiceNoLongerActive(locale))).catch(() => undefined);
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderCoreChoiceNoLongerActive(locale) },
+        replyOpts,
+      );
+      return true;
+    }
+
+    let asyncPhase: AsyncAnswerPhase | undefined;
+    const answerStartedAt = Date.now();
+    const followupMetadata = (): AnswerFollowup | undefined => asyncPhase ? { version: 1, startedAt: answerStartedAt, phase: asyncPhase, locale } : undefined;
+    const cancelAnswerValue = (): Record<string, unknown> | undefined => input.channel.profile === "gateway" && asyncPhase === "queued" && pending.asyncTaskId ? {
+      cctb_lark: "stop", taskId: pending.asyncTaskId,
+      conversationKey: pending.conversationKey ?? `lark:${pending.chatId}`,
+      bridgeChatType: pending.bridgeChatType ?? "private",
+      ...(pending.replyInThread ? { replyInThread: true } : {}),
+    } : undefined;
+    let asyncReceiptReady = false, asyncFeedbackClosed = false;
+    const onAsyncProgress = pending.asyncQuestion && pending.managedCard && input.channel.profile === "gateway" ? (phase: AsyncAnswerPhase) => {
+      if (asyncFeedbackClosed || phase === asyncPhase) return;
+      asyncPhase = phase;
+      asyncFeedbackClosed = ["finished", "interrupted", "failed", "skipped", "blocked"].includes(phase);
+      // Queue admission can start/finish before submit returns. Buffer that
+      // state until the initial receipt is enqueued so it cannot overwrite it.
+      if (!asyncReceiptReady) return;
+      pending.closedCard = renderCoreAskUserQuestionSubmittedCard(pending.askUserQuestionInput, answers, locale, asyncAnswerFeedback(phase, locale), followupMetadata(), cancelAnswerValue());
+      if (pending.managedCard) void updateManagedCard(input.channel, pending.managedCard, pending.closedCard).catch(() => undefined);
+    } : undefined;
+    if (pending.asyncQuestion) {
+      if (pending.submitting) return true;
+      pending.submitting = true;
+      try {
+        // Validation/binding reads happen before delivery; failures are safe to retry.
+        const delivery = await submitAsyncQuestion(input, pending, answers, locale, onAsyncProgress).catch(() => "retry" as const);
+        // A stop/timeout while the transport was in flight owns the terminal UI.
+        if (!input.runtime.pendingApprovals.has(value.requestId)) return true;
+        if (delivery === "retry") {
+          await retryQuestion(locale === "en" ? "The running task did not accept the answer. Please retry." : "当前任务尚未接收答案，请重试。");
+          return true;
+        }
+        if (delivery !== "accepted") {
+          cleanupPendingApproval(input.runtime, value.requestId);
+          pending.resolve({ behavior: "deny" });
+          const summary = questions.map(q => `${q.question}\n${answers[q.question] ?? ""}`).join("\n\n");
+          pending.closedCard = renderCorePendingClosedCard("", delivery === "unknown"
+            ? (locale === "en" ? "Answer delivery unconfirmed" : "答案提交结果未确认")
+            : (locale === "en" ? "Question no longer active" : "问题已失效"),
+          (delivery === "unknown"
+            ? (locale === "en" ? "Delivery could not be confirmed. Check the conversation before sending again. Your answer:\n\n" : "暂时无法确认任务是否收到，请查看后续回复再决定是否重发。你的答案：\n\n")
+            : (locale === "en" ? "The task or session changed. No answer was sent.\n\n" : "任务或会话已变化，本次没有发送答案。\n\n")) + summary);
+          if (pending.managedCard) await updateManagedCard(input.channel, pending.managedCard, pending.closedCard);
+          return true;
+        }
+      } finally { pending.submitting = false; }
+    }
+
+    const root = objectValue(pending.askUserQuestionInput) ?? {};
+    cleanupPendingApproval(input.runtime, value.requestId);
+    let feedbackClosed = false;
+    let previousFeedback = asyncPhase ? asyncAnswerFeedback(asyncPhase, locale) : questionFeedback(undefined, locale);
+    const onAnswerProgress = pending.supportsAnswerProgress && input.channel.profile === "gateway"
+      ? (progress: EngineAnswerProgress) => {
+        if (feedbackClosed) return;
+        feedbackClosed = ["finished", "interrupted", "unknown", "waiting_input"].includes(progress.phase);
+        const feedback = questionFeedback(progress, locale);
+        if (feedback === previousFeedback) return;
+        previousFeedback = feedback;
+        pending.closedCard = renderCoreAskUserQuestionSubmittedCard(pending.askUserQuestionInput, answers, locale, feedback);
+        if (pending.managedCard) void updateManagedCard(input.channel, pending.managedCard, pending.closedCard).catch(() => undefined);
+      } : undefined;
+    const decision: EngineApprovalDecision = {
+      behavior: "allow",
+      updatedInput: {
+        ...root,
+        questions: Array.isArray(root.questions) ? root.questions : questions,
+        answers,
+      },
+      ...(onAnswerProgress ? { onAnswerProgress } : {}),
+    };
+
+    const submittedCard = renderCoreAskUserQuestionSubmittedCard(pending.askUserQuestionInput, answers, locale,
+      input.channel.profile === "gateway" ? previousFeedback : undefined, followupMetadata(), cancelAnswerValue());
+    pending.closedCard = submittedCard;
+
+    // Fallback (CardKit unavailable, this form was sent the legacy way, or the
+    // in-place update is rejected): Feishu silently ignores `im.message.patch`
+    // on a submitted form card, so post a compact read-only summary (keeps the
+    // record of what was picked) and recall the now-useless interactive form.
+    const postSummaryFallback = async (): Promise<void> => {
+      asyncFeedbackClosed = true; asyncReceiptReady = false;
+      // Drain previously enqueued patches before retiring the old form.
+      await pending.managedCard?.updateChain;
+      const summary = questions
+        .map((question) => `${question.header}: ${answers[question.question] || (locale === "en" ? "—" : "（未选）")}`)
+        .join("\n");
+      const summaryOptions: CoreSendOptions | undefined = (pending.replyInThread ?? replyInThread)
+        ? { replyInThread: true }
+        : undefined;
+      await sendCoreCardWithFallback({
+        channel: input.channel,
+        chatId: input.event.chatId,
+        // A fallback creates a different message without an update handle.
+        // Keep a truthful submission receipt, not orphaned live metadata.
+        card: pending.asyncQuestion ? renderCoreAskUserQuestionSubmittedCard(pending.askUserQuestionInput, answers, locale,
+          input.channel.profile === "gateway" ? questionFeedback(undefined, locale) : undefined) : submittedCard,
+        fallbackText: (locale === "en" ? "Submitted:\n" : "已提交：\n") + summary,
+        options: summaryOptions,
+        locale,
+      });
+      if (input.channel.recallMessage) {
+        await input.channel.recallMessage(input.event.messageId).catch(() => {
+          // Best-effort: if recall fails (e.g. outside the recall window) the
+          // read-only summary above still records the choice; the form lingers.
+        });
+      }
+    };
+
+    // Preferred: the form was sent as a CardKit managed card, so flip it
+    // read-only IN PLACE — no recall, no second message. The update must be
+    // detached + delayed (settleThenUpdateManagedCard): an immediate update
+    // right after submit is reverted by the client's post-submit card lock.
+    if (pending.managedCard) {
+      settleThenUpdateManagedCard(input.channel, pending.managedCard, submittedCard, postSummaryFallback);
+      asyncReceiptReady = true;
+      // Enqueue the receipt first. A synchronous engine response must not be
+      // overwritten later by the initial "received" state.
+      pending.resolve(decision);
+      return true;
+    }
+    pending.resolve(decision);
+    await postSummaryFallback();
+    return true;
+  }
+
+  if (
+    value.cctb_lark === "approval" &&
+    typeof value.requestId === "string" &&
+    isApprovalDecision(value.decision)
+  ) {
+    const pending = input.runtime.pendingApprovals.get(value.requestId);
+    if (!pending) {
+      if (input.stateDir) {
+        const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+        await appendCoreCardActionTurnEvent({
+          stateDir: input.stateDir,
+          chatId: input.event.chatId,
+          replyTo: input.event.messageId,
+          conversationKey: `lark:${input.event.chatId}`,
+          bridgeChatType,
+          userId: stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`),
+        }, {
+          type: "turn.completed",
+          action: "approval",
+          outcome: "noop",
+          detail: "approval",
+          metadata: {
+            decision: value.decision,
+            requestId: value.requestId,
+            reason: "no-pending",
+          },
+        });
+      }
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderApprovalNoPending(locale) },
+        coreReplyOptions(input.event.messageId, replyInThread),
+      );
+      return true;
+    }
+    const approvalConversationKey = pending.conversationKey ?? `lark:${pending.chatId}`;
+    const approvalBridgeChatType = pending.bridgeChatType ?? "private";
+    if (!pendingCoreApprovalMatchesEvent(pending, input.event, approvalConversationKey)) {
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderApprovalNoPending(locale) },
+        coreReplyOptions(input.event.messageId, replyInThread),
+      );
+      return true;
+    }
+    if (
+      !await ensureCoreCardActionAccess({
+        ...input,
+        conversationKey: approvalConversationKey,
+        bridgeChatType: approvalBridgeChatType,
+        replyInThread: pending.replyInThread ?? replyInThread,
+        action: "approval",
+      })
+    ) {
+      return true;
+    }
+    await pending.presentation;
+    // Same race guard as the AskUserQuestion form submit: if the timeout or an
+    // abort settled this approval during the access-check awaits, don't flip
+    // the card to a decided state the engine never received.
+    if (!input.runtime.pendingApprovals.has(value.requestId)) {
+      await input.channel.send(
+        input.event.chatId,
+        { text: renderApprovalNoPending(locale) },
+        coreReplyOptions(input.event.messageId, replyInThread),
+      );
+      return true;
+    }
+    const scopeChoice = value.decision === "allow_once" ? "once" : value.decision === "allow_session" ? "session" : "deny";
+    if (!approvalScope(pending.approvalScopes, scopeChoice)) {
+      await input.channel.send(input.event.chatId, { text: unsupportedApprovalScope(locale) }, coreReplyOptions(input.event.messageId, replyInThread));
+      return true;
+    }
+    cleanupPendingApproval(input.runtime, value.requestId);
+    pending.resolve(renderApprovalDecision(value.decision));
+    const replyText = approvalScopeLabel(pending.approvalScopes, scopeChoice, locale, true);
+    // The card status carries an emoji marker; the plain reply text stays as-is.
+    const cardStatus = `${value.decision === "deny" ? "⛔" : "✅"} ${replyText}`;
+    // Post the decision as a plain reply — used directly when the card wasn't
+    // managed, and as the fallback if the in-place card update is rejected.
+    const postResolutionReply = async (): Promise<void> => {
+      await input.channel.send(
+        input.event.chatId,
+        { text: replyText },
+        coreReplyOptions(input.event.messageId, pending.replyInThread ?? replyInThread),
+      );
+    };
+    if (pending.managedCard) {
+      // CardKit managed card → flip it to resolved IN PLACE (buttons removed), the
+      // same UX as the AskUserQuestion form. No separate reply unless that fails.
+      const resolvedCard = renderCoreApprovalCard({
+        requestId: value.requestId,
+        toolName: pending.approvalToolName ?? "",
+        toolInput: pending.approvalToolInput,
+        approvalScopes: pending.approvalScopes,
+        replyInThread: pending.replyInThread ?? replyInThread,
+        locale,
+        decidedStatus: cardStatus,
+      });
+      settleThenUpdateManagedCard(input.channel, pending.managedCard, resolvedCard, postResolutionReply);
+    } else {
+      await postResolutionReply();
+    }
+    if (input.stateDir) {
+      await appendCoreCardActionTurnEvent({
+        stateDir: input.stateDir,
+        chatId: input.event.chatId,
+        replyTo: input.event.messageId,
+        conversationKey: approvalConversationKey,
+        bridgeChatType: approvalBridgeChatType,
+        userId: stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`),
+      }, {
+        type: "turn.completed",
+        action: "approval",
+        outcome: "success",
+        detail: "approval",
+        metadata: {
+          decision: value.decision,
+          requestId: value.requestId,
+        },
+      });
+    }
+    return true;
+  }
+
+  if (value.cctb_lark === "choice" && typeof value.conversationKey === "string") {
+    if (!input.bridge || !input.stateDir) {
+      return false;
+    }
+    const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+    if (!await ensureCoreCardActionAccess({
+      ...input,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+      action: "choice",
+    })) {
+      return true;
+    }
+    const label = typeof value.label === "string" ? value.label : "choice";
+    const choiceCard = claimCoreChoiceCard(input.runtime, input.event.messageId, label);
+    if (!choiceCard) {
+      // The first tap already claimed this card. A repeated tap is acknowledged
+      // but must not enqueue a second engine turn.
+      return true;
+    }
+    const choiceValue = typeof value.value === "string" ? value.value : JSON.stringify(value.value ?? label);
+    const locale = await resolveCoreLocale(input.stateDir);
+    const text = [
+      "<lark_card_action>",
+      `message_id: ${input.event.messageId}`,
+      `operator_id: ${input.event.operator?.openId ?? input.event.operator?.userId ?? "unknown"}`,
+      input.event.operator?.name ? `operator_name: ${input.event.operator.name}` : undefined,
+      `choice_label: ${label}`,
+      `choice_value: ${choiceValue}`,
+      "</lark_card_action>",
+      "",
+      locale === "en" ? `The user clicked a Lark card button: ${label}` : `用户点击了飞书卡片按钮：${label}`,
+      `value: ${choiceValue}`,
+    ].filter((line): line is string => line !== undefined).join("\n");
+    const userId = stableCoreNumericId(`user:${input.event.operator?.openId ?? input.event.operator?.userId ?? "unknown"}`);
+    await appendCoreCardActionInputEvent({
+      stateDir: input.stateDir,
+      chatId: input.event.chatId,
+      replyTo: input.event.messageId,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      userId,
+    }, {
+      action: "choice",
+      metadata: { choiceLabel: label },
+    });
+    await appendCoreCardActionEngineEvent({
+      stateDir: input.stateDir,
+      chatId: input.event.chatId,
+      replyTo: input.event.messageId,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      userId,
+    }, {
+      type: "engine.event",
+      action: "choice",
+      outcome: "received",
+      detail: "choice_button",
+      metadata: { choiceLabel: label },
+    });
+    settleCoreChoiceCard({
+      channel: input.channel,
+      chatId: input.event.chatId,
+      replyInThread,
+      locale,
+      label,
+      ref: choiceCard,
+    });
+
+    // Native asynchronous questions can leave the originating turn waiting.
+    // Deliver its answer into that same turn instead of deadlocking behind it.
+    if (await choiceCard.answerActiveTurn?.(text)) return true;
+
+    // Do not await the queued engine turn here. Lark keeps the tapped card
+    // interaction-locked until this callback returns; waiting for a busy queue
+    // left the buttons live and caused callback timeouts. The queue still owns
+    // ordering and error delivery, while this handler acknowledges immediately.
+    const queued = input.runtime.chatQueue.enqueue(value.conversationKey, async () => {
+      await runCoreCardChoice({
+        channel: input.channel,
+        createRunCard: input.createRunCard,
+        bridge: input.bridge!,
+        runtime: input.runtime,
+        stateDir: input.stateDir!,
+        chatId: input.event.chatId,
+        replyTo: input.event.messageId,
+        replyInThread,
+        conversationKey: value.conversationKey as string,
+        bridgeChatType,
+        userId,
+        text,
+        locale,
+        instanceName: input.instanceName,
+      });
+      return true;
+    }, {
+      onSkipped: async () => {
+        await appendCoreCardActionTurnEvent({
+          stateDir: input.stateDir!,
+          chatId: input.event.chatId,
+          replyTo: input.event.messageId,
+          conversationKey: value.conversationKey as string,
+          bridgeChatType,
+          userId,
+        }, {
+          type: "turn.completed",
+          action: "choice",
+          outcome: "skipped",
+          detail: "queued turn skipped",
+          metadata: { phase: "queue" },
+        });
+        await input.channel.send(input.event.chatId, { text: renderCoreQueuedTaskSkipped(locale) }, coreReplyOptions(input.event.messageId, replyInThread));
+        return true;
+      },
+    });
+    void queued.catch(async (error) => {
+      await reportQueuedCoreCardActionFailure({
+        channel: input.channel,
+        stateDir: input.stateDir!,
+        chatId: input.event.chatId,
+        replyTo: input.event.messageId,
+        replyInThread,
+        conversationKey: value.conversationKey as string,
+        bridgeChatType,
+        userId,
+        action: "choice",
+        locale,
+        error,
+      });
+    });
+    return true;
+  }
+
+  if (
+    value.cctb_lark === "continue_archive" &&
+    typeof value.conversationKey === "string" &&
+    typeof value.uploadId === "string"
+  ) {
+    if (!input.bridge || !input.stateDir) {
+      return false;
+    }
+    const bridgeChatType = bridgeChatTypeFromValue(value.bridgeChatType);
+    if (!await ensureCoreCardActionAccess({
+      ...input,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      replyInThread,
+      action: "continue_archive",
+    })) {
+      return true;
+    }
+    const archiveCard = claimCoreChoiceCard(
+      input.runtime,
+      input.event.messageId,
+      locale === "en" ? "Continue Analysis" : "继续分析",
+    );
+    if (!archiveCard) {
+      // The first tap already owns this archive continuation. Acknowledge any
+      // repeated callback without enqueueing a duplicate analysis turn.
+      return true;
+    }
+    const userId = stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`);
+    await appendCoreCardActionInputEvent({
+      stateDir: input.stateDir,
+      chatId: input.event.chatId,
+      replyTo: input.event.messageId,
+      conversationKey: value.conversationKey,
+      bridgeChatType,
+      userId,
+    }, {
+      action: "continue_archive",
+      metadata: { uploadId: value.uploadId },
+    });
+    settleCoreArchiveContinuationCard({
+      channel: input.channel,
+      chatId: input.event.chatId,
+      replyInThread,
+      locale,
+      ref: archiveCard,
+    });
+
+    // The callback must return before the archive turn finishes. Otherwise
+    // Lark times out the tap, leaves the button live, and the user reasonably
+    // sends a second /continue that only queues behind this already-running
+    // turn. The conversation queue still preserves execution order.
+    const queued = input.runtime.chatQueue.enqueue(value.conversationKey, async () => {
+      await runCoreArchiveContinueCardAction({
+        channel: input.channel,
+        bridge: input.bridge!,
+        runtime: input.runtime,
+        stateDir: input.stateDir!,
+        chatId: input.event.chatId,
+        replyTo: input.event.messageId,
+        replyInThread,
+        conversationKey: value.conversationKey as string,
+        bridgeChatType,
+        uploadId: value.uploadId as string,
+        userId,
+        locale,
+        instanceName: input.instanceName,
+      });
+      return true;
+    }, {
+      onSkipped: async () => {
+        await appendCoreCardActionTurnEvent({
+          stateDir: input.stateDir!,
+          chatId: input.event.chatId,
+          replyTo: input.event.messageId,
+          conversationKey: value.conversationKey as string,
+          bridgeChatType,
+          userId,
+        }, {
+          type: "turn.completed",
+          action: "continue_archive",
+          outcome: "skipped",
+          detail: "queued turn skipped",
+          metadata: { phase: "queue" },
+        });
+        await input.channel.send(input.event.chatId, { text: renderCoreQueuedTaskSkipped(locale) }, coreReplyOptions(input.event.messageId, replyInThread));
+        return true;
+      },
+    });
+    void queued.catch(async (error) => {
+      await reportQueuedCoreCardActionFailure({
+        channel: input.channel,
+        stateDir: input.stateDir!,
+        chatId: input.event.chatId,
+        replyTo: input.event.messageId,
+        replyInThread,
+        conversationKey: value.conversationKey as string,
+        bridgeChatType,
+        userId,
+        action: "continue_archive",
+        locale,
+        error,
+      });
+    });
+    return true;
+  }
+
+  if (typeof value.cctb_lark === "string") {
+    await input.channel.send(
+      input.event.chatId,
+      { text: renderUnsupportedCoreCardAction(locale) },
+      coreReplyOptions(input.event.messageId, replyInThread),
+    );
+    return true;
+  }
+
+  return false;
+}
+
+function payloadObject(payload: unknown): Record<string, unknown> | null {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+}
+
+function coreReplyOptions(replyTo: string | undefined, replyInThread: boolean | undefined): CoreSendOptions | undefined {
+  if (!replyTo) {
+    return undefined;
+  }
+  return replyInThread ? { replyTo, replyInThread: true } : { replyTo };
+}
+
+async function ensureCoreCardActionAccess(input: {
+  channel: CoreChannelLike;
+  bridge?: CoreBridgeLike;
+  stateDir?: string;
+  event: {
+    chatId: string;
+    messageId: string;
+    operator?: {
+      openId?: string;
+      userId?: string;
+      name?: string;
+    };
+  };
+  conversationKey: string;
+  bridgeChatType: "private" | "group";
+  replyInThread?: boolean;
+  action: CoreCardActionTimelineAction;
+}): Promise<boolean> {
+  if (!input.bridge?.checkAccess || !input.stateDir) {
+    return true;
+  }
+
+  const operatorRawId = coreOperatorRawId(input.event.operator);
+  const chatId = coreAccessChatIdFromConversationKey(input.conversationKey);
+  const conversationChatId = stableCoreNumericId(input.conversationKey);
+  const userId = stableCoreNumericId(`user:${operatorRawId}`);
+  const accessConversationKey = coreAccessConversationKeyFromConversationKey(input.conversationKey);
+  const locale = await resolveCoreLocale(input.stateDir);
+  await assertStableCoreIdMappings(input.stateDir, [
+    ["chat", stableCoreNumericId(input.conversationKey), input.conversationKey],
+    ["chat", chatId, accessConversationKey],
+    ["user", userId, operatorRawId],
+  ]);
+
+  const decision = await input.bridge.checkAccess({
+    chatId,
+    conversationChatId,
+    userId,
+    chatType: input.bridgeChatType,
+    conversationKey: input.conversationKey,
+    locale,
+  });
+  if (decision.kind === "allow") {
+    return true;
+  }
+
+  await input.channel.send(input.event.chatId, {
+    text: decision.text ?? renderCoreOperatorAccessDenied(locale),
+  }, coreReplyOptions(input.event.messageId, input.replyInThread));
+  await appendCoreCardActionTurnEvent({
+    stateDir: input.stateDir,
+    chatId: input.event.chatId,
+    replyTo: input.event.messageId,
+    conversationKey: input.conversationKey,
+    bridgeChatType: input.bridgeChatType,
+    userId,
+  }, {
+    type: "turn.completed",
+    action: input.action,
+    outcome: "denied",
+    detail: "access denied",
+    metadata: { phase: "access" },
+  });
+  return false;
+}
+
+function pendingCoreApprovalMatchesEvent(
+  pending: PendingCoreApproval,
+  event: { chatId: string; messageId: string; operator?: { openId?: string; userId?: string } },
+  conversationKey: string,
+): boolean {
+  const expectedChatId = conversationKey.startsWith("lark:")
+    ? conversationKey.slice("lark:".length)
+    : pending.chatId;
+  if (event.chatId !== pending.chatId && event.chatId !== expectedChatId) {
+    return false;
+  }
+  if (pending.managedCard?.messageId && pending.managedCard.messageId !== event.messageId) {
+    return false;
+  }
+  if (
+    pending.requesterUserId !== undefined
+    && pending.requesterUserId !== stableCoreNumericId(`user:${coreOperatorRawId(event.operator)}`)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+const MAX_TRACKED_LARK_CHOICE_CARDS = 512;
+
+function claimCoreChoiceCard(
+  runtime: CoreServiceRuntime,
+  messageId: string,
+  selectedLabel: string,
+): CoreChoiceCardRef | undefined {
+  const current = runtime.choiceCards.get(messageId);
+  if (current?.status === "resolved") {
+    return undefined;
+  }
+  const claimed: CoreChoiceCardRef = {
+    messageId,
+    ...(current?.answerActiveTurn ? { answerActiveTurn: current.answerActiveTurn } : {}),
+    ...(current?.handle ? { handle: current.handle } : {}),
+    ...(current?.originalCard ? { originalCard: current.originalCard } : {}),
+    ...(current?.preserveBody ? { preserveBody: true } : {}),
+    status: "resolved",
+    createdAt: current?.createdAt ?? Date.now(),
+    selectedLabel,
+  };
+  runtime.choiceCards.delete(messageId);
+  runtime.choiceCards.set(messageId, claimed);
+  while (runtime.choiceCards.size > MAX_TRACKED_LARK_CHOICE_CARDS) {
+    const oldest = runtime.choiceCards.keys().next().value as string | undefined;
+    if (!oldest) {
+      break;
+    }
+    runtime.choiceCards.delete(oldest);
+  }
+  return claimed;
+}
+
+function renderCoreChoiceSubmittedCard(label: string, locale: Locale): Record<string, unknown> {
+  const title = locale === "en" ? "Choice received" : "已收到选择";
+  const body = locale === "en"
+    ? `✅ Selected: **${label}**\n\nThe task will continue with this choice. No need to click again.`
+    : `✅ 已选择：**${label}**\n\n任务将按此选择继续，无需重复点击。`;
+  return {
+    schema: "2.0",
+    config: { update_multi: true, summary: { content: title } },
+    header: {
+      template: "green",
+      title: { tag: "plain_text", content: `✅ ${title}` },
+    },
+    body: {
+      direction: "vertical",
+      padding: "12px 12px 12px 12px",
+      elements: [{ tag: "markdown", content: body }],
+    },
+  };
+}
+
+function disableCoreChoiceCallbacks(value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) disableCoreChoiceCallbacks(entry);
+    return;
+  }
+  const record = payloadObject(value);
+  if (!record) return;
+
+  let disabledChoice = false;
+  const directValue = payloadObject(record.value);
+  if (directValue?.cctb_lark === "choice") {
+    delete record.value;
+    disabledChoice = true;
+  }
+  if (Array.isArray(record.behaviors)) {
+    const retained = record.behaviors.filter((behavior) => {
+      const behaviorRecord = payloadObject(behavior);
+      const behaviorValue = payloadObject(behaviorRecord?.value);
+      const isChoice = behaviorRecord?.type === "callback" && behaviorValue?.cctb_lark === "choice";
+      disabledChoice ||= isChoice;
+      return !isChoice;
+    });
+    if (retained.length > 0) record.behaviors = retained;
+    else delete record.behaviors;
+  }
+  if (disabledChoice) record.disabled = true;
+
+  for (const child of Object.values(record)) disableCoreChoiceCallbacks(child);
+}
+
+function renderPreservedCoreChoiceSubmittedCard(
+  ref: CoreChoiceCardRef,
+  label: string,
+  locale: Locale,
+): Record<string, unknown> | undefined {
+  if (!ref.preserveBody || !ref.originalCard) return undefined;
+  const card = structuredClone(ref.originalCard);
+  disableCoreChoiceCallbacks(card);
+  const body = payloadObject(card.body);
+  if (!body || !Array.isArray(body.elements)) return undefined;
+  body.elements.push({
+    tag: "markdown",
+    content: locale === "en"
+      ? `✅ Selected: **${label}**. The task will continue; no need to click again.`
+      : `✅ 已选择：**${label}**。任务将继续，无需重复点击。`,
+  });
+  const config = payloadObject(card.config) ?? {};
+  config.update_multi = true;
+  card.config = config;
+  return card;
+}
+
+function settleCoreChoiceCard(input: {
+  channel: CoreChannelLike;
+  chatId: string;
+  replyInThread?: boolean;
+  locale: Locale;
+  label: string;
+  ref: CoreChoiceCardRef;
+}): void {
+  const submittedCard = renderPreservedCoreChoiceSubmittedCard(input.ref, input.label, input.locale)
+    ?? renderCoreChoiceSubmittedCard(input.label, input.locale);
+  const postSummaryFallback = async (): Promise<void> => {
+    await sendCoreCardWithFallback({
+      channel: input.channel,
+      chatId: input.chatId,
+      card: submittedCard,
+      fallbackText: input.locale === "en"
+        ? `Choice received: ${input.label}. The task will continue with this choice.`
+        : `已收到选择：${input.label}。任务将按此选择继续。`,
+      options: coreReplyOptions(input.ref.messageId, input.replyInThread),
+      locale: input.locale,
+    });
+    if (input.channel.recallMessage) {
+      await input.channel.recallMessage(input.ref.messageId).catch(() => undefined);
+    }
+  };
+
+  if (input.ref.handle) {
+    settleThenUpdateManagedCard(input.channel, input.ref.handle, submittedCard, postSummaryFallback);
+    return;
+  }
+  // Legacy/plain cards cannot be updated reliably immediately after a tap.
+  // Replace them with a read-only summary and recall the live-button card.
+  void postSummaryFallback().catch(() => undefined);
+}
+
+function renderCoreArchiveContinuationSubmittedCard(locale: Locale): Record<string, unknown> {
+  const title = locale === "en" ? "Continue request received" : "已收到继续请求";
+  const body = locale === "en"
+    ? "✅ The request is queued while the archive state is checked. Do not click again or send `/continue`; results will follow if analysis can resume."
+    : "✅ 请求已进入队列，正在检查压缩包状态。无需再次点击或输入 `/continue`；若可继续分析，结果会随后自动回复。";
+  return {
+    schema: "2.0",
+    config: { update_multi: true, summary: { content: title } },
+    header: {
+      template: "green",
+      title: { tag: "plain_text", content: `✅ ${title}` },
+    },
+    body: {
+      direction: "vertical",
+      padding: "12px 12px 12px 12px",
+      elements: [{ tag: "markdown", content: body }],
+    },
+  };
+}
+
+function settleCoreArchiveContinuationCard(input: {
+  channel: CoreChannelLike;
+  chatId: string;
+  replyInThread?: boolean;
+  locale: Locale;
+  ref: CoreChoiceCardRef;
+}): void {
+  const submittedCard = renderCoreArchiveContinuationSubmittedCard(input.locale);
+  const postSummaryFallback = async (): Promise<void> => {
+    await sendCoreCardWithFallback({
+      channel: input.channel,
+      chatId: input.chatId,
+      card: submittedCard,
+      fallbackText: input.locale === "en"
+        ? "Continue request received. The archive state is being checked; do not send /continue again."
+        : "已收到继续请求，正在检查压缩包状态；无需再次输入 /continue。",
+      options: coreReplyOptions(input.ref.messageId, input.replyInThread),
+      locale: input.locale,
+    });
+    if (input.channel.recallMessage) {
+      await input.channel.recallMessage(input.ref.messageId).catch(() => undefined);
+    }
+  };
+
+  if (input.ref.handle) {
+    settleThenUpdateManagedCard(input.channel, input.ref.handle, submittedCard, postSummaryFallback);
+    return;
+  }
+  void postSummaryFallback().catch(() => undefined);
+}
+
+/** Native async answers bypass their own live queue. A completed origin instead
+ * admits one follow-up; an uncertain steer must never also enqueue a duplicate. */
+async function submitAsyncQuestion(
+  input: Parameters<typeof handleCoreCardAction>[0], pending: PendingCoreApproval,
+  answers: Record<string, string>, locale: Locale, onProgress?: (phase: AsyncAnswerPhase) => void,
+): Promise<"accepted" | "retry" | "unknown" | "expired"> {
+  if (!input.bridge || !input.stateDir || pending.abortSignal?.aborted) return "expired";
+  const context = pending.asyncQuestion!;
+  const conversationKey = pending.conversationKey ?? `lark:${pending.chatId}`;
+  const stillValid = async () => {
+    if (pending.cancelled || pending.abortSignal?.aborted) return false;
+    if (input.channel.canSteerConversation && !await input.channel.canSteerConversation(pending.chatId)) return false;
+    if (context.nativeSessionId) {
+      const current = await new SessionStore(path.join(input.stateDir!, "session.json")).findByConversationKey(conversationKey);
+      if (current?.codexSessionId !== context.nativeSessionId) return false;
+    }
+    return !pending.cancelled && !pending.abortSignal?.aborted;
+  };
+  if (!await stillValid()) return "expired";
+  const text = "User answers to request_user_input_async:\n" + JSON.stringify({
+    requestId: context.nativeRequestId,
+    answers: Object.entries(answers).map(([question, answer]) => ({ question, answer })),
+  });
+  if (context.isCurrentTurn?.()) {
+    if (!context.answerActiveTurn) return "retry";
+    try {
+      if (await context.answerActiveTurn(text)) { onProgress?.("sent"); return "accepted"; }
+      // A false return is a definite rejection. Retry only if the origin is
+      // still running; if it just finished, normal queue admission is safe.
+      if (context.isCurrentTurn()) return "retry";
+    } catch (error) {
+      return error instanceof EngineSteeringRejectedError ? "retry" : "unknown";
+    }
+  }
+  if (!await stillValid()) return "expired";
+  const taskId = pending.asyncTaskId = `answer:${pending.requestId}`;
+  const notifySkipped = async () => {
+    onProgress?.("skipped");
+    await input.channel.send(pending.chatId, { text: locale === "en" ? "The queued answer was not delivered because the task or session changed. Please send a new message if needed." : "排队中的答案未送达，任务或会话已变化。如需继续，请重新发消息。" });
+  };
+  if (onProgress && pending.managedCard) input.runtime.queueCards.set(taskId, {
+    messageId: input.event.messageId, handle: pending.managedCard,
+    onCancelled: () => onProgress("interrupted"),
+  });
+  onProgress?.("queued");
+  const queued = input.runtime.chatQueue.enqueue(conversationKey, async () => {
+    input.runtime.queueCards.delete(taskId);
+    if (!await stillValid()) { await notifySkipped(); return; }
+    await runCoreCardChoice({ channel: input.channel, bridge: input.bridge!, runtime: input.runtime, stateDir: input.stateDir!,
+      createRunCard: input.createRunCard,
+      chatId: pending.chatId, replyTo: input.event.messageId, replyInThread: pending.replyInThread,
+      conversationKey, bridgeChatType: pending.bridgeChatType ?? "private",
+      userId: stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`), text, locale, instanceName: input.instanceName, onProgress });
+  }, { taskId, onSkipped: async () => {
+    input.runtime.queueCards.delete(taskId);
+    if (input.runtime.cancelledQueueTaskIds.delete(taskId)) {
+      onProgress?.("interrupted");
+      await appendCoreCardActionTurnEvent({ stateDir: input.stateDir!, chatId: pending.chatId, replyTo: input.event.messageId,
+        conversationKey, bridgeChatType: pending.bridgeChatType ?? "private",
+        userId: stableCoreNumericId(`user:${coreOperatorRawId(input.event.operator)}`) }, {
+        type: "turn.completed", action: "choice", outcome: "skipped", detail: "queued answer cancelled by user",
+        metadata: { phase: "queue", taskId },
+      });
+      return;
+    }
+    await notifySkipped();
+  } });
+  void queued.finally(() => {
+    input.runtime.queueCards.delete(taskId);
+    input.runtime.cancelledQueueTaskIds.delete(taskId);
+  }).catch(() => { onProgress?.("failed"); return input.channel.send(pending.chatId, { text: locale === "en"
+    ? "The answer follow-up failed. Check the conversation before sending it again."
+    : "答案的后续处理失败，请查看对话后再决定是否重发。" }).catch(() => undefined); });
+  return "accepted";
+}
+
+async function runCoreCardChoice(input: {
+  channel: CoreChannelLike;
+  bridge: CoreBridgeLike;
+  runtime: CoreServiceRuntime;
+  stateDir: string;
+  instanceName?: string;
+  chatId: string;
+  replyTo: string;
+  replyInThread?: boolean;
+  conversationKey: string;
+  bridgeChatType: "private" | "group";
+  userId: number;
+  text: string;
+  locale: Locale;
+  onProgress?: (phase: AsyncAnswerPhase) => void;
+  createRunCard?: typeof import("./message-handler.js")["createCoreRunCardController"];
+}): Promise<void> {
+  let releaseRunSlot: (() => void) | undefined;
+  let runCard: import("./message-handler.js").CoreRunCardController | undefined;
+  let generatedText: string | undefined;
+  const abortController = new AbortController();
+  try {
+    const requestOutputDir = path.join(workspaceArtifactRoot(input.stateDir, "output"), safeSegment(input.replyTo));
+    const bridgeChatId = stableCoreNumericId(input.conversationKey);
+    const locale = input.locale;
+    const cfg = await loadInstanceConfig(input.stateDir);
+    // Card-driven turns must see the CONVERSATION's resumed workspace, not the
+    // raw instance config — see applyConversationResumeScope.
+    await applyConversationResumeScope(input.stateDir, input.conversationKey, cfg);
+    const workspaceOverride = resolveInstanceWorkspacePath(cfg);
+    // Enforce the spend budget before running the engine (parity with the
+    // message-turn and bus entry points).
+    const budgetExhausted = await checkBudgetAvailability(input.stateDir, cfg.budgetUsd, locale);
+    if (budgetExhausted) {
+      input.onProgress?.("blocked");
+      await appendCoreCardActionTurnEvent(input, {
+        type: "turn.completed",
+        action: "choice",
+        outcome: "noop",
+        detail: "budget exhausted",
+      });
+      await input.channel.send(
+        input.chatId,
+        { text: budgetExhausted.message },
+        coreReplyOptions(input.replyTo, input.replyInThread),
+      ).catch(() => undefined);
+      return;
+    }
+    await mkdir(requestOutputDir, { recursive: true });
+    // A live NON-goal run would be orphaned by overwriting (where /stop can't
+    // reach it) — abort it before claiming. A pursued /goal is NOT aborted:
+    // claimLarkRunSlot attaches this turn to the pursuit so the goal survives a
+    // card-triggered turn, same as ordinary messages and crons.
+    const activeBeforeClaim = input.runtime.activeRuns.get(input.conversationKey);
+    if (activeBeforeClaim && !activeBeforeClaim.goalWatch) {
+      activeBeforeClaim.abortController.abort();
+    }
+    releaseRunSlot = claimCoreRunSlot(input.runtime, input.conversationKey, { abortController, startedAt: Date.now() });
+    input.onProgress?.("processing");
+    await appendCoreCardActionTurnEvent(input, {
+      type: "turn.started",
+      action: "choice",
+    });
+    runCard = await input.createRunCard?.({ channel: input.channel, chatId: input.chatId,
+      conversationKey: input.conversationKey, bridgeChatType: input.bridgeChatType,
+      replyTo: input.replyTo, replyInThread: input.replyInThread, locale,
+      abortSignal: abortController.signal, elementStream: cfg.elementStream !== false });
+    const active = input.runtime.activeRuns.get(input.conversationKey);
+    if (active?.abortController === abortController) active.hasRunCard = Boolean(runCard);
+    const scopedRuns = createScopedRunPresentation({ channel: input.channel, chatId: input.chatId,
+      conversationKey: input.conversationKey, replyTo: input.replyTo, replyInThread: input.replyInThread, locale });
+    const handleEngineEvent = async (event: EngineStreamEvent): Promise<void> => {
+      if (event.type === "scoped") { await scopedRuns.apply(event, { foreground: runCard }); return; }
+      if (shouldPersistEngineTimelineEvent(event)) {
+        await appendCoreCardActionEngineEvent(input, {
+          type: "engine.event",
+          action: "choice",
+          detail: event.type,
+          metadata: engineEventTimelineMetadata(event),
+        });
+      }
+
+      if (event.type === "user_input_request") {
+        const isCurrentTurn = () => isCoreRunActive(input.runtime, input.conversationKey, abortController);
+        await deliverCoreUserInputRequest({ channel: input.channel, runtime: input.runtime,
+          chatId: input.chatId, toolInput: event.toolInput, requestId: event.requestId, sessionId: event.sessionId,
+          abortSignal: abortController.signal, isCurrentTurn,
+          ...(input.bridge.supportsSteering?.() && input.bridge.steerActiveTurn ? { answerActiveTurn: async (text: string) => isCurrentTurn() && input.bridge.steerActiveTurn!({
+            chatId: bridgeChatId, conversationKey: input.conversationKey, text, isCurrentTurn, throwOnError: true,
+          }) } : {}),
+          conversationKey: input.conversationKey, bridgeChatType: input.bridgeChatType,
+          replyTo: input.replyTo, replyInThread: input.replyInThread, locale });
+        return;
+      }
+
+      if (event.type !== "task_notification" || event.settlesCurrentTurn || event.suppressUserDelivery) {
+        if (event.type === "task_notification") await finishScopedRunPresentation({ channel: input.channel, conversationKey: input.conversationKey,
+          replyTo: backgroundTaskReplyTo(event, input.replyTo, input.channel.profile) }, event);
+        else await runCard?.apply(event);
+        return;
+      }
+
+      const notificationText = [
+        renderCoreBackgroundTaskHeader(locale, event.status),
+        backgroundTaskContext(event, locale),
+        backgroundTaskBody(event, locale).trim(),
+      ].filter(Boolean).join("\n");
+      try {
+        await deliverBackgroundTaskResponse({
+          channel: input.channel,
+          runtime: input.runtime,
+          chatId: input.chatId,
+          replyTo: backgroundTaskReplyTo(event, input.replyTo, input.channel.profile),
+          replyInThread: Boolean(backgroundTaskReplyTo(event, input.replyTo, input.channel.profile) && input.replyInThread),
+          text: notificationText,
+          stateDir: input.stateDir,
+          requestOutputDir,
+          workspaceOverride,
+          conversationKey: input.conversationKey,
+          bridgeChatType: input.bridgeChatType,
+          bridgeChatId,
+          bridgeUserId: input.userId,
+          larkMessageId: input.replyTo,
+          instanceName: input.instanceName,
+        }, event, locale);
+      } catch (error) {
+        await appendCoreCardActionEngineEvent(input, {
+          type: "engine.event.delivery_failed",
+          action: "choice",
+          outcome: "error",
+          detail: redactCoreErrorDetail(error),
+          metadata: {
+            eventType: event.type,
+          },
+        });
+      }
+    };
+    abortController.signal.throwIfAborted();
+    const result = await input.bridge.handleAuthorizedMessage({
+      disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
+      chatId: coreAccessChatIdFromConversationKey(input.conversationKey),
+      userId: input.userId,
+      chatType: input.bridgeChatType,
+      conversationKey: input.conversationKey,
+      locale,
+      text: input.text,
+      files: [],
+      requestOutputDir,
+      workspaceOverride,
+      abortSignal: abortController.signal,
+      onApprovalRequest: async (request) => {
+        runCard?.setPhase?.(request.toolName === "AskUserQuestion" ? "waiting_answer" : "waiting_approval");
+        try { return await requestCoreApproval({
+        channel: input.channel,
+        runtime: input.runtime,
+        chatId: input.chatId,
+        conversationKey: input.conversationKey,
+        bridgeChatType: input.bridgeChatType,
+        requesterUserId: input.userId,
+        replyTo: input.replyTo,
+        replyInThread: input.replyInThread,
+        locale,
+        request,
+        abortSignal: AbortSignal.any([abortController.signal, ...(request.abortSignal ? [request.abortSignal] : [])]),
+        }); } finally { runCard?.setPhase?.("working"); }
+      },
+      instructions: larkAgentInstructions({
+        engine: cfg.engine,
+        claudeChrome: cfg.claudeChrome,
+        timezone: cfg.timezone,
+        context: "card",
+      }),
+      turnInstructions: larkMediaTaskInstruction(input.text),
+      onEngineEvent: handleEngineEvent,
+    });
+    await recordBridgeTurnUsage(input.stateDir, result.usage, cfg.budgetUsd);
+    generatedText = runCard?.resolveFinalText(result.text) ?? result.text;
+    // Keep the run visibly delivering until files and other post-turn output
+    // are confirmed. The same card owns the final text; do not post it twice.
+    const cardText = cleanCardText(generatedText, locale);
+    const shown = runCard ? (await runCard.beginDelivery(cardText)).shown : false;
+    const delivery = await deliverCoreResponse({
+      channel: input.channel,
+      runtime: input.runtime,
+      chatId: input.chatId,
+      replyTo: input.replyTo,
+      replyInThread: input.replyInThread,
+      text: generatedText,
+      sendText: !shown,
+      stateDir: input.stateDir,
+      requestOutputDir,
+      workspaceOverride,
+      conversationKey: input.conversationKey,
+      bridgeChatType: input.bridgeChatType,
+      bridgeChatId,
+      bridgeUserId: input.userId,
+      larkMessageId: input.replyTo,
+      instanceName: input.instanceName,
+    });
+    if (!delivery.ok) throw new Error("answer follow-up delivery remained unconfirmed");
+    if (abortController.signal.aborted) await runCard?.interrupt();
+    else await runCard?.finish(cardText);
+    input.onProgress?.(abortController.signal.aborted ? "interrupted" : "finished");
+    await appendCoreCardActionTurnEvent(input, {
+      type: "turn.completed",
+      action: "choice",
+      outcome: "success",
+      metadata: {
+        responseChars: result.text.length,
+      },
+    });
+  } catch (error) {
+    const errorText = renderCoreUserFacingError(error, "engine", input.locale);
+    if (runCard) {
+      if (abortController.signal.aborted) await runCard.interrupt().catch(() => undefined);
+      else if (generatedText !== undefined) await runCard.failDelivery(cleanCardText(generatedText, input.locale), errorText).catch(() => undefined);
+      else await runCard.fail(errorText).catch(() => undefined);
+    }
+    input.onProgress?.(abortController.signal.aborted ? "interrupted" : "failed");
+    await appendCoreCardActionTurnEvent(input, {
+      type: "turn.completed",
+      action: "choice",
+      outcome: "error",
+      detail: redactCoreErrorDetail(error),
+    });
+    if (!runCard) await input.channel.send(input.chatId, { text: errorText },
+      coreReplyOptions(input.replyTo, input.replyInThread)).catch(() => undefined);
+  } finally {
+    // Release the slot only if a newer run (e.g. a /goal watcher started while
+    // this turn was finishing) hasn't already replaced it.
+    releaseRunSlot?.();
+  }
+}
+
+async function runCoreArchiveContinueCardAction(input: {
+  channel: CoreChannelLike;
+  bridge: CoreBridgeLike;
+  runtime: CoreServiceRuntime;
+  stateDir: string;
+  instanceName?: string;
+  chatId: string;
+  replyTo: string;
+  replyInThread?: boolean;
+  conversationKey: string;
+  bridgeChatType: "private" | "group";
+  uploadId: string;
+  userId: number;
+  locale: Locale;
+}): Promise<void> {
+  let releaseRunSlot: (() => void) | undefined;
+  let workflowRecordId: string | undefined;
+  let workflowOutcome: "not_started" | "failed" | "delivered" = "not_started";
+  try {
+    const bridgeChatId = stableCoreNumericId(input.conversationKey);
+    const workflowResult = await prepareArchiveContinueWorkflow({
+      stateDir: input.stateDir,
+      chatId: bridgeChatId,
+      text: `/continue --upload ${input.uploadId}`,
+      locale: input.locale,
+    });
+    if (!workflowResult) {
+      await appendCoreCardActionTurnEvent(input, {
+        type: "turn.completed",
+        action: "continue_archive",
+        outcome: "noop",
+        detail: "archive no longer awaiting continuation",
+        metadata: { uploadId: input.uploadId },
+      });
+      await sendCoreMarkdown(
+        input.channel,
+        input.chatId,
+        input.locale === "en" ? "This archive is no longer awaiting continuation." : "这个压缩包已不在等待继续分析。",
+        coreReplyOptions(input.replyTo, input.replyInThread),
+      ).catch(() => undefined);
+      return;
+    }
+    if (workflowResult.kind === "reply") {
+      await appendCoreCardActionTurnEvent(input, {
+        type: "turn.completed",
+        action: "continue_archive",
+        outcome: "noop",
+        detail: "archive continuation returned without engine turn",
+        metadata: { uploadId: input.uploadId },
+      });
+      await sendCoreMarkdown(
+        input.channel,
+        input.chatId,
+        workflowResult.text,
+        coreReplyOptions(input.replyTo, input.replyInThread),
+      ).catch(() => undefined);
+      return;
+    }
+
+    workflowRecordId = workflowResult.workflowRecordId;
+    const abortController = new AbortController();
+    const requestOutputDir = path.join(workspaceArtifactRoot(input.stateDir, "output"), safeSegment(input.replyTo));
+    const locale = input.locale;
+    const cfg = await loadInstanceConfig(input.stateDir);
+    // Card-driven turns must see the CONVERSATION's resumed workspace, not the
+    // raw instance config — see applyConversationResumeScope.
+    await applyConversationResumeScope(input.stateDir, input.conversationKey, cfg);
+    const workspaceOverride = resolveInstanceWorkspacePath(cfg);
+    // Enforce the spend budget before running the engine (parity with the
+    // message-turn and bus entry points).
+    const budgetExhausted = await checkBudgetAvailability(input.stateDir, cfg.budgetUsd, locale);
+    if (budgetExhausted) {
+      await appendCoreCardActionTurnEvent(input, {
+        type: "turn.completed",
+        action: "continue_archive",
+        outcome: "noop",
+        detail: "budget exhausted",
+        metadata: { uploadId: input.uploadId, workflowRecordId },
+      });
+      await input.channel.send(
+        input.chatId,
+        { text: budgetExhausted.message },
+        coreReplyOptions(input.replyTo, input.replyInThread),
+      ).catch(() => undefined);
+      return;
+    }
+    await mkdir(requestOutputDir, { recursive: true });
+    // Same active-run protection as runLarkCardChoice: abort a live non-goal
+    // holder (never orphan it), attach to a pursued /goal instead of killing it.
+    const activeBeforeClaim = input.runtime.activeRuns.get(input.conversationKey);
+    if (activeBeforeClaim && !activeBeforeClaim.goalWatch) {
+      activeBeforeClaim.abortController.abort();
+    }
+    releaseRunSlot = claimCoreRunSlot(input.runtime, input.conversationKey, { abortController, startedAt: Date.now() });
+    await appendCoreCardActionTurnEvent(input, {
+      type: "turn.started",
+      action: "continue_archive",
+      metadata: {
+        uploadId: input.uploadId,
+        workflowRecordId: workflowResult.workflowRecordId,
+      },
+    });
+    const scopedRuns = createScopedRunPresentation({ channel: input.channel, chatId: input.chatId,
+      conversationKey: input.conversationKey, replyTo: input.replyTo, replyInThread: input.replyInThread, locale });
+    const handleEngineEvent = async (event: EngineStreamEvent): Promise<void> => {
+      if (event.type === "scoped") { await scopedRuns.apply(event); return; }
+      if (shouldPersistEngineTimelineEvent(event)) {
+        await appendCoreCardActionEngineEvent(input, {
+          type: "engine.event",
+          action: "continue_archive",
+          detail: event.type,
+          metadata: {
+            uploadId: input.uploadId,
+            workflowRecordId: workflowResult.workflowRecordId,
+            ...engineEventTimelineMetadata(event),
+          },
+        });
+      }
+
+      if (await deliverEngineQuestion(event, { ...input, locale, abortSignal: abortController.signal,
+        isCurrentTurn: () => isCoreRunActive(input.runtime, input.conversationKey, abortController),
+      })) return;
+
+      if (event.type !== "task_notification" || event.settlesCurrentTurn || event.suppressUserDelivery) {
+        if (event.type === "task_notification") await finishScopedRunPresentation({ channel: input.channel, conversationKey: input.conversationKey,
+          replyTo: backgroundTaskReplyTo(event, input.replyTo, input.channel.profile) }, event);
+        return;
+      }
+
+      const notificationText = [
+        renderCoreBackgroundTaskHeader(locale, event.status),
+        backgroundTaskContext(event, locale),
+        backgroundTaskBody(event, locale).trim(),
+      ].filter(Boolean).join("\n");
+      try {
+        await deliverBackgroundTaskResponse({
+          channel: input.channel,
+          runtime: input.runtime,
+          chatId: input.chatId,
+          replyTo: backgroundTaskReplyTo(event, input.replyTo, input.channel.profile),
+          replyInThread: Boolean(backgroundTaskReplyTo(event, input.replyTo, input.channel.profile) && input.replyInThread),
+          text: notificationText,
+          stateDir: input.stateDir,
+          requestOutputDir,
+          workspaceOverride,
+          conversationKey: input.conversationKey,
+          bridgeChatType: input.bridgeChatType,
+          bridgeChatId,
+          bridgeUserId: input.userId,
+          larkMessageId: input.replyTo,
+          instanceName: input.instanceName,
+        }, event, locale);
+      } catch (error) {
+        await appendCoreCardActionEngineEvent(input, {
+          type: "engine.event.delivery_failed",
+          action: "continue_archive",
+          outcome: "error",
+          detail: redactCoreErrorDetail(error),
+          metadata: {
+            uploadId: input.uploadId,
+            workflowRecordId: workflowResult.workflowRecordId,
+            eventType: event.type,
+          },
+        });
+      }
+    };
+    workflowOutcome = "failed";
+    const result = await input.bridge.handleAuthorizedMessage({
+      disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
+      chatId: coreAccessChatIdFromConversationKey(input.conversationKey),
+      userId: input.userId,
+      chatType: input.bridgeChatType,
+      conversationKey: input.conversationKey,
+      locale,
+      text: workflowResult.text,
+      files: workflowResult.files,
+      requestOutputDir,
+      workspaceOverride,
+      abortSignal: abortController.signal,
+      onApprovalRequest: async (request) => await requestCoreApproval({
+        channel: input.channel,
+        runtime: input.runtime,
+        chatId: input.chatId,
+        conversationKey: input.conversationKey,
+        bridgeChatType: input.bridgeChatType,
+        requesterUserId: input.userId,
+        replyTo: input.replyTo,
+        replyInThread: input.replyInThread,
+        locale,
+        request,
+        abortSignal: AbortSignal.any([abortController.signal, ...(request.abortSignal ? [request.abortSignal] : [])]),
+      }),
+      instructions: larkAgentInstructions({
+        engine: cfg.engine,
+        claudeChrome: cfg.claudeChrome,
+        timezone: cfg.timezone,
+        context: "card",
+      }),
+      turnInstructions: larkMediaTaskInstruction(workflowResult.text),
+      onEngineEvent: handleEngineEvent,
+    });
+    await recordBridgeTurnUsage(input.stateDir, result.usage, cfg.budgetUsd);
+    const delivery = await deliverCoreResponse({
+      channel: input.channel,
+      runtime: input.runtime,
+      chatId: input.chatId,
+      replyTo: input.replyTo,
+      replyInThread: input.replyInThread,
+      text: result.text,
+      stateDir: input.stateDir,
+      requestOutputDir,
+      workspaceOverride,
+      conversationKey: input.conversationKey,
+      bridgeChatType: input.bridgeChatType,
+      bridgeChatId,
+      bridgeUserId: input.userId,
+      larkMessageId: input.replyTo,
+      instanceName: input.instanceName,
+    });
+    workflowOutcome = delivery.ok ? "delivered" : "failed";
+    await appendCoreCardActionTurnEvent(input, {
+      type: "turn.completed",
+      action: "continue_archive",
+      outcome: delivery.ok ? "success" : "partial",
+      metadata: {
+        uploadId: input.uploadId,
+        workflowRecordId: workflowResult.workflowRecordId,
+        responseChars: result.text.length,
+      },
+    });
+    if (workflowResult.workflowRecordId) {
+      await new FileWorkflowStore(input.stateDir).update(workflowResult.workflowRecordId, (record) => {
+        record.status = delivery.ok ? "completed" : "failed";
+      });
+    }
+  } catch (error) {
+    await appendCoreCardActionTurnEvent(input, {
+      type: "turn.completed",
+      action: "continue_archive",
+      outcome: "error",
+      detail: redactCoreErrorDetail(error),
+      metadata: {
+        uploadId: input.uploadId,
+        workflowRecordId,
+      },
+    });
+    await input.channel.send(input.chatId, {
+      text: renderCoreUserFacingError(error, "engine", input.locale),
+    }, coreReplyOptions(input.replyTo, input.replyInThread)).catch(() => undefined);
+  } finally {
+    if (workflowRecordId) await new FileWorkflowStore(input.stateDir)
+      .settleProcessing(workflowRecordId, workflowOutcome).catch(() => undefined);
+    // Release the slot only if a newer run hasn't already replaced it.
+    releaseRunSlot?.();
+  }
+}
+
+async function reportQueuedCoreCardActionFailure(input: {
+  channel: CoreChannelLike;
+  stateDir: string;
+  chatId: string;
+  replyTo: string;
+  replyInThread?: boolean;
+  conversationKey: string;
+  bridgeChatType: "private" | "group";
+  userId: number;
+  action: "choice" | "continue_archive";
+  locale: Locale;
+  error: unknown;
+}): Promise<void> {
+  await appendCoreCardActionTurnEvent(input, {
+    type: "turn.completed",
+    action: input.action,
+    outcome: "error",
+    detail: redactCoreErrorDetail(input.error),
+    metadata: { phase: "queue" },
+  });
+  await input.channel.send(input.chatId, {
+    text: renderCoreUserFacingError(input.error, "engine", input.locale),
+  }, coreReplyOptions(input.replyTo, input.replyInThread)).catch(() => undefined);
+}
+
+async function appendCoreCardActionEngineEvent(
+  input: {
+    stateDir: string;
+    chatId: string;
+    replyTo: string;
+    conversationKey: string;
+    bridgeChatType: "private" | "group";
+    userId: number;
+  },
+  event: {
+    type: "engine.event" | "engine.event.delivery_failed";
+    action: CoreCardActionTimelineAction;
+    outcome?: string;
+    detail?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await appendTimelineEventBestEffort(input.stateDir, {
+    type: event.type,
+    channel: "lark",
+    chatId: stableCoreNumericId(input.conversationKey),
+    userId: input.userId,
+    conversationKey: input.conversationKey,
+    outcome: event.outcome,
+    detail: event.detail,
+    metadata: {
+      source: "card_action",
+      action: event.action,
+      larkChatId: input.chatId,
+      larkMessageId: input.replyTo,
+      bridgeChatType: input.bridgeChatType,
+      ...event.metadata,
+    },
+  }, "Lark card action engine timeline event");
+}
+
+async function appendCoreCardActionInputEvent(
+  input: {
+    stateDir: string;
+    chatId: string;
+    replyTo: string;
+    conversationKey: string;
+    bridgeChatType: "private" | "group";
+    userId: number;
+  },
+  event: {
+    action: CoreCardActionTimelineAction;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  // Persist acceptance before enqueueing. The service restart guard pairs this
+  // with turn.completed, so a card action waiting behind another turn cannot
+  // be mistaken for an idle instance during a deferred release restart.
+  await appendTimelineEventBestEffort(input.stateDir, {
+    type: "input.received",
+    channel: "lark",
+    chatId: stableCoreNumericId(input.conversationKey),
+    userId: input.userId,
+    conversationKey: input.conversationKey,
+    outcome: "accepted",
+    metadata: {
+      source: "card_action",
+      action: event.action,
+      larkChatId: input.chatId,
+      larkMessageId: input.replyTo,
+      bridgeChatType: input.bridgeChatType,
+      ...event.metadata,
+    },
+  }, "Lark card action input timeline event");
+}
+
+async function appendCoreCardActionTurnEvent(
+  input: {
+    stateDir: string;
+    chatId: string;
+    replyTo: string;
+    conversationKey: string;
+    bridgeChatType: "private" | "group";
+    userId: number;
+  },
+  event: {
+    type: "turn.started" | "turn.completed";
+    action: CoreCardActionTimelineAction;
+    outcome?: string;
+    detail?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await appendTimelineEventBestEffort(input.stateDir, {
+    type: event.type,
+    channel: "lark",
+    chatId: stableCoreNumericId(input.conversationKey),
+    userId: input.userId,
+    conversationKey: input.conversationKey,
+    outcome: event.outcome,
+    detail: event.detail,
+    metadata: {
+      source: "card_action",
+      action: event.action,
+      larkChatId: input.chatId,
+      larkMessageId: input.replyTo,
+      bridgeChatType: input.bridgeChatType,
+      ...event.metadata,
+    },
+  }, "Lark card action turn timeline event");
+}
+
+type CoreCardActionTimelineAction = "stop" | "approval" | "choice" | "continue_archive" | "config" | "resume" | "board";
+
+function extractButtonLabel(button: Record<string, unknown>): string {
+  const text = payloadObject(button.text);
+  const content = text && typeof text.content === "string" ? text.content.trim() : "";
+  return content || "choice";
+}
+
+function cleanupPendingApproval(runtime: CoreServiceRuntime, requestId: string): void {
+  const pending = runtime.pendingApprovals.get(requestId);
+  if (!pending) {
+    return;
+  }
+  runtime.pendingApprovals.delete(requestId);
+  clearTimeout(pending.timer);
+  if (pending.abortSignal && pending.abortHandler) {
+    pending.abortSignal.removeEventListener("abort", pending.abortHandler);
+  }
+}
+
+function parseCoreApprovalTextCommand(text: string):
+  | { kind: "id"; requestId: string; choice: CoreApprovalChoice }
+  | { kind: "chat"; choice: CoreApprovalChoice }
+  | null {
+  const trimmed = text.trim();
+  const internal = trimmed.match(/^\/approval\s+([A-Za-z0-9_-]+)\s+(once|session|deny)$/i);
+  if (internal) {
+    return {
+      kind: "id",
+      requestId: internal[1]!,
+      choice: internal[2]!.toLowerCase() as CoreApprovalChoice,
+    };
+  }
+
+  const approveSessionById = trimmed.match(/^\/approve-session\s+([A-Za-z0-9_-]+)$/i);
+  if (approveSessionById) {
+    return {
+      kind: "id",
+      requestId: approveSessionById[1]!,
+      choice: "session",
+    };
+  }
+
+  const approveById = trimmed.match(/^\/approve\s+([A-Za-z0-9_-]+)$/i);
+  if (approveById && !/^(?:session|turn|always)$/i.test(approveById[1]!)) {
+    return {
+      kind: "id",
+      requestId: approveById[1]!,
+      choice: "once",
+    };
+  }
+
+  const approve = trimmed.match(/^\/approve(?:\s+(.+))?$/i);
+  if (approve) {
+    const args = approve[1]?.toLowerCase() ?? "";
+    return {
+      kind: "chat",
+      choice: /\b(?:session|turn|always)\b/i.test(args) ? "session" : "once",
+    };
+  }
+
+  const denyById = trimmed.match(/^\/deny\s+([A-Za-z0-9_-]+)$/i);
+  if (denyById) {
+    return {
+      kind: "id",
+      requestId: denyById[1]!,
+      choice: "deny",
+    };
+  }
+
+  if (/^\/deny$/i.test(trimmed)) {
+    return {
+      kind: "chat",
+      choice: "deny",
+    };
+  }
+
+  return null;
+}
+
+function findOldestPendingCoreApproval(
+  runtime: CoreServiceRuntime,
+  input: {
+    chatId: string;
+    conversationKey: string;
+    bridgeChatType: "private" | "group";
+    userId?: number;
+  },
+): PendingCoreApproval | undefined {
+  return [...runtime.pendingApprovals.values()].find((pending) => (
+    pendingMatchesCoreConversation(pending, input)
+    && (pending.requesterUserId === undefined || pending.requesterUserId === input.userId)
+  ));
+}
+
+function pendingMatchesCoreConversation(
+  pending: PendingCoreApproval,
+  input: {
+    chatId: string;
+    conversationKey: string;
+    bridgeChatType: "private" | "group";
+  },
+): boolean {
+  if (pending.conversationKey) {
+    if (pending.conversationKey !== input.conversationKey) {
+      return false;
+    }
+  } else if (pending.chatId !== input.chatId) {
+    return false;
+  }
+
+  return pending.bridgeChatType === undefined || pending.bridgeChatType === input.bridgeChatType;
+}
+
+function renderTextApprovalDecision(choice: CoreApprovalChoice): EngineApprovalDecision {
+  if (choice === "deny") {
+    return { behavior: "deny" };
+  }
+  return {
+    behavior: "allow",
+    scope: choice,
+  };
+}
+
+function renderApprovalNoPending(locale: Locale): string {
+  return locale === "en" ? "No pending approval." : "没有待处理的审批。";
+}
+
+/**
+ * Cause-neutral notice for a submit on a choice card that is no longer
+ * pending. Deliberately does NOT claim "expired / the task continued with the
+ * default option": the pending entry is also gone after a /stop-style abort,
+ * where neither is true.
+ */
+function renderCoreChoiceNoLongerActive(locale: Locale): string {
+  return locale === "en"
+    ? "This choice is no longer active (it timed out or the task already ended/stopped). To continue, just send a message describing what you want."
+    : "该选择已失效（超时或任务已结束/停止）。想继续的话，直接发消息说明你的选择即可。";
+}
+
+function renderApprovalDifferentConversation(locale: Locale): string {
+  return locale === "en"
+    ? "This approval request belongs to another Lark conversation."
+    : "这个审批请求属于另一个飞书会话。";
+}
+
+function renderApprovalDifferentUser(locale: Locale): string {
+  return locale === "en"
+    ? "This approval request belongs to another Lark user."
+    : "这个审批请求属于另一位飞书用户。";
+}
+
+function renderAskUserQuestionNeedsCard(locale: Locale): string {
+  return locale === "en"
+    ? "This is a question card. Please choose an answer in the card; /approve cannot replace an answer."
+    : "这个是问题卡片，请在卡片里选择答案，不能用 /approve 代替。";
+}
+
+function renderUnsupportedCoreCardAction(locale: Locale): string {
+  return locale === "en"
+    ? "This card action is no longer active or is not supported by the current bot version. Please send a new message to continue."
+    : "这张卡片的操作已不再有效，或当前机器人版本不支持。请发送新消息继续。";
+}
+
+function renderCoreResumeEngineChanged(locale: Locale): string {
+  return locale === "en"
+    ? "The bot engine changed after this resume card was created. Send /resume again to load a current list."
+    : "这张恢复卡片生成后，bot 引擎已经切换。请重新发送 /resume 获取当前列表。";
+}
+
+
+async function applyCoreResumeCardAction(
+  stateDir: string,
+  value: Record<string, unknown>,
+  locale: Locale,
+): Promise<string> {
+  const conversationKey = String(value.conversationKey);
+  const engine = value.engine === "antigravity"
+    ? "antigravity"
+    : value.engine === "kimi"
+      ? "kimi"
+      : value.engine === "deepseek"
+        ? "deepseek"
+        : "claude";
+  const sessionId = String(value.sessionId);
+  const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+  const cfg = await loadInstanceConfig(stateDir);
+  if (cfg.engine !== engine) {
+    return renderCoreResumeEngineChanged(locale);
+  }
+  let workspacePath: string | null = null;
+  if (engine === "claude" || engine === "kimi" || engine === "deepseek") {
+    const candidate = typeof value.workspacePath === "string" && value.workspacePath.trim()
+      ? value.workspacePath
+      : null;
+    if (!candidate) {
+      return locale === "en"
+        ? "Cannot resume this session because its workspace path is unknown."
+        : "无法恢复这个 session：工作区路径未知。";
+    }
+    try {
+      workspacePath = await realpath(candidate);
+      const info = await stat(workspacePath);
+      if (!info.isDirectory()) {
+        throw new Error("not a directory");
+      }
+    } catch {
+      return locale === "en"
+        ? "Cannot resume this session because its workspace path is not an existing directory."
+        : "无法恢复这个 session：工作区路径不是一个有效的目录。";
+    }
+  }
+
+  const existing = await sessionStore.findByConversationKeySafe(conversationKey);
+  const currentResume = resolveConversationResume(existing.record, cfg.resume);
+  const nextResume: ResumeState | null = (engine === "claude" || engine === "kimi" || engine === "deepseek") && workspacePath
+    ? {
+      sessionId,
+      dirName: typeof value.dirName === "string" ? value.dirName : sessionId,
+      workspacePath,
+    }
+    : null;
+  await sessionStore.upsert({
+    telegramChatId: stableCoreNumericId(conversationKey),
+    conversationKey,
+    codexSessionId: sessionId,
+    status: "idle",
+    updatedAt: new Date().toISOString(),
+    resume: nextResume,
+    suspendedPrevious: buildSuspendedPreviousSnapshot({
+      existingRecord: existing.record,
+      currentResume,
+    }),
+  });
+
+  if ((engine === "claude" || engine === "kimi" || engine === "deepseek") && workspacePath) {
+    await updateInstanceConfig(stateDir, (config) => {
+      delete config.resume;
+    });
+    const displayName = typeof value.displayName === "string" ? value.displayName : sessionId;
+    if (engine === "kimi") {
+      return locale === "en"
+        ? `Attached Kimi session: ${sessionId}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
+        : `已绑定 Kimi session：${sessionId}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+    }
+    if (engine === "deepseek") {
+      return locale === "en"
+        ? `Attached DeepSeek Harness session: ${sessionId}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
+        : `已绑定 DeepSeek Harness session：${sessionId}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+    }
+    return locale === "en"
+      ? `Resumed session: ${displayName}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
+      : `已恢复 session：${displayName}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+  }
+
+  await updateInstanceConfig(stateDir, (config) => {
+    delete config.resume;
+  });
+  return locale === "en"
+    ? `Attached Antigravity conversation: ${sessionId}\n\nSend a message to continue. Use /detach when done.`
+    : `已绑定 Antigravity conversation：${sessionId}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+}
+
+function buildSuspendedPreviousSnapshot(input: {
+  existingRecord: {
+    codexSessionId: string;
+    suspendedPrevious?: {
+      sessionId: string | null;
+      resume: ResumeState | null;
+    };
+  } | null;
+  currentResume: ResumeState | undefined;
+}): { sessionId: string | null; resume: ResumeState | null } | undefined {
+  if (input.existingRecord?.suspendedPrevious) {
+    return input.existingRecord.suspendedPrevious;
+  }
+  if (!input.existingRecord?.codexSessionId && !input.currentResume) {
+    return undefined;
+  }
+  return {
+    sessionId: input.existingRecord?.codexSessionId ?? null,
+    resume: input.currentResume ?? null,
+  };
+}
+
+type CoreCardActionFormEvent = {
+  action: { form_value?: unknown; formValue?: unknown };
+  raw?: unknown;
+};
+
+type CoreCardActionFormInspection = {
+  value: Record<string, unknown>;
+  source?: string;
+  candidatePaths: string[];
+};
+
+function normalizeCoreFormValue(raw: unknown): Record<string, unknown> | null {
+  const parsed = actionValue(raw);
+  if (!parsed) {
+    return null;
+  }
+  // Some callback adapters retain the form name as one extra object layer.
+  // Native Feishu callbacks are flat, but accepting both shapes is harmless for
+  // our two known forms and avoids another client/SDK-specific dead submit.
+  for (const formName of ["askq_form", "lark_config_form"]) {
+    const nested = objectValue(parsed[formName]);
+    if (nested) {
+      return nested;
+    }
+  }
+  return parsed;
+}
+
+/**
+ * Form-field values for a Card 2.0 form submit. TaroCub patches the SDK to keep
+ * `action.form_value`, but also recovers it from the raw Feishu event body for
+ * old installs and alternate callback envelopes.
+ */
+function coreCardActionFormValue(event: CoreCardActionFormEvent): Record<string, unknown> {
+  return inspectCoreCardActionFormValue(event).value;
+}
+
+/**
+ * Locate form_value without assuming which event envelope the SDK retained.
+ * The walk is deliberately bounded and never records values; diagnostics only
+ * expose structural paths and form field names.
+ */
+function inspectCoreCardActionFormValue(event: CoreCardActionFormEvent): CoreCardActionFormInspection {
+  const candidates: Array<{ path: string; value: Record<string, unknown> }> = [];
+  const candidatePaths = new Set<string>();
+  const addCandidate = (path: string, raw: unknown): void => {
+    const parsed = normalizeCoreFormValue(raw);
+    if (!parsed || candidatePaths.has(path)) {
+      return;
+    }
+    candidatePaths.add(path);
+    candidates.push({ path, value: parsed });
+  };
+
+  addCandidate("action.form_value", event.action.form_value);
+  addCandidate("action.formValue", event.action.formValue);
+
+  const queue: Array<{ value: unknown; path: string; depth: number }> = [
+    { value: event.raw, path: "raw", depth: 0 },
+  ];
+  const visited = new Set<object>();
+  let visitedNodes = 0;
+  while (queue.length > 0 && visitedNodes < 128) {
+    const current = queue.shift()!;
+    if (!current.value || typeof current.value !== "object") {
+      continue;
+    }
+    if (visited.has(current.value as object)) {
+      continue;
+    }
+    visited.add(current.value as object);
+    visitedNodes += 1;
+
+    const entries = Array.isArray(current.value)
+      ? current.value.map((value, index) => [String(index), value] as const)
+      : Object.entries(current.value as Record<string, unknown>);
+    for (const [key, value] of entries) {
+      const path = `${current.path}.${key}`;
+      if (key === "form_value" || key === "formValue") {
+        addCandidate(path, value);
+        continue;
+      }
+      if (current.depth < 6 && value && typeof value === "object") {
+        queue.push({ value, path, depth: current.depth + 1 });
+      }
+    }
+  }
+
+  const selected = candidates.find((candidate) => Object.keys(candidate.value).length > 0)
+    ?? candidates[0];
+  return {
+    value: selected?.value ?? {},
+    source: selected?.path,
+    candidatePaths: [...candidatePaths],
+  };
+}
+
+function actionValue(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function bridgeChatTypeFromValue(value: unknown): "private" | "group" {
+  return value === "group" ? "group" : "private";
+}
+
+function isApprovalDecision(value: unknown): value is "allow_once" | "allow_session" | "deny" {
+  return value === "allow_once" || value === "allow_session" || value === "deny";
+}
+
+function renderApprovalDecision(decision: "allow_once" | "allow_session" | "deny"): EngineApprovalDecision {
+  if (decision === "deny") {
+    return { behavior: "deny" };
+  }
+  return {
+    behavior: "allow",
+    scope: decision === "allow_session" ? "session" : "once",
+  };
+}

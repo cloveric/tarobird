@@ -1,0 +1,180 @@
+/* Skills & MCP capability center. Theme tokens only. Status colours stay neutral on
+   purpose: a configured entry is metadata, not live health. Header, Bot context and
+   tabs are fixed; the body scrolls with the filter bar sticky at its top. */
+.settings-panel.capabilities-panel{display:flex;flex-direction:column;width:min(880px,94vw);max-width:880px;height:min(800px,90dvh);max-height:90dvh;padding:22px 28px 0;overflow:hidden}
+.capabilities-panel>header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
+.capabilities-panel>header .icon-button{width:40px;height:40px}
+.capabilities-panel h2{margin:4px 0 0}
+.capabilities-eyebrow{margin:0;color:var(--muted);font-size:11px;letter-spacing:.08em}
+.capabilities-panel [aria-disabled=true]{opacity:.5;cursor:default}
+
+.capabilities-context{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;flex-shrink:0;margin:16px 0 14px;font-size:12px}
+.capabilities-host-row,.capabilities-context label{display:flex;flex-direction:column;gap:6px;min-width:0;color:var(--muted)}
+.capabilities-context label{flex:1}
+.capabilities-context select{width:100%;max-width:100%;min-height:40px;color:var(--text)}
+.capabilities-host{position:relative;max-width:250px}
+.capabilities-host summary{display:flex;align-items:center;min-height:40px;gap:6px;font-size:13px;color:var(--text);cursor:pointer;list-style:none}
+.capabilities-host summary::-webkit-details-marker{display:none}
+.capabilities-host summary>span{min-width:0;overflow-wrap:anywhere}
+.capabilities-host summary>svg{flex-shrink:0}
+.capabilities-host[open] summary>svg{transform:rotate(180deg)}
+.capabilities-host code{display:block;font-size:11px;white-space:normal;overflow-wrap:anywhere}
+.capabilities-host p{margin:4px 0 0;line-height:1.5;color:var(--muted)}
+.capabilities-refresh{display:inline-flex;align-items:center;gap:6px;min-height:40px;border-radius:var(--radius);color:var(--text)}
+.capabilities-refresh[data-busy] svg{animation:capabilities-spin .9s linear infinite}
+@keyframes capabilities-spin{to{transform:rotate(360deg)}}
+
+.capabilities-tabbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;min-width:0;border-bottom:1px solid var(--border)}
+.capabilities-tabs{display:flex;gap:22px;min-width:0;margin-bottom:-1px}
+.capabilities-tabs button{display:flex;align-items:center;gap:8px;min-height:44px;padding:10px 2px;border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;box-shadow:none;color:var(--muted);font-weight:550}
+.capabilities-tabs button:hover{color:var(--text)}
+.capabilities-tabs button[aria-pressed=true]{border-bottom-color:var(--accent);color:var(--text)}
+.capabilities-tabs button span{padding:1px 7px;border-radius:999px;background:var(--surface);color:var(--grey);font-size:11px;font-variant-numeric:tabular-nums}
+
+.capabilities-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--raised);box-shadow:none;color:var(--text);font-size:12.5px;font-weight:550;white-space:nowrap;transition:background-color var(--t-fast) var(--ease)}
+.capabilities-action:hover:not([aria-disabled=true]){background:var(--hover)}
+.capabilities-action.primary{border-color:var(--primary-bg);background:var(--primary-bg);color:var(--on-primary)}
+.capabilities-action.primary:hover{border-color:var(--primary-hover);background:var(--primary-hover)}
+
+.capabilities-body{position:relative;flex:1;min-height:0;padding:0 2px 24px 0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.capabilities-body[aria-busy=true] .capabilities-list{opacity:.65}
+.capabilities-intro{margin:0 0 8px;font-size:13px;line-height:1.65;color:var(--grey)}
+.capabilities-intro p{margin:0}
+.capabilities-hint{margin:4px 0 0;font-size:12px;line-height:1.6;color:var(--muted)}
+.capabilities-loading{margin:8px 0;font-size:12px;color:var(--muted)}
+.capabilities-error{display:flex;align-items:center;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;margin:10px 0;padding:10px 14px;border-radius:var(--radius-lg);background:var(--red-soft)}
+.capabilities-error .error-text{margin:0}
+
+.capabilities-overview{color:var(--grey);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.capabilities-overview>summary{display:flex;align-items:center;gap:7px;min-height:44px;cursor:pointer;list-style:none}
+.capabilities-overview>summary::-webkit-details-marker{display:none}
+.capabilities-overview>summary>svg{flex-shrink:0;color:var(--muted)}
+.capabilities-overview-status{margin-left:auto;color:var(--muted);font-size:11px;text-align:right}
+.capabilities-overview-chevron{margin-left:auto}
+.capabilities-overview-status~.capabilities-overview-chevron{margin-left:0}
+.capabilities-overview>summary>.capabilities-badge{flex-shrink:0;margin-left:0;padding:1px 5px;font-size:10px}
+.capabilities-overview[open]>summary>.capabilities-overview-chevron{transform:rotate(180deg)}
+.capabilities-overview-content{padding:10px 12px;margin-bottom:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.capabilities-overview-content>p{margin:4px 0 0}
+.capabilities-overview .integration-recommendations-entry{margin:0 0 8px}
+.capabilities-overview .integration-recommendations-entry>summary{min-height:44px;padding:10px 0;font-size:12px}
+.capabilities-notice-title{color:var(--text);font-weight:550}
+.capabilities-warning{margin:6px 0;padding:7px 10px;border-radius:var(--radius);background:var(--orange-soft);color:var(--text);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.capabilities-scope{margin-top:6px}
+.capabilities-scope summary{min-height:32px;line-height:32px;color:var(--grey);cursor:pointer}
+.capabilities-badge{margin-left:8px;padding:1px 7px;border-radius:999px;background:var(--orange-soft);color:var(--text);font-size:11px}
+.capabilities-scope ul{margin:6px 0 0;padding-left:18px}
+.capabilities-scope li{margin:3px 0}
+.capabilities-scope dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;margin:10px 0 0}
+.capabilities-scope dl>div,.capability-detail dl>div{display:contents}
+.capabilities-scope dt{color:var(--muted)}
+.capabilities-scope dd{min-width:0;margin:0}
+.capabilities-scope code{font-size:11px;white-space:normal;overflow-wrap:anywhere}
+.capabilities-subhead{margin:12px 0 2px;color:var(--text);font-weight:600}
+.capabilities-scope .capabilities-sources{padding:0;list-style:none}
+.capabilities-sources li{display:flex;justify-content:space-between;gap:14px;margin:0;padding:6px 0;border-bottom:1px solid var(--border)}
+.capabilities-sources code{min-width:0}
+.capabilities-sources span{flex-shrink:0;color:var(--muted)}
+.capabilities-sources span[data-problem]{color:var(--orange)}
+
+.capabilities-toolbar{position:sticky;top:0;z-index:2;display:flex;flex-direction:column;gap:0;padding:4px 0 2px;border-bottom:1px solid var(--border);background:var(--bg)}
+.capabilities-filters{display:flex;gap:8px;min-width:0}
+.capabilities-search{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--raised);color:var(--muted)}
+.capabilities-search:focus-within{border-color:var(--focus)}
+.capabilities-search input{width:100%;min-width:0;padding:9px 0;border:0;background:transparent;box-shadow:none;outline:none}
+.capabilities-filters select{min-width:0;max-width:40%;min-height:40px}
+.capabilities-states-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.capabilities-states{display:flex;gap:4px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.capabilities-states button{display:inline-flex;align-items:center;flex-shrink:0;min-height:36px;padding:0;border:0;border-radius:var(--radius);background:transparent;box-shadow:none;color:var(--grey);font-size:12px;white-space:nowrap}
+.capabilities-state-label{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:0 8px;border-radius:var(--radius)}
+.capabilities-states button:focus-visible{outline-offset:-2px}
+.capabilities-states button:hover{color:var(--text)}
+.capabilities-states button[aria-pressed=true]>.capabilities-state-label{background:var(--accent-soft);color:var(--text)}
+.capabilities-state-label>span{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.capabilities-result{flex-shrink:0;font-size:12px;color:var(--muted)}
+
+.capability-card{padding:10px 0 14px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+.capability-summary{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;margin:0;padding:0;border:0;border-radius:var(--radius-sm);background:transparent;box-shadow:none;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.capability-summary strong{flex:1;min-width:0;font-size:14px;font-weight:600;line-height:1.45}
+.capability-card[data-status=disabled] .capability-summary strong{color:var(--grey)}
+.capability-status{flex-shrink:0;padding:2px 8px;border:1px solid var(--border-strong);border-radius:999px;color:var(--grey);font-size:11px;line-height:1.5}
+.capability-status.disabled{border-style:dashed;background:var(--surface);color:var(--muted)}
+.capability-chevron{flex-shrink:0;color:var(--muted);transition:transform var(--t-fast) var(--ease)}
+.capability-summary:hover .capability-chevron{color:var(--text)}
+.capability-summary[aria-expanded=true] .capability-chevron{transform:rotate(180deg)}
+.capability-description{margin:0 0 6px;color:var(--grey);font-size:12.5px;line-height:1.65}
+.capability-meta{display:flex;flex-wrap:wrap;gap:4px 12px;color:var(--muted);font-size:11px}
+.capability-detail{margin-top:10px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);color:var(--grey);font-size:12px;line-height:1.6}
+.capability-detail>p{margin:0}
+.capability-detail dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 16px;margin:10px 0 0}
+.capability-detail dt{color:var(--muted)}
+.capability-detail dd{min-width:0;margin:0;color:var(--text)}
+.capability-detail code{font-size:11px;white-space:normal;overflow-wrap:anywhere}
+.capability-next{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.capability-next p{margin:0}
+.capability-next p strong{margin-right:8px;color:var(--text);font-weight:600}
+
+.capabilities-empty{display:flex;flex-direction:column;align-items:center;gap:12px;padding:36px 16px;color:var(--grey);font-size:13px;line-height:1.7;text-align:center}
+.capabilities-empty p{margin:0}
+.capabilities-pages{display:flex;align-items:center;justify-content:space-between;margin-top:16px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+@media(pointer:coarse){
+  .capabilities-panel>header .icon-button,.capabilities-refresh{min-width:44px;min-height:44px}
+  .capabilities-action,.capabilities-states button,.capabilities-context select,.capabilities-filters select,.capabilities-host summary{min-height:44px}
+  .capabilities-search input{padding:12px 0}
+  .capabilities-scope summary{min-height:44px;line-height:44px}
+}
+@media(max-width:600px){
+  .modal-scrim>.settings-panel.capabilities-panel{width:100%;max-width:100%;height:calc(100dvh - max(20px,var(--app-safe-top)) - 12px);max-height:calc(100dvh - max(20px,var(--app-safe-top)) - 12px);padding:8px 16px 0}
+  .capabilities-panel>header .icon-button{width:44px;height:44px}
+  .capabilities-body{padding-bottom:max(18px,var(--app-safe-bottom))}
+  .capabilities-context{display:grid;grid-template-columns:minmax(0,1fr) 44px;align-items:end;gap:6px 10px;margin:6px 0 10px}
+  .capabilities-host-row{grid-column:1/-1;flex-direction:row;align-items:center;gap:10px}
+  .capabilities-context:has(.capabilities-host[open])>.capabilities-host-row{align-items:flex-start}
+  .capabilities-host summary{min-height:44px}
+  .capabilities-refresh{justify-content:center;width:44px;height:44px;min-height:44px;padding:0}
+  .capabilities-refresh span,.capabilities-result{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+  .capabilities-tabs{gap:18px}
+  .capabilities-tabbar>.capabilities-action{min-height:44px;padding:0 12px}
+  .capabilities-action,.capabilities-states button{min-height:44px}
+  .capabilities-filters select{max-width:42%;min-height:44px}
+  .capabilities-search input{padding:12px 0}
+  .capability-detail{padding:12px}
+}
+/* In landscape and short windows, sticky filters can consume the entire body.
+   Use the available height and let filters scroll away so every entry/action
+   remains reachable, while retaining the Bot context and 44px touch targets. */
+@media(max-height:520px){
+  .modal-scrim:has(>.settings-panel.capabilities-panel){align-items:stretch;padding:max(8px,var(--app-safe-top)) max(12px,var(--app-safe-right)) max(8px,var(--app-safe-bottom)) max(12px,var(--app-safe-left))}
+  .modal-scrim>.settings-panel.capabilities-panel{height:100%;max-height:100%;padding:8px 16px 0;border-radius:12px}
+  .capabilities-panel .capabilities-toolbar{position:static}
+}
+
+/* Phone control chrome stays compact independently of the chat font. Keep
+   44px hit targets; only the add action's visible fill is 32px tall. */
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root .mobile-settings-page>.capabilities-context{margin:4px 16px;gap:0 8px}
+  .capabilities-context label{flex-direction:row;align-items:center;gap:8px}
+  .capabilities-bot-label{flex:none;font-size:11px}
+  .capabilities-panel .capabilities-context select{min-width:0;min-height:44px;padding-top:6px;padding-bottom:6px;font-size:13px}
+  .capabilities-panel .capabilities-refresh{border-color:transparent;background:transparent}
+  .capabilities-tabbar{gap:8px}
+  .capabilities-tabs{gap:10px}
+  .capabilities-tabs button{min-height:44px;gap:5px;padding:6px 2px;font-size:13px}
+  .capabilities-tabs button>svg{width:15px;height:15px;flex:none}
+  .capabilities-tabs button>span{padding:1px 5px;font-size:10px}
+  .capabilities-tabbar>.capabilities-action.primary{position:relative;isolation:isolate;min-height:44px;padding:0 9px;border:0;background:transparent;box-shadow:none;color:var(--accent);font-size:12px}
+  .capabilities-tabbar>.capabilities-action.primary::before{content:"";position:absolute;inset:6px 0;z-index:-1;border-radius:var(--radius);background:var(--accent-soft)}
+  .capabilities-tabbar>.capabilities-action.primary:hover::before{background:var(--hover)}
+  .capabilities-panel .capabilities-search{height:44px;gap:6px;padding:0 8px}
+  .capabilities-search>svg{flex:none;width:14px;height:14px}
+  .capabilities-panel .capabilities-search input{height:100%;min-height:0;padding:0;font-size:16px;line-height:1.25}
+  .capabilities-search input::placeholder{font-size:13px}
+  .capabilities-panel .capabilities-filters select{min-height:44px;padding-top:6px;padding-bottom:6px;font-size:13px}
+  .capabilities-states button{font-size:11px}
+  .capabilities-state-label{min-height:26px;padding:0 6px;gap:4px}
+  .capabilities-state-label>span{font-size:10px}
+  /* Preserve iOS's no-focus-zoom floor; Android can use smaller picker text. */
+  @supports(-webkit-touch-callout:none){
+    .capabilities-panel .capabilities-context select,.capabilities-panel .capabilities-filters select{font-size:16px}
+  }
+}

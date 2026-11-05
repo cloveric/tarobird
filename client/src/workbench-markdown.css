@@ -1,0 +1,31 @@
+.workbench-markdown-editor{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;height:100%;background:var(--bg)}
+.workbench-markdown-preview{flex:1;min-height:0;overflow:auto;padding:16px;font-size:13px;overflow-wrap:anywhere}
+.workbench-markdown-status{display:flex;justify-content:space-between;gap:8px;padding:5px 10px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);flex-shrink:0}
+.workbench-markdown-note,.workbench-markdown-error{margin:0;padding:7px 10px;font-size:12px;line-height:1.5;flex-shrink:0;color:var(--muted)}
+.workbench-markdown-error{display:flex;align-items:center;gap:8px;color:var(--danger,var(--red));background:var(--accent-soft)}
+.workbench-markdown-error{flex-wrap:wrap}.workbench-markdown-error>span{flex:1 1 100%;min-width:0;overflow-wrap:anywhere}.workbench-markdown-error>button{flex-shrink:0;padding:3px 8px;font-size:12px;color:var(--text);background:var(--bg);border-color:var(--border)}
+.workbench-markdown-error>button:first-of-type{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+
+.workbench-vditor{--border-color:var(--border);--panel-background-color:var(--bg);--textarea-background-color:var(--bg);--textarea-text-color:var(--text);--toolbar-background-color:var(--bg-soft,var(--bg));--toolbar-icon-color:var(--muted);--toolbar-icon-hover-color:var(--accent);--toolbar-height:34px;--toolbar-divider-margin-top:9px;--toolbar-icon-bg-color:var(--accent-soft);--second-color:var(--muted);--selection-color:var(--accent-soft);border:0;border-radius:0;flex:1;min-height:0;min-width:0}
+.workbench-vditor .vditor-toolbar{padding:3px 7px!important;gap:1px;border:0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.workbench-vditor .vditor-toolbar>div{padding:0 2px}
+.workbench-vditor .vditor-toolbar button{margin:0;min-width:28px;height:28px;border:0;box-shadow:none;background:transparent;padding:5px;color:var(--muted);border-radius:5px}
+.workbench-vditor .vditor-toolbar button:hover{background:var(--accent-soft);color:var(--accent)}
+.workbench-vditor .vditor-toolbar button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.workbench-vditor .vditor-toolbar svg{width:14px;height:14px;display:block}
+.workbench-vditor textarea.vditor-sv{padding:14px!important;color:var(--text);font-family:var(--font-mono,ui-monospace,monospace);font-size:13px;line-height:1.75;resize:none;min-width:0;min-height:0;border:0;outline:none;box-shadow:none}
+/* The editor belongs to its pane; do not round the inner writing surface. */
+.workbench-vditor textarea.vditor-sv{border-radius:0}
+/* Keep the editor focus cue off the pane's vertical frame; --accent is black
+   in monochrome even when a separate mark colour has been selected. */
+.workbench-vditor textarea.vditor-sv:focus-visible{box-shadow:inset 0 -1px var(--focus)}
+@media(forced-colors:active){.workbench-vditor textarea.vditor-sv:focus-visible{outline:1px solid Highlight;outline-offset:-1px;box-shadow:none}}
+.workbench-vditor .vditor-content{min-height:0;overflow:hidden}
+.workbench-vditor .vditor-hint,.workbench-vditor .vditor-panel,.workbench-vditor .vditor-toolbar__more{background:var(--bg);color:var(--text);border:1px solid var(--border)}
+.workbench-phone .workbench-vditor textarea.vditor-sv{font-size:14px}
+.workbench-phone .workbench-vditor .vditor-toolbar button{height:36px;min-width:32px}
+.workbench-vditor[data-preview=true]{flex:0 0 auto;height:auto!important;min-height:0!important}
+.workbench-vditor[data-preview=true] .vditor-content{display:none}
+.workbench-vditor .vditor-toolbar .note-preview{margin-right:auto}
+.workbench-vditor .vditor-toolbar .note-preview button{font-family:inherit;font-size:12px;width:auto;padding:4px 7px}
+.workbench-vditor .vditor-toolbar button:disabled{opacity:.4;cursor:default}

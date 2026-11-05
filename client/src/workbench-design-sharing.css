@@ -1,0 +1,32 @@
+/* Sharing popover: same surface as the Design history/systems controls. */
+.design-sharing{position:relative}
+.design-sharing>button{display:inline-flex;align-items:center;gap:4px}
+.design-sharing-panel{position:absolute;bottom:100%;inset-inline-start:0;min-width:300px;width:min(440px,90vw);max-height:min(520px,72vh);overflow:auto;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;box-shadow:0 4px 18px #0002;display:grid;gap:12px;z-index:30;font-size:12px}
+.design-sharing-panel section{display:grid;gap:8px}
+.design-sharing-panel section+section{border-top:1px solid var(--border);padding-top:10px}
+.design-sharing-head,.design-sharing-members li,.design-sharing-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.design-sharing-members,.design-sharing-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.design-sharing-members span,.design-sharing-list li>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.design-sharing-muted{color:var(--text-muted,var(--muted))}
+.design-sharing-panel p{margin:0}
+.design-sharing-actions{display:flex;justify-content:flex-end;gap:6px;flex-wrap:wrap}
+.design-sharing-panel button.icon{min-height:24px;padding:2px 4px}
+.design-sharing-panel button.danger{color:var(--danger,#c13b2e)}
+.design-sharing-confirm{display:grid;gap:6px}
+/* A listed share: Open/End stay together at the end; ending shows its confirmation below the row. */
+.design-sharing-list li>span:first-child{flex:1 1 auto}
+.design-sharing-list li.design-sharing-ending{flex-wrap:wrap}
+.design-sharing-ending>.design-sharing-confirm{flex-basis:100%}
+/* A joined copy: a full-window layer above the Workbench (and its local editor frame). */
+.design-shared-viewer{position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;background:var(--surface);color:var(--text)}
+.design-shared-viewer header{display:flex;align-items:center;gap:8px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top));border-bottom:1px solid var(--border);font-size:12px;min-width:0}
+.design-shared-viewer header strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.design-shared-viewer header .design-sharing-muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.design-shared-viewer-actions{display:flex;gap:6px}
+.design-shared-viewer-actions button{display:inline-flex;align-items:center;gap:4px;min-height:30px}
+.design-shared-viewer>p{margin:0;padding:6px 12px;font-size:12px;color:var(--text-muted,var(--muted))}
+/* The editor frame takes this element's z-index + 1, so it lands above the layer. */
+.design-shared-viewer-surface{position:relative;z-index:2147483001;flex:1;min-height:0}
+/* Standalone "Shared with me" (rendered by Root outside a design tab). */
+.design-shared-list{position:static;width:auto;max-height:none;box-shadow:none}
+.design-shared-viewer>p.design-shared-viewer-note{padding-block:4px}

@@ -1,0 +1,16 @@
+/* Keep the destination list central; source content stays in the conversation. */
+dialog.forward-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
+.forward-dialog > header { flex-shrink: 0; }
+/* WebKit rounds scrollport heights down; keep the last button off that edge. */
+.forward-dialog .forward-form { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding-bottom: 1px; }
+.forward-dialog .forward-form > :not(.forward-targets) { flex-shrink: 0; }
+.forward-dialog .forward-targets { flex: 0 1 auto; min-height: 104px; max-height: min(48dvh, 420px); }
+.forward-dialog .forward-target { min-height: 64px; padding: 10px 8px; align-items: center; }
+.forward-dialog .forward-target > .profile-avatar { flex: none; }
+.forward-dialog .forward-target-copy { text-align: start; }
+.forward-dialog .forward-target strong { font-size: 14px; }
+.forward-dialog .forward-target small { font-size: 12px; color: var(--muted); }
+.forward-dialog .forward-source-status { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.forward-dialog .forward-source-status button { color: var(--accent); }
+.forward-dialog .reply-bots button { gap: 6px; }
+.forward-dialog .forward-search:focus-within { box-shadow: none; }

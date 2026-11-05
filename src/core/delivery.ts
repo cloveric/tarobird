@@ -1,0 +1,2178 @@
+import { normalizeAsyncUserInput } from "./async-user-input.js";
+import { channelProfile } from "./channel-profile.js";
+import { readFile, realpath, stat } from "node:fs/promises";
+import path from "node:path";
+
+import { appendTimelineEventBestEffort } from "../runtime/timeline-events.js";
+import { renderCodexFileCitations } from "../runtime/codex-file-citations.js";
+import {
+  extractDeliveryTagMatches,
+  extractInvalidDeliveryPseudoTagMatches,
+  stripDeliveryTags,
+  stripInvalidDeliveryPseudoTags,
+} from "./shared/delivery-tags.js";
+import {
+  extractCronAddTagMatches,
+  stripCronAddTags,
+} from "./shared/cron-tags.js";
+import {
+  extractCoreToolTagMatches,
+  parseCoreToolTagPayload,
+  stripCoreToolTags,
+} from "./shared/tool-tags.js";
+import { chunkMarkdown } from "../runtime/markdown-chunks.js";
+import type { Locale } from "../runtime/locale.js";
+import { executeCronAddTool } from "../tools/cron-add-tool.js";
+import { executeCoreTool } from "../tools/tool-executor.js";
+import { sendCoreCardWithFallback } from "./card-delivery.js";
+import { normalizeCoreMarkdown } from "./card-renderer.js";
+import {
+  extractWholeResponseFileBlock,
+  isCoreSendToolName,
+  CORE_BATCH_UPLOAD_MAX_BYTES,
+  CORE_FILE_UPLOAD_MAX_BYTES,
+  normalizeCoreSendTool,
+  preflightCoreDeliveryPath,
+  preflightCoreInlineFile,
+  resolveCoreDeliveryRoots,
+  type CoreFileRejectReason,
+  type CoreSendPathKind,
+} from "./delivery-preflight.js";
+import { parseLarkDocumentCreateInput } from "./document-client.js";
+import { renderCoreUserFacingError } from "./errors.js";
+import { uploadCoreImageKey } from "./image-upload.js";
+import { resolveCoreLocale } from "./locale.js";
+import { sendManagedCard, type ManagedCardHandle } from "./managed-card.js";
+import { maybeSendLarkScopeAuthCard } from "./scope-auth.js";
+import { resolveLarkMentionsInText, shouldResolveLarkMentions } from "./mention-resolver.js";
+import { stableCoreNumericId } from "./message-normalizer.js";
+import { redactCoreErrorDetail } from "./redaction.js";
+import type { CoreServiceRuntime } from "./runtime.js";
+import type { CoreChannelLike, CoreSendOptions } from "./types.js";
+import { sendCoreVideoWithCover } from "./video-delivery.js";
+
+// Feishu's upload endpoint rejects files around 26 MiB in practice (HTTP 400,
+// code 9499), despite the public documentation advertising a 30 MB limit.
+// Checked up front so an oversize file gets a precise "split it" notice instead
+// of a generic upload failure.
+export { CORE_FILE_UPLOAD_MAX_BYTES } from "./delivery-preflight.js";
+const LARK_MARKDOWN_CHUNK_LIMIT = 3500;
+
+export interface CoreDeliveryResult {
+  /** True only when every requested post-turn action received a definite success. */
+  ok: boolean;
+  /** Whether the cleaned answer text (or an inline file response) became visible. */
+  textDelivered: boolean;
+}
+
+// Scoped to the shared pending map: surface runtimes may be proxy objects.
+const asyncQuestionReceipts = new WeakMap<object, Map<string, Promise<void>>>();
+
+export async function deliverCoreUserInputRequest(input: {
+  requestId?: string;
+  sessionId?: string;
+  abortSignal?: AbortSignal;
+  isCurrentTurn?: () => boolean;
+  channel: CoreChannelLike;
+  runtime: CoreServiceRuntime;
+  chatId: string;
+  toolInput: unknown;
+  answerActiveTurn?: (text: string) => Promise<boolean>;
+  conversationKey?: string;
+  bridgeChatType?: "private" | "group";
+  replyTo?: string;
+  replyInThread?: boolean;
+  locale: Locale;
+}): Promise<void> {
+  if (input.abortSignal?.aborted) return;
+  const key = input.requestId && `${input.conversationKey ?? input.chatId}:${input.requestId}`;
+  let receipts = asyncQuestionReceipts.get(input.runtime.pendingApprovals);
+  if (!receipts) { receipts = new Map(); asyncQuestionReceipts.set(input.runtime.pendingApprovals, receipts); }
+  if (key && receipts.has(key)) return receipts.get(key)!;
+  const delivery = (async () => {
+    const toolInput = normalizeAsyncUserInput(payloadObject(input.toolInput), input.locale);
+    const { requestCoreApproval } = await import("./card-actions.js");
+    // Presentation completes the engine event; the pending form remains live
+    // after a normal turn end and resolves separately when the user responds.
+    await new Promise<void>((resolve, reject) => {
+      void requestCoreApproval({ ...input, request: { engine: "codex", toolName: "AskUserQuestion", toolInput },
+        asyncQuestion: { nativeRequestId: input.requestId, nativeSessionId: input.sessionId, isCurrentTurn: input.isCurrentTurn, answerActiveTurn: input.answerActiveTurn },
+        onPresented: resolve,
+      }).then(() => resolve(), reject);
+    });
+  })();
+  if (key) {
+    receipts.set(key, delivery);
+    void delivery.catch(() => { if (receipts!.get(key) === delivery) receipts!.delete(key); });
+    while (receipts.size > 512) receipts.delete(receipts.keys().next().value!);
+  }
+  return delivery;
+}
+
+const MAX_TRACKED_LARK_CHOICE_CARDS = 512;
+
+export async function sendTrackedCoreChoiceCard(input: {
+  channel: CoreChannelLike;
+  runtime: CoreServiceRuntime;
+  chatId: string;
+  card: object;
+  fallbackText: string;
+  options?: CoreSendOptions;
+  locale: Locale;
+  preserveBody?: boolean;
+  answerActiveTurn?: (text: string) => Promise<boolean>;
+}): Promise<void> {
+  const managed = await sendManagedCard(input.channel, input.chatId, input.card, {
+    ...(input.options?.replyTo ? { replyTo: input.options.replyTo } : {}),
+    ...(input.options?.replyInThread ? { replyInThread: true } : {}),
+  });
+  if (managed) {
+    trackCoreChoiceCard(
+      input.runtime,
+      managed.messageId,
+      managed,
+      input.preserveBody ? input.card : undefined,
+      input.preserveBody,
+      input.answerActiveTurn,
+    );
+    return;
+  }
+
+  const sent = await sendCoreCardWithFallback(input);
+  if (!sent.fallback) {
+    trackCoreChoiceCard(
+      input.runtime,
+      sent.messageId,
+      undefined,
+      input.preserveBody ? input.card : undefined,
+      input.preserveBody,
+      input.answerActiveTurn,
+    );
+  }
+}
+
+export function trackCoreChoiceCard(
+  runtime: CoreServiceRuntime,
+  messageId: string,
+  handle?: ManagedCardHandle,
+  originalCard?: object,
+  preserveBody = false,
+  answerActiveTurn?: (text: string) => Promise<boolean>,
+): void {
+  runtime.choiceCards.delete(messageId);
+  runtime.choiceCards.set(messageId, {
+    messageId,
+    ...(answerActiveTurn ? { answerActiveTurn } : {}),
+    ...(handle ? { handle } : {}),
+    ...(originalCard ? { originalCard: structuredClone(originalCard) as Record<string, unknown> } : {}),
+    ...(preserveBody ? { preserveBody: true } : {}),
+    status: "active",
+    createdAt: Date.now(),
+  });
+  while (runtime.choiceCards.size > MAX_TRACKED_LARK_CHOICE_CARDS) {
+    const oldest = runtime.choiceCards.keys().next().value as string | undefined;
+    if (!oldest) {
+      break;
+    }
+    runtime.choiceCards.delete(oldest);
+  }
+}
+
+/** Whether a response carries work that must finish after the engine result. */
+export function hasCorePostTurnDelivery(text: string): boolean {
+  return Boolean(
+    extractWholeResponseFileBlock(text)
+    || extractDeliveryTagMatches(text).length > 0
+    || extractInvalidDeliveryPseudoTagMatches(text).length > 0
+    || extractCoreToolTagMatches(text).length > 0
+    || extractCronAddTagMatches(text).length > 0
+  );
+}
+
+/**
+ * Convert a persisted response into a replay-safe response. Delivery artifacts
+ * are rebuilt as one guarded send.batch call; cron and other side-effect tools
+ * are never re-executed during boot recovery.
+ */
+export function buildCoreRecoveryResponse(text: string): string {
+  if (extractWholeResponseFileBlock(text)) {
+    return text;
+  }
+
+  const toolArtifacts: Array<{ path: string; kind: CoreSendPathKind; caption?: string }> = [];
+  const legacyArtifacts: Array<{ path: string; kind: "image" | "file"; caption?: string }> = [];
+  const toolMessages: string[] = [];
+  for (const match of extractCoreToolTagMatches(text)) {
+    try {
+      const parsed = parseCoreToolTagPayload(match.payload);
+      if (!isCoreSendToolName(parsed.name)) {
+        continue;
+      }
+      const normalized = normalizeCoreSendTool(parsed.name, parsed.payload);
+      if (!normalized.ok) {
+        continue;
+      }
+      toolArtifacts.push(...normalized.artifacts);
+      if (normalized.message.trim()) {
+        toolMessages.push(normalized.message.trim());
+      }
+    } catch {
+      // Persisted malformed tools are intentionally not replayed.
+    }
+  }
+  for (const match of extractDeliveryTagMatches(text)) {
+    const caption = match.preferPhoto ? captionForCoreImage(text, match.index) : undefined;
+    legacyArtifacts.push({
+      path: match.path,
+      kind: match.preferPhoto ? "image" : "file",
+      ...(caption ? { caption } : {}),
+    });
+  }
+
+  const cleanedText = stripCronAddTags(stripCoreToolTags(stripDeliveryTags(text)));
+  if (toolArtifacts.length === 0 && legacyArtifacts.length === 0) {
+    return [cleanedText, ...toolMessages].filter(Boolean).join("\n\n");
+  }
+
+  const images = toolArtifacts
+    .filter((artifact) => artifact.kind === "image")
+    .map((artifact) => artifact.caption ? { path: artifact.path, caption: artifact.caption } : artifact.path);
+  const pathsFor = (kind: CoreSendPathKind): string[] => toolArtifacts
+    .filter((artifact) => artifact.kind === kind)
+    .map((artifact) => artifact.path);
+  const fileEntries = toolArtifacts
+    .filter((artifact) => artifact.kind === "file")
+    .map((artifact) => artifact.caption
+      ? { path: artifact.path, caption: artifact.caption }
+      : artifact.path);
+  const payload: Record<string, unknown> = {};
+  if (images.length > 0) payload.images = images;
+  const audios = pathsFor("audio");
+  const videos = pathsFor("video");
+  if (fileEntries.length > 0) payload.files = fileEntries;
+  if (audios.length > 0) payload.audios = audios;
+  if (videos.length > 0) payload.videos = videos;
+  if (toolMessages.length > 0) payload.message = toolMessages.join("\n\n");
+  const toolCall = toolArtifacts.length > 0
+    ? `\`\`\`tool-call\n${JSON.stringify({ name: "send.batch", payload })}\n\`\`\``
+    : toolMessages.join("\n\n");
+  const legacyTags = legacyArtifacts.map((artifact) => {
+    const tag = `[send-${artifact.kind}:${artifact.path}]`;
+    return artifact.kind === "image" && artifact.caption ? `${artifact.caption}\n${tag}` : tag;
+  }).join("\n");
+  return [cleanedText, toolCall, legacyTags].filter(Boolean).join("\n\n");
+}
+
+export async function deliverCoreResponse(input: {
+  channel: CoreChannelLike;
+  runtime: CoreServiceRuntime;
+  chatId: string;
+  replyTo?: string;
+  replyInThread?: boolean;
+  text: string;
+  stateDir: string;
+  requestOutputDir?: string;
+  workspaceOverride?: string;
+  conversationKey?: string;
+  bridgeChatType?: "private" | "group";
+  bridgeChatId?: number;
+  bridgeUserId?: number;
+  larkThreadId?: string;
+  larkMessageId?: string;
+  instanceName?: string;
+  sendText?: boolean;
+  allowAnyAbsolutePath?: boolean;
+  /** Scheduled task results must not create or mutate schedules recursively. */
+  allowCronMutations?: boolean;
+  /** Which policy refused a schedule change, for an accurate notice. */
+  cronMutationContext?: "scheduled" | "discussion";
+}): Promise<CoreDeliveryResult> {
+  const locale = await resolveCoreLocale(input.stateDir);
+  let ok = true;
+  let textDelivered = false;
+  const wholeFileBlock = extractWholeResponseFileBlock(input.text);
+  if (wholeFileBlock) {
+    const inlinePreflight = preflightCoreInlineFile(wholeFileBlock);
+    if (!inlinePreflight.ok) {
+      await appendCoreFileRejectedTimeline(input, {
+        path: wholeFileBlock.fileName,
+        reason: inlinePreflight.reason,
+        ...(inlinePreflight.reason === "too-large"
+          ? { detail: `${inlinePreflight.fileBytes} bytes > ${CORE_FILE_UPLOAD_MAX_BYTES}` }
+          : {}),
+        kind: "file",
+      });
+      await input.channel.send(input.chatId, {
+        text: renderCoreFileDeliveryError(inlinePreflight.reason, locale, {
+          fileName: wholeFileBlock.fileName,
+          fileBytes: inlinePreflight.fileBytes,
+        }),
+      }, coreReplyOptions(input.replyTo, input.replyInThread));
+      return { ok: false, textDelivered: false };
+    }
+    const body = Buffer.from(wholeFileBlock.body, "utf8");
+    try {
+      await input.channel.send(input.chatId, {
+        file: {
+          source: body,
+          fileName: wholeFileBlock.fileName,
+        },
+      }, coreReplyOptions(input.replyTo, input.replyInThread));
+    } catch (error) {
+      await appendCoreFileRejectedTimeline(input, {
+        path: wholeFileBlock.fileName,
+        reason: "upload-failed",
+        detail: errorDetail(error),
+        kind: "file",
+      });
+      await input.channel.send(input.chatId, {
+        text: renderCoreFileDeliveryError("upload-failed", locale, { fileName: wholeFileBlock.fileName }),
+      }, coreReplyOptions(input.replyTo, input.replyInThread));
+      return { ok: false, textDelivered: false };
+    }
+    await appendCoreFileAcceptedTimeline(input, {
+      fileName: wholeFileBlock.fileName,
+      bytes: body.length,
+      kind: "file",
+    });
+    return { ok: true, textDelivered: true };
+  }
+
+  const toolMatches = extractCoreToolTagMatches(input.text);
+  const cronAddMatches = extractCronAddTagMatches(input.text);
+  const matches = extractDeliveryTagMatches(input.text);
+  const invalidPseudoMatches = extractInvalidDeliveryPseudoTagMatches(input.text);
+  const cleanedText = renderCodexFileCitations(
+    stripInvalidDeliveryPseudoTags(stripCronAddTags(stripCoreToolTags(stripDeliveryTags(input.text)))),
+    locale,
+  );
+  const replyOptions = coreReplyOptions(input.replyTo, input.replyInThread);
+  if (invalidPseudoMatches.length > 0) {
+    ok = false;
+    await appendTimelineEventBestEffort(input.stateDir, {
+      type: "engine.event.delivery_failed",
+      channel: "lark",
+      chatId: input.bridgeChatId,
+      userId: input.bridgeUserId,
+      conversationKey: input.conversationKey,
+      outcome: "error",
+      detail: "invalid delivery directive",
+      metadata: {
+        phase: "post-turn",
+        invalidDirectiveCount: invalidPseudoMatches.length,
+        larkChatId: input.chatId,
+        larkMessageId: input.larkMessageId ?? input.replyTo,
+      },
+    }, "invalid Lark delivery directive");
+    await input.channel.send(input.chatId, {
+      text: locale === "en"
+        ? "Delivery failed: the response used an invalid send directive. Use an executable [send-file:/absolute/path], [send-image:/absolute/path], or send.* tool call and try again."
+        : "交付失败：回复使用了无法执行的发送指令。请改用 [send-file:/绝对路径]、[send-image:/绝对路径] 或 send.* 工具调用后重试。",
+    }, replyOptions);
+  }
+  // Structured and legacy send directives are alternative spellings of the
+  // same operation. Claim paths across both before sending so a model cannot
+  // accidentally upload one artifact twice by emitting both protocols.
+  const claimedArtifactPaths = new Set<string>();
+  for (const match of toolMatches) {
+    let toolName = "unknown";
+    try {
+      const parsed = parseCoreToolTagPayload(match.payload);
+      toolName = parsed.name;
+      const toolOk = await executeCoreToolTag({
+        ...input,
+        name: parsed.name,
+        payload: parsed.payload,
+        locale,
+        claimedArtifactPaths,
+      });
+      ok = toolOk && ok;
+    } catch (error) {
+      ok = false;
+      if (!(error instanceof SyntaxError)) {
+        await appendCoreToolErrorTimeline(input, toolName, error);
+      }
+      // A Feishu-native tool (lark.doc / lark.card / …) that failed because the app lacks a
+      // permission scope becomes an actionable "go authorize" card instead of a raw error.
+      const handledAsScope = !(error instanceof SyntaxError) && await maybeSendLarkScopeAuthCard({
+        channel: input.channel,
+        chatId: input.chatId,
+        appId: input.runtime.appInfo?.appId,
+        domain: input.runtime.appInfo?.domain,
+        options: replyOptions,
+        locale,
+      }, error);
+      if (!handledAsScope) {
+        await input.channel.send(input.chatId, {
+          text: renderCoreToolTagParseError(error, locale),
+        }, replyOptions);
+      }
+    }
+  }
+
+  for (const match of cronAddMatches) {
+    try {
+      const toolOk = await executeCoreToolTag({
+        ...input,
+        name: "cron.add",
+        payload: match.payload,
+        locale,
+      });
+      ok = toolOk && ok;
+    } catch (error) {
+      ok = false;
+      await input.channel.send(input.chatId, {
+        text: renderCoreUserFacingError(error, "tool", locale),
+      }, replyOptions);
+    }
+  }
+
+  let deliveryMatches = matches;
+
+  if (deliveryMatches.length > 0) {
+    const unclaimedMatches: typeof deliveryMatches = [];
+    for (const match of deliveryMatches) {
+      if (await claimCoreArtifactPath(claimedArtifactPaths, match.path)) {
+        unclaimedMatches.push(match);
+      }
+    }
+    deliveryMatches = unclaimedMatches;
+  }
+
+  if (deliveryMatches.length > 0) {
+    const deliveryRoots = await resolveCoreDeliveryRoots(input);
+    // One identical failure notice per delivery, not one per file: a reply
+    // carrying five refused tags posted the same lecture five times. The
+    // timeline still records every rejected path individually.
+    const sentDeliveryErrors = new Set<string>();
+    const sendDeliveryErrorOnce = async (text: string): Promise<void> => {
+      if (sentDeliveryErrors.has(text)) {
+        return;
+      }
+      sentDeliveryErrors.add(text);
+      await input.channel.send(input.chatId, { text }, replyOptions);
+    };
+
+    // Image descriptors are collected, but image bodies are read only while each
+    // upload is in flight. This keeps a large titled series from living in RAM at once.
+    const pendingImages: Array<{ path: string; caption?: string }> = [];
+    for (const match of deliveryMatches) {
+      const filePath = match.path;
+      const deliveryKind = effectiveCoreSendPathKind(match.preferPhoto ? "image" : "file", filePath);
+      const pathPreflight = await preflightCoreDeliveryPath(filePath, deliveryRoots);
+      if (!pathPreflight.ok) {
+        ok = false;
+        await appendCoreFileRejectedTimeline(input, {
+          path: filePath,
+          ...(pathPreflight.realPath ? { realPath: pathPreflight.realPath } : {}),
+          reason: pathPreflight.reason,
+          ...(pathPreflight.detail ? { detail: pathPreflight.detail } : {}),
+          kind: deliveryKind,
+        });
+        await sendDeliveryErrorOnce(renderCoreFileDeliveryError(pathPreflight.reason, locale, {
+          workspaceRoot: pathPreflight.workspaceRoot,
+          fileName: path.basename(filePath),
+          fileBytes: pathPreflight.fileBytes,
+        }));
+        continue;
+      }
+      if (match.preferPhoto) {
+        const caption = captionForCoreImage(input.text, match.index);
+        pendingImages.push({
+          path: filePath,
+          ...(caption ? { caption } : {}),
+        });
+        continue;
+      }
+      const real = pathPreflight.realPath;
+      try {
+        const body = await readFile(real);
+        try {
+          if (deliveryKind === "video") {
+            await sendCoreVideoWithCover({
+              channel: input.channel,
+              chatId: input.chatId,
+              videoPath: real,
+              body,
+              fileName: path.basename(real),
+              options: replyOptions,
+            });
+          } else {
+            await input.channel.send(input.chatId, {
+              file: {
+                source: body,
+                fileName: path.basename(real),
+              },
+            }, replyOptions);
+          }
+        } catch (error) {
+          ok = false;
+          // The file was read fine — Feishu rejected the upload. Say so instead
+          // of the misleading "failed to read the file".
+          await appendCoreFileRejectedTimeline(input, {
+            path: filePath,
+            realPath: real,
+            reason: "upload-failed",
+            detail: errorDetail(error),
+            kind: deliveryKind,
+          });
+          await input.channel.send(input.chatId, {
+            text: renderCoreFileDeliveryError("upload-failed", locale, { fileName: path.basename(real) }),
+          }, replyOptions);
+          continue;
+        }
+        await appendCoreFileAcceptedTimeline(input, {
+          fileName: path.basename(real),
+          bytes: body.length,
+          kind: deliveryKind,
+        });
+      } catch (error) {
+        ok = false;
+        const reason = coreFileRejectReasonFromError(error);
+        await appendCoreFileRejectedTimeline(input, {
+          path: filePath,
+          reason,
+          detail: redactCoreErrorDetail(error),
+          kind: deliveryKind,
+        });
+        await input.channel.send(input.chatId, {
+          text: renderCoreFileDeliveryError(reason, locale, { fileName: path.basename(filePath) }),
+        }, replyOptions);
+      }
+    }
+
+    if (pendingImages.length > 0) {
+      try {
+        ok = await sendCoreImageArtifactBatch({ ...input, locale }, pendingImages, replyOptions) && ok;
+      } catch {
+        ok = false;
+        // Best-effort: image delivery must never abort the text reply or the rest of
+        // the turn. (Previously this call sat outside the per-match try/catch, so a
+        // send failure threw out of deliverLarkResponse and dropped the text answer.)
+        // Per-image failures already record rejected-timeline events inside
+        // sendLarkImageArtifactBatch / sendLarkImageWithFileFallback.
+      }
+    }
+  }
+
+  // Deliver the cleaned answer text even when a tool tag or file was rejected —
+  // the rejection notices above are sent IN ADDITION to the text (Telegram
+  // parity), never instead of it: one bad tag must not swallow the whole answer.
+  if (input.sendText !== false && cleanedText) {
+    const failedChunks = await sendCoreMarkdownBestEffort(input.channel, input.chatId, cleanedText, replyOptions);
+    textDelivered = failedChunks === 0;
+    if (failedChunks > 0) {
+      ok = false;
+      await appendTimelineEventBestEffort(input.stateDir, {
+        type: "engine.event.delivery_failed",
+        channel: "lark",
+        chatId: input.bridgeChatId,
+        userId: input.bridgeUserId,
+        conversationKey: input.conversationKey,
+        outcome: "error",
+        detail: `${failedChunks} markdown chunk(s) failed`,
+        metadata: {
+          phase: "final-markdown",
+          failedChunks,
+          larkChatId: input.chatId,
+          larkMessageId: input.larkMessageId ?? input.replyTo,
+        },
+      }, "Lark markdown delivery failure");
+      await input.channel.send(input.chatId, {
+        text: locale === "en"
+          ? `Part of the reply could not be delivered (${failedChunks} chunk${failedChunks === 1 ? "" : "s"}). Please ask me to resend it.`
+          : `回复有部分内容未送达（${failedChunks} 个分块）。请让我重新发送。`,
+      }, replyOptions).catch(() => undefined);
+    }
+  }
+  return { ok, textDelivered };
+}
+
+export async function sendCoreMarkdown(
+  channel: CoreChannelLike,
+  chatId: string,
+  markdown: string,
+  options: CoreSendOptions | undefined,
+): Promise<void> {
+  for (const chunk of chunkCoreMarkdown(normalizeCoreMarkdown(markdown))) {
+    const resolvedChunk = await resolveLarkMentionsInText({
+      enabled: shouldResolveLarkMentions(process.env),
+      channel,
+      chatId,
+      text: chunk,
+    });
+    await channel.send(chatId, { markdown: resolvedChunk }, options);
+  }
+}
+
+async function sendCoreMarkdownBestEffort(
+  channel: CoreChannelLike,
+  chatId: string,
+  markdown: string,
+  options: CoreSendOptions | undefined,
+): Promise<number> {
+  let failedChunks = 0;
+  for (const chunk of chunkCoreMarkdown(normalizeCoreMarkdown(markdown))) {
+    try {
+      const resolvedChunk = await resolveLarkMentionsInText({
+        enabled: shouldResolveLarkMentions(process.env),
+        channel,
+        chatId,
+        text: chunk,
+      });
+      await channel.send(chatId, { markdown: resolvedChunk }, options);
+    } catch {
+      failedChunks++;
+      // Delivery is post-turn best-effort. A later chunk failure must not turn a
+      // successful engine run into a failed run card; earlier chunks are already
+      // visible and the delivery error is surfaced by the channel/runtime logs.
+      // A failed request may already have reached Lark. Retrying without an
+      // idempotency key can duplicate a chunk, so leave recovery to a fresh turn.
+    }
+  }
+  return failedChunks;
+}
+
+function chunkCoreMarkdown(markdown: string): string[] {
+  if (channelProfile() === "gateway") return [markdown];
+  return chunkMarkdown(markdown, LARK_MARKDOWN_CHUNK_LIMIT);
+}
+
+function coreReplyOptions(replyTo: string | undefined, replyInThread: boolean | undefined): CoreSendOptions | undefined {
+  if (!replyTo) {
+    return undefined;
+  }
+
+  return replyInThread ? { replyTo, replyInThread: true } : { replyTo };
+}
+
+function renderCoreToolTagParseError(error: unknown, locale: Locale): string {
+  if (error instanceof SyntaxError) {
+    return locale === "en"
+      ? "Invalid tool tag JSON; nothing was executed. For batch files or long text, use a fenced tool-call code block."
+      : "错误：tool tag JSON 格式无效，未执行。批量文件或长文本请改用 fenced tool-call 代码块。";
+  }
+  return renderCoreUserFacingError(error, "tool", locale);
+}
+
+async function appendCoreToolErrorTimeline(
+  input: Parameters<typeof deliverCoreResponse>[0],
+  toolName: string,
+  error: unknown,
+): Promise<void> {
+  await appendTimelineEventBestEffort(input.stateDir, {
+    type: "service.error",
+    channel: "lark",
+    chatId: input.bridgeChatId,
+    userId: input.bridgeUserId,
+    conversationKey: input.conversationKey,
+    outcome: "error",
+    detail: redactCoreErrorDetail(error),
+    metadata: {
+      phase: "tool",
+      tool: toolName,
+      larkChatId: input.chatId,
+      larkMessageId: input.larkMessageId ?? input.replyTo,
+      bridgeChatType: input.bridgeChatType,
+    },
+  }, "Lark tool error timeline event");
+}
+
+async function executeCoreToolTag(input: {
+  channel: CoreChannelLike;
+  runtime: CoreServiceRuntime;
+  chatId: string;
+  replyTo?: string;
+  replyInThread?: boolean;
+  name: string;
+  payload: unknown;
+  stateDir: string;
+  requestOutputDir?: string;
+  workspaceOverride?: string;
+  allowAnyAbsolutePath?: boolean;
+  conversationKey?: string;
+  bridgeChatType?: "private" | "group";
+  bridgeChatId?: number;
+  bridgeUserId?: number;
+  larkThreadId?: string;
+  larkMessageId?: string;
+  instanceName?: string;
+  locale: Locale;
+  claimedArtifactPaths?: Set<string>;
+  allowCronMutations?: boolean;
+  cronMutationContext?: "scheduled" | "discussion";
+}): Promise<boolean> {
+  const payload = payloadObject(input.payload);
+  if (isCronMutationTool(input.name) && input.allowCronMutations === false) {
+    await input.channel.send(input.chatId, {
+      text: input.cronMutationContext === "discussion"
+        ? input.locale === "en" ? "Group discussion turns cannot create, remove, toggle, or run schedules; the request was ignored." : "群讨论发言不能创建、删除、启停或运行定时任务；本次请求已忽略。"
+        : input.locale === "en"
+          ? "Scheduled runs cannot create, remove, toggle, or run other schedules; the request was ignored."
+          : "定时任务执行期间不能创建、删除、启停或运行其他定时任务；本次请求已忽略。",
+    }, coreReplyOptions(input.replyTo, input.replyInThread));
+    // This is an enforced policy, not a failure of the parent scheduled run.
+    // Returning false would increment its failure counter and disable it after
+    // three otherwise-successful runs.
+    return true;
+  }
+  if (input.name === "cron.add") {
+    const result = await executeCronAddTool(input.payload, {
+      cronRuntime: input.runtime.cronRuntime ?? null,
+      stateDir: input.stateDir,
+      channel: "lark",
+      chatId: input.bridgeChatId ?? stableCoreNumericId(input.conversationKey ?? `lark:${input.chatId}`),
+      userId: input.bridgeUserId ?? stableCoreNumericId(`user:${input.conversationKey ?? input.chatId}`),
+      chatType: input.bridgeChatType ?? "private",
+      conversationKey: input.conversationKey,
+      larkChatId: input.chatId,
+      larkThreadId: input.larkThreadId,
+      larkMessageId: input.larkMessageId ?? input.replyTo,
+      locale: input.locale,
+      instanceName: input.instanceName ?? "lark",
+    });
+    await sendCoreMarkdown(input.channel, input.chatId, result.message, coreReplyOptions(input.replyTo, input.replyInThread));
+    return result.ok;
+  }
+
+  if (input.name.startsWith("cron.")) {
+    const result = await executeCoreTool({
+      name: input.name,
+      payload: input.payload,
+      context: {
+        cronRuntime: input.runtime.cronRuntime ?? null,
+        stateDir: input.stateDir,
+        channel: "lark",
+        chatId: input.bridgeChatId ?? stableCoreNumericId(input.conversationKey ?? `lark:${input.chatId}`),
+        userId: input.bridgeUserId ?? stableCoreNumericId(`user:${input.conversationKey ?? input.chatId}`),
+        chatType: input.bridgeChatType ?? "private",
+        conversationKey: input.conversationKey,
+        larkChatId: input.chatId,
+        larkThreadId: input.larkThreadId,
+        larkMessageId: input.larkMessageId ?? input.replyTo,
+        locale: input.locale,
+        instanceName: input.instanceName ?? "lark",
+      },
+    });
+    await sendCoreMarkdown(input.channel, input.chatId, result.message, coreReplyOptions(input.replyTo, input.replyInThread));
+    return result.ok;
+  }
+
+  if (isCoreSendToolName(input.name)) {
+    const normalized = normalizeCoreSendTool(input.name, input.payload);
+    if (!normalized.ok) {
+      await input.channel.send(input.chatId, {
+        text: renderInvalidCoreToolPayload(input.name, normalized.reason, input.locale, normalized.field),
+      }, coreReplyOptions(input.replyTo, input.replyInThread));
+      return false;
+    }
+    let ok = true;
+    const hadArtifacts = normalized.artifacts.length > 0;
+    const claimedArtifactPaths = input.claimedArtifactPaths;
+    let artifacts = normalized.artifacts;
+    if (claimedArtifactPaths) {
+      const unclaimed: typeof artifacts = [];
+      for (const artifact of artifacts) {
+        if (await claimCoreArtifactPath(claimedArtifactPaths, artifact.path)) {
+          unclaimed.push(artifact);
+        }
+      }
+      artifacts = unclaimed;
+    }
+    if (hadArtifacts && artifacts.length === 0) {
+      return true;
+    }
+    if (input.name === "send.batch") {
+      const images = artifacts.filter((artifact) => artifact.kind === "image");
+      if (images.length > 1) {
+        ok = await sendCoreImageArtifactBatch(
+          input,
+          images,
+          coreReplyOptions(input.replyTo, input.replyInThread),
+        ) && ok;
+        artifacts = artifacts.filter((artifact) => artifact.kind !== "image");
+      }
+    }
+    for (const artifact of artifacts) {
+      ok = await sendCorePath({
+        ...input,
+        filePath: artifact.path,
+        kind: artifact.kind,
+        ...(artifact.caption ? { caption: artifact.caption } : {}),
+      }) && ok;
+    }
+    if (ok && normalized.message.trim()) {
+      await sendCoreMarkdown(
+        input.channel,
+        input.chatId,
+        normalized.message.trim(),
+        coreReplyOptions(input.replyTo, input.replyInThread),
+      );
+    }
+    return ok;
+  }
+
+  if (input.name === "send.widget" && input.channel.profile === "gateway") {
+    await input.channel.send(input.chatId, { widget: input.payload }, coreReplyOptions(input.replyTo, input.replyInThread));
+    return true;
+  }
+
+  if (input.name === "lark.post" || input.name === "send.post") {
+    const post = payload?.post ?? payload;
+    if (!post || typeof post !== "object" || Array.isArray(post)) {
+      throw new Error(`${input.name} requires an object payload`);
+    }
+    await input.channel.send(input.chatId, { post }, coreReplyOptions(input.replyTo, input.replyInThread));
+    return true;
+  }
+
+  if (
+    input.name === "lark.choice" ||
+    input.name === "send.choice" ||
+    input.name === "lark.plan" ||
+    input.name === "plan.choice"
+  ) {
+    const cardPayload = normalizeCoreChoicePayload(payload, input.locale);
+    const card = buildCoreToolCard(
+      cardPayload,
+      input.conversationKey,
+      input.bridgeChatType,
+      input.replyInThread,
+      input.locale,
+    );
+    await sendTrackedCoreChoiceCard({
+      channel: input.channel,
+      runtime: input.runtime,
+      chatId: input.chatId,
+      card,
+      fallbackText: renderCoreToolCardFallback(cardPayload, input.locale),
+      options: coreReplyOptions(input.replyTo, input.replyInThread),
+      locale: input.locale,
+    });
+    return true;
+  }
+
+  if (
+    input.name === "request_user_input" ||
+    input.name === "lark.request_user_input" ||
+    input.name === "request_user_input_async" ||
+    input.name === "lark.request_user_input_async"
+  ) {
+    await deliverCoreUserInputRequest({
+      channel: input.channel,
+      runtime: input.runtime,
+      chatId: input.chatId,
+      toolInput: input.payload,
+      conversationKey: input.conversationKey,
+      bridgeChatType: input.bridgeChatType,
+      replyTo: input.replyTo,
+      replyInThread: input.replyInThread,
+      locale: input.locale,
+    });
+    return true;
+  }
+
+  if (input.name === "lark.card" || input.name === "send.card") {
+    const card = buildCoreToolCard(payload, input.conversationKey, input.bridgeChatType, input.replyInThread, input.locale);
+    const cardInput = {
+      channel: input.channel,
+      chatId: input.chatId,
+      card,
+      fallbackText: renderCoreToolCardFallback(payload, input.locale),
+      options: coreReplyOptions(input.replyTo, input.replyInThread),
+      locale: input.locale,
+    };
+    if (JSON.stringify(card).includes('"cctb_lark":"choice"')) {
+      await sendTrackedCoreChoiceCard({ ...cardInput, runtime: input.runtime, preserveBody: true });
+    } else {
+      await sendCoreCardWithFallback(cardInput);
+    }
+    return true;
+  }
+
+  if (input.name === "lark.doc.create" || input.name === "lark.doc") {
+    const docInput = parseLarkDocumentCreateInput(payload);
+    const created = await input.runtime.createDocument(docInput);
+    const label = created.title ?? docInput.title ?? "飞书文档";
+    const location = created.url ?? created.documentId ?? "(created)";
+    const warning = created.warning
+      ? input.locale === "en"
+        ? `\n\nNote: ${created.warning}`
+        : `\n\n提示：${created.warning}`
+      : "";
+    await sendCoreMarkdown(input.channel, input.chatId, input.locale === "en"
+      ? `Created ${label}:\n${location}${warning}`
+      : `已创建 ${label}：\n${location}${warning}`, coreReplyOptions(input.replyTo, input.replyInThread));
+    return true;
+  }
+  await input.channel.send(input.chatId, {
+    text: input.locale === "en" ? `Unsupported Lark tool ${input.name}.` : `错误：不支持的飞书工具 ${input.name}。`,
+  }, coreReplyOptions(input.replyTo, input.replyInThread));
+  return false;
+}
+
+function isCronMutationTool(name: string): boolean {
+  return name === "cron.add"
+    || name === "cron.remove"
+    || name === "cron.toggle"
+    || name === "cron.run";
+}
+
+async function claimCoreArtifactPath(claimed: Set<string>, filePath: string): Promise<boolean> {
+  const trimmed = filePath.trim();
+  if (!trimmed) {
+    return true;
+  }
+  let key = `path:${canonicalPathKey(path.resolve(trimmed))}`;
+  try {
+    const real = await realpath(trimmed);
+    const fileStat = await stat(real);
+    // dev + inode identifies the actual file across symlink, hard-link, and
+    // case aliases. Fall back to canonical realpath where inode is unavailable.
+    key = fileStat.ino > 0
+      ? `inode:${fileStat.dev}:${fileStat.ino}`
+      : `path:${canonicalPathKey(real)}`;
+  } catch {
+    // Preflight reports missing/unreadable paths later. A stable path key still
+    // prevents duplicate error notices for identical unresolved directives.
+  }
+  if (claimed.has(key)) {
+    return false;
+  }
+  claimed.add(key);
+  return true;
+}
+
+function canonicalPathKey(filePath: string): string {
+  const normalized = filePath.normalize("NFC");
+  return process.platform === "darwin" || process.platform === "win32"
+    ? normalized.toLowerCase()
+    : normalized;
+}
+
+function renderInvalidCoreToolPayload(
+  toolName: string,
+  reason: "requires_path" | "string_array" | "file_entries" | "image_entries",
+  locale: Locale,
+  field?: string,
+): string {
+  if (locale === "en") {
+    if (reason === "requires_path") {
+      return `Invalid Lark tool payload: ${toolName} requires payload.path.`;
+    }
+    if (reason === "image_entries") {
+      return `Invalid Lark tool payload: ${toolName} images must be path strings or {path, caption} objects.`;
+    }
+    if (reason === "file_entries") {
+      return `Invalid Lark tool payload: ${toolName} files must be path strings or {path, caption} objects.`;
+    }
+    return `Invalid Lark tool payload: ${toolName} ${field ?? "field"} must be an array of strings.`;
+  }
+  if (reason === "requires_path") {
+    return `错误：飞书工具参数无效：${toolName} 需要 payload.path。`;
+  }
+  if (reason === "image_entries") {
+    return `错误：飞书工具参数无效：${toolName} images 必须是路径字符串或 {path, caption} 对象。`;
+  }
+  if (reason === "file_entries") {
+    return `错误：飞书工具参数无效：${toolName} files 必须是路径字符串或 {path, caption} 对象。`;
+  }
+  return `错误：飞书工具参数无效：${toolName} ${field ?? "字段"} 必须是字符串数组。`;
+}
+
+function effectiveCoreSendPathKind(kind: CoreSendPathKind, filePath: string): CoreSendPathKind {
+  return kind === "file" && path.extname(filePath).toLowerCase() === ".mp4"
+    ? "video"
+    : kind;
+}
+
+async function sendCorePath(input: {
+  channel: CoreChannelLike;
+  chatId: string;
+  replyTo?: string;
+  replyInThread?: boolean;
+  filePath: string;
+  kind: CoreSendPathKind;
+  stateDir: string;
+  requestOutputDir?: string;
+  workspaceOverride?: string;
+  allowAnyAbsolutePath?: boolean;
+  conversationKey?: string;
+  bridgeChatId?: number;
+  bridgeUserId?: number;
+  bridgeChatType?: "private" | "group";
+  larkMessageId?: string;
+  locale: Locale;
+  /** Optional artifact title. App keeps it with the attachment; Feishu files send it separately. */
+  caption?: string;
+}): Promise<boolean> {
+  // Feishu requires MP4 uploads to use file_type=mp4 (the SDK's video path).
+  // Models still occasionally emit send.file/[send-file:] for videos, so repair
+  // that unambiguous mismatch at the final delivery boundary.
+  const deliveryKind = effectiveCoreSendPathKind(input.kind, input.filePath);
+  const deliveryRoots = await resolveCoreDeliveryRoots(input);
+  const pathPreflight = await preflightCoreDeliveryPath(input.filePath, deliveryRoots);
+  if (!pathPreflight.ok) {
+    await appendCoreFileRejectedTimeline(input, {
+      path: input.filePath,
+      ...(pathPreflight.realPath ? { realPath: pathPreflight.realPath } : {}),
+      reason: pathPreflight.reason,
+      ...(pathPreflight.detail ? { detail: pathPreflight.detail } : {}),
+      kind: deliveryKind,
+    });
+    await input.channel.send(input.chatId, {
+      text: renderCoreFileDeliveryError(pathPreflight.reason, input.locale, {
+        workspaceRoot: pathPreflight.workspaceRoot,
+        fileName: path.basename(input.filePath),
+        fileBytes: pathPreflight.fileBytes,
+      }),
+    }, coreReplyOptions(input.replyTo, input.replyInThread));
+    return false;
+  }
+  const real = pathPreflight.realPath;
+  let body: Buffer;
+  try {
+    body = await readFile(real);
+  } catch (error) {
+    const reason = coreFileRejectReasonFromError(error);
+    await appendCoreFileRejectedTimeline(input, {
+      path: input.filePath,
+      realPath: real,
+      reason,
+      detail: errorDetail(error),
+      kind: deliveryKind,
+    });
+    await input.channel.send(input.chatId, {
+      text: renderCoreFileDeliveryError(reason, input.locale, { fileName: path.basename(real) }),
+    }, coreReplyOptions(input.replyTo, input.replyInThread));
+    return false;
+  }
+  if (deliveryKind === "image") {
+    // A captioned image (e.g. a titled send.batch entry, or send.image with a
+    // caption) is delivered as a single card pairing the title with the image,
+    // so a titled P1/P2/... image series stays legible. A failed image-key upload can
+    // safely fall back; an ambiguous card ACK must not, because it may duplicate.
+    if (input.caption) {
+      const imgKey = await uploadCoreImageKey(input.channel, body).catch(() => undefined);
+      if (imgKey) {
+        return await sendCoreImageCardOrSplit(input, [{
+          caption: input.caption,
+          imgKey,
+          real,
+          originalPath: input.filePath,
+          bytes: body.length,
+          body,
+        }], coreReplyOptions(input.replyTo, input.replyInThread));
+      }
+    }
+    return await sendCoreImageWithFileFallback({
+      ...input,
+      body,
+      realPath: real,
+      originalPath: input.filePath,
+    });
+  }
+  if (input.caption && input.channel.profile !== "gateway") {
+    await sendCoreMarkdown(
+      input.channel,
+      input.chatId,
+      input.caption,
+      coreReplyOptions(input.replyTo, input.replyInThread),
+    ).catch(() => undefined);
+  }
+  // The payload was read fine — a throw from here on is Feishu rejecting the
+  // upload, so report "upload-failed" (with the file's name), not "read failed".
+  const reportUploadFailure = async (error: unknown): Promise<false> => {
+    await appendCoreFileRejectedTimeline(input, {
+      path: input.filePath,
+      realPath: real,
+      reason: "upload-failed",
+      detail: errorDetail(error),
+      kind: deliveryKind,
+    });
+    await input.channel.send(input.chatId, {
+      text: renderCoreFileDeliveryError("upload-failed", input.locale, { fileName: path.basename(real) }),
+    }, coreReplyOptions(input.replyTo, input.replyInThread));
+    return false;
+  };
+  // App supports mixed blocks in one message. Keep captions atomic with the
+  // attachment instead of inheriting Feishu's separate markdown/file messages.
+  if (input.channel.profile === "gateway") {
+    try {
+      await input.channel.send(input.chatId, {
+        ...(input.caption ? { markdown: input.caption } : {}),
+        [deliveryKind]: { source: body, fileName: path.basename(real) },
+      }, coreReplyOptions(input.replyTo, input.replyInThread));
+    } catch (error) {
+      return reportUploadFailure(error);
+    }
+    await appendCoreFileAcceptedTimeline(input, { fileName: path.basename(real), bytes: body.length, kind: deliveryKind });
+    return true;
+  }
+  if (deliveryKind === "audio") {
+    try {
+      await input.channel.send(input.chatId, {
+        audio: {
+          source: body,
+          fileName: path.basename(real),
+        },
+      }, coreReplyOptions(input.replyTo, input.replyInThread));
+    } catch (error) {
+      return reportUploadFailure(error);
+    }
+    await appendCoreFileAcceptedTimeline(input, {
+      fileName: path.basename(real),
+      bytes: body.length,
+      kind: deliveryKind,
+    });
+    return true;
+  }
+  if (deliveryKind === "video") {
+    try {
+      await sendCoreVideoWithCover({
+        channel: input.channel,
+        chatId: input.chatId,
+        videoPath: real,
+        body,
+        fileName: path.basename(real),
+        options: coreReplyOptions(input.replyTo, input.replyInThread),
+      });
+    } catch (error) {
+      return reportUploadFailure(error);
+    }
+    await appendCoreFileAcceptedTimeline(input, {
+      fileName: path.basename(real),
+      bytes: body.length,
+      kind: deliveryKind,
+    });
+    return true;
+  }
+  try {
+    await input.channel.send(input.chatId, {
+      file: {
+        source: body,
+        fileName: path.basename(real),
+      },
+    }, coreReplyOptions(input.replyTo, input.replyInThread));
+  } catch (error) {
+    return reportUploadFailure(error);
+  }
+  await appendCoreFileAcceptedTimeline(input, {
+    fileName: path.basename(real),
+    bytes: body.length,
+    kind: deliveryKind,
+  });
+  return true;
+}
+
+const LARK_IMAGE_CAPTION_MAX = 80;
+
+/**
+ * The caption for an image is the title line that sits directly above its
+ * `[send-image:…]` tag — Claude's natural shape for a captioned series
+ * ("P1 标题\n[send-image:…]"), and what the agent instructions ask for. Returns
+ * undefined when a blank line separates the prose from the tag, the preceding
+ * line is itself a delivery tag (the image has no caption), or it is too long
+ * to be a title (likely prose, not a label).
+ * `tagIndex` indexes into the same string passed here; the matcher's masking
+ * preserves length + newlines, so indices stay aligned with the raw text.
+ */
+export function captionForCoreImage(text: string, tagIndex: number): string | undefined {
+  const before = text.slice(0, tagIndex);
+  const lines = before.split(/\r?\n/);
+  // A tag at the start of a line leaves one trailing empty segment. Remove only
+  // that segment; another empty line is a real paragraph boundary and must stop
+  // prose above it from being repeated as the image caption.
+  if ((lines.at(-1) ?? "").trim().length === 0) {
+    lines.pop();
+  }
+  const line = lines.at(-1)?.trim() ?? "";
+  if (!line || /\[send-(?:file|image):[^\]]+\]/.test(line) || line.length > LARK_IMAGE_CAPTION_MAX) {
+    return undefined;
+  }
+  // Drop a leading markdown heading marker so it renders at normal body size.
+  return line.replace(/^#{1,6}\s+/, "").trim() || undefined;
+}
+
+/**
+ * Builds a Card 2.0 holding one or more images, each preceded by its caption (if
+ * any). One image → a single titled card; many images → the whole validated batch
+ * in one card (a multi-image series stays grouped). Feishu's card-size ceiling is still
+ * discovered at send time and handled by splitting.
+ */
+function buildCoreImageCard(items: Array<{ caption?: string; imgKey: string }>): Record<string, unknown> {
+  const elements: Record<string, unknown>[] = [];
+  for (const item of items) {
+    if (item.caption) {
+      elements.push({ tag: "markdown", content: item.caption });
+    }
+    elements.push({
+      tag: "img",
+      img_key: item.imgKey,
+      alt: { tag: "plain_text", content: item.caption && item.caption.length > 0 ? item.caption : "图片" },
+    });
+  }
+  return {
+    schema: "2.0",
+    config: { update_multi: true },
+    body: { direction: "vertical", padding: "12px 12px 12px 12px", elements },
+  };
+}
+
+interface CoreUploadedImage {
+  caption?: string;
+  imgKey: string;
+  real: string;
+  originalPath: string;
+  bytes: number;
+  body?: Buffer;
+}
+
+type CoreImageDeliveryInput = {
+  channel: CoreChannelLike;
+  chatId: string;
+  replyTo?: string;
+  replyInThread?: boolean;
+  stateDir: string;
+  requestOutputDir?: string;
+  workspaceOverride?: string;
+  allowAnyAbsolutePath?: boolean;
+  conversationKey?: string;
+  bridgeChatId?: number;
+  bridgeUserId?: number;
+  bridgeChatType?: "private" | "group";
+  larkMessageId?: string;
+  locale: Locale;
+};
+
+async function sendCoreImageArtifactBatch(
+  input: CoreImageDeliveryInput,
+  artifacts: ReadonlyArray<{ path: string; caption?: string }>,
+  replyOptions: CoreSendOptions | undefined,
+): Promise<boolean> {
+  const deliveryRoots = await resolveCoreDeliveryRoots(input);
+  const pendingImages: Array<{ caption?: string; real: string; originalPath: string; bytes: number }> = [];
+  let ok = true;
+
+  for (const artifact of artifacts) {
+    const pathPreflight = await preflightCoreDeliveryPath(artifact.path, deliveryRoots);
+    if (!pathPreflight.ok) {
+      ok = false;
+      await appendCoreFileRejectedTimeline(input, {
+        path: artifact.path,
+        ...(pathPreflight.realPath ? { realPath: pathPreflight.realPath } : {}),
+        reason: pathPreflight.reason,
+        ...(pathPreflight.detail ? { detail: pathPreflight.detail } : {}),
+        kind: "image",
+      });
+      await input.channel.send(input.chatId, {
+        text: renderCoreFileDeliveryError(pathPreflight.reason, input.locale, {
+          workspaceRoot: pathPreflight.workspaceRoot,
+          fileName: path.basename(artifact.path),
+          fileBytes: pathPreflight.fileBytes,
+        }),
+      }, replyOptions);
+      continue;
+    }
+
+    pendingImages.push({
+      ...(artifact.caption ? { caption: artifact.caption } : {}),
+      real: pathPreflight.realPath,
+      originalPath: artifact.path,
+      bytes: pathPreflight.fileBytes,
+    });
+  }
+
+  if (pendingImages.length === 0) {
+    return false;
+  }
+  const batches: typeof pendingImages[] = [];
+  let current: typeof pendingImages = [];
+  let currentBytes = 0;
+  for (const image of pendingImages) {
+    if (current.length > 0 && currentBytes + image.bytes > CORE_BATCH_UPLOAD_MAX_BYTES) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(image);
+    currentBytes += image.bytes;
+  }
+  if (current.length > 0) {
+    batches.push(current);
+  }
+  for (const batch of batches) {
+    ok = await deliverCorePendingImages(input, batch, replyOptions) && ok;
+  }
+  return ok;
+}
+
+/**
+ * Delivers a batch of images as a SINGLE card (each image keeps its
+ * own caption above it) so a titled P1/P2/... image deck arrives as
+ * one grouped deliverable rather than one card per image. Validated batches stay in
+ * one card unless Feishu rejects the card as too large; then we split it in half and
+ * retry each half (see sendLarkImageCardOrSplit). Any image whose upload fails — or a
+ * lone image whose card is still rejected — degrades to a bare image message.
+ */
+async function deliverCorePendingImages(
+  input: CoreImageDeliveryInput,
+  images: Array<{ caption?: string; real: string; originalPath: string; bytes: number }>,
+  replyOptions: CoreSendOptions | undefined,
+): Promise<boolean> {
+  const uploaded: CoreUploadedImage[] = [];
+  let ok = true;
+  for (const img of images) {
+    let body: Buffer;
+    try {
+      body = await readFile(img.real);
+    } catch (error) {
+      ok = false;
+      const reason = coreFileRejectReasonFromError(error);
+      await appendCoreFileRejectedTimeline(input, {
+        path: img.originalPath,
+        realPath: img.real,
+        reason,
+        detail: errorDetail(error),
+        kind: "image",
+      });
+      await input.channel.send(input.chatId, {
+        text: renderCoreFileDeliveryError(reason, input.locale, { fileName: path.basename(img.real) }),
+      }, replyOptions);
+      continue;
+    }
+    const imgKey = await uploadCoreImageKey(input.channel, body).catch(() => undefined);
+    if (!imgKey) {
+      ok = await sendCoreImageWithFileFallback({
+        ...input,
+        body,
+        realPath: img.real,
+        originalPath: img.originalPath,
+      }) && ok;
+      continue;
+    }
+    uploaded.push({
+      ...(img.caption ? { caption: img.caption } : {}),
+      imgKey,
+      real: img.real,
+      originalPath: img.originalPath,
+      bytes: body.length,
+    });
+  }
+
+  return await sendCoreImageCardOrSplit(input, uploaded, replyOptions) && ok;
+}
+
+/**
+ * Sends the given images as ONE card. It splits only after an explicit size rejection,
+ * never after a timeout or connection reset: those errors may happen after Feishu
+ * accepted the card, so retrying would duplicate the images.
+ */
+async function sendCoreImageCardOrSplit(
+  input: CoreImageDeliveryInput,
+  items: CoreUploadedImage[],
+  replyOptions: CoreSendOptions | undefined,
+): Promise<boolean> {
+  if (items.length === 0) {
+    return true;
+  }
+  try {
+    await input.channel.send(input.chatId, { card: buildCoreImageCard(items) }, replyOptions);
+    for (const item of items) {
+      await appendCoreFileAcceptedTimeline(input, {
+        fileName: path.basename(item.real),
+        bytes: item.bytes,
+        kind: "image",
+      });
+    }
+    return true;
+  } catch (error) {
+    if (!isExplicitCoreCardSizeError(error)) {
+      for (const item of items) {
+        await appendCoreFileRejectedTimeline(input, {
+          path: item.originalPath,
+          realPath: item.real,
+          reason: "delivery-uncertain",
+          detail: redactCoreErrorDetail(error),
+          kind: "image",
+        });
+      }
+      await input.channel.send(input.chatId, {
+        text: renderCoreFileDeliveryError("delivery-uncertain", input.locale),
+      }, replyOptions).catch(() => undefined);
+      return false;
+    }
+    if (items.length === 1) {
+      const only = items[0]!;
+      let body: Buffer;
+      try {
+        body = only.body ?? await readFile(only.real);
+      } catch (error) {
+        const reason = coreFileRejectReasonFromError(error);
+        await appendCoreFileRejectedTimeline(input, {
+          path: only.originalPath,
+          realPath: only.real,
+          reason,
+          detail: errorDetail(error),
+          kind: "image",
+        });
+        await input.channel.send(input.chatId, {
+          text: renderCoreFileDeliveryError(reason, input.locale, { fileName: path.basename(only.real) }),
+        }, replyOptions).catch(() => undefined);
+        return false;
+      }
+      return await sendCoreImageWithFileFallback({ ...input, body, realPath: only.real, originalPath: only.originalPath });
+    }
+    const mid = Math.floor(items.length / 2);
+    const firstHalfOk = await sendCoreImageCardOrSplit(input, items.slice(0, mid), replyOptions);
+    const secondHalfOk = await sendCoreImageCardOrSplit(input, items.slice(mid), replyOptions);
+    return firstHalfOk && secondHalfOk;
+  }
+}
+
+async function sendCoreImageWithFileFallback(input: {
+  channel: CoreChannelLike;
+  chatId: string;
+  replyTo?: string;
+  replyInThread?: boolean;
+  stateDir: string;
+  conversationKey?: string;
+  bridgeChatId?: number;
+  bridgeUserId?: number;
+  bridgeChatType?: "private" | "group";
+  larkMessageId?: string;
+  locale: Locale;
+  body: Buffer;
+  realPath: string;
+  originalPath: string;
+}): Promise<boolean> {
+  const replyOptions = coreReplyOptions(input.replyTo, input.replyInThread);
+  try {
+    await input.channel.send(input.chatId, { image: { source: input.body } }, replyOptions);
+    await appendCoreFileAcceptedTimeline(input, {
+      fileName: path.basename(input.realPath),
+      bytes: input.body.length,
+      kind: "image",
+    });
+    return true;
+  } catch (error) {
+    await appendCoreFileRejectedTimeline(input, {
+      path: input.originalPath,
+      realPath: input.realPath,
+      reason: "upload-failed",
+      detail: `image delivery failed; falling back to file: ${errorDetail(error)}`,
+      kind: "image",
+    });
+  }
+
+  try {
+    await input.channel.send(input.chatId, {
+      file: {
+        source: input.body,
+        fileName: path.basename(input.realPath),
+      },
+    }, replyOptions);
+    await appendCoreFileAcceptedTimeline(input, {
+      fileName: path.basename(input.realPath),
+      bytes: input.body.length,
+      kind: "file",
+      fallbackFrom: "image",
+    });
+    return true;
+  } catch (error) {
+    await appendCoreFileRejectedTimeline(input, {
+      path: input.originalPath,
+      realPath: input.realPath,
+      reason: "upload-failed",
+      detail: `image file fallback failed: ${errorDetail(error)}`,
+      kind: "file",
+    });
+    await input.channel.send(input.chatId, {
+      text: renderCoreFileDeliveryError("upload-failed", input.locale, { fileName: path.basename(input.realPath) }),
+    }, replyOptions).catch(() => undefined);
+    return false;
+  }
+}
+
+function renderCoreFileDeliveryError(
+  reason: CoreFileRejectReason,
+  locale: Locale,
+  context: { workspaceRoot?: string; fileName?: string; fileBytes?: number } = {},
+): string {
+  // Name the exact failure (which file, why) so the operator and the agent can
+  // self-correct — a generic "read failed" hides not-found vs oversize vs a
+  // platform rejection and sends the operator to the logs for every incident.
+  const dir = context.workspaceRoot ?? (locale === "en" ? "the workspace" : "工作区");
+  const name = context.fileName;
+  const sizeMb = context.fileBytes !== undefined ? Math.ceil(context.fileBytes / (1024 * 1024)) : undefined;
+  const capMb = Math.floor(CORE_FILE_UPLOAD_MAX_BYTES / (1024 * 1024));
+  const batchCapMb = Math.floor(CORE_BATCH_UPLOAD_MAX_BYTES / (1024 * 1024));
+  if (locale === "en") {
+    switch (reason) {
+      case "outside-workspace":
+        if (channelProfile() === "gateway") return `File not sent: it is outside the allowed directories. Copy it into ${dir}, or select Full access in Bot settings → Permissions. Full access allows external paths by default; check whether this Bot's bot.env explicitly sets TAROBOT_ALLOW_ANY_FILE_PATH=0.`;
+        return `This file is outside the allowed send directory — a path restriction, not a send failure. Copy it into ${dir} and resend (only files under that directory can be sent), or add TAROBOT_ALLOW_ANY_FILE_PATH=1 to this Bot's bot.env and restart it to allow any readable path.`;
+      case "credentials-file":
+        return `Refusing to send a credentials-style file${name ? ` (${name})` : ""}. Dotenv files and private keys (.env*, *.pem, *.key, id_rsa, id_ed25519) are never sendable — not even from inside the workspace, and not with TAROBOT_ALLOW_ANY_FILE_PATH=1. Copy only the specific non-secret values you need into a normal file.`;
+      case "not-found":
+        return `File was not sent: the file does not exist${name ? ` (${name})` : ""}. The sender referenced a path that was never created.`;
+      case "permission-denied":
+        return `File was not sent: no permission to read it${name ? ` (${name})` : ""}.`;
+      case "too-large":
+        return `File was not sent: ${name ?? "the file"} is ${sizeMb ?? "?"}MB, over the current tested-safe ${capMb}MB Feishu bot upload limit. Split it into smaller parts or compress it further, then resend.`;
+      case "batch-too-large":
+        return `Files were not sent: the batch is ${sizeMb ?? "?"}MB, over the ${batchCapMb}MB aggregate limit. Split it into smaller batches and resend.`;
+      case "upload-failed":
+        return `File was not sent: Feishu rejected the upload${name ? ` (${name})` : ""}; details were recorded in logs.`;
+      case "delivery-uncertain":
+        return "The image card's delivery could not be confirmed. To avoid duplicates, it was not retried automatically. If it did not arrive, ask me to resend it.";
+      default:
+        return "File was not sent: failed to read the file; details were recorded in logs.";
+    }
+  }
+  switch (reason) {
+    case "outside-workspace":
+      if (channelProfile() === "gateway") return `文件未发送：路径不在允许的目录内。请复制到 ${dir}，或在 Bot 设置 → 权限与批准中选择“完全访问”。完全访问默认允许外部路径；若仍被限制，请检查该 Bot 的 bot.env 是否显式设置了 TAROBOT_ALLOW_ANY_FILE_PATH=0。`;
+      return `该文件不在允许发送的目录内——这是路径限制，不是发送失败。请把文件复制到 ${dir} 再发（只有该目录下的文件可直接发送），或在该 Bot 的 bot.env 中加入 TAROBOT_ALLOW_ANY_FILE_PATH=1 并重启，以放开任意可读路径。`;
+    case "credentials-file":
+      return `拒绝发送凭据类文件${name ? `（${name}）` : ""}：.env* / *.pem / *.key / id_rsa / id_ed25519 这类文件永远不会被发送——即使它在工作区内，也不受 TAROBOT_ALLOW_ANY_FILE_PATH=1 影响。如确需分享，请只把不涉密的内容单独写入普通文件。`;
+    case "not-found":
+      return `文件未发送：文件不存在${name ? `（${name}）` : ""}。发送方引用了一个从未生成的路径。`;
+    case "permission-denied":
+      return `文件未发送：没有读取权限${name ? `（${name}）` : ""}。`;
+    case "too-large":
+      return `文件未发送：${name ?? "该文件"} 有 ${sizeMb ?? "?"}MB，超过当前接口实测安全上限 ${capMb}MB。请拆分成多个小包或进一步压缩后重发。`;
+    case "batch-too-large":
+      return `文件未发送：本批次合计 ${sizeMb ?? "?"}MB，超过 ${batchCapMb}MB 总量上限。请拆成多个批次后重发。`;
+    case "upload-failed":
+      return `文件未发送：上传被飞书拒绝${name ? `（${name}）` : ""}，详细原因已记录到日志。`;
+    case "delivery-uncertain":
+      return "图片卡片的送达状态无法确认。为避免重复发送，未自动重试；如果没有收到，请让我重发。";
+    default:
+      return "文件未发送：读取文件失败，详细原因已记录到日志。";
+  }
+}
+
+async function appendCoreFileAcceptedTimeline(
+  input: {
+    stateDir: string;
+    chatId: string;
+    conversationKey?: string;
+    bridgeChatId?: number;
+    bridgeUserId?: number;
+    bridgeChatType?: "private" | "group";
+    larkMessageId?: string;
+    replyTo?: string;
+  },
+  file: {
+    fileName: string;
+    bytes: number;
+    kind: CoreSendPathKind;
+    fallbackFrom?: CoreSendPathKind;
+  },
+): Promise<void> {
+  const conversationKey = input.conversationKey ?? `lark:${input.chatId}`;
+  await appendTimelineEventBestEffort(input.stateDir, {
+    type: "file.accepted",
+    channel: "lark",
+    chatId: input.bridgeChatId ?? stableCoreNumericId(conversationKey),
+    ...(input.bridgeUserId !== undefined ? { userId: input.bridgeUserId } : {}),
+    conversationKey,
+    outcome: "accepted",
+    metadata: {
+      fileName: file.fileName,
+      bytes: file.bytes,
+      kind: file.kind,
+      via: "post-turn",
+      ...(file.fallbackFrom ? { fallbackFrom: file.fallbackFrom } : {}),
+      larkChatId: input.chatId,
+      larkMessageId: input.larkMessageId ?? input.replyTo,
+      ...(input.bridgeChatType ? { bridgeChatType: input.bridgeChatType } : {}),
+    },
+  }, "Lark file delivery timeline event");
+}
+
+async function appendCoreFileRejectedTimeline(
+  input: {
+    stateDir: string;
+    chatId: string;
+    conversationKey?: string;
+    bridgeChatId?: number;
+    bridgeUserId?: number;
+    bridgeChatType?: "private" | "group";
+    larkMessageId?: string;
+    replyTo?: string;
+  },
+  rejection: {
+    path: string;
+    realPath?: string;
+    reason: CoreFileRejectReason;
+    detail?: string;
+    kind: CoreSendPathKind;
+  },
+): Promise<void> {
+  const conversationKey = input.conversationKey ?? `lark:${input.chatId}`;
+  await appendTimelineEventBestEffort(input.stateDir, {
+    type: "file.rejected",
+    channel: "lark",
+    chatId: input.bridgeChatId ?? stableCoreNumericId(conversationKey),
+    ...(input.bridgeUserId !== undefined ? { userId: input.bridgeUserId } : {}),
+    conversationKey,
+    outcome: "rejected",
+    detail: rejection.reason,
+    metadata: {
+      path: rejection.path,
+      reason: rejection.reason,
+      kind: rejection.kind,
+      via: "post-turn",
+      larkChatId: input.chatId,
+      larkMessageId: input.larkMessageId ?? input.replyTo,
+      ...(rejection.realPath ? { realPath: rejection.realPath } : {}),
+      ...(rejection.detail ? { detail: rejection.detail } : {}),
+      ...(input.bridgeChatType ? { bridgeChatType: input.bridgeChatType } : {}),
+    },
+  }, "Lark file delivery rejection timeline event");
+}
+
+function coreFileRejectReasonFromError(error: unknown): CoreFileRejectReason {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : "";
+  if (code === "ENOENT") {
+    return "not-found";
+  }
+  if (code === "EACCES" || code === "EPERM") {
+    return "permission-denied";
+  }
+  return "read-error";
+}
+
+function errorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isExplicitCoreCardSizeError(error: unknown): boolean {
+  const records = errorRecords(error);
+  for (const record of records) {
+    const status = Number(record.statusCode ?? record.status);
+    if (status === 413) {
+      return true;
+    }
+  }
+  const evidence = [
+    errorDetail(error),
+    ...records.flatMap((record) => [record.message, record.msg, record.error, record.code]),
+  ]
+    .filter((value): value is string | number => typeof value === "string" || typeof value === "number")
+    .join(" ");
+  return /(?:card|message|payload|request|entity).{0,48}(?:too large|oversi(?:ze|zed)|exceeds?.{0,24}(?:size|limit))/iu.test(evidence)
+    || /(?:too large|oversi(?:ze|zed)|exceeds?.{0,24}(?:size|limit)).{0,48}(?:card|message|payload|request|entity)/iu.test(evidence);
+}
+
+function errorRecords(error: unknown): Array<Record<string, unknown>> {
+  const records: Array<Record<string, unknown>> = [];
+  const queue: unknown[] = [error];
+  const seen = new Set<object>();
+  while (queue.length > 0 && records.length < 8) {
+    const value = queue.shift();
+    if (!value || typeof value !== "object" || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    records.push(record);
+    queue.push(record.cause, record.response, record.data, record.error);
+  }
+  return records;
+}
+
+function payloadObject(payload: unknown): Record<string, unknown> | null {
+  return payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+}
+
+function buildCoreToolCard(
+  payload: Record<string, unknown> | null,
+  conversationKey: string | undefined,
+  bridgeChatType: "private" | "group" | undefined,
+  replyInThread: boolean | undefined,
+  locale: Locale,
+): object {
+  if (!payload) {
+    throw new Error("send.card requires an object payload");
+  }
+  if (payload.card && typeof payload.card === "object" && !Array.isArray(payload.card)) {
+    return decorateRawCoreCard(payload.card as Record<string, unknown>, conversationKey, bridgeChatType, replyInThread);
+  }
+
+  const title = typeof payload.title === "string" ? payload.title : defaultCoreToolCardTitle(locale);
+  const body = typeof payload.body === "string" ? payload.body : "";
+  const actions = Array.isArray(payload.actions) ? payload.actions : [];
+  const elements: unknown[] = [
+    {
+      tag: "markdown",
+      content: body || title,
+    },
+  ];
+  if (actions.length > 0) {
+    const normalizedActions = actions
+      .filter((action): action is Record<string, unknown> => Boolean(action) && typeof action === "object" && !Array.isArray(action));
+    normalizedActions.forEach((action, index) => {
+      elements.push(...buildCoreOptionSection({
+        action,
+        index,
+        conversationKey,
+        bridgeChatType,
+        replyInThread,
+        locale,
+      }));
+      if (index < normalizedActions.length - 1) {
+        elements.push({ tag: "hr" });
+      }
+    });
+  }
+
+  return {
+    schema: "2.0",
+    config: {
+      update_multi: true,
+      summary: {
+        content: title,
+      },
+    },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: title,
+      },
+    },
+    body: {
+      direction: "vertical",
+      elements,
+    },
+  };
+}
+
+function renderCoreToolCardFallback(payload: Record<string, unknown> | null, locale: Locale): string {
+  if (!payload) {
+    return locale === "en" ? "Interactive card could not be displayed." : "交互卡片无法显示。";
+  }
+  const title = stringValue(payload.title) ?? defaultCoreToolCardTitle(locale);
+  const body = stringValue(payload.body) ?? "";
+  const actions = Array.isArray(payload.actions)
+    ? payload.actions.filter((action): action is Record<string, unknown> => Boolean(action) && typeof action === "object" && !Array.isArray(action))
+    : [];
+  const lines = [
+    `**${title}**`,
+    body,
+    ...actions.map((action, index) => {
+      const label = stringValue(action.label) ?? stringValue(action.title) ?? defaultCoreToolCardActionLabel(locale);
+      const description = stringValue(action.description) ?? stringValue(action.text) ?? "";
+      return `${optionMarker(index)}. ${label}${description && description !== label ? ` — ${description}` : ""}`;
+    }),
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+
+function buildCoreOptionSection(input: {
+  action: Record<string, unknown>;
+  index: number;
+  conversationKey: string | undefined;
+  bridgeChatType: "private" | "group" | undefined;
+  replyInThread: boolean | undefined;
+  locale: Locale;
+}): unknown[] {
+  const label = stringValue(input.action.label) ?? defaultCoreToolCardActionLabel(input.locale);
+  const value = input.action.value ?? label;
+  const title = stringValue(input.action.title) ?? label;
+  const description = stringValue(input.action.description) ??
+    stringValue(input.action.body) ??
+    stringValue(input.action.detail) ??
+    stringValue(input.action.text);
+  const buttonLabel = stringValue(input.action.buttonLabel) ??
+    stringValue(input.action.cta) ??
+    defaultCoreToolCardActionLabel(input.locale);
+  const type = input.action.type === "danger" || input.action.type === "primary" || input.action.type === "default"
+    ? input.action.type
+    : "primary";
+
+  return [
+    {
+      tag: "collapsible_panel",
+      expanded: input.index === 0,
+      header: {
+        title: { tag: "markdown", content: `**${optionMarker(input.index)}. ${title}**` },
+        vertical_align: "center",
+        icon: { tag: "standard_icon", token: "down-small-ccm_outlined", size: "16px 16px" },
+        icon_position: "follow_text",
+        icon_expanded_angle: -180,
+      },
+      border: { color: input.index === 0 ? "blue" : "grey", corner_radius: "5px" },
+      vertical_spacing: "8px",
+      padding: "8px 8px 8px 8px",
+      elements: [
+        {
+          tag: "markdown",
+          content: description && description !== title
+            ? description
+            : input.locale === "en" ? "_Click the button below to choose this option._" : "_点击下方按钮选择此项。_",
+          text_size: "notation",
+        },
+        {
+          tag: "button",
+          text: {
+            tag: "plain_text",
+            content: buttonLabel,
+          },
+          width: "fill",
+          type,
+          behaviors: [callbackBehavior({
+            cctb_lark: "choice",
+            ...(input.conversationKey ? { conversationKey: input.conversationKey } : {}),
+            ...(input.bridgeChatType ? { bridgeChatType: input.bridgeChatType } : {}),
+            ...(input.replyInThread ? { replyInThread: true } : {}),
+            label,
+            value,
+          })],
+        },
+      ],
+    },
+  ];
+}
+
+function optionMarker(index: number): string {
+  if (index >= 0 && index < 26) {
+    return String.fromCharCode("A".charCodeAt(0) + index);
+  }
+  return String(index + 1);
+}
+
+function normalizeCoreChoicePayload(payload: Record<string, unknown> | null, locale: Locale): Record<string, unknown> {
+  if (!payload) {
+    throw new Error("send.choice requires an object payload");
+  }
+  const prompt = stringValue(payload.prompt) ?? stringValue(payload.body) ?? stringValue(payload.question) ?? "";
+  const title = stringValue(payload.title) ?? defaultCoreToolCardTitle(locale);
+  const rawOptions = Array.isArray(payload.options)
+    ? payload.options
+    : Array.isArray(payload.actions)
+      ? payload.actions
+      : [];
+  const actions = rawOptions
+    .map((option): Record<string, unknown> | null => {
+      if (typeof option === "string") {
+        return { label: option, value: option };
+      }
+      if (!option || typeof option !== "object" || Array.isArray(option)) {
+        return null;
+      }
+      const entry = option as Record<string, unknown>;
+      const label = stringValue(entry.label) ?? stringValue(entry.text) ?? stringValue(entry.value) ?? defaultCoreToolCardActionLabel(locale);
+      return {
+        ...entry,
+        label,
+        value: entry.value ?? label,
+      };
+    })
+    .filter((action): action is Record<string, unknown> => action !== null);
+
+  return {
+    title,
+    body: prompt,
+    actions,
+  };
+}
+
+function normalizeCoreRequestUserInputPayload(payload: Record<string, unknown> | null, locale: Locale): Record<string, unknown> {
+  if (!payload) {
+    throw new Error("request_user_input requires an object payload");
+  }
+  const questions = Array.isArray(payload.questions)
+    ? payload.questions.filter((question): question is Record<string, unknown> => Boolean(question) && typeof question === "object" && !Array.isArray(question))
+    : [];
+  const question = questions[0];
+  if (!question) {
+    return normalizeCoreChoicePayload(payload, locale);
+  }
+  const questionId = stringValue(question.id);
+  const title = stringValue(question.header) ??
+    stringValue(question.title) ??
+    stringValue(payload.title) ??
+    defaultCoreToolCardTitle(locale);
+  const prompt = stringValue(question.question) ??
+    stringValue(question.title) ??
+    stringValue(payload.prompt) ??
+    "";
+  const rawOptions = Array.isArray(question.options) ? question.options : [];
+  const options = rawOptions
+    .map((option): Record<string, unknown> | null => {
+      if (typeof option === "string") {
+        return {
+          label: option,
+          value: questionId ? `${questionId}:${option}` : option,
+        };
+      }
+      if (!option || typeof option !== "object" || Array.isArray(option)) {
+        return null;
+      }
+      const entry = option as Record<string, unknown>;
+      const label = stringValue(entry.label) ?? stringValue(entry.text) ?? stringValue(entry.value) ?? defaultCoreToolCardActionLabel(locale);
+      const rawValue = stringValue(entry.value) ?? label;
+      return {
+        ...entry,
+        label,
+        value: questionId ? `${questionId}:${rawValue}` : rawValue,
+      };
+    })
+    .filter((option): option is Record<string, unknown> => option !== null);
+  return {
+    title,
+    body: prompt,
+    actions: options,
+  };
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function defaultCoreToolCardTitle(locale: Locale): string {
+  return locale === "en" ? "Choose" : "请选择";
+}
+
+function defaultCoreToolCardActionLabel(locale: Locale): string {
+  return locale === "en" ? "Choose" : "选择";
+}
+
+function decorateRawCoreCard(
+  card: Record<string, unknown>,
+  conversationKey: string | undefined,
+  bridgeChatType: "private" | "group" | undefined,
+  replyInThread: boolean | undefined,
+): Record<string, unknown> {
+  // Runs even without a conversationKey: the decoration also SANITIZES
+  // engine-authored cctb_lark callbacks, and skipping it would ship them
+  // verbatim (see the security note in decorateLarkCardNode).
+  const decorated = decorateCoreCardNode(card, conversationKey, bridgeChatType, replyInThread);
+  // SECURITY (confused deputy, part 2): decorateLarkCardNode only sanitizes
+  // `tag: "button"` nodes, but a callback payload can ride on ANY interactive
+  // Feishu element — Card 2.0 select_static / multi_select_static / checker /
+  // interactive_container / img `behaviors[].value`, Card 1.0 action-module
+  // overflow and select_static `options[].value`, and arbitrarily nested
+  // containers. Those all used to ship VERBATIM, so one operator tap on an
+  // engine-authored "interactive_container" could run a privileged bridge action
+  // (config / board / resume …) against any conversation. Walk the WHOLE decorated
+  // tree and rewrite every object carrying a cctb_lark key, wherever it sits.
+  // Idempotent over the button path above (re-sanitizing a sanitized choice
+  // callback yields the same object). Only engine-supplied raw cards reach here;
+  // bridge-authored cards are built by our own renderers and keep their
+  // privileged callbacks untouched.
+  return sanitizeEngineCallbackNode(
+    decorated,
+    null,
+    conversationKey,
+    bridgeChatType,
+    replyInThread,
+  ) as Record<string, unknown>;
+}
+
+/**
+ * Recursively rewrite every object that carries a `cctb_lark` key through
+ * `sanitizedEngineChoiceCallback`. `owner` is the immediate parent node, used
+ * only to recover a human label (a button/option's `text.content`) when the
+ * engine's payload has none.
+ */
+function sanitizeEngineCallbackNode(
+  value: unknown,
+  owner: Record<string, unknown> | null,
+  conversationKey: string | undefined,
+  bridgeChatType: "private" | "group" | undefined,
+  replyInThread: boolean | undefined,
+  inCallbackValuePosition = false,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeEngineCallbackNode(item, owner, conversationKey, bridgeChatType, replyInThread, inCallbackValuePosition));
+  }
+  if (typeof value === "string") {
+    // Only a string sitting in a CALLBACK-VALUE position is re-parsed. The click
+    // handler (card-actions `actionValue`) JSON.parses such a string into the
+    // callback object, so passing it through verbatim was a complete bypass of
+    // the object-only sanitizer. Restricting it to that position keeps ordinary
+    // prose/markdown/code containing JSON (or the literal `cctb_lark`) untouched
+    // — an earlier version re-encoded any JSON-looking string anywhere in the
+    // card, which reflowed display text.
+    if (!inCallbackValuePosition) {
+      return value;
+    }
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("{")) {
+      return value;
+    }
+    // NOTE: no plaintext `cctb_lark` precheck. JSON escapes mean the raw text
+    // need not contain the literal key — `{"cctb\u005flark":"stop"}` parses to
+    // exactly that key, and a substring test let it through untouched. The only
+    // sound test is on the PARSED object, which is what the click handler sees.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return value;
+    }
+    const sanitizedParsed = sanitizeEngineCallbackNode(parsed, owner, conversationKey, bridgeChatType, replyInThread, false);
+    return JSON.stringify(sanitizedParsed);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const node = value as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(node, "cctb_lark")) {
+    return sanitizedEngineChoiceCallback(node, owner ?? node, conversationKey, bridgeChatType, replyInThread);
+  }
+  // Carry the nearest LABELLED ancestor down (a button/option carries `text`, the
+  // `behaviors[]` wrapper in between does not), so the recovered label is the one
+  // the operator actually sees on the control.
+  const nextOwner = Object.prototype.hasOwnProperty.call(node, "text") ? node : owner;
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(node)) {
+    // `value` (button/option) and `behaviors[].value` are the only places a
+    // callback payload can sit; a string anywhere else is display content.
+    const childIsCallbackValue = key === "value" || key === "behaviors";
+    sanitized[key] = sanitizeEngineCallbackNode(item, nextOwner, conversationKey, bridgeChatType, replyInThread, childIsCallbackValue || (inCallbackValuePosition && Array.isArray(item)));
+  }
+  return sanitized;
+}
+
+function decorateCoreCardNode(
+  value: unknown,
+  conversationKey: string | undefined,
+  bridgeChatType: "private" | "group" | undefined,
+  replyInThread: boolean | undefined,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => decorateCoreCardNode(item, conversationKey, bridgeChatType, replyInThread));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const node = value as Record<string, unknown>;
+  const decorated: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(node)) {
+    decorated[key] = decorateCoreCardNode(item, conversationKey, bridgeChatType, replyInThread);
+  }
+
+  if (decorated.tag === "button") {
+    const currentValue = payloadObject(decorated.value);
+    const behaviors = arrayValue(decorated.behaviors);
+    const existingCallback = findCoreCallbackValue(behaviors);
+    if (!currentValue?.cctb_lark && !existingCallback?.cctb_lark && behaviors.length === 0) {
+      const label = extractButtonLabel(decorated);
+      decorated.behaviors = [
+        callbackBehavior({
+          cctb_lark: "choice",
+          ...(conversationKey ? { conversationKey } : {}),
+          ...(bridgeChatType ? { bridgeChatType } : {}),
+          ...(replyInThread ? { replyInThread: true } : {}),
+          label,
+          value: currentValue ?? label,
+        }),
+      ];
+      delete decorated.value;
+    } else if (currentValue?.cctb_lark || existingCallback?.cctb_lark) {
+      // SECURITY (confused deputy): this card came from ENGINE output, so any
+      // cctb_lark callback in it is engine-authored. Honoring it verbatim would
+      // let a prompt-injected engine ship an innocuous-looking button that runs
+      // a privileged bridge action (config / board / resume / …) — or targets
+      // another conversation — on one operator tap. Rewrite EVERY cctb_lark
+      // callback to the harmless "choice" shape and pin conversationKey to the
+      // delivering conversation. Bridge-authored cards (config, board, run,
+      // approval cards) are built by our own renderers and never pass through
+      // this engine-raw-card decoration, so their privileged callbacks keep
+      // working untouched.
+      const rewritten = behaviors.map((behavior) => {
+        if (!behavior || typeof behavior !== "object" || Array.isArray(behavior)) {
+          return behavior;
+        }
+        const entry = behavior as Record<string, unknown>;
+        if (entry.type !== "callback") {
+          return behavior;
+        }
+        const callbackValue = payloadObject(entry.value);
+        if (!callbackValue?.cctb_lark) {
+          return behavior;
+        }
+        return {
+          ...entry,
+          value: sanitizedEngineChoiceCallback(callbackValue, decorated, conversationKey, bridgeChatType, replyInThread),
+        };
+      });
+      if (currentValue?.cctb_lark && !existingCallback?.cctb_lark) {
+        rewritten.push(callbackBehavior(sanitizedEngineChoiceCallback(currentValue, decorated, conversationKey, bridgeChatType, replyInThread)));
+      }
+      decorated.behaviors = rewritten;
+      if (currentValue?.cctb_lark) {
+        delete decorated.value;
+      }
+    }
+  }
+
+  return decorated;
+}
+
+/**
+ * Rebuilds an engine-authored cctb_lark button callback as a plain "choice"
+ * callback bound to the delivering conversation. Only label/value survive;
+ * privileged fields (action, command, decision, requestId, …) and any
+ * engine-chosen conversationKey are dropped.
+ */
+function sanitizedEngineChoiceCallback(
+  raw: Record<string, unknown>,
+  button: Record<string, unknown>,
+  conversationKey: string | undefined,
+  bridgeChatType: "private" | "group" | undefined,
+  replyInThread: boolean | undefined,
+): Record<string, unknown> {
+  const label = stringValue(raw.label) ?? extractButtonLabel(button);
+  return {
+    cctb_lark: "choice",
+    ...(conversationKey ? { conversationKey } : {}),
+    ...(bridgeChatType ? { bridgeChatType } : {}),
+    ...(replyInThread ? { replyInThread: true } : {}),
+    label,
+    value: raw.value ?? label,
+  };
+}
+
+function callbackBehavior(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: "callback",
+    value,
+  };
+}
+
+function findCoreCallbackValue(behaviors: unknown): Record<string, unknown> | null {
+  for (const behavior of arrayValue(behaviors)) {
+    if (!behavior || typeof behavior !== "object" || Array.isArray(behavior)) {
+      continue;
+    }
+    const entry = behavior as Record<string, unknown>;
+    if (entry.type === "callback") {
+      return payloadObject(entry.value);
+    }
+  }
+  return null;
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function extractButtonLabel(button: Record<string, unknown>): string {
+  const text = payloadObject(button.text);
+  const content = text && typeof text.content === "string" ? text.content.trim() : "";
+  return content || "choice";
+}

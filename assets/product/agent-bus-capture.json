@@ -1,0 +1,328 @@
+{
+  "clientVersion": "1.1.0",
+  "sourceRevision": "f3b901aa3e52bc965415ad120425257016502508",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-9GiM-HZ8.js",
+    "sha256": "74cbe56cf76368188cf53ed25985530b5274ca89b67d88f89cea397823bb730e",
+    "indexSha256": "43c8f7193dbb21d66c1ca1dba246ce501c586e620787544dd21337f4fbc73a54"
+  },
+  "captured": "2026-11-04T08:42:18.976Z",
+  "source": "Built shared desktop client, disposable loopback Hub, real saved Bus and conversations, synthetic read-only run status/replies. No model invoked; not native acceptance.",
+  "images": [
+    {
+      "file": "agent-bus-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1920,
+        "height": 1040
+      },
+      "scale": 2,
+      "kind": "workspace",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "mini-clownfish",
+        "mini-octopus",
+        "peach-patch-cat",
+        "cream-bunny",
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-bus-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "858c1234f11dd161fcecde9d352f3f9fc9df2092f7f2668d933a76e61ccb4af3"
+    },
+    {
+      "file": "agent-bus-setup-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1920,
+        "height": 1040
+      },
+      "scale": 2,
+      "kind": "setup",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "mini-clownfish",
+        "mini-octopus",
+        "peach-patch-cat",
+        "cream-bunny",
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-bus-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "9af63dd08f24f991648273b87a33d054f59b068535c98389e854f968b0b6c0e9"
+    },
+    {
+      "file": "agent-bus-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1920,
+        "height": 1040
+      },
+      "scale": 2,
+      "kind": "workspace",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "mini-clownfish",
+        "mini-octopus",
+        "peach-patch-cat",
+        "cream-bunny",
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-bus-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "3546f7788d04b071afa4afa3ac85ed7dee4b155cd20bf942c1ea0f3623f73ab8"
+    },
+    {
+      "file": "agent-bus-setup-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1920,
+        "height": 1040
+      },
+      "scale": 2,
+      "kind": "setup",
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ],
+      "visibleAvatars": [
+        "mini-clownfish",
+        "mini-octopus",
+        "peach-patch-cat",
+        "cream-bunny",
+        "pastel-fox"
+      ],
+      "firstBotAvatar": {
+        "botId": "demo-bus-codex",
+        "avatar": "pastel-fox"
+      },
+      "sha256": "79dbf4ff587e5f12b0a93853cb57e9d194615a0df5c12ee65135862846b422b2"
+    }
+  ],
+  "animationClientVersion": "1.1.0",
+  "animationProvenance": {
+    "sourceRevision": "cd89ecea117fea97eff06083d0695d25428d1d8b",
+    "sourceDirty": true,
+    "clientEntry": {
+      "file": "assets/index-BYzlevgr.js",
+      "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+      "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+    }
+  },
+  "animationsCaptured": "2026-11-04T10:09:24.637Z",
+  "animationSource": "Real built shared desktop client driven by Playwright tab clicks; disposable loopback Hub with a real saved Bus and conversations; the displayed run status and replies are synthetic read-only GET responses. No model invoked; not native acceptance.",
+  "animations": [
+    {
+      "file": "agent-bus-demo-en.gif",
+      "frames": 30,
+      "duration": 6.971,
+      "bytes": 312184,
+      "sha256": "9dc6db4db3be6556c1e4b364938e6a0d7d97b4bbd9dabfeaf69220f7b67dd979",
+      "locale": "en",
+      "viewport": {
+        "width": 1760,
+        "height": 990
+      },
+      "scale": 1.5,
+      "listMode": "conversations",
+      "panes": 3,
+      "columns": 3,
+      "fontSize": 13,
+      "runState": "synthetic read-only GET responses; no model execution",
+      "consoleErrors": 0,
+      "fixtureCapabilityProbes": {
+        "409 tasks": 9,
+        "503 steer": 9,
+        "403 collaboration": 1
+      },
+      "actions": [
+        "Configuration tab (member tasks)",
+        "Run tab (flow and member results)"
+      ],
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "Bots",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "Chats",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "agent-bus-demo-zh.gif",
+      "frames": 30,
+      "duration": 6.987,
+      "bytes": 278726,
+      "sha256": "fdd38856d6cdef9f436788c9957b97e93234237469387200c04a5c8aafbf9e71",
+      "locale": "zh",
+      "viewport": {
+        "width": 1760,
+        "height": 990
+      },
+      "scale": 1.5,
+      "listMode": "conversations",
+      "panes": 3,
+      "columns": 3,
+      "fontSize": 13,
+      "runState": "synthetic read-only GET responses; no model execution",
+      "consoleErrors": 0,
+      "fixtureCapabilityProbes": {
+        "409 tasks": 9,
+        "503 steer": 9,
+        "403 collaboration": 1
+      },
+      "actions": [
+        "配置 tab (member tasks)",
+        "运行 tab (flow and member results)"
+      ],
+      "palette": "mono",
+      "monoAccent": "warm-gray",
+      "theme": "light",
+      "accentFill": "#e7e2dc",
+      "layoutSwitches": [
+        {
+          "width": 263,
+          "buttons": [
+            {
+              "label": "按 Bot",
+              "width": 84.328125,
+              "fits": true
+            },
+            {
+              "label": "按对话",
+              "width": 84.34375,
+              "fits": true
+            },
+            {
+              "label": "ADHD",
+              "width": 84.328125,
+              "fits": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

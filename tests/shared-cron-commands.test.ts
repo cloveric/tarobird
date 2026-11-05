@@ -1,0 +1,496 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  handleCronCommand,
+  isCronCommand,
+  type CronCommandContext,
+} from "../src/core/shared/cron-commands.js";
+import { CronStore } from "../src/state/cron-store.js";
+import { formatInCronTimezone } from "../src/state/cron-timezone.js";
+import { CronScheduler } from "../src/runtime/cron-scheduler.js";
+import { removeTempRoot } from "./helpers/temp-files.js";
+
+const CHAT_ID = 1001;
+const USER_ID = 9001;
+
+interface Harness {
+  stateDir: string;
+  store: CronStore;
+  scheduler: CronScheduler;
+  api: { sendMessage: ReturnType<typeof vi.fn> };
+  executor: ReturnType<typeof vi.fn>;
+  cleanup: () => Promise<void>;
+}
+
+async function makeHarness(): Promise<Harness> {
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-cron-cmd-"));
+  const store = new CronStore(stateDir);
+  const executor = vi.fn().mockResolvedValue(undefined);
+  const scheduler = new CronScheduler({
+    store,
+    executor,
+    stateDir,
+    logger: { error: vi.fn(), warn: vi.fn() },
+  });
+  const api = {
+    sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+  };
+
+  return {
+    stateDir,
+    store,
+    scheduler,
+    api,
+    executor,
+    cleanup: async () => {
+      await scheduler.stop();
+      await removeTempRoot(stateDir);
+    },
+  };
+}
+
+function makeContext(h: Harness, locale: "zh" | "en" = "en"): CronCommandContext {
+  return {
+    api: h.api,
+    store: h.store,
+    scheduler: h.scheduler,
+    chatId: CHAT_ID,
+    userId: USER_ID,
+    locale,
+  };
+}
+
+function makeTopicContext(h: Harness, messageThreadId: number, locale: "zh" | "en" = "en"): CronCommandContext {
+  return {
+    ...makeContext(h, locale),
+    chatType: "supergroup",
+    messageThreadId,
+  };
+}
+
+describe("isCronCommand", () => {
+  it("matches /cron variants", () => {
+    expect(isCronCommand("/cron")).toBe(true);
+    expect(isCronCommand("/cron list")).toBe(true);
+    expect(isCronCommand("/cron@mybot add 0 9 * * * test")).toBe(true);
+    expect(isCronCommand("  /cron  ")).toBe(true);
+  });
+
+  it("does not match unrelated", () => {
+    expect(isCronCommand("/cronjob")).toBe(false);
+    expect(isCronCommand("hello /cron")).toBe(false);
+    expect(isCronCommand("/help")).toBe(false);
+  });
+});
+
+describe("handleCronCommand", () => {
+  let h: Harness;
+  beforeEach(async () => {
+    h = await makeHarness();
+  });
+  afterEach(async () => {
+    await h.cleanup();
+  });
+
+  describe("list", () => {
+    it("prints empty hint when no jobs (en)", async () => {
+      const result = await handleCronCommand("/cron", makeContext(h, "en"));
+      expect(result.handled).toBe(true);
+      expect(result.subcommand).toBe("list");
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("No scheduled tasks"),
+      );
+    });
+
+    it("prints empty hint when no jobs (zh)", async () => {
+      await handleCronCommand("/cron list", makeContext(h, "zh"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("暂无定时任务"),
+      );
+    });
+
+    it("renders multiple jobs", async () => {
+      const a = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "0 9 * * *",
+        prompt: "morning summary",
+      });
+      const b = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "*/5 * * * *",
+        prompt: "every five",
+      });
+
+      await handleCronCommand("/cron", makeContext(h, "en"));
+      const msg = h.api.sendMessage.mock.calls[0]![1] as string;
+      expect(msg).toContain("2 scheduled tasks");
+      expect(msg).toContain(a.id);
+      expect(msg).toContain(b.id);
+      expect(msg).toContain("morning summary");
+      expect(msg).toContain("every five");
+      expect(msg).toContain("daily 09:00");
+      expect(msg).toContain("session=new_per_run");
+    });
+
+    it("renders one-shot jobs with the local target time, not cron internals or raw UTC", async () => {
+      const targetAt = new Date(Date.now() + 10 * 60_000).toISOString();
+      await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "0 9 * * *",
+        prompt: "drink water",
+        runOnce: true,
+        targetAt,
+        timezone: "Asia/Shanghai",
+      });
+
+      await handleCronCommand("/cron", makeContext(h, "en"));
+      const msg = h.api.sendMessage.mock.calls[0]![1] as string;
+      expect(msg).toContain("once");
+      // Local wall-clock in the job's timezone, e.g. "2026-06-01 13:42 (Asia/Shanghai)"
+      expect(msg).toContain(formatInCronTimezone(targetAt, "Asia/Shanghai"));
+      // ...and never the raw UTC ISO that read 8h off for the operator.
+      expect(msg).not.toContain(targetAt);
+      expect(msg).not.toContain("daily 09:00");
+    });
+
+    it("filters by chat id (does not show jobs from other chats)", async () => {
+      await h.store.add({
+        chatId: 9999,
+        userId: USER_ID,
+        cronExpr: "* * * * *",
+        prompt: "other chat",
+      });
+      await handleCronCommand("/cron", makeContext(h, "en"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("No scheduled tasks"),
+      );
+    });
+
+    it("filters by Telegram forum topic within the same group chat", async () => {
+      await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        chatType: "supergroup",
+        messageThreadId: 10,
+        cronExpr: "* * * * *",
+        prompt: "topic ten",
+      });
+      await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        chatType: "supergroup",
+        messageThreadId: 20,
+        cronExpr: "* * * * *",
+        prompt: "topic twenty",
+      });
+
+      await handleCronCommand("/cron", makeTopicContext(h, 10, "en"));
+      const msg = h.api.sendMessage.mock.calls[0]![1] as string;
+      expect(msg).toContain("topic ten");
+      expect(msg).not.toContain("topic twenty");
+    });
+  });
+
+  describe("add", () => {
+    it("adds a valid job", async () => {
+      await handleCronCommand("/cron add 0 9 * * * morning summary", makeContext(h, "en"));
+      const jobs = await h.store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.cronExpr).toBe("0 9 * * *");
+      expect(jobs[0]!.prompt).toBe("morning summary");
+      expect(jobs[0]!.sessionMode).toBe("new_per_run");
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringMatching(/Added task/),
+      );
+    });
+
+    it("stores the current Telegram forum topic on added jobs", async () => {
+      await handleCronCommand("/cron add 0 9 * * * topic reminder", makeTopicContext(h, 77, "en"));
+      const jobs = await h.store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toEqual(expect.objectContaining({
+        chatId: CHAT_ID,
+        chatType: "supergroup",
+        messageThreadId: 77,
+      }));
+    });
+
+    it("rejects invalid cron expression and does not write", async () => {
+      await handleCronCommand("/cron add not a real cron expr prompt", makeContext(h, "en"));
+      const jobs = await h.store.list();
+      expect(jobs).toHaveLength(0);
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Invalid cron expression"),
+      );
+    });
+
+    it("requires both expression and prompt", async () => {
+      await handleCronCommand("/cron add", makeContext(h, "en"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Usage:"),
+      );
+      expect(await h.store.list()).toHaveLength(0);
+    });
+
+    it("zh locale uses chinese error message", async () => {
+      await handleCronCommand("/cron add bad bad bad bad bad prompt-text", makeContext(h, "zh"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("无效的 cron 表达式"),
+      );
+    });
+  });
+
+  describe("rm", () => {
+    it("removes an existing job", async () => {
+      const job = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "* * * * *",
+        prompt: "p",
+      });
+      await handleCronCommand(`/cron rm ${job.id}`, makeContext(h, "en"));
+      expect(await h.store.list()).toHaveLength(0);
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Removed task"),
+      );
+    });
+
+    it("supports delete and del aliases", async () => {
+      const a = await h.store.add({ chatId: CHAT_ID, userId: USER_ID, cronExpr: "* * * * *", prompt: "a" });
+      const b = await h.store.add({ chatId: CHAT_ID, userId: USER_ID, cronExpr: "* * * * *", prompt: "b" });
+      await handleCronCommand(`/cron delete ${a.id}`, makeContext(h, "en"));
+      await handleCronCommand(`/cron del ${b.id}`, makeContext(h, "en"));
+      expect(await h.store.list()).toHaveLength(0);
+    });
+
+    it("returns not-found for unknown id", async () => {
+      await handleCronCommand("/cron rm deadbeef", makeContext(h, "en"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Task not found"),
+      );
+    });
+
+    it("rejects malformed id", async () => {
+      await handleCronCommand("/cron rm xyz", makeContext(h, "en"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Invalid ID"),
+      );
+    });
+
+    it("does not remove a job that belongs to a different chat", async () => {
+      const other = await h.store.add({
+        chatId: 9999,
+        userId: USER_ID,
+        cronExpr: "* * * * *",
+        prompt: "x",
+      });
+      await handleCronCommand(`/cron rm ${other.id}`, makeContext(h, "en"));
+      expect(await h.store.list()).toHaveLength(1);
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Task not found"),
+      );
+    });
+  });
+
+  describe("toggle", () => {
+    it("flips enabled flag", async () => {
+      const job = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "* * * * *",
+        prompt: "p",
+      });
+      expect(job.enabled).toBe(true);
+      await handleCronCommand(`/cron toggle ${job.id}`, makeContext(h, "en"));
+      const after = await h.store.get(job.id);
+      expect(after!.enabled).toBe(false);
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("disabled"),
+      );
+
+      h.api.sendMessage.mockClear();
+      await handleCronCommand(`/cron toggle ${job.id}`, makeContext(h, "en"));
+      const reEnabled = await h.store.get(job.id);
+      expect(reEnabled!.enabled).toBe(true);
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("enabled"),
+      );
+    });
+
+    it("not-found for unknown id", async () => {
+      await handleCronCommand("/cron toggle deadbeef", makeContext(h, "en"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Task not found"),
+      );
+    });
+  });
+
+  describe("mode", () => {
+    it("updates an existing job session mode", async () => {
+      const job = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "0 9 * * *",
+        prompt: "daily report",
+        sessionMode: "reuse",
+      });
+
+      await handleCronCommand(`/cron mode ${job.id} new_per_run`, makeContext(h, "en"));
+
+      await expect(h.store.get(job.id)).resolves.toEqual(expect.objectContaining({
+        sessionMode: "new_per_run",
+      }));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("new_per_run"),
+      );
+    });
+
+    it("rejects invalid session mode", async () => {
+      const job = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "0 9 * * *",
+        prompt: "daily report",
+      });
+
+      await handleCronCommand(`/cron mode ${job.id} shared`, makeContext(h, "en"));
+
+      await expect(h.store.get(job.id)).resolves.toEqual(expect.objectContaining({
+        sessionMode: "new_per_run",
+      }));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Usage: /cron mode"),
+      );
+    });
+  });
+
+  describe("run", () => {
+    it("returns promptly even when the queued run has not completed yet", async () => {
+      const job = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "* * * * *",
+        prompt: "run me",
+      });
+      vi.spyOn(h.scheduler, "runJobNow").mockImplementationOnce(() => new Promise(() => {}));
+
+      const result = await Promise.race([
+        handleCronCommand(`/cron run ${job.id}`, makeContext(h, "en")).then(() => "done"),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 25)),
+      ]);
+
+      expect(result).toBe("done");
+      const messages = h.api.sendMessage.mock.calls.map((c) => c[1] as string);
+      expect(messages.some((m) => m.includes("Running task"))).toBe(true);
+      expect(messages.some((m) => m.includes("triggered"))).toBe(true);
+    });
+
+    it("invokes scheduler.runJobNow which calls executor", async () => {
+      const job = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "* * * * *",
+        prompt: "run me",
+      });
+      await handleCronCommand(`/cron run ${job.id}`, makeContext(h, "en"));
+      await vi.waitFor(() => {
+        expect(h.executor).toHaveBeenCalledTimes(1);
+      });
+      await vi.waitFor(async () => {
+        await expect(h.store.get(job.id)).resolves.toEqual(expect.objectContaining({
+          runHistory: expect.arrayContaining([expect.objectContaining({ success: true })]),
+        }));
+      });
+      await vi.waitFor(async () => {
+        const raw = await readFile(path.join(h.stateDir, "timeline.log.jsonl"), "utf8");
+        expect(raw).toContain('"type":"cron.completed"');
+      });
+      const messages = h.api.sendMessage.mock.calls.map((c) => c[1] as string);
+      expect(messages.some((m) => m.includes("Running task"))).toBe(true);
+      expect(messages.some((m) => m.includes("triggered"))).toBe(true);
+    });
+
+    it("does not trigger disabled jobs", async () => {
+      const job = await h.store.add({
+        chatId: CHAT_ID,
+        userId: USER_ID,
+        cronExpr: "* * * * *",
+        prompt: "do not run me",
+        enabled: false,
+      });
+
+      await handleCronCommand(`/cron run ${job.id}`, makeContext(h, "en"));
+
+      expect(h.executor).not.toHaveBeenCalled();
+      const messages = h.api.sendMessage.mock.calls.map((c) => c[1] as string);
+      expect(messages.some((m) => m.includes("disabled"))).toBe(true);
+      expect(messages.some((m) => m.includes("triggered"))).toBe(false);
+    });
+
+    it("not-found for unknown id and does not call executor", async () => {
+      await handleCronCommand("/cron run deadbeef", makeContext(h, "en"));
+      expect(h.executor).not.toHaveBeenCalled();
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Task not found"),
+      );
+    });
+  });
+
+  describe("help and unknown", () => {
+    it("/cron help prints usage (en)", async () => {
+      await handleCronCommand("/cron help", makeContext(h, "en"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("/cron command usage"),
+      );
+    });
+
+    it("/cron help prints usage (zh)", async () => {
+      await handleCronCommand("/cron help", makeContext(h, "zh"));
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("/cron 命令用法"),
+      );
+    });
+
+    it("unknown subcommand falls back to help text", async () => {
+      const result = await handleCronCommand("/cron whoknows", makeContext(h, "en"));
+      expect(result.handled).toBe(true);
+      expect(result.subcommand).toBe("unknown");
+      expect(h.api.sendMessage).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.stringContaining("Unknown subcommand"),
+      );
+    });
+  });
+
+  it("returns handled:false for non-cron text", async () => {
+    const result = await handleCronCommand("/help", makeContext(h, "en"));
+    expect(result.handled).toBe(false);
+    expect(h.api.sendMessage).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,18 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse"><stop stop-color="#fffcf8"/><stop offset="1" stop-color="#fff0df"/></linearGradient>
+    <!-- Same lift as the README cover: keeps the cream belly distinct from the cream backdrop. -->
+    <filter id="lift" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="18" stdDeviation="8" flood-color="#8a4a1c" flood-opacity=".12"/></filter>
+  </defs>
+  <rect width="1280" height="640" rx="32" fill="url(#paper)"/>
+  <circle cx="1046" cy="315" r="235" fill="#ffddb5" fill-opacity=".28"/>
+  <circle cx="87" cy="95" r="4" fill="#ce681f"/>
+  <text x="103" y="101" fill="#886b53" font-family="Menlo, monospace" font-size="14" letter-spacing="2">YOUR HOST. YOUR AGENTS. YOUR SPACE.</text>
+  <text x="78" y="264" fill="#2d251f" font-family="Arial, Helvetica, sans-serif" font-size="112" font-weight="700" letter-spacing="-5">TaroBird<tspan fill="#d8732e">.</tspan></text>
+  <text x="82" y="331" fill="#5c4d42" font-family="Arial, Helvetica, sans-serif" font-size="29">Your agents. One conversation away.</text>
+  <text x="83" y="402" fill="#8a7766" font-family="Arial, Helvetica, sans-serif" font-size="19">Codex · Claude Code · Gemini · Kimi · DeepSeek</text>
+  <image href="brand/tarobot-tray-master.png" x="796" y="124" width="440" height="440" filter="url(#lift)"/>
+  <path d="M 82 515 H 765" stroke="#e8d7c5"/>
+  <text x="83" y="557" fill="#8a7766" font-family="Menlo, monospace" font-size="14" letter-spacing="1">macOS · Windows · iOS · Android</text>
+  <text x="1198" y="557" text-anchor="end" fill="#a27d5b" font-family="Menlo, monospace" font-size="13" letter-spacing="1.5">DESKTOP + MOBILE</text>
+</svg>

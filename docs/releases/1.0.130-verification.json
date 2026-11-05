@@ -1,0 +1,244 @@
+{
+  "appVersion": "1.0.130",
+  "hostVersion": "0.1.475",
+  "sourceCommit": "f125d52959b0c7c245862859a04c14aff14c70ab",
+  "protocol": 1,
+  "hubSchemaRange": [
+    1,
+    25
+  ],
+  "publication": {
+    "mac": {
+      "url": "https://github.com/cloveric/tarobot/releases/tag/macos-tarobot-v1.0.130",
+      "assets": [
+        {
+          "name": "TaroBot.app.tar.gz",
+          "size": 304604512,
+          "sha256": "c402a337681db186d558c8ad62b6ebbc0ef565b4ebb6ee1e1f05956f3c8f428f"
+        },
+        {
+          "name": "TaroBot.app.tar.gz.sig",
+          "size": 428,
+          "sha256": "8ea234e47e2fad9534d53d4aab88221004fabadf802c29ff506c603ada3c22fa"
+        },
+        {
+          "name": "TaroBot_1.0.130_aarch64.dmg",
+          "size": 357415320,
+          "sha256": "d61b30e5a6c883f02d350bb36649b505ffcf4d054cc2e6c9cd1a2e4fa75702e9"
+        },
+        {
+          "name": "tarobot-0.1.475.tgz",
+          "size": 53250502,
+          "sha256": "454a18f3074644b549af2807048db487a5fd21963513171dae0984c7ac23a004"
+        },
+        {
+          "name": "macos-tarobot-latest.json",
+          "size": 2318,
+          "sha256": "39890060de3b12174e9d5842b5fbb478084409131c1d6faac07dddd470bba16f"
+        },
+        {
+          "name": "SHA256SUMS",
+          "size": 446,
+          "sha256": "c2f44d97ebd62b3086b517a6d02445ac7bd3d17715135c71938a810530961a64"
+        }
+      ]
+    },
+    "windows": {
+      "url": "https://github.com/cloveric/tarobot/releases/tag/windows-preview-v1.0.130",
+      "assets": [
+        {
+          "name": "TaroBot-1.0.130-windows-x64-setup.exe",
+          "size": 262079916,
+          "sha256": "3d7b459d33662cb4b77b520787282f9037f8a8f94533656573f3d0771f57796b"
+        },
+        {
+          "name": "TaroBot-1.0.130-windows-x64-setup.exe.sig",
+          "size": 440,
+          "sha256": "3c5149a99e9f306364e70ed1bcff5f538bb7ef2d525e124c0e7e43b06d504b5d"
+        },
+        {
+          "name": "tarobot-0.1.475.tgz",
+          "size": 53250502,
+          "sha256": "454a18f3074644b549af2807048db487a5fd21963513171dae0984c7ac23a004"
+        },
+        {
+          "name": "SHA256SUMS",
+          "size": 298,
+          "sha256": "55c2164b9e5fd1b1113016fa3edbc8db801f6da5dbc43b6954067c74324b022f"
+        }
+      ],
+      "prerelease": true,
+      "automaticUpdateManifestPublished": false,
+      "authenticodeSigned": false,
+      "nativeWindowsExecution": false
+    },
+    "android": {
+      "url": "https://github.com/cloveric/tarobot/releases/tag/android-tarobot-v1.0.130",
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 180,
+          "sha256": "73371cbabf1ea519e3eabeb7f0cfa20848c73af5eb3b9b1e52b278e7fbd12a53"
+        },
+        {
+          "name": "tarobot-0.1.475.tgz",
+          "size": 53250502,
+          "sha256": "454a18f3074644b549af2807048db487a5fd21963513171dae0984c7ac23a004"
+        },
+        {
+          "name": "TaroBot-1.0.130-android.apk",
+          "size": 63323424,
+          "sha256": "c9cc4fd033080bd8736167e32a65f5fbc624dcbc0862c8c7d0639223ad779dc0"
+        }
+      ]
+    },
+    "ios": {
+      "version": "1.0.130",
+      "buildNumber": "1",
+      "processingState": "VALID",
+      "internalBuildState": "IN_BETA_TESTING",
+      "internalGroupAssigned": true,
+      "zhHansNotesSet": true,
+      "enUsNotesSet": true,
+      "physicalDeviceVerified": false,
+      "appStoreSubmitted": false,
+      "externalBetaReviewSubmitted": false,
+      "preserved": {
+        "betaAppTestInformation": true,
+        "betaAppReviewDetail": true,
+        "internalGroupSettings": true,
+        "publicAppStoreMetadata": true
+      }
+    }
+  },
+  "sourceChecks": {
+    "sourceOriginalSummary": {
+      "files": "6 failed | 633 passed (639)",
+      "tests": "16 failed | 8222 passed | 6 skipped (8244)"
+    },
+    "sourceRetakeSummary": {
+      "files": "6 passed (6)",
+      "tests": "222 passed (222)"
+    },
+    "nativeCore": {
+      "passed": 63,
+      "failed": 0,
+      "ignored": 2
+    },
+    "nativeAddon": {
+      "passed": 33,
+      "failed": 0,
+      "ignored": 0
+    },
+    "nativeUpdater": {
+      "passed": 71,
+      "failed": 0,
+      "ignored": 0
+    },
+    "legacyNative": {
+      "passed": 104,
+      "failed": 0,
+      "ignored": 0
+    },
+    "updaterLab": {
+      "tests": 15,
+      "pass": 15,
+      "fail": 0,
+      "skipped": 0
+    },
+    "artifactPaths": {
+      "tests": 8,
+      "pass": 8,
+      "fail": 0,
+      "skipped": 0
+    },
+    "iosReleasePlan": {
+      "tests": 6,
+      "pass": 6,
+      "fail": 0,
+      "skipped": 0
+    },
+    "nativeBrowserChecks": 26
+  },
+  "sourceFailureReconciliation": {
+    "originalFullRunPassed": false,
+    "obsoleteWindowsPersonaTestCorrected": true,
+    "otherFailedTestsAndDeadlinesUnchanged": true,
+    "loadSensitivityIsInference": true
+  },
+  "electron": {
+    "original": {
+      "tests": 369,
+      "passed": 368,
+      "failed": 1,
+      "log": "logs/electron-contracts.log"
+    },
+    "unchangedSerialRetake": {
+      "tests": 369,
+      "pass": 369,
+      "fail": 0,
+      "skipped": 0
+    },
+    "originalFullRunPassed": false
+  },
+  "browserJourneys": {
+    "chromium": 61,
+    "webkit": 8
+  },
+  "cli": {
+    "sha256": "454a18f3074644b549af2807048db487a5fd21963513171dae0984c7ac23a004",
+    "cleanInstallVerified": true,
+    "extractedInstallVerified": true,
+    "existingHostUpgradeVerified": true,
+    "previousVersion": "0.1.474",
+    "realMacCodexClaudeCases": 10,
+    "actualExecutionSourceCommit": "d78fdd6021a994d111356cc8712aea7ca27d8e24",
+    "macExecutedPackageFilesByteIdentical": true,
+    "nativeWindowsExecution": false
+  },
+  "review": {
+    "actualModel": "claude-opus-5-5",
+    "readOnlyJointReview": true,
+    "sourceReview": true,
+    "runtimeProbe": true,
+    "windowsPersonaTestReview": true,
+    "windowsPublicationReview": true
+  },
+  "upstream": {
+    "electron": "45.2.2",
+    "canvasPpt": "2.9.0",
+    "officialGitBlobsVerified": 90,
+    "npmDirectProductionDependenciesChecked": 68,
+    "knownSdkFrameworkDeltas": 31
+  },
+  "acceptance": {
+    "installedMacChanged": false,
+    "observedInstalledMacVersion": "1.0.129",
+    "nativeWindowsInstallUpgradeUninstall": false,
+    "physicalPhones": false,
+    "nativeScreenCaptureAndInput": false,
+    "motionIncluded": false,
+    "kimiRealModelTested": false
+  },
+  "ci": {
+    "passed": false,
+    "jobsNeverStarted": true,
+    "reason": "Account payment or spending-limit restrictions",
+    "runs": [
+      41777077668,
+      41777077550,
+      41777084068
+    ]
+  },
+  "at": "2026-11-04T06:00:33.209178+00:00",
+  "artifactRetention": {
+    "automaticPassDeferred": true,
+    "scopedItems": 25,
+    "trashed": 0,
+    "latestBackupVersion": "1.0.130",
+    "retainedRecentBundles": 24,
+    "spotlightNameQueryResults": [
+      "/Applications/TaroBot.app"
+    ]
+  }
+}

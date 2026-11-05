@@ -1,0 +1,192 @@
+{
+  "scope": "Electron desktop migration, native bridges, data migration, updater, packaging and shared entry boundaries",
+  "sourceBase": "a30e14ea3ee684dffcb0df040ce78aa7a3e59df0",
+  "publishedCandidate": "f1f61429cb8da40b438c1e5019c073975eb95444",
+  "reviewers": [
+    "DeepSeek DD1 independent audit",
+    "Claude Opus 5.5 CC1 independent review",
+    "Codex root code, reproduction and patch review"
+  ],
+  "findings": [
+    {
+      "id": "DS-01",
+      "proposal": "传输 slot 是固定绝对寿命：WebSocket 在 net_allocate+1200s 被强制断开、HTTP body 必须在 net_allocate+300s 内读完",
+      "rootDisposition": "fixed",
+      "reason": "Healthy established WebSockets no longer inherit the allocation deadline; HTTP and unopened slots retain deadlines. Real TCP/WebSocket before/after reproduction."
+    },
+    {
+      "id": "DS-02",
+      "proposal": "取消/重置命令也要抢 in-flight 许可：拥塞时 net_cancel 被拒，Electron 于是杀掉整个 helper",
+      "rootDisposition": "hardening",
+      "reason": "Reserve cancellation capacity under extreme helper saturation. No normal App trigger reproduced; existing renderer queues and native slot bounds remain."
+    },
+    {
+      "id": "DS-03",
+      "proposal": "Host 控制子进程的 stdout/stderr 先无界读入内存，64 KiB 上限在校验之前",
+      "rootDisposition": "hardening",
+      "reason": "Bound stdout/stderr while reading trusted packaged Host CLI output. Existing 180-second bound remains; no production memory failure reproduced."
+    },
+    {
+      "id": "DS-04",
+      "proposal": "desktop_host 在 helper 内没有单飞/上限，每个请求都 spawn 一个完整 Node CLI",
+      "rootDisposition": "rejected",
+      "reason": "Normal recovery has pending single-flight and 15-second debounce; alleged unbounded user-driven spawn path is not established."
+    },
+    {
+      "id": "DS-05",
+      "proposal": "旧的 32 字节（未绑定 marker）凭证绕过安装绑定，并可在 desktop_host pair 后重新绑定到新 marker",
+      "rootDisposition": "rejected",
+      "reason": "Legacy key adoption is a local-controller migration after native proof, not remote reinstall authentication. Remote seed still requires installation binding."
+    },
+    {
+      "id": "DS-06",
+      "proposal": "macOS forget 只删除第一条匹配的 Keychain 条目",
+      "rootDisposition": "rejected",
+      "reason": "No duplicate default-Keychain service/account record was demonstrated. Exact item deletion and OS ACL are retained; signed disposable-key retirement passed in the prior phase."
+    },
+    {
+      "id": "DS-07",
+      "proposal": "Windows 上 helper/updater 没有调用方验证，也没有把配置/资源绑定到签名安装",
+      "rootDisposition": "platform-pending",
+      "reason": "Windows same-user credential/caller boundary is a platform limitation. No cross-user exploit shown; actual Windows runtime remains explicitly deferred."
+    },
+    {
+      "id": "DS-08",
+      "proposal": "helper EOF 后的 drain 上限 185s 小于 desktop_host pair 的最坏 2×180s",
+      "rootDisposition": "hardening",
+      "reason": "EOF drain can time out a slow pair, but binding commits only after success and later local reconciliation is idempotent. No lost identity demonstrated."
+    },
+    {
+      "id": "DS-09",
+      "proposal": "迁移源快照扫描整个 WebKit 目录（含缓存）：>200,000 条目会让迁移永久失败且提示不可操作；缓存写入会让稳定快照等待/失败",
+      "rootDisposition": "platform-pending",
+      "reason": "Whole-tree snapshot work is bounded but could be expensive. Windows cache-tree behavior needs real-device evidence; blindly excluding files could weaken freshness checks."
+    },
+    {
+      "id": "DS-10",
+      "proposal": "macOS 替换不是崩溃原子的：两次 rename 之间被杀会留下「没有 App」，且没有任何启动期恢复",
+      "rootDisposition": "risk-open",
+      "reason": "Two-rename replacement has a process-crash gap. Process-level errors roll back; old copies are retained. Existing Tauri behavior, not fixed or crash-injection accepted by this patch."
+    },
+    {
+      "id": "DS-11",
+      "proposal": "新 bundle 落盘后没有 fsync 就删掉唯一的旧副本",
+      "rootDisposition": "platform-pending",
+      "reason": "Power-failure durability requires filesystem/OS evidence. No fsync hardening or power-cut proof in this change."
+    },
+    {
+      "id": "DS-12",
+      "proposal": "Windows 的默认 production 桌面构建会静默打包一个「永远不会更新」的 updater",
+      "rootDisposition": "rejected",
+      "reason": "Unsigned acceptance builds intentionally lack an update feed; publishing workflow requires signed_updates. Silent broken production publication was not established."
+    },
+    {
+      "id": "DS-13",
+      "proposal": "Windows handoff 最多等 30s 就无条件启动安装器；退出可被取消，NSIS 无回滚",
+      "rootDisposition": "rejected-with-pending",
+      "reason": "Cancelled Quit does not close updater stdin and cannot launch NSIS. Post-EOF 30-second wait and helper file locking still need Windows acceptance."
+    },
+    {
+      "id": "DS-14",
+      "proposal": "NSIS ALLOWDOWNGRADES=true 与更新策略 allowDowngrades=false 不一致",
+      "rootDisposition": "rejected",
+      "reason": "Explicit manual installer downgrade and automatic updater downgrade policy are separate contracts; inherited installer behavior."
+    },
+    {
+      "id": "DS-15",
+      "proposal": "Windows 全部产物没有 Authenticode 签名，minisign 是唯一来源证明",
+      "rootDisposition": "hardening",
+      "reason": "Windows Authenticode remains a release hardening task. Minisign is not Windows publisher identity; no Windows release is claimed here."
+    },
+    {
+      "id": "DS-16",
+      "proposal": "发布步骤不校验产物的内置 sourceCommit，与 tag/commit 校验之间存在替换空间",
+      "rootDisposition": "hardening",
+      "reason": "Independently read embedded sourceCommit at publication. Current release procedure binds frozen source, package metadata, signatures and downloaded hashes; no swapped public artifact established."
+    },
+    {
+      "id": "DS-17",
+      "proposal": "windows-build-plan 允许 128 字符 clientId，运行期策略拒绝 >100，构建成功但 configured()=false",
+      "rootDisposition": "fixed",
+      "reason": "Windows build OAuth client ID length now matches native and Mac limits (100); 100/101/128 boundary regression."
+    },
+    {
+      "id": "DS-18",
+      "proposal": "Electron 契约测试与原生 Rust 测试不在 push/PR 上运行；多个真实测试文件是死代码",
+      "rootDisposition": "fixed-coverage",
+      "reason": "Add Electron/packaging tests and macOS Rust/updater lab to push/PR workflow; actionlint and local commands verified. Billing-blocked GitHub execution is still not a pass."
+    },
+    {
+      "id": "DS-19",
+      "proposal": "contract.mjs 注释声称在 validateViewRequest 处做序列化尺寸上界，但该函数没有尺寸检查",
+      "rootDisposition": "fixed-doc",
+      "reason": "Correct comment: helper RPC enforces serialized size; validateViewRequest validates the command shape."
+    },
+    {
+      "id": "DS-20",
+      "proposal": "事件内存按条数而非字节受限（理论最坏约 3 GiB）",
+      "rootDisposition": "hardening",
+      "reason": "Aggregate socket byte budgeting could reduce the pathological ceiling. No memory issue reproduced with normal owned Hub traffic."
+    },
+    {
+      "id": "DS-21",
+      "proposal": "http_open 成功后若响应头超限，response_too_large 会留下存活 HTTP slot（≤300s）",
+      "rootDisposition": "hardening",
+      "reason": "Oversize HTTP-head response cleanup is optional robustness. Frontend failure path cancels and requests expire; no reachable oversize head established in current reqwest limits."
+    },
+    {
+      "id": "DS-22",
+      "proposal": "通知点击轮询固定 250ms 且永不停止（空闲也唤醒 4 次/秒）",
+      "rootDisposition": "hardening",
+      "reason": "Idle notification polling is an energy improvement, not demonstrated notification failure."
+    },
+    {
+      "id": "DS-23",
+      "proposal": "desktop_window_size/position 依赖主进程缓存的 scale（仅由上一次 desktop_window_read 更新）",
+      "rootDisposition": "platform-pending",
+      "reason": "Current geometry call sites read scale first. No stale-scale fault reproduced; mixed-DPI hardware still needs acceptance."
+    },
+    {
+      "id": "DS-24",
+      "proposal": "macOS 未签名/ad-hoc updater helper 保留 production 凭证访问（与注释相反）",
+      "rootDisposition": "fixed-doc",
+      "reason": "Clarify unsigned local-build Keychain behavior versus signed production caller binding. OS Keychain authorization remains; no silent credential bypass proved."
+    },
+    {
+      "id": "DS-25",
+      "proposal": "跨 schema 版本迁移直接失败：旧 Tauri 数据若不是 registry 2 / cache 9，导入以 migration_schema_mismatch 拒绝且提示不可操作",
+      "rootDisposition": "compatibility-boundary",
+      "reason": "Importer deliberately requires registry 2/cache 9; installed 1.0.119 meets it. Older schemas need an explicit transform/upgrade path, not silently treating incompatible data as empty."
+    },
+    {
+      "id": "DS-26",
+      "proposal": "macOS 替换成功后 Host 重启失败：新 bundle 已落盘而旧 App 仍在运行，提示误导，且每次重试再留下约 2× App 大小、永不清理的备份",
+      "rootDisposition": "fixed",
+      "reason": "A replaced bundle with failed Host recovery returns a distinct failure, fences new native/updater starts and offers restart without claiming verified recovery or repeating installation. Recovery copies retained."
+    },
+    {
+      "id": "DS-27",
+      "proposal": "updater 在持有生命周期互斥锁期间做凭证刷新/Keychain 访问：close/logout/shutdown 最多被阻塞约 45s",
+      "rootDisposition": "hardening",
+      "reason": "Credential refresh serialization can delay close/logout; bounded and intentional lifecycle ordering. No deadlock reproduced."
+    }
+  ],
+  "additionalConfirmed": [
+    {
+      "id": "ROOT-01",
+      "status": "fixed",
+      "summary": "Host repair list no longer globally disables healthy local-controller startup."
+    },
+    {
+      "id": "O9-1",
+      "status": "fixed",
+      "summary": "Committed Chromium import resumes its verified original export after receipt interruption even when legacy data changed; drafts, pending localStorage and divergence notice retained."
+    }
+  ],
+  "boundaries": [
+    "Only Windows real runtime was deferred by the owner.",
+    "Installed Mac, physical-device permissions, crash/power-cut behavior and future update hops are not source-test passes.",
+    "GitHub CI billing prevents remote execution.",
+    "Raw DeepSeek reports are preserved unchanged; 27 suggestions are not 27 confirmed bugs."
+  ]
+}

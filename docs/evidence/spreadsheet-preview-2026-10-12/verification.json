@@ -1,0 +1,49 @@
+{
+  "rootTests": {
+    "files": 223,
+    "passed": 2875,
+    "skipped": 1,
+    "command": "./scripts/pre-complete-hook.sh",
+    "initialRun": "Two timeouts with emulator contention; isolated rerun passed."
+  },
+  "browser": {
+    "spreadsheetChromium": 6,
+    "spreadsheetWebKit": 5,
+    "wordMarkdownSafety": 6,
+    "fileActions": 7,
+    "pdf": 12,
+    "desktopExport": 10,
+    "mobileExportDoubles": 3,
+    "notes": "Two stale English navigation selectors were narrowed and passed reruns."
+  },
+  "android": {
+    "emulator": "API 36",
+    "externalReceiver": "separate test APK / UID",
+    "exactOriginalBytes": true,
+    "readOnlyContentUri": true,
+    "nativeBridge": true,
+    "unitTests": "passed",
+    "lint": "passed"
+  },
+  "limits": {
+    "physicalPhone": "not tested",
+    "iOSExternalOpen": "share-sheet IPC double only",
+    "excel": "read-only; no charts or formula recalculation"
+  },
+  "packages": {
+    "android": {
+      "version": "0.1.409-test.1",
+      "webAssetsMatched": 376,
+      "spreadsheetWorkerBundled": true,
+      "licenseBundled": true
+    },
+    "mac": {
+      "version": "1.0.36",
+      "hostVersion": "0.1.409",
+      "resourceFilesMatched": 668,
+      "sealedSignature": true,
+      "notarized": false
+    },
+    "standaloneArchiveVerified": true
+  }
+}

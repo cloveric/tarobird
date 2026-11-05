@@ -1,0 +1,23 @@
+/* Reserve a quiet toolbar row without taking space from horizontal code scrolling. */
+.readable-code>.code-language{position:absolute;top:13px;left:16px;max-width:calc(100% - 110px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px/1.5 var(--font-mono,monospace);color:var(--muted)}
+.readable-code>.code-copy{top:4px;right:8px;min-height:32px;min-width:58px;justify-content:center}
+.markdown .readable-code>pre{padding-top:42px}
+.readable-code>.code-copy-error{display:block;color:var(--red);margin-top:6px;font-size:12px}
+.readable-code>.code-copy-status{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* Raw output scrolls below the fixed toolbar, never through its controls. */
+.readable-code.run-code{padding-top:42px;border:1px solid var(--border);border-radius:var(--radius,7px);background:var(--surface)}
+.readable-code.run-code>pre{margin:0;max-height:360px;overflow:auto;padding:0 16px 14px;border:0;background:transparent;font:12px/1.65 var(--font-mono,monospace);tab-size:2;white-space:pre}
+.run-code>pre>code{font:inherit;white-space:pre}
+/* Preserve source whitespace (including long runs of spaces), but let prose
+   wrap to its pane. Copy still reads the untouched code textContent. */
+.readable-code.is-plain-text{min-width:0;max-width:100%}
+.readable-code.is-plain-text>pre,.readable-code.is-plain-text>pre>code{white-space:break-spaces;overflow-wrap:anywhere;word-break:normal}
+.message.user .readable-code>.code-language{color:var(--self-message-muted)}
+:root[data-palette=cli] .message .readable-code>.code-language{top:-.75em;left:2ch;padding:0 .5ch;background:var(--bg)}
+:root[data-palette=cli] .message.user .readable-code>.code-language{background:var(--self-message-bg);color:var(--self-message-muted)}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+ .readable-code>.code-copy{min-height:44px;min-width:64px}
+ .readable-code>.code-language{top:19px}
+ .markdown .readable-code>pre{padding-top:54px}
+ .readable-code.run-code{padding-top:54px}
+}

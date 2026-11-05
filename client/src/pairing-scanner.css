@@ -1,0 +1,31 @@
+/* Hide the media surface until playback really starts: Android WebView draws
+   a giant play control on an empty video even when controls are omitted. */
+.creation-dialog.pairing-scanner { width:min(440px,calc(100vw - 40px)); padding:24px; }
+.pairing-scanner .scanner-description { margin:0 0 20px; color:var(--grey); font-size:14px; line-height:1.65; }
+.scanner-viewfinder { position:relative; aspect-ratio:4/3; overflow:hidden; border-radius:14px; background:var(--surface); }
+.scanner-viewfinder .scanner-video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; visibility:hidden; pointer-events:none; }
+.scanner-viewfinder.is-live .scanner-video { visibility:visible; }
+.scanner-placeholder { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:24px; text-align:center; }
+.scanner-placeholder>svg { color:var(--accent,var(--blue)); margin-bottom:4px; flex-shrink:0; }
+.scanner-placeholder strong { font-size:16px; font-weight:550; }
+.scanner-placeholder span { max-width:250px; font-size:13px; line-height:1.6; color:var(--grey); }
+.scanner-live-hint { position:absolute; bottom:14px; left:12px; right:12px; width:fit-content; max-width:calc(100% - 24px); margin:auto; padding:8px 12px; border-radius:8px; background:#000b; color:white; text-align:center; font-size:12px; line-height:1.5; }
+.pairing-scanner .scanner-actions { display:grid; gap:8px; margin-top:20px; }
+.pairing-scanner .scanner-actions>button { min-height:46px; border-radius:10px; gap:10px; font-size:14px; }
+.pairing-scanner .scanner-image-button { border:1px solid var(--border); background:transparent; color:var(--text); }
+.scanner-actions .scanner-file-input { display:none; }
+.pairing-scanner .scanner-error { margin:16px 0 0; overflow-wrap:anywhere; }
+@media(max-width:600px) {
+  .creation-dialog.pairing-scanner { width:100%; max-width:100%; padding:22px 24px max(20px,var(--app-safe-bottom)); border-radius:24px 24px 0 0; }
+  .pairing-scanner .scanner-actions>button { min-height:48px; }
+}
+@media(max-height:580px) and (min-width:601px) {
+  .scanner-viewfinder { aspect-ratio:2/1; }
+}
+.pairing-scanner .scanner-text-button { background:transparent; color:var(--grey); }
+.scanner-text-label { display:grid; gap:10px; font-size:14px; }
+.scanner-text-input { width:100%; min-height:132px; resize:vertical; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.pair-code-actions { grid-column:1 / -1; display:grid; justify-items:center; gap:8px; margin:12px 0; text-align:center; }
+.pair-code-actions>button { display:flex; align-items:center; gap:6px; background:transparent; color:var(--text); }
+.pair-code-actions>small { color:var(--grey); font-size:12px; line-height:1.6; }
+.pair-code-actions>textarea { width:100%; min-height:80px; font-size:12px; overflow-wrap:anywhere; }

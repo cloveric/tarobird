@@ -1,0 +1,15 @@
+Vditor 4.0.1 (https://github.com/Vanessa219/vditor)
+Copyright (c) 2019-present B3log 开源, b3log.org
+Distributed under the MIT License; see LICENSE in the same asset directory.
+
+Bundled Lute Markdown engine (https://github.com/88250/lute)
+Upstream project: 88250/lute, B3log 开源社区.
+Distributed under MulanPSL-2.0; see Lute-LICENSE.txt.
+License source: https://raw.githubusercontent.com/88250/lute/master/LICENSE
+Retrieved: 2026-10-30
+Bundled engine: vditor@4.0.1/dist/js/lute/lute.min.js
+Bundled engine SHA-256: 53b61b051a3dfd9ee5a5010c873233679e139d8e62c49da08b4c2f2c195587cb
+
+TaroBot keeps these resources local. The Vite build applies a checked patch to
+Vditor's iPhone toolbar viewport listener only for source mode; editor source
+and the pinned package are otherwise used directly.

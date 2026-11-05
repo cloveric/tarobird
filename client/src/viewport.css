@@ -1,0 +1,357 @@
+/*
+ * Keyboard-aware viewport for phone and touch layouts.
+ *
+ * The viewport controller (viewport.ts) owns detection and writes on <html>:
+ *   --app-height         visible height in CSS px; removed while pinch-zoomed
+ *   --app-top            visualViewport.offsetTop in CSS px; removed with it
+ *   data-keyboard-open   "true" only for a soft keyboard on a narrow or coarse
+ *                        layout, "false" otherwise (pinch-zoom included)
+ * This file only consumes them. With the keyboard closed, the controller absent
+ * or the page pinch-zoomed, every rule resolves to today's 100dvh layout. Wide
+ * fine-pointer (desktop) layouts match none of the media guards below.
+ *
+ * Browser resize events apply without geometry transitions. The native
+ * overlay path below (iOS and Android) animates the shell and bottom inset
+ * together with the keyboard instead of resizing the WebView. Selectors
+ * outrank the rules they restate, so import order does not decide them;
+ * import last anyway.
+ * Design and limits: docs/client/keyboard-design-opus55-2026-10-05.md
+ */
+
+:root {
+  --shell-height: 100dvh;
+  --shell-top: 0px;
+}
+
+/* ---------- Phone or touch (portrait phones, landscape phones, tablets) ---------- */
+
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  html[data-keyboard-open="true"] {
+    --shell-height: var(--app-height, 100dvh);
+    --shell-top: var(--app-top, 0px);
+    /* Document-level focus scrolling (pairing, reset) stops short of the keyboard. */
+    scroll-padding-bottom: 24px;
+  }
+
+  /* The shell is exactly what the user can see. With the keyboard up it is also
+     pinned to the visual viewport, so a browser that pans instead of resizing
+     (iOS Safari) cannot leave the composer under the keyboard. A fixed shell is
+     not the containing block of the fixed layers inside it (no transform). */
+  :root .app-shell {
+    height: var(--shell-height);
+  }
+
+  html[data-keyboard-open="true"] .app-shell {
+    position: fixed;
+    inset: var(--shell-top) 0 auto;
+  }
+
+  :root :is(.loading-screen, .app-lock-screen) {
+    height: var(--shell-height);
+  }
+
+  :root .pairing-page {
+    height: var(--shell-height);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  /* The pairing page owns scrolling inside the visible band. min-height alone
+     still leaves its connect action below a visual-only keyboard because the
+     document's scrollIntoView uses the taller layout viewport. */
+  html[data-keyboard-open="true"] .pairing-page {
+    position: fixed;
+    inset: var(--shell-top) 0 auto;
+    height: var(--shell-height);
+    align-items: start;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-block: 20px;
+  }
+
+  /* Chat column. Priority when space runs out: the field and Send, then the
+     message list, then what rides on the composer (attachments, link preview).
+     The list is the only elastic region (flex-basis 0) and never chains its
+     overscroll to the page. */
+  .conversation-main > .message-scroll {
+    min-height: 0;
+    overscroll-behavior-y: contain;
+  }
+
+  /* The composer stack takes at most 60% of the visible height so messages keep
+     the rest. In a short column it shrinks instead of overflowing the shell,
+     whose overflow:hidden would otherwise clip the toolbar and Send. */
+  .conversation-main > .composer-wrap {
+    display: flex;
+    flex: 0 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    max-height: calc(var(--shell-height) * .6);
+  }
+
+  .composer-wrap > :is(.reply-bots, .reply-preview) {
+    flex: none;
+  }
+
+  /* A rich quote must yield before the input row. A fixed-height quote plus
+     attachments otherwise consumes the entire keyboard-constrained composer. */
+  .composer-wrap > .reply-preview {
+    flex: 0 40 auto;
+    min-height: 52px;
+    max-height: min(160px, calc(var(--shell-height) * .2));
+    padding: 4px 8px;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .composer-wrap > .reply-preview > .reply-preview-heading {
+    position: sticky;
+    top: -4px;
+    z-index: 1;
+    margin-bottom: 0;
+    background: var(--surface);
+  }
+
+  /* Inside the composer, attachments and the link preview yield first and scroll
+     in place (never below a 3.25rem peek); the field yields next, down to one
+     line; an active recording and the toolbar never yield. */
+  .composer-wrap .composer {
+    display: flex;
+    flex: 0 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .composer-wrap .composer > :is(.attachment-draft, .link-preview-draft) {
+    flex: 0 40 auto;
+    min-height: 3.25rem;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .composer-wrap .composer > textarea {
+    flex: 0 1 auto;
+    min-height: calc(1.5em + 20px);
+  }
+
+  .composer-wrap .composer > :is(.voice-recording, .link-preview-restore) {
+    flex: none;
+  }
+
+  .composer-wrap .composer > .link-preview-restore {
+    align-self: flex-start;
+  }
+
+  /* Last resort for very large text: the composer scrolls and the toolbar stays
+     pinned to its bottom edge, so attach, voice, stop and Send remain on screen. */
+  .composer-wrap .composer > .composer-toolbar {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    flex: none;
+    background: inherit;
+  }
+
+  /* With the keyboard up the composer rests on the keyboard, not on the home
+     indicator; the safe-area inset would only open a gap. */
+  html[data-keyboard-open="true"] .composer-wrap {
+    padding-bottom: 8px;
+  }
+
+  /* Layers. position:fixed boxes are laid out against the layout viewport, which
+     a panning browser does not shrink; bound them to the visible band. Under
+     native resize these resolve to top 0 and the full viewport (no-ops). */
+  html[data-keyboard-open="true"] .modal-scrim {
+    top: var(--shell-top);
+    bottom: auto;
+    height: var(--shell-height);
+  }
+
+  html[data-keyboard-open="true"] .modal-scrim > :is(.settings-panel, .new-chat-panel) {
+    max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px);
+  }
+
+  html[data-keyboard-open="true"] .modal-scrim > .file-center {
+    max-height: var(--shell-height);
+    padding-bottom: 0;
+  }
+
+  /* Expanded widgets live in the top layer too. Their nested fields cannot
+     rely on the chat shell shrinking: use the same visible keyboard band. */
+  html[data-keyboard-open="true"] dialog.widget-expanded:modal {
+    top: calc(var(--shell-top) + var(--app-safe-top, 0px) + var(--widget-gap));
+    bottom: auto;
+    height: calc(var(--shell-height) - var(--app-safe-top, 0px) - var(--widget-gap) * 2);
+    max-height: calc(var(--shell-height) - var(--app-safe-top, 0px) - var(--widget-gap) * 2);
+  }
+
+  html[data-keyboard-open="true"] dialog.report-panel:modal {
+    top: calc(var(--shell-top) + var(--app-safe-top, 0px) + 16px);
+    bottom: auto;
+    height: calc(var(--shell-height) - var(--app-safe-top, 0px) - 32px);
+    max-height: calc(var(--shell-height) - var(--app-safe-top, 0px) - 32px);
+  }
+
+  html[data-keyboard-open="true"] .widget-expanded .widget-footer {
+    max-height: calc(var(--shell-height) * .25);
+  }
+
+  /* Modal dialogs (create Bot / group / topic, settings) sit in the top layer.
+     Their existing margins keep phone sheets docked to the band's bottom edge,
+     directly on the keyboard; tablet dialogs stay centred within it. */
+  html[data-keyboard-open="true"] dialog:is(.creation-dialog, .preferences-dialog):modal {
+    top: var(--shell-top);
+    bottom: calc(100% - var(--shell-top) - var(--shell-height));
+  }
+
+  html[data-keyboard-open="true"] dialog.creation-dialog:not(.mobile-settings-dialog):not(.conversation-details-phone):not(.markdown-table-dialog):not(.prompt-queue-panel):not(.diff-viewer):not(.delegation-dialog):modal {
+    max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px);
+  }
+
+  html[data-keyboard-open="true"] dialog.preferences-dialog:modal {
+    max-height: var(--shell-height);
+  }
+
+  /* Lists that sit beside a focused search field leave room for it. */
+  html[data-keyboard-open="true"] .topic-directory-list {
+    max-height: max(6rem, calc(var(--shell-height) * .26));
+  }
+
+  html[data-keyboard-open="true"] .forward-targets {
+    max-height: max(6rem, calc(var(--shell-height) * .24));
+  }
+
+  /* iOS zooms into any focused field under 16px and stays zoomed, which would
+     both change the reading scale and be measured as a different viewport. A
+     16px floor removes the trigger; pinch-zoom stays available, and larger
+     inherited text (1em) still wins. */
+  html :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"]), select, textarea) {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* The native apps leave the WebView unchanged. Keep one stable shell before,
+   during and after the keyboard; its height and gesture padding move together,
+   so input cannot first fall into the home-indicator area then jump above the
+   keyboard. Only a keyboard change animates (data-keyboard-motion), with the
+   OS keyboard's duration and curve from viewport.ts; resizes apply at once.
+   Height, not transform: iOS draws the caret natively from layout, so a
+   composited transform would leave it behind while the composer moves.
+   Fresh keyboard events animate on every App platform. */
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  html[data-keyboard-resize="overlay"] {
+    --shell-height: var(--app-height, 100dvh);
+    --shell-top: 0px;
+  }
+  html[data-keyboard-resize="overlay"] .app-shell {
+    position: fixed;
+    inset: 0 0 auto;
+  }
+  :root :is(.loading-screen, .app-lock-screen) { overflow-y: auto; }
+  html[data-keyboard-resize="overlay"][data-keyboard-motion] .app-shell {
+    transition: height var(--keyboard-motion, .25s ease-out);
+  }
+  html[data-keyboard-resize="overlay"][data-keyboard-motion] .composer-wrap {
+    transition: padding-bottom var(--keyboard-motion, .25s ease-out);
+  }
+  /* Bottom sheets ride on the keyboard too instead of jumping to its end
+     state. Their closed geometry is numeric (UA bottom:0, dvh max-height). */
+  html[data-keyboard-resize="overlay"][data-keyboard-motion] dialog:is(.creation-dialog, .preferences-dialog):modal {
+    transition: bottom var(--keyboard-motion, .25s ease-out), max-height var(--keyboard-motion, .25s ease-out);
+  }
+}
+
+/* Float on every screen size: taking a composer row also shifts desktop
+   reading position and dismisses a freshly opened WebKit context menu. */
+.composer-wrap > .jump-latest {
+    position: absolute;
+    z-index: 2;
+    right: 0;
+    bottom: calc(100% + 8px);
+    left: 0;
+    width: max-content;
+    max-width: calc(100% - 32px);
+    margin: 0 auto;
+}
+
+/* ---------- Phone layout only ---------- */
+
+@media (max-width: 760px) {
+  /* The external attachment button shares the constrained composer height.
+     Stretch the pill to the row's shrunken height; keep only + bottom-aligned. */
+  .composer-wrap > .composer-input-row { flex:0 1 auto; min-height:0; align-items:stretch; }
+  .composer-wrap > .composer-input-row > .composer { flex:1 1 0; }
+  .composer-input-row > .composer-add { align-self:flex-end; }
+
+  html[data-keyboard-open="true"] dialog.creation-dialog:not(.mobile-settings-dialog):not(.conversation-details-phone):modal,
+  html[data-keyboard-open="true"] .modal-scrim > .settings-panel {
+    padding-bottom: 18px;
+  }
+
+  html[data-keyboard-open="true"] .preferences-dialog .settings-content {
+    padding-bottom: 20px;
+  }
+
+  /* Home search: the tab bar steps aside only while the search field has focus
+     and the keyboard is up; blur or a closed keyboard brings it straight back. */
+  html[data-keyboard-open="true"] .mobile-home:has(.mh-search:focus-within) .mh-tabbar {
+    display: none;
+  }
+}
+
+/* Multi-Bot recipients: one row that scrolls sideways, never a growing block.
+   The end fade (as on topic tabs) says there is more; padding lets the last
+   chip clear it at the scroll end. */
+@media (max-width: 760px), (max-height: 480px) and (pointer: coarse) {
+  /* The idle mode/hint row must not consume the message viewport while the
+     soft keyboard, quoted reply and attachment draft are all visible. Active
+     discussions retain their status and controls; closing the keyboard restores
+     the idle row. This does not affect desktop/ADHD panes. */
+  html[data-keyboard-open="true"] .conversation-main > .group-discussion-strip:not(.is-active) {
+    display: none;
+  }
+
+  .composer-wrap > .reply-bots {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 3px 16px 7px 6px;
+    scroll-padding-inline: 6px 16px;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  }
+
+  .composer-wrap > .reply-bots::-webkit-scrollbar {
+    display: none;
+  }
+
+  .composer-wrap > .reply-bots > * {
+    flex: none;
+  }
+}
+
+/* Landscape phone with the keyboard up (roughly 120-220px left): while the
+   composer has focus the group topic bar steps aside; blur or a closed keyboard
+   brings it back. The header keeps its divider while the bar is away. */
+@media (max-height: 360px) and (pointer: coarse) {
+  html[data-keyboard-open="true"] .conversation-main:has(.composer:focus-within) > .group-topic-navigation {
+    display: none;
+  }
+
+  html[data-keyboard-open="true"] .conversation-main:has(.composer:focus-within) > .conversation-header {
+    border-bottom-color: var(--border);
+  }
+}
+/* Secondary controls need the same touch target as the primary settings rows. */
+@media (max-width:760px), (hover:none) and (pointer:coarse) {
+  :root :is(.diagnostic-advanced, .diagnostic-statistics, .diagnostic-event details, .diagnostic-warnings, .network-review-members, .device-revoked)>summary {
+    min-height:44px; padding-block:12px; box-sizing:border-box;
+  }
+  :root :is(.device-name-hint, .integration-recommendations, .diagnostic-filters) button { min-height:44px; }
+}

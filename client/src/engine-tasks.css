@@ -1,0 +1,43 @@
+.engine-tasks{flex:none;min-width:0;padding:2px 12px}
+.engine-tasks-trigger{display:flex;align-items:center;gap:6px;max-width:100%;min-height:28px;border:0;background:none;color:var(--muted);font-size:12px;padding:2px 0;text-align:start}
+.engine-tasks-trigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.engine-tasks-trigger>svg{flex:none}.engine-tasks-trigger>small{font-size:inherit}
+.conversation-task-bar{display:flex;align-items:center;min-width:0;gap:4px}
+.conversation-task-bar.is-compact{justify-content:flex-end}
+.conversation-task-bar.has-dock{border:1px solid var(--border);border-radius:8px;background:var(--raised);margin:0 -4px 4px;gap:0}
+.conversation-task-bar>.background-task-dock{flex:1;min-width:0;margin:0;border:0;background:none}
+.conversation-task-bar .engine-tasks-trigger.is-compact{flex:none;gap:6px;min-width:32px;min-height:32px;padding:4px 8px;border-radius:7px;max-width:55%;font-size:11px}
+.conversation-task-bar.has-dock .engine-tasks-trigger.is-compact{border-inline-start:1px solid var(--border);border-start-start-radius:0;border-end-start-radius:0}
+.conversation-task-bar .engine-tasks-trigger.is-compact:hover{background:var(--hover);color:var(--text)}
+.engine-tasks-activity{flex:none;width:5px;height:5px;border-radius:50%;background:var(--mono-signal,var(--accent))}
+@media(max-width:760px){.conversation-task-bar .engine-tasks-trigger.is-compact{min-width:44px;min-height:44px}.conversation-task-bar.has-dock>.background-task-dock{min-height:44px}}
+.engine-tasks-dialog{width:min(520px,calc(100vw - 32px));max-height:min(720px,85dvh)}
+/* One constrained scrollport owns the list and recovery/notice content. An
+   auto-height inner list with overscroll containment traps phone swipes. */
+.creation-dialog.engine-tasks-dialog[open]{display:flex;flex-direction:column;overflow:hidden}
+.engine-tasks-dialog>:not(.engine-tasks-body){flex:none}
+.engine-tasks-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}
+.engine-tasks-toolbar{display:flex;align-items:center;gap:12px;padding:4px 20px 12px}.engine-tasks-toolbar>p{flex:1;margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+.engine-tasks-toolbar>button{display:grid;place-items:center;flex:none;width:32px;height:32px;border:0;background:none;color:var(--muted);border-radius:8px}
+.engine-tasks-list{padding:0 16px 16px}
+.engine-task{padding:14px 4px;border-bottom:1px solid var(--border)}.engine-task:last-child{border-bottom:0}
+.engine-task-title{display:flex;align-items:flex-start;gap:8px;min-width:0}.engine-task-title>svg{margin-top:2px;flex:none;color:var(--muted)}
+.engine-task-title>strong{flex:1;min-width:0;font-size:13px;line-height:1.5;overflow-wrap:anywhere;font-weight:550}
+.engine-task-status{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--muted);white-space:nowrap;line-height:20px}
+.engine-task.is-running .engine-task-status{color:var(--accent)}.engine-task.is-error .engine-task-status{color:var(--red)}
+.engine-task-meta{display:flex;gap:8px;margin:4px 0 0 24px;color:var(--muted);font-size:11px}
+.engine-task-progress{margin:8px 0 0 24px;font-size:12px;color:var(--muted)}.engine-task-progress>summary{cursor:pointer}.engine-task-progress>p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6;margin:8px 0;max-height:180px;overflow:auto}
+.engine-task-stop{display:inline-flex;align-items:center;gap:5px;border:0;background:none;color:var(--muted);font-size:12px;padding:6px 0;margin-left:24px}.engine-task-stop:hover{color:var(--red)}
+.engine-tasks-dialog>footer{flex:none;padding:10px 20px;border-top:1px solid var(--border)}.engine-tasks-dialog>footer>.engine-task-stop{margin:0}
+.engine-tasks-notice{margin:8px 20px;font-size:12px;color:var(--muted);line-height:1.5}.engine-task>.engine-tasks-notice{margin-left:24px}
+.engine-tasks-empty{padding:20px;color:var(--muted);font-size:13px}
+@media(max-width:760px){.engine-tasks{padding-inline:10px}.engine-tasks-trigger{min-height:36px}.engine-tasks-dialog{width:calc(100vw - 24px);max-height:calc(var(--app-viewport-height,100dvh) - 32px)}.engine-task-stop{min-height:44px}.engine-tasks-toolbar>button{min-width:44px;min-height:44px}}
+
+
+.engine-task-parent{margin:4px 0 0 24px;color:var(--muted);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+
+.engine-tasks-recovery{padding:12px 16px;margin:4px 20px 12px;border:1px solid var(--border);border-radius:10px;font-size:12px;line-height:1.6}
+.engine-tasks-recovery p{margin:0 0 8px}.engine-tasks-recovery ul{max-height:120px;overflow:auto;padding-left:18px;overflow-wrap:anywhere}
+.engine-tasks-recovery button{background:none;border:0;padding:6px 0;margin-right:16px;font-size:12px;color:var(--red)}
+
+@media(max-width:760px){.engine-tasks-recovery button{min-height:44px}}

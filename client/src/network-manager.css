@@ -1,0 +1,219 @@
+/* Devices & network: one primary action, a quiet overview surface and grouped
+   device rows. All surfaces follow the selected palette in light and dark. */
+.creation-dialog:is(.network-manager,.network-subpage) { width: min(500px, calc(100vw - 32px)); }
+.network-note { color: var(--muted); font-size: 12.5px; line-height: 1.6; margin: 8px 0 12px; overflow-wrap: anywhere; }
+.network-caution { color: var(--orange); }
+.network-overview-error,.network-manager > .settings-feedback,.network-manager > .settings-dialog-body > .settings-feedback { margin: 0 0 12px; }
+
+/* Overview labels use the same type size as the joined host name. */
+.network-manager { --network-title-size: 14px; }
+.network-summary { padding: 10px 12px 12px; border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border)); border-radius: var(--radius-xl); background: color-mix(in srgb, var(--accent-soft) 60%, var(--raised)); }
+.network-summary-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.network-summary-main h3 { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: var(--network-title-size); font-weight: 400; line-height: 1.35; letter-spacing: -.01em; }
+.network-summary-label { flex: none; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+.network-summary-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.network-state { flex: none; display: inline-flex; align-items: center; gap: 6px; max-width: 46%; padding: 3px 9px; border-radius: 999px; background: var(--surface); color: var(--grey); font-size: 12px; font-weight: 550; line-height: 18px; overflow-wrap: anywhere; }
+.network-state[data-tone=ok] { background: var(--green-soft); color: var(--green); }
+.network-state[data-tone=warn] { background: var(--orange-soft); color: var(--orange); }
+.network-state[data-tone=bad] { background: var(--red-soft); color: var(--red); }
+:is(.network-state,.network-member-status) > i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.creation-dialog .network-refresh { flex: none; width: 36px; height: 36px; min-width: 36px; min-height: 36px; border-radius: var(--radius); color: var(--muted); }
+.creation-dialog .network-refresh[aria-disabled=true] { opacity: .5; cursor: default; }
+.network-summary-meta { display: flex; flex-wrap: wrap; margin: 6px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.network-summary-meta > span + span::before { content: "·"; margin: 0 7px; color: var(--border-strong); }
+.network-sync-shortcut { display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+.network-sync-shortcut > button:first-child { flex: 1; min-width: 0; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 0; border-radius: var(--radius); background: transparent; color: var(--accent); text-align: left; }
+.network-sync-shortcut > button:first-child:hover:not(:disabled) { background: var(--hover); }
+.network-sync-shortcut > button:first-child > svg { flex: none; }
+.network-sync-shortcut > button:first-child > span { flex: 1; min-width: 0; display: grid; gap: 3px; overflow-wrap: anywhere; }
+.network-sync-shortcut strong { font-size: var(--network-title-size); font-weight: 600; }
+.network-sync-shortcut small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.network-field + .network-sync-heading { margin-top: 16px; }
+.network-availability { margin: 10px 0 0; padding: 8px 12px; border-left: 2px solid var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--surface); color: var(--grey); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.network-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; padding: 8px 8px 8px 12px; border-left: 2px solid var(--orange); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--orange-soft); color: var(--text); font-size: 12.5px; line-height: 1.5; }
+.network-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.network-notice > button { flex: none; min-height: 32px; }
+.network-switch { margin-bottom: 14px; }
+
+/* Host rows. */
+.network-members { margin-top: 16px; }
+.network-members > header { display: flex; align-items: baseline; gap: 12px; margin: 0 0 8px; }
+.network-members > header h3 { flex: 1; min-width: 0; margin: 0; color: var(--muted); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.network-member-list { border: 1px solid var(--border); border-radius: var(--radius-xl); background: color-mix(in srgb, var(--surface) 35%, var(--raised)); }
+.network-member-list > :first-child { border-start-start-radius: inherit; border-start-end-radius: inherit; }
+.network-member-list > :last-child { border-end-start-radius: inherit; border-end-end-radius: inherit; }
+
+:is(.network-member,.network-candidate,.network-add-row) { width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 8px 10px; border: 0; border-radius: 0; background: transparent; color: var(--text); text-align: left; }
+.network-member-list > * + :is(.network-member,.network-candidate,.network-add-row) { border-top: 1px solid var(--border); }
+:is(.network-member,.network-add-row):hover:not(:disabled) { background: var(--hover); }
+:is(.network-member,.network-add-row):focus-visible { outline-offset: -2px; }
+.network-member > svg { flex: none; color: var(--muted); }
+.network-member-icon { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--radius); background: var(--surface); color: var(--grey); }
+.network-member:has(.network-member-status.is-online) .network-member-icon { background: var(--accent-soft); color: var(--accent); }
+.network-member-name { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.network-member-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.network-member-title strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--network-title-size); font-weight: 550; line-height: 1.45; }
+.network-member-name small { color: var(--muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.network-tag { flex: none; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-xs); color: var(--grey); font-size: 11px; font-weight: 600; line-height: 16px; white-space: nowrap; }
+.network-tag[data-kind=authority] { border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+/* A shared width keeps every status dot on one vertical line, whatever the label length. */
+.network-member-status { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: 5px; min-width: 6.5em; color: var(--muted); font-size: 12px; }
+.network-member-status[data-tone=ok] { color: var(--green); }
+.network-member-status[data-tone=warn] { color: var(--orange); }
+.network-member-status[data-tone=bad] { color: var(--red); }
+.network-add-row { min-height: 44px; color: var(--accent); font-size: 13px; font-weight: 600; }
+.network-add-row > svg { flex: none; width: 30px; }
+.network-candidate > button { flex: none; min-height: 34px; }
+
+/* No network yet. */
+.network-empty { padding: 0 0 16px; border-bottom: 1px solid var(--border); }
+.network-empty-head { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.network-empty-head > svg { flex: none; color: var(--accent); }
+.network-empty-head h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; font-weight: 650; }
+.network-empty > p { margin: 6px 0 14px; color: var(--muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.network-empty > .primary { min-height: 40px; padding-inline: 16px; }
+.network-empty > .network-note { margin-bottom: 0; }
+
+/* Device-local entry and explanation. */
+.network-overview-footer { margin-top: 16px; }
+.network-overview-footer > .network-option { gap: 10px; padding-inline: 10px; border-color: transparent; border-radius: var(--radius-xl); background: var(--surface); }
+.network-overview-footer > .network-option > svg:first-child { box-sizing: content-box; padding: 6px; border-radius: var(--radius); background: var(--raised); }
+:is(.network-connections,.network-help > summary) { display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 44px; padding: 8px 11px; border: 0; border-radius: 0; background: transparent; color: var(--grey); font-size: 13px; text-align: left; cursor: pointer; }
+.network-connections { border-bottom: 1px solid var(--border); }
+.network-connections:hover:not(:disabled) { background: var(--hover); }
+.network-connections > span,.network-help > summary > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.network-connections > small { flex: none; color: var(--muted); font-size: 11.5px; }
+:is(.network-connections,.network-help > summary) > svg { flex: none; color: var(--muted); }
+:is(.network-connections,.network-help > summary) > svg:first-child { width: 30px; }
+.network-help > summary { list-style: none; }
+.network-help > summary::-webkit-details-marker { display: none; }
+.network-help[open] > summary > svg:last-child { transform: rotate(90deg); }
+.network-help > div { padding: 0 11px 8px 51px; color: var(--muted); font-size: 12.5px; line-height: 1.7; overflow-wrap: anywhere; }
+.network-help p + p { margin-top: 6px; }
+
+/* Secondary actions inside rows and child pages. */
+.network-secondary { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--surface-alt); color: var(--text); font-size: 13px; font-weight: 550; }
+.network-secondary:hover:not(:disabled) { background: var(--selected); }
+
+/* Child pages. */
+.network-subpage h3 { margin: 0 0 6px; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+:is(.network-detail-section,.network-join-routes,.network-danger) > h4 { margin: 0 0 4px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.network-detail-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.network-detail-head > div { min-width: 0; display: grid; gap: 3px; }
+.network-detail-state { color: var(--muted); font-size: 12px; }
+.network-fingerprint { margin: 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.network-detail-section { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.network-detail-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: 44px; }
+.network-detail-row > span { flex: none; min-width: 64px; color: var(--muted); font-size: 12.5px; }
+.network-detail-row > strong { flex: 1 1 120px; min-width: 0; font-size: 13.5px; font-weight: 550; overflow-wrap: anywhere; }
+.network-detail-row > .network-detail-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.network-detail-row > button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; }
+.network-sync-actions { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.network-detail-row > .network-sync-actions { margin-left: auto; }
+.network-sync-actions > .network-secondary { min-width: 0; white-space: normal; }
+.network-sync-heading { display: flex; align-items: center; gap: 8px; }
+.network-sync-heading > h3 { min-width: 0; margin: 0; }
+.network-sync-replacement { margin: 12px 0; padding: 10px 12px; border-left: 2px solid var(--orange); border-radius: var(--radius-sm); background: var(--orange-soft); }
+.network-sync-replacement > h4,.network-sync-result-label { margin: 0 0 4px; font-size: 12.5px; font-weight: 600; }
+.network-sync-replacement > .network-note { margin-bottom: 0; }
+.creation-dialog .network-sync-help-button { flex: none; width: 34px; height: 34px; color: var(--accent); }
+.network-sync-help > p { font-size: 13px; line-height: 1.75; }
+.network-sync-help > h3 { margin-top: 18px; font-size: 13px; }
+@media (pointer: coarse), (max-width: 760px) { .creation-dialog .network-sync-help-button { width: 44px; height: 44px; } }
+.network-rename { margin: 4px 0 8px; gap: 8px; }
+.network-rename .network-note { margin: 0; }
+.network-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.network-rename > button { justify-self: start; min-height: 36px; }
+.network-option { width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: flex-start; gap: 12px; margin: 4px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--raised); color: var(--text); text-align: left; }
+.network-option:hover:not(:disabled) { border-color: var(--border-strong); background: var(--hover); }
+.network-option > svg:first-child { flex: none; color: var(--accent); }
+.network-option > svg:last-child { flex: none; color: var(--muted); }
+.network-option > span { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.network-option strong { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
+.network-option small { color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.network-pending { margin: 8px 0 0; }
+.network-pending > .primary { min-height: 36px; }
+.network-route-list { margin: 6px 0 10px; padding-left: 18px; color: var(--grey); font-family: var(--font-mono); font-size: 12px; line-height: 1.75; overflow-wrap: anywhere; }
+
+/* Destructive actions: separated, one per situation. */
+.network-danger { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--border); }
+.network-danger > h4 { color: var(--red); }
+.network-danger-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 6px 0; }
+.network-danger-row + .network-danger-row { border-top: 1px solid var(--border); }
+.network-danger-row > div { flex: 1 1 220px; min-width: 0; }
+.network-danger-row strong { display: block; font-size: 13.5px; font-weight: 600; }
+.network-danger-row p { margin: 3px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
+:is(.network-danger-row,.network-actions) > .text-danger { flex: none; min-height: 36px; padding: 0 14px; border: 1px solid var(--red); border-radius: var(--radius-sm); background: var(--raised); color: var(--red); font-weight: 600; }
+:is(.network-danger-row,.network-actions) > .text-danger:hover:not(:disabled) { background: var(--red-soft); }
+.network-text-button { display: block; min-height: 32px; margin: 4px 0; padding: 0; border: 0; background: transparent; color: var(--accent); font-size: 12.5px; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Add host. */
+.network-add-section { margin-bottom: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.network-steps { display: grid; gap: 8px; margin: 0 0 14px; padding: 0; list-style: none; counter-reset: network-step; }
+.network-steps > li { counter-increment: network-step; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.network-steps > li::before { content: counter(network-step); width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; color: var(--grey); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.network-add-section > .primary { min-height: 40px; display: inline-flex; align-items: center; gap: 6px; }
+
+/* Join review. */
+.network-direction { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; margin: 0 0 6px; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.network-direction > div { min-width: 0; display: grid; gap: 2px; }
+.network-direction small,.network-direction span { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.network-direction strong { font-size: 14px; overflow-wrap: anywhere; }
+.network-direction > svg { color: var(--accent); }
+.network-join-routes { margin: 14px 0 8px; }
+.network-join-route { padding: 10px 0; border-top: 1px solid var(--border); }
+.network-join-route-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.network-join-route-head > strong { min-width: 0; font-size: 13.5px; overflow-wrap: anywhere; }
+.network-route-state { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; color: var(--orange); font-size: 12px; }
+.network-route-state[data-ready=true] { color: var(--green); }
+.network-join-route > button { min-height: 34px; }
+.network-join-review { display: grid; justify-items: center; gap: 6px; padding: 12px 10px; }
+.network-join-review strong { max-width: 100%; overflow-wrap: anywhere; }
+.network-join-review :is(small,svg) { color: var(--muted); }
+.network-review-members { margin: 10px 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.network-review-members summary { min-height: 32px; cursor: pointer; }
+.network-review-members ul { padding-left: 20px; overflow-wrap: anywhere; }
+.new-chat-panel > label.network-consent,.new-chat-panel > .settings-dialog-body > label.network-consent,.network-consent { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin: 14px 0 0; padding: 0; color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.6; }
+.network-consent > input { flex: none; width: 18px; height: 18px; margin-top: 2px; }
+
+/* Forms, confirmations and onboarding. */
+.network-form { display: grid; gap: 14px; }
+.network-field { display: grid; gap: 8px; min-width: 0; font-size: 13px; }
+.network-field :is(input,select) { width: 100%; min-width: 0; }
+.network-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.network-actions > button { min-height: 40px; }
+.network-actions > .network-prepare-route { max-width: 100%; min-width: 0; }
+.network-prepare-route > span { min-width: 0; overflow-wrap: anywhere; }
+.network-prepare-route > svg { flex: none; }
+.network-departure-effects { display: grid; gap: 8px; margin: 4px 0 12px; padding-left: 20px; color: var(--text); font-size: 13px; line-height: 1.65; }
+.network-onboarding-note { margin-bottom: 14px; padding: 12px 14px; border-left: 2px solid var(--accent); background: var(--surface); }
+.network-onboarding-note h3 { margin: 0 0 4px; font-size: 14px; }
+
+@media (max-width: 760px) {
+  .creation-dialog:is(.network-manager,.network-subpage) { width: 100%; }
+  :is(.network-member,.network-candidate) { min-height: 56px; }
+  :is(.network-secondary,.network-add-row,.network-actions > button,.network-candidate > button,.network-detail-row > button,.network-danger-row > .text-danger,.network-join-route > button,.network-notice > button,.network-text-button,.network-pending > .primary,.network-rename > button) { min-height: 44px; }
+  .creation-dialog .network-refresh { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+  .network-empty > .primary,.network-add-section > .primary { min-height: 44px; }
+}
+@media (max-width: 360px) {
+  :is(.network-member,.network-candidate) { gap: 8px; }
+  .network-member-icon { width: 28px; height: 28px; }
+  .network-member-status { max-width: 84px; }
+  .network-direction { grid-template-columns: minmax(0, 1fr); }
+  .network-direction > svg { transform: rotate(90deg); }
+}
+
+/* Invite a phone or computer directly; connection maintenance stays secondary. */
+.network-device-entry { padding-bottom: 4px; margin-bottom: 16px; }
+.network-invite-button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; text-align: left; min-height: 64px; }
+.network-manager .network-invite-button { border-radius: var(--radius-xl); box-shadow: none; }
+.network-invite-icon { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--on-primary) 16%, transparent); }
+.network-invite-button .network-invite-copy { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.network-invite-button > svg { flex: none; }
+.network-invite-button strong { font-size: var(--network-title-size); font-weight: 600; }
+.network-invite-button small { color: inherit; font-size: 12px; opacity: .9; font-weight: 400; word-break: keep-all; }
+.network-device-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.network-device-shortcuts button { flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--raised); color: var(--grey); }
+.network-device-shortcuts button > svg { flex: none; color: var(--accent); }
+.network-device-shortcuts button:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }

@@ -1,0 +1,907 @@
+import { mkdtemp, mkdir, realpath, symlink, writeFile, readFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { removeTempRoot } from "./helpers/temp-files.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { deliverArtifactResponse, sendFileOrPhoto } from "../src/core/shared/artifact-delivery.js";
+import { parseTimelineEvents } from "../src/state/timeline-log.js";
+
+describe("sendFileOrPhoto", () => {
+  it("uses sendPhoto for large image payloads", async () => {
+    const api = {
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+    };
+
+    await sendFileOrPhoto(api as never, 123, "diagram.png", new Uint8Array(2 * 1024 * 1024 + 1));
+
+    expect(api.sendPhoto).toHaveBeenCalledTimes(1);
+    expect(api.sendDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe("deliverArtifactResponse", () => {
+  it("renders Codex file citations as text without treating them as attachments", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-codex-citation-"));
+    const inboxDir = path.join(root, "instance", "inbox");
+    const citation = ':codex-file-citation{path="/Users/example/.cctb/bot/workspace/report.xlsx" purpose="source" artifact_kind="workbook" sheet="PE_Comps" range="A4:F25"}';
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+      sendVoice: vi.fn().mockResolvedValue({ message_id: 4 }),
+    };
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `依据：${citation}`,
+        inboxDir,
+        undefined,
+        undefined,
+        "zh",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendPhoto).not.toHaveBeenCalled();
+      const delivered = JSON.stringify(api.sendMessage.mock.calls);
+      expect(delivered).toContain("来源");
+      expect(delivered).toContain("report.xlsx");
+      expect(delivered).toContain("PE_Comps!A4:F25");
+      expect(delivered).not.toContain(":codex-file-citation");
+      expect(delivered).not.toContain("/Users/example");
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("renders Codex follow-up chips without exposing their hidden prompts", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-codex-followup-"));
+    const inboxDir = path.join(root, "instance", "inbox");
+    const followup = '- :codex-followup[按税种汇总]{prompt="请把三家公司的税款按税种分类汇总"}';
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+      sendVoice: vi.fn().mockResolvedValue({ message_id: 4 }),
+    };
+
+    try {
+      await deliverArtifactResponse(api as never, 123, followup, inboxDir, undefined, undefined, "zh");
+
+      const delivered = JSON.stringify(api.sendMessage.mock.calls);
+      expect(delivered).toContain("按税种汇总");
+      expect(delivered).not.toContain(":codex-followup");
+      expect(delivered).not.toContain("prompt=");
+      expect(delivered).not.toContain("请把三家公司");
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("sends cleaned text plus workspace files referenced via send-file tags", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const filePath = path.join(workspaceDir, "report.txt");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(workspaceDir, { recursive: true });
+      await writeFile(filePath, "hello from file", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `Done.\n\n[send-file:${filePath}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(1);
+      expect(api.sendMessage).toHaveBeenCalledWith(123, "Done.", { parseMode: "Markdown" });
+      expect(api.sendDocument).toHaveBeenCalledWith(123, "report.txt", expect.any(Uint8Array));
+      const timeline = parseTimelineEvents(await readFile(path.join(path.dirname(inboxDir), "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        channel: "telegram",
+        chatId: 123,
+        metadata: expect.objectContaining({
+          fileName: "report.txt",
+          via: "post-turn",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("does not turn explanatory file fenced-block examples into attachments", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+    const text = [
+      "Small files use this syntax:",
+      "```file:example.txt",
+      "hello",
+      "```",
+    ].join("\n");
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        text,
+        inboxDir,
+        workspaceDir,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(123, text, { parseMode: "Markdown" });
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("does not treat send-file examples inside Markdown code as delivery tags", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+    const text = [
+      "Use `[send-file:/Users/example/Desktop/xxx.md]` only as fallback.",
+      "",
+      "```",
+      "[send-image:/Users/example/Desktop/xxx.png]",
+      "```",
+    ].join("\n");
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        text,
+        inboxDir,
+        workspaceDir,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendPhoto).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(api.sendMessage).toHaveBeenCalledWith(123, text, { parseMode: "Markdown" });
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("still sends an attachment when the whole response is one file fenced block", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        "```file:example.txt\nhello\n```",
+        inboxDir,
+        workspaceDir,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(1);
+      expect(api.sendDocument).toHaveBeenCalledWith(123, "example.txt", "hello\n");
+      expect(api.sendMessage).not.toHaveBeenCalled();
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("does not treat file fenced blocks with backticks in the filename as attachments", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+    const text = "```file:bad`name.txt\nhello\n```";
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        text,
+        inboxDir,
+        workspaceDir,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(123, text, { parseMode: "Markdown" });
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("marks side-channel accepted files in the timeline", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const filePath = path.join(workspaceDir, "chart.png");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(workspaceDir, { recursive: true });
+      await writeFile(filePath, "png", "utf8");
+
+      await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${filePath}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+        { source: "side-channel" },
+      );
+
+      const timeline = parseTimelineEvents(await readFile(path.join(path.dirname(inboxDir), "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        metadata: expect.objectContaining({
+          fileName: "chart.png",
+          via: "side-channel",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("surfaces rejected out-of-workspace files to the chat", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const outsideFile = path.join(realRoot, "outside.txt");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await writeFile(outsideFile, "secret", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${outsideFile}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        expect.stringContaining("not delivered"),
+      );
+      const rejection = api.sendMessage.mock.calls.map(call => call[1]).join("\n");
+      expect(rejection).toContain("attachment permissions");
+      expect(rejection).not.toContain("cctb send");
+      const timeline = parseTimelineEvents(await readFile(path.join(path.dirname(inboxDir), "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.rejected",
+        channel: "telegram",
+        chatId: 123,
+        metadata: expect.objectContaining({
+          path: outsideFile,
+          reason: "outside-workspace",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("refuses to send credential files even from inside the workspace", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const credentialPath = path.join(workspaceDir, ".env.local");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(workspaceDir, { recursive: true });
+      await writeFile(credentialPath, "TOKEN=secret", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${credentialPath}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        expect.stringContaining("credentials and private-key files are not sendable"),
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(path.dirname(inboxDir), "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.rejected",
+        channel: "telegram",
+        chatId: 123,
+        metadata: expect.objectContaining({
+          path: credentialPath,
+          reason: "credentials-file",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("silently ignores copied send-file placeholder paths", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        "我会发给你。\n[send-file:/absolute/path]",
+        inboxDir,
+        undefined,
+        undefined,
+        "zh",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenNthCalledWith(1, 123, "我会发给你。", { parseMode: "Markdown" });
+      expect(api.sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("silently ignores copied example workspace placeholders case-insensitively", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const placeholderPath = "/Users/example-user/.cctb/example/workspace/output.png";
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${placeholderPath}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).not.toHaveBeenCalled();
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("silently ignores short absolute example placeholders instead of probing the filesystem", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const placeholderPath = "/abs/path.png";
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${placeholderPath}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "zh",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).not.toHaveBeenCalled();
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("silently ignores missing temp example placeholders in fallback text", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const placeholderPath = path.join(os.tmpdir(), "example-cctb-placeholder.png");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `Example only.\n[send-file:${placeholderPath}]`,
+        inboxDir,
+        workspaceDir,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(api.sendMessage).toHaveBeenCalledWith(123, "Example only.", { parseMode: "Markdown" });
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("does not treat an existing explicit temp example path as a placeholder", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const filePath = path.join(realRoot, "example.png");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await writeFile(filePath, "real image bytes", "utf8");
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${filePath}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+        { allowAnyAbsolutePath: true },
+      );
+
+      expect(filesSent).toBe(1);
+      expect(api.sendDocument).toHaveBeenCalledWith(123, "example.png", expect.any(Uint8Array));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("leaves markdown absolute links as ordinary chat text", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const placeholderPath = "/Users/example-user/.cctb/example/workspace/output.png";
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `Here it is: ![out](${placeholderPath})`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(123, `Here it is: ![out](${placeholderPath})`, {
+        parseMode: "Markdown",
+      });
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("rejects workspace files outside the current codex request output directory", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const currentOutputDir = path.join(workspaceDir, ".telegram-out", "req-current");
+    const oldOutputDir = path.join(workspaceDir, ".telegram-out", "req-old");
+    const staleFile = path.join(oldOutputDir, "stale.docx");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(currentOutputDir, { recursive: true });
+      await mkdir(oldOutputDir, { recursive: true });
+      await writeFile(staleFile, "old result", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${staleFile}]`,
+        inboxDir,
+        undefined,
+        currentOutputDir,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        expect.stringContaining("not delivered"),
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(path.dirname(inboxDir), "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.rejected",
+        channel: "telegram",
+        chatId: 123,
+        metadata: expect.objectContaining({
+          path: staleFile,
+          reason: "outside-request-output",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("still allows existing workspace files outside the current request output directory", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const currentOutputDir = path.join(workspaceDir, ".telegram-out", "req-current");
+    const existingFile = path.join(workspaceDir, "final-report.docx");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(currentOutputDir, { recursive: true });
+      await writeFile(existingFile, "report bytes", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${existingFile}]`,
+        inboxDir,
+        undefined,
+        currentOutputDir,
+        "en",
+      );
+
+      expect(filesSent).toBe(1);
+      expect(api.sendDocument).toHaveBeenCalledWith(123, "final-report.docx", expect.any(Uint8Array));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("does not extract Markdown-linked files whose absolute path contains parentheses", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const nestedDir = path.join(workspaceDir, "cache (2)");
+    const filePath = path.join(nestedDir, "sheet.xlsx");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(nestedDir, { recursive: true });
+      await writeFile(filePath, "xlsx-bytes", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[download me](${filePath})`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(123, `[download me](${filePath})`, { parseMode: "Markdown" });
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("ignores Markdown-linked absolute file paths that include line suffixes", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const filePath = path.join(workspaceDir, ".tmp_review_li_tao.md");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(workspaceDir, { recursive: true });
+      await writeFile(filePath, "review body", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `See [review](<${filePath}:34>) for details.`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(0);
+      expect(api.sendDocument).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(api.sendMessage).not.toHaveBeenCalledWith(
+        123,
+        expect.stringContaining("not delivered"),
+      );
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("rethrows non-Markdown Telegram delivery errors instead of silently falling back", async () => {
+    const api = {
+      sendMessage: vi.fn().mockRejectedValue(new Error("Telegram API request failed for sendMessage: 403 Forbidden")),
+      sendVoice: vi.fn(),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    await expect(
+      deliverArtifactResponse(api as never, 123, "hello", "/tmp/inbox", undefined, undefined, "en"),
+    ).rejects.toThrow("403 Forbidden");
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to plain text when Telegram rejects Markdown entity parsing", async () => {
+    const api = {
+      sendMessage: vi.fn()
+        .mockRejectedValueOnce(new Error("Telegram API request failed for sendMessage: Bad Request: can't parse entities: Can't find end of Italic entity"))
+        .mockResolvedValueOnce({ message_id: 2 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 3 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 4 }),
+    };
+
+    await expect(
+      deliverArtifactResponse(api as never, 123, "preferred_layout", "/tmp/inbox", undefined, undefined, "en"),
+    ).resolves.toBe(0);
+    expect(api.sendMessage).toHaveBeenNthCalledWith(1, 123, "preferred_layout", { parseMode: "Markdown" });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(2, 123, "preferred_layout");
+  });
+
+  it("falls back to one plain send of the whole text when a transient error sinks every chunk", async () => {
+    // A non-permanent error (network) on the formatted send must not leave the
+    // user with nothing — a single plain send of the whole answer is attempted.
+    const api = {
+      sendMessage: vi.fn()
+        .mockRejectedValueOnce(new Error("Telegram API request failed for sendMessage: fetch failed"))
+        .mockResolvedValueOnce({ message_id: 2 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 3 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 4 }),
+    };
+
+    await expect(
+      deliverArtifactResponse(api as never, 123, "the answer", "/tmp/inbox", undefined, undefined, "en"),
+    ).resolves.toBe(0);
+    // First call: formatted (Markdown). Second call: plain fallback.
+    expect(api.sendMessage).toHaveBeenNthCalledWith(1, 123, "the answer", { parseMode: "Markdown" });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(2, 123, "the answer");
+  });
+
+  it("does not double-send on a permanent 403 and surfaces the original error", async () => {
+    const api = {
+      sendMessage: vi.fn().mockRejectedValue(new Error("Telegram API request failed for sendMessage: 403 Forbidden")),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 3 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 4 }),
+    };
+
+    await expect(
+      deliverArtifactResponse(api as never, 123, "the answer", "/tmp/inbox", undefined, undefined, "en"),
+    ).rejects.toThrow("403 Forbidden");
+    expect(api.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("still delivers workspace files after a transient text-send failure (best effort per chunk)", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    const workspaceDir = path.join(realRoot, "instance", "workspace");
+    const filePath = path.join(workspaceDir, "report.txt");
+    const api = {
+      // Formatted send fails (network), plain fallback succeeds; the file must
+      // still be delivered.
+      sendMessage: vi.fn()
+        .mockRejectedValueOnce(new Error("Telegram API request failed for sendMessage: fetch failed"))
+        .mockResolvedValueOnce({ message_id: 2 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 3 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 4 }),
+    };
+
+    try {
+      await mkdir(workspaceDir, { recursive: true });
+      await writeFile(filePath, "hello from file", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `Done.\n\n[send-file:${filePath}]`,
+        inboxDir,
+        undefined,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(1);
+      expect(api.sendDocument).toHaveBeenCalledWith(123, "report.txt", expect.any(Uint8Array));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("accepts an in-workspace file reached through a symlinked workspace component", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-response-"));
+    const realRoot = await realpath(root);
+    const inboxDir = path.join(realRoot, "instance", "inbox");
+    // workspaceOverride points at a symlink whose realpath differs; the file is
+    // referenced via the symlinked path, so the prefix must be realpath'd too.
+    const realProjectDir = path.join(realRoot, "real-project");
+    const symlinkDir = path.join(realRoot, "linked-project");
+    const filePath = path.join(symlinkDir, "out.txt");
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 2 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 3 }),
+    };
+
+    try {
+      await mkdir(realProjectDir, { recursive: true });
+      await symlink(realProjectDir, symlinkDir);
+      await writeFile(path.join(realProjectDir, "out.txt"), "result bytes", "utf8");
+
+      const filesSent = await deliverArtifactResponse(
+        api as never,
+        123,
+        `[send-file:${filePath}]`,
+        inboxDir,
+        symlinkDir,
+        undefined,
+        "en",
+      );
+
+      expect(filesSent).toBe(1);
+      expect(api.sendDocument).toHaveBeenCalledWith(123, "out.txt", expect.any(Uint8Array));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("falls back to plain text when Telegram rejects Markdown text URL entities", async () => {
+    const api = {
+      sendMessage: vi.fn()
+        .mockRejectedValueOnce(new Error("Telegram API request failed for sendMessage: Bad Request: messageEntityTextUrl.url must be encoded in UTF-8"))
+        .mockResolvedValueOnce({ message_id: 2 }),
+      sendDocument: vi.fn().mockResolvedValue({ message_id: 3 }),
+      sendPhoto: vi.fn().mockResolvedValue({ message_id: 4 }),
+    };
+
+    const text = "[流式更新卡片 — 飞书开放平台](https://open.feishu.cn/document/server-docs/im-v1/message-card/流式更新卡片)";
+    await expect(
+      deliverArtifactResponse(api as never, 123, text, "/tmp/inbox", undefined, undefined, "zh"),
+    ).resolves.toBe(0);
+    expect(api.sendMessage).toHaveBeenNthCalledWith(1, 123, text, { parseMode: "Markdown" });
+    expect(api.sendMessage).toHaveBeenNthCalledWith(2, 123, text);
+  });
+});
+
+it.each(["file", "directory"])("rejects a workspace %s symlink that resolves outside the workspace", async kind => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "send-escape-")), workspace = path.join(root, "workspace"), outside = path.join(root, "outside");
+  const api = { sendMessage: vi.fn(async () => ({ message_id: 1 })), sendDocument: vi.fn(), sendPhoto: vi.fn() };
+  try {
+    await mkdir(workspace); await mkdir(outside); await writeFile(path.join(outside, "fixture.txt"), "synthetic content");
+    const link = path.join(workspace, "link");
+    await symlink(kind === "file" ? path.join(outside, "fixture.txt") : outside, link, kind === "file" ? "file" : "junction");
+    const result = await deliverArtifactResponse(api as never, 123, `[send-file:${kind === "file" ? link : path.join(link, "fixture.txt")}]`, path.join(root, "inbox"), workspace, undefined, "en");
+    expect(result).toBe(0); expect(api.sendDocument).not.toHaveBeenCalled(); expect(api.sendPhoto).not.toHaveBeenCalled();
+  } finally { await removeTempRoot(root); }
+});

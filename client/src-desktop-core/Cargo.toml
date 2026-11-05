@@ -1,0 +1,60 @@
+[package]
+name = "tarobot-desktop-core"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.88"
+publish = false
+description = "Native identity, pinned Hub transport and local Host control for the Electron desktop shell"
+
+# Standalone: never joins the Tauri workspace or its lockfile.
+[workspace]
+
+[features]
+# Referenced by the shared transport core; the helper never enables it.
+native-transport-audit = []
+
+[lib]
+name = "tarobot_desktop_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tarobot-desktop-core"
+path = "src/main.rs"
+
+# Versions match client/src-tauri so the reused identity and TLS code behaves
+# identically (keyring store, rustls verifier, AES-GCM installation binding).
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+keyring = "4.2"
+ed25519-dalek = "3"
+getrandom = "0.4"
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
+ring = "=0.17.14"
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "stream"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "=0.7.1"
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "time", "macros", "process", "io-util", "io-std"] }
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", features = ["sink"] }
+sha2 = "0.10"
+bytes = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Launch guard (shared/macos_launch_guard.rs); same versions as already locked.
+security-framework = "=3.7.0"
+core-foundation = "=0.10.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["net"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

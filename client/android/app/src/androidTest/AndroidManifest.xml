@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application><activity android:name="com.tarobot.client.AttachmentReceiverActivity" android:exported="true" android:label="TaroBot Reader Probe">
+    <intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/></intent-filter>
+  </activity></application>
+</manifest>

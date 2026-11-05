@@ -1,0 +1,736 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { removeTempRoot } from "./helpers/temp-files.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { handleLocalEngineCoreCommand } from "../src/core/shared/engine-commands.js";
+import { parseAuditEvents } from "../src/state/audit-log.js";
+import type { CommandMessage } from "../src/runtime/command-message.js";
+
+function createNormalizedMessage(text: string): CommandMessage {
+  return {
+    chatId: 123,
+    userId: 456,
+    chatType: "private",
+    text,
+    attachments: [],
+  };
+}
+
+describe("handleLocalEngineTelegramCommand", () => {
+  it.each(["/compact", "/context", "/ultrareview review the current work"])("honors the timeout policy for %s", async (command) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "engine-timeout-policy-"));
+    const run = vi.fn().mockResolvedValue({ text: "done" });
+    try {
+      for (const disableRuntimeTimeout of [true, false]) {
+        await handleLocalEngineCoreCommand({
+          stateDir: root, startedAt: Date.now(), locale: "en",
+          cfg: { engine: "claude", disableRuntimeTimeout },
+          normalized: createNormalizedMessage(command),
+          context: { api: { sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }) } as never },
+          bridge: { handleAuthorizedMessage: run },
+          sessionStore: { removeByChatId: vi.fn(), clearAll: vi.fn() },
+          updateInstanceConfig: vi.fn(),
+        });
+      }
+      expect(run.mock.calls.map(([input]) => input.disableRuntimeTimeout)).toEqual([true, false]);
+    } finally { await removeTempRoot(root); }
+  });
+
+  it("shows engine choices on bare /engine", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude" },
+        normalized: createNormalizedMessage("/engine"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 76,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn(),
+        },
+        sessionStore: {
+          removeByChatId: vi.fn(),
+          clearAll: vi.fn(),
+        },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        [
+          "Current engine: claude",
+          "Choose an engine with /engine <name>:",
+          "/engine claude",
+          "/engine codex",
+          "/engine kimi",
+          "/engine deepseek",
+          "/engine antigravity",
+          "Restart this instance after switching to apply the change.",
+        ].join("\n"),
+      );
+      const audit = parseAuditEvents(await readFile(path.join(root, "audit.log.jsonl"), "utf8"));
+      expect(audit).toContainEqual(expect.objectContaining({
+        type: "update.handle",
+        outcome: "success",
+        metadata: expect.objectContaining({
+          command: "engine",
+          value: "query",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("switches engine locally and clears incompatible model overrides", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const order: string[] = [];
+    const sessionStore = {
+      removeByChatId: vi.fn().mockResolvedValue(true),
+      clearAllThen: vi.fn().mockImplementation(async (commit: () => Promise<unknown>) => {
+        order.push("clear");
+        await commit();
+        return 2;
+      }),
+    };
+    const updateInstanceConfig = vi.fn(async (mutate: (cfg: Record<string, unknown>) => void) => {
+      order.push("config");
+      const cfg: Record<string, unknown> = { engine: "claude", model: "opus" };
+      mutate(cfg);
+      expect(cfg.engine).toBe("codex");
+      expect(cfg.model).toBeUndefined();
+    });
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude", model: "opus" },
+        normalized: createNormalizedMessage("/engine codex"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 76,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn(),
+        },
+        sessionStore,
+        updateInstanceConfig,
+      });
+
+      expect(handled).toBe(true);
+      expect(updateInstanceConfig).toHaveBeenCalledOnce();
+      expect(sessionStore.clearAllThen).toHaveBeenCalledOnce();
+      expect(order).toEqual(["clear", "config"]);
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        "Engine set to codex. Cleared the previous model override and reset this instance's session bindings. Restart this instance to apply.",
+      );
+      const audit = parseAuditEvents(await readFile(path.join(root, "audit.log.jsonl"), "utf8"));
+      expect(audit).toContainEqual(expect.objectContaining({
+        type: "update.handle",
+        outcome: "success",
+        metadata: expect.objectContaining({
+          command: "engine",
+          value: "codex",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("switches to Antigravity locally and clears incompatible model overrides", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const sessionStore = {
+      removeByChatId: vi.fn().mockResolvedValue(true),
+      clearAllThen: vi.fn(async (commit: () => Promise<unknown>) => { await commit(); return 1; }),
+    };
+    const updateInstanceConfig = vi.fn(async (mutate: (cfg: Record<string, unknown>) => void) => {
+      const cfg: Record<string, unknown> = { engine: "codex", model: "gpt-5.4", codexServiceTier: "fast" };
+      mutate(cfg);
+      expect(cfg.engine).toBe("antigravity");
+      expect(cfg.approvalMode).toBe("bypass");
+      expect(cfg.model).toBeUndefined();
+      expect(cfg.codexServiceTier).toBeUndefined();
+    });
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "codex", model: "gpt-5.4" },
+        normalized: createNormalizedMessage("/engine antigravity"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 76,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn(),
+        },
+        sessionStore,
+        updateInstanceConfig,
+      });
+
+      expect(handled).toBe(true);
+      expect(updateInstanceConfig).toHaveBeenCalledOnce();
+      expect(sessionStore.clearAllThen).toHaveBeenCalledOnce();
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        "Engine set to antigravity. Cleared the previous model override and reset this instance's session bindings. Restart this instance to apply.",
+      );
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("keeps the old engine when session bindings cannot be reset first", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const sessionStore = {
+      removeByChatId: vi.fn().mockResolvedValue(true),
+      clearAllThen: vi.fn().mockRejectedValue(new Error("session store unavailable")),
+    };
+    const updateInstanceConfig = vi.fn();
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude", model: "opus" },
+        normalized: createNormalizedMessage("/engine codex"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 77,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn(),
+        },
+        sessionStore,
+        updateInstanceConfig,
+      });
+
+      expect(handled).toBe(true);
+      expect(sessionStore.clearAllThen).toHaveBeenCalledOnce();
+      expect(updateInstanceConfig).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        "Could not switch to codex because this instance's session bindings could not be reset first. Engine remains claude.",
+      );
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("returns usage for /engine commands with extra trailing words", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude" },
+        normalized: createNormalizedMessage("/engine codex please"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 78,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn(),
+        },
+        sessionStore: {
+          removeByChatId: vi.fn(),
+          clearAll: vi.fn(),
+        },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(api.sendMessage).toHaveBeenCalledWith(123, "Usage: /engine [claude|codex|kimi|deepseek|antigravity]");
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("rejects /context on the wrong engine", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "codex" },
+        normalized: createNormalizedMessage("/context"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 77,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn(),
+        },
+        sessionStore: {
+          removeByChatId: vi.fn(),
+          clearAll: vi.fn(),
+        },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        "/context is only supported with the Claude or DeepSeek engine. The current engine does not expose local context.",
+      );
+      const audit = parseAuditEvents(await readFile(path.join(root, "audit.log.jsonl"), "utf8"));
+      expect(audit).toContainEqual(expect.objectContaining({
+        type: "update.handle",
+        outcome: "success",
+        metadata: expect.objectContaining({
+          command: "context",
+          rejected: "wrong-engine",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("rejects /compact on the wrong engine instead of sending it as a model prompt", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "codex" },
+        normalized: createNormalizedMessage("/compact"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 78,
+        },
+        bridge,
+        sessionStore: {
+          removeByChatId: vi.fn(),
+          clearAll: vi.fn(),
+        },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        "/compact is only supported with the Claude, Kimi, and DeepSeek engines. The current engine does not run local context compaction; use /reset to clear this conversation.",
+      );
+      const audit = parseAuditEvents(await readFile(path.join(root, "audit.log.jsonl"), "utf8"));
+      expect(audit).toContainEqual(expect.objectContaining({
+        type: "update.handle",
+        outcome: "success",
+        metadata: expect.objectContaining({
+          command: "compact",
+          rejected: "wrong-engine",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("forwards /compact to a Kimi ACP session", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = { sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }) };
+    const bridge = {
+      handleAuthorizedMessage: vi.fn().mockResolvedValue({ text: "Compaction completed" }),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "kimi" },
+        normalized: createNormalizedMessage("/compact"),
+        context: { api: api as never, instanceName: "default", updateId: 79 },
+        bridge,
+        sessionStore: { removeByChatId: vi.fn(), clearAll: vi.fn() },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: "/compact",
+        files: [],
+      }));
+      expect(api.sendMessage).toHaveBeenNthCalledWith(2, 123, "Context compacted.\n\nCompaction completed");
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("forwards /compact to a DeepSeek Harness session", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = { sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }) };
+    const bridge = {
+      handleAuthorizedMessage: vi.fn().mockResolvedValue({ text: "DeepSeek compaction completed" }),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "deepseek" },
+        normalized: createNormalizedMessage("/compact"),
+        context: { api: api as never, instanceName: "default", updateId: 80 },
+        bridge,
+        sessionStore: { removeByChatId: vi.fn(), clearAll: vi.fn() },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: "/compact",
+        files: [],
+      }));
+      expect(api.sendMessage).toHaveBeenNthCalledWith(
+        2,
+        123,
+        "Context compacted.\n\nDeepSeek compaction completed",
+      );
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("renders DeepSeek Harness context pressure without sending a model prompt", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = { sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }) };
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(),
+      getContextUsage: vi.fn().mockResolvedValue({
+        pressureTokens: 12_000,
+        projectedTokens: 13_107,
+        contextWindow: 131_072,
+      }),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "deepseek", resume: { workspacePath: "/tmp/work" } },
+        normalized: createNormalizedMessage("/context"),
+        context: { api: api as never, instanceName: "default", updateId: 81 },
+        bridge,
+        sessionStore: { removeByChatId: vi.fn(), clearAll: vi.fn() },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.getContextUsage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: 123,
+        workspaceOverride: "/tmp/work",
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledWith(
+        123,
+        "Context: ~13,107 / 131,072 tokens (10.0%)\nLast provider sample: 12,000 tokens",
+      );
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("keeps the session intact (no reset) when /compact execution fails", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const sessionStore = {
+      removeByChatId: vi.fn().mockResolvedValue(true),
+      removeByConversationKey: vi.fn().mockResolvedValue(true),
+      clearAll: vi.fn(),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude" },
+        normalized: createNormalizedMessage("/compact"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 78,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn().mockRejectedValue(new Error("unsupported")),
+        },
+        sessionStore,
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      // A compact failure must NOT reset the session — that would destroy the
+      // very conversation the user was trying to preserve (compact != reset).
+      expect(sessionStore.removeByChatId).not.toHaveBeenCalled();
+      expect(sessionStore.removeByConversationKey).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenNthCalledWith(1, 123, "Compacting session context...");
+      expect(api.sendMessage).toHaveBeenNthCalledWith(2, 123, "Couldn't compact the context this time; your conversation is unchanged. Send /reset if you want to start fresh.");
+      const audit = parseAuditEvents(await readFile(path.join(root, "audit.log.jsonl"), "utf8"));
+      expect(audit).toContainEqual(expect.objectContaining({
+        type: "update.handle",
+        outcome: "success",
+        metadata: expect.objectContaining({
+          command: "compact",
+        }),
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("keeps the topic session intact (no reset) when /compact fails in a forum topic", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const normalized = createNormalizedMessage("/compact");
+    normalized.chatId = -100123;
+    normalized.chatType = "supergroup";
+    normalized.messageThreadId = 88;
+    normalized.conversationKey = "chat:-100123:topic:88";
+    const sessionStore = {
+      removeByChatId: vi.fn().mockResolvedValue(true),
+      removeByConversationKey: vi.fn().mockResolvedValue(true),
+      clearAll: vi.fn(),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude" },
+        normalized,
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 79,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn().mockRejectedValue(new Error("unsupported")),
+        },
+        sessionStore,
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      // No reset of the topic session on a compact failure.
+      expect(sessionStore.removeByConversationKey).not.toHaveBeenCalled();
+      expect(sessionStore.removeByChatId).not.toHaveBeenCalled();
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+
+  it("rethrows auth failures during /compact so outer retry can handle them", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const sessionStore = {
+      removeByChatId: vi.fn().mockResolvedValue(true),
+      clearAll: vi.fn(),
+    };
+    const authError = new Error("unauthorized");
+
+    try {
+      await expect(handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude" },
+        normalized: createNormalizedMessage("/compact"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 78,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn().mockRejectedValue(authError),
+        },
+        sessionStore,
+        updateInstanceConfig: vi.fn(),
+      })).rejects.toBe(authError);
+
+      expect(sessionStore.removeByChatId).not.toHaveBeenCalled();
+      expect(api.sendMessage).toHaveBeenCalledTimes(1);
+      expect(api.sendMessage).toHaveBeenCalledWith(123, "Compacting session context...");
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("runs /ultrareview on Claude and relays the result", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const bridge = {
+      handleAuthorizedMessage: vi.fn().mockResolvedValue({ text: "review output" }),
+    };
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude", resume: { workspacePath: "/tmp/work" } },
+        normalized: createNormalizedMessage("/ultrareview"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 79,
+          abortSignal: undefined,
+        },
+        bridge,
+        sessionStore: {
+          removeByChatId: vi.fn(),
+          clearAll: vi.fn(),
+        },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: 123,
+        text: "/ultrareview",
+        workspaceOverride: "/tmp/work",
+      }));
+      expect(api.sendMessage).toHaveBeenNthCalledWith(1, 123, "Running code review...");
+      expect(api.sendMessage).toHaveBeenNthCalledWith(2, 123, "review output");
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("forwards the abort signal so /stop can cancel /compact", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+    const api = {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 11 }),
+    };
+    const bridge = {
+      handleAuthorizedMessage: vi.fn().mockResolvedValue({ text: "compacted" }),
+    };
+    const abortSignal = new AbortController().signal;
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now() - 10,
+        locale: "en",
+        cfg: { engine: "claude", resume: { workspacePath: "/tmp/work" } },
+        normalized: createNormalizedMessage("/compact"),
+        context: {
+          api: api as never,
+          instanceName: "default",
+          updateId: 81,
+          abortSignal,
+        },
+        bridge,
+        sessionStore: {
+          removeByChatId: vi.fn(),
+          clearAll: vi.fn(),
+        },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: "/compact",
+        abortSignal,
+      }));
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
+  it("returns false for non-engine commands", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
+
+    try {
+      const handled = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now(),
+        locale: "en",
+        cfg: { engine: "claude" },
+        normalized: createNormalizedMessage("/help"),
+        context: {
+          api: { sendMessage: vi.fn() } as never,
+          instanceName: "default",
+          updateId: 80,
+        },
+        bridge: {
+          handleAuthorizedMessage: vi.fn(),
+        },
+        sessionStore: {
+          removeByChatId: vi.fn(),
+          clearAll: vi.fn(),
+        },
+        updateInstanceConfig: vi.fn(),
+      });
+
+      expect(handled).toBe(false);
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+});

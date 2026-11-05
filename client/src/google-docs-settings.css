@@ -1,0 +1,5 @@
+.google-docs-guide { margin-top: 12px; }
+.google-docs-guide summary { cursor: pointer; color: var(--text); }
+.google-docs-guide ol { padding-inline-start: 22px; }
+.google-docs-guide li { margin-block: 10px; }
+.google-docs-guide pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }

@@ -1,0 +1,69 @@
+[package]
+name = "tarobot-desktop-updater"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+rust-version = "1.89"
+publish = false
+description = "Signed GitHub/public update installer for the Electron desktop shell"
+
+# Standalone: never joins the Tauri workspace or its lockfile.
+[workspace]
+
+[features]
+# Isolated fixtures only: a lab CA reached through a lab proxy and a lab file
+# instead of the OS keychain. Release builds must never enable it.
+lab = []
+
+[lib]
+name = "tarobot_desktop_updater"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tarobot-desktop-updater"
+path = "src/main.rs"
+
+# Windows NSIS hook helper (fresh start, Host stop/confirm). Standalone, so the
+# installer can stage it in its plugin directory like the Tauri exe.
+[[bin]]
+name = "tarobot-installer-helper"
+path = "src/bin/installer_helper.rs"
+
+# Versions match client/src-tauri so the shared policy, credential, request
+# and macOS install code behaves identically (keyring store, rustls verifier,
+# minisign verification used by tauri-plugin-updater 2.13.1).
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+keyring = "4.2"
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider", "stream"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-platform-verifier = "=0.7.1"
+tokio = { version = "1", features = ["sync", "rt", "rt-multi-thread", "time", "macros", "process", "io-util", "io-std"] }
+futures-util = "0.3"
+minisign-verify = "=0.2.5"
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Launch guard (shared/macos_launch_guard.rs); same versions as already locked.
+security-framework = "=3.7.0"
+core-foundation = "=0.10.1"
+
+[target.'cfg(windows)'.dependencies]
+# Same version as client/src-tauri: reused fresh-install recovery and the
+# installer handoff's parent wait.
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader", "Win32_System_DataExchange", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
+dirs = "=7.0.0"
+
+[target.'cfg(windows)'.dev-dependencies]
+# tests/windows_control_job.rs includes src-desktop-core's ControlJob as is.
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

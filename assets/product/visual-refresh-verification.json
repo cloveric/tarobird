@@ -1,0 +1,1160 @@
+{
+  "verified": true,
+  "verifiedAt": "2026-10-28T05:01:46.480370+00:00",
+  "sourceRevision": "91853e0089edabf20e1e78c2975d9b578dcb14da",
+  "sourceDirty": true,
+  "clientVersion": "1.0.118",
+  "clientEntry": {
+    "file": "assets/index-RhFUtkLt.js",
+    "sha256": "340c9a56c990b4d3f43d64bbc53cfd240586ac1e675789c6208f5a11742bd559",
+    "indexSha256": "9544e05ed20c00aa2ed16f22183e1abf793c0525c1891fa59bb74f14a126ae46"
+  },
+  "palette": "mono",
+  "monoAccent": "warm-gray",
+  "expectedAvatars": [
+    "cream-bunny",
+    "mini-bluebird",
+    "mini-clownfish",
+    "mini-matcha",
+    "mini-octopus",
+    "pastel-fox",
+    "peach-patch-cat"
+  ],
+  "rawCaptureCount": 30,
+  "compositionCount": 14,
+  "readmeLinks": {
+    "README.md": {
+      "count": 21,
+      "allExist": true
+    },
+    "README.zh-CN.md": {
+      "count": 21,
+      "allExist": true
+    }
+  },
+  "preview": {
+    "verified": true,
+    "renderer": "GitHub Markdown API with local preview CSS",
+    "results": [
+      {
+        "locale": "en",
+        "width": 1080,
+        "overflow": false,
+        "images": [
+          {
+            "src": "assets/tarobot-cover.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/demo-en.gif",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/workspace-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/phone-pair-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/adhd-workspace-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/agent-bus-workspace-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/features-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/themes-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/folders-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/engines.png",
+            "loaded": true,
+            "proportional": true
+          }
+        ]
+      },
+      {
+        "locale": "en",
+        "width": 390,
+        "overflow": false,
+        "images": [
+          {
+            "src": "assets/tarobot-cover.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/demo-en.gif",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/workspace-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/phone-pair-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/adhd-workspace-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/agent-bus-workspace-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/features-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/themes-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/folders-en.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/engines.png",
+            "loaded": true,
+            "proportional": true
+          }
+        ]
+      },
+      {
+        "locale": "zh",
+        "width": 1080,
+        "overflow": false,
+        "images": [
+          {
+            "src": "assets/tarobot-cover-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/demo-zh.gif",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/workspace-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/phone-pair-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/adhd-workspace-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/agent-bus-workspace-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/features-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/themes-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/folders-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/engines.png",
+            "loaded": true,
+            "proportional": true
+          }
+        ]
+      },
+      {
+        "locale": "zh",
+        "width": 390,
+        "overflow": false,
+        "images": [
+          {
+            "src": "assets/tarobot-cover-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/demo-zh.gif",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/workspace-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/phone-pair-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/adhd-workspace-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/agent-bus-workspace-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/features-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/themes-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/folders-zh.png",
+            "loaded": true,
+            "proportional": true
+          },
+          {
+            "src": "assets/product/engines.png",
+            "loaded": true,
+            "proportional": true
+          }
+        ]
+      }
+    ]
+  },
+  "files": [
+    {
+      "file": "assets/product/desktop-en.png",
+      "bytes": 258386,
+      "sha256": "b79cea9b9e3b3988779d84360ab35c1000ccc5cfac3e8855b581ac732d660bcb",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/folders-en.png",
+      "bytes": 269639,
+      "sha256": "da0f1f70ae5a79df859a1a0795417de2b8e321329cf1f3d9b0f32043c0c1075c",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/mono-light-en.png",
+      "bytes": 269639,
+      "sha256": "da0f1f70ae5a79df859a1a0795417de2b8e321329cf1f3d9b0f32043c0c1075c",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/mono-dark-en.png",
+      "bytes": 271100,
+      "sha256": "66234688508da6afc197fe08ec8504091f6d52fc537933c337946c73198e398d",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/mobile-en.png",
+      "bytes": 180717,
+      "sha256": "cf90718962328374c5e5122b7723c13f9c4417e947cd9ca571b81eda681911b6",
+      "size": [
+        780,
+        1688
+      ]
+    },
+    {
+      "file": "assets/product/mobile-chat-en.png",
+      "bytes": 115555,
+      "sha256": "02a0269dc745dc0cc5a07931d114b4afe098a4576e618db8421179cf00e023f4",
+      "size": [
+        780,
+        1688
+      ]
+    },
+    {
+      "file": "assets/product/desktop-zh.png",
+      "bytes": 268751,
+      "sha256": "8993ffeecf702db7bb64e03533d60fb83a731a04d0510867350b7c7de0bed124",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/folders-zh.png",
+      "bytes": 291345,
+      "sha256": "5d978aea0c6bd8abc72f2b5f6daf21fa2434bf4e13bd4414ca567113251b0f53",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/mono-light-zh.png",
+      "bytes": 291345,
+      "sha256": "5d978aea0c6bd8abc72f2b5f6daf21fa2434bf4e13bd4414ca567113251b0f53",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/mono-dark-zh.png",
+      "bytes": 292459,
+      "sha256": "40967eb07c6470286529a177bd26ee2f559ebacb0a2ebb8d51c7923ff376e712",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/mobile-zh.png",
+      "bytes": 194767,
+      "sha256": "220cb998ffbe9339bfb274cf2e277dcf62d6ef46b4b47f2bc60e2a7807b51554",
+      "size": [
+        780,
+        1688
+      ]
+    },
+    {
+      "file": "assets/product/mobile-chat-zh.png",
+      "bytes": 117791,
+      "sha256": "f544ad3f9185376eff4e4f3cfdca356ff3ba7bbedcdcd4d894b3ebadfd959bbc",
+      "size": [
+        780,
+        1688
+      ]
+    },
+    {
+      "file": "assets/product/adhd-en.png",
+      "bytes": 480792,
+      "sha256": "7e3369603d6fa1b80ad55cadb19fd7b92720c0524e51c402f32676b5a3c6a39d",
+      "size": [
+        3840,
+        1800
+      ]
+    },
+    {
+      "file": "assets/product/adhd-zh.png",
+      "bytes": 503198,
+      "sha256": "444af10b97179492448174b6ce085f903538929acdd28c89b82cb61debd682fb",
+      "size": [
+        3840,
+        1800
+      ]
+    },
+    {
+      "file": "assets/product/agent-bus-en.png",
+      "bytes": 617442,
+      "sha256": "e0ea6dab28c3658a11cb8b8806db725ae07cfbbe69de00d592dd94a7b912655b",
+      "size": [
+        3840,
+        2080
+      ]
+    },
+    {
+      "file": "assets/product/agent-bus-setup-en.png",
+      "bytes": 136242,
+      "sha256": "9af63dd08f24f991648273b87a33d054f59b068535c98389e854f968b0b6c0e9",
+      "size": [
+        880,
+        2080
+      ]
+    },
+    {
+      "file": "assets/product/agent-bus-zh.png",
+      "bytes": 592592,
+      "sha256": "80669d40ee01c35f0b87ac9e7d072b163b03b756f86ddbb68dba2b54d65d624f",
+      "size": [
+        3840,
+        2080
+      ]
+    },
+    {
+      "file": "assets/product/agent-bus-setup-zh.png",
+      "bytes": 125839,
+      "sha256": "79dbf4ff587e5f12b0a93853cb57e9d194615a0df5c12ee65135862846b422b2",
+      "size": [
+        880,
+        2080
+      ]
+    },
+    {
+      "file": "assets/product/feature-groups-en.png",
+      "bytes": 166541,
+      "sha256": "cfe96f47377ae58a3201b1729fb1ff00aaf6c0b3f5060b73afc6f8a62334bfcb",
+      "size": [
+        1936,
+        1480
+      ]
+    },
+    {
+      "file": "assets/product/feature-group-modes-en.png",
+      "bytes": 102208,
+      "sha256": "4d1b207db13190ce3f9e619c9b6ba16f403f2a8a768bda609449278d098914c1",
+      "size": [
+        984,
+        1234
+      ]
+    },
+    {
+      "file": "assets/product/feature-visual-en.png",
+      "bytes": 70311,
+      "sha256": "43c927dcb71d76cf09396f7e5b478f52afcd0dabf56acc443aebf3d2c76fa291",
+      "size": [
+        1440,
+        1034
+      ]
+    },
+    {
+      "file": "assets/product/feature-changes-en.png",
+      "bytes": 179956,
+      "sha256": "b5699774883249995a80412d9a81d8fbc8ab76216bdc28f0dae1854d508d31f8",
+      "size": [
+        2384,
+        1232
+      ]
+    },
+    {
+      "file": "assets/product/feature-voice-en.png",
+      "bytes": 140171,
+      "sha256": "68efd9a045ff855e470d46123d380d03c36afec41d955d550d0b07fb151f4db1",
+      "size": [
+        1416,
+        1242
+      ]
+    },
+    {
+      "file": "assets/product/feature-groups-zh.png",
+      "bytes": 167179,
+      "sha256": "55f25a20d7f56c514f5aa1d03b3d2a78e68061ad8241ebde69facd432c5a2922",
+      "size": [
+        1936,
+        1480
+      ]
+    },
+    {
+      "file": "assets/product/feature-group-modes-zh.png",
+      "bytes": 87155,
+      "sha256": "c40c014c34fd9185e9a22264f2ab268d5b0047ba47113d023aa335859f66f7b7",
+      "size": [
+        984,
+        1156
+      ]
+    },
+    {
+      "file": "assets/product/feature-visual-zh.png",
+      "bytes": 70084,
+      "sha256": "c6dea16c63b8f4f9eb869ef7c45b64f2cbad936db042c50b615e062eb0f8829f",
+      "size": [
+        1440,
+        1038
+      ]
+    },
+    {
+      "file": "assets/product/feature-changes-zh.png",
+      "bytes": 180733,
+      "sha256": "b62fd2d8cb334f44961e678e237cf75095d4475df10cb0228c9293ea241d3862",
+      "size": [
+        2384,
+        1232
+      ]
+    },
+    {
+      "file": "assets/product/feature-voice-zh.png",
+      "bytes": 122907,
+      "sha256": "da9b8cdaeb5af2ed962d71a6993a519b08b7a648dc77d1dd71e2027ddcfb4d8f",
+      "size": [
+        1416,
+        1228
+      ]
+    },
+    {
+      "file": "assets/product/demo-en.gif",
+      "bytes": 6339253,
+      "sha256": "bef919e9df36ec3c9ba45d87d8f0c25350bd3f3289be65f37fd16039f03da1cb",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "assets/product/demo-zh.gif",
+      "bytes": 5242630,
+      "sha256": "f6d90409d030f3f793210074bc268743ac5738f9e1f5c5a128be373d076e1f12",
+      "size": [
+        1280,
+        720
+      ]
+    },
+    {
+      "file": "assets/product/workspace-en.png",
+      "bytes": 172222,
+      "sha256": "5a47fba6e8368d1f91b1dbca92b8621835af7d0f4775f49ea06ac3bd6e4f734f",
+      "size": [
+        1600,
+        1104
+      ]
+    },
+    {
+      "file": "assets/product/workspace-zh.png",
+      "bytes": 173285,
+      "sha256": "48d67309e55f5c5c47dd41d190982dff6a6e577f1107460cae1fce1e2db5f7e3",
+      "size": [
+        1600,
+        1104
+      ]
+    },
+    {
+      "file": "assets/product/phone-pair-en.png",
+      "bytes": 156518,
+      "sha256": "dffe5fd71505c056ff61ac91cf0862b28c61989e60856843c53a24989d881c4e",
+      "size": [
+        1200,
+        1072
+      ]
+    },
+    {
+      "file": "assets/product/phone-pair-zh.png",
+      "bytes": 164497,
+      "sha256": "52e554336c72777a6694ec23735b74a38439aebea641a51c24e48ad0f8361d0e",
+      "size": [
+        1200,
+        1072
+      ]
+    },
+    {
+      "file": "assets/product/themes-en.png",
+      "bytes": 137800,
+      "sha256": "91c50ccf136c3d0e0c1a218211aaa7fcf2a9661d763a9ae7cd53c59095879112",
+      "size": [
+        1600,
+        720
+      ]
+    },
+    {
+      "file": "assets/product/themes-zh.png",
+      "bytes": 143325,
+      "sha256": "8bdfb9dda9a1394b265b7cc3f41f082e7f4982da87d142da2a78297ff87bbdde",
+      "size": [
+        1600,
+        720
+      ]
+    },
+    {
+      "file": "assets/product/adhd-workspace-en.png",
+      "bytes": 207730,
+      "sha256": "1c6778cc3d95b364f102684dc443a203a0b7ee5105c9c6c003d6c0ac0acd11e2",
+      "size": [
+        1600,
+        882
+      ]
+    },
+    {
+      "file": "assets/product/adhd-workspace-zh.png",
+      "bytes": 195879,
+      "sha256": "378e6b00061043fedb906b5f73742c82c37b9c41f43835067ccc3b137b20467a",
+      "size": [
+        1600,
+        882
+      ]
+    },
+    {
+      "file": "assets/product/agent-bus-workspace-en.png",
+      "bytes": 249261,
+      "sha256": "7ea8b4885802c0a3766ae477a3d0de84325c9d89aec0a561d16e3fe35d2485d1",
+      "size": [
+        1600,
+        992
+      ]
+    },
+    {
+      "file": "assets/product/agent-bus-workspace-zh.png",
+      "bytes": 220383,
+      "sha256": "9cf5aea3d8070c2a1d3b4cc48bec315bca2cfa6bc7ed2fc0532cd5bc86971a48",
+      "size": [
+        1600,
+        992
+      ]
+    },
+    {
+      "file": "assets/product/features-en.png",
+      "bytes": 233394,
+      "sha256": "518c20a6462b185c7ab64e70b306675822656f70c22e6da732398694cf9dd16c",
+      "size": [
+        1600,
+        1366
+      ]
+    },
+    {
+      "file": "assets/product/features-zh.png",
+      "bytes": 221079,
+      "sha256": "b8b3e121ebcc884a14a1df3fdae9157ba3ef283545ff28b6cb897e2c03f951eb",
+      "size": [
+        1600,
+        1382
+      ]
+    },
+    {
+      "file": "assets/tarobot-cover.png",
+      "bytes": 380551,
+      "sha256": "c55d097a84e5d672bfc74f46c20f327c982bf689f856176b427c84467d0472e9",
+      "size": [
+        1600,
+        500
+      ]
+    },
+    {
+      "file": "assets/tarobot-cover-zh.png",
+      "bytes": 378180,
+      "sha256": "0271f3a3b99295ee56ebdea9c9232bbc7cff43638d0fe8212cb9ac0e1acc2d16",
+      "size": [
+        1600,
+        500
+      ]
+    },
+    {
+      "file": "assets/product/list-options-en.png",
+      "bytes": 267692,
+      "sha256": "3404086e14c8bb78b4234d65f5fbaf5214e945af22e8a47c2c4919f98e55eea7",
+      "size": [
+        2400,
+        1560
+      ]
+    },
+    {
+      "file": "assets/product/list-options-zh.png",
+      "bytes": 285480,
+      "sha256": "c87addc05a52007a3295e745f0ed02f8bf885c71d19cbdf30a924d79e8d2d327",
+      "size": [
+        2400,
+        1560
+      ]
+    }
+  ],
+  "englishLabelsFollowup": {
+    "verified": true,
+    "verifiedAt": "2026-10-28T05:30:39.350715+00:00",
+    "sourceRevision": "89143880795d23dea9eea9a393115d69d41393db",
+    "sourceDirty": true,
+    "clientEntry": {
+      "file": "assets/index-C06Ts5Gz.js",
+      "sha256": "76c6b1658dd7d2ef2403385517632090443b68e8081e609238593c5b9be5e62f",
+      "indexSha256": "589b157edf2a9695898363ffc91f7c5aa5cf80b91630b7c722ee16e8aad9af7f"
+    },
+    "labels": [
+      "Bots",
+      "Chats",
+      "ADHD"
+    ],
+    "rawCaptures": 6,
+    "compositions": 4,
+    "animations": 1,
+    "changedFiles": [
+      "assets/product/desktop-en.png",
+      "assets/product/folders-en.png",
+      "assets/product/mono-light-en.png",
+      "assets/product/mono-dark-en.png",
+      "assets/product/adhd-en.png",
+      "assets/product/agent-bus-en.png",
+      "assets/product/demo-en.gif",
+      "assets/product/workspace-en.png",
+      "assets/product/themes-en.png",
+      "assets/product/adhd-workspace-en.png",
+      "assets/product/agent-bus-workspace-en.png"
+    ],
+    "allThirtyRawHashesVerified": true,
+    "allFortyFourDimensionsPreserved": true,
+    "chineseArtworkUnchanged": true,
+    "installedAppUpdated": false,
+    "layoutBoundsVerified": true,
+    "note": "Top-level capture and preview identity records the initial full refresh; this follow-up updates the listed English assets only."
+  },
+  "markdownIconFollowup": {
+    "verified": true,
+    "verifiedAt": "2026-10-28T05:36:32.553434+00:00",
+    "sourceRevision": "59afdc485fd4ab957cf03fcaab3de8c55a3f008d",
+    "sourceDirty": true,
+    "clientEntry": {
+      "file": "assets/index-BfmutyFG.js",
+      "sha256": "b616cce1ac6f061faf0a63b212fe521dcc5116c17989ac9070a882e6b38f555a",
+      "indexSha256": "0023d63b1d84f25668a1728f8667b65ab19d4375d1b030cf716b852e9665d140"
+    },
+    "changedFiles": [
+      "assets/product/desktop-en.png",
+      "assets/product/folders-en.png",
+      "assets/product/mono-light-en.png",
+      "assets/product/mono-dark-en.png",
+      "assets/product/mobile-chat-en.png",
+      "assets/product/desktop-zh.png",
+      "assets/product/folders-zh.png",
+      "assets/product/mono-light-zh.png",
+      "assets/product/mono-dark-zh.png",
+      "assets/product/mobile-chat-zh.png",
+      "assets/product/workspace-en.png",
+      "assets/product/workspace-zh.png",
+      "assets/product/phone-pair-en.png",
+      "assets/product/phone-pair-zh.png",
+      "assets/product/themes-en.png",
+      "assets/product/themes-zh.png"
+    ],
+    "rawCaptures": 10,
+    "compositions": 6,
+    "badge": "MD",
+    "classificationCasesPassed": 10,
+    "unitTestsPassed": 2,
+    "browserTestsPassed": 3,
+    "browserWidths": [
+      1360,
+      390,
+      320
+    ],
+    "allThirtyRawHashesVerified": true,
+    "allFortyFourDimensionsPreserved": true,
+    "installedAppUpdated": false
+  },
+  "desktopListOptionsFollowup": {
+    "verified": true,
+    "verifiedAt": "2026-10-28T06:02:05.105098+00:00",
+    "sourceRevision": "1199f62d4c6cd1a0e10e36dcf450678bd9f0dbe1",
+    "sourceDirty": true,
+    "clientEntry": {
+      "file": "assets/index-CtJcVEKe.js",
+      "sha256": "77e4515e5cb814f86d420ace3f23a809a5501357b96ea45ed4400d3fd04736e0",
+      "indexSha256": "de9dc890cc775d12416e81ef482824fd44a5175fa3760c9c96b6c8771a046172"
+    },
+    "changedFiles": [
+      "assets/product/desktop-en.png",
+      "assets/product/folders-en.png",
+      "assets/product/mono-light-en.png",
+      "assets/product/mono-dark-en.png",
+      "assets/product/desktop-zh.png",
+      "assets/product/folders-zh.png",
+      "assets/product/mono-light-zh.png",
+      "assets/product/mono-dark-zh.png",
+      "assets/product/adhd-en.png",
+      "assets/product/adhd-zh.png",
+      "assets/product/agent-bus-en.png",
+      "assets/product/agent-bus-zh.png",
+      "assets/product/demo-en.gif",
+      "assets/product/demo-zh.gif",
+      "assets/product/workspace-en.png",
+      "assets/product/workspace-zh.png",
+      "assets/product/themes-en.png",
+      "assets/product/themes-zh.png",
+      "assets/product/adhd-workspace-en.png",
+      "assets/product/adhd-workspace-zh.png",
+      "assets/product/agent-bus-workspace-en.png",
+      "assets/product/agent-bus-workspace-zh.png"
+    ],
+    "rawPngsChanged": 12,
+    "compositionsChanged": 8,
+    "animationsChanged": 2,
+    "uniqueBrowserCasesPassed": 21,
+    "languages": [
+      "en",
+      "zh"
+    ],
+    "menuKeyboardFocusVerified": true,
+    "activeHostFolderManagerVerified": true,
+    "phoneArtworkUnchanged": true,
+    "allThirtyRawHashesVerified": true,
+    "allFortyFourDimensionsPreserved": true,
+    "installedAppUpdated": false
+  },
+  "homepagePolishFollowup": {
+    "verified": true,
+    "verifiedAt": "2026-10-28T06:19:23.626669+00:00",
+    "sourceRevision": "d6b7c82c0df267005a5125e3d314700bbfb49fa2",
+    "sourceDirty": true,
+    "clientEntry": {
+      "file": "assets/index-CtJcVEKe.js",
+      "sha256": "77e4515e5cb814f86d420ace3f23a809a5501357b96ea45ed4400d3fd04736e0",
+      "indexSha256": "de9dc890cc775d12416e81ef482824fd44a5175fa3760c9c96b6c8771a046172"
+    },
+    "rawPngsRecaptured": 14,
+    "compositionsRefreshed": 6,
+    "newMenuViews": 2,
+    "sourceBehaviorChanged": false,
+    "installedAppUpdated": false,
+    "allThirtyTwoRawHashesVerified": true,
+    "allFortyFourPriorDimensionsPreserved": true,
+    "totalArtworkFiles": 46,
+    "artworkLinksPerReadme": 22,
+    "unchangedCaptureFamilies": [
+      "ADHD",
+      "Agent Bus",
+      "features",
+      "demo animations"
+    ],
+    "changedFiles": [
+      "assets/product/desktop-en.png",
+      "assets/product/folders-en.png",
+      "assets/product/mono-light-en.png",
+      "assets/product/mono-dark-en.png",
+      "assets/product/mobile-en.png",
+      "assets/product/mobile-chat-en.png",
+      "assets/product/desktop-zh.png",
+      "assets/product/folders-zh.png",
+      "assets/product/mono-light-zh.png",
+      "assets/product/mono-dark-zh.png",
+      "assets/product/mobile-zh.png",
+      "assets/product/mobile-chat-zh.png",
+      "assets/product/workspace-en.png",
+      "assets/product/workspace-zh.png",
+      "assets/product/phone-pair-en.png",
+      "assets/product/phone-pair-zh.png",
+      "assets/product/themes-en.png",
+      "assets/product/themes-zh.png",
+      "assets/product/list-options-en.png",
+      "assets/product/list-options-zh.png"
+    ],
+    "preview": {
+      "renderer": "GitHub Markdown API with local preview CSS",
+      "results": [
+        {
+          "locale": "en",
+          "width": 1080,
+          "overflow": false,
+          "images": [
+            {
+              "src": "assets/tarobot-cover.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/demo-en.gif",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/workspace-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/phone-pair-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/adhd-workspace-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/agent-bus-workspace-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/features-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/themes-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/folders-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/list-options-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/engines.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            }
+          ]
+        },
+        {
+          "locale": "en",
+          "width": 390,
+          "overflow": false,
+          "images": [
+            {
+              "src": "assets/tarobot-cover.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/demo-en.gif",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/workspace-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/phone-pair-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/adhd-workspace-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/agent-bus-workspace-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/features-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/themes-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/folders-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/list-options-en.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/engines.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            }
+          ]
+        },
+        {
+          "locale": "zh",
+          "width": 1080,
+          "overflow": false,
+          "images": [
+            {
+              "src": "assets/tarobot-cover-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/demo-zh.gif",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/workspace-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/phone-pair-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/adhd-workspace-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/agent-bus-workspace-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/features-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/themes-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/folders-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/list-options-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/engines.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            }
+          ]
+        },
+        {
+          "locale": "zh",
+          "width": 390,
+          "overflow": false,
+          "images": [
+            {
+              "src": "assets/tarobot-cover-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/demo-zh.gif",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/workspace-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/phone-pair-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/adhd-workspace-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/agent-bus-workspace-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/features-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/themes-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/folders-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/list-options-zh.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            },
+            {
+              "src": "assets/product/engines.png",
+              "loaded": true,
+              "proportional": true,
+              "visible": true
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

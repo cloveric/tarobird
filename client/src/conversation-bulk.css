@@ -1,0 +1,64 @@
+.conversation-bulk-toolbar{position:sticky;top:0;z-index:4;padding:10px 12px;background:var(--surface);border-bottom:1px solid var(--border);font-size:13px}
+.conversation-bulk-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.conversation-bulk-heading button{border:0;background:transparent;padding:5px 2px;color:var(--grey);font:inherit;white-space:nowrap}
+.conversation-bulk-heading .conversation-bulk-count{display:flex;align-items:center;gap:6px;color:var(--text);font-weight:500}
+.conversation-bulk-count svg{color:var(--accent)}
+.conversation-bulk-scope{margin:3px 0 8px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conversation-bulk-actions{display:flex;gap:8px}
+.conversation-bulk-actions button{display:flex;flex:1;align-items:center;justify-content:center;gap:6px;min-width:0;padding:7px 5px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-size:12px;white-space:nowrap}
+.conversation-bulk-actions .text-danger{color:var(--red)}
+.conversation-bulk-status,.conversation-bulk-notice{margin:6px 0 0;font-size:12px;line-height:1.5;color:var(--grey);overflow-wrap:anywhere}
+.conversation-bulk-status button{font:inherit;color:var(--accent);border:0;background:transparent;padding:2px 6px}
+.conversation-bulk-notice{padding:8px 12px}
+.conversation-bulk-check{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:18px;border:1px solid var(--border-strong);border-radius:5px;background:var(--surface);color:var(--text);box-sizing:border-box}
+.conversation-bulk-check[data-checked=true]{border-color:var(--mono-control-bg,var(--accent));background:var(--mono-control-bg,var(--accent));color:var(--mono-control-ink,var(--on-primary))}
+.sidebar .conversation-row.conversation-bulk-row[aria-checked=true],.mobile-home .mh-row.conversation-bulk-row[aria-checked=true]{background:var(--accent-soft)}
+.conversation-bulk-row:disabled{opacity:.5;cursor:default}
+.creation-dialog.conversation-bulk-dialog[open]{display:flex;flex-direction:column;width:min(460px,calc(100vw - 24px));overflow:hidden}
+.conversation-bulk-dialog>header{flex:none}
+.conversation-bulk-body{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.conversation-bulk-impact{display:grid;gap:8px;margin:16px 0}
+.conversation-bulk-impact p{margin:0}
+.conversation-bulk-dialog p{font-size:13px;line-height:1.6}
+.conversation-bulk-host{margin:0;color:var(--grey);overflow-wrap:anywhere}
+.conversation-bulk-details{margin:0;font-size:13px;border-top:1px solid var(--border)}
+.conversation-bulk-details summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;color:var(--grey);padding:12px 0;min-height:44px;box-sizing:border-box;list-style:none}
+.conversation-bulk-details summary::-webkit-details-marker{display:none}
+.conversation-bulk-details summary svg{flex:none}
+.conversation-bulk-details[open]>summary svg{transform:rotate(180deg)}
+.conversation-bulk-recovery p{margin:0 0 12px}
+.conversation-bulk-review{list-style:none;padding:0;margin:6px 0;max-height:30vh;overflow:auto;border:1px solid var(--border);border-radius:8px}
+.conversation-bulk-review li{display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:13px;line-height:1.5}
+.conversation-bulk-review li+li{border-top:1px solid var(--border)}
+.conversation-bulk-review li>span{min-width:0;flex:1;overflow-wrap:anywhere}
+.conversation-bulk-dialog-actions{display:flex;flex:none;justify-content:flex-end;gap:12px;margin-top:16px}
+.conversation-bulk-dialog>.conversation-bulk-dialog-actions{padding-top:12px;border-top:1px solid var(--border)}
+.conversation-bulk-dialog-actions button{min-height:44px;padding:10px 14px;white-space:normal}
+.conversation-bulk-name{display:grid;gap:5px;font-size:13px;margin-top:8px}
+.conversation-bulk-name input{min-width:0;width:100%;box-sizing:border-box}
+.conversation-bulk-pending{display:grid;gap:8px;margin-top:16px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--grey)}
+.conversation-bulk-pending p{margin:0}
+.conversation-bulk-pending .conversation-bulk-pending-title{color:var(--text);font-weight:500}
+.conversation-bulk-pending button{justify-self:start;min-height:44px;margin:0;padding:8px 0;border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px}
+@media(max-width:760px){
+  :root .creation-dialog.conversation-bulk-dialog[open]{width:100%;max-height:calc(var(--shell-height,100dvh) - max(20px,var(--app-safe-top,0px)) - 12px)}
+  .conversation-bulk-dialog-actions button{flex:1;min-width:0}
+  /* Keep destructive confirmation away from the bottom-right entry button. */
+  .conversation-bulk-archive-actions{flex-direction:row-reverse;justify-content:space-between}
+  .mobile-home[data-bulk=true] .mh-titlebar{display:none}
+  .mobile-home .conversation-bulk-toolbar{position:static;padding:8px 16px;border:0;background:transparent}
+  .mobile-home .conversation-bulk-heading button{font-size:14px;min-height:32px}
+  .mobile-home .conversation-bulk-scope{margin:0}
+  .mobile-home>.conversation-bulk-actions{flex:none;gap:12px;padding:10px 16px calc(10px + var(--app-safe-bottom,0px));border-top:1px solid var(--border);background:var(--surface)}
+  .mobile-home>.conversation-bulk-actions button{font-size:14px;min-height:40px}
+  .mobile-home .mh-row.conversation-bulk-row{position:relative}
+  .mobile-home .conversation-bulk-check{position:absolute;right:-3px;bottom:-2px;z-index:1;width:19px;height:19px;box-shadow:0 0 0 2px var(--bg)}
+}
+
+.adhd-shell .sidebar:has(.conversation-bulk-toolbar) .adhd-selection-count{visibility:hidden}
+.conversation-bulk-review small{color:var(--red);font-size:11px}
+
+/* Selection-dependent guidance must not move a row under a repeated tap. */
+.conversation-bulk-stable-status{display:flex;align-items:center;gap:6px;height:24px;line-height:20px}
+.conversation-bulk-stable-status>span{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conversation-bulk-stable-status>button{flex:none;white-space:nowrap}

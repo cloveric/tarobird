@@ -1,0 +1,41 @@
+/* Quotes and forwarded sources are context inside one user message.
+   Original blocks, replyTo and forwardedFrom stay intact for navigation and delivery. */
+.message.user .message-blocks.has-reference {
+  padding: 12px 14px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--self-message-bg);
+  color: var(--self-message-fg);
+}
+.message.user .message-blocks.has-reference > :is(.quoted-message, .forwarded-message) {
+  /* Use own-message contrast tokens, including black/white and dark palettes. */
+  --text: var(--self-message-muted);
+  --muted: var(--self-message-muted);
+  --grey: var(--self-message-muted);
+  --accent: var(--self-message-link);
+  --border: var(--self-message-line);
+  --border-strong: var(--self-message-line);
+  --raised: var(--self-code-inline-bg);
+  --surface: var(--self-code-bg);
+  --code-keyword: var(--self-code-keyword);
+  --code-string: var(--self-code-string);
+  --code-title: var(--self-code-title);
+  width: 100%; max-width: none;
+  margin: 0 0 12px; padding: 0 0 0 10px;
+  border: 0; border-left: 2px solid var(--self-message-line);
+  border-radius: 0; background: transparent; box-shadow: none;
+  color: var(--self-message-muted);
+}
+.message.user .has-reference > .quoted-message .rich-message-preview { --preview-height: 60px; }
+.message.user .has-reference > .message-reference .message-reference-source {
+  background: transparent;
+  box-shadow: none;
+}
+.message.user .has-reference > :is(.quoted-message, .forwarded-message) .message-reference-source strong { color: inherit; }
+.message.user .has-reference > .quoted-message .markdown :is(pre,code) { color: inherit; background: var(--self-code-bg); }
+.message.user .has-reference > .quoted-message .markdown pre code { background: transparent; }
+.message.user .has-reference > .quoted-message .rich-preview-attachments { max-height: 64px; }
+.message.user .has-reference > .quoted-message .rich-message-preview.is-expanded .rich-preview-attachments { max-height: 128px; }
+.message.user .has-reference > .markdown > :first-child, .message.user .has-reference > .markdown > .markdown-chunk:first-child > :first-child { margin-top: 0; }
+.message.user .has-reference > .markdown > :last-child, .message.user .has-reference > .markdown > .markdown-chunk:last-child > :last-child { margin-bottom: 0; }
+:root:is([data-palette=cli]) .message.user .message-blocks.has-reference { border-radius: 0; }
+:root[data-palette=cli] .message.user .message-blocks.has-reference::before { display: none; }

@@ -1,0 +1,173 @@
+{
+  "sourceCommit": "26b62d57586a0214ca965ac547de799410ef5d5a",
+  "appVersion": "1.0.124",
+  "hostVersion": "0.1.469",
+  "protocol": 1,
+  "hubSchemaRange": [
+    1,
+    22
+  ],
+  "verified": true,
+  "macRelease": "https://github.com/cloveric/tarobot/releases/tag/macos-tarobot-v1.0.124",
+  "androidRelease": "https://github.com/cloveric/tarobot/releases/tag/android-tarobot-v1.0.124",
+  "macAssets": [
+    {
+      "name": "TaroBot.app.tar.gz",
+      "assetId": 697583537,
+      "size": 299194693,
+      "sha256": "e9fc1b074a0f4af6487c56a77389c2c9f7e55f44601fc26db2a272d95fb8d0ad",
+      "downloaded": true
+    },
+    {
+      "name": "TaroBot.app.tar.gz.sig",
+      "assetId": 697586635,
+      "size": 428,
+      "sha256": "c354c3d8f68162441b82970ca579b860173feccdc0c02f378349eb88443eb6b3",
+      "downloaded": true
+    },
+    {
+      "name": "TaroBot_1.0.124_aarch64.dmg",
+      "assetId": 697586684,
+      "size": 354047584,
+      "sha256": "cb857b189eeb448d106f5d74ddcd9a29e54a0992cdd4d8c7180abf73bc718cb3",
+      "downloaded": true
+    },
+    {
+      "name": "tarobot-0.1.469.tgz",
+      "assetId": 697589657,
+      "size": 50498837,
+      "sha256": "8815542ce151bce756b52d3839091fb7bb95d1876dd7af4074bad3357809f137",
+      "downloaded": true
+    },
+    {
+      "name": "macos-tarobot-latest.json",
+      "assetId": 697590224,
+      "size": 1984,
+      "sha256": "9a0be69ca4d6da49ef817e396f85d0c0c6546a040f8cf62d7546fee21d661e6f",
+      "downloaded": true
+    },
+    {
+      "name": "SHA256SUMS",
+      "assetId": 697590262,
+      "size": 446,
+      "sha256": "02cafb2a37843fdc08fe977b1b2fa460c533512e83f84b1f00551f6f7eb9d587",
+      "downloaded": true
+    }
+  ],
+  "androidAssets": [
+    {
+      "name": "SHA256SUMS",
+      "size": 180,
+      "sha256": "fc9d4ff3b275d9251170a5ca4a557aa286a89aa384a4c487822f6ceace2b7210"
+    },
+    {
+      "name": "tarobot-0.1.469.tgz",
+      "size": 50498837,
+      "sha256": "8815542ce151bce756b52d3839091fb7bb95d1876dd7af4074bad3357809f137"
+    },
+    {
+      "name": "TaroBot-1.0.124-android.apk",
+      "size": 60819615,
+      "sha256": "3b196e968aeb54b3c7602fe62d0e3d5945f90bff49cb0e996ff0be5240180e7b"
+    }
+  ],
+  "ios": {
+    "version": "1.0.124",
+    "buildNumber": "1",
+    "processingState": "VALID",
+    "internalBuildState": "IN_BETA_TESTING",
+    "internalGroupAssigned": true,
+    "zhHansNotesSet": true,
+    "enUsNotesSet": true,
+    "physicalDeviceVerified": false,
+    "appStoreSubmitted": false,
+    "externalBetaReviewSubmitted": false,
+    "preserved": {
+      "betaAppTestInformation": true,
+      "betaAppReviewDetail": true,
+      "internalGroupSettings": true,
+      "publicAppStoreMetadata": true
+    }
+  },
+  "ipaSha256": "15a81d776eacc76a477e5df6133adb9ecc60335f474430a5ad1a9bdfbc856cdc",
+  "cliSha256": "8815542ce151bce756b52d3839091fb7bb95d1876dd7af4074bad3357809f137",
+  "realCliPassed": 10,
+  "packagedDeepSeekVerified": true,
+  "windowsBuiltAndExtracted": true,
+  "windowsRuntime": "owner_deferred",
+  "windowsPublished": false,
+  "installedAppChanged": true,
+  "cleanup": {
+    "sourceCommit": "26b62d57586a0214ca965ac547de799410ef5d5a",
+    "status": "bounded_cleanup_complete",
+    "globalSweep": "deferred_discovery_bound",
+    "retiredApps": 7,
+    "guardedActivationTasksPreserved": 1,
+    "latestBackupVersion": "1.0.124",
+    "latestBackupSignatureVerified": true,
+    "spotlightMatches": [
+      "/Applications/TaroBot.app"
+    ],
+    "installedVersion": "1.0.123",
+    "installedAppChanged": false,
+    "receipts": [
+      "cleanup-previous-applied.json",
+      "cleanup-legacy-applied.json"
+    ],
+    "at": "2026-11-01T07:02:29.539319+00:00",
+    "documentation": "The automatic global cleanup reached its 100,000-directory discovery bound and moved nothing. Two narrower guarded passes then retired seven eligible old Apps through /usr/bin/trash: five 1.0.123 build/backup copies and two legacy 1.0.119/1.0.66 copies. No build process was active; the normal age, active-task, ownership and signature guards remained enabled. One unaccepted activation task was preserved. The signed 1.0.124 macos-ready backup remains below a physical .noindex directory. Other roots from the bounded global sweep were not fully enumerated; this does not claim every old temporary App has been removed. The final unfiltered Spotlight query returned only /Applications/TaroBot.app; the excluded latest backup was separately read back. Installed Mac remains 1.0.123 and was not replaced or restarted. Trash was not emptied and no indexing settings were changed.",
+    "phase": "publication_before_local_install"
+  },
+  "at": "2026-11-01T07:02:29.669516+00:00",
+  "installedMac": {
+    "verified": true,
+    "sourceCommit": "26b62d57586a0214ca965ac547de799410ef5d5a",
+    "appVersion": "1.0.124",
+    "hostVersion": "0.1.469",
+    "terminalCliVersion": "0.1.469",
+    "status": "installed_verified",
+    "identityPreserved": true,
+    "historyIdsPreserved": true,
+    "retainedCounts": {
+      "bots": {
+        "before": 9,
+        "after": 9,
+        "missing": 0
+      },
+      "conversations": {
+        "before": 203,
+        "after": 203,
+        "missing": 0
+      },
+      "messages": {
+        "before": 9227,
+        "after": 9227,
+        "missing": 0
+      },
+      "devices": {
+        "before": 14,
+        "after": 14,
+        "missing": 0
+      },
+      "attachments": {
+        "before": 2542,
+        "after": 2542,
+        "missing": 0
+      }
+    },
+    "installedBinaryMatchesPublished": true,
+    "guiWindowVerified": true,
+    "guiHostConnected": true,
+    "screenServiceRegistered": true,
+    "workbenchFilesManagerOpened": true,
+    "existingWorkbenchItemVisible": true,
+    "actualInstalledModelResponse": "DEEPSEEK_INSTALLED_OK",
+    "nodeSha256": "a629825e5bb932f426dd3c2241d4a9f200d6c08f4b50be4f757daa05d20e96d0",
+    "successfulRuntimeModelTestsReused": true,
+    "permissionsChanged": false,
+    "screenCaptureOrInputTested": false,
+    "tailscaleListeningVerified": false,
+    "acceptedAt": "2026-11-01T07:12:21.834699+00:00",
+    "tailscaleBackendState": "Stopped"
+  }
+}

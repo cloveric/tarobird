@@ -1,0 +1,7 @@
+.bot-name-setting{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;margin:10px 0;padding:12px;text-align:left;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text)}
+.bot-name-setting>span{color:var(--grey);font-size:13px;flex-shrink:0}
+.bot-name-setting>strong{flex:1;min-width:0;text-align:right;font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.bot-name-setting>svg{flex-shrink:0;color:var(--grey)}
+.bot-name-setting:hover:not(:disabled){background:var(--surface-alt)}
+.bot-name-notice{margin-top:12px;font-size:13px;line-height:1.6}
+.bot-name-notice>p{margin:0 0 8px;color:var(--red)}

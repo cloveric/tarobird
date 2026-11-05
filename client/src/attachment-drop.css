@@ -1,0 +1,5 @@
+.attachment-drop-feedback{position:fixed;z-index:12000;top:76px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;max-width:min(420px,calc(100vw - 32px));padding:14px 18px;border:1px solid var(--accent);border-radius:12px;background:var(--surface);color:var(--text);box-shadow:0 8px 30px #00000014;pointer-events:none}
+.attachment-drop-feedback svg{flex:none;color:var(--accent)}
+.attachment-drop-feedback span{min-width:0}.attachment-drop-feedback strong{font-size:14px;font-weight:500;line-height:1.5;display:block;overflow-wrap:anywhere}
+.attachment-drop-feedback small{display:block;font-size:12px;line-height:1.5;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
+.attachment-drop-feedback.is-error{border-color:var(--border)}

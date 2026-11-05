@@ -1,0 +1,901 @@
+import { EventEmitter } from "node:events";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { removeTempRoot } from "./helpers/temp-files.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../src/codex/process-tree.js", () => ({
+  killProcessTree: vi.fn(),
+}));
+
+import { killProcessTree } from "../src/codex/process-tree.js";
+import { CodexAppServerAdapter } from "../src/codex/app-server-adapter.js";
+
+async function waitFor(condition: () => boolean): Promise<void> {
+  // Adapter initialization includes real config I/O. Fifty zero-delay timer
+  // ticks are not a reliable readiness bound during the full parallel suite.
+  await vi.waitFor(() => expect(condition()).toBe(true), { timeout: 2000, interval: 5 });
+}
+
+class FakeStream extends EventEmitter {
+  emitData(chunk: string) {
+    this.emit("data", chunk);
+  }
+}
+
+class FakeWritable {
+  lines: string[] = [];
+  nextError: Error | null = null;
+
+  write(chunk: string, callback?: (error?: Error | null) => void): boolean {
+    const text = chunk.toString().trim();
+    if (text) {
+      this.lines.push(text);
+    }
+    const error = this.nextError;
+    this.nextError = null;
+    callback?.(error);
+    return true;
+  }
+}
+
+class FakeChildProcess extends EventEmitter {
+  pid: number | undefined;
+  stdin = new FakeWritable();
+  stdout = new FakeStream();
+  stderr = new FakeStream();
+  killCalls = 0;
+
+  kill() {
+    this.killCalls += 1;
+  }
+
+  close(code: number | null) {
+    this.emit("close", code);
+  }
+}
+
+function createSpawnHarness() {
+  const child = new FakeChildProcess();
+  const calls: Array<{
+    command: string;
+    args: string[];
+    options: {
+      stdio: ["pipe", "pipe", "pipe"];
+      shell?: boolean;
+      env?: NodeJS.ProcessEnv;
+      cwd?: string;
+      windowsHide?: boolean;
+    };
+  }> = [];
+
+  const spawnFn = (
+    command: string,
+    args: string[],
+    options: {
+      stdio: ["pipe", "pipe", "pipe"];
+      shell?: boolean;
+      env?: NodeJS.ProcessEnv;
+      cwd?: string;
+      windowsHide?: boolean;
+    },
+  ) => {
+    calls.push({ command, args, options });
+    return child;
+  };
+
+  return { child, calls, spawnFn };
+}
+
+function parsedStdinLines(child: FakeChildProcess): Array<Record<string, unknown>> {
+  return child.stdin.lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+async function driveTurnStart(child: FakeChildProcess): Promise<void> {
+  await waitFor(() => child.stdin.lines.length >= 1);
+  child.stdout.emitData('{"id":1,"result":{"platformOs":"windows"}}\n');
+  await waitFor(() => child.stdin.lines.length >= 2);
+  child.stdout.emitData('{"id":2,"result":{"thread":{"id":"thread-123"}}}\n');
+  await waitFor(() => child.stdin.lines.length >= 3);
+}
+
+describe("app-server abort interrupts the engine (turn/interrupt)", () => {
+  it("sends turn/interrupt for the aborted turn using the id from the turn/start response", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+    const controller = new AbortController();
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+      abortSignal: controller.signal,
+    });
+
+    await driveTurnStart(child);
+    // turn/start responds immediately with the turn object; the turn keeps running.
+    child.stdout.emitData('{"id":3,"result":{"turn":{"id":"turn-1","items":[],"status":"inProgress","error":null}}}\n');
+    await waitFor(() =>
+      parsedStdinLines(child).some((line) => line.method === "turn/interrupt") ||
+      // wait until the response microtask captured the turn id
+      Boolean((adapter as unknown as { pendingTurns: Map<string, { turnId?: string }> }).pendingTurns.get("thread-123")?.turnId),
+    );
+
+    controller.abort();
+
+    await expect(promise).rejects.toThrow("Codex app-server turn aborted");
+    const interrupt = parsedStdinLines(child).find((line) => line.method === "turn/interrupt");
+    expect(interrupt?.params).toEqual({ threadId: "thread-123", turnId: "turn-1" });
+    // Thread-scoped: the shared child must not be killed for one turn's abort.
+    expect(child.killCalls).toBe(0);
+  });
+
+  it("sends turn/interrupt using the id from the turn/started notification when the response is late", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+    const controller = new AbortController();
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+      abortSignal: controller.signal,
+    });
+
+    await driveTurnStart(child);
+    child.stdout.emitData('{"method":"turn/started","params":{"threadId":"thread-123","turn":{"id":"turn-9","status":"inProgress"}}}\n');
+
+    controller.abort();
+
+    await expect(promise).rejects.toThrow("Codex app-server turn aborted");
+    const interrupt = parsedStdinLines(child).find((line) => line.method === "turn/interrupt");
+    expect(interrupt?.params).toEqual({ threadId: "thread-123", turnId: "turn-9" });
+  });
+
+  it("skips the interrupt when no turn id is known yet", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+    const controller = new AbortController();
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+      abortSignal: controller.signal,
+    });
+
+    await driveTurnStart(child);
+    controller.abort();
+
+    await expect(promise).rejects.toThrow("Codex app-server turn aborted");
+    expect(parsedStdinLines(child).some((line) => line.method === "turn/interrupt")).toBe(false);
+  });
+
+  it("sends turn/interrupt when the inactivity watchdog rejects the turn", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    // Inactivity window must comfortably outlast the event-loop ticks needed to
+    // deliver the turn/start response (which carries the turn id) — but stay fast.
+    const adapter = new CodexAppServerAdapter(
+      "codex",
+      process.cwd(),
+      undefined,
+      spawnFn,
+      undefined,
+      undefined,
+      undefined,
+      10_000,
+      50,
+    );
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+    });
+
+    await driveTurnStart(child);
+    child.stdout.emitData('{"id":3,"result":{"turn":{"id":"turn-1","items":[],"status":"inProgress","error":null}}}\n');
+
+    await expect(promise).rejects.toThrow("Codex app-server turn became inactive");
+    const interrupt = parsedStdinLines(child).find((line) => line.method === "turn/interrupt");
+    expect(interrupt?.params).toEqual({ threadId: "thread-123", turnId: "turn-1" });
+    expect(child.killCalls).toBe(0);
+  });
+});
+
+describe("app-server workspaceOverride", () => {
+  it("starts new logical-session threads in the workspaceOverride directory", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", "/srv/default-cwd", spawnFn);
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+      workspaceOverride: "/srv/override-ws",
+    });
+
+    await waitFor(() => child.stdin.lines.length >= 1);
+    child.stdout.emitData('{"id":1,"result":{"platformOs":"windows"}}\n');
+    await waitFor(() => child.stdin.lines.length >= 2);
+    const threadStart = JSON.parse(child.stdin.lines[1] ?? "{}");
+    expect(threadStart.method).toBe("thread/start");
+    expect(threadStart.params.cwd).toBe("/srv/override-ws");
+
+    child.stdout.emitData('{"id":2,"result":{"thread":{"id":"thread-123"}}}\n');
+    await waitFor(() => child.stdin.lines.length >= 3);
+    child.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-123","item":{"type":"agentMessage","text":"ok"}}}\n');
+    child.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-123","turn":{"id":"turn-1","items":[],"status":"completed","error":null}}}\n');
+    await expect(promise).resolves.toMatchObject({ text: "ok" });
+  });
+
+  it("uses the workspaceOverride for the thread-not-found fallback thread", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", "/srv/default-cwd", spawnFn);
+
+    const promise = adapter.sendUserMessage("thread-stale", {
+      text: "Hello",
+      files: [],
+      workspaceOverride: "/srv/override-ws",
+    });
+
+    await waitFor(() => child.stdin.lines.length >= 1);
+    child.stdout.emitData('{"id":1,"result":{"platformOs":"windows"}}\n');
+    await waitFor(() => child.stdin.lines.length >= 2);
+    const resume = JSON.parse(child.stdin.lines[1] ?? "{}");
+    expect(resume.method).toBe("thread/resume");
+    child.stdout.emitData(`{"id":${resume.id},"error":{"message":"thread not found: thread-stale"}}\n`);
+
+    await waitFor(() => child.stdin.lines.length >= 3);
+    const threadStart = JSON.parse(child.stdin.lines[2] ?? "{}");
+    expect(threadStart.method).toBe("thread/start");
+    expect(threadStart.params.cwd).toBe("/srv/override-ws");
+
+    child.stdout.emitData(`{"id":${threadStart.id},"result":{"thread":{"id":"thread-fresh"}}}\n`);
+    await waitFor(() => child.stdin.lines.length >= 4);
+    child.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-fresh","item":{"type":"agentMessage","text":"ok"}}}\n');
+    child.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-fresh","turn":{"id":"turn-1","items":[],"status":"completed","error":null}}}\n');
+    await expect(promise).resolves.toMatchObject({ text: "ok", sessionId: "thread-fresh" });
+  });
+});
+
+describe("app-server config change while busy", () => {
+  it("keeps serving for non-security changes when the child cannot go idle", async () => {
+    const childA = new FakeChildProcess();
+    const childB = new FakeChildProcess();
+    const children = [childA, childB];
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const spawnFn = (command: string, args: string[]) => {
+      calls.push({ command, args });
+      const child = children.shift();
+      if (!child) {
+        throw new Error("no more fake children");
+      }
+      return child;
+    };
+    const root = await mkdtemp(path.join(os.tmpdir(), "cc-telegram-bridge-"));
+    const configPath = path.join(root, "config.json");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await writeFile(configPath, JSON.stringify({ approvalMode: "normal" }) + "\n", "utf8");
+      const adapter = new CodexAppServerAdapter(
+        "codex",
+        process.cwd(),
+        undefined,
+        spawnFn as never,
+        undefined,
+        undefined,
+        configPath,
+      );
+      const firstPromise = adapter.sendUserMessage("telegram-100", {
+        text: "First (long-running)",
+        files: [],
+      });
+
+      await waitFor(() => childA.stdin.lines.length >= 1);
+      const initA = JSON.parse(childA.stdin.lines[0] ?? "{}");
+      childA.stdout.emitData(`{"id":${initA.id},"result":{"platformOs":"windows"}}\n`);
+      await waitFor(() => childA.stdin.lines.length >= 2);
+      const startThreadA = JSON.parse(childA.stdin.lines[1] ?? "{}");
+      childA.stdout.emitData(`{"id":${startThreadA.id},"result":{"thread":{"id":"thread-a"}}}\n`);
+      await waitFor(() => childA.stdin.lines.length >= 3);
+
+      // Operator flips config while the first turn is still running.
+      await writeFile(configPath, JSON.stringify({ approvalMode: "normal", effort: "low" }) + "\n", "utf8");
+      const secondPromise = adapter.sendUserMessage("telegram-200", {
+        text: "Second",
+        files: [],
+      });
+
+      // The second turn keeps serving on the old config instead of turning the
+      // whole instance into a temporary failure storm while a long turn/goal runs.
+      await waitFor(() => childA.stdin.lines.length >= 4);
+      const startThreadB = JSON.parse(childA.stdin.lines[3] ?? "{}");
+      childA.stdout.emitData(`{"id":${startThreadB.id},"result":{"thread":{"id":"thread-b"}}}\n`);
+      await waitFor(() => childA.stdin.lines.length >= 5);
+      childA.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-b","item":{"type":"agentMessage","text":"second ok"}}}\n');
+      childA.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-b","turn":{"id":"turn-b","items":[],"status":"completed","error":null}}}\n');
+      await expect(secondPromise).resolves.toEqual({ text: "second ok", sessionId: "thread-b" });
+      expect(calls).toHaveLength(1);
+      expect(childA.killCalls).toBe(0);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("config change deferred while busy"),
+      );
+
+      childA.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-a","item":{"type":"agentMessage","text":"first ok"}}}\n');
+      childA.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-a","turn":{"id":"turn-a","items":[],"status":"completed","error":null}}}\n');
+      await expect(firstPromise).resolves.toEqual({ text: "first ok", sessionId: "thread-a" });
+
+      // initializeKey was left unchanged, so the next message re-attempts the
+      // re-init now that the child is idle: old child destroyed, new config used.
+      const thirdPromise = adapter.sendUserMessage("telegram-300", {
+        text: "Third",
+        files: [],
+      });
+      await waitFor(() => childB.stdin.lines.length >= 1);
+      expect(childA.killCalls).toBe(1);
+      expect(calls[1]?.args).toEqual(["app-server", "-c", 'sandbox_mode="workspace-write"', "-c", 'model_reasoning_effort="low"']);
+      const initB = JSON.parse(childB.stdin.lines[0] ?? "{}");
+      childB.stdout.emitData(`{"id":${initB.id},"result":{"platformOs":"windows"}}\n`);
+      await waitFor(() => childB.stdin.lines.length >= 2);
+      const startThreadC = JSON.parse(childB.stdin.lines[1] ?? "{}");
+      childB.stdout.emitData(`{"id":${startThreadC.id},"result":{"thread":{"id":"thread-c"}}}\n`);
+      await waitFor(() => childB.stdin.lines.length >= 3);
+      childB.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-c","item":{"type":"agentMessage","text":"third ok"}}}\n');
+      childB.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-c","turn":{"id":"turn-c","items":[],"status":"completed","error":null}}}\n');
+      await expect(thirdPromise).resolves.toEqual({ text: "third ok", sessionId: "thread-c" });
+    } finally {
+      consoleErrorSpy.mockRestore();
+      await removeTempRoot(root);
+    }
+  });
+
+  it("warns once per distinct pending change and names a /goal pursuit holding the session", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "cc-telegram-bridge-"));
+    const configPath = path.join(root, "config.json");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await writeFile(configPath, JSON.stringify({ approvalMode: "normal" }) + "\n", "utf8");
+      const adapter = new CodexAppServerAdapter(
+        "codex", process.cwd(), undefined, (() => new FakeChildProcess()) as never,
+        undefined, undefined, configPath,
+      );
+      // Drive ensureInitialized directly: pretend a child is already running on an
+      // OLD config, and a goal watcher is keeping it non-idle so waitForIdle rejects.
+      const internal = adapter as unknown as {
+        initializeKey: string | null;
+        initializePromise: Promise<void> | null;
+        currentApprovalMode: "normal" | "full-auto" | "bypass";
+        goalWatchers: Map<string, unknown>;
+        ensureInitialized(opts: {
+          approvalMode: "normal" | "full-auto" | "bypass";
+          initializeArgs: string[];
+          initializeKey: string;
+        }): Promise<void>;
+        waitForIdle(): Promise<void>;
+      };
+      internal.currentApprovalMode = "normal";
+      internal.initializeKey = "old-config";
+      internal.initializePromise = Promise.resolve();
+      internal.goalWatchers.set("thread-goal", {});
+      const waitForIdle = vi.fn(() => Promise.reject(new Error("Codex app-server did not become idle within 30000ms")));
+      internal.waitForIdle = waitForIdle;
+
+      // Two consecutive messages carrying the SAME pending change → ONE warning,
+      // no idle wait, and both calls resolve so turns continue on the old config.
+      await expect(internal.ensureInitialized({ approvalMode: "normal", initializeArgs: [], initializeKey: "new-config" })).resolves.toBeUndefined();
+      await expect(internal.ensureInitialized({ approvalMode: "normal", initializeArgs: [], initializeKey: "new-config" })).resolves.toBeUndefined();
+      expect(waitForIdle).not.toHaveBeenCalled();
+
+      const goalWarnings = consoleErrorSpy.mock.calls
+        .map((call) => String(call[0]))
+        .filter((line) => line.includes("config change deferred while busy"));
+      expect(goalWarnings).toHaveLength(1);
+      // The /goal pursuit is named so the operator knows why the change is stuck.
+      expect(goalWarnings[0]).toContain("/goal");
+
+      // A DIFFERENT pending change warns again (the one-shot latch reset).
+      await expect(internal.ensureInitialized({ approvalMode: "normal", initializeArgs: [], initializeKey: "newer-config" })).resolves.toBeUndefined();
+      expect(waitForIdle).not.toHaveBeenCalled();
+      const allWarnings = consoleErrorSpy.mock.calls
+        .map((call) => String(call[0]))
+        .filter((line) => line.includes("config change deferred while busy"));
+      expect(allWarnings).toHaveLength(2);
+    } finally {
+      consoleErrorSpy.mockRestore();
+      await removeTempRoot(root);
+    }
+  });
+
+  it("refuses a new task while a goal holds the old full-access permissions", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "cc-telegram-bridge-"));
+    const configPath = path.join(root, "config.json");
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await writeFile(configPath, JSON.stringify({ approvalMode: "normal" }) + "\n", "utf8");
+      const adapter = new CodexAppServerAdapter(
+        "codex", process.cwd(), undefined, (() => new FakeChildProcess()) as never,
+        undefined, undefined, configPath,
+      );
+      const internal = adapter as unknown as {
+        initializeKey: string | null;
+        initializePromise: Promise<void> | null;
+        currentApprovalMode: "normal" | "full-auto" | "bypass";
+        goalWatchers: Map<string, unknown>;
+        ensureInitialized(opts: {
+          approvalMode: "normal" | "full-auto" | "bypass";
+          initializeArgs: string[];
+          initializeKey: string;
+        }): Promise<void>;
+      };
+      internal.initializeKey = "old-bypass";
+      internal.initializePromise = Promise.resolve();
+      internal.currentApprovalMode = "bypass";
+      internal.goalWatchers.set("busy-goal", {});
+
+      await expect(internal.ensureInitialized({
+        approvalMode: "normal",
+        initializeArgs: ["app-server"],
+        initializeKey: "new-normal",
+      })).rejects.toThrow("approval mode changed while busy");
+
+      expect(internal.currentApprovalMode).toBe("bypass");
+    } finally {
+      consoleErrorSpy.mockRestore();
+      await removeTempRoot(root);
+    }
+  });
+});
+
+describe("app-server per-turn stderr diagnostics", () => {
+  it("excludes stderr produced before the turn started from the turn's failure diagnostics", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+    });
+
+    await waitFor(() => child.stdin.lines.length >= 1);
+    child.stdout.emitData('{"id":1,"result":{"platformOs":"windows"}}\n');
+    // Stale stderr from before this turn (e.g. an old auth failure).
+    child.stderr.emitData("stale unexpected status 401 Unauthorized\n");
+    await waitFor(() => child.stdin.lines.length >= 2);
+    child.stdout.emitData('{"id":2,"result":{"thread":{"id":"thread-123"}}}\n');
+    await waitFor(() => child.stdin.lines.length >= 3);
+
+    child.stderr.emitData("fresh stream disconnected\n");
+    child.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-123","turn":{"id":"turn-1","items":[],"status":"failed","error":{"message":"boom"}}}}\n');
+
+    const error = await promise.then(
+      () => {
+        throw new Error("expected the turn to fail");
+      },
+      (value: Error) => value,
+    );
+    expect(error.message).toContain("boom");
+    expect(error.message).toContain("fresh stream disconnected");
+    expect(error.message).not.toContain("stale unexpected status 401");
+  });
+
+  it("still includes stderr produced during the turn in inactivity failures", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter(
+      "codex",
+      process.cwd(),
+      undefined,
+      spawnFn,
+      undefined,
+      undefined,
+      undefined,
+      10_000,
+      50,
+    );
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+    });
+
+    await driveTurnStart(child);
+    child.stderr.emitData("during-turn runtime context\n");
+
+    await expect(promise).rejects.toThrow(/during-turn runtime context/);
+  });
+});
+
+describe("app-server inactivity detector counts unlisted notifications", () => {
+  it("treats any thread-scoped notification as turn activity", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+    });
+
+    await driveTurnStart(child);
+
+    // Not in any explicit handler list: must still count as activity.
+    child.stdout.emitData('{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-123","delta":"…"}}\n');
+
+    const pending = (adapter as unknown as {
+      pendingTurns: Map<string, { lastActivityAt?: number; lastActivityMethod?: string }>;
+    }).pendingTurns.get("thread-123");
+    expect(pending?.lastActivityMethod).toBe("item/commandExecution/outputDelta");
+    expect(pending?.lastActivityAt).toBeTypeOf("number");
+
+    // Notifications without a threadId are ignored (no crash, no activity reset).
+    child.stdout.emitData('{"method":"mcpServer/startupStatus/updated","params":{"status":"starting"}}\n');
+    expect(pending?.lastActivityMethod).toBe("item/commandExecution/outputDelta");
+
+    child.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-123","item":{"type":"agentMessage","text":"ok"}}}\n');
+    child.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-123","turn":{"id":"turn-1","items":[],"status":"completed","error":null}}}\n');
+    await expect(promise).resolves.toMatchObject({ text: "ok" });
+  });
+});
+
+describe("app-server destroy kills the process tree", () => {
+  it("routes destroy through killProcessTree when the child has a pid", async () => {
+    vi.mocked(killProcessTree).mockClear();
+    const { child, spawnFn } = createSpawnHarness();
+    child.pid = 4242;
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+    });
+    await driveTurnStart(child);
+
+    adapter.destroy();
+    await expect(promise).rejects.toThrow("Adapter destroyed");
+    expect(killProcessTree).toHaveBeenCalledWith(4242);
+    expect(child.killCalls).toBe(0);
+  });
+
+  it("falls back to kill() for children without a pid", async () => {
+    vi.mocked(killProcessTree).mockClear();
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+    });
+    await driveTurnStart(child);
+
+    adapter.destroy();
+    await expect(promise).rejects.toThrow("Adapter destroyed");
+    expect(killProcessTree).not.toHaveBeenCalled();
+    expect(child.killCalls).toBe(1);
+  });
+});
+
+describe("app-server mid-turn steering (turn/steer)", () => {
+  it("steers the active turn with the expected turn id and resolves true", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+    const controller = new AbortController();
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Rewrite the README",
+      files: [],
+      abortSignal: controller.signal,
+    });
+
+    await driveTurnStart(child);
+    child.stdout.emitData('{"id":3,"result":{"turn":{"id":"turn-1","items":[],"status":"inProgress","error":null}}}\n');
+    await waitFor(() =>
+      Boolean((adapter as unknown as { pendingTurns: Map<string, { turnId?: string }> }).pendingTurns.get("thread-123")?.turnId),
+    );
+
+    const steerPromise = adapter.steerActiveTurn("thread-123", { text: "also write it in English" });
+    await waitFor(() => parsedStdinLines(child).some((line) => line.method === "turn/steer"));
+    const steer = parsedStdinLines(child).find((line) => line.method === "turn/steer") as {
+      id: number;
+      params: Record<string, unknown>;
+    };
+    expect(steer.params).toEqual({
+      threadId: "thread-123",
+      expectedTurnId: "turn-1",
+      input: [{ type: "text", text: "also write it in English" }],
+    });
+
+    child.stdout.emitData(`{"id":${steer.id},"result":{}}\n`);
+    await expect(steerPromise).resolves.toBe(true);
+
+    controller.abort();
+    await expect(promise).rejects.toThrow("Codex app-server turn aborted");
+  });
+
+  it("resolves false without writing a steer when no turn is active", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+
+    await expect(adapter.steerActiveTurn("thread-123", { text: "hello" })).resolves.toBe(false);
+    expect(child.stdin.lines.length).toBe(0);
+  });
+
+  it("resolves false when the engine rejects the steer (turn already over)", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+    const controller = new AbortController();
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Rewrite the README",
+      files: [],
+      abortSignal: controller.signal,
+    });
+
+    await driveTurnStart(child);
+    child.stdout.emitData('{"id":3,"result":{"turn":{"id":"turn-1","items":[],"status":"inProgress","error":null}}}\n');
+    await waitFor(() =>
+      Boolean((adapter as unknown as { pendingTurns: Map<string, { turnId?: string }> }).pendingTurns.get("thread-123")?.turnId),
+    );
+
+    const steerPromise = adapter.steerActiveTurn("thread-123", { text: "late follow-up" });
+    await waitFor(() => parsedStdinLines(child).some((line) => line.method === "turn/steer"));
+    const steer = parsedStdinLines(child).find((line) => line.method === "turn/steer") as { id: number };
+    child.stdout.emitData(`{"id":${steer.id},"error":{"code":-32600,"message":"expected turn id does not match"}}\n`);
+    await expect(steerPromise).resolves.toBe(false);
+
+    controller.abort();
+    await expect(promise).rejects.toThrow("Codex app-server turn aborted");
+  });
+});
+
+describe("app-server old-child stream data is generation-guarded", () => {
+  it("drops a dying child's buffered stdout after destroy+respawn instead of settling the new generation's turn", async () => {
+    const childA = new FakeChildProcess();
+    const childB = new FakeChildProcess();
+    const children = [childA, childB];
+    const spawnFn = () => {
+      const child = children.shift();
+      if (!child) {
+        throw new Error("no more fake children");
+      }
+      return child;
+    };
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn as never);
+
+    const firstPromise = adapter.sendUserMessage("thread-shared", { text: "first", files: [] });
+    await waitFor(() => childA.stdin.lines.length >= 1);
+    const initA = JSON.parse(childA.stdin.lines[0] ?? "{}");
+    childA.stdout.emitData(`{"id":${initA.id},"result":{"platformOs":"macos"}}\n`);
+    await waitFor(() => childA.stdin.lines.length >= 2);
+    const resumeA = JSON.parse(childA.stdin.lines[1] ?? "{}");
+    expect(resumeA.method).toBe("thread/resume");
+    childA.stdout.emitData(`{"id":${resumeA.id},"result":{"thread":{"id":"thread-shared"}}}\n`);
+    await waitFor(() => childA.stdin.lines.length >= 3);
+
+    adapter.destroy();
+    await expect(firstPromise).rejects.toThrow("Adapter destroyed");
+
+    // The respawned child re-resumes the SAME thread id (the common retry
+    // path), so stale thread-keyed notifications would collide head-on.
+    const secondPromise = adapter.sendUserMessage("thread-shared", { text: "second", files: [] });
+    await waitFor(() => childB.stdin.lines.length >= 1);
+    const initB = JSON.parse(childB.stdin.lines[0] ?? "{}");
+    childB.stdout.emitData(`{"id":${initB.id},"result":{"platformOs":"macos"}}\n`);
+    await waitFor(() => childB.stdin.lines.length >= 2);
+    const resumeB = JSON.parse(childB.stdin.lines[1] ?? "{}");
+    childB.stdout.emitData(`{"id":${resumeB.id},"result":{"thread":{"id":"thread-shared"}}}\n`);
+    await waitFor(() => childB.stdin.lines.length >= 3);
+
+    // The dying child (SIGTERM with grace) flushes buffered output: a
+    // completion for the same thread, a stale approval request, a partial
+    // JSON fragment, and stderr noise. None of it may reach the new generation.
+    childA.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-shared","item":{"type":"agentMessage","text":"stale"}}}\n');
+    childA.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-shared","turn":{"id":"turn-old","items":[],"status":"completed","error":null}}}\n');
+    childA.stdout.emitData('{"id":901,"method":"execCommandApproval","params":{"threadId":"thread-shared","command":"rm -rf /"}}\n');
+    childA.stdout.emitData('{"method":"item/agentMessage/delta","params":{"threadId":"thread-shared"');
+    childA.stderr.emitData("stale stderr noise\n");
+
+    // The new generation's turn must stay pending — the stale completion settles nothing.
+    await expect(Promise.race([
+      secondPromise.then(() => "settled", () => "settled"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 20)),
+    ])).resolves.toBe("pending");
+    // ...and the stale approval request is never answered on the new child's stdin.
+    expect(parsedStdinLines(childB).some((line) => line.id === 901)).toBe(false);
+
+    // The new child completes normally: the stale partial fragment did not
+    // corrupt the shared line framing.
+    childB.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-shared","item":{"type":"agentMessage","text":"fresh ok"}}}\n');
+    childB.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-shared","turn":{"id":"turn-new","items":[],"status":"completed","error":null}}}\n');
+    await expect(secondPromise).resolves.toMatchObject({ text: "fresh ok" });
+  });
+});
+
+describe("app-server goal watch poll keeps the shared child alive", () => {
+  // Returns the still-pending watch promise wrapped in an object so the async
+  // helper does not flatten (and thereby await) it.
+  async function driveGoalWatchStart(
+    child: FakeChildProcess,
+    adapter: CodexAppServerAdapter,
+  ): Promise<{ goalPromise: ReturnType<CodexAppServerAdapter["watchThreadGoal"]> }> {
+    const goalPromise = adapter.watchThreadGoal("telegram-1", {
+      objective: "long goal",
+      workspaceOverride: "/tmp/goal-ws",
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const initialize = JSON.parse(child.stdin.lines[0] ?? "{}");
+    child.stdout.emitData(`{"id":${initialize.id},"result":{"platformOs":"macos"}}\n`);
+    await vi.advanceTimersByTimeAsync(0);
+    const threadStart = JSON.parse(child.stdin.lines[1] ?? "{}");
+    child.stdout.emitData(`{"id":${threadStart.id},"result":{"thread":{"id":"thread-goal"}}}\n`);
+    await vi.advanceTimersByTimeAsync(0);
+    const goalClear = JSON.parse(child.stdin.lines[2] ?? "{}");
+    child.stdout.emitData(`{"id":${goalClear.id},"result":{"cleared":true}}\n`);
+    await vi.advanceTimersByTimeAsync(0);
+    const goalSet = JSON.parse(child.stdin.lines[3] ?? "{}");
+    child.stdout.emitData(`{"id":${goalSet.id},"result":{"goal":{"threadId":"thread-goal","objective":"long goal","status":"active","tokenBudget":null,"tokensUsed":0,"timeUsedSeconds":0,"createdAt":1,"updatedAt":1}}}\n`);
+    await vi.advanceTimersByTimeAsync(0);
+    return { goalPromise };
+  }
+
+  it("survives a single background poll timeout without destroying the child or other pending turns", async () => {
+    vi.useFakeTimers();
+    vi.mocked(killProcessTree).mockClear();
+    try {
+      const { child, spawnFn } = createSpawnHarness();
+      const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+      const { goalPromise } = await driveGoalWatchStart(child, adapter);
+
+      // An unrelated turn shares the child; it must not pay for a slow poll.
+      const turnPromise = adapter.sendUserMessage("telegram-2", { text: "unrelated", files: [] });
+      await vi.advanceTimersByTimeAsync(0);
+      const otherThreadStart = JSON.parse(child.stdin.lines[4] ?? "{}");
+      expect(otherThreadStart.method).toBe("thread/start");
+      child.stdout.emitData(`{"id":${otherThreadStart.id},"result":{"thread":{"id":"thread-other"}}}\n`);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(JSON.parse(child.stdin.lines[5] ?? "{}").method).toBe("turn/start");
+
+      // First poll at +30s; left unanswered it times out at +90s.
+      await vi.advanceTimersByTimeAsync(30_000);
+      const poll1 = JSON.parse(child.stdin.lines[6] ?? "{}");
+      expect(poll1.method).toBe("thread/goal/get");
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(child.killCalls).toBe(0);
+      expect(killProcessTree).not.toHaveBeenCalled();
+
+      // A successful poll resets the counter, so a later isolated timeout
+      // still does not escalate — only CONSECUTIVE timeouts do.
+      const poll2 = JSON.parse(child.stdin.lines[7] ?? "{}");
+      expect(poll2.method).toBe("thread/goal/get");
+      child.stdout.emitData(`{"id":${poll2.id},"result":{"goal":{"threadId":"thread-goal","objective":"long goal","status":"active","tokenBudget":null,"tokensUsed":5,"timeUsedSeconds":2,"createdAt":1,"updatedAt":2}}}\n`);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(child.killCalls).toBe(0);
+
+      // The unrelated turn still completes on the same, un-destroyed child.
+      child.stdout.emitData('{"method":"item/completed","params":{"threadId":"thread-other","item":{"type":"agentMessage","text":"other ok"}}}\n');
+      child.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-other","turn":{"id":"turn-other","items":[],"status":"completed","error":null}}}\n');
+      await expect(turnPromise).resolves.toMatchObject({ text: "other ok" });
+
+      child.stdout.emitData('{"method":"thread/goal/updated","params":{"threadId":"thread-goal","goal":{"threadId":"thread-goal","objective":"long goal","status":"complete","tokenBudget":null,"tokensUsed":10,"timeUsedSeconds":3,"createdAt":1,"updatedAt":3}}}\n');
+      const result = await goalPromise;
+      expect(result.goal?.status).toBe("complete");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("escalates to destroy only after two consecutive poll timeouts", async () => {
+    vi.useFakeTimers();
+    vi.mocked(killProcessTree).mockClear();
+    try {
+      const { child, spawnFn } = createSpawnHarness();
+      const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+      const { goalPromise } = await driveGoalWatchStart(child, adapter);
+
+      const turnPromise = adapter.sendUserMessage("telegram-2", { text: "unrelated", files: [] });
+      await vi.advanceTimersByTimeAsync(0);
+      const otherThreadStart = JSON.parse(child.stdin.lines[4] ?? "{}");
+      child.stdout.emitData(`{"id":${otherThreadStart.id},"result":{"thread":{"id":"thread-other"}}}\n`);
+      await vi.advanceTimersByTimeAsync(0);
+      const turnAssertion = expect(turnPromise).rejects.toThrow("Adapter destroyed");
+
+      await vi.advanceTimersByTimeAsync(30_000); // poll1 written
+      await vi.advanceTimersByTimeAsync(30_000); // poll2 written
+      await vi.advanceTimersByTimeAsync(30_000); // poll1 times out (1st consecutive)
+      expect(child.killCalls).toBe(0);
+      await vi.advanceTimersByTimeAsync(30_000); // poll2 times out (2nd consecutive)
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Two consecutive timeouts = the child is presumed wedged: destroyed,
+      // the goal watch resolves with the latest known goal, pending turns fail.
+      expect(child.killCalls).toBe(1);
+      await turnAssertion;
+      const result = await goalPromise;
+      expect(result.goal?.status).toBe("active");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("app-server completed turns are immune to the total-turn timer", () => {
+  it("resolves a completed turn whose thread/read settles after the total-turn window elapses", async () => {
+    vi.useFakeTimers();
+    try {
+      const { child, spawnFn } = createSpawnHarness();
+      // Short total-turn timeout; the thread/read window comfortably outlasts
+      // it, so without the timer being cleared at turn/completed it would fire
+      // mid-settle and reject the finished turn as a timeout.
+      const adapter = new CodexAppServerAdapter(
+        "codex",
+        process.cwd(),
+        undefined,
+        spawnFn,
+        undefined,
+        undefined,
+        undefined,
+        1_000,
+        10_000,
+        60_000,
+      );
+
+      const promise = adapter.sendUserMessage("telegram-12345", { text: "Hello", files: [] });
+      await vi.advanceTimersByTimeAsync(0);
+      const initialize = JSON.parse(child.stdin.lines[0] ?? "{}");
+      child.stdout.emitData(`{"id":${initialize.id},"result":{"platformOs":"macos"}}\n`);
+      await vi.advanceTimersByTimeAsync(0);
+      const threadStart = JSON.parse(child.stdin.lines[1] ?? "{}");
+      child.stdout.emitData(`{"id":${threadStart.id},"result":{"thread":{"id":"thread-123"}}}\n`);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(JSON.parse(child.stdin.lines[2] ?? "{}").method).toBe("turn/start");
+
+      // No streamed text: completion falls back to a thread/read.
+      child.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-123","turn":{"id":"turn-1","items":[],"status":"completed","error":null}}}\n');
+      await vi.advanceTimersByTimeAsync(0);
+      const threadRead = JSON.parse(child.stdin.lines[3] ?? "{}");
+      expect(threadRead.method).toBe("thread/read");
+
+      // The total-turn window elapses while the read is still settling.
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      child.stdout.emitData(`{"id":${threadRead.id},"result":{"thread":{"turns":[{"id":"turn-1","status":"completed","error":null,"items":[{"type":"agentMessage","text":"late read ok"}],"usage":{"inputTokens":11,"outputTokens":7}}]}}}\n`);
+      await expect(promise).resolves.toMatchObject({
+        text: "late read ok",
+        usage: { inputTokens: 11, outputTokens: 7 },
+      });
+      // No spurious late-abort side effects: no interrupt, child untouched.
+      expect(parsedStdinLines(child).some((line) => line.method === "turn/interrupt")).toBe(false);
+      expect(child.killCalls).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still lets a /stop abort reject a completing turn while its thread/read is in flight", async () => {
+    const { child, spawnFn } = createSpawnHarness();
+    const adapter = new CodexAppServerAdapter("codex", process.cwd(), spawnFn);
+    const controller = new AbortController();
+
+    const promise = adapter.sendUserMessage("telegram-12345", {
+      text: "Hello",
+      files: [],
+      abortSignal: controller.signal,
+    });
+
+    await driveTurnStart(child);
+    child.stdout.emitData('{"method":"turn/completed","params":{"threadId":"thread-123","turn":{"id":"turn-1","items":[],"status":"completed","error":null}}}\n');
+    await waitFor(() => child.stdin.lines.length >= 4);
+    expect(JSON.parse(child.stdin.lines[3] ?? "{}").method).toBe("thread/read");
+
+    // The user's stop is signal-driven, not timer-driven: it may still cancel
+    // the (up to 180s) settle wait instead of leaving the chat stuck on it.
+    controller.abort();
+    await expect(promise).rejects.toThrow("Codex app-server turn aborted");
+  });
+});
+
+ it("never falls back to another turn when the requested result is missing", async () => {
+   const adapter = new CodexAppServerAdapter("codex", process.cwd());
+   const internal = adapter as unknown as { request: (method: string, params: unknown) => Promise<unknown>; readTurnResult: (thread: string, turn?: string) => Promise<{ text: string; errorMessage?: string }> };
+   vi.spyOn(internal, "request").mockResolvedValue({ thread: { turns: [{ id: "other-turn", items: [{ type: "agentMessage", text: "OTHER TURN" }] }] } });
+   const result = await internal.readTurnResult("thread", "missing-turn");
+   expect(result.text).toBe(""); expect(result.errorMessage).toContain("unavailable");
+   expect((await internal.readTurnResult("thread", "other-turn")).text).toBe("OTHER TURN");
+ });

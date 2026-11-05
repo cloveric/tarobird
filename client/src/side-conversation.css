@@ -1,0 +1,88 @@
+/* Shared right-side surface: both side chat and workbench use one allocation
+   and entry animation, after useSideWindowExpansion settles native geometry. */
+.conversation-side-panel{position:relative;display:flex;flex-direction:column;flex:0 0 clamp(var(--side-min),var(--side-panel-width,var(--side-default,400px)),calc(100% - var(--side-sidebar) - var(--side-main-min)));min-width:0;min-height:0;background:var(--bg);border-left:1px solid var(--border);animation:details-enter var(--t-med) var(--ease-out) both}
+.side-conversation{--side-muted:color-mix(in srgb,var(--muted) 70%,var(--text) 30%)}
+.side-conversation[hidden]{display:none}
+.side-heading{height:64px;flex:0 0 64px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border)}
+.side-heading>div:first-child{min-width:0}.side-heading h2{display:flex;align-items:center;gap:7px;margin:0;font-size:14px;font-weight:600;color:var(--text)}.side-heading h2 svg{color:var(--accent)}
+.side-heading-actions{display:flex;gap:2px;flex-shrink:0}.side-heading .icon-button{width:30px;height:30px;min-height:30px;color:var(--side-muted)}
+.side-log{flex:1;min-height:0;padding:0 20px 24px;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:thin}
+.side-empty{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-height:310px;padding:40px 4px 28px}.side-empty-icon{color:var(--muted);margin-bottom:18px}.side-empty h3{margin:0;color:var(--side-muted);font-size:17px;font-weight:600}.side-empty p{margin:10px 0 26px;color:var(--muted);font-size:12.5px;line-height:1.7}
+.side-suggestions{display:flex;flex-direction:column;gap:8px;width:100%}.side-suggestions button{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);background:transparent;color:var(--side-muted);font-size:12px;text-align:left}.side-suggestions button:hover{background:var(--hover);border-color:var(--accent)}.side-suggestions svg{transform:rotate(45deg);color:var(--muted)}
+.side-exchange{padding:23px 0;border-bottom:1px solid var(--border);min-width:0}.side-question{border-left:2px solid var(--accent);padding-left:10px;margin:0 0 18px;font-size:13px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text)}
+.side-exchange .markdown{font-size:13px;line-height:1.75;min-width:0;overflow-wrap:anywhere}.side-exchange .markdown pre{max-width:100%;overflow-x:auto;font-size:12px}.side-exchange .markdown :is(table,img){max-width:100%}
+.side-answer-actions{display:flex;flex-wrap:wrap;gap:14px;margin-top:14px}.side-answer-actions button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;padding:3px 0;color:var(--side-muted);font-size:11px}.side-answer-actions button:hover{color:var(--accent)}
+.side-answer-state{font-size:12px;color:var(--side-muted)}.side-answer-state:empty{display:none}.side-answer-state>span{display:block;margin-top:12px}.side-answer-state p{color:var(--red);line-height:1.6}.side-answer-state button{padding:0;border:0;background:transparent;color:var(--accent);font-size:12px}
+.side-thinking{display:inline-flex!important;align-items:center;gap:7px;color:var(--side-muted);font-size:12px}.side-thinking i{height:6px;width:6px;background:var(--accent);border-radius:50%;animation:side-pulse 1.6s ease-in-out infinite}.side-preparing{margin:18px 0}.side-inline-error{color:var(--red);font-size:12px;line-height:1.65;overflow-wrap:anywhere}.side-omitted{font-size:11px;color:var(--side-muted);text-align:center;margin-top:16px}
+.side-compose.composer-wrap{padding:12px 14px 20px;border-top:1px solid var(--border);flex-shrink:0;min-width:0}
+.side-composer.composer{padding-block:8px 0}
+/* Match the main editor's one-line floor without enlarging side text. */
+.side-composer textarea{min-height:max(44px,calc(1.62rem + 20px));max-height:min(160px,22dvh);font-size:13px}
+.side-composer .composer-toolbar{flex-wrap:nowrap}
+.side-compose-status{flex:1;min-width:0;font-size:11px;color:var(--side-muted);overflow-wrap:anywhere}
+.side-composer .send-button{flex-shrink:0}
+.side-footnote{display:flex;justify-content:flex-end;align-items:center;gap:4px;min-width:0;color:var(--side-muted);font-size:11px;line-height:1.6;white-space:nowrap}.side-footnote kbd{flex-shrink:0;font:inherit;border:1px solid var(--border);border-radius:3px;padding:0 3px}.side-footnote>span{overflow:hidden;text-overflow:ellipsis}
+.side-jump{position:absolute;right:20px;bottom:calc(var(--side-composer-height,112px) + 12px);display:flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:999px;background:var(--bg);color:var(--accent);padding:5px 10px;font-size:11px}
+/* Follow the visible panel, including workbench/side switching. Monochrome's
+   optional accent is distinct from its neutral primary-action colour. */
+.icon-button:is(.side-trigger,.workbench-trigger,.screen-trigger)[aria-expanded=true]{--panel-entry-accent:var(--mono-mark,var(--accent));color:color-mix(in srgb,var(--panel-entry-accent) 75%,var(--text));background:color-mix(in srgb,var(--panel-entry-accent) 18%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--panel-entry-accent) 28%,transparent),0 2px 7px color-mix(in srgb,var(--panel-entry-accent) 18%,transparent)}
+.icon-button:is(.side-trigger,.workbench-trigger,.screen-trigger)[aria-expanded=true]:hover:not(:disabled){background:color-mix(in srgb,var(--panel-entry-accent) 25%,transparent)}
+.app-shell.has-side-panel>.conversation-main{container:side-main / inline-size}
+/* All three columns remain reachable. At narrow desktop widths, share the
+   available space instead of removing the conversation directory. These
+   percentages resolve against the shell in both width and flex-basis. */
+@media(min-width:761px){
+  .app-shell.has-side-panel{--side-min:clamp(280px,calc((100% - 200px)/2),320px);--side-main-min:clamp(280px,calc((100% - 200px)/2),440px);--side-sidebar:clamp(200px,var(--desktop-sidebar-width,var(--desktop-sidebar-default,272px)),min(480px,calc(100% - var(--side-min) - var(--side-main-min))))}
+  .app-shell.has-side-panel>.sidebar{width:var(--side-sidebar)}
+}
+@container side-main (max-width:540px){.conversation-header .header-bot-name{display:none}}
+@container side-main (max-width:480px){
+  .composer-wrap{padding-inline:12px}
+  .composer-toolbar{flex-wrap:wrap}
+  .composer-toolbar>.composer-model-controls{order:-1;flex:1 0 100%;max-width:none}
+}
+@container side-main (max-width:400px){
+  .conversation-header{height:auto;min-height:80px;padding:6px 12px;gap:4px;flex-wrap:wrap}
+  .conversation-header>.header-title{flex:1 0 100%}
+  .conversation-header .chat-identity{min-height:32px}
+}
+.side-resize-handle{position:absolute;inset-block:0;left:-4px;width:8px;z-index:3;cursor:col-resize;touch-action:none;outline:none}.side-resize-handle::after{content:"";position:absolute;inset-block:0;left:3px;width:1px;background:var(--resize-divider-accent);opacity:0}.side-resize-handle:is(:hover,:focus-visible)::after,[data-side-resizing=true] .side-resize-handle::after{opacity:1}
+[data-side-resizing=true],[data-side-resizing=true] *{cursor:col-resize!important;user-select:none!important;-webkit-user-select:none!important}
+.side-conversation :is(button,textarea):focus-visible{outline:2px solid var(--focus);outline-offset:3px}.side-conversation textarea:focus-visible{outline:none;box-shadow:none}
+.side-conversation .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+@media(min-width:1500px){.conversation-side-panel{--side-default:440px}}
+@media(max-width:760px){.side-conversation{display:none}}
+@keyframes side-pulse{0%,100%{opacity:.45}50%{opacity:1}}
+
+
+.side-restart{border:1px solid var(--border);border-radius:var(--radius);padding:8px 11px;background:transparent;color:var(--accent);font-size:12px}.side-restart:hover{background:var(--hover)}.side-usage-note{margin:8px 0 0;color:var(--side-muted);font-size:11px;line-height:1.65}
+
+.side-conversation.is-file-drop{outline:2px solid var(--accent);outline-offset:-3px;background:var(--accent-soft)}
+.side-composer .attachment-draft{max-height:min(180px,25dvh);overflow-y:auto}
+.side-composer .attachment-chips{padding-bottom:4px}
+
+:is(.side-question-attachments,.side-output-attachments){display:flex;flex-direction:column;gap:8px;min-width:0;margin:0 0 16px}
+:is(.side-question-attachments,.side-output-attachments) .file-card{min-width:0;max-width:100%}
+:is(.side-question-attachments,.side-output-attachments) .file-card-primary{min-width:0;flex:1}
+:is(.side-question-attachments,.side-output-attachments) .attachment-image{max-width:100%;margin:0}
+:is(.side-question-attachments,.side-output-attachments) .image-thumbnail img{max-height:220px;object-fit:contain}
+
+/* Resolve native geometry before revealing/animating the side column. While
+   opening keep the main width; a full/maximized screen keeps the existing split. */
+@media(min-width:761px){
+  .app-shell.has-side-panel[data-side-window]{position:relative}
+  .app-shell:is([data-side-window=pending],[data-side-window=expanded],[data-side-window=restoring])>.sidebar{width:clamp(200px,var(--side-window-sidebar-width,var(--desktop-sidebar-width,var(--desktop-sidebar-default))),min(480px,calc(100% - 360px)))}
+  .app-shell[data-side-window=restoring]{width:min(100%,var(--side-window-base-width))}
+  .app-shell.has-side-panel[data-side-window=expanded]{--side-main-min:min(440px,calc(var(--side-window-base-width) - var(--side-window-sidebar-width)));--side-sidebar:var(--side-window-sidebar-width)}
+  .app-shell.has-side-panel[data-side-window]>.conversation-side-panel{--side-default:var(--side-window-panel-width,400px)}
+  .app-shell.has-side-panel[data-side-window=pending]>.conversation-main{flex:0 0 calc(var(--side-window-base-width) - var(--side-window-sidebar-width))}
+  .app-shell.has-side-panel[data-side-window=pending]>.conversation-side-panel{position:absolute;inset-block:0;right:0;z-index:8;width:clamp(320px,var(--side-panel-width,var(--side-window-panel-width,400px)),calc(100% - var(--side-window-sidebar-width,272px) - 24px));visibility:hidden;pointer-events:none;animation:none}
+}
+
+/* Eager loading placeholder: Workbench's own CSS may still be downloading. */
+.workbench-loading{align-items:center;justify-content:center;color:var(--muted);font-size:13px;animation:none}
+.workbench-loading[hidden]{display:none}
+@media(min-width:761px){
+  .app-shell.has-side-panel[data-side-window-resizing]>.conversation-main{flex:0 0 max(0px,calc(var(--side-window-resize-base-width) - var(--side-window-sidebar-width)))}
+  .app-shell.has-side-panel[data-side-window-resizing]>.conversation-side-panel:not(.workbench-wide){flex:1 1 0}
+}

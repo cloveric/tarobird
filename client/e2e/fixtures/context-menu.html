@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Context menu fixture</title></head>
+<body>
+<p id="prose">Chrome 是本地排版验收文本。</p>
+<textarea aria-label="消息">保留输入与撤销历史</textarea>
+<input aria-label="只读" readonly value="只读内容">
+<input aria-label="禁用" disabled value="禁用内容">
+<input aria-label="密码" type="password" value="fixture-only">
+<div role="textbox" aria-label="富文本" contenteditable="true">富文本</div>
+<button id="app-menu">测试对话</button><p id="result"></p>
+<script type="module" src="./context-menu.ts"></script></body></html>

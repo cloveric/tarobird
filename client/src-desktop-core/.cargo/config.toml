@@ -1,0 +1,8 @@
+# The credential permit is process-wide (src-tauri/src/device_keychain.rs).
+# Identity/controller/keychain tests must not contend for that single permit.
+# Native-identity directory fixtures separately support parallel execution.
+[env]
+RUST_TEST_THREADS = "1"
+
+[build]
+target-dir = "target.noindex"

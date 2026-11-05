@@ -1,0 +1,4 @@
+.workbench-open-chart,.workbench-add-image{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);background:transparent;border:1px solid var(--border);border-radius:6px;padding:4px 8px;margin-top:6px}
+.workbench-open-chart:hover,.workbench-add-image:hover{color:var(--accent);border-color:var(--accent)}
+.workbench-chart-entry>small[role=alert]{display:block;color:var(--danger)}
+.workbench-draft-notice{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--border)}.workbench-draft-notice>span{flex:1}

@@ -1,0 +1,583 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`captures AskUserQuestion timeout and interrupted private constructors through their native lifecycle > AskUserQuestion_interrupted 1`] = `
+{
+  "elements": [
+    {
+      "text": "任务已停止，这次选择不再需要。想继续的话，直接发消息说明你的选择即可。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "选择已取消",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "⏹ 选择已取消",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "选择已取消",
+  "title": "⏹ 选择已取消",
+  "type": "card",
+}
+`;
+
+exports[`captures AskUserQuestion timeout and interrupted private constructors through their native lifecycle > AskUserQuestion_timeout 1`] = `
+{
+  "elements": [
+    {
+      "text": "29 分钟内未收到答案，没有代你选择默认选项。仍需回答时可以直接发消息。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "选择已超时",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "⏳ 选择已超时",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "选择已超时",
+  "title": "⏳ 选择已超时",
+  "type": "card",
+}
+`;
+
+exports[`captures Bash timeout and interrupted private constructors through their native lifecycle > Bash_interrupted 1`] = `
+{
+  "elements": [
+    {
+      "text": "任务已停止，该请求（Bash）无需再审批。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "审批已取消",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "⏹ 审批已取消",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "审批已取消",
+  "title": "⏹ 审批已取消",
+  "type": "card",
+}
+`;
+
+exports[`captures Bash timeout and interrupted private constructors through their native lifecycle > Bash_timeout 1`] = `
+{
+  "elements": [
+    {
+      "text": "29 分钟内未作决定，该请求（Bash）已按拒绝处理。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "审批已超时",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "⏳ 审批已超时",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "审批已超时",
+  "title": "⏳ 审批已超时",
+  "type": "card",
+}
+`;
+
+exports[`captures the fresh retry form, retired form and submitted summary without CardKit > question_retry_form 1`] = `
+{
+  "elements": [
+    {
+      "actionId": "askq_form",
+      "children": [
+        {
+          "text": "<font color="red">功能：请至少选择 2 项</font>",
+          "type": "markdown",
+        },
+        {
+          "text": "**功能（多选；至少 2 项，最多 2 项）**
+选择功能",
+          "type": "markdown",
+        },
+        {
+          "layout": {
+            "textSize": "notation",
+          },
+          "text": "A. **搜索**
+B. **导出**",
+          "type": "markdown",
+        },
+        {
+          "actionId": "q0",
+          "extra": {
+            "initial_options": [
+              "0",
+            ],
+            "placeholder": {
+              "content": "可多选",
+              "tag": "plain_text",
+            },
+          },
+          "max": 2,
+          "min": 2,
+          "multiple": true,
+          "name": "q0",
+          "options": [
+            {
+              "label": "搜索",
+              "value": "0",
+            },
+            {
+              "label": "导出",
+              "value": "1",
+            },
+          ],
+          "type": "select",
+        },
+        {
+          "actionId": "q0_other",
+          "extra": {
+            "placeholder": {
+              "content": "其他 —— 不合适就自己填（选填）",
+              "tag": "plain_text",
+            },
+          },
+          "name": "q0_other",
+          "type": "input",
+        },
+        {
+          "actionId": "askq_submit",
+          "extra": {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "action": "form_submit",
+                  "cctb_lark": "ask_user_question",
+                  "requestId": "request_fixture",
+                },
+              },
+            ],
+            "form_action_type": "submit",
+          },
+          "layout": {
+            "width": "fill",
+          },
+          "name": "askq_submit",
+          "style": "primary",
+          "text": "提交",
+          "type": "button",
+          "value": {
+            "action": "form_submit",
+            "cctb_lark": "ask_user_question",
+            "requestId": "request_fixture",
+          },
+        },
+      ],
+      "extra": {
+        "tarocub_questions": {
+          "notice": "功能：请至少选择 2 项",
+          "questions": [
+            {
+              "allowFreeText": true,
+              "header": "功能",
+              "maxSelections": 2,
+              "minSelections": 2,
+              "multiSelect": true,
+              "options": [
+                {
+                  "label": "搜索",
+                },
+                {
+                  "label": "导出",
+                },
+              ],
+              "question": "选择功能",
+              "required": true,
+            },
+          ],
+          "requestId": "request_fixture",
+          "version": 1,
+        },
+      },
+      "name": "askq_form",
+      "type": "form",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "Claude 请求选择",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "功能",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "Claude 请求选择",
+  "title": "功能",
+  "type": "card",
+}
+`;
+
+exports[`captures the fresh retry form, retired form and submitted summary without CardKit > question_retry_sent 1`] = `
+{
+  "elements": [
+    {
+      "text": "<font color="red">功能：请至少选择 2 项</font>",
+      "type": "markdown",
+    },
+    {
+      "text": "这张表单已停用。下方已发送一张新表单，请在那里填写并提交。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "请填写新表单",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "请填写新表单",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "请填写新表单",
+  "title": "请填写新表单",
+  "type": "card",
+}
+`;
+
+exports[`captures the fresh retry form, retired form and submitted summary without CardKit > question_submitted 1`] = `
+{
+  "elements": [
+    {
+      "text": "**功能**: 搜索, 导出",
+      "type": "markdown",
+    },
+    {
+      "text": "答案已收到，无需重复提交。后续进展会显示在对话中。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "已提交",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "title": {
+        "content": "✅ 已提交",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "已提交",
+  "title": "✅ 已提交",
+  "type": "card",
+}
+`;
+
+exports[`captures the private choice acknowledgement constructor through the shared dispatcher > choice_submitted 1`] = `
+{
+  "elements": [
+    {
+      "text": "✅ 已选择：**继续**
+
+任务将按此选择继续，无需重复点击。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "已收到选择",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "green",
+      "title": {
+        "content": "✅ 已收到选择",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "已收到选择",
+  "template": "green",
+  "title": "✅ 已收到选择",
+  "type": "card",
+}
+`;
+
+exports[`captures the private continue_archive acknowledgement constructor through the shared dispatcher > continue_archive_submitted 1`] = `
+{
+  "elements": [
+    {
+      "text": "✅ 请求已进入队列，正在检查压缩包状态。无需再次点击或输入 \`/continue\`；若可继续分析，结果会随后自动回复。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "已收到继续请求",
+      },
+      "update_multi": true,
+    },
+    "header": {
+      "template": "green",
+      "title": {
+        "content": "✅ 已收到继续请求",
+        "tag": "plain_text",
+      },
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "已收到继续请求",
+  "template": "green",
+  "title": "✅ 已收到继续请求",
+  "type": "card",
+}
+`;
+
+exports[`captures the resolved approval constructor for allow_once > approval_allow_once 1`] = `
+{
+  "elements": [
+    {
+      "text": "**请求审批**
+Bash
+
+\`\`\`json
+{
+  "command": "echo fixture"
+}
+\`\`\`",
+      "type": "markdown",
+    },
+    {
+      "text": "✅ 已允许一次。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "✅ 已允许一次。 — Bash",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "✅ 已允许一次。 — Bash",
+  "type": "card",
+}
+`;
+
+exports[`captures the resolved approval constructor for allow_session > approval_allow_session 1`] = `
+{
+  "elements": [
+    {
+      "text": "**请求审批**
+Bash
+
+\`\`\`json
+{
+  "command": "echo fixture"
+}
+\`\`\`",
+      "type": "markdown",
+    },
+    {
+      "text": "✅ 已允许本轮。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "✅ 已允许本轮。 — Bash",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "✅ 已允许本轮。 — Bash",
+  "type": "card",
+}
+`;
+
+exports[`captures the resolved approval constructor for deny > approval_deny 1`] = `
+{
+  "elements": [
+    {
+      "text": "**请求审批**
+Bash
+
+\`\`\`json
+{
+  "command": "echo fixture"
+}
+\`\`\`",
+      "type": "markdown",
+    },
+    {
+      "text": "⛔ 已拒绝。",
+      "type": "markdown",
+    },
+  ],
+  "extra": {
+    "body": {
+      "direction": "vertical",
+      "padding": "12px 12px 12px 12px",
+    },
+    "config": {
+      "summary": {
+        "content": "⛔ 已拒绝。 — Bash",
+      },
+      "update_multi": true,
+    },
+    "schema": "2.0",
+  },
+  "layout": {
+    "direction": "vertical",
+    "padding": "12px 12px 12px 12px",
+  },
+  "summary": "⛔ 已拒绝。 — Bash",
+  "type": "card",
+}
+`;

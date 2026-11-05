@@ -1,0 +1,348 @@
+{
+  "sourceCommit": "b3766a4930cf44c65ac2f9d0aac6fab06dd39151",
+  "appVersion": "1.0.125",
+  "hostVersion": "0.1.470",
+  "protocol": 1,
+  "hubSchemaRange": [
+    1,
+    23
+  ],
+  "verified": true,
+  "macRelease": "https://github.com/cloveric/tarobot/releases/tag/macos-tarobot-v1.0.125",
+  "androidRelease": "https://github.com/cloveric/tarobot/releases/tag/android-tarobot-v1.0.125",
+  "macAssets": [
+    {
+      "name": "TaroBot.app.tar.gz",
+      "assetId": 698902474,
+      "size": 299264497,
+      "sha256": "9dce79120bb4c54741bf37f46dd1e2b3957c23bf9afd3c92823d6c1513046bca",
+      "downloaded": true
+    },
+    {
+      "name": "TaroBot.app.tar.gz.sig",
+      "assetId": 698906291,
+      "size": 428,
+      "sha256": "f0874ffc120e2d5ddc63d044e7f194b5aec989984c2ac020cf1bef9f18c25b2f",
+      "downloaded": true
+    },
+    {
+      "name": "TaroBot_1.0.125_aarch64.dmg",
+      "assetId": 698906351,
+      "size": 347708913,
+      "sha256": "7698d54b108dfbefbf8b4cdfa29306a5cd541353b22a789ff5843d6a05195714",
+      "downloaded": true
+    },
+    {
+      "name": "tarobot-0.1.470.tgz",
+      "assetId": 698910250,
+      "size": 50544316,
+      "sha256": "788048150408ce4ee60af5e7775c4c796a241c93ba93cb33bd9fef8e8da2c52e",
+      "downloaded": true
+    },
+    {
+      "name": "macos-tarobot-latest.json",
+      "assetId": 698910968,
+      "size": 2270,
+      "sha256": "c2fb03a0882ecb4230e24497170b510fcc8f08187cb4abc57a0ea84b27a2ce30",
+      "downloaded": true
+    },
+    {
+      "name": "SHA256SUMS",
+      "assetId": 698911019,
+      "size": 446,
+      "sha256": "383d732093a9103b6d66792b2c8b7e788dd4b25664ebaf0703d68cfdbe27d264",
+      "downloaded": true
+    }
+  ],
+  "androidAssets": [
+    {
+      "name": "SHA256SUMS",
+      "size": 180,
+      "sha256": "a5010f856fc0118427f4556df785b3447d142dd762886c34636d5d4c65acfe59"
+    },
+    {
+      "name": "tarobot-0.1.470.tgz",
+      "size": 50544316,
+      "sha256": "788048150408ce4ee60af5e7775c4c796a241c93ba93cb33bd9fef8e8da2c52e"
+    },
+    {
+      "name": "TaroBot-1.0.125-android.apk",
+      "size": 60840183,
+      "sha256": "9fd391e4bea7d77a676ffeaff137c0255be509640847ec41a1ffd28c9bcd8cb5"
+    }
+  ],
+  "ios": {
+    "version": "1.0.125",
+    "buildNumber": "1",
+    "processingState": "VALID",
+    "internalBuildState": "IN_BETA_TESTING",
+    "internalGroupAssigned": true,
+    "zhHansNotesSet": true,
+    "enUsNotesSet": true,
+    "physicalDeviceVerified": false,
+    "appStoreSubmitted": false,
+    "externalBetaReviewSubmitted": false,
+    "preserved": {
+      "betaAppTestInformation": true,
+      "betaAppReviewDetail": true,
+      "internalGroupSettings": true,
+      "publicAppStoreMetadata": true
+    }
+  },
+  "ipaSha256": "4b00e03d1d504ae463477ec61b073f950630c6c819a2e33eb9ec4b804ed6e4b0",
+  "cliSha256": "788048150408ce4ee60af5e7775c4c796a241c93ba93cb33bd9fef8e8da2c52e",
+  "realCliPassed": 10,
+  "packagedDeepSeekVerified": true,
+  "sourceChecks": {
+    "sourceCommit": "b3766a4930cf44c65ac2f9d0aac6fab06dd39151",
+    "appVersion": "1.0.125",
+    "hostVersion": "0.1.470",
+    "protocol": 1,
+    "hubSchemaRange": [
+      1,
+      23
+    ],
+    "sourceDirty": false,
+    "sourceDir": "/Volumes/gdrive/projects/tarobot-release-1.0.125-20261101",
+    "auditCommit": "42e271d5f260438f9091f0c20af3a0a52a904962",
+    "windowsRuntime": "deferred_by_owner",
+    "localInstallRequested": true,
+    "createdAt": "2026-11-01T16:14:03.294504+00:00",
+    "verified": true,
+    "pending": [],
+    "localVitest": {
+      "initial": {
+        "files": 586,
+        "passed": 7764,
+        "failed": 49,
+        "skipped": 6,
+        "preCompleteExit": 1
+      },
+      "serialFailedFiles": {
+        "files": 31,
+        "passed": 970,
+        "failed": 20
+      },
+      "reducedLoadRetake": {
+        "files": 8,
+        "passed": 142,
+        "failed": 5
+      },
+      "assertionsOrTimeoutsChanged": false,
+      "finalQuietRetake": {
+        "files": 2,
+        "passed": 31,
+        "failed": 0
+      }
+    },
+    "localElectron": {
+      "initialPassed": 326,
+      "initialFailed": 1,
+      "unchangedRegistryRetakePassed": 1
+    },
+    "native": {
+      "core": {
+        "passed": 62,
+        "ignored": 2,
+        "initialSharedFixtureFailures": 3
+      },
+      "addon": {
+        "passed": 33
+      },
+      "updater": {
+        "passed": 71
+      },
+      "legacy": {
+        "passed": 104
+      }
+    },
+    "design": {
+      "chromiumQuiet": 8,
+      "isolatedElectron": 15,
+      "webkitInitialPassed": 13,
+      "webkitInitialFailed": 5,
+      "webkitUnchangedRetakePassed": 5,
+      "webkitCoveredCases": 18,
+      "productionSandboxSha256": "58b0a9d9d364d7e5b3a47f4f169aa47e284a2dfcec5f53dc3b622832c6dc0b1f"
+    },
+    "mutex": {
+      "redFailed": 3,
+      "redPassed": 1,
+      "greenCombinedPassed": 58,
+      "physicalFilesystemRaceIndependentlyReproduced": true
+    },
+    "artifactPathsPassed": 8,
+    "freshIndependentDependencies": true,
+    "rootAndClientBuilds": true,
+    "independentReviewer": "Claude Opus 5.5",
+    "review": "opus-upstream-review.md",
+    "updatedAt": "2026-11-01T16:32:40.230596+00:00",
+    "ci": {
+      "source": {
+        "runId": 41325279716,
+        "url": "https://github.com/cloveric/tarobot/actions/runs/41325279716",
+        "conclusion": "success",
+        "vitest": {
+          "filesPassed": 587,
+          "testsPassed": 7811,
+          "skipped": 12
+        },
+        "electron": {
+          "passed": 333,
+          "skipped": 4
+        },
+        "artifactPath": {
+          "passed": 6,
+          "skipped": 2
+        },
+        "nativeJob": "success"
+      },
+      "secrets": {
+        "runId": 41325279741,
+        "conclusion": "success"
+      }
+    },
+    "note": "The initial hook and loaded retries failed. All original Vitest failing files now have unchanged passing retakes; full exact-source CI passed independently. No assertion or timeout was modified.",
+    "reviewSha256": "7e5f5bab759e716f4afad0410b309572cedee242c9e69abe4bdd06497e7f9f66",
+    "logHashes": {
+      "full-suite-quiet-eight.log": "ee2437343b8c0763b2f5667082f8cf33316b6b80fc965b41e5b71825e679481e",
+      "electron-full.log": "e00570b245e3338feff9a4d04bda26ca281bad63d087be7e7670f0c7a7f50390",
+      "file-mutex-red.log": "d09f9584b54bb08e536127374b298db478ecd0e3327f4f931aba0c3d51d9a048",
+      "pre-complete.log": "3e93b515446a980dfa48a5da78e0a86a029504b502fdd97a122538c6a6a109dc",
+      "design-chromium.log": "78ab982ad0b4d217dc49531a997d01a2e2d4043ec2a40974bd298b5558455ac9",
+      "design-native.log": "9a815e99a3427e1f3eefe5b9b7f612b7761b8752ec3bc831b7a248baaa737725",
+      "electron-reset-retry.log": "df5b0b2215fc06cadecea8f41a7c5ddb3a7c8ab79a8210ebfeb51067ecb378c2",
+      "native-legacy.log": "8d219fbe091c3df31d353f620fc25409878d76c230c421463cb8c0bbcb7642ab",
+      "full-suite-failed-files-serial.log": "a95cb29f7f260532158b6342278d8252deb87d7f490fd837282799f919da6f26",
+      "design-webkit-retake.log": "f73943160d689d50a0b454121ada132607d121c2bebc243f92df8c859aa299b8",
+      "full-suite-final-two.log": "fad9a0b5c5bd7d17b128b6ecd00e8cfdc350be6704454291b3919b65dff8fac8",
+      "native-core-serial.log": "39ce0e09a58c281fc1d21ee4f75c1654b75b5df4e9c834ec2a13f721128afba8",
+      "source-ci.log": "351d52a56834b332405e46aab7615178d0c3b16e938b208f00e9ea2baebc18bf",
+      "design-webkit.log": "85eb4d60004c212c515203a1a68ae6addc20b28a1edd579d260b6b8bc2fb175d",
+      "native-updater.log": "3e46d598a9e3478fb7f22fd00a59e33172de5042c31f78f57c5c83febc2013c9",
+      "artifact-paths-noindex.log": "e8a8fb4497298d5a1572578978c5ef135f49b618e2f0f5ea656fee99ec2a5681",
+      "native-core.log": "b33fdaaefe029caa2d75c7182c745386484c2711c29cfb92ef87c95ba0210942",
+      "design-chromium-quiet.log": "6a66489424e86baffe2bd5d180b75cb74e11610df20df9718c58c9604c0d3b06",
+      "native-addon.log": "5f488683c514e865adc41ebea0c62dfa6e33c6fd7a105a1999b0481fcd8e71fa",
+      "file-mutex-green.log": "b3612b48309727ade8e072396fee17d075ee37d9858220ed6f86ee9276043a30"
+    },
+    "at": "2026-11-01T16:39:10.928986+00:00"
+  },
+  "windowsBuiltAndExtracted": false,
+  "windowsRuntime": "owner_deferred",
+  "windowsPublished": false,
+  "installedMacVerified": true,
+  "installedStatus": "installed_runtime_model_gui_verified",
+  "installedAcceptance": {
+    "gui": {
+      "observationMethod": "CUA native app, accessibility tree and native screenshots; no mock/browser fixture",
+      "versionEvidence": "Settings > General > App update visibly displays TaroBot 1.0.125",
+      "connectionEvidence": {
+        "selectedHost": "macmini",
+        "status": "connected",
+        "route": "direct local Host",
+        "observedLatencyMs": 5,
+        "desktopScreenService": "registered",
+        "viewerPermission": "not_authorized",
+        "systemScreenRecording": "granted",
+        "systemAccessibility": "granted",
+        "systemInputMonitoring": "granted",
+        "remoteViewingAttempted": false,
+        "remoteInputAttempted": false
+      },
+      "functionalSmoke": {
+        "historyAndCurrentReplyRendered": true,
+        "composerQueueSteerAndStopControlsVisible": true,
+        "agentBusConfigurationLoaded": true,
+        "chancellorCreationOptionVisible": true,
+        "availableEngineAndModelLoaded": true,
+        "workbenchOpenedAndClosed": true,
+        "originalSingleChatLayoutRestored": true,
+        "createdBotsOrJobs": false,
+        "changedPermissionsOrSettings": false,
+        "designEditorEditedInInstalledApp": false
+      },
+      "passedRuntimeOrModelRepeated": false,
+      "limitations": [
+        "Native GUI smoke verifies entry/loading/rendering, not a new end-to-end Chancellor job execution. Source, isolated Electron and real model journeys remain separately recorded.",
+        "No installed Design editing/save mutation was performed; exact-source editor and isolated Electron checks are separate evidence.",
+        "This GUI device has no remote-screen viewer grant; no viewing/control session or permission expansion was attempted.",
+        "Physical phone and Windows runtime acceptance remain outside these Mac GUI checks."
+      ],
+      "evidence": [
+        {
+          "file": "installed-gui-version.png",
+          "sha256": "50d65e2287383def2f80cc25c34a3496f0068eaf059c462b567e345de5868e19"
+        },
+        {
+          "file": "installed-gui-version.ax.txt",
+          "sha256": "49cb181b94f530b25ea4ee5082f3cc281866b041a810e067cb73fe73c9c6b3d6"
+        },
+        {
+          "file": "installed-gui-connection.png",
+          "sha256": "243e510132b16cad2aa5332de6318e3516047dcfc157900d042ff4f48b3a243c"
+        },
+        {
+          "file": "installed-gui-connection.ax.txt",
+          "sha256": "23e8050486320d61a6d50618829d0f64a5b74106ea9090b2a902eacb920038ba"
+        },
+        {
+          "file": "installed-gui-chancellor.png",
+          "sha256": "3c3da8aaf435145a7b19d4d40a8275af43d392781b875fb72826c5d3120e9f37"
+        },
+        {
+          "file": "installed-gui-chancellor.ax.txt",
+          "sha256": "e32b392f961f5234595c0724adbd35e68e583aa94fdabf3c0348de39a85532ea"
+        },
+        {
+          "file": "installed-gui-final.png",
+          "sha256": "0897cf6934ab3bf5ca5e80b16cd94f103e75851a614ac7cf3ac5a11a39e157f1"
+        },
+        {
+          "file": "installed-gui-final.ax.txt",
+          "sha256": "85a336c8719f3fa02a5550b3065eeea71d83616a580132489e7522bee112b536"
+        }
+      ],
+      "at": "2026-11-01T17:07:30.047169+00:00"
+    },
+    "runtime": {
+      "verified": true,
+      "identifier": "com.tarobot.client",
+      "terminalCliVersion": "0.1.470",
+      "identityPreserved": true,
+      "historyIdsPreserved": true,
+      "authenticatedHostReconnectVerified": true,
+      "relayAllOnline": true,
+      "installedBinaryMatchesPublished": true,
+      "at": "2026-11-01T17:00:58.910Z"
+    },
+    "model": {
+      "verified": true,
+      "node": "/Applications/TaroBot.app/Contents/Resources/host/node",
+      "nodeSha256": "1f64b203d46f628a634cfdf10610f06599142bfa86fa26de3a5bde815b3b20f2",
+      "actualModelResponse": "DEEPSEEK_INSTALLED_OK",
+      "foreignDeepSeekAddonLoaded": true,
+      "productionConversationUsed": false,
+      "at": "2026-11-01T17:01:11.914Z"
+    }
+  },
+  "cleanup": {
+    "sourceCommit": "b3766a4930cf44c65ac2f9d0aac6fab06dd39151",
+    "status": "bounded_cleanup_complete",
+    "globalSweep": "deferred_discovery_bound",
+    "retiredApps": 6,
+    "latestBackupVersion": "1.0.125",
+    "latestBackupSignatureVerified": true,
+    "spotlightMatches": [
+      "/Applications/TaroBot.app"
+    ],
+    "installedVersion": "1.0.124",
+    "installedAppChanged": false,
+    "receipts": [
+      "cleanup-previous-applied.json"
+    ],
+    "at": "2026-11-01T16:56:01.391739+00:00",
+    "documentation": "The automatic global sweep reached its discovery bound and moved nothing. A narrower guarded pass retired 6 eligible prior-release/accepted-rollback Apps through /usr/bin/trash. No build process was active, and age/activity/ownership/activation/signature protections remained enabled. The signed 1.0.125 macos-ready backup is retained in .noindex. The full global roots were not fully enumerated. The unfiltered Spotlight query returned 1 result(s): /Applications/TaroBot.app. The installed 1.0.124 App was untouched by cleanup. Recent artifacts remain age-protected; Trash was not emptied and indexing settings were unchanged."
+  },
+  "at": "2026-11-01T17:08:15.536401+00:00"
+}

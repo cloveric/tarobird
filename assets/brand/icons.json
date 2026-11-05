@@ -1,0 +1,5 @@
+{
+  "default": "tarobot-master.png",
+  "bg_color": "#e3dbd5",
+  "android_fg": "android-foreground.svg"
+}

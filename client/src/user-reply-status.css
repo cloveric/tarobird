@@ -1,0 +1,22 @@
+/* Quiet receipt-like annotation beside the timestamp, outside bubble content.
+   Both text and shape convey meaning; theme colours are only reinforcement. */
+.message.user .message-meta { min-width: 0; max-width: 100%; }
+.user-reply-status { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 11px; line-height: inherit; }
+.user-reply-state { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
+.user-reply-state svg { width: 12px; height: 12px; flex-shrink: 0; stroke-width: 1.8; }
+.user-reply-state > span { overflow: hidden; text-overflow: ellipsis; }
+.user-reply-state.is-replying { color: var(--accent); }
+
+.user-reply-state:is(.is-error,.is-partial) { color: var(--red); }
+.reply-status-spinner { animation: reply-status-turn 1.6s linear infinite; }
+@keyframes reply-status-turn { to { transform: rotate(360deg); } }
+:root[data-palette=cli] .user-reply-status { font-family: var(--font-mono); }
+
+.reply-status-other { color: var(--muted); font-variant-numeric: tabular-nums; }
+button.reply-status-trigger { background: transparent; border: 0; border-radius: 4px; padding: 2px 4px; margin: -2px 0; min-height: 24px; font-weight: 400; }
+button.reply-status-trigger:hover { background: var(--hover); }
+.reply-status-dialog > p { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 12px; }
+.reply-status-dialog ul { list-style: none; margin: 0; padding: 0; }
+.reply-status-dialog li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.reply-status-dialog li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.reply-status-dialog li .user-reply-state { flex-shrink: 0; }

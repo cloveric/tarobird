@@ -1,0 +1,121 @@
+import { preparePairing } from "./fixtures/pairing-invite.js";
+import { test, expect } from '@playwright/test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { HubServer } from '../../src/hub/server.js';
+import { showDisconnectedBots, selectConversation, waitForClientOnline } from './fixtures/mobile.js';
+import { revealReplyBots, dismissReplyBots } from './fixtures/desktop-actions.js';
+
+test('details preserve draft ownership; phone navigation and recipients remain usable', async ({ page }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'conversation-details-'));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve('dist') });
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','助手甲','fixture'),('beta','助手乙','fixture')");
+    const group = await hub.store.createConversation('owner', ['alpha','beta'], '方案讨论', 'details-group', { type:'group' });
+    const direct = await hub.store.createConversation('owner', ['alpha'], '独立任务', 'details-direct');
+    await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole('button', {name:'配对此设备', exact:true}).click();
+    await hub.auth.approve(await page.getByLabel('配对码', {exact:true}).innerText(), 'local-owner');
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" }); await showDisconnectedBots(page); await waitForClientOnline(page);
+    await selectConversation(page, group.title);
+    const input = page.getByRole('textbox', {name:'消息', exact:true});
+    await input.fill('只属于群聊的草稿');
+    const details = page.getByRole('button', {name:'查看对话详情', exact:true});
+    await details.click();
+    await expect(page.getByRole('complementary', {name:'对话详情', exact:true})).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    // The sidebar remains usable while details are open. Context switches, drafts do not.
+    await selectConversation(page, direct.title); await expect(input).toHaveValue('');
+    await expect(page.getByRole('complementary').getByRole('heading',{name:direct.title})).toBeVisible();
+    await page.getByRole('button',{name:'关闭对话详情',exact:true}).press('Escape');
+    await expect(details).toBeFocused();
+    await selectConversation(page, group.title); await expect(input).toHaveValue('只属于群聊的草稿');
+    await page.setViewportSize({width:390,height:844});
+    await details.click(); await expect(page.getByRole('dialog',{name:'对话详情',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'返回聊天',exact:true}).click(); await expect(input).toHaveValue('只属于群聊的草稿');
+    await revealReplyBots(page); await page.getByRole('checkbox',{name:'助手甲',exact:true}).click();
+    await page.getByRole('checkbox',{name:'助手乙',exact:true}).click(); await dismissReplyBots(page);
+    const longDraft = Array.from({length:40},(_,i)=>`第 ${i+1} 行：保留完整草稿。`).join('\n');
+    await input.fill(longDraft);
+    await expect(page.getByRole('button',{name:'发送消息',exact:true})).toBeInViewport();
+    const tall = (await input.boundingBox())!.height; expect(tall).toBeGreaterThan(80); expect(tall).toBeLessThan(220);
+    await page.getByRole('button',{name:'添加附件',exact:true}).click();
+    await expect(page.getByRole('button',{name:'拍照',exact:true})).toBeVisible();
+    await page.keyboard.press('Escape'); await expect(input).toHaveValue(longDraft);
+    await input.fill('短句'); expect((await input.boundingBox())!.height).toBeLessThan(tall);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect((await hub.store.conversations('owner')).map(c=>c.id).sort()).toEqual([group.id,direct.id].sort());
+    expect(errors).toEqual([]);
+  } finally { await page.close(); await hub.close(); await rm(root,{recursive:true,force:true}); }
+});
+
+test('details separate scopes and preserve the selected Bot when returning from child pages', async ({ page }, info) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'details-navigation-'));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve('dist') });
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','研究助手','fixture'),('beta','写作助手','fixture')");
+    const direct = await hub.store.createConversation('owner', ['alpha'], '国庆 A 账', 'details-simple');
+    const group = await hub.store.createConversation('owner', ['alpha','beta'], '项目讨论', 'details-multi', { type:'group' });
+    await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole('button', {name:'配对此设备', exact:true}).click();
+    await hub.auth.approve(await page.getByLabel('配对码', {exact:true}).innerText(), 'local-owner');
+    await page.getByLabel('配对码', {exact:true}).waitFor({state:'hidden'}); await showDisconnectedBots(page); await waitForClientOnline(page);
+    await selectConversation(page, direct.title); await page.getByRole('button', {name:'查看对话详情',exact:true}).click();
+    const details = page.getByRole('dialog',{name:'对话详情',exact:true});
+    await expect(details.getByRole('button', {name:'Bot 设置',exact:true})).toBeVisible();
+    const clear = details.getByRole('button', { name: '清理聊天记录', exact: true });
+    await expect(clear).toBeInViewport();
+    const clearColor = await clear.locator('strong').evaluate(node => getComputedStyle(node).color);
+    expect(clearColor).not.toBe(await details.getByRole('button', { name: '对话设置', exact: true }).locator('strong').evaluate(node => getComputedStyle(node).color));
+    await expect(details.getByRole('button', {name:'调整 Bot 思考强度',exact:true})).toHaveCount(0);
+    await expect(details.getByRole('button', {name:/Skills/})).toHaveCount(0);
+    await expect(details.getByRole('button', {name:/主机工具/})).toBeInViewport();
+    expect((await details.boundingBox())!.height).toBe(844);
+    await page.screenshot({animations:'disabled',path:info.outputPath('details-phone-porcelain.png')});
+    for (const theme of ['light','dark']) {
+      await page.evaluate(theme => { document.documentElement.dataset.palette='mono'; document.documentElement.dataset.theme=theme; }, theme);
+      await page.screenshot({animations:'disabled',path:info.outputPath(`details-phone-mono-${theme}.png`)});
+    }
+    await page.evaluate(() => { document.documentElement.dataset.palette='white-teal'; document.documentElement.dataset.theme='light'; });
+    await details.getByRole('button', {name:'此对话文件',exact:true}).click();
+    const files = page.getByRole('dialog',{name:'对话文件',exact:true});
+    await expect(files.getByLabel('文件范围',{exact:true})).toHaveValue('');
+    await expect(files).toContainText(direct.title); await expect(files).toContainText('这里还没有分享过文件');
+    await page.evaluate(() => window.dispatchEvent(new Event('tarocub-native-back')));
+    await expect(details.getByRole('button', {name:'此对话文件',exact:true})).toBeFocused();
+    await details.getByRole('button', {name:'对话设置',exact:true}).click();
+    const settings = page.getByRole('dialog',{name:'对话设置',exact:true});
+    await expect(settings.getByText('Bot 快捷设置',{exact:true})).toHaveCount(0);
+    await settings.getByRole('button',{name:'关闭对话设置',exact:true}).click();
+    await expect(details.getByRole('button', {name:'对话设置',exact:true})).toBeFocused();
+    await details.getByRole('button', {name:'Bot 设置',exact:true}).click();
+    const botSettings = page.getByRole('dialog',{name:'Bot 设置',exact:true});
+    await expect(botSettings).toContainText('此 Bot 的所有对话、群聊和话题共用');
+    await botSettings.getByRole('button',{name:'关闭 Bot 设置',exact:true}).click();
+    await expect(details.getByRole('button', {name:'Bot 设置',exact:true})).toBeFocused();
+    await selectConversation(page, group.title); await page.getByRole('button', {name:'查看对话详情',exact:true}).click();
+    await details.getByLabel('查看 Bot',{exact:true}).selectOption('beta');
+    await details.getByRole('button', {name:'Bot 设置',exact:true}).click();
+    await expect(botSettings.getByLabel('选择要调整的 Bot',{exact:true})).toHaveValue('beta');
+    await botSettings.getByRole('button',{name:'关闭 Bot 设置',exact:true}).click();
+    await details.getByRole('button', {name:/主机工具/}).click();
+    await details.getByRole('button', {name:/完整工作区/}).click();
+    await expect(page.getByRole('dialog',{name:'文件中心',exact:true})).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(details.getByRole('button', {name:/完整工作区/})).toBeFocused();
+    await expect(details.getByLabel('查看 Bot',{exact:true})).toHaveValue('beta');
+    await details.getByRole('button', {name:/运行状态/}).click();
+    await expect(page.getByRole('dialog',{name:'运行状态',exact:true})).toContainText('写作助手');
+    await page.locator('.settings-page-back').click(); await page.locator('.settings-page-back').click();
+    await expect(details.getByRole('button',{name:/运行状态/})).toBeFocused();
+    await page.setViewportSize({width:320,height:640});
+    await page.evaluate(() => { document.documentElement.style.fontSize='20px'; });
+    expect(await details.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({animations:'disabled',path:info.outputPath('details-phone-narrow.png')});
+    expect(errors).toEqual([]);
+  } finally { await page.close(); await hub.close(); await rm(root,{recursive:true,force:true}); }
+});

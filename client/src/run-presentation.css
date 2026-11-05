@@ -1,0 +1,125 @@
+/* Native runs and legacy rich cards share the same reading surface. */
+.native-run{width:100%;min-width:0;padding:12px 14px;background:var(--raised,var(--bg));border:1px solid var(--border);border-radius:10px;font-size:inherit;line-height:1.65}
+.native-run-status{display:flex;align-items:center;gap:7px;min-height:22px;font-size:12px;color:var(--muted);font-weight:550}
+.native-run-status>span:not(.run-state-dot){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.native-run-status time{margin-left:auto;font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.run-state-dot{width:6px;height:6px;flex:none;border-radius:50%;background:currentColor}
+.native-run-status.is-interrupted{color:var(--red)}
+.native-run-prose{margin:8px 0;overflow-wrap:anywhere}.native-run-prose:empty{display:none}
+.native-run-prose>.card-text+.card-text{margin-top:1em}
+.run-thinking-preview{margin:8px 0;color:var(--grey);font-size:12px;line-height:1.65;overflow-wrap:anywhere}.run-thinking-preview>span{font-size:11px;color:var(--muted)}.run-thinking-preview>p{margin:3px 0 0;white-space:pre-line}
+.native-run-status>svg,.native-run-status>time{flex-shrink:0}
+.native-run-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;margin-top:8px}
+.native-run-actions button{display:flex;flex-shrink:0;max-width:100%;min-width:0;align-items:center;gap:6px;background:transparent;border:0;min-height:32px;padding:4px 0;font-size:12px;color:var(--muted);text-align:left;white-space:normal;overflow-wrap:anywhere}
+.native-run-actions button>svg{flex:none}.native-run-actions button>span{min-width:0}
+.native-run-actions>.run-stop{margin-inline-start:auto}
+.native-run-actions button:hover:not(:disabled){color:var(--text)}.native-run-actions button:disabled{opacity:.55}
+/* Keep related reading actions together on desktop, including narrow ADHD panes. */
+@media(min-width:761px) and (hover:hover) and (pointer:fine){
+ .native-run:not(.is-scoped)>.native-run-actions{justify-content:flex-start;flex-wrap:wrap;gap:4px 16px}
+ .native-run:not(.is-scoped)>.native-run-actions>button{max-width:100%;text-align:left}
+ .native-run:not(.is-scoped)>.native-run-actions>button>svg{flex:none}
+ .native-run:not(.is-scoped)>.native-run-actions>.run-stop{margin-inline-start:auto}
+}
+:root .creation-dialog.run-details[open]{display:flex;flex-direction:column;position:fixed;top:var(--shell-top,0px);bottom:auto;left:auto;right:0;margin:0;width:min(560px,95vw);max-width:none;height:var(--shell-height,100dvh);max-height:var(--shell-height,100dvh);border:0;border-left:1px solid var(--border);border-radius:0;padding:20px;overflow:hidden;animation:none}
+.run-details>header{flex:none;justify-content:flex-start;gap:10px}.run-details>header>button{order:-1}.run-details>header>h2{flex:1}
+.run-details>.runtime-host-label{font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 6px;overflow-wrap:anywhere;flex:none}
+.run-details-meta{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 12px;flex:none;overflow-wrap:anywhere}
+.run-details-phase{font-size:13px;color:var(--text);font-weight:500}
+.run-details-tools{display:flex;gap:8px;align-items:center;flex:none}.creation-dialog .run-details-tools>label{flex-direction:row;margin-bottom:0;display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:7px;min-width:0;flex:1;height:32px;padding:0 8px}
+.run-details-tools>label>svg{width:14px;height:14px;flex:none;color:var(--muted)}
+.run-details-tools label:focus-within{border-color:var(--focus)}.run-details-tools input{border:0!important;box-shadow:none!important;outline:none!important;width:100%;min-width:0;height:100%;min-height:0;background:transparent;padding:0;font-size:13px;line-height:1.3}
+.run-details-tools button{font-size:13px}
+.run-details-tools button,.run-details-footer button{min-height:36px;padding:4px 10px;flex:none}
+.run-details-footer>span{min-width:0;text-align:center;overflow-wrap:anywhere}.run-details-footer>button[aria-label]{padding:4px;min-width:32px}
+.run-details-body{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:14px 0;overflow-anchor:none;scrollbar-gutter:stable}
+.run-details-body>*{flex-shrink:0}
+.run-details-empty{flex:1 0 auto;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 16px;text-align:center;overflow-wrap:anywhere}
+.run-details-empty>svg{color:var(--muted);flex:none;margin-bottom:2px}
+.run-details-empty>p{max-width:100%;font-size:14px;line-height:1.6;color:var(--text)}
+.run-details-empty>span{max-width:100%;font-size:12px;line-height:1.6;color:var(--muted)}
+.run-record-info{margin-top:14px;border-top:1px solid var(--border);font-size:12px;line-height:1.6;color:var(--muted)}
+.run-record-info>summary{display:flex;align-items:center;gap:6px;min-height:36px;cursor:pointer;list-style:none}
+.run-record-info>summary::-webkit-details-marker{display:none}
+.run-record-info>summary>svg{flex:none}
+.run-record-info[open]>summary>svg{transform:rotate(90deg)}
+.run-retention,.run-notice{font-size:11px;color:var(--muted);line-height:1.6}.run-notice{color:var(--red)}
+.run-recovery-notice{color:var(--muted);font-size:12px;line-height:1.7;margin:8px 0 12px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;overflow-wrap:anywhere}
+.run-update-time,.run-update-explanation{font-size:11px;line-height:1.6;color:var(--muted);margin:0 0 6px;overflow-wrap:anywhere}
+.run-update-heading{display:flex;align-items:center;gap:6px;min-height:18px;white-space:nowrap}
+.run-update-heading>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.run-update-relative{font-variant-numeric:tabular-nums}
+.run-update-time time{display:block;font-variant-numeric:tabular-nums}
+.run-timeline{list-style:none;padding:0;margin:0}.run-step{border-bottom:1px solid var(--border);padding:5px 0}
+.run-step>details>summary{list-style:none;display:flex;align-items:center;gap:7px;cursor:pointer;min-height:42px;font-size:13px}
+.run-step>details>summary::-webkit-details-marker{display:none}.run-step>details[open]>summary>svg{transform:rotate(90deg)}
+.run-step-title{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:550}.run-step-status,.run-step time{font-size:11px;color:var(--muted);white-space:nowrap}
+.run-scope-heading{font-size:12px;font-weight:550;color:var(--muted);margin:0 0 4px}
+.run-step-scope{display:flex;flex-direction:column;gap:2px;padding:3px 0;font-size:11px;line-height:1.5;color:var(--muted);font-weight:500}
+.run-step-scope>span{border-left:2px solid var(--border);padding-left:6px}
+.run-step.is-error .run-step-status{color:var(--red)}.run-step-detail{padding:0 8px 14px 22px;min-width:0;font-size:13px}
+.run-step-detail>small{display:block;color:var(--muted);overflow-wrap:anywhere}.run-step-detail>section>h4{font-size:12px;margin:14px 0 6px}
+/* Raw tool data has its own reader; Markdown keeps its code-copy clearance,
+   heading hierarchy and theme typography, just like the reply card. */
+.run-step-detail .run-diff{max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 ui-monospace,monospace;background:var(--hover);padding:10px;border-radius:6px}
+.run-step-detail a{overflow-wrap:anywhere}.run-copy{display:flex;gap:5px;align-items:center;margin:5px 0;font-size:11px;background:transparent;border:0;color:var(--muted)}
+.run-agent-report{min-width:0;padding:10px 0;border-top:1px solid var(--border)}
+.run-agent-report>header{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;font-size:11px;color:var(--muted)}
+.run-agent-report>header>span{flex:1;min-width:0;overflow-wrap:anywhere}.run-agent-report>header>strong{flex:none;max-width:45%;overflow-wrap:anywhere;font-weight:500}
+.run-agent-report>header>strong[data-state="errored"]{color:var(--red)}
+.run-diff .added{color:#167b42}.run-diff .removed{color:#b43e39}html[data-theme="dark"] .run-diff .added{color:#88dca5}html[data-theme="dark"] .run-diff .removed{color:#ffa9a3}
+.run-raw{margin-top:12px}.run-raw>summary{font-size:12px;cursor:pointer}.run-details-footer{display:flex;align-items:center;gap:8px;justify-content:space-between;flex:none;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+.run-delivered-files h3{font-size:13px;margin-top:20px}.run-delivered-files .file-card{max-width:100%}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+ :root .creation-dialog.run-details[open]{inset:var(--shell-top,0px) 0 auto;width:100%;height:var(--shell-height,100dvh);max-height:var(--shell-height,100dvh);padding:calc(8px + var(--app-safe-top)) max(16px,var(--app-safe-right)) calc(8px + var(--app-safe-bottom)) max(16px,var(--app-safe-left));border:0;border-radius:0}
+ .run-details>header{min-height:48px;margin:0 0 8px}.run-details-tools button,.run-details-footer button,.run-copy,.run-record-info>summary{min-height:44px}.run-step>details>summary{min-height:48px}.run-step-detail{padding-left:10px}.run-step time{display:none}.native-run-actions button{min-height:40px}
+ .run-details-tools>button[aria-label]{min-width:44px;padding:4px}
+}
+
+.run-plan{list-style:none;padding:0}.run-plan li{display:flex;gap:8px;align-items:baseline;margin:8px 0}.run-plan li>span:nth-child(2){flex:1}.run-plan small{color:var(--muted);white-space:nowrap}
+
+/* Secondary reports stay visible without expanding their full transcript into
+   every chat pane. Previews contain plain text, so clipping hides no controls. */
+.native-run-heading{display:flex;align-items:center;gap:4px 10px;min-width:0;flex-wrap:wrap}
+.native-run-heading>.native-run-status{flex:1;min-width:0}
+.is-scoped .native-run-status{flex-basis:160px}
+.is-scoped .native-run-status>span:not(.run-state-dot){white-space:normal;overflow:visible}
+.is-scoped .run-scope-heading{display:flex;align-items:center;gap:5px;flex:none;margin:0;color:var(--text);font-size:12px;line-height:22px}
+.is-scoped .run-scope-heading>svg{color:var(--muted);flex:none}
+.is-scoped{padding:10px 12px}
+.is-scoped:is([data-phase=error],[data-phase=interrupted]) .native-run-status{color:var(--red)}
+.is-scoped:is([data-phase=waiting_answer],[data-phase=waiting_approval]) .native-run-status{color:var(--accent)}
+.run-report-preview{margin:6px 0 2px;min-width:0}
+.run-report-preview>span{display:block;font-size:10px;color:var(--muted);margin-bottom:3px}
+.run-report-preview>p{margin:0;font-size:max(11px,.92em);line-height:1.55;max-height:4.65em;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.is-scoped .native-run-actions{margin-top:4px;flex-wrap:wrap;gap:4px 12px}
+.is-scoped .run-report-trigger{color:var(--accent);font-weight:500}
+:root .creation-dialog.run-report-dialog[open]{display:flex;flex-direction:column;position:fixed;top:var(--shell-top,0px);bottom:auto;left:auto;right:0;margin:0;width:min(640px,95vw);max-width:none;height:var(--shell-height,100dvh);max-height:var(--shell-height,100dvh);padding:20px;border:0;border-left:1px solid var(--border);border-radius:0;overflow:hidden;animation:none}
+.run-report-dialog>header{flex:none;gap:10px}.run-report-dialog>header>button{order:-1}.run-report-dialog>header>h2{flex:1}
+.run-report-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;overflow-wrap:anywhere;scrollbar-gutter:stable;overflow-anchor:none;padding:8px 0 16px}
+.run-report-body>.card-text+.card-text{margin-top:1em}
+.run-report-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:none;padding-top:10px;border-top:1px solid var(--border)}
+.run-report-actions>button{display:flex;align-items:center;gap:6px;min-height:36px;border:0;background:none;color:var(--muted);font-size:12px;padding:4px 2px}
+.run-report-actions>button:hover:not(:disabled){color:var(--text)}.run-report-actions>span{font-size:12px;color:var(--red)}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+ :root .creation-dialog.run-report-dialog[open]{inset:var(--shell-top,0px) 0 auto;width:100%;max-width:none;padding:calc(8px + var(--app-safe-top,0px)) max(16px,var(--app-safe-right,0px)) calc(8px + var(--app-safe-bottom,0px)) max(16px,var(--app-safe-left,0px));border:0}
+ .run-report-actions>button,.is-scoped .native-run-actions>button{min-height:44px}
+}
+
+.run-report-preview.is-active>p{height:4.65em}
+.adhd-card .is-scoped :is(.native-run-status,.run-scope-heading,.native-run-actions button){font-size:max(11px,calc(var(--font-size) - 2px))}
+.adhd-card .is-scoped :is(.background-task-compact,.run-report-preview>span,.native-run-status time){font-size:max(10px,calc(var(--font-size) - 3px))}
+
+.is-scoped .native-run-status.has-current>span:not(.run-state-dot){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.scoped-task-description{margin:8px 0;font-size:13px;line-height:1.6;font-weight:400;overflow-wrap:anywhere;min-width:0;color:var(--text)}
+.scoped-task-description-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted);font-size:11px;margin-bottom:2px}
+.scoped-task-description-heading>button{display:flex;align-items:center;gap:4px;border:0;background:none;padding:2px 0 2px 8px;min-height:28px;font:inherit;color:var(--muted)}
+.scoped-task-description-heading>button:hover{color:var(--text)}
+.scoped-task-description-heading>button[aria-expanded=true]>svg{transform:rotate(180deg)}
+.scoped-task-excerpt{margin:0;line-height:1.6;max-height:3.2em;overflow:hidden;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+/* This is task metadata, not the main/ADHD reply. The shared card-text wrapper
+   must not inherit those surfaces' rem-based or user-sized Markdown override. */
+:root .message .native-run.is-scoped .scoped-task-description .card-text>.markdown{font-size:inherit;line-height:inherit}
+.scoped-task-description .markdown :is(h1,h2,h3,h4,h5,h6){font-size:1em;font-weight:600}
+@media(max-width:760px),(hover:none) and (pointer:coarse){.scoped-task-description-heading>button{min-height:44px}}

@@ -1,0 +1,53 @@
+/* Dispatcher Bot settings: the collaboration checkbox rows in creation and Bot settings dialogs. */
+.dispatcher-fields .collaboration-check,.bot-fields>.collaboration-check,.dispatcher-role-row>.collaboration-check{display:flex;flex-direction:row;align-items:center;gap:8px;margin:12px 0;font-weight:inherit}
+:is(.dispatcher-fields,.bot-fields) .collaboration-check>input{flex:none;width:auto;min-height:0}
+.dispatcher-fields>fieldset{min-width:0;margin:12px 0 0}
+.dispatcher-fields .collaboration-check{margin:8px 0;font-size:13px}
+.dispatcher-role-row,.dispatcher-role-label{display:flex;align-items:center;gap:4px}
+.dispatcher-routing-help.icon-button{flex:none;width:28px;min-width:28px;height:28px;min-height:28px;padding:0;color:var(--muted)}
+.dispatcher-routing-help.icon-button:hover{color:var(--accent,var(--text))}
+@media(max-width:760px),(pointer:coarse){.dispatcher-routing-help.icon-button{width:36px;min-width:36px;height:36px;min-height:36px}}
+
+/* Ticket list above the dispatcher's composer: quiet by default, like the queue trigger. */
+.dispatch-tickets{flex:none;min-width:0;margin:0 2px 4px;font-size:12px}
+.dispatch-tickets-trigger{display:flex;align-items:center;gap:6px;min-height:30px;max-width:100%;padding:4px 8px;color:var(--grey);background:transparent;font-size:12px}
+.dispatch-tickets-trigger>span{font-weight:550;white-space:nowrap;flex:none}.dispatch-tickets-trigger>svg{flex:none}
+.dispatch-tickets-trigger>small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--muted)}
+.dispatch-tickets-trigger>svg:last-child{transition:transform var(--t-fast,.15s) var(--ease,ease)}.dispatch-tickets-trigger[aria-expanded=true]>svg:last-child{transform:rotate(90deg)}
+.dispatch-engines{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0 8px 4px;color:var(--muted);font-size:11px;line-height:1.5}
+.dispatch-engines>span{display:inline-flex;align-items:center;gap:6px}
+.dispatch-engines button,.dispatch-ticket-actions button{min-height:26px;padding:2px 6px;border:0;background:transparent;color:var(--muted);font-size:11px}
+.dispatch-engines button:hover:not(:disabled),.dispatch-ticket-actions button:hover:not(:disabled){color:var(--text);background:var(--hover)}
+.dispatch-tickets-error{margin:0 8px 4px;color:var(--muted);font-size:11px}
+.dispatch-ticket-list{list-style:none;margin:0 0 4px;padding:0 2px;max-height:min(232px,32dvh);overflow:auto;overscroll-behavior:contain;border-top:1px solid var(--border)}
+.dispatch-ticket{padding:8px 6px 4px;border-bottom:1px solid var(--border)}
+.dispatch-ticket-heading{display:flex;align-items:center;gap:6px;min-width:0}
+.dispatch-ticket-heading>strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px;font-weight:550}
+.dispatch-ticket-status,.dispatch-ticket-paused{flex:none;padding:1px 6px;border-radius:999px;background:var(--surface);color:var(--muted);font-size:11px;line-height:1.5;white-space:nowrap}
+.dispatch-ticket[data-status=needs_answer] .dispatch-ticket-status{background:var(--accent-soft,var(--selected));color:var(--accent,var(--text))}
+.dispatch-ticket-review{display:inline-block;padding:1px 6px;border-radius:999px;line-height:1.5;vertical-align:baseline}
+.dispatch-ticket-review,.dispatch-ticket[data-status=needs_review] .dispatch-ticket-status{background:color-mix(in srgb,var(--mono-mark,var(--accent)) 18%,var(--bg));color:color-mix(in srgb,var(--mono-mark,var(--accent)) 55%,var(--text))}
+.dispatch-ticket[data-status=working] .dispatch-ticket-status{color:var(--text)}
+.dispatch-ticket:is([data-status=done],[data-status=cancelled]) .dispatch-ticket-heading>strong{color:var(--muted);font-weight:500}
+.dispatch-ticket-meta{display:flex;gap:8px;margin-top:2px;color:var(--muted);font-size:11px;line-height:1.5}
+.dispatch-ticket-meta>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dispatch-ticket-meta>time{flex:none;margin-left:auto}
+.dispatch-ticket-actions{display:flex;flex-wrap:wrap;gap:2px;margin:2px 0 0 -6px}
+.dispatch-ticket>.prompt-queue-confirm{margin:6px 0 4px}
+@media(max-width:760px),(pointer:coarse){.dispatch-tickets-trigger{min-height:36px}.dispatch-engines button,.dispatch-ticket-actions button{min-height:36px;padding:4px 8px}}
+/* Phone tickets keep the secondary information and controls on one row.
+ * Full-width notices and cancellation confirmation stay in reading order. */
+@media(max-width:760px){
+  .dispatch-ticket{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;padding:8px 6px}
+  .dispatch-ticket-heading,.dispatch-ticket>p,.dispatch-ticket>.prompt-queue-confirm{grid-column:1/-1}
+  .dispatch-ticket-meta{min-width:0;align-self:center;flex-direction:column;gap:2px;margin:0}
+  .dispatch-ticket-meta>time{margin-left:0}
+  .dispatch-ticket-actions{align-self:center;justify-content:flex-end;gap:6px;max-width:min(60vw,232px);margin:0}
+  .dispatch-ticket-actions button{padding:4px 10px;border-radius:7px;background:var(--surface)}
+}
+/* Host ticket notices in a dispatcher's chat: one quiet line, details on demand. */
+.message.dispatch-notice-row{display:flex;justify-content:center;padding:3px 12px}
+.dispatch-notice{max-width:min(640px,94%);font-size:12px;color:var(--muted)}
+.dispatch-notice>summary{cursor:pointer;list-style:none;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dispatch-notice>summary::-webkit-details-marker{display:none}
+.dispatch-notice[open]>summary{white-space:normal}
+.dispatch-notice-body{margin-top:6px;padding:8px 10px;border-radius:10px;background:var(--surface);color:var(--text);font-size:12.5px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}

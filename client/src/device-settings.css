@@ -1,0 +1,120 @@
+/* Devices & security: the pairing entry and flow, device details, in-flight states. */
+
+/* Entry into the pairing flow */
+.device-add{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;margin:16px 0 8px;padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.device-add-icon{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;background:var(--selected);color:var(--blue)}
+.device-add-text{display:flex;flex-direction:column;gap:4px;min-width:0}
+.device-add-text strong{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.device-add-text small{line-height:1.55}
+.device-add>button{min-height:40px;white-space:nowrap}
+@media(max-width:480px){.device-add{grid-template-columns:auto minmax(0,1fr)}.device-add>button{grid-column:1/-1;width:100%;min-height:44px}}
+
+/* Authorized devices. The platform icon is neutral: it says nothing about presence. */
+.device-host-scope{font-size:13px;font-weight:600;overflow-wrap:anywhere;margin:4px 0 8px}
+.device-section{margin:16px 0}
+.settings-devices .device-display-name{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.device-row>button.secondary{flex:none;min-height:40px;white-space:nowrap}
+.device-revoked{margin:20px 0;border-top:1px solid var(--border);padding-top:16px}
+.device-revoked>summary{cursor:pointer;font-size:13px;font-weight:550;min-height:36px}
+.device-revoked>summary>span{color:var(--muted);margin-left:6px}
+.creation-dialog.device-detail{width:520px;max-width:calc(100vw - 24px)}
+.device-detail-heading{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+.device-detail-heading>svg{flex:none;color:var(--muted)}
+.device-detail-heading>div{min-width:0;overflow-wrap:anywhere}
+.device-detail-heading strong{font-size:17px;font-weight:600}
+.device-detail-heading p{font-size:12px;margin-top:4px}
+.device-detail .device-name{display:flex;gap:8px;align-items:center;min-height:44px;overflow-wrap:anywhere}
+.device-detail .device-rename{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.device-detail .device-rename input{flex:1 1 100%;width:100%;min-width:0;min-height:44px}
+.device-detail .device-rename button{min-height:40px;padding:0 14px;background:var(--surface-alt);border-radius:var(--radius-sm)}
+.device-name-hint{margin:12px 0;padding:12px;background:var(--surface-alt);border-radius:8px;font-size:12px;line-height:1.6}
+.device-name-hint button{color:var(--blue);min-height:36px}
+.device-revoke-action{border-top:1px solid var(--border);margin-top:24px;padding-top:16px;font-size:13px;line-height:1.7}
+.device-revoke-action p{margin-bottom:10px}
+.device-revoke-action>button{min-height:44px;padding:0 16px;border:1px solid var(--red);border-radius:8px}
+@media(max-width:760px){
+  :root dialog.creation-dialog.device-detail{position:fixed;inset:var(--shell-top,0px) 0 auto;margin:0;width:100%;height:var(--shell-height,100dvh);max-width:none;max-height:none;border:0;border-radius:0;padding:calc(var(--app-safe-top,0px) + 16px) max(16px,var(--app-safe-right,0px)) calc(var(--app-safe-bottom,0px) + 16px) max(16px,var(--app-safe-left,0px));overflow:auto;overscroll-behavior:contain;animation:none}
+  .device-row>button.secondary{min-height:44px}
+}
+.settings-devices .device-row>svg{color:var(--grey);flex-shrink:0}
+.device-row .device-meta{display:flex;flex-wrap:wrap;gap:2px 10px;line-height:1.5}
+.device-row .device-meta time{color:inherit}
+.device-id,.device-facts code{font-family:"SFMono-Regular",Consolas,ui-monospace,monospace;font-size:11px;letter-spacing:.02em}
+.device-row.just-added{padding-left:10px;padding-right:8px;border-radius:6px;background:var(--surface);background:color-mix(in srgb,var(--blue) 7%,transparent);box-shadow:inset 3px 0 0 var(--blue)}
+.device-row[tabindex]:focus{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
+.settings-device-tag[data-tone=new]{color:var(--blue);background:var(--selected)}
+.device-row>button.text-danger{min-height:36px;flex-shrink:0;white-space:nowrap}
+.device-row>button[aria-disabled=true],.pairing-wizard button[aria-disabled=true]{opacity:.75;cursor:progress}
+@media(pointer:coarse){.device-row>button.text-danger{min-height:44px}}
+
+/* Facts that identify a device before its authorization is revoked */
+.device-facts{display:grid;gap:8px;margin:0 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:13px}
+.device-facts>div{display:flex;justify-content:space-between;align-items:baseline;gap:16px;min-width:0}
+.device-facts dt{color:var(--muted);flex:none}
+.device-facts dd{margin:0;text-align:right;min-width:0;overflow-wrap:anywhere}
+
+/* An operation in flight */
+.settings-progress{display:flex;align-items:center;gap:8px}
+.settings-progress::before{content:"";flex:none;width:12px;height:12px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--blue);animation:spin 1s linear infinite}
+
+/* Pairing flow */
+.creation-dialog.pairing-wizard{width:520px;max-width:calc(100vw - 24px);max-height:min(90dvh,760px);overflow:auto;overscroll-behavior:contain;padding-bottom:0}
+.pairing-wizard>header{margin-bottom:16px}
+.pairing-progress{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;list-style:none;margin:0 0 12px;padding:0}
+.pairing-progress li{position:relative;display:flex;align-items:center;gap:6px;min-width:0;padding-top:6px;border-top:3px solid var(--border);color:var(--muted);font-size:12px;line-height:1.35}
+.pairing-progress li[data-state=done]{border-top-color:var(--blue);border-top-color:color-mix(in srgb,var(--blue) 45%,var(--border))}
+.pairing-progress li[data-state=current]{border-top-color:var(--blue);color:var(--text)}
+.pairing-progress-mark{display:grid;place-items:center;flex:none;width:20px;height:20px;border-radius:50%;border:1px solid currentColor;font-size:11px;font-variant-numeric:tabular-nums}
+.pairing-progress li[data-state=current] .pairing-progress-mark{background:var(--blue);border-color:var(--blue);color:var(--on-primary)}
+.pairing-progress li[data-state=done] .pairing-progress-mark{color:var(--blue)}
+.pairing-progress-text{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere;font-weight:500}
+/* The heading chip names the acting device; keep each step's device for assistive tech only. */
+.pairing-progress-text small{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.pairing-step{display:flex;flex-direction:column;gap:10px}
+.pairing-step-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.pairing-step-heading h3{margin:0;font-size:16px;font-weight:600;line-height:1.4}
+.pairing-step-heading h3:focus{outline:none}
+.pairing-device-chip{display:inline-flex;align-items:center;padding:2px 9px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--grey);font-size:12px;line-height:1.6;white-space:nowrap}
+.pairing-device-chip[data-device=this]{border-color:var(--blue);background:var(--selected);color:var(--blue)}
+.pairing-host{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:12px;color:var(--muted)}
+.pairing-instruction{margin:0;font-size:13px;line-height:1.6}
+.pairing-wizard .settings-note,.pairing-wizard .settings-warning,.pairing-wizard .settings-offline{margin:0}
+.pairing-wizard .settings-invite{display:flex;flex-direction:column;gap:10px;margin:0}
+.pairing-wizard .settings-invite .pair-qr{margin:4px auto;max-width:100%;height:auto}
+.pairing-wizard .settings-invite label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.pairing-wizard .settings-invite input{width:100%;font-family:"SFMono-Regular",Consolas,ui-monospace,monospace;font-size:12px}
+.pairing-wizard .settings-invite p{font-size:12px}
+.pairing-wizard .pair-approve{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}
+.pairing-wizard .pair-approve input{grid-column:1/-1;width:100%;min-height:46px;font-size:20px;letter-spacing:.18em;text-align:center;font-variant-numeric:tabular-nums}
+.pairing-wizard .pair-approve input::placeholder{font-size:13px;letter-spacing:normal}
+.pairing-wizard .pair-approve button{min-height:44px;font-size:13px}
+.pairing-actions{position:sticky;bottom:0;z-index:1;display:flex;align-items:center;gap:8px;margin:20px -24px 0;padding:12px 24px max(16px,var(--app-safe-bottom));border-top:1px solid var(--border);background:var(--bg)}
+.pairing-actions>button{min-height:42px}
+.pairing-actions>.pairing-forward{margin-left:auto}
+@media(max-width:760px){.creation-dialog.pairing-wizard{width:100%;max-width:100%}.pairing-actions{margin:16px -16px 0;padding:10px 16px max(12px,var(--app-safe-bottom))}.pairing-actions>button{min-height:44px}}
+@media(max-width:380px){.pairing-progress li{gap:4px}.pairing-wizard .pair-approve{grid-template-columns:1fr}}
+/* Phones held sideways: put the QR beside its details so a step fits the height. */
+@media(orientation:landscape) and (max-height:520px){
+  .creation-dialog.pairing-wizard{max-height:calc(100dvh - 16px)}
+  .pairing-wizard>header{margin-bottom:8px}
+  .pairing-progress{margin-bottom:10px}
+  .pairing-wizard .settings-invite{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:start;gap:8px 16px}
+  .pairing-wizard .settings-invite .pair-qr{grid-row:span 2;width:min(260px,40vw);height:auto;margin:0}
+  .pairing-actions{padding-top:8px;padding-bottom:max(8px,var(--app-safe-bottom))}
+}
+
+.device-confirm-shortcut { gap:8px; margin-top:12px; min-height:44px; }
+
+.pairing-pending { padding:14px 0; border-block:1px solid var(--border); font-size:13px; }
+.pairing-pending ul { list-style:none; padding:0; margin:10px 0; display:grid; gap:8px; }
+.pairing-pending li { display:grid; gap:3px; overflow-wrap:anywhere; }
+.pairing-pending small { color:var(--muted); }
+.pairing-pending p { font-size:12px; line-height:1.6; }
+
+/* A confirmed revocation is a quiet result, not a selected device or input. */
+.settings-feedback.device-revoke-result[role=status]{display:flex;align-items:flex-start;gap:10px;margin-top:16px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface-alt,var(--surface));color:var(--text);font-size:13px;line-height:1.6}
+/* Keep the programmatic focus landing and status announcement; only this static result omits the browser outline. */
+.settings-feedback.device-revoke-result:focus{outline:none}
+.device-revoke-result-mark{display:grid;place-items:center;flex:none;width:24px;height:24px;border:1px solid currentColor;border-radius:50%;color:var(--accent,var(--blue));background:var(--selected)}
+.device-revoke-result-text{min-width:0;overflow-wrap:anywhere}
+@media(forced-colors:active){.settings-feedback.device-revoke-result[role=status]{border-color:CanvasText;background:Canvas;color:CanvasText}.device-revoke-result-mark{color:CanvasText;background:Canvas}}

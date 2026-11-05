@@ -1,0 +1,44 @@
+name: Set up the Windows host launcher cross compiler
+description: Prepare the pinned cargo-xwin and LLVM toolchain for Linux/macOS package builders
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install LLVM on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes --no-install-recommends clang lld llvm
+    - name: Install LLVM on macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: '1'
+        HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      run: |
+        brew install llvm lld
+        echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+        echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
+    - name: Install the pinned cargo-xwin binary
+      shell: bash
+      # Official wheels avoid compiling cargo-xwin itself on each cold runner.
+      run: |
+        python -m pip install --disable-pip-version-check --only-binary=:all: cargo-xwin==0.23.1
+        python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+    - name: Cache the Windows x64 SDK and CRT
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/tarobot-xwin
+        key: ${{ runner.os }}-${{ runner.arch }}-tarobot-xwin-0.23.1-x86_64-v1
+    - name: Select the x64 cache and verify tools
+      shell: bash
+      run: |
+        echo "XWIN_ARCH=x86_64" >> "$GITHUB_ENV"
+        echo "XWIN_CACHE_DIR=$RUNNER_TEMP/tarobot-xwin" >> "$GITHUB_ENV"
+        cargo xwin --version
+        clang-cl --version
+        lld-link --version
+        command -v llvm-lib

@@ -1,0 +1,883 @@
+import { lstat, realpath, stat, unlink } from "node:fs/promises";
+
+import type { ExternalSessionInfo } from "../../codex/adapter.js";
+import { SessionStateError } from "../../runtime/session-manager.js";
+import {
+  formatAntigravityConversationList,
+  formatSessionList,
+  MAX_FORMATTED_ANTIGRAVITY_CONVERSATIONS,
+  scanRecentAntigravityConversations,
+  scanRecentClaudeSessions,
+  findClaudeSession,
+  CLAUDE_SESSION_ID,
+  type ScannedSession,
+} from "../../runtime/session-scanner.js";
+import type { InstanceEngine, ResumeState } from "../../state/instance-config.js";
+import { renderSessionResetMessage, type Locale } from "../../runtime/message-renderer.js";
+import {
+  appendCommandSuccessAuditEventBestEffort,
+  type CoreTurnContext,
+} from "./turn-bookkeeping.js";
+import type { CommandMessage } from "../../runtime/command-message.js";
+import { isResetCommand } from "../../runtime/command-detection.js";
+import path from "node:path";
+import { getNormalizedConversationKey, getConversationKey } from "../../runtime/conversation-key.js";
+import { bridgeConversationLockId, sessionLockNamespace, withBridgeTurnLock } from "../../runtime/turn-lock.js";
+import { resolveConversationResume } from "../../runtime/conversation-resume.js";
+
+export interface SessionCommandConfig {
+  engine: InstanceEngine;
+  resume?: ResumeState;
+}
+
+export interface SessionCommandStore {
+  inspect(): Promise<{ warning?: string; repairable?: boolean }>;
+  findByChatIdSafe(chatId: number): Promise<{
+    record: {
+      codexSessionId: string;
+      resume?: ResumeState | null;
+      suspendedPrevious?: {
+        sessionId: string | null;
+        resume: ResumeState | null;
+      };
+    } | null;
+    warning?: string;
+    repairable?: boolean;
+  }>;
+  findByConversationKeySafe?(conversationKey: string): Promise<{
+    record: {
+      codexSessionId: string;
+      resume?: ResumeState | null;
+      suspendedPrevious?: {
+        sessionId: string | null;
+        resume: ResumeState | null;
+      };
+    } | null;
+    warning?: string;
+    repairable?: boolean;
+  }>;
+  removeByChatId(chatId: number): Promise<boolean | void>;
+  removeByConversationKey?(conversationKey: string): Promise<boolean | void>;
+  upsert(record: {
+    telegramChatId: number;
+    telegramThreadId?: number;
+    conversationKey?: string;
+    codexSessionId: string;
+    status: "idle";
+    updatedAt: string;
+    resume?: ResumeState | null;
+    suspendedPrevious?: {
+      sessionId: string | null;
+      resume: ResumeState | null;
+    };
+  }): Promise<void>;
+}
+
+const RESUME_SCAN_TTL_MS = 10 * 60 * 1000;
+const ANTIGRAVITY_CONVERSATION_ID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+type PendingResumeScanKind = "claude" | "antigravity" | "kimi" | "deepseek";
+
+const pendingResumeScans = new Map<string, {
+  kind: PendingResumeScanKind;
+  scannedAt: number;
+  sessions: ScannedSession[];
+}>();
+
+type ResumeCommand =
+  | { kind: "scan" }
+  | { kind: "pick"; pick: number }
+  | { kind: "thread"; threadId: string }
+  | { kind: "session"; sessionId: string }
+  | { kind: "conversation"; conversationId: string }
+  | { kind: "invalid" };
+
+function parseResumeCommand(text: string): ResumeCommand | null {
+  const match = text.trim().match(/^\/resume(?:@\w+)?(?:\s+(.+))?$/i);
+  if (!match) return null;
+  const arg = match[1]?.trim();
+  if (!arg) return { kind: "scan" };
+
+  const threadMatch = arg.match(/^thread\s+(\S+)$/i);
+  if (threadMatch?.[1]?.trim()) {
+    return { kind: "thread", threadId: threadMatch[1].trim() };
+  }
+
+  const conversationMatch = arg.match(/^(?:conversation|conv)\s+(\S+)$/i);
+  if (conversationMatch?.[1]?.trim()) {
+    return { kind: "conversation", conversationId: conversationMatch[1].trim() };
+  }
+
+  const sessionMatch = arg.match(/^session\s+(\S+)$/i);
+  if (sessionMatch?.[1]?.trim()) {
+    return { kind: "session", sessionId: sessionMatch[1].trim() };
+  }
+
+  const bareId = arg.startsWith("[") && arg.endsWith("]") ? arg.slice(1, -1).trim() : arg;
+  if (CLAUDE_SESSION_ID.test(bareId)) return { kind: "session", sessionId: bareId.toLowerCase() };
+
+  const num = Number(arg);
+  if (!Number.isInteger(num) || num < 1) return { kind: "invalid" };
+  return { kind: "pick", pick: num };
+}
+
+function isDetachCommand(text: string): boolean {
+  return /^\/detach(?:@\w+)?(?:\s|$)/i.test(text.trim());
+}
+
+export function resetPendingResumeScans(): void {
+  pendingResumeScans.clear();
+}
+
+function getPendingResumeScan(conversationKey: string, kind: PendingResumeScanKind): ScannedSession[] | null {
+  const entry = pendingResumeScans.get(conversationKey);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.kind !== kind || Date.now() - entry.scannedAt > RESUME_SCAN_TTL_MS) {
+    pendingResumeScans.delete(conversationKey);
+    return null;
+  }
+
+  return entry.sessions;
+}
+
+function isAntigravityConversationId(value: string): boolean {
+  return ANTIGRAVITY_CONVERSATION_ID_PATTERN.test(value);
+}
+
+function buildSuspendedPreviousSnapshot(input: {
+  existingRecord: {
+    codexSessionId: string;
+    resume?: ResumeState | null;
+    suspendedPrevious?: {
+      sessionId: string | null;
+      resume: ResumeState | null;
+    };
+  } | null;
+  currentResume: ResumeState | undefined;
+}): { sessionId: string | null; resume: ResumeState | null } | undefined {
+  if (input.existingRecord?.suspendedPrevious) {
+    return input.existingRecord.suspendedPrevious;
+  }
+
+  if (!input.existingRecord?.codexSessionId && !input.currentResume) {
+    return undefined;
+  }
+
+  return {
+    sessionId: input.existingRecord?.codexSessionId ?? null,
+    resume: input.currentResume ?? null,
+  };
+}
+
+function findSessionForConversation(
+  store: SessionCommandStore,
+  normalized: CommandMessage,
+): ReturnType<SessionCommandStore["findByChatIdSafe"]> {
+  const conversationKey = getNormalizedConversationKey(normalized);
+  return store.findByConversationKeySafe
+    ? store.findByConversationKeySafe(conversationKey)
+    : store.findByChatIdSafe(normalized.chatId);
+}
+
+function removeSessionForConversation(
+  store: SessionCommandStore,
+  normalized: CommandMessage,
+): Promise<boolean | void> {
+  const conversationKey = getNormalizedConversationKey(normalized);
+  return store.removeByConversationKey
+    ? store.removeByConversationKey(conversationKey)
+    : store.removeByChatId(normalized.chatId);
+}
+
+function sessionScopeRecordFields(normalized: CommandMessage): {
+  telegramThreadId?: number;
+  conversationKey?: string;
+} {
+  const conversationKey = getNormalizedConversationKey(normalized);
+  const defaultConversationKey = getConversationKey(normalized.chatId, normalized.messageThreadId);
+  if (normalized.messageThreadId === undefined) {
+    return conversationKey === defaultConversationKey ? {} : { conversationKey };
+  }
+  return {
+    telegramThreadId: normalized.messageThreadId,
+    conversationKey,
+  };
+}
+
+interface LocalSessionCommandInput {
+  stateDir: string;
+  startedAt: number;
+  locale: Locale;
+  cfg: SessionCommandConfig;
+  normalized: CommandMessage;
+  context: CoreTurnContext;
+  sessionStore: SessionCommandStore;
+  updateInstanceConfig: (updater: (config: Record<string, unknown>) => void) => Promise<void>;
+  validateCodexThread?: (
+    threadId: string,
+    input?: { workspaceOverride?: string },
+  ) => Promise<ExternalSessionInfo | void>;
+  scanRecentSessions?: (hours: number) => Promise<ScannedSession[]>;
+  findClaudeSessionById?: (sessionId: string) => Promise<ScannedSession | null>;
+  scanRecentAntigravitySessions?: (hours: number) => Promise<ScannedSession[]>;
+  scanRecentKimiSessions?: () => Promise<ScannedSession[]>;
+  scanRecentDeepSeekSessions?: () => Promise<ScannedSession[]>;
+  formatSessionListMessage?: (sessions: ScannedSession[], locale: Locale) => string;
+  formatAntigravityConversationListMessage?: (sessions: ScannedSession[], locale: Locale) => string;
+  sendResumeScanResult?: (input: {
+    kind: "claude" | "antigravity" | "kimi" | "deepseek";
+    sessions: ScannedSession[];
+    visibleSessions: ScannedSession[];
+    locale: Locale;
+  }) => Promise<void>;
+}
+
+export async function handleLocalSessionCoreCommand(input: LocalSessionCommandInput): Promise<boolean> {
+  if (!/^\/(?:reset|resume|detach)(?:@\w+)?(?:\s|$)/i.test(input.normalized.text.trim())) return false;
+  const namespace = await sessionLockNamespace(path.join(input.stateDir, "session.json"));
+  return await withBridgeTurnLock(bridgeConversationLockId(input.normalized, namespace), async () => await handleLocalSessionCommandUnlocked(input));
+}
+
+async function handleLocalSessionCommandUnlocked(input: LocalSessionCommandInput): Promise<boolean> {
+  const {
+    stateDir,
+    startedAt,
+    locale,
+    cfg,
+    normalized,
+    context,
+    sessionStore,
+    updateInstanceConfig,
+    validateCodexThread,
+    scanRecentSessions = scanRecentClaudeSessions,
+    findClaudeSessionById = findClaudeSession,
+    scanRecentAntigravitySessions = scanRecentAntigravityConversations,
+    scanRecentKimiSessions,
+    scanRecentDeepSeekSessions,
+    formatSessionListMessage = formatSessionList,
+    formatAntigravityConversationListMessage = formatAntigravityConversationList,
+    sendResumeScanResult,
+  } = input;
+  const conversationKey = getNormalizedConversationKey(normalized);
+
+  if (isResetCommand(normalized.text)) {
+    const inspectedState = await sessionStore.inspect();
+    if (inspectedState.warning) {
+      throw new SessionStateError(
+        inspectedState.repairable
+          ? "Session state is unreadable right now. The operator needs to repair session state and retry."
+          : "Session state is unavailable right now. The operator needs to restore read access and retry.",
+        inspectedState.repairable ?? false,
+      );
+    }
+
+    const current = await findSessionForConversation(sessionStore, normalized);
+    const currentResume = current.warning
+      ? undefined
+      : resolveConversationResume(current.record, cfg.resume);
+    if (currentResume) {
+      if (currentResume.symlinkPath) {
+        try {
+          const st = await lstat(currentResume.symlinkPath);
+          if (st.isSymbolicLink()) await unlink(currentResume.symlinkPath);
+        } catch {
+          // ok
+        }
+      }
+    }
+    await removeSessionForConversation(sessionStore, normalized);
+    await updateInstanceConfig((c) => { delete c.resume; });
+
+    const resetMessage = renderSessionResetMessage(false, locale);
+    await context.api.sendMessage(normalized.chatId, resetMessage);
+    await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+      startedAt,
+      command: "reset",
+      responseText: resetMessage,
+    });
+    return true;
+  }
+
+  const resumeCmd = parseResumeCommand(normalized.text);
+  if (resumeCmd) {
+    if (cfg.engine === "kimi" || cfg.engine === "deepseek") {
+      const isDeepSeek = cfg.engine === "deepseek";
+      const scanKind: "kimi" | "deepseek" = isDeepSeek ? "deepseek" : "kimi";
+      const engineName = isDeepSeek ? "DeepSeek Harness" : "Kimi";
+      const scanRecentHarnessSessions = isDeepSeek ? scanRecentDeepSeekSessions : scanRecentKimiSessions;
+      if (resumeCmd.kind === "scan") {
+        if (!scanRecentHarnessSessions) {
+          const msg = locale === "zh"
+            ? `当前 ${engineName} runtime 未提供 session 列表。`
+            : `This ${engineName} runtime does not provide session listing.`;
+          await context.api.sendMessage(normalized.chatId, msg);
+          await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+            startedAt,
+            command: "resume",
+            responseText: msg,
+            metadata: { engine: cfg.engine, rejected: "listing-unavailable" },
+          });
+          return true;
+        }
+        const sessions = (await scanRecentHarnessSessions()).slice(0, MAX_FORMATTED_ANTIGRAVITY_CONVERSATIONS);
+        if (sessions.length > 0) {
+          pendingResumeScans.set(conversationKey, { kind: scanKind, scannedAt: Date.now(), sessions });
+        } else {
+          pendingResumeScans.delete(conversationKey);
+        }
+        const msg = sessions.length > 0
+          ? [
+              locale === "zh" ? `${engineName} sessions：` : `${engineName} sessions:`,
+              ...sessions.map((session, index) => `${index + 1}. [${session.displayName}] ${session.sessionId}`),
+              locale === "zh" ? "\n回复 /resume <编号> 继续。" : "\nReply /resume <number> to continue.",
+            ].join("\n")
+          : (locale === "zh" ? `没有找到 ${engineName} session。` : `No ${engineName} sessions found.`);
+        if (sendResumeScanResult) {
+          await sendResumeScanResult({ kind: scanKind, sessions, visibleSessions: sessions, locale });
+        } else {
+          await context.api.sendMessage(normalized.chatId, msg);
+        }
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: { engine: cfg.engine, scanned: sessions.length },
+        });
+        return true;
+      }
+
+      let sessionId: string | null = null;
+      let selectedSession: ScannedSession | undefined;
+      if (resumeCmd.kind === "pick") {
+        const cached = getPendingResumeScan(conversationKey, scanKind);
+        if (!cached || resumeCmd.pick < 1 || resumeCmd.pick > cached.length) {
+          const msg = locale === "zh"
+            ? `无效选择，请先发 /resume 扫描 ${engineName} session。`
+            : `Invalid selection. Send /resume first to scan ${engineName} sessions.`;
+          await context.api.sendMessage(normalized.chatId, msg);
+          await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+            startedAt,
+            command: "resume",
+            responseText: msg,
+            metadata: { engine: cfg.engine, rejected: "invalid-pick" },
+          });
+          return true;
+        }
+        selectedSession = cached[resumeCmd.pick - 1]!;
+        sessionId = selectedSession.sessionId;
+        pendingResumeScans.delete(conversationKey);
+      } else if (resumeCmd.kind === "session") {
+        sessionId = resumeCmd.sessionId;
+      } else {
+        const msg = locale === "zh"
+          ? "用法: /resume、/resume <编号> 或 /resume session <session-id>"
+          : "Usage: /resume, /resume <number>, or /resume session <session-id>";
+        await context.api.sendMessage(normalized.chatId, msg);
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: { engine: cfg.engine, rejected: "invalid-session-arg" },
+        });
+        return true;
+      }
+
+      let validatedSession: ExternalSessionInfo | void;
+      let workspacePath: string;
+      try {
+        if (!validateCodexThread) {
+          throw new Error("external session validation unsupported");
+        }
+        validatedSession = await validateCodexThread(sessionId);
+        const candidate = validatedSession?.cwd ?? selectedSession?.workspacePath;
+        if (!candidate) {
+          throw new Error(`${engineName} session workspace is unavailable`);
+        }
+        workspacePath = await realpath(candidate);
+        const workspaceInfo = await stat(workspacePath);
+        if (!workspaceInfo.isDirectory()) {
+          throw new Error(`${engineName} session workspace is not a directory`);
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const unsupported = /validation unsupported|listing unsupported/i.test(detail);
+        const msg = unsupported
+          ? (locale === "zh" ? `当前 ${engineName} runtime 无法验证 session id。` : `This ${engineName} runtime cannot validate session IDs.`)
+          : (locale === "zh" ? `无法加载 ${engineName} session：${sessionId}` : `Could not load ${engineName} session: ${sessionId}`);
+        await context.api.sendMessage(normalized.chatId, msg);
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: {
+            engine: cfg.engine,
+            rejected: unsupported ? "session-validation-unavailable" : "session-load-failed",
+          },
+        });
+        return true;
+      }
+
+      const existing = await findSessionForConversation(sessionStore, normalized);
+      const nextResume: ResumeState = {
+        sessionId,
+        dirName: selectedSession?.dirName ?? sessionId,
+        workspacePath,
+      };
+      await sessionStore.upsert({
+        telegramChatId: normalized.chatId,
+        ...sessionScopeRecordFields(normalized),
+        codexSessionId: sessionId,
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+        resume: nextResume,
+        suspendedPrevious: buildSuspendedPreviousSnapshot({
+          existingRecord: existing.record,
+          currentResume: resolveConversationResume(existing.record, cfg.resume),
+        }),
+      });
+      await updateInstanceConfig((c) => { delete c.resume; });
+
+      const msg = locale === "zh"
+        ? `已绑定 ${engineName} session：${sessionId}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`
+        : `Attached ${engineName} session: ${sessionId}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`;
+      await context.api.sendMessage(normalized.chatId, msg);
+      await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+        startedAt,
+        command: "resume",
+        responseText: msg,
+        metadata: { engine: cfg.engine, sessionId },
+      });
+      return true;
+    }
+
+    if (cfg.engine === "antigravity") {
+      if (resumeCmd.kind === "scan") {
+        const sessions = await scanRecentAntigravitySessions(24);
+        const selectableSessions = sessions.slice(0, MAX_FORMATTED_ANTIGRAVITY_CONVERSATIONS);
+        const msg = formatAntigravityConversationListMessage(sessions, locale);
+        if (selectableSessions.length > 0) {
+          pendingResumeScans.set(conversationKey, {
+            kind: "antigravity",
+            scannedAt: Date.now(),
+            sessions: selectableSessions,
+          });
+        } else {
+          pendingResumeScans.delete(conversationKey);
+        }
+        if (sendResumeScanResult) {
+          await sendResumeScanResult({
+            kind: "antigravity",
+            sessions,
+            visibleSessions: selectableSessions,
+            locale,
+          });
+        } else {
+          await context.api.sendMessage(normalized.chatId, msg);
+        }
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: { engine: "antigravity", scanned: sessions.length },
+        });
+        return true;
+      }
+
+      let pickedConversationId: string | null = null;
+      if (resumeCmd.kind === "pick") {
+        const cached = getPendingResumeScan(conversationKey, "antigravity");
+        if (!cached || resumeCmd.pick < 1 || resumeCmd.pick > cached.length) {
+          const msg = locale === "zh"
+            ? "无效选择，请先发 /resume 扫描 Antigravity conversation。"
+            : "Invalid selection. Send /resume first to scan Antigravity conversations.";
+          await context.api.sendMessage(normalized.chatId, msg);
+          await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+            startedAt,
+            command: "resume",
+            responseText: msg,
+            metadata: { engine: "antigravity", rejected: "invalid-pick" },
+          });
+          return true;
+        }
+        pickedConversationId = cached[resumeCmd.pick - 1]!.sessionId;
+        pendingResumeScans.delete(conversationKey);
+      }
+
+      if (resumeCmd.kind !== "conversation" && resumeCmd.kind !== "pick") {
+        const msg = locale === "zh"
+          ? "用法: /resume、/resume <编号> 或 /resume conversation <conversation-id>。"
+          : "Usage: /resume, /resume <number>, or /resume conversation <conversation-id>.";
+        await context.api.sendMessage(normalized.chatId, msg);
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: { rejected: "invalid-antigravity-arg" },
+        });
+        return true;
+      }
+
+      const conversationId = pickedConversationId ?? (resumeCmd.kind === "conversation" ? resumeCmd.conversationId : null);
+      if (!conversationId) {
+        return true;
+      }
+      if (!isAntigravityConversationId(conversationId)) {
+        const msg = locale === "zh"
+          ? "Antigravity conversation id 无效。请使用 /resume 扫描最近 conversation，或发送 /resume conversation <uuid>。"
+          : "Invalid Antigravity conversation id. Use /resume to scan recent conversations or /resume conversation <uuid>.";
+        await context.api.sendMessage(normalized.chatId, msg);
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: { engine: "antigravity", rejected: "invalid-conversation-id" },
+        });
+        return true;
+      }
+      const existing = await findSessionForConversation(sessionStore, normalized);
+      await sessionStore.upsert({
+        telegramChatId: normalized.chatId,
+        ...sessionScopeRecordFields(normalized),
+        codexSessionId: conversationId,
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+        resume: null,
+        suspendedPrevious: buildSuspendedPreviousSnapshot({
+          existingRecord: existing.record,
+          currentResume: resolveConversationResume(existing.record, cfg.resume),
+        }),
+      });
+      await updateInstanceConfig((c) => { delete c.resume; });
+
+      const msg = locale === "zh"
+        ? `已绑定 Antigravity conversation：${conversationId}\n\n发送消息继续对话，完成后发 /detach 断开。`
+        : `Attached Antigravity conversation: ${conversationId}\n\nSend a message to continue. Use /detach when done.`;
+      await context.api.sendMessage(normalized.chatId, msg);
+      await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+        startedAt,
+        command: "resume",
+        responseText: msg,
+        metadata: { conversationId },
+      });
+      return true;
+    }
+
+    if (cfg.engine === "codex") {
+      if (resumeCmd.kind !== "thread") {
+        const msg = locale === "zh"
+          ? "Codex 请使用 /resume thread <thread-id>。普通 /resume 扫描仅适用于 Claude。"
+          : "For Codex, use /resume thread <thread-id>. Plain /resume scan is Claude-only.";
+        await context.api.sendMessage(normalized.chatId, msg);
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: { rejected: "codex-requires-thread-id" },
+        });
+        return true;
+      }
+
+      try {
+        if (!validateCodexThread) {
+          throw new Error("codex thread validation unsupported");
+        }
+        await validateCodexThread(resumeCmd.threadId);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const isNotFound = /could not resume thread|thread not found|no rollout found/i.test(detail);
+        const isUnsupported = /validation unsupported/i.test(detail);
+        const isActiveWriter = /already has an active writer/i.test(detail);
+        const activeWriterDiagnosis = detail.split(/\n\s*\n/).slice(1).join("\n\n").trim();
+        const msg = isActiveWriter
+          ? (locale === "zh"
+            ? `Codex thread 正被占用：${resumeCmd.threadId}\n\n${activeWriterDiagnosis || "该会话正被另一个 Codex 进程占用。结束占用方后重试；重启本 bot 无效。"}`
+            : `Codex thread is in use: ${resumeCmd.threadId}\n\nAnother Codex or ChatGPT process currently owns this thread. Close that application or finish its task, then retry; restarting this bot will not release the thread.`)
+          : isNotFound
+          ? (locale === "zh"
+            ? `未找到 Codex thread：${resumeCmd.threadId}\n\n请检查 thread id 后重试。`
+            : `Codex thread not found: ${resumeCmd.threadId}\n\nCheck the thread ID and try again.`)
+          : isUnsupported
+            ? (locale === "zh"
+              ? "当前 Codex runtime 无法为 /resume thread 验证外部 thread id。"
+              : "This Codex runtime cannot validate external thread IDs for /resume thread.")
+            : (locale === "zh"
+              ? `验证 Codex thread 失败：${resumeCmd.threadId}`
+              : `Could not validate Codex thread: ${resumeCmd.threadId}`);
+        await context.api.sendMessage(normalized.chatId, msg);
+        await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+          startedAt,
+          command: "resume",
+          responseText: msg,
+          metadata: {
+            rejected: isActiveWriter
+              ? "thread-active-writer"
+              : isNotFound
+                ? "thread-not-found"
+                : "thread-validation-unavailable",
+          },
+        });
+        return true;
+      }
+
+      const existing = await findSessionForConversation(sessionStore, normalized);
+      await sessionStore.upsert({
+        telegramChatId: normalized.chatId,
+        ...sessionScopeRecordFields(normalized),
+        codexSessionId: resumeCmd.threadId,
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+        resume: null,
+        suspendedPrevious: buildSuspendedPreviousSnapshot({
+          existingRecord: existing.record,
+          currentResume: resolveConversationResume(existing.record, cfg.resume),
+        }),
+      });
+      await updateInstanceConfig((c) => { delete c.resume; });
+
+      const msg = locale === "zh"
+        ? `已绑定 Codex thread：${resumeCmd.threadId}\n\n发送消息继续对话，完成后发 /detach 断开。`
+        : `Attached Codex thread: ${resumeCmd.threadId}\n\nSend a message to continue. Use /detach when done.`;
+      await context.api.sendMessage(normalized.chatId, msg);
+      await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+        startedAt,
+        command: "resume",
+        responseText: msg,
+        metadata: { threadId: resumeCmd.threadId },
+      });
+      return true;
+    }
+
+    if (resumeCmd.kind === "invalid" || resumeCmd.kind === "thread" || resumeCmd.kind === "conversation" || resumeCmd.kind === "session" && !CLAUDE_SESSION_ID.test(resumeCmd.sessionId)) {
+      const msg = locale === "zh"
+        ? "用法：/resume 扫描后按编号选择，或 /resume <完整 session ID> 直接绑定本机 Claude 会话。"
+        : "Use /resume to scan and pick a number, or /resume <full session ID> to attach a local Claude session.";
+      await context.api.sendMessage(normalized.chatId, msg);
+      await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+        startedAt,
+        command: "resume",
+        responseText: msg,
+        metadata: { rejected: "invalid-arg" },
+      });
+      return true;
+    }
+
+    let resumeAuditText: string | undefined;
+    if (resumeCmd.kind === "scan") {
+      const sessions = await scanRecentSessions(1);
+      if (sessions.length === 0) {
+        pendingResumeScans.delete(conversationKey);
+        resumeAuditText = locale === "zh"
+          ? "最近 1 小时内没有找到本地 session。"
+          : "No local sessions found in the last hour.";
+        if (sendResumeScanResult) {
+          await sendResumeScanResult({
+            kind: "claude",
+            sessions: [],
+            visibleSessions: [],
+            locale,
+          });
+        } else {
+          await context.api.sendMessage(normalized.chatId, resumeAuditText);
+        }
+      } else {
+        resumeAuditText = formatSessionListMessage(sessions, locale);
+        pendingResumeScans.set(conversationKey, {
+          kind: "claude",
+          scannedAt: Date.now(),
+          sessions,
+        });
+        if (sendResumeScanResult) {
+          await sendResumeScanResult({
+            kind: "claude",
+            sessions,
+            visibleSessions: sessions,
+            locale,
+          });
+        } else {
+          await context.api.sendMessage(normalized.chatId, resumeAuditText);
+        }
+      }
+    } else {
+      const cached = getPendingResumeScan(conversationKey, "claude");
+      let picked: ScannedSession | null | undefined;
+      let lookupError = false;
+      if (resumeCmd.kind === "session") {
+        try { picked = await findClaudeSessionById(resumeCmd.sessionId); }
+        catch { lookupError = true; }
+      } else if (cached) picked = cached[resumeCmd.pick - 1];
+      if (!picked) {
+        if (resumeCmd.kind !== "session") {
+          resumeAuditText = locale === "zh" ? "无效选择，请先发 /resume 扫描。" : "Invalid selection. Send /resume first to scan.";
+        } else if (lookupError) {
+          resumeAuditText = locale === "zh"
+            ? "无法安全读取此 Claude 会话，请检查主机文件访问权限及是否存在重复 ID。当前对话未改变。"
+            : "Could not safely read this Claude session. Check host file access and duplicate IDs. The current conversation is unchanged.";
+        } else {
+          resumeAuditText = locale === "zh"
+            ? "此主机未找到该 Claude session ID。请核对 ID 及运行 Bot 的主机；当前对话未改变。"
+            : "Claude session ID not found on this host. Check the ID and Bot host; the current conversation is unchanged.";
+        }
+        await context.api.sendMessage(normalized.chatId, resumeAuditText);
+      } else {
+        pendingResumeScans.delete(conversationKey);
+
+        if (!picked.workspacePath) {
+          resumeAuditText = locale === "zh"
+            ? `无法从 session 元数据确认工作区路径（${picked.dirName}），当前对话未改变。请先在主机 Claude CLI 中打开此会话后重试。`
+            : `Cannot confirm the workspace from session metadata (${picked.dirName}). The current conversation is unchanged; open it in the host Claude CLI and retry.`;
+          await context.api.sendMessage(normalized.chatId, resumeAuditText);
+        } else {
+          const existing = await findSessionForConversation(sessionStore, normalized);
+          const nextResume: ResumeState = {
+            sessionId: picked.sessionId,
+            dirName: picked.dirName,
+            workspacePath: picked.workspacePath,
+          };
+          await sessionStore.upsert({
+            telegramChatId: normalized.chatId,
+            ...sessionScopeRecordFields(normalized),
+            codexSessionId: picked.sessionId,
+            status: "idle",
+            updatedAt: new Date().toISOString(),
+            resume: nextResume,
+            suspendedPrevious: buildSuspendedPreviousSnapshot({
+              existingRecord: existing.record,
+              currentResume: resolveConversationResume(existing.record, cfg.resume),
+            }),
+          });
+          await updateInstanceConfig((c) => { delete c.resume; });
+
+          resumeAuditText = locale === "zh"
+            ? `已绑定 session：${picked.sessionId}\n工作区：${picked.workspacePath}\n\n发送下一条消息时由 Claude 加载并继续；大会话可能需要较长时间。完成后发 /detach 返回之前的对话。`
+            : `Attached session: ${picked.sessionId}\nWorkspace: ${picked.workspacePath}\n\nClaude will load and continue it on your next message; large sessions may take longer. Use /detach to return to the previous conversation.`;
+          await context.api.sendMessage(normalized.chatId, resumeAuditText);
+        }
+      }
+    }
+
+    await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+      startedAt,
+      command: "resume",
+      responseText: resumeAuditText,
+      metadata: { pick: resumeCmd.kind === "pick" ? resumeCmd.pick : null, sessionId: resumeCmd.kind === "session" ? resumeCmd.sessionId : null },
+    });
+    return true;
+  }
+
+  if (isDetachCommand(normalized.text)) {
+    const current = await findSessionForConversation(sessionStore, normalized);
+    const currentResume = current.warning
+      ? undefined
+      : resolveConversationResume(current.record, cfg.resume);
+    let detachMessage: string;
+    if (current.record?.suspendedPrevious) {
+      const previous = current.record.suspendedPrevious;
+      if (previous.sessionId) {
+        await sessionStore.upsert({
+          telegramChatId: normalized.chatId,
+          ...sessionScopeRecordFields(normalized),
+          codexSessionId: previous.sessionId,
+          status: "idle",
+          updatedAt: new Date().toISOString(),
+          resume: previous.resume,
+        });
+      } else {
+        await removeSessionForConversation(sessionStore, normalized);
+      }
+
+      await updateInstanceConfig((c) => { delete c.resume; });
+
+      detachMessage = cfg.engine === "codex"
+        ? (locale === "zh"
+          ? "已断开当前 Codex thread，并恢复到 /resume 之前的对话。"
+          : "Detached from the current Codex thread and restored the previous conversation.")
+        : cfg.engine === "antigravity"
+          ? (locale === "zh"
+            ? "已断开当前 Antigravity conversation，并恢复到 /resume 之前的对话。"
+            : "Detached from the current Antigravity conversation and restored the previous conversation.")
+          : cfg.engine === "kimi"
+            ? (locale === "zh"
+              ? "已断开当前 Kimi session，并恢复到 /resume 之前的对话。"
+              : "Detached from the current Kimi session and restored the previous conversation.")
+            : cfg.engine === "deepseek"
+              ? (locale === "zh"
+                ? "已断开当前 DeepSeek Harness session，并恢复到 /resume 之前的对话。"
+                : "Detached from the current DeepSeek Harness session and restored the previous conversation.")
+            : (locale === "zh"
+              ? "已断开恢复的 session，并恢复到 /resume 之前的对话。"
+              : "Detached from resumed session and restored the previous conversation.");
+      await context.api.sendMessage(normalized.chatId, detachMessage);
+    } else if (currentResume) {
+      if (currentResume.symlinkPath) {
+        try {
+          const st = await lstat(currentResume.symlinkPath);
+          if (st.isSymbolicLink()) await unlink(currentResume.symlinkPath);
+        } catch {
+          // ok
+        }
+      }
+
+      await removeSessionForConversation(sessionStore, normalized);
+      await updateInstanceConfig((c) => { delete c.resume; });
+
+      detachMessage = locale === "zh"
+        ? "已断开恢复的 session，回到 bot 默认工作区。"
+        : "Detached from resumed session. Back to default workspace.";
+      await context.api.sendMessage(normalized.chatId, detachMessage);
+    } else if (cfg.engine === "codex" || cfg.engine === "antigravity" || cfg.engine === "kimi" || cfg.engine === "deepseek") {
+      const removed = await removeSessionForConversation(sessionStore, normalized);
+      if (cfg.engine === "codex") {
+        detachMessage = removed
+          ? (locale === "zh"
+            ? "已断开当前 Codex thread。下一条消息会新建 thread。"
+            : "Detached from the current Codex thread. Next message will start a fresh thread.")
+          : (locale === "zh"
+            ? "当前没有绑定的 Codex thread。"
+            : "No active Codex thread.");
+      } else if (cfg.engine === "antigravity") {
+        detachMessage = removed
+          ? (locale === "zh"
+            ? "已断开当前 Antigravity conversation。下一条消息会新建 conversation。"
+            : "Detached from the current Antigravity conversation. Next message will start a fresh conversation.")
+          : (locale === "zh"
+            ? "当前没有绑定的 Antigravity conversation。"
+            : "No active Antigravity conversation.");
+      } else if (cfg.engine === "kimi") {
+        detachMessage = removed
+          ? (locale === "zh"
+            ? "已断开当前 Kimi session。下一条消息会新建 session。"
+            : "Detached from the current Kimi session. Next message will start a fresh session.")
+          : (locale === "zh"
+            ? "当前没有绑定的 Kimi session。"
+            : "No active Kimi session.");
+      } else {
+        detachMessage = removed
+          ? (locale === "zh"
+            ? "已断开当前 DeepSeek Harness session。下一条消息会新建 session。"
+            : "Detached from the current DeepSeek Harness session. Next message will start a fresh session.")
+          : (locale === "zh"
+            ? "当前没有绑定的 DeepSeek Harness session。"
+            : "No active DeepSeek Harness session.");
+      }
+      await context.api.sendMessage(normalized.chatId, detachMessage);
+    } else {
+      detachMessage = locale === "zh"
+        ? "当前没有恢复的 session。"
+        : "No resumed session active.";
+      await context.api.sendMessage(normalized.chatId, detachMessage);
+    }
+
+    await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+      startedAt,
+      command: "detach",
+      responseText: detachMessage,
+    });
+    return true;
+  }
+
+  return false;
+}

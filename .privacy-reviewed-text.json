@@ -1,0 +1,1205 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "path": "client/e2e/attachment-safety.spec.ts",
+      "sha256": "2f4e015825d08dd7a0b191347cee7547b4cab881d5692f71a9b659a1cee7bc56",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "eccda90348adffaa176d0173c9ed83948b432565f8eea84bb4211836930be010"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/device-invite.spec.ts",
+      "sha256": "19ffe150eb59e242476c9b27eae72d550eb32855d89a4d63648dd1ffa68b3d50",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/device-invite.tsx",
+      "sha256": "6aceb384aa8ae4cd625cd1c71f048e34f674014bf86e4cb3167cc937b3d7f951",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/local-relay.tsx",
+      "sha256": "d1f2a45879e6be8b472e15f182998970a1bdfc7b4f8482e5338dbfb6e594f368",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/multipath-routes.tsx",
+      "sha256": "8a63dfd23602fea48a2502afc6f320b59e7406c76eafb3dc1261f324b33bf39a",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/network-manager.tsx",
+      "sha256": "38af0f5d187bde059037a1b5176e60b001f74b8f2bdda490aad41fe40eda1822",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/tailscale-pairing.tsx",
+      "sha256": "9ed520ac3bf8aeb914c638239a2d6f77425db6c94223224dade9da19417391cc",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/host-name-sync.spec.ts",
+      "sha256": "5372d4f62e58c84c85a9c9d283b91881baa1a632e70e72a8983eae90ed2f813d",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "2079695da6202179f4c90ced8312f47074a69c2b318f9a97f6f7039f6478d8bf"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/host-route-sync.spec.ts",
+      "sha256": "5be6c2d4ef94b3171e7535cc99ff05f39f0db492395b66059496d50285bb38b7",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/local-relay.spec.ts",
+      "sha256": "1c0c7642a4be5842ec635deef0adbd94f11646ed9485a17f3d90e7cd80a7aee2",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/multipath-routes.spec.ts",
+      "sha256": "8fad21c6fcbd81eea5797ddb2ac585c9c71a5048c03cc111edc298204eb360c0",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/multiple-hosts.spec.ts",
+      "sha256": "49ab4b581a436e2ffaf74201c52ff56ecc0ac0cb7f05e949111370489e0efc21",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "59dbf2349188e3963adae01b6f304c423e838bfabe3906329084932f53a73cd4"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/network-address-sync-entry.spec.ts",
+      "sha256": "f11c6a4c7835afcaac7c951cbbe3b6d383998dd579f9118812385318eda9e6b1",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/network-manager.spec.ts",
+      "sha256": "ba533ec936656c258ca9b7253af86f2d6ea4c5017fa04facdb502ddc4623ddaa",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/pairing-route-repair.spec.ts",
+      "sha256": "b225369c501dc97e20fbb13d6c00a7eb985e0cb2be6774f2f69714a985c252f2",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/tailscale-pairing.spec.ts",
+      "sha256": "b9f3f323bbe1f272cd306c3d4cd1bc05750958856b4dc12fc356adb9baf72f24",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/electron/tests/screen-service.test.mjs",
+      "sha256": "0f1e363c0e0d283385552195895115ff8389789725cfc9cf0886abd79b492189",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "ffe27392eb3e6ac8cca1fed5637a4c727bca806b99147ec8cf5913c3f82efc98"
+        }
+      ]
+    },
+    {
+      "path": "client/electron/tests/updater.test.mjs",
+      "sha256": "73ca022f8578a64e133424f07d6c02c81b4e9a58d0a7528c414ea117bc9832f1",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "25cfd52d3808fa02d1a8e91f5bb286d85745e536ecde96e3d6fdd52de7f70a89"
+        }
+      ]
+    },
+    {
+      "path": "client/licenses/excalidraw/react-remove-scroll-bar-LICENSE.txt",
+      "sha256": "a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84",
+      "reviewer": "codex",
+      "note": "Reviewed required public upstream copyright attribution; retain original license text and author credit.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "6e13be8b3eb67489f0f0a6585a310a4e3d2f56db869e9f7ea5cb4ed9452c9ec8"
+        }
+      ]
+    },
+    {
+      "path": "client/src/assets/model-brands/claude.svg",
+      "sha256": "365a70a7eb3956d9b9a96086058ebe04e1dbd8e291a756ad964e8a283fbd6d38",
+      "reviewer": "codex",
+      "note": "Reviewed public model brand SVG path coordinates; dotted numeric graphics syntax is not a network address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "f34cefb79a179b2c0ae12b0c7cb1cd76a2c5310e6938aa9c6808d8abab08b9db"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "3097dbf2ad8ca3fb50680cd15ef7b7c1a59b1281b708a1f183c6d27ffd92d050"
+        }
+      ]
+    },
+    {
+      "path": "client/src/assets/model-brands/deepseek.svg",
+      "sha256": "8f9443e351b6dacce71871790201b799d92e8bf96a45ef79aeb5e9bf4db423e2",
+      "reviewer": "codex",
+      "note": "Reviewed public model brand SVG path coordinates; dotted numeric graphics syntax is not a network address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "417df80444de18a5edd0a2ab47244f95f50bbdb0758af1cbce4d35999900e6c1"
+        }
+      ]
+    },
+    {
+      "path": "client/src/assets/model-brands/kimi.svg",
+      "sha256": "ed08131b46acf70e6e2144eceb775e74098b58ea65fa21eaee04be7b05cfe63b",
+      "reviewer": "codex",
+      "note": "Reviewed public model brand SVG path coordinates; dotted numeric graphics syntax is not a network address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "e98ee22ac15e447253afbd83060def9bba677738818ec9012dcb79587094c161"
+        }
+      ]
+    },
+    {
+      "path": "client/src/assets/model-brands/openai.svg",
+      "sha256": "a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186",
+      "reviewer": "codex",
+      "note": "Reviewed public model brand SVG path coordinates; dotted numeric graphics syntax is not a network address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "641820285035a3a6cd7713b9cf76f3f673f8e14d0bf3e3bcfd7a5f30798b547f"
+        }
+      ]
+    },
+    {
+      "path": "client/src-tauri/src/desktop_host_error.rs",
+      "sha256": "1cd193b1808e218f970601164cdbd0c00243bc1cf25a8fa725678bb1ee83c56f",
+      "reviewer": "codex",
+      "note": "Reviewed Rust test-only synthetic diagnostic paths and deliberately invalid version strings; no real owner information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "0db9e2f6929fdd77921f8dc5600866d743a64cbb3f06fec49e0fdbc341d0f35a"
+        }
+      ]
+    },
+    {
+      "path": "client/src-tauri/src/github_updates_policy.rs",
+      "sha256": "0c4055994f3292988de43a99d25ff5cc586b516e615225ce3f3b4609750f4a50",
+      "reviewer": "codex",
+      "note": "Reviewed Rust test-only synthetic diagnostic paths and deliberately invalid version strings; no real owner information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "6694f83c9f476da31f5df6bcc520034e7e57d421d247b9d34f49edbfc84a764c"
+        }
+      ]
+    },
+    {
+      "path": "client/tests/host-profile-connection.test.ts",
+      "sha256": "1976390493bbf8ef3e0cab39be2f30c27ebe6cd11223df22835530f6cb91828c",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "2079695da6202179f4c90ced8312f47074a69c2b318f9a97f6f7039f6478d8bf"
+        }
+      ]
+    },
+    {
+      "path": "client/tests/host-route-sync.test.ts",
+      "sha256": "e965f0d856e19683e65d1ff4ac078580730e7e42db1c1dd7534c9dc32f63d813",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
+        }
+      ]
+    },
+    {
+      "path": "client/tests/local-relay-routes.test.ts",
+      "sha256": "344865a4a8812f6e0f9d97c7be6a39b3dc9b1185b5df4b5810353bf63c45f8c8",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "77412bfe4a7329ac9f3a1984be6ee5d04407d1b907dd533bd5663e8915651f29"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-design/editor/artifact-type/babel.min.js",
+      "sha256": "2623a9e22809915ce789b4461154e277ddce520d5a4320c14d44332a5d0dcea0",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "5e6d5c1edd81603662592ed888baac1e24885a89c15ea00d289e44fb9b6331f6"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "2539db00c8afb69845307dad09d58fb351bac69cbcc5d358b4a5712f37ac9917"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "33397d620136320307e8a8615cb1002d2ae31f1d7fdeb9453e85db56a04db7b4"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "27d22a06d75225ef756f1b537cd99dec1273ff3eb5c378812cfbc687286d4765"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c9018e8dbcb57f5c330bd8798c2916f06e7c82e6fd2a05a5c1cc7087c119a440"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "4a9a8fd3b9b131a508b788748dfb42a58909d8717e821b7da63f528e30fa7ed7"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "7cd264eb070c629ae919e253e1b7e09cae8672976645bbc90092e12826480f25"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "1510eb202af5ed0f13c6aa4bb1ad3a7a84286e1eebc454ecc5c46ca0315db83c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "f5e4743b9468d65dd313f154f039b20a09001b80338bdf0fbb2e3bdc64d96e9e"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "f065fd75be6e006007d9afae47aa98eb71209fe4ec25615db37a4affe3df20cc"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "aaabed0acbda862c2e48405fc09f34cec24c4f3c112e6b72b8ba53db7f9c84c5"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "6ff6e90d9e154bbed7207140a1c9f4806f053d6e2c88e470e64aa624e1017d70"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "852a6514d6b2f93f0b81f9942b0094d34bb09550bba18b5419708dfb79d0299d"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "177d3f60ffa5bd097900c27ff00a053dab9bb132468deb88e4e9694e00870c82"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "771623f62d8517542af39b993d1e08230c4daa2f29301b439afa5e66d8ce8409"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c8cc5c5f44faf2eefaf4beb11f38e96ef582a9cb084afd016ef5ffa5e3f32f14"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "07b514b3ef556cab688b0666b79a956e674353526d45e6721a6278bab0a7a8eb"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "7032484b2f782dcff118092547714a133804215bb6e0f6ede59a83a889cb7412"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "203403555438b5e06e727c41ca5086dc6d14cee019017614623cbab4bdeb22b2"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "360410c528dcaccd30a22e5631ba8bc41b4972bea0e8bdcf2fcda36eb42b6906"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d46c325e8cd5ddca93f9427e0ad95c5670ca3a8451dd0c816ececa1e8547a6b4"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dbe6c09d34ae185812b74e572d53b918553355cf5625f091775fbc4cc72e2ffe"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "4d25d3c32173f7568af93c14a41b0adec3a8e85958b8b086cc40b617824a7def"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "648e93381c7c47013ef1bd86f95f0b1fdd80141f923cf89bcea732d175738cb3"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "98caff68bba72afe58a7d823094a64a6aabdcd9525f9f6645ed393a50ae26cac"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d245ded1339dbe0fb9b90d455427c34c7411604f69b26301e0fdc8009f04985d"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "db0aec37b32fb9919c447269479535fd36434ac1444c7f5a7e182b68fafb0e2e"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "76fd466b0a07b02dbca43a70a1f6529b4d824b89600c8abe1f147008db4b6ad1"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "1507bd83c3decca4c477a286c16f29bbfaff0be9eb00fafa953c5e2957cacf4b"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "a161bdf51e91e550c9c95174fad7efee5918af91688924a44f8efee998ee84bf"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "2624b24ae327d8230a04614bf8eec126791cdea852ebb1cd9c916caffa90a9e1"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "68e0d3ffc08257b5f4877e7140f5f5752efa06708b8ba38c19ab98d2aa647232"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "bf35df01299a7c59a03524bf3562e4a72f3f423fc14d65d945b0676f87b948d7"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "0e1775de9b5fc0b0bbd21c9aae61519f64141e409e63b0bd418e80e1c0afcfcd"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c555e29e7c5c3998bbae3a4549497b4a36a5664c419bf7aad15a74e3386664ed"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "6677ec04afa63386b66c9cf819abf2b14d3110a68219a216e3540eba07eae80d"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d15d6f254782c7f5744d6e681f54cacaf9d490c1b125b231fb9ec7afec141bdd"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c218a07ee12b18ca3ed603c72d9a96042ae17a194e8187ab7c027ab810962a6a"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "07636e68174c0830c910f4787cb1f3f0273748e2133fd3c64ea3692afeb90013"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "48cb8f9b8e2b4e60b2873a78c41c9811e931a7c04eeb8ff9d0d24a56adf9a0b0"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "4d77bb2735c3b7c5c29413886a3b20f6ae19603f894f0ad8a4a91558ad843d08"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "b38378580c27d7862cea31a95288bc88c81fe4c0e7e9b7f33193910e1c31b2ee"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "bca4cedc3ba1c9d787f91a5cb871c80d98aafee49f34da824d9753d395464e8c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "f0f2a4364857fbe704923b70f9134937c62d17abe7338139b66370acdd2594b3"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-design/editor/share-ui.js",
+      "sha256": "8aa902510e3d745db1822ec79aa197cc06803b04d8db5526c3e5ebf93398f5c5",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "1adbaf224a504e9f1c749b36a2c615d6bb9405697abd12d38367f56c0a52f4ae"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-design/editor/third-party-licenses.txt",
+      "sha256": "08463d65ff3633611f07edf6c54696b852b5eec716a55a812c30d4c79b7759f6",
+      "reviewer": "codex",
+      "note": "Reviewed required public upstream copyright attribution; retain original license text and author credit.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/assets/index-7OEzB54c.js",
+      "sha256": "baff688df037a5ea9631bd4613dc41a148c2d9d4050662183888849bf12aaed6",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "488004dac5c665ebbca5636a4cb1db57a04c3f8df7a577e7936c0ed70a39a23c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "28f7d84f78d8594f09a8d3b893634edefb9c89efc878e163bf7ef01dab0a31c5"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/node/compiler.cjs",
+      "sha256": "eff68ce17fdd83c1b331442e2457157cf9a2b9d1642644b2f7d9c693ca24288c",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "488004dac5c665ebbca5636a4cb1db57a04c3f8df7a577e7936c0ed70a39a23c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "28f7d84f78d8594f09a8d3b893634edefb9c89efc878e163bf7ef01dab0a31c5"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/node/third-party-licenses.txt",
+      "sha256": "4bd79f56dc6660adf38a69bbffce120b65d2b5d8dc962d3950fb753a1419acef",
+      "reviewer": "codex",
+      "note": "Reviewed required public upstream copyright attribution; retain original license text and author credit.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/share-ui.js",
+      "sha256": "8aa902510e3d745db1822ec79aa197cc06803b04d8db5526c3e5ebf93398f5c5",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "1adbaf224a504e9f1c749b36a2c615d6bb9405697abd12d38367f56c0a52f4ae"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/third-party-licenses.txt",
+      "sha256": "eee4c2d3a61a8b27676277a97585e6bcda0004e5e5071eaea707742348d8f013",
+      "reviewer": "codex",
+      "note": "Reviewed required public upstream copyright attribution; retain original license text and author credit.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/android-build.md",
+      "sha256": "b35876503d61498dcd731510604d0b8f44209d56d07c658efd15e4adb5f797eb",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "a3fbe876b99abf7560a3958436975de3ac938a9d7776f3c94651e288c69ff0e2"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/browser-extensions-2026-11-01.md",
+      "sha256": "2c3cfec435533d4104b56f7a7bd666f3496724123f397037a48a0d13cff29b9e",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "ffbcb86b1528a4fef5d80f74fa2dfce3903d0d6c8d9068d710cdc6da3757a7c7"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/host-choice-alignment-2026-10-14.md",
+      "sha256": "f971aecc808ff904180c897673193f9437921a6afcb193c5cac749e43b3d782c",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "c441baa6661f18fe0ad2bbeb0b4a8d3979bedd3fc7ed1d982584d6191487f463"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/operations.md",
+      "sha256": "d4c42a763d17c7a804421a5249fc3ed2fa367d84822ad418abedbf1d0156f442",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "6343ac534b7a01f6286467ab4d1e2c80d9facd2a39b20a0d1b5925c9c97385ce"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/prompt-queue-2026-10-14.md",
+      "sha256": "84b8109fd20ae040d8adc20359b3fc99eb60061918e83c6058b048110722fb4f",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "d2b16d127ee205dd79a1cbaa74cd4e0ff8ea0ae0f776b8bf4f37709814eff3af"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/release-1.0.66-2026-10-13.md",
+      "sha256": "d3c3a6162e9ec057e43dd3ec58b1a499ec5bee48798fff55f5ee9bc551641607",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "57536b65b7a01bd81a20f81dd62fd73945ee5922f68d3c52cb0eb8ab61674f48"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/release-1.0.67-2026-10-14.md",
+      "sha256": "63253f5606c93b63f4dffee8a80d07ff5e21bc667e2b489ca521bfbe03aa86bc",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "3d30bfa9d10e2173f817f30a88aa3216d2b3827245129d70326653c85bb17b14"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/tailscale-pairing-2026-10-12.md",
+      "sha256": "a181ff7a5b3400433d0ade76c1e3e1658f465d2cc63234945e797c20327986b2",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "4b2228c26597aecab7d5894eb1ec83d915bc2e1a75d758b3b53471ce6aa2c91c"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/windows-desktop-2026-10-13.md",
+      "sha256": "dd2e46bae2b3373eedd12b084d2949fcb04331ba05d16d3cf762e449ec62e923",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "69616f52735dfdb99f72a2d5a4f39d5ff2968be964241318e52d4ce7116b2b93"
+        }
+      ]
+    },
+    {
+      "path": "docs/client/workbench-stability-2026-10-31.md",
+      "sha256": "d94518ca11e3418b018581829d915412744f4ad180a1d4d5fcd6f61e5afdeb17",
+      "reviewer": "codex",
+      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "6b7370e732fbdeb2103d98727ac3984ebaea3832d0d56a88a89da31b63daf18e"
+        }
+      ]
+    },
+    {
+      "path": "src/core/env-parser.ts",
+      "sha256": "0ad86a861e7a6911523942051ba39c90a94ab3af9730db6f5f03cff29d7d5805",
+      "reviewer": "codex",
+      "note": "Reviewed comment listing endpoint, home and header options; the slash-separated prose is not a filesystem path.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "bd5bedea182c0da2e4a2a67a23126b74467a9d77708cdc18d6b40a6b2fd408f7"
+        }
+      ]
+    },
+    {
+      "path": "src/hub/desktop-tls.ts",
+      "sha256": "d538f5136f081bc2567979e88bb11211c98689e88f712bcc1687e8d5cb242b4e",
+      "reviewer": "codex",
+      "note": "Reviewed standard TLS server-authentication OID numeric fragments; these are not IP addresses.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "375add07a88ef6685c09ba16a0aab02f0cac2c271d1a041914ee57975e29c5fd"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "9b0632e21f383c31605a18b1f6a731b78208df822413c7c90eeb838d48c1e71b"
+        }
+      ]
+    },
+    {
+      "path": "src/hub/public-web.ts",
+      "sha256": "a2d61b28eeded796f2f0ec74576d74e7491c5550a882f398fd9aac79c74684fb",
+      "reviewer": "codex",
+      "note": "Reviewed reserved-network CIDR constants used for SSRF protection; no live deployment addresses.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "4b2228c26597aecab7d5894eb1ec83d915bc2e1a75d758b3b53471ce6aa2c91c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "3d0649ff9fac24ea421c9ce8ee6af720a84ceaa1c0a6bbcd6138938f67ff661e"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "93765e9dc4a7c55cb33d612324027e75802c34b1afdea78aa084d3d626a73259"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "ffe6deda608686b5edbe952091ac123bcfe2b4d8f247c76778ce7b05e30a606d"
+        }
+      ]
+    },
+    {
+      "path": "tests/access-store.test.ts",
+      "sha256": "12193518cf0d9ab904b7ac79b29d563a0712327b85b36c6ccbe275afa131c98b",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "d2b16d127ee205dd79a1cbaa74cd4e0ff8ea0ae0f776b8bf4f37709814eff3af"
+        }
+      ]
+    },
+    {
+      "path": "tests/artifact-delivery.test.ts",
+      "sha256": "cc8e17ab9b3403b377da07dfea6b88e6f06dfdcf39ea0b00fbd5d84c07865764",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "bdaf86401b5c208d16ca0042a4238e2c592d8662903d19de8c6ee56fd9582d2f"
+        }
+      ]
+    },
+    {
+      "path": "tests/bus.test.ts",
+      "sha256": "137350d3ef4f224cd7a32940e3cef3f06557c95af181947f07c6bc152b05ab4b",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "d2b16d127ee205dd79a1cbaa74cd4e0ff8ea0ae0f776b8bf4f37709814eff3af"
+        }
+      ]
+    },
+    {
+      "path": "tests/client-multipath-routes.test.ts",
+      "sha256": "210bf76374c743b995066635c41e02569342638ae39e2acb67a4711abd1c396d",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "63246b8fde0d7ce1f3ac7fdbf4b6c5e9aa9bd23d2d8156036cd57e4ce9308edb"
+        }
+      ]
+    },
+    {
+      "path": "tests/client-network-routes.test.ts",
+      "sha256": "b334c2deb95912fdcae0055abfbaab773e293bd8363a40a5c7ce3f36f4fe6aba",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "e67e0d6a46c5943476cbc00b7124d8227708b951ed4c3716cfb21bad8375ca95"
+        }
+      ]
+    },
+    {
+      "path": "tests/client-pairing-invites.test.ts",
+      "sha256": "4ea50725cdc88dc4980efc6366c6de02a5212135641e498d080d3d70e22cfd92",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/config.test.ts",
+      "sha256": "75ad44be7fab19f5c7e0c783f8e9c0e145c6261cef612f813ed2da2e10627712",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "3f5a2aa214fd23a35b6a7a58740561867cf7a3c902994587c4cd1cfb8492717c"
+        }
+      ]
+    },
+    {
+      "path": "tests/core-account-card.test.ts",
+      "sha256": "de6d0b9c39534a807cff627ef16b7edd0c67a6583aa53cc232a02d6bb1a3b29e",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "f9e409c5c16ecfdd5883da4f3ad045b4af5677740c9e703ad2d47ba231718350"
+        }
+      ]
+    },
+    {
+      "path": "tests/core-card-renderer.test.ts",
+      "sha256": "9ba4f2b651b8d6043022a13800d0e6f0d68af93557634b78ad6eb5fee510600f",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "53e73ce5e7a72e1f6cff714e3fcf5e6a68ab5672617be10b50cdddd6e369c545"
+        },
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "ea13087b6d304349fa348768d56788ba45ec2b64f8e664c5389bac4e91f29f18"
+        }
+      ]
+    },
+    {
+      "path": "tests/desktop-recovery-intent.test.ts",
+      "sha256": "c9ccb4f3f4399553ad8e5a77bf32c3ceeb1123e3002bc3206236b2e772ed9b19",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/desktop-tailscale.test.ts",
+      "sha256": "5f0d6b34564bd7a149941eaccac71ac1fd6ba2cf6417673826d39e3def8f7e82",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "25ecb11bfd4a7ea50ba30b45ce32bdb1d3c083445643f00a75d3e039a1f39133"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "0622464c1cff74f0dc58479d1b5329cb5edc290e50377b38b42c36d528853b3d"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "debfcf3416e1d42f2a9f446ed72bc56b7011baa5249513841e45f4b3817fef0c"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-audit-operations.test.ts",
+      "sha256": "7b2134cf06565b3f47d89ab84f98990bc44cf4486f0771a08f774331240baee6",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "b561751746c6b986134f7802acf540666c18c1f35cbcb132a55f9a98e1a4a23a"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-day-audit.test.ts",
+      "sha256": "b8b4bfcd5f0b35086d9d2e7b2b8aacb9a6bbf170ab15b843a9b44c1bb06b704f",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "94424f22c21cb2aa20f3ce0a90556555901c009da066016d24a48fc869a4a2b6"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-entry.test.ts",
+      "sha256": "365ec2ed6736401144e68460d4c5f40d3d89defb5857c377175635917585dbd1",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "db2ca2f858de1359a4b85e8eb949213b3bb141fd710673235803bc9c9dffbf82"
+        },
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "d1c5baecd41b4da151ae2c4e1bb32cae488b60a9b98a8cbe04ac43b8059421f8"
+        },
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "2a8e15b3ff99cef8401de23b2b03f00b63e421f3ed6a82bf89fa71ca22630c72"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-service.test.ts",
+      "sha256": "f7da08734c14661e42687248a5605481b2c950e825d56b02ab79ce0d68904c46",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "3e7eb6f9d0853610480ac0752e33dfd83e2dabbce400aecbf4ec1acb2ba083bf"
+        },
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "e6401405fcfe956b2438c1162710a896312013dc17247d18a81516c166713c7a"
+        },
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "8eb3c2ec75db90af2cf58834b50dbbfa2171cd4a77e75018c7f251b39b481aad"
+        },
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "9ccdf6a198b50b77571972f958bab18f1bb7a83e51f29e47fe156f564611b635"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-tailscale-status.test.ts",
+      "sha256": "eed8993a0c47ccfaed969af072b9d149406045e28141467e52a00d1c6ca66a76",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "device-or-tailnet-name",
+          "fingerprint": "8477941700b7091ad0a4ee7fb37ba82bbb9ed5f3d6b56d4e27550c7c5b6dc3fe"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "ad93e242615149326cb324f0d5593087c8c9a409ce49213f61fb3134e81a3d74"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "99e68e6fb6f98ae9bbcea0fb5d7c831c326653011c5092cfe5daf4357f555984"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-engine-path.test.ts",
+      "sha256": "82853e983faa4f169a541399f94e93f5cfcb657687567f3787aefc5656b08a03",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "7cbb8e356f240e3ad36f6f3c5714672e43ce15f6e1d9abe52e48ce13776328fb"
+        },
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "2a8e15b3ff99cef8401de23b2b03f00b63e421f3ed6a82bf89fa71ca22630c72"
+        }
+      ]
+    },
+    {
+      "path": "tests/hub-host-routes.test.ts",
+      "sha256": "628c02f73fad31dd194378a88a2aeef02ac85c35c1786e4783c62079fb71505d",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "2241f04e44531710591553b9c15519acc0d50866bf75daed3d2c041375e33a5d"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "99e68e6fb6f98ae9bbcea0fb5d7c831c326653011c5092cfe5daf4357f555984"
+        }
+      ]
+    },
+    {
+      "path": "tests/hub-link-preview.test.ts",
+      "sha256": "72d8cc6eb6d1faf8795c67fd1247f1db6d36ab165c5142fcacb2222536134bb1",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "1b4d903a6d7936b0c2d8265de71cc7f3ac773eecfcd9b3fe3c40deb1776c01ff"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "3ebe27a5987fe4053782dff38d127dd59c717773fc9133fca22bee1a71caf1f3"
+        }
+      ]
+    },
+    {
+      "path": "tests/hub-prompt-queue.test.ts",
+      "sha256": "98717778c5cbbb0a7768b86107e145e6957caefdfa4d7445a50a428839dbcdee",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "c033a7efb16d867f74dbb297fb4966466fe53c7e18b7a830755289ed9717bb8c"
+        }
+      ]
+    },
+    {
+      "path": "tests/hub-server.test.ts",
+      "sha256": "033da2dc4da40a1a7575869f9711d53f7b5f1d1fadc838d3a27c0842334ab3da",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "6694f83c9f476da31f5df6bcc520034e7e57d421d247b9d34f49edbfc84a764c"
+        }
+      ]
+    },
+    {
+      "path": "tests/loopback-address.test.ts",
+      "sha256": "5b5c030e5240d68605ca28d637a8ef34ad0b1c77d4e0a056bd159379d62eadc3",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "b561751746c6b986134f7802acf540666c18c1f35cbcb132a55f9a98e1a4a23a"
+        }
+      ]
+    },
+    {
+      "path": "tests/python/qwen_installer_test.py",
+      "sha256": "65e3dbc2bfbcf6bd68dd97ae3d6ea2363f10bdd75de68fe666c6b9e9d7d03467",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "361b69223d16addebd65d3ae51a84b32198d9e63e6a782ea67fef9236616e0e6"
+        }
+      ]
+    },
+    {
+      "path": "tests/tailscale-review-regressions.test.ts",
+      "sha256": "64fc588694c20a6372cee25e47a133d35955727b3121f07c23b8b6e251f9c582",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "tests/thread-writer-lock.test.ts",
+      "sha256": "3d13052e060b5dc31a295b5ee0d218651e9e19e48ee8b672d8bd6118c3bb07a1",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "f9e409c5c16ecfdd5883da4f3ad045b4af5677740c9e703ad2d47ba231718350"
+        }
+      ]
+    },
+    {
+      "path": "tests/usage-store.test.ts",
+      "sha256": "98a250df632c5728a48bca603a84297983f93ab10cb11c99d28b5b633ca8c195",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "d2b16d127ee205dd79a1cbaa74cd4e0ff8ea0ae0f776b8bf4f37709814eff3af"
+        }
+      ]
+    },
+    {
+      "path": "tests/windows-host.test.ts",
+      "sha256": "01c19191743e42536f219deed816e1e0ba9f372ef0ebae15f473b2419b604b1f",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "personal-home-path",
+          "fingerprint": "bd2f50cdb07ee625d3fea02ab6b9962b829ac4a4a09f2dbd6015601e796fa100"
+        }
+      ]
+    }
+  ]
+}

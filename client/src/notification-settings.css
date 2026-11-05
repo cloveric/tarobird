@@ -1,0 +1,47 @@
+/* Shared notification choices, using the existing settings and switch tokens. */
+.notification-settings .notification-option { flex-wrap: nowrap; gap: 12px; min-height: 72px; }
+.notification-settings .notification-option > svg,
+.notification-settings .notification-system-link > svg { flex: none; color: var(--muted); }
+.notification-settings .settings-row-text { display: grid; flex: 1; min-width: 0; gap: 4px; }
+.notification-settings .settings-row-text > span { line-height: 1.45; }
+.notification-settings .settings-row-text small { color: var(--muted); font-size: .88rem; line-height: 1.5; overflow-wrap: anywhere; }
+.settings-content .notification-option > button.model-brand-toggle[role=switch] { display: flex; align-items: center; justify-content: center; flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; box-shadow: none; }
+.notification-settings .notification-master .settings-callout { margin: 0 12px 12px; }
+.notification-settings .notification-readiness { margin: 10px 0 20px; padding: 12px; border-radius: 12px; }
+.notification-settings .notification-readiness[data-state=ready] { background: transparent; border: 0; padding: 0 4px; }
+.notification-settings .notification-readiness-actions { margin-top: 8px; }
+.notification-settings .notification-readiness-actions button { padding: 6px 12px; }
+.settings-content button.notification-system-link { display: flex; flex-wrap: nowrap; align-items: center; gap: 12px; width: 100%; min-height: 76px; padding: 14px 16px; text-align: start; color: var(--text); border: 0; border-radius: 0; background: transparent; box-shadow: none; font: inherit; }
+.settings-content button.notification-system-link:hover:not(:disabled) { background: var(--surface-alt); }
+.notification-system-value { flex: none; color: var(--muted); font-size: .85rem; }
+.notification-quiet { margin: 24px 0 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.notification-quiet > summary { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 12px 16px; list-style: none; cursor: pointer; }
+.notification-quiet > summary::-webkit-details-marker { display: none; }
+.notification-quiet > summary > span { flex: 1; }
+.notification-quiet > summary > small { color: var(--muted); font-size: .85rem; text-align: end; }
+.notification-quiet > summary > svg { flex: none; color: var(--muted); transition: transform .15s; }
+.notification-quiet[open] > summary { border-bottom: 1px solid var(--border); }
+.notification-quiet[open] > summary > svg { transform: rotate(90deg); }
+.notification-quiet .settings-quiet { margin: 0; }
+.notification-settings .notification-quiet .quiet-card { margin: 0; border: 0; border-radius: 0; background: transparent; }
+.notification-quiet .settings-note { padding: 0 16px 12px; margin-bottom: 0; }
+.notification-quiet .error-text { padding-inline: 16px; }
+.notification-settings .notification-policy,
+.notification-settings .notification-connection-options { margin-top: 12px; }
+@media (min-width: 761px) {
+  .notification-settings .quiet-times { display: flex; }
+  .notification-settings .quiet-times > label { flex: 1; min-width: 0; }
+  .notification-settings .quiet-times > label + label { border-top: 0; border-left: 1px solid var(--border); }
+}
+@media (max-width: 760px) {
+  .notification-settings .notification-option { min-height: 76px; }
+  .notification-system-value { display: none; }
+}
+
+.notification-readiness-summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; list-style: none; }
+.notification-readiness-summary::-webkit-details-marker { display: none; }
+.notification-readiness-summary > strong { flex: 1; min-width: 0; font-size: .9rem; font-weight: 500; }
+.notification-readiness-summary > svg { flex: none; color: var(--muted); }
+.notification-readiness[open] .notification-readiness-summary > svg:last-child { transform: rotate(90deg); }
+.notification-settings .notification-readiness-body { padding-inline: 26px 4px; }
+.notification-settings .notification-readiness-actions { padding-inline: 26px 4px; }

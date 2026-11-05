@@ -1,0 +1,31 @@
+/* Opt-in settings pages keep a stable DOM across rotation. Desktop contents
+   still participate in the original dialog layout. Action/confirmation sheets
+   do not opt in. The outer page owns OS insets exactly once. */
+.settings-dialog-body{display:contents}
+.creation-dialog>header>.settings-dialog-back{display:none}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root dialog.creation-dialog.mobile-settings-dialog[open]{
+    position:fixed;inset:var(--shell-top,0px) 0 auto;margin:0;
+    width:100%;max-width:none;height:var(--shell-height,100dvh);max-height:var(--shell-height,100dvh);
+    box-sizing:border-box;display:flex;flex-direction:column;min-width:0;min-height:0;
+    padding:var(--app-safe-top,0px) var(--app-safe-right,0px) var(--app-safe-bottom,0px) var(--app-safe-left,0px);
+    border:0;border-radius:0;box-shadow:none;overflow:hidden;background:var(--bg);animation:none;translate:none;
+  }
+  :root .mobile-settings-dialog>header{
+    position:static;flex:none;display:flex;align-items:center;gap:8px;min-height:60px;
+    margin:0!important;padding:8px 16px 8px 8px;border-bottom:1px solid var(--border);cursor:default;
+  }
+  :root .mobile-settings-dialog>header>h2{flex:1;min-width:0;margin:0;font-size:17px;line-height:1.4;overflow-wrap:anywhere}
+  :root .mobile-settings-dialog>header>.settings-dialog-back{display:flex;flex:none;width:44px;height:44px;margin:0}
+  :root .mobile-settings-dialog>header>.settings-dialog-close{display:none}
+  :root .mobile-settings-dialog>.settings-dialog-body{display:block;flex:1;min-height:0;min-width:0;overflow:auto;overscroll-behavior:contain;padding:16px 16px 24px;scrollbar-gutter:auto}
+  /* The phone page has room beyond the desktop avatar grid's height cap.
+     Keep short screens scrollable while the library uses spare vertical space. */
+  :root .avatar-editor-library>.settings-dialog-body{display:flex;flex-direction:column;padding-bottom:12px}
+  :root .avatar-editor-library>.settings-dialog-body>*{flex-shrink:0}
+  :root .avatar-editor-library .avatar-library{flex:1 1 112px;min-height:112px;max-height:none}
+  :root .avatar-editor-library .avatar-editor-actions{margin-top:0;bottom:-12px;padding:12px 0 0}
+  :root .mobile-settings-dialog.group-settings form>.rename-conversation-actions{bottom:-24px;margin-bottom:-24px;padding-bottom:16px}
+  :root .pairing-wizard>.settings-dialog-body{padding-bottom:0}
+  :root .mobile-settings-dialog .pairing-actions{margin-inline:-16px;padding-inline:16px;padding-bottom:12px}
+}

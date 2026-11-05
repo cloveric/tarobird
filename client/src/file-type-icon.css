@@ -1,0 +1,17 @@
+/* Color + a readable mark keep types distinct even when names are truncated. */
+.file-type-icon{--file-tone:#667085;display:block;flex:none;overflow:visible}
+.file-type-icon[data-file-kind=word]{--file-tone:#2864b4}
+.file-type-icon[data-file-kind=pdf]{--file-tone:#c0393d}
+.file-type-icon[data-file-kind=spreadsheet]{--file-tone:#23804e}
+.file-type-icon[data-file-kind=presentation]{--file-tone:#bf5727}
+.file-type-icon[data-file-kind=archive]{--file-tone:#956323}
+.file-type-icon[data-file-kind=code]{--file-tone:#6850ab}
+.file-type-icon[data-file-kind=image]{--file-tone:#427784}
+.file-type-icon[data-file-kind=audio]{--file-tone:#8b4c92}
+.file-type-icon[data-file-kind=video]{--file-tone:#8056b1}
+.file-type-paper{fill:color-mix(in srgb,var(--file-tone) 10%,var(--raised,#fff));stroke:color-mix(in srgb,var(--file-tone) 40%,var(--border,#ddd));stroke-width:1}
+.file-type-fold{fill:color-mix(in srgb,var(--file-tone) 24%,var(--raised,#fff))}
+.file-type-lines{fill:none;stroke:var(--file-tone);stroke-width:1.5;stroke-linecap:round;opacity:.5}
+.file-type-badge{fill:var(--file-tone)}
+.file-type-mark{fill:#fff;font-family:var(--font-sans),sans-serif;font-weight:750;letter-spacing:0}
+@media(forced-colors:active){.file-type-paper,.file-type-fold{fill:Canvas;stroke:CanvasText}.file-type-lines{stroke:CanvasText}.file-type-badge{fill:CanvasText}.file-type-mark{fill:Canvas}}

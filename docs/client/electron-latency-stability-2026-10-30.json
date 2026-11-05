@@ -1,0 +1,255 @@
+{
+  "status": "source_validated_and_reviewed_release_held",
+  "baseCommit": "3cdb88642a2b8f458838f0e541cbf04d714efe0c",
+  "rawReceiptLabelCorrection": "Transport benchmark harness labels 5c2ff906 plus Phase10 working fixes; actual pre-optimization source equals3cdb886. After files include the Phase11 frontend diff. Original receipts retained unchanged. Core transport source unchanged between these commits.",
+  "scope": "Real isolated sandboxed Electron45.1.0 renderer/preload/main/Rusthelper/pinnedTLS loopback fixture. Not real internet, model or installed App.",
+  "implementation": "Electron-only native toBase64 encoding, compatibility fallback, existing byte limits and abort/lease boundaries retained. No native download coalescing or WS ACK changes.",
+  "rounds": [
+    {
+      "phase": "baseline",
+      "round": 1,
+      "upload8MiBTotalP50Ms": 195.09999999403954,
+      "upload8MiBHeadersP50Ms": 162.70000000298023,
+      "smallWsP95Ms": 0.8999999910593033,
+      "healthFirstMs": 905.6000000089407,
+      "old8MiBEncodeP50Ms": 123.40000000596046,
+      "native8MiBEncodeP50Ms": 0.3999999910593033
+    },
+    {
+      "phase": "baseline",
+      "round": 2,
+      "upload8MiBTotalP50Ms": 183.09999999403954,
+      "upload8MiBHeadersP50Ms": 151.20000000298023,
+      "smallWsP95Ms": 2,
+      "healthFirstMs": 8.399999991059303,
+      "old8MiBEncodeP50Ms": 123,
+      "native8MiBEncodeP50Ms": 0.30000001192092896
+    },
+    {
+      "phase": "baseline",
+      "round": 3,
+      "upload8MiBTotalP50Ms": 174.70000000298023,
+      "upload8MiBHeadersP50Ms": 144.29999999701977,
+      "smallWsP95Ms": 2,
+      "healthFirstMs": 8.400000005960464,
+      "old8MiBEncodeP50Ms": 120.1000000089407,
+      "native8MiBEncodeP50Ms": 0.3999999910593033
+    },
+    {
+      "phase": "after",
+      "round": 1,
+      "upload8MiBTotalP50Ms": 76.70000000298023,
+      "upload8MiBHeadersP50Ms": 43.900000005960464,
+      "smallWsP95Ms": 2.9000000059604645,
+      "healthFirstMs": 8,
+      "old8MiBEncodeP50Ms": 121.5,
+      "native8MiBEncodeP50Ms": 0.29999999701976776
+    },
+    {
+      "phase": "after",
+      "round": 2,
+      "upload8MiBTotalP50Ms": 73.5,
+      "upload8MiBHeadersP50Ms": 40.599999994039536,
+      "smallWsP95Ms": 2.0999999940395355,
+      "healthFirstMs": 8.299999997019768,
+      "old8MiBEncodeP50Ms": 120.6000000089407,
+      "native8MiBEncodeP50Ms": 0.30000001192092896
+    },
+    {
+      "phase": "after",
+      "round": 3,
+      "upload8MiBTotalP50Ms": 67.70000000298023,
+      "upload8MiBHeadersP50Ms": 29,
+      "smallWsP95Ms": 1.9000000059604645,
+      "healthFirstMs": 8.099999994039536,
+      "old8MiBEncodeP50Ms": 120.29999999701977,
+      "native8MiBEncodeP50Ms": 0.3999999910593033
+    }
+  ],
+  "evidence": [
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/transport-baseline-1.json",
+      "sha256": "838721b15fc20621d7b51c780e46b8ed63ce1b725fe0c43597738fd660f3806d"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/transport-baseline-2.json",
+      "sha256": "15b4966c8e4a9efa94daf25c4662ccfff952a1ced7381b3c4d6b4575397b9d13"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/transport-baseline-3.json",
+      "sha256": "4ea311f20524faa326e09f13bf543be68f2e6b9f25b37fee96ab58c08b971b02"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/transport-after-1.json",
+      "sha256": "a204dff65abdc547d677315b08ab66b5b4a5861bf545c73e9976887f369e01c8"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/transport-after-2.json",
+      "sha256": "cf20afbbc80c9801dec493d91fa3a6ebbfc2ae7bf2213053c848e4073e5ad56c"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/transport-after-3.json",
+      "sha256": "8195f3ecdd5a1dc8bb3f15dbe77c25d764c7cbe9bf0304d5f64adea74283aa07"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/opus-ls01.noindex/formal-ab.json",
+      "sha256": "7aedb76f1d4d016792ab23b279d31cf6701b202ec5f9b86133409444f84f940f"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/opus-ls01.noindex/ls02-formal.json",
+      "sha256": "b317d0cb51e2d2e607a0e940b63dd04be5c9a31ca339816a31237c47a2f81c23"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/blank-frame-control.json",
+      "sha256": "bd62928e0be424f2856fac2bfd8d83087da0660cc61217715193315b306bc6a0"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/transport-perf.mjs",
+      "sha256": "5920b382faffc1e32fcfc1b070c18b7c37481008e49b1c7db28cba40970a8086"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/codec-zfhTxw/verification.json",
+      "sha256": "1cfa0cdf1e40bcd8dc002534d2fe5a295582fd521a213a3bd5b45478db105b77"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/audit-ui-3Pipgs/verification.json",
+      "sha256": "c399e8870e98736cda14e8c3d04fc1e3249083b36f0a69a8ffbdfa542f5e2a29"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/focused-unit.log",
+      "sha256": "ba81e0a0f0739645eb5da1c713c2c200295a6021f2ba7f7c5cef25af8569fdbc"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/focused-electron.log",
+      "sha256": "1ac42a5e3fd97d92c9332c773b99479d6e276fed30c3237f055da67ca7d7000f"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/browser-regression.log",
+      "sha256": "9137fd27131c9daca4d5ca19de0355036fdf116b6bca973a33471b2991aa856e"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/streaming-final.log",
+      "sha256": "ac1f4c35b5d774e382eb33e5d58b748adbf97a0deaea7ccbdf6e88c653c25de1"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/render.log",
+      "sha256": "17d0742942e96b966165efb83351842f3eeb4c57ca133a111d505622c1bd6b72"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/render-headed.log",
+      "sha256": "db469e94392ac464488258abef6f0f7e49016db47e616e73a718c70ecdc6b6e4"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/stream-diagnostic.log",
+      "sha256": "7e975ba321f80f6e92e7e6f8c222758b0770fbc4747a853e7ee7a4352d888363"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/client-build.log",
+      "sha256": "15f0b1d3632c0895c9d5d8220a5d71f09693dd0fde5234ac281d1879a5b53fae"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/streaming-final/streaming-latency-streamin-aef4c--1360px-long-run-background/body-metrics.json",
+      "sha256": "6ad8329520509a0a8986fdc93982c6816583a1ab6193bd1281b847c87a360423"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/streaming-final/streaming-latency-streamin-aef4c--1360px-long-run-background/thinking-metrics.json",
+      "sha256": "c2be50d187a0aa06288fbf71d4b662b31449ad421c30bd0c81e0c805614820d5"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/streaming-final/streaming-latency-streaming-latency-1360px-baseline/body-metrics.json",
+      "sha256": "4b4dbc04a15eba47be1b7557f1ed85188cdf3447f7bcf0ac7fdde78b828d2203"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/streaming-final/streaming-latency-streaming-latency-1360px-baseline/thinking-metrics.json",
+      "sha256": "607dc1bd32740eef55a5928e4f25db672a36e3907069df5e25c58f6606725337"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/root-build.log",
+      "sha256": "2949192c2b15566d8766daa3c96f3dde8cd0b5b40d9f6ad681f5489dbe4d7d0f"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/opus-final-review.md",
+      "sha256": "26c5aa3d2db9eda4b787b2762bf30cca971486d08d21662070c38d5b9a5901ea"
+    },
+    {
+      "file": "/Volumes/gdrive/taro-tmp.noindex/electron-migration-20261030/phase11-latency-stability.noindex/opus-final-review.json",
+      "sha256": "20703e66d16b4e7bcf21b1a847b3783e6552cfaa9efe698d4e6997ad9c979cf4"
+    }
+  ],
+  "release": "held: no publication, installation, production Host restart or model setting change",
+  "windows": "physical acceptance deferred by owner",
+  "openCandidates": [
+    "large legacy WebKit scan/startup cost needs representative profile measurement; migration validation unchanged",
+    "local Host startup gate and main event loop under multiple maximum frames not optimized without measured bottleneck",
+    "snapshot retention/data cleanup not changed"
+  ],
+  "verification": {
+    "unit": {
+      "passed": 5,
+      "skipped": 1,
+      "skipReason": "Node24 lacks native typed-array encoder; real Electron native branch separately required"
+    },
+    "electronFocused": {
+      "passed": 38
+    },
+    "browserTransportAndSave": {
+      "passed": 58
+    },
+    "actualElectronCodec": {
+      "passed": 10,
+      "receipt": "codec-zfhTxw/verification.json"
+    },
+    "actualRendererCrash": {
+      "passed": 6,
+      "receipt": "audit-ui-3Pipgs/verification.json",
+      "boundary": "synthetic localStorage draft and one IndexedDB outbox record, not complete production send workflow"
+    },
+    "uiStreaming": {
+      "passed": 2,
+      "scope": "headless browser/shared React + actual isolated Hub/Gateway synthetic engine events"
+    },
+    "longTextHeadless": {
+      "passed": false,
+      "frameP95Ms": 133.4,
+      "longTasks": 0,
+      "inputMs": 31,
+      "blankHeadlessP95Ms": 116.8,
+      "disposition": "environment cadence limitation retained; threshold unchanged"
+    },
+    "longTextHeaded": {
+      "passed": true,
+      "frameP95Ms": 18.6,
+      "frameMaxMs": 82.3,
+      "inputMs": 15,
+      "longTasks": 0,
+      "lines": 5000,
+      "tables": 10,
+      "equations": 10
+    },
+    "clientBuild": "passed",
+    "hostBuild": "passed: build-standalone awaits tsc, relay and graph check; root-build.log contains final successful graph-check marker"
+  },
+  "testHarnessFix": "short runs omit the pagination footer; check locator count before isEnabled, so polling can observe the already-present thought row",
+  "review": {
+    "reviewer": "actual Claude Opus5.5",
+    "messageId": "msg_3181aee6ebfb40b09344b7ecb60ea675",
+    "status": "completed",
+    "mustFix": [],
+    "suggestions": [
+      {
+        "id": "D-1",
+        "disposition": "documented actual owned helper SIGKILL and absence of in-flight upload during crash"
+      }
+    ],
+    "boundary": "no required bug found in reviewed scope, not absence guarantee; Opus independently hashed initial10 ledgerfiles; root subsequently hashed final ledger"
+  },
+  "residualAcceptance": [
+    "signed installed package",
+    "real internet multi-chunk attachment/download-checkpoint end-to-end",
+    "in-flight POST across actual helper crash",
+    "production outbox workflow across renderer crash",
+    "physical Windows (owner deferred)"
+  ],
+  "finalEvidenceCount": 27,
+  "finalizedAt": "2026-10-30T08:42:49.567732+00:00"
+}

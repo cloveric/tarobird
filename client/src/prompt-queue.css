@@ -1,0 +1,82 @@
+.prompt-queue{flex:none;min-width:0;height:32px;margin:0 2px 4px}
+.prompt-queue-trigger{display:flex;align-items:center;gap:6px;min-height:30px;height:30px;max-width:100%;padding:4px 8px;color:var(--grey);background:transparent;font-size:12px}
+.prompt-queue-trigger>span{font-weight:550;white-space:nowrap;flex:none}.prompt-queue-trigger>svg{flex:none}.prompt-queue-next{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}.prompt-queue-trigger>small{font-size:11px;color:var(--muted)}
+/* Keep the selected phone surface stable before and after sticky touch hover. */
+@media(hover:none){.prompt-queue-trigger,.prompt-queue-trigger:hover:not(:disabled){background:var(--hover)}}
+:root dialog.creation-dialog.prompt-queue-panel[open]{display:flex;flex-direction:column;position:fixed;top:var(--shell-top,0px);bottom:auto;left:auto;right:0;margin:0;width:min(510px,95vw);max-width:none;height:var(--shell-height,100dvh);max-height:var(--shell-height,100dvh);border:0;border-left:1px solid var(--border);border-radius:0;padding:20px;overflow:hidden;animation:none;background:var(--bg)}
+.prompt-queue-panel>header{flex:none}.prompt-queue-help{flex:none;font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 8px}
+.prompt-queue-intro{display:contents}
+.prompt-queue-status{flex:none;display:flex;align-items:center;gap:8px;min-height:32px;font-size:12px;color:var(--muted)}.prompt-queue-status>span{flex:1;min-width:0}
+.prompt-queue-alert{flex:none;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin:8px 0;font-size:12px;line-height:1.6;overflow-wrap:anywhere}.prompt-queue-alert button{margin-left:6px;min-height:32px}
+.prompt-queue-list{position:relative;isolation:isolate;flex:1;min-height:90px;overflow:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-gutter:stable;padding:4px 2px}
+.prompt-queue-item{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;padding:12px;background:var(--bg)}.prompt-queue-item.is-drop-before{box-shadow:inset 0 2px 0 var(--accent)}.prompt-queue-item.is-drop-after{box-shadow:inset 0 -2px 0 var(--accent)}.prompt-queue-item.is-locked{color:var(--muted)}
+.prompt-queue-item-heading{display:flex;align-items:center;gap:8px;min-height:26px}.prompt-queue-item-meta{display:flex;align-items:center;gap:8px;flex:1;min-width:0}.prompt-queue-item-heading strong{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:600}.prompt-queue-item-heading time{flex:none;white-space:nowrap;font-size:11px;color:var(--muted);margin-left:auto}.prompt-queue-grip{cursor:grab!important;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.prompt-queue-grip:active{cursor:grabbing!important}
+.prompt-queue-source{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:44px;min-height:30px;padding:4px 6px;font-size:12px;line-height:1.4;white-space:nowrap;background:transparent;color:var(--text)}
+.prompt-queue-source svg{flex:none;color:var(--accent)}
+.prompt-queue-item-heading>:is(.prompt-queue-first,.prompt-queue-last){flex:none;color:var(--accent)}
+.prompt-queue-list:is([data-dragging="true"],[data-queue-saving="true"],[data-queue-updating="true"]),.prompt-queue-list:has([data-queue-settling="true"]),.prompt-queue-panel:has(.prompt-queue-list:is([data-dragging="true"],[data-queue-saving="true"],[data-queue-updating="true"]),[data-queue-settling="true"]){overflow-anchor:none}
+.prompt-queue-item{position:relative;z-index:1}
+.prompt-queue-item:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.prompt-queue-item[data-dragging="true"]{z-index:3;pointer-events:none;border-color:var(--accent);box-shadow:0 10px 28px #00000022,0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent);will-change:transform}
+.prompt-queue-item[data-queue-settling="true"]{will-change:transform}
+.prompt-queue-drop-slot{position:absolute;z-index:0;pointer-events:none;box-sizing:border-box;border:1px dashed color-mix(in srgb,var(--accent) 55%,var(--border));border-radius:10px;background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
+.prompt-queue-list:is([data-dragging="true"],[data-queue-saving="true"]) .prompt-queue-item:is(.is-drop-before,.is-drop-after){box-shadow:none}
+.prompt-queue-list[data-dragging="true"],.prompt-queue-list[data-dragging="true"] *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
+body:has(.prompt-queue-list[data-dragging="true"]),body:has(.prompt-queue-list[data-dragging="true"]) *{user-select:none!important;-webkit-user-select:none!important}
+.prompt-queue-grip{-webkit-user-drag:none}
+@media(pointer:coarse){.prompt-queue-panel .prompt-queue-grip{min-width:44px;min-height:44px}}
+.prompt-queue-text{font-size:13px;line-height:1.65;white-space:pre-wrap;overflow-wrap:anywhere;margin:5px 0 8px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.prompt-queue-text.is-expanded{-webkit-line-clamp:unset;display:block}.prompt-queue-expand{font-size:12px;min-height:32px;padding:4px 0;background:transparent;color:var(--muted)}
+.prompt-queue-context{display:block;font-size:11px;line-height:1.6;color:var(--muted)}.prompt-queue-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}.prompt-queue-actions button{display:flex;align-items:center;gap:4px;min-height:32px;padding:5px 8px;font-size:12px;background:transparent}
+.prompt-queue-confirm{margin-top:10px;padding:12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);font-size:12px;line-height:1.6}
+.prompt-queue-confirm p{margin:0}.prompt-queue-confirm-title{font-weight:600;color:var(--text)}
+.prompt-queue-confirm .prompt-queue-confirm-description{margin-top:4px;color:var(--grey)}
+.prompt-queue-confirm-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;margin-top:12px}
+.prompt-queue-confirm-actions button{min-height:32px;min-width:56px;padding:5px 10px;border-width:1px;border-style:solid;border-radius:var(--radius-sm);font-size:12px;line-height:1.5;font-weight:550}
+.prompt-queue-confirm-actions .prompt-queue-keep{border-color:var(--border-strong);background:var(--raised);color:var(--text)}
+.prompt-queue-confirm-actions .prompt-queue-keep:hover:not(:disabled){background:var(--hover)}
+.prompt-queue-empty{padding:30px 10px;text-align:center;font-size:13px;color:var(--muted)}
+.prompt-queue-editor{flex:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);max-height:55%;overflow:auto;overscroll-behavior:contain}.creation-dialog .prompt-queue-editor>label{font-size:13px;margin:0 0 8px}.prompt-queue-editor textarea{width:100%;min-height:84px;max-height:26dvh;resize:vertical;font-size:14px;line-height:1.6;background:var(--bg);color:var(--text)}.prompt-queue-editor>small{display:block;font-size:11px;line-height:1.6;color:var(--muted)}.prompt-queue-editor>div{display:flex;gap:8px;margin-top:10px}.prompt-queue-editor button{min-height:38px}
+@media(max-width:760px),(pointer:coarse) and (max-height:500px){
+ :root dialog.creation-dialog.prompt-queue-panel[open],html[data-keyboard-open="true"] dialog.creation-dialog.prompt-queue-panel:modal{inset:var(--shell-top,0px) 0 auto;width:100%;max-width:none;height:var(--shell-height,100dvh);max-height:var(--shell-height,100dvh);margin:0;border:0;border-radius:0;padding:calc(8px + var(--app-safe-top,0px)) max(14px,var(--app-safe-right,0px)) calc(10px + var(--app-safe-bottom,0px)) max(14px,var(--app-safe-left,0px))}
+ .prompt-queue{height:44px}.prompt-queue-trigger{height:44px;min-height:44px;width:100%}
+ /* Keep the phone queue as a full-width strip even for attachment-only previews. */
+ .prompt-queue-trigger>.prompt-queue-next{flex:1}
+ .prompt-queue-trigger>svg:last-child{margin-left:auto}
+ .prompt-queue-panel button{min-height:44px}.prompt-queue-panel .icon-button{min-width:44px;min-height:44px;width:44px;height:44px}
+ .prompt-queue-panel>header .icon-button{order:-1}.prompt-queue-panel>header h2{flex:1}.prompt-queue-actions button{min-height:48px;padding-inline:9px}.prompt-queue-editor button{min-height:44px}.prompt-queue-item{padding:10px}.prompt-queue-list{scrollbar-gutter:auto}
+ /* Phone instructions and reorder receipts do not occupy a content row.
+    Keep the live region readable to assistive technology. */
+ .creation-dialog.prompt-queue-panel>header{margin-bottom:4px}
+ .prompt-queue-panel>header>.prompt-queue-refresh{order:1}
+ .prompt-queue-status{min-height:0;line-height:1.6;overflow-wrap:anywhere}
+ .prompt-queue-status>span:empty,.prompt-queue-status>span[data-quiet=true]{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+
+}
+.prompt-queue-cancelled{display:block;margin-top:6px;font-size:11px;line-height:1.5;color:var(--muted)}
+.message.user .message-blocks:has(>.markdown)>.prompt-queue-cancelled{color:var(--self-message-muted,var(--muted))}
+
+.prompt-queue-edit-conflict{margin:0 0 10px;font-size:12px;line-height:1.6;color:var(--text)}
+
+/* A landscape phone keyboard can leave only 220px. Use one scroll surface
+   instead of forcing the list, editor and header into that narrow band. */
+@media(pointer:coarse) and (max-height:500px){
+ html[data-keyboard-open="true"] dialog.creation-dialog.prompt-queue-panel:modal{display:block;overflow-y:auto;overscroll-behavior:contain;scroll-padding-top:64px;scroll-padding-bottom:calc(10px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)));padding-top:0;padding-bottom:calc(10px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))}
+ html[data-keyboard-open="true"] .prompt-queue-panel>header{position:sticky;top:0;z-index:2;background:var(--bg);margin-left:calc(-1 * max(14px,var(--app-safe-left,0px)));margin-right:calc(-1 * max(14px,var(--app-safe-right,0px)));padding:8px max(14px,var(--app-safe-right,0px)) 8px max(14px,var(--app-safe-left,0px))}
+ html[data-keyboard-open="true"] .prompt-queue-panel .prompt-queue-list{min-height:0;overflow:visible}
+ html[data-keyboard-open="true"] .prompt-queue-panel .prompt-queue-editor{max-height:none;overflow:visible}
+}
+
+/* Stack only the compact metadata on narrow phones; all four icons keep 44px targets. */
+@media(max-width:360px){.prompt-queue-item-meta{flex-direction:column;align-items:flex-start;gap:2px}.prompt-queue-item-meta>strong{max-width:100%}.prompt-queue-item-meta>time{margin-left:0}}
+
+/* Paused prompts retain their position and remain editable; status is text, not just colour. */
+.prompt-queue-paused{display:inline-flex;align-items:center;gap:4px;margin:5px 0 0;padding:2px 6px;border-radius:5px;font-size:11px;line-height:1.5;color:var(--text);background:color-mix(in srgb,var(--accent) 12%,var(--bg))}
+.prompt-queue-actions .prompt-queue-toggle{color:var(--accent)}
+@media(pointer:coarse){.prompt-queue-item{-webkit-touch-callout:none}}
+
+/* Leave room for Pause / Start without expanding every phone card. */
+@media(max-width:760px),(pointer:coarse) and (max-height:500px){
+ .prompt-queue-actions .prompt-queue-step{justify-content:center;min-width:44px;padding-inline:8px}
+ .prompt-queue-actions .prompt-queue-step>span{display:none}
+}

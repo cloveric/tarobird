@@ -1,0 +1,556 @@
+{
+  "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+  "appVersion": "1.0.127",
+  "hostVersion": "0.1.472",
+  "protocol": 1,
+  "hubSchemaRange": [
+    1,
+    24
+  ],
+  "sourceDirty": false,
+  "auditCommit": "6d35512e63bd2ff05945ae9497ef8061dbc792cd",
+  "windowsRuntime": "deferred_by_owner",
+  "localInstallRequested": true,
+  "createdAt": "2026-11-02T13:44:13.942535+00:00",
+  "generatedAt": "2026-11-02T16:48:34.172992+00:00",
+  "installed": true,
+  "installedModelVerified": true,
+  "guiVerified": true,
+  "coreInstalledAcceptanceComplete": true,
+  "completeLocalAcceptance": false,
+  "evidence": {
+    "checks": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "protocol": 1,
+      "hubSchemaRange": [
+        1,
+        24
+      ],
+      "sourceDirty": false,
+      "auditCommit": "6d35512e63bd2ff05945ae9497ef8061dbc792cd",
+      "windowsRuntime": "deferred_by_owner",
+      "localInstallRequested": true,
+      "createdAt": "2026-11-02T13:44:13.942535+00:00",
+      "verified": true,
+      "sourceSuite": {
+        "files": 597,
+        "initialPassed": 7887,
+        "initialFailed": 5,
+        "skipped": 6,
+        "unchangedRetakeFiles": 5,
+        "unchangedRetakePassed": 419,
+        "unchangedRetakeSkipped": 2,
+        "retakeChangedTimeoutsOrAssertions": false,
+        "uniquePassedAfterRetake": 7892,
+        "firstFailuresRetained": true,
+        "initialFailureExplanation": "Three 5-second test deadlines, a 50-ms disk write deadline, and a 25-ms legacy batching window. Unchanged files all passed after concurrent build load ended; load sensitivity is an inference."
+      },
+      "sourceBuild": true,
+      "clientBuild": true,
+      "electron": {
+        "passed": 327
+      },
+      "nativeCore": {
+        "passed": 62,
+        "ignored": 2
+      },
+      "nativeAddon": {
+        "passed": 33,
+        "ignored": 0
+      },
+      "nativeUpdater": {
+        "passed": 71,
+        "ignored": 0
+      },
+      "legacyNative": {
+        "passed": 104,
+        "ignored": 0
+      },
+      "realUpdaterLab": {
+        "passed": 15
+      },
+      "designBrowser": {
+        "chromium": 12,
+        "webkit": 8,
+        "installedApp": false
+      },
+      "focusedNewRegressions": {
+        "passed": 36,
+        "overlapsFullSuite": true
+      },
+      "productionDependencyAudit": {
+        "rootVulnerabilities": 0,
+        "clientVulnerabilities": 0
+      },
+      "secretScan": {
+        "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+        "appVersion": "1.0.127",
+        "hostVersion": "0.1.472",
+        "protocol": 1,
+        "hubSchemaRange": [
+          1,
+          24
+        ],
+        "sourceDirty": false,
+        "auditCommit": "6d35512e63bd2ff05945ae9497ef8061dbc792cd",
+        "windowsRuntime": "deferred_by_owner",
+        "localInstallRequested": true,
+        "createdAt": "2026-11-02T13:44:13.942535+00:00",
+        "verified": true,
+        "policyCommit": "5c3fb43aa09988dd39579af44160961f750d2831",
+        "policyIncludedInFrozenApp": false,
+        "findings": 2,
+        "uniqueFinding": "aria-keyshortcuts JavaScript comparison",
+        "upstreamAssetSha256": "886876c5751488924a13f1587190dfbf8871a67b01dbea9f611279e966302fe9",
+        "upstreamCommit": "6759e358eb88d83986c753b0fc60c84e4aabdb3a",
+        "realCredentialsDetected": false,
+        "privacyRegressions": 6,
+        "fullReachableHistoryScanPassed": true,
+        "reviewModel": "claude-opus-5-5",
+        "reviewSha256": "62926207b2271487112d137b2130c738c8109ca478c4e5a85a1ab85571687f1f",
+        "at": "2026-11-02T14:02:09.345899+00:00",
+        "syntheticRegressionSourceException": "Exact path and two exact non-credential matches only; original asset exception unchanged; root reviewed and six privacy tests/staged/history scan passed.",
+        "followupOpusReview": "Not executed: original collaboration conversation was archived; no replacement conversation created.",
+        "finalHistoryLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "policyCi": {
+          "run": 41459574379,
+          "conclusion": "success",
+          "url": "https://github.com/cloveric/tarobot/actions/runs/41459574379"
+        }
+      },
+      "androidBuildAndUnitAndLint": true,
+      "iosSimulatorAndSignedDeviceBuild": true,
+      "packagedMobileAssetsIdentical": true,
+      "windows": "deferred_by_owner",
+      "physicalMobileVerified": false,
+      "logs": [
+        {
+          "file": "pre-complete.log",
+          "sha256": "ef491f5393331411dd7c5f1f235ef20544b0a245bc19ecf9d74dfa0ba324d3e1"
+        },
+        {
+          "file": "full-suite-failed-files-retake.log",
+          "sha256": "e9383c20966c0d2df235962b8fb3e99f827e37f489554cce06a8617a3791610d"
+        },
+        {
+          "file": "client-final-build.log",
+          "sha256": "60544ec7e4f9e2961e6a6451f885b5205270fa9cd7b05c933d30c4053eacd622"
+        },
+        {
+          "file": "artifact-paths.log",
+          "sha256": "b4a511c65039c8b8cb3ee6b623346cabe590277419e6cda8e285f49d968ba399"
+        },
+        {
+          "file": "electron-tests.log",
+          "sha256": "68706de7360ac7fffecf5b22dac5c21ac4ef99ced4b7c1b3a1466058a052173d"
+        },
+        {
+          "file": "native-core.log",
+          "sha256": "9abd6b88b23f51ad34dfb0ecc071b9bc2024e9c3c2c36709c5c8b799322b24e5"
+        },
+        {
+          "file": "native-addon.log",
+          "sha256": "aaf55dae62b04ba9b89403ac986083e70aa9a7014a5d84970e2f53051e3ab483"
+        },
+        {
+          "file": "native-updater.log",
+          "sha256": "65768784fe3a5a7d2f14815318bc1c90b322bea2700cd4462a4c246bafab9c14"
+        },
+        {
+          "file": "updater-lab-tests.log",
+          "sha256": "b5b5ed24d59ad49c90b5fee43550f05a1ec9bc2d9eb9f8a3050091c1c81b8b4c"
+        },
+        {
+          "file": "legacy-native.log",
+          "sha256": "4ee59c43542c12876bc3165b3e614e31516c9afaa127bd6598546c803a5207c9"
+        },
+        {
+          "file": "legacy-native-retry.log",
+          "sha256": "5f64c559337f83310d177244d16795934dd34b3518406463d9f967f7f3ae970d"
+        },
+        {
+          "file": "ios-plan-tests.log",
+          "sha256": "17f881714f315f8d142ea91cf16a1184d0f1294405429e1d88272b34bf5e9f34"
+        },
+        {
+          "file": "design-scanner-self-regression.log",
+          "sha256": "0ac9924a0f84d033ef1ce0167694ffcfc351c488b11cebb13e5cb140c90978d4"
+        },
+        {
+          "file": "design-scanner-final-history.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ],
+      "at": "2026-11-02T14:14:56.762029+00:00",
+      "legacyNativePreparation": {
+        "initialOutcome": "resource path host did not exist",
+        "resolution": "Used actual same-source host prepared by production packager, then unchanged Cargo tests passed.",
+        "initialLogRetained": true
+      }
+    },
+    "mac": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "verified": true,
+      "tag": "macos-tarobot-v1.0.127",
+      "releaseId": 431563160,
+      "releaseUrl": "https://github.com/cloveric/tarobot/releases/tag/macos-tarobot-v1.0.127",
+      "downloadedUpdateSignatureVerified": true,
+      "tagMatchesSource": true,
+      "at": "2026-11-02T14:42:29.424313+00:00",
+      "assets": [
+        {
+          "name": "TaroBot.app.tar.gz",
+          "size": 299506344,
+          "sha256": "e1c2837591ba16c9fa9627852dd85dedadab80cf86ffe9a7dfc8737b6710c2d6",
+          "downloaded": true
+        },
+        {
+          "name": "TaroBot.app.tar.gz.sig",
+          "size": 428,
+          "sha256": "cf3f8cb791b60b0e811a09cf471ba34a74a1e1c00d8d73502a6eeedfab6d2508",
+          "downloaded": true
+        },
+        {
+          "name": "TaroBot_1.0.127_aarch64.dmg",
+          "size": 351036784,
+          "sha256": "33dbf109ce260c068fbc44a57fbbdb280f701c40e63a0e6af2aacf554353ed4a",
+          "downloaded": true
+        },
+        {
+          "name": "tarobot-0.1.472.tgz",
+          "size": 50667054,
+          "sha256": "d65a24be0112ef61e9687be546bc83623997f14ebe947ed451a44fba493ced1a",
+          "downloaded": true
+        },
+        {
+          "name": "macos-tarobot-latest.json",
+          "size": 1658,
+          "sha256": "6a8f46eb214a269f25363c11b9e9246aeefb2e5f423604c3c6a7c97c5ae42f84",
+          "downloaded": true
+        },
+        {
+          "name": "SHA256SUMS",
+          "size": 446,
+          "sha256": "a57ad5192071c82d4a53020a90afa6537685b7ef292540dbe350482722ade748",
+          "downloaded": true
+        }
+      ]
+    },
+    "cli": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "verified": true,
+      "version": "0.1.472",
+      "commit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "sha256": "d65a24be0112ef61e9687be546bc83623997f14ebe947ed451a44fba493ced1a",
+      "cleanInstallVerified": true,
+      "extractedInstallVerified": true,
+      "existingHostUpgradeVerified": true,
+      "previousVersion": "0.1.471",
+      "previousHubSchema": 23,
+      "migratedHubSchema": 24,
+      "at": "2026-11-02T14:05:23.291937+00:00"
+    },
+    "realCli": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "verified": true,
+      "canonicalCliSha256": "d65a24be0112ef61e9687be546bc83623997f14ebe947ed451a44fba493ced1a",
+      "at": "2026-11-02T14:10:50.927574+00:00",
+      "passedChecks": [
+        {
+          "engine": "codex",
+          "path": "text_and_two_device_sync",
+          "passed": true
+        },
+        {
+          "engine": "codex",
+          "path": "captioned_file_roundtrip",
+          "passed": true
+        },
+        {
+          "engine": "codex",
+          "path": "real_local_asr_and_cli",
+          "passed": true
+        },
+        {
+          "engine": "codex",
+          "path": "native_question_submit_resume",
+          "passed": true
+        },
+        {
+          "engine": "codex",
+          "path": "stream_stop_resume_context",
+          "passed": true
+        },
+        {
+          "engine": "claude",
+          "path": "text_and_two_device_sync",
+          "passed": true
+        },
+        {
+          "engine": "claude",
+          "path": "captioned_file_roundtrip",
+          "passed": true
+        },
+        {
+          "engine": "claude",
+          "path": "real_local_asr_and_cli",
+          "passed": true
+        },
+        {
+          "engine": "claude",
+          "path": "native_question_submit_resume",
+          "passed": true
+        },
+        {
+          "engine": "claude",
+          "path": "stream_stop_resume_context",
+          "passed": true
+        }
+      ]
+    },
+    "packagedModel": {
+      "verified": true,
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "nodeSha256": "7edc3fead7d9093dd9bea29b7e9cc2e210e414cabbd73d60fa39878341cd87e2",
+      "actualModelResponse": "DEEPSEEK_PACKAGED_OK",
+      "foreignDeepSeekAddonLoaded": true,
+      "at": "2026-11-02T14:29:31.966Z"
+    },
+    "signature": {
+      "verified": true,
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "commit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "at": "2026-11-02T14:28:05.909Z"
+    },
+    "android": {
+      "tag": "android-tarobot-v1.0.127",
+      "releaseUrl": "https://github.com/cloveric/tarobot/releases/tag/android-tarobot-v1.0.127",
+      "commit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "tagResolvesToCommit": true,
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 180,
+          "sha256": "4dfc3e5c60d6ff7803ca8b48b8e4161f3646996c0adf5b7d22102425049bd53c",
+          "matchesLocal": true
+        },
+        {
+          "name": "tarobot-0.1.472.tgz",
+          "size": 50667054,
+          "sha256": "d65a24be0112ef61e9687be546bc83623997f14ebe947ed451a44fba493ced1a",
+          "matchesLocal": true
+        },
+        {
+          "name": "TaroBot-1.0.127-android.apk",
+          "size": 60950775,
+          "sha256": "a7474543bc527b3c41579b69c9c35a9e29bb536820e603991501a34ca6d8173f",
+          "matchesLocal": true
+        }
+      ]
+    },
+    "androidBuild": {
+      "sha256": "a7474543bc527b3c41579b69c9c35a9e29bb536820e603991501a34ca6d8173f",
+      "version": "1.0.127",
+      "versionCode": 2026110202,
+      "sameSignerAsPrevious": true,
+      "apkSignatureV2": true,
+      "zipAligned": true,
+      "debuggable": false,
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250"
+    },
+    "ios": {
+      "version": "1.0.127",
+      "buildNumber": "1",
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "processingState": "VALID",
+      "internalBuildState": "IN_BETA_TESTING",
+      "externalBuildState": "READY_FOR_BETA_SUBMISSION"
+    },
+    "ipa": {
+      "version": "1.0.127",
+      "buildNumber": "1",
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "sha256": "e259b98cb098288de00a9018fcc64e61407786301675687e98a2c9f9a05d6adc"
+    },
+    "activation": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "previousHostPid": 30659,
+      "guiWindowVerified": false,
+      "installed": true,
+      "status": "installed_runtime_and_model_verified_pending_gui",
+      "hostPid": 9743,
+      "identityPreserved": true,
+      "historyIdsPreserved": true,
+      "previousSchema": "23",
+      "currentSchema": "24",
+      "authenticatedHostReconnectVerified": true,
+      "installedBinaryMatchesPublished": true,
+      "relayAllOnline": true
+    },
+    "runtime": {
+      "verified": true,
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "terminalCliVersion": "0.1.472",
+      "hostPid": 9743,
+      "previousHostPid": 30659,
+      "identityPreserved": true,
+      "historyIdsPreserved": true,
+      "authenticatedHostReconnectVerified": true,
+      "relayAllOnline": true,
+      "installedBinaryMatchesPublished": true,
+      "at": "2026-11-02T16:36:01.513Z"
+    },
+    "model": {
+      "verified": true,
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "nodeSha256": "7edc3fead7d9093dd9bea29b7e9cc2e210e414cabbd73d60fa39878341cd87e2",
+      "actualModelResponse": "DEEPSEEK_INSTALLED_OK",
+      "foreignDeepSeekAddonLoaded": true,
+      "at": "2026-11-02T16:36:13.161Z"
+    },
+    "gui": {
+      "verified": true,
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "guiWindowVerified": true,
+      "hostConnected": true,
+      "status": "native_gui_verified_with_remote_screen_finding",
+      "functionalAcceptanceComplete": false,
+      "summary": "CUA verified /Applications/TaroBot.app native window, Settings version 1.0.127 and the GUI device connected to macmini via the local direct route (6 ms observed). Screen service and all three native permissions were ready; this GUI device already had control authorization. First viewing attempt remained paused without an image; explicit disconnect/reconnect produced the real desktop and fresh viewing state for over 150 seconds, and final close removed the session. The initial pause is unresolved; no remote input, permission change or external-network acceptance is claimed.",
+      "at": "2026-11-02T16:47:55.995952+00:00"
+    },
+    "cleanup": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "verified": true,
+      "status": "complete_for_scoped_release_tasks",
+      "scopeComplete": true,
+      "allLegacyRootsCleaned": false,
+      "trashedCount": 5,
+      "skippedCount": 5,
+      "summary": "Guarded Trash cleanup retired five eligible 1.0.126 release Apps and retained the signed 1.0.127 macos-ready backup. Four recent 1.0.127 build copies were skipped. Scope was the 1.0.126 and 1.0.127 release tasks; other historical/owner-held task artifacts were not retired. The initial all-roots discovery exceeded its 100,000-directory bound; that failure and the read-only wider noindex plan are retained.",
+      "at": "2026-11-02T14:49:35.073410+00:00"
+    },
+    "spotlight": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "verified": true,
+      "at": "2026-11-02T14:49:36.303975+00:00",
+      "summary": "The unfiltered Spotlight query returned only /Applications/TaroBot.app; the retained backup remains under .noindex."
+    },
+    "scanner": {
+      "sourceCommit": "f22db812b0f6c76074d791b78a3bf63f276e4250",
+      "appVersion": "1.0.127",
+      "hostVersion": "0.1.472",
+      "verified": true,
+      "policyCommit": "5c3fb43aa09988dd39579af44160961f750d2831",
+      "at": "2026-11-02T14:02:09.345899+00:00"
+    }
+  },
+  "privateEvidenceIndex": [
+    {
+      "kind": "checks",
+      "privateReceipt": "full-checks.json",
+      "sha256": "1806cf2699be4d5ad4cb5e791e6e6b066d5a020d87812456345e465421ee3247"
+    },
+    {
+      "kind": "mac",
+      "privateReceipt": "mac-published-download-verification.json",
+      "sha256": "7d7732315343e5fe152b1a0acce3356ef8df8cf1d28080d8af21d29d6d42af3d"
+    },
+    {
+      "kind": "cli",
+      "privateReceipt": "cli-ready.json",
+      "sha256": "6566bb2dbef42b5a4c7fc4ef1e29ea539ebe62b7f117d244769f58d51c20c7c7"
+    },
+    {
+      "kind": "realCli",
+      "privateReceipt": "real-cli-verification.json",
+      "sha256": "e5e243d0e6e185e5af39f025e3bb262265e037ac673e66d1cb224bf621136e02"
+    },
+    {
+      "kind": "packagedModel",
+      "privateReceipt": "packaged-model-verification.json",
+      "sha256": "a3e4cdea3c6d0ca3bea21e269de4d9fa1c4e508f7ff3861547cb40feb9167c70"
+    },
+    {
+      "kind": "signature",
+      "privateReceipt": "signature-continuity.json",
+      "sha256": "41472f8b8e0757b0053bebeeacf7f141d367e796ac57f4b0b406d88f8f3ea532"
+    },
+    {
+      "kind": "android",
+      "privateReceipt": "platforms/android-readback.json",
+      "sha256": "796dd3f94ea6c9cb8d02466811f6533ad1a9c3aa679b120833d825dbb9fa499d"
+    },
+    {
+      "kind": "androidBuild",
+      "privateReceipt": "platforms/android-build.json",
+      "sha256": "c71e42fbec1954958fa06b7f59ac257ea7329941311865aafc569ff905b9bcd0"
+    },
+    {
+      "kind": "ios",
+      "privateReceipt": "platforms/ios-testflight-distribution-receipt.json",
+      "sha256": "99471802bc02627e3ab890b9cf9c4685c03395a24ca08e671184429b55c79adc"
+    },
+    {
+      "kind": "ipa",
+      "privateReceipt": "platforms/ios/testflight-device-1.0.127-1/receipt.json",
+      "sha256": "ba2ba5af584471b9abee4283338ff8ccbe13094a0f1f3d880ac5db506d7d64ba"
+    },
+    {
+      "kind": "activation",
+      "privateReceipt": "install/activation.json",
+      "sha256": "18953bcd8309dd3add533a1fa04a5ecd0678175c2e3fecda1d3202737bc7caea"
+    },
+    {
+      "kind": "runtime",
+      "privateReceipt": "install/installed-runtime-readback.json",
+      "sha256": "8a5d8d8ce3d5024fd0e2a05921b95887101fa16cf510db400a6322c4ff76af51"
+    },
+    {
+      "kind": "model",
+      "privateReceipt": "install/installed-model-verification.json",
+      "sha256": "1bec7c47c9f94bb2b20e3a986618bac56c1ad388c054b3dc9a96c28e011a61e9"
+    },
+    {
+      "kind": "gui",
+      "privateReceipt": "install/installed-gui-verification.json",
+      "sha256": "e929ac9ea24dc70be82b599322a7882da0129d8d184f2d58f8803ea51a05aae3"
+    },
+    {
+      "kind": "cleanup",
+      "privateReceipt": "retention-final.json",
+      "sha256": "edf240ceb7314fce455835be2ba936040e02c2176eaed2aaabd5ba0eb009987c"
+    },
+    {
+      "kind": "spotlight",
+      "privateReceipt": "spotlight-final.json",
+      "sha256": "dce74b64000f8539b94b0134ac3ad4194fe8272bf73ff42692e7d3b6ed5fc0b7"
+    },
+    {
+      "kind": "scanner",
+      "privateReceipt": "secret-scan-verification.json",
+      "sha256": "238f1d2a5e127922d985223323ffb90c043ba1fb8db1249425b83532b2fc18a9"
+    }
+  ],
+  "windows": "owner-deferred, not published",
+  "physicalMobileAcceptance": false
+}

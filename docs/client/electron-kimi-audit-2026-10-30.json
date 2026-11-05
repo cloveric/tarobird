@@ -1,0 +1,175 @@
+{
+  "date": "2026-10-30",
+  "scope": "Electron desktop migration and shared Host/client boundaries",
+  "baseline": "0255848",
+  "auditedSource": "5c2ff906fa01cb1fa0dc174052387d83883e4a30",
+  "reviewers": [
+    "Kimi KK1 independent audit",
+    "Codex independent reproduction and fixes",
+    "Claude Opus 5.5 independent adjudication, native fixes and final review"
+  ],
+  "release": {
+    "authorized": false,
+    "published": false,
+    "installed": false,
+    "productionHostRestarted": false
+  },
+  "rawReports": [
+    {
+      "name": "kimi-final-original-findings.md",
+      "sha256": "dc391e5b9927ee1f57a2c14f7e4d9a016301624e2fc6da1a85f0695ee6b76afe"
+    },
+    {
+      "name": "kimi-final-original-findings.json",
+      "sha256": "8973d1cdd4b91b24fbc022d85536d6ab6e25b86aa1ccb346bb7b297303634626"
+    },
+    {
+      "name": "kimi-final-original-coverage.md",
+      "sha256": "cce6ce1cb606c4cacad91bf67f97a6663f2aa5849851a1d6a48498ed604176a7"
+    },
+    {
+      "name": "opus-kimi-adjudication.md",
+      "sha256": "a2d38410a5a5b2a9a9135261648c3375f256ca79622aa62ad8f0137560159be8"
+    },
+    {
+      "name": "opus-kimi-adjudication.json",
+      "sha256": "3abf312ca3d0b9a220608e3d0e3e50036882017a4e2875a0a6898ec166d52b97"
+    },
+    {
+      "name": "opus-root-fix-review.md",
+      "sha256": "8fc53eedc6ef37fb8af70eeccc240cddd9165ad39f9de52a65062bbe843ff296"
+    },
+    {
+      "name": "opus-native-result.md",
+      "sha256": "0dd7cf26508d205e07da35d10ba804e0b5e9734dcb65139ddb1e509be2ceaa5a"
+    }
+  ],
+  "findings": [
+    {
+      "id": "KIMI-MIG-001",
+      "verdict": "accepted-downgraded",
+      "severity": "P3",
+      "status": "fixed",
+      "evidence": [
+        "opus-lab/kimi-mig-001/result.json"
+      ],
+      "fixReview": "dataProperty() reviewed; codec 13/13; Root real IndexedDB Chromium3/WebKit3 (not rerun by Opus)",
+      "pending": "real legacy profile migration"
+    },
+    {
+      "id": "KIMI-MIG-002",
+      "verdict": "accepted-downgraded; pre/post fingerprint and whole-export exclusion recommendations partially rejected",
+      "severity": "P3",
+      "status": "partially-mitigated",
+      "evidence": [
+        "opus-lab/p4-old-app-race"
+      ],
+      "counter": "exporter WKWebView writes WebKit data/WAL (migration-source.mjs:6-7); no external lock on macOS without legacy cooperation",
+      "fixReview": "500ms poll + post-export + post-snapshot recheck",
+      "residual": [
+        "sub-interval instance",
+        "ps/plist assumptions",
+        "retained rejected exports",
+        "post-export baseline"
+      ],
+      "pending": "real WKWebView dual instance"
+    },
+    {
+      "id": "KIMI-UPD-001",
+      "verdict": "accepted",
+      "severity": "P2",
+      "status": "fixed (retain-stopped best effort)",
+      "evidence": [
+        "opus-lab/p3-recovery-fence",
+        "opus-lab/root-review/explicit-then-close.json",
+        "opus-lab/root-review/upd002-current.json"
+      ],
+      "boundary": [
+        "SIGKILL before retain-stopped line -> EOF restart",
+        "recovery code shared by explicit restore failure and unknown outcome (R-02 not adopted)"
+      ],
+      "pending": "real Mac update crash/rollback"
+    },
+    {
+      "id": "KIMI-UPD-002",
+      "verdict": "accepted-downgraded",
+      "severity": "P3",
+      "status": "fixed",
+      "counter": "Rust already serializes: second install busy, check busy (github/public), inner lock across replacement; info waits, logout cancels pre-replacement; info acceptance does not prove disk damage",
+      "realRisk": [
+        "helper start during replacement at HEAD",
+        "Windows: no Rust handoff latch; second install removes installers.noindex"
+      ],
+      "evidence": [
+        "opus-lab/root-review/upd002-current.json"
+      ],
+      "pending": "Windows handoff (deferred), Mac helper behavior during install"
+    },
+    {
+      "id": "KIMI-RSK-001",
+      "verdict": "accepted-residual",
+      "severity": "P3",
+      "status": "kill gap fixed (atomic exchange, fail closed); power-loss durability not fixed; Tauri restore fallback keeps two-step recovery",
+      "evidence": [
+        "opus-native-result.md"
+      ],
+      "pending": "power-cut/crash injection, real /Applications"
+    },
+    {
+      "id": "KIMI-RSK-002",
+      "verdict": "accepted-residual",
+      "severity": "P3",
+      "status": "not fixed (no automatic snapshot deletion)",
+      "pending": "retention policy + large profile benchmark"
+    },
+    {
+      "id": "KIMI-FP-001..004",
+      "verdict": "rejection-agreed"
+    }
+  ],
+  "validation": {
+    "electronNode": 132,
+    "migrationCodec": 13,
+    "browserUpdates": 23,
+    "realIndexedDbChromium": 3,
+    "realIndexedDbWebKit": 3,
+    "electronRuntimeTlsWsChecks": 13,
+    "nativeUpdater": {
+      "unit": 47,
+      "integrations": [
+        17,
+        2,
+        5
+      ]
+    },
+    "nativeUpdaterLab": 15,
+    "hostDesktopUpdate": 26,
+    "preComplete": {
+      "status": "passed",
+      "rootBuild": true,
+      "clientBuild": true,
+      "vitestFiles": 528,
+      "vitestPassed": 7154,
+      "vitestSkipped": 5,
+      "tauriTests": [
+        98,
+        3,
+        3
+      ]
+    }
+  },
+  "pending": [
+    "signed /Applications exchange & rollback",
+    "retained-stopped Host recovery",
+    "recovery dialog & quit flows",
+    "real legacy profile & WKWebView dual instance",
+    "power-cut",
+    "Windows (deferred)"
+  ],
+  "nonClaims": [
+    "No claim that all bugs are absent",
+    "No platform acceptance inferred from unit tests",
+    "Source improvements do not change the installed App",
+    "No performance improvement claimed without measurement"
+  ]
+}

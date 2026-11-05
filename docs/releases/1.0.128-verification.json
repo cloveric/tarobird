@@ -1,0 +1,550 @@
+{
+  "sourceCommit": "7f65323baa4f25a8e4556ea719f94a740b9b9647",
+  "appVersion": "1.0.128",
+  "hostVersion": "0.1.473",
+  "protocol": 1,
+  "hubSchemaRange": [
+    1,
+    25
+  ],
+  "windowsRuntime": "deferred_by_owner",
+  "verificationCommit": "b51fcaf60ef044bdf712fd8ef512fa5b68deb9ed",
+  "generatedAt": "2026-11-03T12:06:32.354842+00:00",
+  "installed": true,
+  "installedModelVerified": true,
+  "guiVerified": true,
+  "completeLocalAcceptance": false,
+  "terminalCliUpdated": true,
+  "localInstallStatus": "installed runtime/model/version/window/direct Host connection and two actual authoring paths verified; installed PPT fullscreen remains open",
+  "publication": {
+    "mac": {
+      "url": "https://github.com/cloveric/tarobot/releases/tag/macos-tarobot-v1.0.128",
+      "releaseId": 432625628,
+      "tagMatchesSource": true,
+      "downloadedUpdateSignatureVerified": true,
+      "assets": [
+        {
+          "name": "TaroBot.app.tar.gz",
+          "assetId": 705412692,
+          "size": 304461643,
+          "sha256": "cf376447f9d4a38803f6d2406e82db1e3690a5b352127df048b71d015eba83cd",
+          "downloaded": true
+        },
+        {
+          "name": "TaroBot.app.tar.gz.sig",
+          "assetId": 705417806,
+          "size": 428,
+          "sha256": "e5ae1de5c2fee1d2d5dc3ee0d0842dee1f34eb23052734d2aed78caf6cdee641",
+          "downloaded": true
+        },
+        {
+          "name": "TaroBot_1.0.128_aarch64.dmg",
+          "assetId": 705417844,
+          "size": 357827567,
+          "sha256": "c8175546fb80d4df81464a5f54321ccd3bce7bb1d448940fc6bca684d1ff6979",
+          "downloaded": true
+        },
+        {
+          "name": "tarobot-0.1.473.tgz",
+          "assetId": 705421545,
+          "size": 53244784,
+          "sha256": "bf93608e08ebe0a2011055819d0abe7d84eee153de51672438d73f2ffbc7b9ba",
+          "downloaded": true
+        },
+        {
+          "name": "macos-tarobot-latest.json",
+          "assetId": 705422290,
+          "size": 2186,
+          "sha256": "c9560e5386078665b41ea61f5d24653e5478a0a42aac0756e458906376a9c01e",
+          "downloaded": true
+        },
+        {
+          "name": "SHA256SUMS",
+          "assetId": 705422348,
+          "size": 446,
+          "sha256": "7ea2a4459c1cbc4ba4653ebe22da32d2ee3e7b4424461bffca03e612e53c1117",
+          "downloaded": true
+        }
+      ]
+    },
+    "android": {
+      "url": "https://github.com/cloveric/tarobot/releases/tag/android-tarobot-v1.0.128",
+      "tagMatchesSource": true,
+      "assets": [
+        {
+          "name": "SHA256SUMS",
+          "size": 180,
+          "sha256": "e6e73b5745e6482d4746366738390f484732ef21c65163113f10c4b755a5890e",
+          "matchesLocal": true
+        },
+        {
+          "name": "tarobot-0.1.473.tgz",
+          "size": 53244784,
+          "sha256": "bf93608e08ebe0a2011055819d0abe7d84eee153de51672438d73f2ffbc7b9ba",
+          "matchesLocal": true
+        },
+        {
+          "name": "TaroBot-1.0.128-android.apk",
+          "size": 63319328,
+          "sha256": "1841c5e972d1dbf979ad8be64d4ee03b1a07464c9383bb1ce4c90fbc1722aee1",
+          "matchesLocal": true
+        }
+      ]
+    },
+    "ios": {
+      "version": "1.0.128",
+      "buildNumber": "1",
+      "processingState": "VALID",
+      "internalBuildState": "IN_BETA_TESTING",
+      "internalGroupAssigned": true,
+      "testerCount": 1,
+      "zhHansNotesSet": true,
+      "enUsNotesSet": true,
+      "preserved": {
+        "betaAppTestInformation": true,
+        "betaAppReviewDetail": true,
+        "internalGroupSettings": true,
+        "publicAppStoreMetadata": true
+      },
+      "physicalDeviceVerified": false,
+      "appStoreSubmitted": false,
+      "externalBetaReviewSubmitted": false,
+      "membershipEvidence": {
+        "authoritativeDirectRelationshipReadback": true,
+        "relationshipCount": 8,
+        "record": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/platforms/ios/api-records/reconcile-membership-direct-relationship-get-1.json",
+        "recordSha256": "31a85fdf52c74a9968afd333da14488a41f1bdc6e185d7ffba4b00ca1524ad95",
+        "expandedCollectionInconsistent": true,
+        "expandedCollectionFirstReadContainedBuild": true,
+        "expandedCollectionLaterReadWasEmpty": true,
+        "inverseBuildGroupsEndpointUnavailable403": true,
+        "reuploaded": false,
+        "relationshipWriteRepeated": false,
+        "checkedAtUtc": "2026-11-03T12:06:04.132726+00:00"
+      }
+    }
+  },
+  "checks": {
+    "sourceSuite": {
+      "files": 636,
+      "passedFiles": 615,
+      "failedFiles": 21,
+      "passedTests": 8163,
+      "failedTests": 37,
+      "skipped": 6,
+      "unhandledErrors": 1,
+      "finalCombined": {
+        "files": 636,
+        "passedTests": 8201,
+        "skipped": 6,
+        "total": 8207
+      },
+      "focusedRetake": {
+        "files": 21,
+        "passed": 255,
+        "changedTestFiles": 1,
+        "unchangedTestFiles": 20,
+        "timeoutsOrAssertionsRelaxed": false
+      },
+      "originalFullHookPassed": false,
+      "firstFailuresRetained": true,
+      "explanation": "Initial concurrent build run hit default 5-second test deadlines and shorter existing polling/disk deadlines; 20 unchanged files passed on the focused retake with one worker. Load sensitivity is an inference. One node:test suite collector was corrected to Vitest; no assertions or timeouts changed."
+    },
+    "sourceBuild": true,
+    "clientBuild": true,
+    "electron": {
+      "passed": 366
+    },
+    "nativeCore": {
+      "passed": 63,
+      "ignored": 2
+    },
+    "nativeAddon": {
+      "passed": 33,
+      "ignored": 0
+    },
+    "nativeUpdater": {
+      "passed": 71,
+      "ignored": 0
+    },
+    "legacyNative": {
+      "passed": 104,
+      "ignored": 0
+    },
+    "realUpdaterLab": {
+      "passed": 15
+    },
+    "artifactPathTests": {
+      "passed": 8
+    },
+    "iosPlanTests": {
+      "passed": 6
+    },
+    "productionDependencyAudit": {
+      "root": 0,
+      "client": 0
+    },
+    "packagedModel": {
+      "verified": true,
+      "firstStartup15sTimeoutRetained": true,
+      "unchangedRetakePassed": true,
+      "timeoutOrAssertionsChanged": false,
+      "productionConversationUsed": false,
+      "causalRootCauseProven": false
+    },
+    "nativeInitialFailures": {
+      "coreParallel": 3,
+      "reason": "MemoryVault tests contend for shared in-process keychain gate; unchanged full crate passes serially",
+      "updaterLabMissingBinaryEnvironment": true,
+      "correctedUpdaterLabPassed": 15
+    },
+    "ci": {
+      "verifiedRemoteMain": "b51fcaf60ef044bdf712fd8ef512fa5b68deb9ed",
+      "artifactSourceCommit": "7f65323baa4f25a8e4556ea719f94a740b9b9647",
+      "ciPassed": false,
+      "jobsStarted": false,
+      "reason": "GitHub account payment or spending-limit restriction",
+      "annotations": [
+        {
+          "name": "desktop-native",
+          "id": 125895431659,
+          "annotations": [
+            {
+              "level": "failure",
+              "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+            },
+            {
+              "level": "notice",
+              "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times."
+            }
+          ]
+        },
+        {
+          "name": "source",
+          "id": 125895431368,
+          "annotations": [
+            {
+              "level": "failure",
+              "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+            },
+            {
+              "level": "notice",
+              "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+            }
+          ]
+        },
+        {
+          "name": "gitleaks",
+          "id": 125895431081,
+          "annotations": [
+            {
+              "level": "failure",
+              "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+            },
+            {
+              "level": "notice",
+              "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+            }
+          ]
+        }
+      ],
+      "previousReadback": {
+        "verifiedRemoteMain": "84fd2085ea14ade0296554c8e6df2c74c3d1773b",
+        "workflowRuns": [
+          {
+            "id": 41628539577,
+            "name": "Secret scanning",
+            "status": "completed",
+            "conclusion": "failure",
+            "url": "https://github.com/cloveric/tarobot/actions/runs/41628539577"
+          },
+          {
+            "id": 41628539519,
+            "name": "Source checks",
+            "status": "completed",
+            "conclusion": "failure",
+            "url": "https://github.com/cloveric/tarobot/actions/runs/41628539519"
+          }
+        ],
+        "jobs": [
+          {
+            "id": 125891928829,
+            "name": "source",
+            "steps": 0
+          },
+          {
+            "id": 125891929197,
+            "name": "desktop-native",
+            "steps": 0
+          }
+        ],
+        "annotations": [
+          {
+            "name": "source",
+            "id": 125891928829,
+            "annotations": [
+              {
+                "level": "failure",
+                "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+              },
+              {
+                "level": "notice",
+                "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+              }
+            ]
+          },
+          {
+            "name": "desktop-native",
+            "id": 125891929197,
+            "annotations": [
+              {
+                "level": "failure",
+                "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+              },
+              {
+                "level": "notice",
+                "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times."
+              }
+            ]
+          },
+          {
+            "name": "gitleaks",
+            "id": 125891931182,
+            "annotations": [
+              {
+                "level": "failure",
+                "message": "The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings"
+              },
+              {
+                "level": "notice",
+                "message": "\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\""
+              }
+            ]
+          }
+        ],
+        "ciPassed": false,
+        "at": "2026-11-03T11:35:13.491855+00:00",
+        "annotationsReadVia": "GitHub CLI; connected GitHub fetch excludes annotations endpoint"
+      },
+      "at": "2026-11-03T11:43:06.076242+00:00"
+    }
+  },
+  "designPpt": {
+    "chromium": {
+      "passed": 7,
+      "initialPassed": 6,
+      "initialFailed": 1,
+      "correctedFormatAssertionPassed": 1,
+      "firstFailureRetained": true
+    },
+    "webkit": {
+      "passed": 8,
+      "phoneNineSlideJourney": true
+    },
+    "isolatedNativeChecks": 25,
+    "installedApp": true,
+    "physicalPhone": false,
+    "actualNativeBaoyuSkillInvocationVerified": true,
+    "previousOpus55SemanticRoutingCases": 18,
+    "previousOpus55AuditAssistantRecords": 527,
+    "installedCanvasEditReopenBackup": true,
+    "installedPptEditNotesReopenAndPptx": true,
+    "installedFullscreenVerified": false,
+    "installedFullscreenFailure": "Electron denies the opaque Design child fullscreen request",
+    "installedAuthoringCases": 2,
+    "installedAuthoringEngine": "claude-opus-5-5",
+    "nativeSkill": "pptx",
+    "explicitBaoyuSkill": "baoyu-ppt",
+    "ordinaryPptxSha256": "22d0538a1948fe3e6b4227508b8504f142d4dc61a6f0a366377b4cd666abfdda",
+    "baoyuSavedRevision": 1
+  },
+  "cli": {
+    "cleanInstallVerified": true,
+    "existingHostUpgradeVerified": true,
+    "upgrade": "0.1.472 -> 0.1.473; schema 24 -> 25",
+    "identityAndHistoryPreserved": true,
+    "realCliChecks": 10,
+    "realCliEngines": [
+      "codex",
+      "claude"
+    ]
+  },
+  "skills": {
+    "packagedFileComparisons": 72,
+    "globalSkills": [
+      "baoyu-design",
+      "baoyu-ppt"
+    ],
+    "engineRootsUpdated": 3,
+    "invocationProven": true,
+    "invocationScope": "two installed Claude Opus 5.5 authoring cases"
+  },
+  "appleFinalization": {
+    "firstFinalMetadataGetReturned500": true,
+    "firstRunMutationsAlreadyApplied": true,
+    "readOnlyReconciliation": true,
+    "originalBaselinesPreserved": true
+  },
+  "cleanup": {
+    "status": "complete",
+    "blocked": false,
+    "keep": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/macos-ready/TaroBot.app",
+    "items": [
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1/artifacts.noindex/archive-readback-293d9e80-5bf6-460f-b188-0ab40fffc388.noindex/desktop-updater/staged.noindex/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1",
+        "version": "1.0.128",
+        "action": "skip",
+        "reason": "directory-modified-within-six-hours",
+        "identity": [
+          16777240,
+          65546577
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1/artifacts.noindex/archive-readback-293d9e80-5bf6-460f-b188-0ab40fffc388.noindex/tauri-plugin-updater.noindex/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1",
+        "version": "1.0.128",
+        "action": "skip",
+        "reason": "directory-modified-within-six-hours",
+        "identity": [
+          16777240,
+          65546571
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1/artifacts.noindex/dmg-stage-cd97e232-ae8c-47f2-b8c6-8ed643999a88.noindex/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1",
+        "version": "1.0.128",
+        "action": "skip",
+        "reason": "directory-modified-within-six-hours",
+        "identity": [
+          16777240,
+          65537014
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1/package.noindex/packages/TaroBot-darwin-arm64/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/mac-production-a1",
+        "version": "1.0.128",
+        "action": "skip",
+        "reason": "directory-modified-within-six-hours",
+        "identity": [
+          16777240,
+          65518822
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/macos-ready/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.128-20261103/macos-ready",
+        "version": "1.0.128",
+        "action": "skip",
+        "reason": "latest-macos-ready",
+        "identity": [
+          16777240,
+          65563722
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/artifacts.noindex/dmg-stage-179807cc-49af-4702-8df8-6ccf9bbdbf1a.noindex/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1",
+        "version": "1.0.127",
+        "action": "trash",
+        "reason": null,
+        "identity": [
+          16777240,
+          64572253
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/artifacts.noindex/archive-readback-46f6f416-c747-4c0b-8a40-35dc01f3aac0.noindex/desktop-updater/staged.noindex/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1",
+        "version": "1.0.127",
+        "action": "trash",
+        "reason": null,
+        "identity": [
+          16777240,
+          64581147
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/artifacts.noindex/archive-readback-46f6f416-c747-4c0b-8a40-35dc01f3aac0.noindex/tauri-plugin-updater.noindex/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1",
+        "version": "1.0.127",
+        "action": "trash",
+        "reason": null,
+        "identity": [
+          16777240,
+          64581144
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/package.noindex/packages/TaroBot-darwin-arm64/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1",
+        "version": "1.0.127",
+        "action": "trash",
+        "reason": null,
+        "identity": [
+          16777240,
+          64557178
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/macos-ready/TaroBot.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/macos-ready",
+        "version": "1.0.127",
+        "action": "trash",
+        "reason": null,
+        "identity": [
+          16777240,
+          64595191
+        ]
+      },
+      {
+        "path": "/Volumes/gdrive/taro-tmp.noindex/install-mac-1.0.127-20261102/rollback/TaroBot-1.0.126.app",
+        "task": "/Volumes/gdrive/taro-tmp.noindex/install-mac-1.0.127-20261102/rollback",
+        "version": "1.0.126",
+        "action": "trash",
+        "reason": null,
+        "identity": [
+          16777240,
+          64685357
+        ]
+      }
+    ],
+    "trashed": [
+      "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/artifacts.noindex/dmg-stage-179807cc-49af-4702-8df8-6ccf9bbdbf1a.noindex/TaroBot.app",
+      "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/artifacts.noindex/archive-readback-46f6f416-c747-4c0b-8a40-35dc01f3aac0.noindex/desktop-updater/staged.noindex/TaroBot.app",
+      "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/artifacts.noindex/archive-readback-46f6f416-c747-4c0b-8a40-35dc01f3aac0.noindex/tauri-plugin-updater.noindex/TaroBot.app",
+      "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/mac-production-a1/package.noindex/packages/TaroBot-darwin-arm64/TaroBot.app",
+      "/Volumes/gdrive/taro-tmp.noindex/release-1.0.127-20261102/macos-ready/TaroBot.app",
+      "/Volumes/gdrive/taro-tmp.noindex/install-mac-1.0.127-20261102/rollback/TaroBot-1.0.126.app"
+    ]
+  },
+  "guiEvidence": "native CUA and UI-driven exported artifact readback",
+  "installedFunctionalReceipt": "installed-gui-verification.json",
+  "updatedAt": "2026-11-03T12:35:58.261334+00:00",
+  "installedUpgrade": {
+    "identityAndHistoryIdsPreserved": true,
+    "schemaBefore": 24,
+    "schemaAfter": 25,
+    "missingIds": 0,
+    "retainedCounts": {
+      "bots": 12,
+      "conversations": 223,
+      "messages": 10090,
+      "devices": 14,
+      "attachments": 2697
+    }
+  },
+  "subsequentSourceRepair": {
+    "installed": false,
+    "published": false,
+    "description": "narrow Design fullscreen policy with per-editor UUID and live frame validation",
+    "electronTests": 368,
+    "focusedClientTests": 7,
+    "nativeSlidesChecks": 11,
+    "nativeCanvasChecks": 17,
+    "hostAndClientBuilds": true
+  }
+}

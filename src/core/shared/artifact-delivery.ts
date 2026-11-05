@@ -1,0 +1,395 @@
+import { lstat, readFile, realpath } from "node:fs/promises";
+import path from "node:path";
+
+import { appendTimelineEventBestEffort } from "../../runtime/timeline-events.js";
+import { renderCodexFileCitations } from "../../runtime/codex-file-citations.js";
+import { isCredentialStylePath } from "../../runtime/credential-files.js";
+import type { ReplyChannel } from "../../runtime/reply-channel.js";
+import { extractDeliveryTagMatches, stripDeliveryTags } from "./delivery-tags.js";
+import type { DeliveryAcceptedReceipt, DeliveryRejectedReceipt, DeliverySource } from "../../runtime/delivery-ledger.js";
+import {
+  isAbsoluteFilePath,
+  isLikelyCopiedPlaceholderFilePath,
+  isStaticPlaceholderFilePath,
+} from "../../runtime/file-paths.js";
+import { chunkReplyMessage, type Locale } from "../../runtime/message-renderer.js";
+
+function isMarkdownParseError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const text = error.message.toLowerCase();
+  return (
+    text.includes("can't parse entities") ||
+    text.includes("cannot parse entities") ||
+    text.includes("parse entities") ||
+    text.includes("messageentitytexturl") ||
+    text.includes("parse_mode")
+  );
+}
+
+// A permanent delivery failure (chat blocked / forbidden / not found / bad
+// request) will not be fixed by a plain re-send, so we must not double-send and
+// must surface the original error. Anything else (transient network, rate
+// limit) is worth one last plain attempt.
+function isPermanentSendError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const text = error.message.toLowerCase();
+  return (
+    text.includes("403") ||
+    text.includes("forbidden") ||
+    text.includes("blocked") ||
+    text.includes("chat not found") ||
+    text.includes("400 ") ||
+    text.includes("bad request")
+  );
+}
+
+async function sendMessageWithMarkdown(api: ReplyChannel, chatId: number, text: string): Promise<void> {
+  try {
+    await api.sendMessage(chatId, text, { parseMode: "Markdown" });
+  } catch (error) {
+    if (!isMarkdownParseError(error)) {
+      throw error;
+    }
+    await api.sendMessage(chatId, text);
+  }
+}
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
+const VOICE_EXTENSIONS = new Set([".oga", ".ogg"]);
+
+function isImageFile(filename: string): boolean {
+  return IMAGE_EXTENSIONS.has(path.extname(filename).toLowerCase());
+}
+
+function isVoiceFile(filename: string): boolean {
+  return VOICE_EXTENSIONS.has(path.extname(filename).toLowerCase());
+}
+
+const IMAGE_SIZE_THRESHOLD = 2 * 1024 * 1024; // 2MB
+
+export async function sendFileOrPhoto(
+  api: Pick<ReplyChannel, "sendPhoto" | "sendDocument" | "sendVoice">,
+  chatId: number,
+  filename: string,
+  contents: Uint8Array | string,
+  options: { preferPhoto?: boolean } = {},
+): Promise<void> {
+  const payload = typeof contents === "string" ? new TextEncoder().encode(contents) : contents;
+  if (isImageFile(filename) && (options.preferPhoto || payload.length > IMAGE_SIZE_THRESHOLD)) {
+    try {
+      await api.sendPhoto(chatId, filename, payload, filename);
+      return;
+    } catch {
+      // Fall back to sendDocument if sendPhoto fails
+    }
+  }
+
+  if (isVoiceFile(filename)) {
+    try {
+      await api.sendVoice(chatId, filename, payload);
+      return;
+    } catch {
+      // Fall back to sendDocument if sendVoice fails
+    }
+  }
+
+  await api.sendDocument(chatId, filename, contents);
+}
+
+export type DeliveryRejectReason =
+  | "outside-workspace"
+  | "outside-request-output"
+  | "credentials-file"
+  | "not-a-file"
+  | "too-large"
+  | "placeholder-path"
+  | "not-found"
+  | "permission-denied"
+  | "read-error"
+  | "send-error";
+
+function renderRejectReason(reason: DeliveryRejectReason, detail: string | undefined, locale: Locale): string {
+  if (locale === "zh") {
+    switch (reason) {
+      case "outside-workspace": return "超出工作目录";
+      case "outside-request-output": return "不在当前请求输出目录中";
+      case "credentials-file": return "凭据或私钥文件禁止发送";
+      case "not-a-file": return "不是普通文件";
+      case "too-large": return `文件过大（${detail} > 50MB）`;
+      case "placeholder-path": return "示例占位路径，不是真实文件";
+      case "not-found": return "文件不存在";
+      case "permission-denied": return "无读取权限";
+      case "read-error": return "读取失败";
+      case "send-error": return detail ? `发送失败（${detail}）` : "发送失败";
+    }
+  }
+  switch (reason) {
+    case "outside-workspace": return "outside workspace";
+    case "outside-request-output": return "outside current request output";
+    case "credentials-file": return "credentials and private-key files are not sendable";
+    case "not-a-file": return "not a regular file";
+    case "too-large": return `too large (${detail} > 50MB)`;
+    case "placeholder-path": return "placeholder path, not a real file";
+    case "not-found": return "file not found";
+    case "permission-denied": return "permission denied";
+    case "read-error": return "read error";
+    case "send-error": return detail ? `send failed (${detail})` : "send failed";
+  }
+}
+
+interface FileCandidate {
+  path: string;
+  preferPhoto: boolean;
+}
+
+export async function deliverArtifactResponse(
+  api: Pick<ReplyChannel, "sendMessage" | "sendDocument" | "sendPhoto" | "sendVoice">,
+  chatId: number,
+  text: string,
+  inboxDir: string,
+  workspaceOverride?: string,
+  requestOutputDir?: string,
+  locale: Locale = "en",
+  options: {
+    onFileAccepted?: (sourcePath: string) => void;
+    onDeliveryAccepted?: (receipt: DeliveryAcceptedReceipt) => void;
+    onDeliveryRejected?: (receipt: DeliveryRejectedReceipt) => void;
+    source?: DeliverySource;
+    allowAnyAbsolutePath?: boolean;
+    notifyRejected?: boolean;
+  } = {},
+): Promise<number> {
+  let filesSent = 0;
+  const fileMatch = text.match(/```file:([^\n`]+)\n([\s\S]*?)```/);
+  const isWholeResponseFileBlock = fileMatch && text.replace(fileMatch[0], "").trim().length === 0;
+  if (fileMatch && isWholeResponseFileBlock && Buffer.byteLength(fileMatch[2] ?? "", "utf8") > 0) {
+    const [, fileName, fileBody] = fileMatch;
+    if (isCredentialStylePath(fileName.trim())) {
+      await api.sendMessage(
+        chatId,
+        locale === "zh"
+          ? `拒绝发送凭据或私钥文件：${fileName.trim()}`
+          : `Refusing to send a credentials or private-key file: ${fileName.trim()}`,
+      );
+      return 0;
+    }
+    await sendFileOrPhoto(api, chatId, fileName.trim(), fileBody);
+    return 1;
+  }
+
+  const fileCandidates: FileCandidate[] = [];
+  const rejected: Array<{ path: string; reason: DeliveryRejectReason; detail?: string }> = [];
+  let cleanedText = text;
+
+  function addCandidate(filePath: string, preferPhoto: boolean): void {
+    const existing = fileCandidates.find((candidate) => candidate.path === filePath);
+    if (existing) {
+      existing.preferPhoto = existing.preferPhoto || preferPhoto;
+      return;
+    }
+    fileCandidates.push({ path: filePath, preferPhoto });
+  }
+
+  const deliveryTags = extractDeliveryTagMatches(text);
+  for (const tag of deliveryTags) {
+    const p = tag.path;
+    if (!options.allowAnyAbsolutePath && isStaticPlaceholderFilePath(p)) {
+      continue;
+    } else if (isAbsoluteFilePath(p)) {
+      addCandidate(p, tag.preferPhoto);
+    }
+  }
+
+  if (fileCandidates.length > 0 || deliveryTags.length > 0) {
+    cleanedText = stripDeliveryTags(cleanedText);
+  }
+  cleanedText = renderCodexFileCitations(cleanedText, locale);
+
+  if (cleanedText) {
+    const chunks = chunkReplyMessage(cleanedText);
+    // Best-effort per chunk: a transient mid-delivery failure on one chunk must
+    // not abandon the remaining chunks and the files that follow. Track whether
+    // any chunk failed so we can attempt a last-ditch plain send rather than
+    // leaving the user with nothing.
+    let anyChunkSent = false;
+    let lastChunkError: unknown;
+    for (const chunk of chunks) {
+      try {
+        await sendMessageWithMarkdown(api as ReplyChannel, chatId, chunk);
+        anyChunkSent = true;
+      } catch (error) {
+        lastChunkError = error;
+      }
+    }
+    if (!anyChunkSent && lastChunkError !== undefined) {
+      // Nothing of the answer text reached the user. A permanent error (403 /
+      // forbidden / bad request) won't be fixed by re-sending, so re-throw it
+      // without a futile duplicate send. Otherwise try one plain, unformatted
+      // send of the whole text before giving up — that often still lands.
+      if (isPermanentSendError(lastChunkError)) {
+        throw lastChunkError;
+      }
+      try {
+        // Re-send chunked: cleanedText was split precisely because it can exceed
+        // Telegram's per-message limit, so a single plain send of the whole thing
+        // would 400 ("message is too long") for any multi-chunk answer.
+        for (const chunk of chunks) {
+          await (api as ReplyChannel).sendMessage(chatId, chunk);
+        }
+      } catch {
+        throw lastChunkError;
+      }
+    } else if (anyChunkSent && lastChunkError !== undefined) {
+      // Partial delivery: some chunks landed, at least one did not. Best-effort
+      // continue already preserved the rest; tell the user so a silently
+      // truncated answer is not mistaken for the complete response.
+      await (api as ReplyChannel)
+        .sendMessage(
+          chatId,
+          locale === "zh"
+            ? "⚠️ 部分回复内容投递失败,上文可能不完整。"
+            : "⚠️ Part of the response failed to deliver; the message above may be incomplete.",
+        )
+        .catch(() => undefined);
+    }
+  }
+
+  const acceptedFiles: Array<{ sourcePath: string; realPath: string; filename: string; contents: Uint8Array | string; preferPhoto: boolean }> = [];
+
+  const deliveryStateDir = path.dirname(inboxDir);
+  // Candidate paths are realpath-normalized before the startsWith comparison, so
+  // the prefixes must be too — otherwise a workspace reached via a symlinked
+  // component (e.g. /var → /private/var on macOS, or a symlinked project dir)
+  // never matches and every in-workspace [send-file:] is wrongly rejected.
+  const realpathPrefix = async (dir: string): Promise<string> =>
+    `${await realpath(dir).catch(() => dir)}${path.sep}`;
+  const workspacePrefix = await realpathPrefix(path.join(deliveryStateDir, "workspace"));
+  const telegramOutPrefix = await realpathPrefix(path.join(deliveryStateDir, "workspace", ".telegram-out"));
+  const overridePrefix = workspaceOverride ? await realpathPrefix(workspaceOverride) : null;
+  const requestOutputPrefix = requestOutputDir ? await realpathPrefix(requestOutputDir) : null;
+
+  for (const { path: filePath, preferPhoto } of fileCandidates) {
+    try {
+      const real = await realpath(filePath);
+      if (isCredentialStylePath(filePath, real)) {
+        rejected.push({ path: filePath, reason: "credentials-file" });
+        continue;
+      }
+      if (!options.allowAnyAbsolutePath) {
+        if (requestOutputPrefix && real.startsWith(telegramOutPrefix) && !real.startsWith(requestOutputPrefix)) {
+          rejected.push({ path: filePath, reason: "outside-request-output" });
+          continue;
+        }
+        if (!real.startsWith(workspacePrefix) && !(overridePrefix && real.startsWith(overridePrefix))) {
+          rejected.push({ path: filePath, reason: "outside-workspace" });
+          continue;
+        }
+      }
+      const stats = await lstat(real);
+      if (!stats.isFile()) {
+        rejected.push({ path: filePath, reason: "not-a-file" });
+        continue;
+      }
+      if (stats.size > 50_000_000) {
+        rejected.push({ path: filePath, reason: "too-large", detail: `${Math.round(stats.size / 1_000_000)}MB` });
+        continue;
+      }
+      const contents = await readFile(real);
+      const fileName = path.basename(filePath);
+      acceptedFiles.push({ sourcePath: filePath, realPath: real, filename: fileName, contents, preferPhoto });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (
+        code === "ENOENT" &&
+        !options.allowAnyAbsolutePath &&
+        isLikelyCopiedPlaceholderFilePath(filePath)
+      ) {
+        continue;
+      }
+      const reason: DeliveryRejectReason =
+        code === "ENOENT" ? "not-found" : code === "EACCES" ? "permission-denied" : "read-error";
+      rejected.push({ path: filePath, reason });
+    }
+  }
+
+  for (const file of acceptedFiles) {
+    try {
+      await sendFileOrPhoto(api, chatId, file.filename, file.contents, { preferPhoto: file.preferPhoto });
+    } catch (error) {
+      rejected.push({
+        path: file.sourcePath,
+        reason: "send-error",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+    filesSent++;
+    options.onFileAccepted?.(file.sourcePath);
+    options.onDeliveryAccepted?.({
+      path: file.sourcePath,
+      realPath: file.realPath,
+      fileName: file.filename,
+      bytes: typeof file.contents === "string" ? Buffer.byteLength(file.contents) : file.contents.length,
+      source: options.source ?? "post-turn",
+    });
+    await appendTimelineEventBestEffort(deliveryStateDir, {
+      type: "file.accepted",
+      channel: "telegram",
+      chatId,
+      outcome: "accepted",
+      metadata: {
+        fileName: file.filename,
+        bytes: typeof file.contents === "string" ? Buffer.byteLength(file.contents) : file.contents.length,
+        via: options.source ?? "post-turn",
+      },
+    }, "file delivery timeline event");
+  }
+
+  if (rejected.length > 0) {
+    for (const item of rejected) {
+      await appendTimelineEventBestEffort(deliveryStateDir, {
+        type: "file.rejected",
+        channel: "telegram",
+        chatId,
+        outcome: "rejected",
+        detail: renderRejectReason(item.reason, item.detail, locale),
+        metadata: {
+          path: item.path,
+          reason: item.reason,
+          detail: item.detail,
+        },
+      }, "file delivery timeline event");
+    }
+    for (const item of rejected) {
+      options.onDeliveryRejected?.({
+        path: item.path,
+        reason: item.reason,
+        detail: item.detail,
+        source: options.source ?? "post-turn",
+      });
+    }
+    if (options.notifyRejected === false) {
+      return filesSent;
+    }
+    const MAX_SHOWN = 5;
+    const shown = rejected.slice(0, MAX_SHOWN);
+    const extra = rejected.length - shown.length;
+    const header = locale === "zh"
+      ? `⚠ 有 ${rejected.length} 个文件未能送达：`
+      : `⚠ ${rejected.length} file${rejected.length === 1 ? "" : "s"} not delivered:`;
+    const moreLine = locale === "zh" ? `…还有 ${extra} 个` : `… and ${extra} more`;
+    const footer = locale === "zh"
+      ? "fallback 标签引用的文件必须位于本 Bot 的工作目录内（或通过 /resume 指定的项目目录）。请核对文件位置和附件权限，再使用当前对话可用的附件发送工具。"
+      : "Fallback tag files must live under the Bot workspace (or a /resume'd project directory). Check the file location and attachment permissions, then use the attachment tools available in the current conversation.";
+    const lines = [header, ...shown.map(({ path: p, reason, detail }) => `• ${p} — ${renderRejectReason(reason, detail, locale)}`)];
+    if (extra > 0) lines.push(moreLine);
+    lines.push(footer);
+    await api.sendMessage(chatId, lines.join("\n"));
+  }
+
+  return filesSent;
+}

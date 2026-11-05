@@ -1,0 +1,242 @@
+name: Client software checks
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: Checks to run
+        type: choice
+        options: [all, native, desktop, android, ios, web, browser]
+        default: all
+      browser_tests:
+        description: Optional space-separated browser test filenames; empty runs the full suite
+        type: string
+        default: ''
+      browser_profile:
+        description: Capture a diagnostic Chromium CPU profile (may affect performance timings)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+jobs:
+  web-and-protocol:
+    if: inputs.scope == 'all' || inputs.scope == 'web'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix client
+      - run: npm run build
+      - run: mkdir -p /tmp/t
+      - name: Protocol, contracts, recovery, security and repository regression
+        run: npm test -- --maxWorkers=2 --testTimeout=15000
+        env:
+          TMPDIR: /tmp/t
+  browser:
+    if: inputs.scope == 'all' || inputs.scope == 'web' || inputs.scope == 'browser'
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [chromium, webkit]
+        shard: [1, 2, 3]
+        include:
+          - engine: chromium
+            config: playwright.config.ts
+            os: ubuntu-latest
+          - engine: webkit
+            config: playwright.webkit.config.ts
+            os: macos-latest
+    # Apple's native shells use WebKit. Linux WebKit lacks MediaRecorder in
+    # the hosted build; macOS keeps the real encoder/playback acceptance path.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix client
+      - run: npm run build
+      - run: npm run build --prefix client
+      - run: mkdir -p /tmp/t
+      - run: npx --prefix client playwright install --with-deps ${{ matrix.engine }}
+      - name: Browser journeys (${{ matrix.engine }}, shard ${{ matrix.shard }}/3)
+        shell: bash
+        run: |
+          args=(--config "$BROWSER_CONFIG" --shard="$BROWSER_SHARD/3" --reporter=list,blob)
+          if [[ -n "$BROWSER_TESTS" ]]; then
+            read -r -a tests <<< "$BROWSER_TESTS"
+            for file in "${tests[@]}"; do
+              [[ "$file" =~ ^[a-z0-9-]+\.spec\.ts$ ]] || { echo "Invalid browser test filename" >&2; exit 2; }
+            done
+            args+=("${tests[@]}")
+          fi
+          npm run test:e2e --prefix client -- "${args[@]}"
+        env:
+          TMPDIR: /tmp/t
+          BROWSER_CONFIG: ${{ matrix.config }}
+          BROWSER_SHARD: ${{ matrix.shard }}
+          BROWSER_TESTS: ${{ inputs.browser_tests }}
+          TAROCUB_RENDER_PROFILE: ${{ inputs.browser_profile && matrix.engine == 'chromium' && '1' || '' }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: client-browser-${{ matrix.engine }}-${{ matrix.shard }}
+          path: |
+            client/test-results
+            client/blob-report
+          if-no-files-found: ignore
+  desktop:
+    if: inputs.scope == 'all' || inputs.scope == 'native' || inputs.scope == 'desktop'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-pc-windows-msvc
+            timeout: 60
+            bundles: app,dmg
+            host-platform: darwin
+            host-arch: arm64
+            host-node: node
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust-targets: x86_64-pc-windows-msvc
+            timeout: 45
+            bundles: nsis
+            host-platform: win32
+            host-arch: x64
+            host-node: node.exe
+    # These installers include architecture-specific Node and SQLite. Intel Mac
+    # and native Windows ARM64 need their own verified runtimes before publishing;
+    # compiling just their shells would silently remove local Bot execution.
+    runs-on: ${{ matrix.os }}
+    # macOS also cross-builds the launcher's Windows binary for the CLI package.
+    timeout-minutes: ${{ matrix.timeout }}
+    steps:
+      - name: Configure desktop build directories
+        shell: bash
+        run: |
+          printf '%s\n' \
+            "TAROBOT_DESKTOP_OUTPUT=$RUNNER_TEMP/tarobot-electron-output.noindex" \
+            "TAROBOT_ELECTRON_CACHE=$RUNNER_TEMP/tarobot-electron-cache.noindex" \
+            "TAROBOT_DESKTOP_TARGET=$RUNNER_TEMP/tarobot-electron-target.noindex" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: client/src-tauri -> target
+      - uses: ./.github/actions/setup-host-cross
+        if: runner.os != 'Windows'
+      - run: npm ci
+      - run: npm ci --prefix client
+      - name: Install NSIS on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Build full-host Electron development bundles
+        run: npm run desktop:build --prefix client -- --development --platform ${{ matrix.host-platform }} --arch ${{ matrix.host-arch }}
+      - name: Electron main and preload regressions
+        run: npm run test:electron --prefix client
+      - name: Audit runtime platform and architecture rejection paths
+        run: node client/scripts/desktop-runtime-audit.mjs client/src-tauri/host ${{ matrix.target }}
+      - name: Packaged host end-to-end smoke on its target OS
+        run: client/src-tauri/host/${{ matrix.host-node }} scripts/verify-desktop-host.mjs client/src-tauri/host
+      - name: Native Rust regressions
+        shell: bash
+        run: |
+          cargo test --manifest-path client/src-desktop-core/Cargo.toml --locked -- --test-threads=1
+          cargo test --manifest-path client/src-desktop-native/Cargo.toml --locked --no-default-features
+          cargo test --manifest-path client/src-desktop-updater/Cargo.toml --locked
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}-unsigned
+          path: |
+            ${{ runner.temp }}/tarobot-electron-output.noindex/**/*.dmg
+            ${{ runner.temp }}/tarobot-electron-output.noindex/*-setup.exe
+            ${{ runner.temp }}/tarobot-electron-output.noindex/desktop-build.json
+          if-no-files-found: error
+  android:
+    if: inputs.scope == 'all' || inputs.scope == 'native' || inputs.scope == 'android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      # check-translations uses the root TypeScript JavaScript API.
+      - run: npm ci
+      - run: npm ci --prefix client
+      - run: npm run build --prefix client
+      - run: npx cap sync android
+        working-directory: client
+      - run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+        working-directory: client/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-development-apk
+          path: client/android/app/build/outputs/apk/debug/*.apk
+  ios-compile:
+    if: inputs.scope == 'all' || inputs.scope == 'native' || inputs.scope == 'ios'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      # check-translations uses the root TypeScript JavaScript API.
+      - run: npm ci
+      - run: npm ci --prefix client
+      - run: npm run test:ios-release --prefix client
+      - name: Build iOS Simulator app without an Apple account
+        working-directory: client
+        run: npm run ios:build -- --mode simulator --output "$RUNNER_TEMP/tarobot-ios"
+      - name: Exercise shared inbox storage and retry boundaries
+        run: |
+          swiftc client/ios/App/Shared/ShareInboxStore.swift client/ios/tests/ShareInboxStoreChecks.swift -o /tmp/tarocub-share-checks
+          /tmp/tarocub-share-checks
+      - name: Check native identity migration and cross-language signatures
+        env:
+          TAROCUB_IDENTITY_PLATFORM: ios
+        run: node client/scripts/mobile-identity-audit.mjs "$RUNNER_TEMP/identity-audit"

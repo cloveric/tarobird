@@ -1,0 +1,43 @@
+.inline-report{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--raised);color:var(--text);container-type:inline-size}.report-panel{display:block;position:static;box-sizing:border-box;margin:0;padding:0;width:100%;max-width:none;max-height:none;border:0;background:inherit;color:inherit;font:inherit}.report-panel:modal{position:fixed;inset:calc(16px + var(--app-safe-top,0px)) calc(16px + var(--app-safe-right,0px)) calc(16px + var(--app-safe-bottom,0px)) calc(16px + var(--app-safe-left,0px));margin:auto;width:min(1100px,calc(100vw - 32px - var(--app-safe-left,0px) - var(--app-safe-right,0px)));height:calc(100dvh - 32px - var(--app-safe-top,0px) - var(--app-safe-bottom,0px));max-height:calc(100dvh - 32px - var(--app-safe-top,0px) - var(--app-safe-bottom,0px));display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;background:var(--raised)}.report-panel::backdrop{background:#0006}.report-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border)}.report-header strong{min-width:0;overflow-wrap:anywhere}.report-header button{display:flex;align-items:center;gap:5px;background:none;border:0;color:var(--muted);cursor:pointer;min-height:32px;flex-shrink:0}.report-body{padding:16px;overflow:auto;min-height:0}.report-conclusion{margin:0 0 14px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.6}.report-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}.report-controls small{color:var(--muted)}.report-controls input{width:180px;min-width:0;max-width:100%;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);padding:7px 10px;font:inherit}.report-views{display:flex;gap:2px;padding:3px;background:var(--surface);border-radius:8px}.report-views button{font:inherit;color:var(--muted);border:1px solid transparent;background:transparent;cursor:pointer;border-radius:6px;padding:6px 10px;min-height:34px}.report-views button[aria-pressed=true]{color:var(--text);background:var(--raised);border-color:var(--border)}.report-metrics{display:flex;gap:24px;flex-wrap:wrap;margin:0 0 18px}.report-metrics dt{color:var(--muted);font-size:.9em}.report-metrics dd{margin:4px 0 0;font-size:1.35em;font-weight:600;font-variant-numeric:tabular-nums}.report-metrics dd small{font-size:.65em;color:var(--muted);font-weight:400}/* All fixed reports share local series selection and one compact inspector. */
+.report-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:.9em}
+.report-legend button{display:flex;align-items:center;gap:6px;max-width:100%;padding:5px 8px;min-height:34px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font:inherit;color:var(--text);text-align:left;cursor:pointer}
+/* Data samples keep their contrast while hovering; indicate hover at the edge. */
+.report-legend button:hover:not(:disabled){background:var(--surface);border-color:var(--muted)}
+.report-legend button span{min-width:0;overflow-wrap:anywhere}
+.report-series-swatch{display:block;flex:0 0 28px;width:28px;height:12px;overflow:visible}
+.report-series-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 11px;width:11px;height:11px;border:1px solid var(--text);border-radius:3px;background:var(--text)}
+.report-series-toggle svg{display:block;width:9px;height:9px;margin:0;color:var(--raised);stroke-width:3}
+.report-legend button[aria-pressed=false]{color:var(--muted);background:transparent}
+.report-legend button[aria-pressed=false] .report-series-toggle{background:transparent;border-color:var(--muted)}
+.report-legend button[aria-pressed=false] .report-series-toggle svg{visibility:hidden}
+.report-legend button[aria-pressed=false] .report-series-swatch{opacity:.5}
+.report-unit{margin-left:auto;color:var(--muted);overflow-wrap:anywhere}
+.report-scale-note{margin:6px 0 0;color:var(--muted);font-size:.82em}
+.report-chart>svg{display:block;width:100%;max-width:850px;height:auto;margin:12px 0;color:var(--muted);touch-action:pan-y;cursor:crosshair}
+.report-chart text{font:12px system-ui;fill:currentColor}
+.report-chart-empty{min-height:210px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--muted)}
+.report-chart-empty p{margin:0}
+.report-chart-empty button{font:inherit;border:1px solid var(--border);border-radius:7px;padding:7px 12px;background:var(--surface);color:var(--text);cursor:pointer}
+.report-inspector{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:9px 10px}
+.report-record-picker{display:flex;gap:5px;align-items:center;min-width:0}
+.report-record-picker select{min-width:0;flex:1;max-width:240px;min-height:32px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--raised);color:var(--text);font:inherit;text-overflow:ellipsis}
+.report-record-picker button{display:flex;align-items:center;justify-content:center;flex:0 0 32px;min-height:32px;padding:0;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);cursor:pointer}
+.report-record-picker button:disabled{opacity:.35;cursor:default}
+.report-record-picker button:not(:disabled):hover{background:var(--raised);border-color:var(--border)}
+.report-record-picker small{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.report-selection{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,115px),1fr));gap:9px 14px;margin:10px 0 0;font-variant-numeric:tabular-nums}
+.report-selection dt{display:flex;align-items:center;gap:5px;font-size:.88em;color:var(--muted);overflow-wrap:anywhere}
+.report-selection dd{margin:3px 0 0;overflow-wrap:anywhere}
+.report-selection-category{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.report-table{overflow:auto;max-height:520px}.report-table table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}.report-table th,.report-table td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top;min-width:80px;max-width:360px;overflow-wrap:anywhere}.report-table th{position:sticky;top:0;background:var(--raised);font-weight:550}.report-timeline{list-style:none;margin:0;padding:0}.report-timeline li{padding:0 0 20px 20px;position:relative;border-left:1px solid var(--border);overflow-wrap:anywhere}.report-timeline li:before{content:'';position:absolute;left:-4px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--accent)}.report-timeline span{display:block;color:var(--muted);font-size:.9em;margin-bottom:4px}.report-timeline p{margin:6px 0 0;white-space:pre-wrap}.report-source{color:var(--muted);font-size:.88em;margin:16px 0 0;overflow-wrap:anywhere}.report-note{white-space:pre-wrap;overflow-wrap:anywhere}.report-empty{padding:20px;color:var(--muted)}.report-body details{margin-top:14px}.inline-report button:focus-visible,.inline-report input:focus-visible,.inline-report select:focus-visible,.report-panel button:focus-visible,.report-panel input:focus-visible,.report-panel select:focus-visible{outline:2px solid var(--focus);outline-offset:2px}@container(max-width:420px){.report-body{padding:12px}.report-metrics{gap:14px}.report-chart{min-width:0}.report-header button span{display:none}}
+
+@container(max-width:300px){.report-record-picker small{display:none}.report-record-picker select{max-width:none}}
+
+.report-table-hint{display:flex;align-items:center;gap:5px;margin:0 0 7px;color:var(--muted);font-size:.86em}
+
+/* Only the leading metric is a headline. Keep ordinary values and all other
+   palettes unchanged; data emphasis never leaks into surrounding App chrome. */
+:root[data-palette=mono]:is([data-mono-accent=graphite],[data-mono-accent=warm-gray],[data-mono-accent=mist],[data-mono-accent=sage],[data-mono-accent=rose],[data-mono-accent=oat],[data-mono-accent=mauve]) :is(.inline-report,.report-panel){--report-emphasis:var(--data-accent)}
+.report-metrics>div:first-child dd{color:var(--report-emphasis,inherit)}
+.report-views button[aria-pressed=true]{color:var(--report-emphasis,var(--text));border-color:var(--report-emphasis,var(--border))}
+.report-timeline li:before{background:var(--report-emphasis,var(--accent))}

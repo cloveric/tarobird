@@ -1,0 +1,312 @@
+/* =============================================================================
+   CLI terminal theme (dark only).
+
+   Opt-in skin loaded after every component sheet. CLI stays dark regardless of
+   the device-local light/dark/system preference. --bg stays
+   a literal #rrggbb for the native system bars. Nothing here applies unless the
+   root (or a settings preview) carries the CLI palette.
+
+   Terminal reads as a console transcript: one monospace face for the whole UI
+   (cli-typography.css supplies the bundled Latin/CJK font), every turn
+   at the left margin, own turns as a `>` prompt band, Bot output in a gutter
+   under its name, titled cards as box-drawn panes with the title set in the
+   top rule, `[ ]` tags, reverse-video selection and a prompt-shaped input.
+
+   Rules
+   - Never touch .message transform/position (react-virtual owns placement);
+     nothing in the list animates. Row height is measured by ResizeObserver.
+   - Decorative glyphs are generated content with empty alt text
+     (content:"x" / ""): not announced, not selectable, never in copies.
+   - Frames are painted inside the existing box (background layers) or as
+     box-shadows. No clip-path or mask on focusable containers; focus remains
+     a visible outline. Phone targets keep their 44px bounds.
+   - Custom avatars and uploaded media are never filtered or recoloured.
+   ========================================================================== */
+
+/* ---------- Terminal tokens ---------- */
+:root[data-palette=cli], .palette-preview[data-palette=cli], .palette-preview[data-palette=cli] .xp-pane{
+  --canvas:#131313;
+  --canvas-hover:#1c1c1c;
+  --selected-row:#262626;
+  --bg:#0c0c0c;
+  --raised:#101010;
+  --surface:#171717;
+  --surface-alt:#222222;
+  --hover:#1a1a1a;
+  --border:#2b2b2b;
+  --border-strong:#5c5c5c;
+  --text:#d8d8d4;
+  --grey:#bdbdb8;
+  --muted:#8f8f8a;
+  --accent:#5fd787;
+  --accent-soft:#15301f;
+  --accent-soft-hover:#1d3f29;
+  --primary-bg:#d8d8d4;
+  --primary-hover:#f0f0ec;
+  --on-primary:#0c0c0c;
+  --focus:#5fd787;
+  --avatar-bg:#1a1a1a;
+  --avatar-fg:#5fd787;
+  --self-message-bg:#1f1f1f;
+  --self-message-border:#333333;
+  --self-message-fg:#ecece8;
+  --self-message-muted:#b0b0aa;
+  --self-message-link:#8be3a5;
+  --self-message-line:#4a4a4a;
+  --self-code-bg:#171717;
+  --self-code-inline-bg:#2c2c2c;
+  --self-code-keyword:#8fb4ff;
+  --self-code-string:#9fe0a8;
+  --self-code-title:#f2c879;
+  --code-keyword:#8fb4ff;
+  --code-string:#9fe0a8;
+  --code-title:#f2c879;
+  --self-error:#ff9e94;
+  --bot-message-bg:#0c0c0c;
+  --composer-focus:#5fd787;
+  --accent-line:#5c5c5c;
+  --ring:color-mix(in srgb,var(--accent) 22%,transparent);
+  --selection:color-mix(in srgb,var(--accent) 28%,transparent);
+  --blue:var(--accent);
+  --selected:var(--accent-soft);
+  --cli-line:#5c5c5c;
+  --cli-rev-bg:#d8d8d4;
+  --cli-rev-fg:#0c0c0c;
+  --cli-prompt:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 1.5 7.5 6 2 10.5' fill='none' stroke='%235fd787' stroke-width='2.4' stroke-linecap='square'/%3E%3C/svg%3E");
+}
+
+/* ---------- Shared: square geometry ----------
+   Avatars (including the crop preview), presence and status dots and other
+   palettes' preview tiles keep their own shapes. */
+:root:is([data-palette=cli]){
+  --radius-xs:0px; --radius-sm:0px; --radius:0px;
+  --radius-lg:0px; --radius-xl:0px; --radius-2xl:0px;
+}
+:root:is([data-palette=cli]) :not(.profile-avatar,.profile-avatar *,.avatar,.avatar *,.mh-avatar *,.avatar-crop-preview,.avatar-crop-preview *,.wordmark-icon,.status-dot,.activity-dot,.connection-dot,.mh-presence,.voice-recording-dot,.palette-preview,.palette-preview *,input[type=radio],input[type=checkbox],input[type=range]){border-radius:0}
+/* Rich own-message selectors otherwise outrank the shared geometry rule and
+   round the terminal prompt band back into a bubble. */
+:root:is([data-palette=cli]) .message.user .message-blocks:has(>.markdown),:root:is([data-palette=cli]) .message.user .message-blocks:has(>.markdown) :is(.file-card,.attachment-image>button,.attachment-image img){border-radius:0}
+:root:is([data-palette=cli]) .mobile-home .mh-tab-icon::before{border-radius:0;transform:none}
+
+
+/* =============================================================================
+   TERMINAL
+   ========================================================================== */
+:root[data-palette=cli]{
+  --font-sans:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans Mono CJK SC",monospace;
+  --font-mono:var(--font-sans);
+  --skin-corner:2px;
+  --elev-1:0 0 0 1px var(--cli-line);
+  --elev-2:0 0 0 1px var(--cli-line);
+  --elev-3:0 0 0 1px var(--cli-line);
+  --shadow-sm:none;
+  --shadow:0 0 0 1px var(--cli-line);
+  --shadow-lg:0 0 0 1px var(--cli-line);
+}
+/* Monospace is never tracked; selection is reverse video, as in a terminal. */
+:root[data-palette=cli] :not(.palette-preview,.palette-preview *){letter-spacing:0}
+:root[data-palette=cli] ::selection,
+:root[data-palette=cli] .message.user .message-blocks>* ::selection{background:var(--cli-rev-bg);color:var(--cli-rev-fg)}
+:root[data-palette=cli] :is(textarea,input){caret-color:var(--accent)}
+:root[data-palette=cli] .lucide{stroke-linecap:square;stroke-linejoin:miter}
+:root[data-palette=cli] :is(.primary,.send-button,.composer-add,.conversation-empty button,.mobile-home .mh-empty-action){box-shadow:none}
+:root[data-palette=cli] :is(.unread-badge,.mobile-home .mh-badge,.mobile-home .mh-tab-badge){font-weight:700}
+
+/* ----- Terminal: sidebar (a file tree with a reverse-video cursor row) ----- */
+:root[data-palette=cli] .wordmark-text{font-size:15px;font-weight:700}
+/* The shared flat fox stays independent from Mac status-item refinements.
+   Transparent cutouts, without a tile, gradients or shadows. */
+:root[data-palette=cli] .wordmark-icon-colour{display:none}
+:root[data-palette=cli] .wordmark-icon-flat{display:block;border-radius:0;background-color:var(--cli-wordmark);-webkit-mask:url("../../assets/brand/fox-monochrome.svg") center/contain no-repeat;mask:url("../../assets/brand/fox-monochrome.svg") center/contain no-repeat}
+@media(forced-colors:active){
+  :root[data-palette=cli] .wordmark-icon-flat{forced-color-adjust:none;background-color:CanvasText}
+}
+/* A static block cursor: decoration only, no blink and no accessible text. */
+:root[data-palette=cli] .wordmark-text::after,
+:root[data-palette=cli] .mobile-home .mh-title::after{content:"";display:inline-block;width:.55em;height:1.05em;margin-left:.3em;background:var(--accent);vertical-align:-.18em;pointer-events:none}
+:root[data-palette=cli] .search-box{background:var(--bg);box-shadow:inset 0 0 0 1px var(--cli-line)}
+:root[data-palette=cli] .search-box:focus-within{background:var(--bg);box-shadow:inset 0 0 0 1px var(--focus),0 0 0 1px var(--focus)}
+:root[data-palette=cli] .search-box kbd{background:transparent;box-shadow:inset 0 0 0 1px var(--cli-line)}
+:root[data-palette=cli] .sidebar-label{justify-content:flex-start;gap:1ch;font-size:11.5px;font-weight:700;text-transform:uppercase;color:var(--muted)}
+:root[data-palette=cli] .sidebar-label::before{content:"#" / "";color:var(--accent)}
+:root[data-palette=cli] .sidebar-label span{margin-left:auto}
+/* Compact left-list identities in Bot, conversation and ADHD modes. Override Avatar's inline dimensions;
+   keep its animated face, presence dot and state badge on the same footprint. */
+:root[data-palette=cli] .sidebar :is(.bot-identity,.conversation-row)>.avatar{width:26px;height:26px;margin-inline:7px;flex:none}
+:root[data-palette=cli] .sidebar :is(.bot-identity,.conversation-row)>.avatar>.profile-avatar{width:26px!important;height:26px!important}
+:root[data-palette=cli] .sidebar :is(.bot-identity,.conversation-row)>.avatar>.profile-avatar>svg{width:56%;height:56%}
+:root[data-palette=cli] .sidebar :is(.bot-identity,.conversation-row)>.avatar>:is(.agent-badge,.agent-typing){--agent-avatar:26px}
+:root[data-palette=cli] .sidebar .conversation-row>.avatar .group-avatar-members{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+:root[data-palette=cli] .sidebar .conversation-row>.avatar [data-composite="1"]>.group-avatar-members{grid-template-columns:minmax(0,1fr)}
+:root[data-palette=cli] .sidebar .conversation-row>.avatar :is([data-composite="2"],[data-composite="3"],[data-composite="4"])>.group-avatar-members{grid-template-columns:repeat(2,minmax(0,1fr))}
+:root[data-palette=cli] .sidebar .conversation-row>.avatar .group-avatar-members>.profile-avatar{width:100%!important;height:auto!important;aspect-ratio:1;min-width:0;min-height:0}
+/* Child chats hang off their parent as `├─` branches of the existing guide. */
+:root[data-palette=cli] :is(.bot-tree-conversations,.group-tree-topics){border-left-color:var(--cli-line)}
+:root[data-palette=cli] :is(.bot-tree-conversations,.group-tree-topics)>.conversation-row::after{content:"";position:absolute;top:50%;left:-21px;width:14px;border-top:1px solid var(--cli-line);pointer-events:none}
+:root[data-palette=cli] .group-tree-topics>.conversation-row::after{left:-7px;width:5px}
+:root[data-palette=cli] :is(.bot-tree-conversations,.group-tree-topics) .conversation-row.selected::before{display:none}
+:root[data-palette=cli] .conversation-row.selected,
+:root[data-palette=cli] .conversation-row.selected:hover:not(:disabled){background:var(--cli-rev-bg);box-shadow:none}
+:root[data-palette=cli] .conversation-row.selected :is(strong,small,small *,.row-glyph){color:var(--cli-rev-fg)}
+:root[data-palette=cli] .conversation-row.selected .bot-reference{border-color:currentColor;background:transparent}
+:root[data-palette=cli] .sidebar-footer{border-top-color:var(--cli-line)}
+@media(min-width:761px){
+  :root[data-palette=cli] .conversation-main{border-left-color:var(--cli-line)}
+}
+
+/* ----- Terminal: pane title bar ----- */
+:root[data-palette=cli] .conversation-header{border-bottom:3px double var(--cli-line)}
+:root[data-palette=cli] .conversation-header:has(+.group-topic-navigation){border-bottom-color:transparent}
+:root[data-palette=cli] .group-topic-navigation{border-bottom:3px double var(--cli-line)}
+:root[data-palette=cli] .header-title h1{font-size:15px;font-weight:700}
+:root[data-palette=cli] :is(span.header-bot-name,button.header-bot-name>span){padding:0;background:transparent;color:var(--muted);font-size:12px}
+:root[data-palette=cli] :is(span.header-bot-name,button.header-bot-name>span)::before{content:"[" / ""}
+:root[data-palette=cli] :is(span.header-bot-name,button.header-bot-name>span)::after{content:"]" / ""}
+:root[data-palette=cli] .topic-tabs{background:transparent;box-shadow:inset 0 0 0 1px var(--cli-line)}
+:root[data-palette=cli] .topic-tabs button[aria-current=page],
+:root[data-palette=cli] .topic-tabs button[aria-current=page]:hover:not(:disabled){background-color:var(--cli-rev-bg);color:var(--cli-rev-fg);box-shadow:none}
+:root[data-palette=cli] .topic-tabs button[aria-current=page] svg{color:var(--cli-rev-fg)}
+:root[data-palette=cli] .preferences-header{border-bottom:3px double var(--cli-line)}
+
+/* ----- Terminal: transcript -----
+   Every turn starts at the left margin. Bot output hangs in a gutter drawn
+   down from the Bot's picture (│ … └╴); own turns are a full-width prompt band. */
+:root[data-palette=cli] .message{gap:10px}
+:root[data-palette=cli] .message .message-blocks>.markdown{line-height:1.6}
+:root[data-palette=cli] .message-meta{gap:1ch;line-height:20px}
+:root[data-palette=cli] .message-meta strong{font-size:13px;font-weight:700}
+:root[data-palette=cli] .message-meta time{font-size:12px;color:var(--muted)}
+:root[data-palette=cli] .message-meta time::before{content:"[" / ""}
+:root[data-palette=cli] .message-meta time::after{content:"]" / ""}
+:root[data-palette=cli] .message.bot .message-avatar{position:static;width:20px;height:20px;margin-top:0}
+/* The transcript gutter belongs to ::after; typing dots sit just above it. */
+:root[data-palette=cli] .message.bot .message-avatar::before{top:23px;left:10px}
+:root[data-palette=cli] .message.bot .message-avatar::after{content:"";position:absolute;top:34px;bottom:38px;left:9px;width:7px;border-left:1px solid var(--cli-line);border-bottom:1px solid var(--cli-line);pointer-events:none}
+:root[data-palette=cli] .message.user .message-body{align-items:flex-start}
+:root[data-palette=cli] .message.user .message-meta{padding:0}
+:root[data-palette=cli] .message.user .message-meta>.message-actions{order:0}
+:root[data-palette=cli] .message.user .message-blocks{max-width:100%}
+:root[data-palette=cli] .message.user .message-blocks:has(>.markdown){position:relative;align-self:stretch;padding:6px 12px 6px calc(12px + 2ch);border:0;background-color:var(--self-message-bg)}
+:root[data-palette=cli] .message.user .message-blocks:has(>.markdown)>.markdown{padding:0}
+:root[data-palette=cli] .message.user .message-blocks>.markdown>:first-child,:root[data-palette=cli] .message.user .message-blocks>.markdown>.markdown-chunk:first-child>:first-child{margin-top:0}
+:root[data-palette=cli] .message.user .message-blocks:has(>.markdown)::before{content:">" / "";position:absolute;top:6px;left:12px;font-size:calc(1rem + 1px);font-weight:700;line-height:1.6;color:var(--accent);pointer-events:none}
+:root[data-palette=cli] .message.user .message-actions{justify-content:flex-start}
+@media(max-width:760px){
+  :root[data-palette=cli] .message.bot .message-avatar{margin-top:12px}
+  :root[data-palette=cli] .message.bot .message-avatar::before{top:35px}
+  :root[data-palette=cli] .message.bot .message-avatar::after{top:38px;bottom:6px}
+  :root[data-palette=cli] .message.user .message-meta{justify-content:flex-start}
+}
+
+/* Plain Bot output is unboxed text. A titled card becomes a box-drawn pane:
+   ┌─ title ───┐ painted by the header's own rules, │ │ └──┘ by the body. */
+:root[data-palette=cli] .message :is(.rich-card,.native-run){min-width:0;border:0;background:transparent;box-shadow:none}
+:root[data-palette=cli] .message .native-run{padding:1px 0 4px;border-radius:0}
+:root[data-palette=cli] .message .rich-card>.card-body{padding:1px 0 4px}
+:root[data-palette=cli] .message .rich-card>.card-header{display:flex;align-items:center;gap:1ch;padding:0;background:transparent;font-size:14px;font-weight:700;line-height:1.5;color:var(--text)}
+:root[data-palette=cli] .message .rich-card>.card-header::before,
+:root[data-palette=cli] .message .rich-card>.card-header::after{content:"";flex:0 0 1.5ch;align-self:stretch;background:linear-gradient(var(--cli-line),var(--cli-line)) 0 50%/100% 1px no-repeat,linear-gradient(var(--cli-line),var(--cli-line)) 0 100%/1px 50% no-repeat;pointer-events:none}
+:root[data-palette=cli] .message .rich-card>.card-header::after{flex:1 1 2ch;background-position:0 50%,100% 100%}
+:root[data-palette=cli] .message .rich-card>.card-header~.card-body{padding:6px 2ch 12px;border:1px solid var(--cli-line);border-top:0}
+:root[data-palette=cli] .message .rich-card.template-blue>.card-header{color:var(--card-blue-fg)}
+:root[data-palette=cli] .message .rich-card.template-green>.card-header{color:var(--card-green-fg)}
+:root[data-palette=cli] .message .rich-card.template-orange>.card-header{color:var(--card-orange-fg)}
+:root[data-palette=cli] .message .rich-card.template-red>.card-header{color:var(--card-red-fg)}
+
+/* Markdown as a terminal renders it: visible heading marks, dash bullets,
+   dashed code panes with a [复制] tag in the rule, ruled tables. */
+:root[data-palette=cli] .message .markdown :is(h1,h2,h3,h4)::before{font-weight:400;color:var(--muted)}
+:root[data-palette=cli] .message .markdown h1::before{content:"# " / ""}
+:root[data-palette=cli] .message .markdown h2::before{content:"## " / ""}
+:root[data-palette=cli] .message .markdown h3::before{content:"### " / ""}
+:root[data-palette=cli] .message .markdown h4::before{content:"#### " / ""}
+:root[data-palette=cli] .message .markdown ul{list-style-type:"- "}
+:root[data-palette=cli] .message .markdown ul ul{list-style-type:"* "}
+:root[data-palette=cli] .message .markdown li::marker{font-weight:700;color:var(--accent)}
+:root[data-palette=cli] .message .markdown blockquote{padding-left:2ch;border-left:1px solid var(--cli-line)}
+:root[data-palette=cli] .message .markdown hr{border-top:1px dashed var(--cli-line)}
+:root[data-palette=cli] .message .markdown :not(pre)>code{padding:0 .4ch;border:0}
+:root[data-palette=cli] .message .code-block{margin:18px 0 12px}
+:root[data-palette=cli] .message .message-blocks .markdown pre{padding:16px 2ch 12px;border:1px dashed var(--cli-line);background:transparent;box-shadow:none}
+:root[data-palette=cli] .message .code-block>.code-copy{top:-.75em;right:2ch;min-height:0;min-width:0;padding:0 .5ch;gap:0;background:var(--bg);font-size:11.5px;line-height:1.5;color:var(--muted)}
+:root[data-palette=cli] .message.user .code-block>.code-copy{background:var(--self-message-bg);color:var(--self-message-muted)}
+:root[data-palette=cli] .message .code-block>.code-copy>svg{display:none}
+:root[data-palette=cli] .message .code-block>.code-copy::before{content:"[" / ""}
+:root[data-palette=cli] .message .code-block>.code-copy::after{content:"]" / ""}
+:root[data-palette=cli] .message .message-blocks .markdown :is(th,td){border:1px solid var(--cli-line)}
+:root[data-palette=cli] .message .message-blocks .markdown th{border-bottom:3px double var(--cli-line);background:transparent;font-weight:700}
+
+/* ----- Terminal: prompt input ----- */
+:root[data-palette=cli] .composer-wrap .composer{border:1px solid var(--cli-line);border-radius:var(--skin-corner);background:var(--bg);box-shadow:none}
+:root[data-palette=cli] .composer-wrap .composer:hover{border-color:var(--composer-focus)}
+:root[data-palette=cli] .composer-wrap .composer:focus-within{border-color:var(--composer-focus);box-shadow:none}
+/* The `>` prompt is a background image of the field: it stays out of the
+   draft, the accessible value and the clipboard. */
+:root[data-palette=cli] .composer textarea{padding:11px 16px 9px 36px;line-height:1.6;background-image:var(--cli-prompt);background-repeat:no-repeat;background-size:10px 12px;background-position:16px calc(5.8px + .8rem - var(--composer-text-lift,0px));background-attachment:local;caret-color:var(--text)}
+:root[data-palette=cli] .composer-toolbar .icon-button{color:var(--grey)}
+:root[data-palette=cli] .composer-toolbar .icon-button:hover:not(:disabled){background-color:var(--surface-alt)}
+/* The Return glyph stays centred like a keycap when hovered. */
+:root[data-palette=cli] .composer .send-button:hover:not(:disabled) svg{transform:none}
+@media(max-width:760px){
+  :root[data-palette=cli] .composer textarea{padding:9px 16px 7px 32px;background-position:12px 16px}
+  :root[data-palette=cli] .composer-input-row>.composer-add{border-color:var(--cli-line);background:var(--bg);background-clip:content-box;color:var(--text)}
+  :root[data-palette=cli] .composer-input-row>.composer-add[aria-expanded=true]{background-color:var(--cli-rev-bg);color:var(--cli-rev-fg)}
+}
+@media(max-width:760px){
+  /* Keep the compact [Copy] label on the rule, with a full touch target. */
+  :root[data-palette=cli] .message .code-block>.code-copy{top:-22px;min-width:44px;min-height:44px;height:44px;border-block:12px solid transparent;background-clip:padding-box}
+}
+:root[data-palette=cli] .reply-preview{box-shadow:inset 0 0 0 1px var(--cli-line)}
+
+/* ----- Terminal: phone home ----- */
+:root[data-palette=cli] .mobile-home .mh-title{font-weight:700}
+:root[data-palette=cli] .mobile-home .mh-icon-button{background-color:transparent;box-shadow:inset 0 0 0 1px var(--cli-line)}
+:root[data-palette=cli] .mobile-home .mh-icon-button:is(:active,[aria-expanded=true]):not(:disabled){background-color:var(--cli-rev-bg);color:var(--cli-rev-fg)}
+:root[data-palette=cli] .mobile-home .mh-search,
+:root[data-palette=cli] .mobile-home .mh-search:focus-within{background:transparent;box-shadow:inset 0 0 0 1px var(--cli-line)}
+:root[data-palette=cli] .mobile-home .mh-search:focus-within{box-shadow:inset 0 0 0 1px var(--focus),0 0 0 1px var(--focus)}
+:root[data-palette=cli] .mobile-home .mh-chip[aria-pressed=true]{background-color:var(--cli-rev-bg);color:var(--cli-rev-fg)}
+:root[data-palette=cli] .mobile-home .mh-row-title{font-weight:600}
+:root[data-palette=cli] .mobile-home .mh-row[data-unread] .mh-row-title{font-weight:800}
+:root[data-palette=cli] .mobile-home .mh-row-tag{padding:0;background:transparent;color:var(--muted)}
+:root[data-palette=cli] .mobile-home .mh-row-tag::before{content:"[" / ""}
+:root[data-palette=cli] .mobile-home .mh-row-tag::after{content:"]" / ""}
+:root[data-palette=cli] .mobile-home .mh-me-card{background-image:none}
+:root[data-palette=cli] .mobile-home .mh-tabbar{border-top-color:var(--cli-line)}
+:root[data-palette=cli] .mobile-home .mh-tab-icon::before{background:var(--cli-rev-bg)}
+:root[data-palette=cli] .mobile-home .mh-tab[aria-current=page] .mh-tab-icon{color:var(--cli-rev-fg)}
+:root[data-palette=cli] .mobile-home .mh-tab[aria-current=page] .mh-tab-label::before{content:"[" / ""}
+:root[data-palette=cli] .mobile-home .mh-tab[aria-current=page] .mh-tab-label::after{content:"]" / ""}
+
+
+/* =============================================================================
+   SETTINGS TILE: a dark miniature of the CLI theme.
+   ========================================================================== */
+.palette-preview.expressive-preview{gap:0;padding:0;background:var(--bg)}
+.expressive-preview .xp-pane{position:relative;display:flex;flex:1 1 0;flex-direction:column;gap:3px;min-width:0;padding:4px 5px 5px;overflow:hidden;background:var(--bg);color:var(--text);font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.expressive-preview .xp-pane>*{display:block;flex:none}
+/* Terminal: title rule, prompt band, box-drawn pane, prompt input with cursor. */
+.expressive-preview[data-palette=cli] .xp-bar{height:10px;border-bottom:3px double var(--cli-line);background:linear-gradient(var(--text),var(--text)) 0 1px/42% 2px no-repeat}
+.expressive-preview[data-palette=cli] :is(.xp-prompt,.xp-input){display:flex;align-items:center;gap:3px;height:11px;padding:0 3px}
+.expressive-preview[data-palette=cli] .xp-prompt{background:var(--self-message-bg)}
+.expressive-preview[data-palette=cli] .xp-input{height:13px;border:1px solid var(--cli-line)}
+.expressive-preview[data-palette=cli] .xp-glyph{color:var(--accent)}
+.expressive-preview[data-palette=cli] .xp-text{display:block;height:2px;background:var(--text)}
+.expressive-preview[data-palette=cli] .xp-prompt .xp-text{flex:0 1 70%}
+.expressive-preview[data-palette=cli] .xp-box{position:relative;display:flex;flex:1 1 auto;flex-direction:column;justify-content:center;gap:3px;margin-top:2px;padding:3px 4px;border:1px solid var(--cli-line)}
+.expressive-preview[data-palette=cli] .xp-box::before{content:"";position:absolute;top:-2px;left:4px;width:38%;height:3px;background:linear-gradient(var(--text),var(--text)) 0 50%/100% 2px no-repeat,var(--bg);box-shadow:0 0 0 2px var(--bg)}
+.expressive-preview[data-palette=cli] .xp-box>.xp-text{width:86%;background:var(--grey)}
+.expressive-preview[data-palette=cli] .xp-box>.xp-text+.xp-text{width:58%}
+.expressive-preview[data-palette=cli] .xp-cursor{display:block;width:4px;height:7px;background:var(--text)}
+/* Full-screen phone settings stay flush with the safe-area canvas. */
+@media(max-width:760px){
+  :root:is([data-palette=cli]) .preferences-dialog{box-shadow:none}
+}
+
+/* Native high-contrast mode drops painted decoration; keep plain frames in
+   system colours and the original line icons. */
+@media(forced-colors:active){
+  :root:is([data-palette=cli]) :is(.composer,.rich-card,.native-run,.file-card,.link-preview-card,.message.user .message-blocks,.search-box,.conversation-row.selected,.send-button,.card-button,.markdown pre,.mobile-home .mh-search,.mobile-home .mh-icon-button,.mobile-home .mh-chip,.mobile-home .mh-group,.mobile-home .mh-me-card,.mobile-home .mh-history,.mobile-chat-action-list){background-image:none!important;border:1px solid CanvasText!important;box-shadow:none!important}
+  :root:is([data-palette=cli]) .palette-card{border-color:CanvasText}
+  :root:is([data-palette=cli]) .palette-option>input:checked+.palette-card{outline:2px solid Highlight;outline-offset:-3px}
+}

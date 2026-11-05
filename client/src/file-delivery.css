@@ -1,0 +1,42 @@
+/* A delivered document owns one surface with its caption; actions belong to the message. */
+.file-delivery{width:440px;max-width:100%;min-width:0;margin:2px 0 6px;border:1px solid var(--border);border-radius:12px;background:var(--raised,var(--surface));color:var(--text)}
+.file-delivery-caption{padding:12px 14px 10px;overflow-wrap:anywhere}
+.file-delivery-caption>.markdown{font-size:13px;line-height:1.6}
+.file-delivery-caption .markdown>:last-child,.file-delivery-caption .markdown>.markdown-chunk:last-child>:last-child{margin-bottom:0}
+:root .message.bot .file-delivery>.file-card{width:100%;max-width:none;margin:0;padding:12px 14px;border:0;border-radius:0;background:transparent;box-shadow:none;clip-path:none}
+:root .message.bot .file-delivery>.file-card::before,:root .message.bot .file-delivery>.file-card::after{display:none}
+:root .message.bot .file-delivery>.file-card+.file-card{border-top:1px solid var(--border)}
+:root .message.bot .file-delivery>.file-delivery-caption+.file-card{border-top:1px solid var(--border)}
+:root:is([data-palette=cli]) .file-delivery{border-radius:0}
+/* Pixel windows paint their frame as a background image; nested files are rows. */
+/* Desktop documents read as one information block followed by one compact
+   action row. The receipt stays with size metadata, keeping actions stationary. */
+/* A definite preferred width supplies intrinsic size in a user's shrink-to-fit
+   message bubble; inline-size containment alone would collapse that bubble. */
+:root .file-card.is-document{display:flex;flex-wrap:wrap;gap:6px;width:400px;max-width:100%;container:document-card / inline-size}
+.file-card-identity{display:flex;flex:1 0 100%;align-items:center;gap:10px;min-width:0}
+.file-card-identity>svg{flex:none}
+.file-card-info{flex:1;min-width:0}
+.file-card-meta{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;margin-top:1px;min-width:0;color:var(--muted);font-size:11.5px;line-height:1.45}
+.file-card-meta>small{font-size:inherit;white-space:nowrap;font-variant-numeric:tabular-nums}
+.file-card-meta>.file-status-message{gap:4px;font-size:inherit;line-height:inherit}
+.file-card-meta>.file-status-message::before{content:"·";color:var(--muted);margin-inline-end:2px}
+.file-card-meta>.file-status-message>small{min-width:0;color:inherit;font-size:inherit;overflow-wrap:anywhere}
+.file-card-meta>.file-status-message>svg{width:12px;height:12px}
+.file-card-meta>.file-status-message[data-tone=done]{color:var(--green)}
+.file-card-meta>.file-status-message[data-tone=error]{color:var(--red)}
+:root .file-card.is-document>.file-card-toolbar{padding-inline-start:46px;gap:4px 10px}
+:root .file-card.is-document>.file-card-toolbar>.file-status-actions{margin-inline-start:0;flex:0 1 auto;flex-wrap:wrap;gap:4px 8px}
+:root .file-card-toolbar .file-primary-actions>.file-card-save{width:28px;min-width:28px;padding:0;color:var(--grey)}
+@container document-card (max-width:260px){:root .file-card.is-document>.file-card-toolbar{padding-inline-start:0}}
+@media(min-width:761px){
+ .file-delivery:has(>.is-document)>.file-delivery-caption{padding-bottom:0}
+ :root .message.bot .file-delivery>.file-delivery-caption+.is-document{border-top:0;padding-top:10px}
+}
+@media(pointer:coarse){:root .file-card-toolbar .file-primary-actions>.file-card-save{width:44px;min-width:44px}}
+@media(max-width:760px){
+ .file-delivery-caption{padding:12px 12px 10px}
+ .file-delivery-caption>.markdown{font-size:inherit}
+ :root .message.bot .file-delivery>.file-card{padding:6px;gap:4px}
+}
+@media(forced-colors:active){.file-delivery{border-color:CanvasText;background:Canvas}}

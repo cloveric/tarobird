@@ -1,0 +1,23 @@
+/* Give audio-only bubbles an intrinsic width: 100% inside a shrink-to-fit
+   message can collapse without a text caption. */
+.attachment-audio{width:300px;max-width:100%}
+.attachment-audio>audio{display:block;width:100%}
+.forward-delivery-note{display:block;margin-top:6px;color:var(--muted);line-height:1.6}
+
+/* Rounded desktop voice bar; native phone controls retain their own layout. */
+.attachment-audio{position:relative}
+.attachment-audio>audio.inline-audio-source{display:none}
+.inline-audio-controls{display:flex;align-items:center;gap:8px;min-width:0;min-height:40px;padding:4px 8px;border-radius:22px;background:var(--surface);color:var(--text);box-shadow:none}
+.inline-audio-controls>button{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;min-width:32px;height:32px;min-height:32px;margin:0;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;box-shadow:none}
+.inline-audio-controls>button:hover:not(:disabled){background:var(--hover)}
+.inline-audio-controls>button>svg{flex:none}
+.inline-audio-controls>.inline-audio-time{flex:none;font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--grey)}
+.inline-audio-controls>input[type=range]{flex:1 1 0;min-width:24px;width:0;min-height:28px;height:28px;margin:0;padding:0;border:0;border-radius:0;background:transparent;accent-color:var(--grey);appearance:none;-webkit-appearance:none}
+@media(pointer:coarse){.inline-audio-controls>button{width:44px;min-width:44px;height:44px;min-height:44px}.inline-audio-controls>input[type=range]{min-height:44px}}
+@media(forced-colors:active){.inline-audio-controls{outline:1px solid CanvasText}.inline-audio-controls>input[type=range]{accent-color:auto}}
+
+.inline-audio-controls>input[type=range]::-webkit-slider-runnable-track{height:3px;border:0;border-radius:3px;background:var(--border-strong,var(--border))}
+.inline-audio-controls>input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:10px;height:10px;margin-top:-3.5px;border:0;border-radius:50%;background:var(--grey);box-shadow:none}
+.inline-audio-controls>input[type=range]::-moz-range-track{height:3px;border:0;border-radius:3px;background:var(--border-strong,var(--border))}
+.inline-audio-controls>input[type=range]::-moz-range-thumb{width:10px;height:10px;border:0;border-radius:50%;background:var(--grey);box-shadow:none}
+@media(forced-colors:active){.inline-audio-controls>input[type=range]{appearance:auto;-webkit-appearance:auto}}

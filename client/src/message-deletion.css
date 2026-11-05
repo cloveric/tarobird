@@ -1,0 +1,14 @@
+.message.is-selecting { cursor: pointer; user-select: none; border-radius: 10px; outline-offset: -2px; padding-left: 34px; }
+.message.is-selecting.is-selected { background: var(--selected); }
+.message-selection-content { display: contents; }
+.message-selection-check { position: absolute; left: 5px; top: 16px; display: grid; place-items: center; width: 20px; height: 20px; border: 1.5px solid var(--muted); border-radius: 50%; color: var(--bg); }
+.is-selected .message-selection-check { background: var(--blue); border-color: var(--blue); }
+.message-selection-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; flex-shrink: 0; padding: 12px 20px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--bg); }
+.message-selection-bar > span { flex: 1; }
+.message-selection-bar button, .message-delete-buttons button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.message-selection-bar small { flex-basis: 100%; color: var(--muted); }
+.message-delete-action { color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--bg)); }
+.message-delete-dialog { width: min(420px, calc(100vw - 24px)); }
+.message-delete-dialog p { line-height: 1.65; }
+.message-delete-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.composer-wrap[hidden] { display: none !important; }

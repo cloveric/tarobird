@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "referenceSource": "Feishu desktop",
+  "status": "awaiting_real_references",
+  "cases": [
+    {
+      "id": "running",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "completed",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "error",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "goal_running",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "choice",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "ask_claude",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "ask_kimi",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "approval",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "config",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "board_ready",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "image_batch",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "archive",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "long_answer",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    },
+    {
+      "id": "multi_table",
+      "light": null,
+      "dark": null,
+      "sourceMetadata": null,
+      "review": "pending"
+    }
+  ]
+}

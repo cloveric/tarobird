@@ -1,0 +1,44 @@
+/* Keep Sarasa for Chinese. CLI uses a wider
+   Latin face; both families are bundled for desktop/mobile offline reading. */
+@font-face{font-family:"Sarasa Term SC";src:url("./assets/fonts/sarasa-term-sc/SarasaTermSC-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Sarasa Term SC";src:url("./assets/fonts/sarasa-term-sc/SarasaTermSC-SemiBold.woff2") format("woff2");font-weight:600 900;font-style:normal;font-display:swap}
+
+@font-face{font-family:"JetBrains Mono";src:url("./assets/fonts/jetbrains-mono/JetBrainsMono-Regular.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url("./assets/fonts/jetbrains-mono/JetBrainsMono-SemiBold.woff2") format("woff2");font-weight:600 900;font-style:normal;font-display:swap}
+
+:root[data-palette=cli],.palette-preview[data-palette=cli],.palette-preview[data-palette=cli] .xp-pane{
+  --font-sans:"JetBrains Mono","Sarasa Term SC",ui-monospace,"SF Mono",Consolas,monospace;
+  --font-mono:var(--font-sans);
+  --cli-wordmark:#fff;
+  --text:#dedee3;--grey:#b7bbc4;--muted:#959ba8;
+  --accent:#78cddd;--accent-soft:#153039;--accent-soft-hover:#1d404a;
+  --focus:var(--accent);--avatar-fg:var(--accent);--composer-focus:var(--muted);
+  --self-message-fg:var(--text);--self-message-link:var(--accent);
+  --self-message-muted:#aeb5bf;
+  --code-keyword:#c4a0eb;--code-string:#8bc69b;--code-title:#78cddd;
+  --cli-number:#dec293;--cli-agent:#c4a0eb;
+  --self-code-keyword:var(--code-keyword);--self-code-string:var(--code-string);--self-code-title:var(--code-title);
+  --cli-prompt:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 12'%3E%3Cpath d='M2 1.5 7.5 6 2 10.5' fill='none' stroke='%23959ba8' stroke-width='2.4' stroke-linecap='square'/%3E%3C/svg%3E");
+  font-variant-ligatures:none;
+}
+/* A terminal uses weight/color for emphasis, not larger headings or smaller
+   code. Tables share the compact desktop reading scale; passive previews and
+   phones keep their inherited size. */
+:root[data-palette=cli][data-theme]{
+  --focus:var(--accent);--avatar-fg:var(--accent);--composer-focus:var(--muted);
+  --self-message-fg:var(--text);--self-message-link:var(--accent);
+  --self-code-keyword:var(--code-keyword);--self-code-string:var(--code-string);--self-code-title:var(--code-title);
+}
+:root[data-palette=cli] :is(.message .message-blocks>.markdown,.message .card-text>.markdown,.markdown-table-reader){font-size:1rem;line-height:1.7}
+:root[data-palette=cli] :is(.message .markdown,.markdown-table-reader) :is(table,code,pre){font-family:var(--font-mono);font-size:1em;font-variant-ligatures:none}
+:root[data-palette=cli] :is(.message .markdown,.markdown-table-reader) table{font-size:var(--markdown-table-font-size,1em)}
+:root[data-palette=cli] .message .markdown :is(h1,h2,h3,h4,h5,h6){font-size:1em;font-weight:600;line-height:1.7;color:inherit}
+:root[data-palette=cli] .message .rich-card>.card-header{font-size:1rem;font-weight:600}
+:root[data-palette=cli] :is(.message .markdown,.markdown-table-reader) :is(strong,th){font-weight:600}
+:root[data-palette=cli] .message.bot .message-meta strong{color:var(--cli-agent)}
+:root[data-palette=cli] .message .markdown :not(pre)>code{color:var(--accent);background:transparent;padding:0;border:0}
+:root[data-palette=cli] .message .markdown a{color:var(--accent);text-decoration:underline;text-underline-offset:.18em}
+:root[data-palette=cli] .message .markdown blockquote{color:var(--muted)}
+:root[data-palette=cli] .message .markdown :is(.hljs-number,.hljs-literal){color:var(--cli-number)}
+:root[data-palette=cli] .message .markdown .hljs-comment{color:var(--muted);font-style:normal}
+:root[data-palette=cli] .message.user .markdown :is(blockquote,.hljs-comment){color:var(--self-message-muted)}

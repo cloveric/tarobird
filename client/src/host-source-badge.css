@@ -1,0 +1,39 @@
+/* Owner labels sit with the row metadata so Bot/model names retain the left. */
+.host-source-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 9em;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.host-source-badge > svg { flex: none; }
+.host-source-badge > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.host-source-prefix { position: absolute; inset: 0 auto auto 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.row-source-meta { display: flex; flex: 0 1 auto; align-items: center; justify-content: flex-end; gap: 5px; min-width: 0; max-width: 42%; margin-left: auto; }
+/* Nested chats inherit the host label from their Bot; no badge means no slot. */
+.row-source-meta:empty { display: none; }
+.conversation-row .inbox-row-meta:has(> .host-source-badge) { flex: 0 1 auto; min-width: 0; max-width: 38%; }
+.conversation-row .inbox-row-meta > .host-source-badge { max-width: min(7em, 100%); }
+:root[data-palette=cli] .conversation-row.selected .host-source-badge { color: var(--cli-rev-fg); }
+.bot-tree-heading > .host-source-badge { flex-shrink: 1; max-width: 34%; }
+.conversation-header > .host-source-badge.header-host-source { display: inline-flex; flex: 0 1 auto; max-width: min(22%, 14em); margin: 0 2px 0 auto; font-size: 11px; }
+.mobile-home .mh-row-bottom > .host-source-badge { flex-shrink: 0; max-width: 42%; margin-left: auto; }
+@media (max-width: 760px) {
+  .conversation-header > .host-source-badge.header-host-source { display: inline-flex; flex-shrink: 0; max-width: 24%; margin: 0 2px 0 4px; font-size: 10px; }
+}
+/* The conversation name remains the primary identity on small phones. Bot
+   details remain available through the identity button and its details page. */
+@media (max-width: 480px) {
+  .conversation-header:has(> .header-host-source) .header-bot-name { display: none; }
+}
+@media (max-width: 360px) {
+  .conversation-header:has(> .header-host-source) .header-activity { position: relative; }
+  .conversation-header:has(> .header-host-source) .header-activity > span { position: absolute; inset: 0 auto auto 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

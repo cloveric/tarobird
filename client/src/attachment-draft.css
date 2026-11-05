@@ -1,0 +1,37 @@
+/* Keep three files in view on phones. More files share one horizontal tray;
+   the counter and paging controls stay above it instead of scrolling away. */
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft { padding:8px 10px 0; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft > header { gap:4px; margin-bottom:4px; font-size:12px; }
+.draft-attachment-summary { display:flex; align-items:baseline; flex-wrap:wrap; column-gap:8px; }
+.draft-attachment-summary small { color:var(--muted); font-size:11px; }
+.draft-attachment-actions { display:flex; align-items:center; gap:2px; }
+.draft-attachment-actions > button { min-width:32px; min-height:32px; padding:4px; gap:3px; color:var(--grey); font-size:12px; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft .attachment-chips { flex-wrap:nowrap; max-height:none; padding:0 0 4px; overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; scrollbar-width:thin; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file:not(.audio-draft) { flex:0 0 clamp(64px,calc((100% - 16px) / 3),112px); width:auto; padding:0; border:0; box-shadow:none; border-radius:8px; background:transparent; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file > .draft-file-open { position:static; display:flex; flex-direction:column; gap:5px; width:100%; min-width:0; padding:0; border-radius:8px; text-align:left; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-thumbnail { width:100%; height:60px; border-radius:8px; background:var(--surface); color:var(--grey); }
+:is(.composer,.side-compose,.group-discussion-dialog) .draft-file-name { display:flex; flex-direction:column; gap:1px; width:100%; min-width:0; padding-inline:2px; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file .draft-file-name > strong { display:block; width:100%; font-size:11px; line-height:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+:is(.composer,.side-compose,.group-discussion-dialog) .draft-file-name > small { color:var(--muted); font-size:10px; line-height:14px; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file > .draft-file-remove { top:0; right:0; display:grid; place-items:center; min-width:32px; min-height:32px; padding:0; border-radius:0 8px 0 8px; background:var(--raised); color:var(--text); box-shadow:0 1px 3px #0001; }
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file.audio-draft { flex:0 0 min(100%,300px); min-width:0; width:auto; display:grid; gap:4px; padding:6px; }
+:is(.composer,.side-compose,.group-discussion-dialog) .audio-draft > .draft-file-open { flex-direction:row; padding-right:28px; }
+:is(.composer,.side-compose,.group-discussion-dialog) .audio-draft .attachment-draft-thumbnail { width:36px; height:36px; }
+:is(.composer,.side-compose,.group-discussion-dialog) .audio-draft audio { width:100%; height:32px; margin:0; }
+@media(max-width:760px) {
+  /* Local image drafts are a thumbnail strip, not full file cards. The main
+     toolbar already offers Add; a single image needs no second header. */
+  :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft { padding:8px 12px 0; }
+  :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft:not(.has-oversized-files):has(.image-draft:only-child) > header { display:none; }
+  :is(.composer,.side-compose,.group-discussion-dialog) .draft-attachment-summary small { display:none; }
+  :is(.composer,.side-compose,.group-discussion-dialog) .has-oversized-files .draft-attachment-summary small { display:inline; color:var(--red); }
+  :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file.image-draft { flex:0 0 72px; }
+  :is(.composer,.side-compose,.group-discussion-dialog) .image-draft .attachment-draft-thumbnail { height:72px; border-radius:12px; }
+  :is(.composer,.side-compose,.group-discussion-dialog) .image-draft .draft-file-name { display:none; }
+  :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file > .draft-file-remove { border-radius:50%; background:var(--raised); }
+  /* The main viewport rule can shrink this region; the concise header leaves
+     actual thumbnails reachable even with the keyboard visible. */
+  .composer-input-row :is(.composer,.side-compose,.group-discussion-dialog) > .attachment-draft { flex-basis:auto; }
+  .draft-attachment-preview .file-preview > header { gap:6px; padding:10px; }
+  .draft-attachment-preview .file-preview > header > strong { min-width:0; overflow-wrap:anywhere; }
+}

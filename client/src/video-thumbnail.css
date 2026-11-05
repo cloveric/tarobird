@@ -1,0 +1,12 @@
+/* The visual is the preview opener; file metadata and saving remain below it. */
+:root .file-card.has-video-thumbnail { display:flex; flex-wrap:wrap; }
+:root .file-card > .video-thumbnail { flex:0 0 100%; min-width:0; }
+:root .file-card .video-thumbnail > button { display:block; position:relative; width:100%; height:auto; min-height:0; aspect-ratio:16 / 9; margin:0; padding:0; overflow:hidden; border:0; border-radius:8px; background:#202329; color:#fff; }
+:root .file-card .video-thumbnail > button img { display:block; width:100%; height:100%; object-fit:contain; }
+:root .file-card .video-thumbnail span { position:absolute; display:flex; flex:none; flex-direction:row; align-items:center; justify-content:center; gap:4px; color:#fff; pointer-events:none; }
+:root .file-card .video-thumbnail .video-play { left:50%; top:50%; transform:translate(-50%,-50%); width:44px; height:44px; border:1px solid #ffffff80; border-radius:50%; background:#15171b80; }
+:root .file-card .video-thumbnail .video-play > svg { margin-left:2px; }
+:root .file-card .video-thumbnail .video-duration { right:8px; bottom:8px; padding:3px 6px; border-radius:4px; background:#15171bb3; font-size:11px; line-height:1.2; font-variant-numeric:tabular-nums; }
+:root .file-card.has-video-thumbnail > span { flex:1; }
+:root:is([data-palette=cli]) .file-card .video-thumbnail > button { border-radius:0; }
+@media(forced-colors:active) { :root .file-card .video-thumbnail > button { border:1px solid ButtonText; } }

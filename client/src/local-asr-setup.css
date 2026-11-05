@@ -1,0 +1,11 @@
+.local-asr-setup { border:1px solid var(--border); border-radius:12px; padding:14px; margin-top:14px; min-width:0; background:var(--surface); }
+.local-asr-setup header { display:flex; align-items:center; gap:8px; }
+.local-asr-setup header .icon { margin-left:auto; }
+.local-asr-setup p { font-size:12px; line-height:1.6; margin:8px 0; overflow-wrap:anywhere; }
+.local-asr-setup dl { display:flex; flex-wrap:wrap; gap:12px 24px; margin:12px 0; font-size:12px; }
+.local-asr-setup dl>div { display:flex; gap:8px; }
+.local-asr-setup dt { color:var(--grey); }
+.local-asr-setup dd { margin:0; }
+.asr-status-line { display:flex; align-items:center; gap:6px; margin-top:12px; font-size:13px; }
+.asr-confirm { border-top:1px solid var(--border); margin-top:10px; padding-top:4px; }
+.asr-confirm>div { display:flex; flex-wrap:wrap; gap:8px; }

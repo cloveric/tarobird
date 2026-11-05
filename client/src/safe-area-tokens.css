@@ -1,0 +1,21 @@
+/* Capacitor's native 0px is authoritative when the WebView is already inset.
+   Never add/max native and env() sources: that would pad those devices twice. */
+:root {
+  --app-safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --app-safe-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --app-safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --app-safe-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+}
+
+/* NativeInsets.java owns Android geometry. iOS and browsers retain env(). */
+:root[data-native-insets="android"] {
+  --app-safe-top: 0px;
+  --app-safe-right: 0px;
+  --app-safe-bottom: 0px;
+  --app-safe-left: 0px;
+}
+
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  /* Native/visual viewport resizing already removes the keyboard. */
+  html[data-keyboard-open="true"] { --app-safe-bottom: 0px; }
+}

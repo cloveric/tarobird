@@ -1,0 +1,62 @@
+{
+  "sourceRevision": "a0411ba26bfac96a5372e1022d838447eaa584af",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-BYzlevgr.js",
+    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+  },
+  "source": "Production Electron WorkbenchBrowser and built App in an isolated documentation harness. Loopback pairing, fictional site and conversations. The window renderer and native webpage surfaces are captured separately and composited without pixel edits at their actual child-view bounds. No real account, model or installed-App acceptance.",
+  "images": [
+    {
+      "file": "workbench-browser-zh.png",
+      "locale": "zh",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "5a910a4c12d9bcd8b4572517655ae788f1aa99d8028777f21ae29ac7e4317043"
+    },
+    {
+      "file": "workbench-browser-en.png",
+      "locale": "en",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sha256": "80945c70d42d4ca3501fa667fe97692598b3e688b02584517c3876b009030d45"
+    }
+  ],
+  "animations": [
+    {
+      "file": "browser-demo-zh.gif",
+      "frames": 50,
+      "duration": 8.645,
+      "bytes": 494007,
+      "sha256": "435e083b55e7283848e98cee2f8a661db03a7e6aaf5b827826773354a3140ccf",
+      "locale": "zh",
+      "actions": [
+        "Loaded journal webpage",
+        "Take control",
+        "Scroll the journal",
+        "Open an article link",
+        "Read and scroll the article"
+      ]
+    },
+    {
+      "file": "browser-demo-en.gif",
+      "frames": 50,
+      "duration": 8.516,
+      "bytes": 514757,
+      "sha256": "38c13a824ce5222f6f2868cf3e555a0fc2019182aa4db40acdc4b166d2de1040",
+      "locale": "en",
+      "actions": [
+        "Loaded journal webpage",
+        "Take control",
+        "Scroll the journal",
+        "Open an article link",
+        "Read and scroll the article"
+      ]
+    }
+  ]
+}

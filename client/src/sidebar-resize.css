@@ -1,0 +1,16 @@
+.sidebar-resize-handle{display:none}
+@media(min-width:761px){
+  :is(.app-shell,.adhd-shell){--desktop-sidebar-default:272px}
+  :is(.app-shell,.adhd-shell)>.sidebar{position:relative;width:clamp(200px,var(--desktop-sidebar-width,var(--desktop-sidebar-default)),min(480px,calc(100% - 360px)))}
+  /* Keep the directory scrollable without a second bar beside the splitter. */
+  .sidebar :is(.host-directory,.conversation-list,.adhd-picker-list){scrollbar-width:none}
+  .sidebar :is(.host-directory,.conversation-list,.adhd-picker-list)::-webkit-scrollbar{display:none;width:0;height:0}
+  .sidebar-resize-handle{display:block;position:absolute;inset-block:0;right:-4px;width:8px;z-index:3;cursor:col-resize;touch-action:none;user-select:none;outline:none}
+  /* The containing sidebar has a 1px border. Paint at its outer edge, over
+     the conversation border, instead of leaving a second line 2px inside. */
+  .sidebar-resize-handle::before,.sidebar-resize-handle::after{content:"";position:absolute;inset-block:0;left:5px;width:1px;background:var(--border)}
+  .sidebar-resize-handle::after{background:var(--resize-divider-accent);opacity:0}
+  .sidebar-resize-handle:is(:hover,:focus-visible)::after,[data-sidebar-resizing=true] .sidebar-resize-handle::after{opacity:1}
+  [data-sidebar-resizing=true],[data-sidebar-resizing=true] *{cursor:col-resize!important;user-select:none!important;-webkit-user-select:none!important}
+}
+@media(min-width:1500px){:is(.app-shell,.adhd-shell){--desktop-sidebar-default:288px}}

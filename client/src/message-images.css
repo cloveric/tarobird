@@ -1,0 +1,97 @@
+/* User upload thumbnails remain compact; Bot output below preserves the full composition. */
+.attachment-image { min-width:0; max-width:100%; }
+.image-load-state { box-sizing:border-box; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; width:180px; max-width:100%; min-height:112px; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--surface-alt); color:var(--muted); font-size:12px; line-height:1.5; text-align:center; overflow-wrap:anywhere; }
+.image-grid .image-load-state { width:100%; }
+.image-load-state > svg { flex:none; opacity:.65; }
+.image-load-state > button { min-width:64px; min-height:44px; max-width:100%; padding:4px 12px; border:0; border-radius:8px; color:var(--accent); background:transparent; font:inherit; cursor:pointer; }
+.image-load-state > button:hover { background:var(--surface); }
+.attachment-image > .image-thumbnail { position:relative; overflow:hidden; border:0; background:var(--surface); }
+.image-thumbnail-loading { position:absolute; inset:0; display:grid; place-items:center; color:var(--muted); font-size:12px; font-weight:400; }
+/* Width/height attributes reserve the decoded ratio; CSS keeps the existing
+   intrinsic sizing and max-size constraints for compact user thumbnails. */
+.attachment-image > .image-thumbnail img { width:auto; height:auto; max-height:220px; }
+.attachment-image[data-long] { width:320px; }
+.attachment-image[data-long] > .image-thumbnail { width:100%; }
+.attachment-image[data-long] > .image-thumbnail img { width:100%; height:180px; object-fit:cover; object-position:top; }
+.attachment-image > figcaption { margin:5px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; font-weight:400; opacity:.7; }
+.long-image-label { position:absolute; right:8px; bottom:8px; max-width:calc(100% - 16px); padding:4px 8px; border-radius:20px; background:#17191ce6; color:#fff; font-size:11px; line-height:1.4; font-weight:500; pointer-events:none; }
+.image-grid { width:420px; max-width:100%; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.image-grid > .attachment-image { width:100%; }
+.image-grid .attachment-image > .image-thumbnail img { width:100%; height:150px; object-fit:cover; object-position:center; }
+.image-grid .attachment-image[data-long] > .image-thumbnail img { object-position:top; }
+.message.user .message-blocks:has(>.markdown) .attachment-image figcaption { color:var(--self-message-fg); }
+
+/* Sent photos are compact chat thumbnails; opening one still uses the original. */
+.message.user .attachment-image { width:fit-content; max-width:min(100%,180px); }
+.message.user .attachment-image > .image-thumbnail img { max-height:200px; }
+.message.user .attachment-image[data-long] { width:160px; }
+.message.user .attachment-image > figcaption { display:none; }
+.message.user .image-grid { width:280px; gap:6px; }
+.message.user .image-grid .attachment-image { width:100%; max-width:100%; }
+.message.user .image-grid .attachment-image > .image-thumbnail img { height:112px; }
+
+/* Bot output may mix poster formats in one batch. Bound the size, not the
+   aspect ratio; each thumbnail retains its full composition and original bytes. */
+.message.bot .attachment-image > .image-thumbnail { width:min(100%, calc(320px * var(--image-ratio, 1))); }
+.message.bot .attachment-image > .image-thumbnail img { width:100%; height:auto; max-height:none; object-fit:contain; }
+.message.bot .attachment-image[data-long] { width:auto; }
+.message.bot .attachment-image .long-image-label { display:none; }
+.message.bot .image-grid { align-items:start; }
+
+/* The photo owns the entire canvas. Controls overlay it without changing fit. */
+:root .image-preview-lightbox { display:block; position:fixed; top:var(--shell-top,0px); bottom:auto; width:100vw; height:var(--shell-height,100dvh); padding:0; margin:0; border:0; max-width:none; max-height:none; overflow:hidden; background:#101113; color:#f5f5f7; }
+.image-preview-lightbox::backdrop { background:#101113; }
+.image-preview-lightbox .image-preview-menu { --text:#f5f5f7; --muted:#b3b5bc; --raised:#25272b; --surface:#35383e; --surface-alt:#40434b; --border:#ffffff24; border:1px solid var(--border); max-height:calc(100dvh - 16px); overflow-y:auto; }
+.image-preview-menu>button { color:var(--text); background:transparent; }
+.image-preview-menu>button:hover:not(:disabled) { background:var(--surface); }
+.image-preview-menu>button:focus-visible { outline:2px solid #fff; outline-offset:-2px; }
+.image-preview-menu hr { height:1px; margin:4px 6px; border:0; background:var(--border); }
+.image-preview-scroll { position:absolute; inset:0; display:block; width:100%; height:100%; min-height:0; overflow:auto; overscroll-behavior:contain; touch-action:none; user-select:none; cursor:default; scrollbar-width:none; outline-offset:-3px; }
+.image-preview-scroll::-webkit-scrollbar { display:none; }
+.image-preview-scroll:focus { outline:none; }
+:root:not([data-focus-intent=pointer]) .image-preview-scroll:focus-visible { outline:1px solid #ffffffb3; outline-offset:-4px; }
+.image-preview-scroll[data-zoomed] { cursor:grab; }
+.image-preview-scroll[data-zoomed]:active { cursor:grabbing; }
+/* Keep the idle photo out of a permanent compositor layer: some Android
+   WebViews load the pixels but leave that layer black after opening a dialog. */
+.image-preview-canvas { display:flex; align-items:center; justify-content:center; min-width:100%; min-height:100%; transform:var(--image-drag-transform,none); }
+.image-preview-lightbox .image-preview-canvas>img { display:block; flex:none; max-width:none; max-height:none; object-fit:contain; -webkit-user-drag:none; }
+.image-preview-toolbar { position:absolute; z-index:2; top:0; left:0; right:0; min-width:0; padding:calc(var(--image-safe-top,var(--app-safe-top,0px)) + 6px) max(12px,var(--image-safe-right,var(--app-safe-right,0px))) 12px max(12px,var(--image-safe-left,var(--app-safe-left,0px))); background:linear-gradient(#08090bc9,#08090b70 65%,transparent); color:#f5f5f7; pointer-events:none; transition:opacity .15s,visibility .15s; }
+.image-preview-actions { display:flex; flex-wrap:nowrap; align-items:center; gap:8px; min-height:44px; }
+.image-preview-title { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 4px; font-size:13px; font-weight:500; color:#ececf0; text-shadow:0 1px 4px #0009; }
+.image-preview-title:focus { outline:none; }
+.image-preview-actions > button { display:flex; flex:none; align-items:center; justify-content:center; gap:6px; min-width:44px; min-height:44px; padding:8px 12px; border:1px solid #ffffff14; border-radius:24px; background:#202226c9; color:inherit; font-size:13px; pointer-events:auto; }
+:root .image-preview-actions > .lightbox-close { position:static; width:44px; height:44px; padding:0; margin:0; border:0; border-radius:10px; background:transparent; box-shadow:none; outline:none; }
+:root .image-preview-actions > .lightbox-close:hover { background:#ffffff14; }
+:root .image-preview-actions > .lightbox-close:active { background:#ffffff24; }
+:root .image-preview-actions > .lightbox-close:focus-visible { outline:1px solid #ffffffb3; outline-offset:-4px; }
+.image-preview-actions > button:hover:not(:disabled), .image-preview-controls button:hover:not(:disabled) { background:#ffffff30; color:#fff; }
+.image-preview-actions > button:focus-visible, .image-preview-controls button:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+.image-preview-actions > button:disabled { opacity:.45; }
+.image-export-status { width:fit-content; max-width:100%; margin:8px 0 0; max-height:5em; overflow:auto; padding:8px 12px; border-radius:12px; background:#202226ed; font-size:12px; line-height:1.5; overflow-wrap:anywhere; color:#edeef2; pointer-events:auto; }
+.image-export-status:has([role=alert]), .image-export-status[role=alert] { color:#ffb5ae; }
+.image-export-status .file-status { margin:0; padding:0; color:inherit; }
+.image-preview-controls { position:absolute; z-index:2; left:max(12px,var(--image-safe-left,var(--app-safe-left,0px))); right:max(12px,var(--image-safe-right,var(--app-safe-right,0px))); bottom:calc(var(--image-safe-bottom,var(--app-safe-bottom,0px)) + 12px); display:flex; align-items:center; justify-content:center; gap:12px; color:#f5f5f7; pointer-events:none; transition:opacity .15s,visibility .15s; }
+.image-preview-navigation, .image-preview-magnification { display:flex; align-items:center; gap:2px; padding:3px; border:1px solid #ffffff1c; border-radius:26px; background:#202226e8; box-shadow:0 4px 20px #0003; pointer-events:auto; }
+.image-preview-navigation>span { min-width:48px; text-align:center; font-size:12px; font-variant-numeric:tabular-nums; }
+.image-preview-magnification>span { min-width:44px; text-align:center; font-size:11px; font-variant-numeric:tabular-nums; color:#d4d6dd; }
+.image-preview-controls button { display:grid; place-items:center; flex:none; width:44px; height:44px; border:0; border-radius:50%; padding:0; background:transparent; color:inherit; }
+.image-preview-controls button:disabled { opacity:.3; }
+.image-preview-lightbox[data-controls=hidden]>.image-preview-toolbar, .image-preview-lightbox[data-controls=hidden]>.image-preview-controls { opacity:0; visibility:hidden; pointer-events:none; }
+.image-preview-assistive { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.image-preview-loading { position:absolute; inset:0; margin:0; padding:80px 24px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; color:#d4d6dd; font-size:13px; text-align:center; overflow-wrap:anywhere; pointer-events:none; }
+.image-preview-loading>button { min-width:80px; min-height:44px; padding:8px 16px; border:1px solid #ffffff30; border-radius:12px; background:#ffffff14; color:#f5f5f7; font:inherit; cursor:pointer; pointer-events:auto; }
+.image-preview-spinner { width:24px; height:24px; border:2px solid #ffffff30; border-top-color:#f5f5f7; border-radius:50%; animation:image-preview-spin .8s linear infinite; }
+@keyframes image-preview-spin { to { transform:rotate(360deg); } }
+@media(max-width:760px), (hover:none) and (pointer:coarse) {
+  .image-preview-toolbar { padding-left:max(8px,var(--image-safe-left,var(--app-safe-left,0px))); padding-right:max(8px,var(--image-safe-right,var(--app-safe-right,0px))); }
+  .image-preview-actions { gap:4px; }
+  .image-preview-actions > button { width:44px; height:44px; padding:0; }
+  .image-preview-actions > button > span { display:none; }
+  .image-preview-controls { gap:8px; left:max(8px,var(--image-safe-left,var(--app-safe-left,0px))); right:max(8px,var(--image-safe-right,var(--app-safe-right,0px))); }
+  .image-preview-controls .image-preview-zoom-out { display:none; }
+}
+@media(max-width:760px) {
+  .image-grid .attachment-image > .image-thumbnail img { height:130px; }
+  .image-grid .long-image-label { right:4px; bottom:6px; padding:3px 5px; max-width:calc(100% - 8px); font-size:10px; }
+}

@@ -1,0 +1,68 @@
+.browser-tools-menu{width:270px;max-height:calc(100vh - 20px);overflow:auto}
+.browser-tools-menu>button{min-height:34px;font-size:12px}
+.browser-tools-menu>button>kbd{font-size:10px}
+.browser-tools-menu .browser-zoom-row{display:flex;gap:2px;align-items:center;padding:5px 9px;font-size:12px}
+.browser-zoom-row>span{flex:1}.browser-zoom-row>button{min-width:28px;min-height:28px;padding:3px 6px;font-size:12px}
+.browser-tools-hint{padding:5px 9px;margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+.browser-find-bar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:5px;border-bottom:1px solid var(--border);flex-shrink:0;min-width:0}
+.browser-find-bar>input{flex:1 1 100px;min-width:60px;width:100px;padding:4px 6px;font-size:12px;height:28px}
+.browser-find-bar>button{flex:none;width:25px;min-height:28px;padding:3px;font-size:11px}
+.browser-find-bar>button[aria-pressed=true]{color:var(--accent);background:var(--accent-soft)}
+.browser-find-bar>span{font-size:10px;color:var(--muted);white-space:nowrap;margin-inline:2px}
+.browser-device-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:5px 7px;border-bottom:1px solid var(--border);font-size:11px;flex-shrink:0}
+.browser-device-bar>label{display:flex;align-items:center;gap:5px;min-width:140px;flex:1 1 140px;white-space:nowrap}.browser-device-bar select{max-width:150px;min-width:70px;flex:1;padding:3px;font-size:11px}
+.browser-device-bar>button{min-height:26px;padding:3px}.browser-device-bar>small{flex-basis:100%;font-size:10px;color:var(--muted)}
+.browser-tools-feedback{display:flex;align-items:flex-start;gap:6px;flex-shrink:0;margin:0;padding:5px 8px;color:var(--muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.browser-tools-feedback>span{flex:1}.browser-tools-feedback>button{flex:none;min-height:20px;padding:2px}.browser-tools-feedback.is-error{color:var(--danger,var(--red))}
+.browser-tools-dialog{width:min(480px,calc(100vw - 32px));max-height:85vh;overflow:auto}
+.browser-tools-dialog>header{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}.browser-tools-dialog>header h3{flex:1;margin:0;line-height:1.5}.browser-tools-dialog>header>button{padding:2px;min-height:24px;border:0}
+.browser-tools-dialog footer{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px}
+.browser-tools-dialog form label:not(.browser-checkbox){margin-block:12px;gap:6px}.browser-tools-dialog select{width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)}
+.browser-tools-dialog .browser-checkbox{display:flex;flex-direction:row;align-items:center;gap:8px;font-size:13px;line-height:1.5;margin-block:12px}
+.browser-tools-dialog .browser-checkbox>input{appearance:auto;accent-color:var(--accent);width:16px;height:16px;flex:none;margin:0;padding:0}
+.browser-tools-dialog small{color:var(--muted);font-size:11px;line-height:1.5}.browser-history-search{width:100%}
+.browser-tools-dialog .browser-tools-hint{padding-inline:0}.browser-tools-dialog ul{list-style:none;margin:0;padding:0}
+.browser-history-list>li,.browser-download-list>li{border-bottom:1px solid var(--border);padding-block:8px;min-width:0}
+.browser-history-list>li>button{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;width:100%;min-width:0;border:0;padding:5px 3px}
+.browser-history-list strong,.browser-history-list span{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;font-size:12px}
+.browser-history-list span,.browser-history-list time{font-size:11px;color:var(--muted)}.browser-download-list strong{display:block;font-size:12px;overflow-wrap:anywhere}.browser-download-list small{display:block;margin-top:4px}
+.browser-download-list footer{margin-top:7px}.browser-tools-dialog button.danger{color:var(--danger,var(--red))}
+
+.browser-tools-dialog fieldset{border:0;padding:0;margin:0;min-width:0}.browser-tools-dialog fieldset>label:not(.browser-checkbox){display:flex;flex-direction:column;font-size:13px}
+
+.browser-tools-dialog .browser-extensions{display:block;margin:0;font-size:13px;line-height:1.5;min-width:0}.browser-tools-dialog .browser-extension-store{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-block:16px 10px}
+.browser-tools-dialog .browser-extension-store label{display:flex;flex-direction:column;flex:1 1 230px;min-width:0;margin:0;gap:6px;font-size:12px}.browser-tools-dialog .browser-extension-store input{width:100%;min-width:0;font-size:12px}.browser-tools-dialog .browser-extension-store>button{flex:none}.browser-tools-dialog .browser-extension-local summary,.browser-tools-dialog .browser-extension-list summary{cursor:pointer;font-size:12px;color:var(--muted)}.browser-tools-dialog .browser-extensions-actions{display:flex;flex-wrap:wrap;gap:8px;margin-block:10px}.browser-tools-dialog .browser-extensions-actions>button{display:flex;align-items:center;gap:5px}.browser-tools-dialog .browser-extension-compat{margin-block:16px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg-soft,var(--bg))}.browser-tools-dialog .browser-extension-compat>.browser-checkbox{margin:0 0 4px}.browser-tools-dialog .browser-extension-compat>p{margin:4px 0;font-size:12px;color:var(--muted)}/* Extension cards keep identity, access and actions on separate aligned rows. */
+.browser-tools-dialog .browser-extension-list{display:grid;gap:12px}
+.browser-tools-dialog .browser-extension-list>li{border:1px solid var(--border);border-radius:10px;padding:14px;min-width:0;background:var(--bg)}
+.browser-tools-dialog .browser-extension-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin:0 0 14px;min-width:0}
+.browser-tools-dialog .browser-extension-identity{display:block;flex:1;min-width:0;margin:0}
+.browser-tools-dialog .browser-extension-identity>strong{display:block;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+.browser-tools-dialog .browser-extension-meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;justify-content:flex-start;margin:4px 0 0;font-size:11px;color:var(--muted)}
+.browser-tools-dialog .browser-extension-head>.browser-extension-toggle{flex:none;flex-direction:column;gap:3px;margin:0;font-size:11px;color:var(--muted);cursor:pointer;min-width:32px}
+:root .browser-tools-dialog .browser-extension-toggle>input[type=checkbox]{appearance:none;-webkit-appearance:none;display:block;position:relative;width:32px;height:18px;border:1px solid var(--border);border-radius:999px;background:var(--bg-soft,var(--bg));cursor:pointer;transition:background-color .15s}
+:root .browser-tools-dialog .browser-extension-toggle>input[type=checkbox]::before{content:"";position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--muted);mask:none;-webkit-mask:none;transform:translateX(0);transition:transform .15s}
+:root .browser-tools-dialog .browser-extension-toggle>input[type=checkbox]:checked{background:var(--mono-control-bg,var(--accent));border-color:var(--mono-control-bg,var(--accent))}
+:root .browser-tools-dialog .browser-extension-toggle>input[type=checkbox]:checked::before{transform:translateX(14px);background:var(--mono-control-ink,var(--on-primary,#fff))}
+:root .browser-tools-dialog .browser-extension-toggle>input[type=checkbox]:focus-visible{outline:2px solid var(--focus,var(--accent));outline-offset:3px}
+:root .browser-tools-dialog .browser-extension-toggle>input[type=checkbox]:disabled{opacity:.5;cursor:default}
+.browser-tools-dialog .browser-extension-scope{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px;margin:0;font-size:12px}
+.browser-tools-dialog .browser-extension-scope>span{color:var(--muted)}
+.browser-tools-dialog .browser-extension-scope>select{min-width:0;margin:0;min-height:34px;padding:6px 30px 6px 10px;font-size:12px;background-color:var(--bg)}
+.browser-tools-dialog .browser-extension-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:8px;margin:12px 0 0}
+.browser-tools-dialog .browser-extension-controls>button{display:inline-flex;justify-content:center;align-items:center;gap:5px;font-size:12px;min-height:32px;padding:5px 9px;white-space:normal}
+.browser-tools-dialog .browser-extension-controls>button>svg{flex:none}
+.browser-tools-dialog .browser-extension-controls>.browser-extension-remove{margin-left:auto}
+.browser-tools-dialog .browser-extension-list>li>.browser-tools-hint{font-size:11px;margin-top:5px;line-height:1.6}
+.browser-tools-dialog .browser-extension-details{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.browser-tools-dialog .browser-extension-list details>p{margin-block:7px}
+.browser-tools-dialog .browser-extension-list details details{margin-block:8px}
+.browser-tools-dialog .browser-extension-list details ul{color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+.browser-tools-dialog .browser-extension-features{font-size:12px;margin-block:8px}
+.browser-tools-dialog .browser-extension-features>div{display:grid;grid-template-columns:minmax(80px,1fr) minmax(0,2fr);gap:8px;margin-block:5px}
+.browser-tools-dialog .browser-extension-features dt{color:var(--muted)}
+.browser-tools-dialog .browser-extension-features dd{margin:0;overflow-wrap:anywhere}
+
+.browser-signin-notice{display:flex;align-items:flex-start;gap:8px;flex:none;margin:7px 8px;padding:9px 10px;border-radius:7px;background:var(--accent-soft);font-size:12px;line-height:1.5}
+.browser-signin-notice>div{flex:1;min-width:0}.browser-signin-notice strong{font-weight:500}.browser-signin-notice p{margin:3px 0 7px;color:var(--muted)}.browser-signin-notice button{display:inline-flex;align-items:center;gap:5px;min-height:26px;padding:3px 6px;font-size:12px}.browser-signin-notice>button{border:0;background:transparent;flex:none}
+
+.workbench-dialog.browser-tools-dialog{width:min(560px,calc(100vw - 32px));max-height:85vh;overflow:auto}

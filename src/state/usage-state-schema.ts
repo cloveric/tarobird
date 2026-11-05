@@ -1,0 +1,33 @@
+import { z } from "zod";
+
+function isCanonicalIsoTimestamp(value: string): boolean {
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+const UsageTimestampSchema = z.union([
+  z.literal(""),
+  z.string().refine(isCanonicalIsoTimestamp, "must be a canonical ISO-8601 timestamp"),
+]);
+
+export const UsageBucketSchema = z.object({
+  totalInputTokens: z.number().int().nonnegative(),
+  totalOutputTokens: z.number().int().nonnegative(),
+  totalCachedTokens: z.number().int().nonnegative(),
+  totalCostUsd: z.number().nonnegative(),
+  requestCount: z.number().int().nonnegative(),
+  unmeteredRequestCount: z.number().int().nonnegative().optional(),
+  lastUpdatedAt: UsageTimestampSchema,
+}).passthrough();
+
+export const UsageRecordSchema = z.object({
+  totalInputTokens: z.number().int().nonnegative(),
+  totalOutputTokens: z.number().int().nonnegative(),
+  totalCachedTokens: z.number().int().nonnegative(),
+  totalCostUsd: z.number().nonnegative(),
+  requestCount: z.number().int().nonnegative(),
+  unmeteredRequestCount: z.number().int().nonnegative().optional(),
+  lastUpdatedAt: UsageTimestampSchema,
+  daily: z.record(z.string(), UsageBucketSchema).optional(),
+  monthly: z.record(z.string(), UsageBucketSchema).optional(),
+}).passthrough();

@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>TaroBird screen sharing</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; -webkit-user-select: none; cursor: default; }
+  body { font: 12px -apple-system, "PingFang SC", sans-serif; }
+  .badge { display: flex; gap: 8px; align-items: center; height: 26px; padding: 0 12px; border-radius: 13px; background: rgba(192, 57, 43, 0.92); color: #fff; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; background: #fff; }
+  #label { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+  #clock { font-variant-numeric: tabular-nums; }
+</style>
+<div class="badge"><span class="dot"></span><span id="label"></span><span id="clock"></span></div>
+<script src="indicator.js"></script>

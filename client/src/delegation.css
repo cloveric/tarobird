@@ -1,0 +1,28 @@
+.delegation-dialog{width:min(620px,calc(100vw - 32px));max-width:620px;display:flex;flex-direction:column;overflow:hidden}
+.delegation-dialog:not([open]){display:none}
+.delegation-dialog>header,.delegation-dialog>.runtime-host-label{flex:none}
+.delegation-scroll{min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 2px 2px}
+.delegation-basics{display:grid;grid-template-columns:1fr 1fr;gap:12px}.delegation-basics label{min-width:0}
+.delegation-footer{flex:none;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;background:var(--bg)}
+.delegation-form .delegation-intro{margin:4px 0 18px;color:var(--muted);font-size:13px}
+.delegation-form .delegation-description{margin:-8px 0 16px;color:var(--muted)}
+.delegation-members{margin:18px 0;padding:0;border:0;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.delegation-members legend{font-weight:600;margin-bottom:8px}
+.delegation-form label.delegation-member{flex-direction:row;align-items:center;gap:10px;margin:0;padding:10px;border:1px solid var(--border);border-radius:10px;min-width:0}
+.delegation-member:has(input:checked){background:var(--surface);border-color:var(--accent)}
+.delegation-member input{flex:none}.delegation-member>span{min-width:0}.delegation-member strong{display:block;overflow-wrap:anywhere;font-size:13px}.delegation-member small{display:block;color:var(--muted);font-size:11px}
+.delegation-order{padding:0;margin:10px 0 16px;list-style:none}.delegation-order li{display:flex;align-items:center;gap:6px;padding:5px 0}.delegation-order li>span{flex:1;min-width:0;overflow-wrap:anywhere}.delegation-order button{display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--border);border-radius:8px}
+.delegation-route{margin:14px 0}.delegation-route p{margin:6px 0}.delegation-route small{color:var(--muted);font-size:11px}
+.delegation-notice{padding:12px 14px;background:var(--surface);border-radius:10px;margin:14px 0;font-size:12px;line-height:1.65}.delegation-notice ul{margin:5px 0 0;padding-left:18px}
+.delegation-empty{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:20px 16px;background:var(--surface);border-radius:12px;margin:16px 0}.delegation-empty p{margin:0;color:var(--muted)}.delegation-empty button{min-height:36px;padding:6px 12px;border:1px solid var(--border);border-radius:8px}
+.delegation-setup{padding:16px;border:1px solid var(--border);border-radius:12px;margin:12px 0}.delegation-setup .quick-actions{gap:8px}.delegation-setup button{min-height:38px;padding:8px 12px;border-radius:8px;border:1px solid var(--border)}
+.delegation-setup .quick-actions .primary{background:var(--primary-bg);border-color:var(--primary-bg);color:var(--on-primary)}
+.delegation-setup .quick-actions .primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover);color:var(--on-primary)}
+.delegation-steps{padding:0;list-style:none;font-size:12px}.delegation-steps li{display:flex;gap:6px;align-items:center;padding:4px 0}.delegation-steps small{margin-left:auto;color:var(--muted)}
+.delegation-tools{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.delegation-tools button{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;min-height:36px}
+.delegation-form .delegation-receipt{color:var(--muted)}.delegation-form .delegation-footer{margin-top:16px}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+ .delegation-dialog::backdrop{background:var(--bg)}
+ :root dialog.delegation-dialog{top:var(--shell-top,0px);left:var(--app-safe-left,0px);right:auto;bottom:auto;width:calc(100% - var(--app-safe-left,0px) - var(--app-safe-right,0px));max-width:none;height:var(--shell-height,100dvh);max-height:none;margin:0;border:0;border-radius:0;box-shadow:none;padding:calc(16px + var(--app-safe-top,0px)) 16px calc(16px + var(--app-safe-bottom,0px));animation:none}
+ .delegation-scroll{flex:1;padding-bottom:12px}.delegation-dialog>header{margin-bottom:8px}.delegation-form textarea{resize:none}.delegation-order button,.delegation-tools button{min-height:44px;min-width:44px}.delegation-members{grid-template-columns:1fr}.delegation-basics{grid-template-columns:1fr;gap:0}.delegation-member{min-height:56px}
+}

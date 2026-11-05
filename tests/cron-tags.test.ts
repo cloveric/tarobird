@@ -1,0 +1,299 @@
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { removeTempRoot } from "./helpers/temp-files.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { CronScheduler } from "../src/runtime/cron-scheduler.js";
+import { CronStore } from "../src/state/cron-store.js";
+import { extractCronAddTagMatches, processCronAddTags, stripCronAddTags } from "../src/core/shared/cron-tags.js";
+
+async function withCronRuntime<T>(fn: (ctx: { stateDir: string; store: CronStore; scheduler: CronScheduler }) => Promise<T>): Promise<T> {
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-cron-tags-"));
+  const store = new CronStore(stateDir);
+  const scheduler = new CronScheduler({
+    store,
+    executor: vi.fn(),
+    stateDir,
+    logger: { error: vi.fn(), warn: vi.fn() },
+  });
+  await scheduler.start();
+  try {
+    return await fn({ stateDir, store, scheduler });
+  } finally {
+    await scheduler.stop();
+    await removeTempRoot(stateDir);
+  }
+}
+
+describe("cron-add fallback tags", () => {
+  it("ignores tags inside markdown code", () => {
+    const text = [
+      "Example:",
+      "```",
+      '[cron-add:{"in":"10m","prompt":"inside"}]',
+      "```",
+      '[cron-add:{"in":"10m","prompt":"outside"}]',
+    ].join("\n");
+
+    const matches = extractCronAddTagMatches(text);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.payload).toContain("outside");
+  });
+
+  it("ignores tags inside tilde fenced markdown code", () => {
+    const text = [
+      "Example:",
+      "~~~",
+      '[cron-add:{"in":"10m","prompt":"inside"}]',
+      "~~~",
+      '[cron-add:{"in":"10m","prompt":"outside"}]',
+    ].join("\n");
+
+    const matches = extractCronAddTagMatches(text);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]!.payload).toContain("outside");
+  });
+
+  it("does not let payload chat ids override the current Telegram context", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T05:00:00.000Z"));
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        await processCronAddTags({
+          text: '[cron-add:{"in":"10m","prompt":"check","chatId":999,"userId":999}]',
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          chatType: "private",
+          locale: "en",
+        });
+
+        const jobs = await store.list();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]).toEqual(expect.objectContaining({
+          chatId: 123,
+          userId: 456,
+          prompt: "check",
+          sessionMode: "new_per_run",
+          targetAt: "2026-04-29T05:10:00.000Z",
+        }));
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects payloads that specify more than one schedule mode", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const text = await processCronAddTags({
+        text: '[cron-add:{"in":"10m","cron":"0 9 * * *","prompt":"check"}]',
+        cronRuntime: { store, scheduler },
+        stateDir,
+        chatId: 123,
+        userId: 456,
+        locale: "en",
+      });
+
+      expect(await store.list()).toHaveLength(0);
+      expect(text).toContain("Failed to add scheduled task");
+      expect(text).not.toContain("[cron-add:");
+    });
+  });
+
+  it("processes multiple tags in one response", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T05:00:00.000Z"));
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        const text = await processCronAddTags({
+          text: [
+            "Scheduled:",
+            '[cron-add:{"in":"10m","prompt":"first"}]',
+            '[cron-add:{"cron":"0 9 * * 1","prompt":"weekly","description":"Weekly summary"}]',
+          ].join("\n"),
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        });
+
+        const jobs = await store.list();
+        expect(jobs).toHaveLength(2);
+        expect(jobs.map((job) => job.prompt).sort()).toEqual(["first", "weekly"]);
+        expect(text).not.toContain("[cron-add:");
+        expect(text.match(/Scheduled task added/g)).toHaveLength(2);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves explicit reuse session mode when requested", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const text = await processCronAddTags({
+        text: '[cron-add:{"cron":"0 9 * * *","prompt":"continue this thread","sessionMode":"reuse"}]',
+        cronRuntime: { store, scheduler },
+        stateDir,
+        chatId: 123,
+        userId: 456,
+        locale: "en",
+      });
+
+      const jobs = await store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.sessionMode).toBe("reuse");
+      expect(text).not.toContain("[cron-add:");
+    });
+  });
+
+  it("rejects missing prompts without creating a job", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const text = await processCronAddTags({
+        text: '[cron-add:{"in":"10m"}]',
+        cronRuntime: { store, scheduler },
+        stateDir,
+        chatId: 123,
+        userId: 456,
+        locale: "en",
+      });
+
+      expect(await store.list()).toHaveLength(0);
+      expect(text).toContain("Invalid tool payload");
+      expect(text).toContain("missing required field: prompt");
+      expect(text).not.toContain("[cron-add:");
+    });
+  });
+
+  it("renders invalid absolute times as friendly guidance", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const text = await processCronAddTags({
+        text: '已设置\n[cron-add:{"at":"午后","prompt":"看盘"}]',
+        cronRuntime: { store, scheduler },
+        stateDir,
+        chatId: 123,
+        userId: 456,
+        locale: "zh",
+      });
+
+      expect(await store.list()).toHaveLength(0);
+      expect(text).toContain("提醒时间格式无效");
+      expect(text).toContain("at 必须使用 ISO 日期时间");
+      expect(text).not.toContain("invalid at timestamp");
+      expect(text).not.toContain("已设置");
+      expect(text).not.toContain("[cron-add:");
+    });
+  });
+
+  it("leaves text unchanged when there are no cron-add tags", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const text = "nothing to schedule";
+      await expect(processCronAddTags({
+        text,
+        cronRuntime: { store, scheduler },
+        stateDir,
+        chatId: 123,
+        userId: 456,
+        locale: "en",
+      })).resolves.toBe(text);
+    });
+  });
+
+  it("preserves backticks inside JSON payload strings", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T05:00:00.000Z"));
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        const text = await processCronAddTags({
+          text: '[cron-add:{"in":"10m","prompt":"check `x`"}]',
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        });
+
+        const jobs = await store.list();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]!.prompt).toBe("check `x`");
+        expect(text).not.toContain("[cron-add:");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("preserves closing brackets inside JSON payload strings", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T05:00:00.000Z"));
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        const text = await processCronAddTags({
+          text: '[cron-add:{"in":"10m","prompt":"check ] bracket"}]',
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        });
+
+        const jobs = await store.list();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]!.prompt).toBe("check ] bracket");
+        expect(text).not.toContain("[cron-add:");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves a non-zero-padded offset-less at in the job timezone, not host TZ", async () => {
+    // Finding 8: "2026-6-13 9:00" (non-padded month/day/hour) must be interpreted in
+    // the job timezone, not silently fall through to host-TZ new Date() parsing.
+    // 09:00 Asia/Shanghai (UTC+8) == 01:00 UTC. We set a non-Shanghai host TZ so the
+    // old host-TZ fallback would produce a clearly different instant.
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        await processCronAddTags({
+          text: '[cron-add:{"at":"2026-6-13 9:00","timezone":"Asia/Shanghai","prompt":"看盘"}]',
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "zh",
+        });
+
+        const jobs = await store.list();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]).toEqual(expect.objectContaining({
+          prompt: "看盘",
+          timezone: "Asia/Shanghai",
+          targetAt: "2026-06-13T01:00:00.000Z",
+        }));
+      });
+    } finally {
+      vi.useRealTimers();
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+    }
+  });
+});
+
+it("does not execute or remove quoted cron instructions beside a real tag", () => {
+  const quoted = '> quoted `example` [cron-add:{"in":"10m","prompt":"quoted"}]';
+  const nested = '  > > [cron-add:{"in":"10m","prompt":"nested"}]';
+  const text = [quoted, nested, '[cron-add:{"in":"10m","prompt":"real `payload`"}]'].join("\n");
+  const matches = extractCronAddTagMatches(text);
+  expect(matches).toHaveLength(1); expect(matches[0]!.payload).toContain("real");
+  expect(stripCronAddTags(text)).toBe([quoted, nested].join("\n"));
+});

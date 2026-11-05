@@ -1,0 +1,71 @@
+/* New Bot sheet (NewBot.tsx). Every rule is scoped to the .bot-setup dialog.
+   Layout and hierarchy only: colours come from the active palette's tokens,
+   so light/dark/system modes and the Monochrome accent apply unchanged.
+   The phone form remains the single scroller (conversation-creation.css);
+   no sticky footer, because keyboard reveal scrolls a field to the
+   scroller's bottom edge and would hide the last field behind it. */
+
+/* Host caption: a quiet chip under the title rather than a loose line. */
+.bot-setup>.runtime-host-label{width:fit-content;max-width:100%;padding:2px 9px;border-radius:999px;background:var(--surface);color:var(--muted);font-size:12px;line-height:18px}
+
+.bot-setup .new-bot-lead{margin:0 0 20px;font-size:13px;line-height:1.55;color:var(--muted)}
+.bot-setup .bot-fields{min-width:0}
+
+/* Groups: name, model setup, role and permissions. A small caption with a
+   hairline separates them; fields keep the palette's filled inputs. */
+.bot-setup .new-bot-block{min-width:0;margin:0}
+.bot-setup .new-bot-block+.new-bot-block{margin-top:26px}
+.bot-setup .new-bot-block>*+*{margin-top:14px}
+.bot-setup .new-bot-block>label+.new-bot-hint{margin-top:6px}
+.bot-setup .new-bot-heading{display:flex;align-items:center;gap:10px;margin:0;font-size:12px;font-weight:600;line-height:1.4;letter-spacing:.02em;color:var(--label,var(--muted))}
+.bot-setup .new-bot-heading::after{content:"";flex:1;height:1px;background:var(--border)}
+.bot-setup .new-bot-block>.new-bot-heading+*{margin-top:12px}
+
+.bot-setup .bot-fields :is(.new-bot-block,.new-bot-pair,.permission-select)>label,.bot-setup .bot-fields>details>label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px;font-weight:500;line-height:1.4;color:var(--text)}
+.bot-setup .bot-fields :is(.new-bot-block,.new-bot-pair,.permission-select)>label :is(input,select),.bot-setup .bot-fields>details>label input{width:100%;min-width:0;font-weight:400}
+
+/* Model and effort share a row when the sheet is wide enough (desktop). */
+.bot-setup .new-bot-pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:14px 12px}
+
+.bot-setup .new-bot-hint,.bot-setup .permission-select>p{font-size:12px;line-height:1.55;color:var(--muted);overflow-wrap:anywhere}
+.bot-setup .new-bot-cli{display:flex;align-items:flex-start;gap:6px}
+.bot-setup .new-bot-cli>svg{flex:none;margin-top:2px;color:var(--label,var(--muted))}
+.bot-setup .new-bot-block>.dashboard-notice{margin-bottom:0}
+
+/* Chancellor: one bordered option, short by default; details follow the tick. */
+.bot-setup .new-bot-role{padding:2px 12px 12px;border:1px solid var(--border);border-radius:12px;transition:background-color var(--t-fast,.12s) var(--ease,ease),border-color var(--t-fast,.12s) var(--ease,ease)}
+.bot-setup .new-bot-role[data-checked]{border-color:var(--border-strong);background:color-mix(in srgb,var(--surface) 45%,var(--bg))}
+.bot-setup .new-bot-role>.dispatcher-role-row{min-height:40px}
+.bot-setup .new-bot-role>.dispatcher-role-row>.collaboration-check{margin:0;min-height:36px;font-size:14px;font-weight:500;cursor:pointer}
+/* Align secondary copy with the label text (16px box + 8px gap). */
+.bot-setup .new-bot-role>:not(.dispatcher-role-row){margin-left:24px}
+.bot-setup .new-bot-role-details>*{margin-top:8px}
+.bot-setup .new-bot-role summary{margin-top:0;min-height:32px;width:fit-content;font-size:13px}
+
+/* PermissionSelect keeps its own note and default line; tighten them under the field. */
+.bot-setup .permission-select>p{margin-top:6px}
+.bot-setup .permission-select>p+p{margin-top:2px}
+.bot-setup .permission-select>p:empty{display:none}
+
+.bot-setup .bot-fields>details{margin-top:22px}
+.bot-setup .bot-fields>details>summary{margin-top:0;min-height:36px;width:fit-content;font-size:13px}
+.bot-setup .bot-fields>details>label{margin-top:8px}
+.bot-setup .bot-fields>details>.new-bot-hint{margin-top:6px}
+
+/* Action area: loading and submit errors sit right above the button;
+   catalog failures lead the form instead. */
+.bot-setup .new-bot-footer{display:flex;flex-direction:column;gap:10px;margin-top:24px}
+.bot-setup .new-bot-footer>.new-bot-submit{margin:0;min-height:44px;border-radius:var(--radius-lg,10px);font-weight:600}
+.bot-setup .new-bot-status{display:flex;align-items:center;gap:6px;font-size:12px;line-height:1.5;color:var(--muted)}
+.bot-setup .new-bot-status>svg{flex:none}
+.bot-setup .new-bot-alert{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0;padding:10px 12px;border-radius:var(--radius-lg,10px);background:var(--red-soft,var(--surface));font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.bot-setup .new-bot-alert>p{flex:1 1 180px;min-width:0}
+.bot-setup .new-bot-alert>button{flex:none;min-height:32px;padding:4px 12px;border:1px solid color-mix(in srgb,currentColor 35%,transparent);border-radius:var(--radius-sm,6px);background:var(--bg);color:inherit;font-size:13px}
+.bot-setup .new-bot-catalog{margin:0 0 18px}
+.bot-setup .new-bot-alert.is-warning{background:var(--orange-soft,var(--surface));color:var(--text)}
+
+@media (max-width:360px){
+  .bot-setup .new-bot-role{padding-inline:10px}
+  .bot-setup .new-bot-role>:not(.dispatcher-role-row){margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){.bot-setup .new-bot-role{transition:none}}

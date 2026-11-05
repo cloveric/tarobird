@@ -1,0 +1,62 @@
+export type AccessPolicy = "pairing" | "allowlist";
+
+export interface PairedUser {
+  telegramUserId: number;
+  telegramChatId: number;
+  pairedAt: string;
+}
+
+export interface PendingPair {
+  code: string;
+  telegramUserId: number;
+  telegramChatId: number;
+  expiresAt: string;
+}
+
+export interface AccessState {
+  multiChat: boolean;
+  policy: AccessPolicy;
+  pairedUsers: PairedUser[];
+  allowlist: number[];
+  pendingPairs: PendingPair[];
+}
+
+export interface AppConfig {
+  instanceName: string;
+  telegramBotToken: string;
+  stateDir: string;
+  inboxDir: string;
+  accessStatePath: string;
+  sessionStatePath: string;
+  runtimeLogPath: string;
+  codexExecutable: string;
+  deepseekExecutable: string;
+  deepseekHome: string;
+  kimiExecutable: string;
+  antigravityExecutable: string;
+}
+
+export interface SuspendedConversationState {
+  sessionId: string | null;
+  resume: {
+    sessionId: string;
+    dirName: string;
+    workspacePath: string;
+    symlinkPath?: string;
+  } | null;
+}
+
+export interface SessionRecord {
+  telegramChatId: number;
+  telegramThreadId?: number;
+  conversationKey?: string;
+  codexSessionId: string;
+  status: "idle" | "running" | "queued" | "blocked";
+  updatedAt: string;
+  resume?: SuspendedConversationState["resume"];
+  suspendedPrevious?: SuspendedConversationState;
+}
+
+export interface SessionState {
+  chats: SessionRecord[];
+}

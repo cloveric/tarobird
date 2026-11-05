@@ -1,0 +1,47 @@
+[
+  {
+    "artifact": "com.squareup.okhttp3:okhttp-jvm:5.5.0",
+    "sha256": "234194a04aac54858df0a750d243af7b2e39df5e4eb86e9912043ad33a9f9a52",
+    "source": "https://repo.maven.apache.org/maven2/com/squareup/okhttp3/okhttp-jvm/5.5.0/okhttp-jvm-5.5.0.jar"
+  },
+  {
+    "artifact": "com.squareup.okio:okio-jvm:3.18.1",
+    "sha256": "b97b640557a650d15411f2be29aef558c4e422a83653cb18ba494311dbed18be",
+    "source": "https://repo.maven.apache.org/maven2/com/squareup/okio/okio-jvm/3.18.1/okio-jvm-3.18.1.jar"
+  },
+  {
+    "artifact": "org.jetbrains.kotlin:kotlin-stdlib:2.1.21",
+    "sha256": "263bdc679e1f62012db7b091796279b6d71cf36f4797a98ff1ace05835f201c8",
+    "source": "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.1.21/kotlin-stdlib-2.1.21.jar"
+  },
+  {
+    "artifact": "org.jetbrains:annotations:23.0.0",
+    "sha256": "7b0f19724082cbfcbc66e5abea2b9bc92cf08a1ea11e191933ed43801eb3cd05",
+    "source": "https://repo.maven.apache.org/maven2/org/jetbrains/annotations/23.0.0/annotations-23.0.0.jar"
+  },
+  {
+    "artifact": "org.bouncycastle:bcprov-jdk15to18:1.86",
+    "sha256": "fc50334d4d87b4272e72fa95ca748ead05bdef02ef760a5b13f64ffee317cd81",
+    "source": "https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk15to18/1.86/bcprov-jdk15to18-1.86.jar"
+  },
+  {
+    "artifact": "org.json:json:20240303",
+    "sha256": "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed",
+    "source": "https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar"
+  },
+  {
+    "artifact": "org.java-websocket:Java-WebSocket:1.6.0",
+    "source": "https://repo.maven.apache.org/maven2/org/java-websocket/Java-WebSocket/1.6.0/Java-WebSocket-1.6.0.jar",
+    "sha256": "eae29213e4f16515639c28957200f011b3967fffcada1962cf0255d24919c22f"
+  },
+  {
+    "artifact": "org.slf4j:slf4j-api:2.0.16",
+    "source": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/2.0.16/slf4j-api-2.0.16.jar",
+    "sha256": "a12578dde1ba00bd9b816d388a0b879928d00bab3c83c240f7013bf4196c579a"
+  },
+  {
+    "artifact": "org.slf4j:slf4j-nop:2.0.16",
+    "source": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-nop/2.0.16/slf4j-nop-2.0.16.jar",
+    "sha256": "deca6c04ed35515a0a911fa44c0e836bee92c0c59d2e8fa9bab8ffbc464a9ba7"
+  }
+]

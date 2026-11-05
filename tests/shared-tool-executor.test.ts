@@ -1,0 +1,618 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { removeTempRoot } from "./helpers/temp-files.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { CronScheduler } from "../src/runtime/cron-scheduler.js";
+import { CronStore } from "../src/state/cron-store.js";
+import { executeCronAddTool } from "../src/tools/cron-add-tool.js";
+import { executeCoreTool } from "../src/tools/tool-executor.js";
+import { defaultCoreToolRegistry, CoreToolRegistry } from "../src/tools/tool-registry.js";
+import { extractCoreToolTagMatches } from "../src/core/shared/tool-tags.js";
+
+async function withCronRuntime<T>(fn: (ctx: { stateDir: string; store: CronStore; scheduler: CronScheduler }) => Promise<T>): Promise<T> {
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-telegram-tools-"));
+  const store = new CronStore(stateDir);
+  const scheduler = new CronScheduler({
+    store,
+    executor: vi.fn(),
+    stateDir,
+    logger: { error: vi.fn(), warn: vi.fn() },
+  });
+  await scheduler.start();
+  try {
+    return await fn({ stateDir, store, scheduler });
+  } finally {
+    await scheduler.stop();
+    await removeTempRoot(stateDir);
+  }
+}
+
+describe("executeTelegramTool", () => {
+  it("exposes registered tool definitions through the default registry", () => {
+    const tools = defaultCoreToolRegistry.list();
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "send.file",
+      "send.image",
+      "send.batch",
+      "cron.add",
+      "cron.list",
+      "cron.remove",
+      "cron.toggle",
+      "cron.run",
+    ]);
+    expect(tools.find((tool) => tool.name === "cron.add")?.inputSchema).toMatchObject({
+      type: "object",
+      required: ["prompt"],
+      additionalProperties: false,
+    });
+    expect(tools.find((tool) => tool.name === "send.file")?.inputSchema).toMatchObject({
+      type: "object",
+      required: ["path"],
+      additionalProperties: false,
+    });
+  });
+
+  it("executes cron.add through the shared tool layer", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T05:00:00.000Z"));
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        const result = await executeCoreTool({
+          name: "cron.add",
+          payload: { in: "10m", prompt: "check email", chatId: 999 },
+          context: {
+            cronRuntime: { store, scheduler },
+            stateDir,
+            chatId: 123,
+            userId: 456,
+            chatType: "private",
+            locale: "en",
+          },
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.message).toContain("Scheduled task added");
+        const jobs = await store.list();
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]).toEqual(expect.objectContaining({
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+          prompt: "check email",
+          sessionMode: "new_per_run",
+          deliveryMode: "notify",
+          targetAt: "2026-04-29T05:10:00.000Z",
+        }));
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("interprets an offset-less at time in the job timezone, not the host timezone", async () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        const result = await executeCronAddTool(
+          { at: "2030-01-15T09:00:00", timezone: "Asia/Shanghai", prompt: "morning brief" },
+          {
+            cronRuntime: { store, scheduler },
+            stateDir,
+            chatId: 123,
+            userId: 456,
+            chatType: "private",
+            locale: "en",
+          },
+        );
+
+        expect(result.ok).toBe(true);
+        const jobs = await store.list();
+        expect(jobs).toHaveLength(1);
+        // 09:00 Shanghai wall clock = 01:00 UTC; the old host-TZ parse would give 14:00 UTC.
+        expect(jobs[0]?.targetAt).toBe("2030-01-15T01:00:00.000Z");
+        expect(jobs[0]?.timezone).toBe("Asia/Shanghai");
+      });
+    } finally {
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+    }
+  });
+
+  it("keeps explicit-offset at times anchored to their own offset", async () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        const result = await executeCronAddTool(
+          { at: "2030-01-15T09:00:00+08:00", timezone: "America/New_York", prompt: "offset wins" },
+          {
+            cronRuntime: { store, scheduler },
+            stateDir,
+            chatId: 123,
+            userId: 456,
+            chatType: "private",
+            locale: "en",
+          },
+        );
+
+        expect(result.ok).toBe(true);
+        const jobs = await store.list();
+        expect(jobs[0]?.targetAt).toBe("2030-01-15T01:00:00.000Z");
+      });
+    } finally {
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+    }
+  });
+
+  it("falls back to the instance cron timezone for an offset-less at without a job timezone", async () => {
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+        await writeFile(
+          path.join(stateDir, "config.json"),
+          JSON.stringify({ timezone: "Asia/Shanghai" }),
+          "utf8",
+        );
+
+        const result = await executeCronAddTool(
+          { at: "2030-06-15T09:00:00", prompt: "instance tz" },
+          {
+            cronRuntime: { store, scheduler },
+            stateDir,
+            chatId: 123,
+            userId: 456,
+            chatType: "private",
+            locale: "en",
+          },
+        );
+
+        expect(result.ok).toBe(true);
+        const jobs = await store.list();
+        expect(jobs[0]?.targetAt).toBe("2030-06-15T01:00:00.000Z");
+      });
+    } finally {
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+    }
+  });
+
+  it("still rejects impossible offset-less at component values", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const result = await executeCronAddTool(
+        { at: "2030-13-01T09:00:00", timezone: "Asia/Shanghai", prompt: "bad month" },
+        {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          chatType: "private",
+          locale: "en",
+        },
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("invalid at timestamp");
+    });
+  });
+
+  it("renders direct cron.add execution errors as friendly reminder guidance", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const result = await executeCronAddTool(
+        { at: "afternoon", prompt: "check market" },
+        {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          chatType: "private",
+          locale: "en",
+        },
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("Invalid reminder time");
+      expect(result.message).toContain("at must be an ISO date-time");
+      expect(result.message).not.toContain("invalid at timestamp");
+      expect(await store.list()).toHaveLength(0);
+    });
+  });
+
+  it("returns a structured error for unknown tools", async () => {
+    const result = await executeCoreTool({
+      name: "missing.tool",
+      payload: {},
+      context: {
+        cronRuntime: null,
+        stateDir: os.tmpdir(),
+        chatId: 123,
+        userId: 456,
+        locale: "en",
+      },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      status: "rejected",
+      message: "✗ Tool failed: unknown tool missing.tool",
+      error: "unknown tool missing.tool",
+    });
+  });
+
+  it("lists only current-chat cron jobs", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine" });
+      await store.add({ chatId: 999, userId: 456, cronExpr: "0 10 * * *", prompt: "theirs" });
+
+      const result = await executeCoreTool({
+        name: "cron.list",
+        payload: {},
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain("mine");
+      expect(result.message).not.toContain("theirs");
+    });
+  });
+
+  it("shows cron failure lifecycle state in cron.list", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine", maxFailures: 3 });
+      await store.recordRun(mine.id, { success: false, error: "boom", ranAt: "2026-04-29T05:00:00.000Z" });
+
+      const result = await executeCoreTool({
+        name: "cron.list",
+        payload: {},
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain("failures: 1/3");
+      expect(result.message).toContain("recent: 2026-04-29T05:00:00.000Z failed: boom");
+    });
+  });
+
+  it("removes current-chat cron jobs and refreshes the scheduler", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const refresh = vi.spyOn(scheduler, "refresh");
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine" });
+
+      const result = await executeCoreTool({
+        name: "cron.remove",
+        payload: { id: mine.id },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(await store.get(mine.id)).toBeNull();
+      expect(refresh).toHaveBeenCalled();
+    });
+  });
+
+  it("refuses cron.run for a disabled job instead of falsely reporting success (regression #16)", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const runNow = vi.spyOn(scheduler, "runJobNow");
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine" });
+      const disabled = await store.toggleEnabled(mine.id);
+      expect(disabled?.enabled).toBe(false);
+
+      const result = await executeCoreTool({
+        name: "cron.run",
+        payload: { id: mine.id },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      // The /cron run command path already guards a disabled job; the tool path used
+      // to fire-and-forget runJobNow (which no-ops) and still report success. It must
+      // now refuse and never call runJobNow.
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/disabled/i);
+      expect(runNow).not.toHaveBeenCalled();
+    });
+  });
+
+  it("runs an enabled job through cron.run", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const runNow = vi.spyOn(scheduler, "runJobNow").mockResolvedValue();
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine" });
+
+      const result = await executeCoreTool({
+        name: "cron.run",
+        payload: { id: mine.id },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(runNow).toHaveBeenCalledWith(mine.id);
+    });
+  });
+
+  it("removes current-chat cron jobs by unique query without requiring the user to know the id", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const refresh = vi.spyOn(scheduler, "refresh");
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "*/10 * * * *", prompt: "看生益科技" });
+      await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "morning summary" });
+      await store.add({ chatId: 999, userId: 456, cronExpr: "*/10 * * * *", prompt: "看生益科技" });
+
+      const result = await executeCoreTool({
+        name: "cron.remove",
+        payload: { query: "生益科技" },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "zh",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain(mine.id);
+      expect(await store.get(mine.id)).toBeNull();
+      expect(refresh).toHaveBeenCalled();
+    });
+  });
+
+  it("refuses query-based cron removal when more than one current-chat task matches", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const first = await store.add({ chatId: 123, userId: 456, cronExpr: "*/10 * * * *", prompt: "看生益科技价格" });
+      const second = await store.add({ chatId: 123, userId: 456, cronExpr: "*/30 * * * *", prompt: "看生益科技新闻" });
+
+      const result = await executeCoreTool({
+        name: "cron.remove",
+        payload: { query: "生益科技" },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "zh",
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("匹配到多个任务");
+      expect(result.message).toContain(first.id);
+      expect(result.message).toContain(second.id);
+      expect(await store.get(first.id)).not.toBeNull();
+      expect(await store.get(second.id)).not.toBeNull();
+    });
+  });
+
+  it("refuses to remove another chat's cron job", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const theirs = await store.add({ chatId: 999, userId: 456, cronExpr: "0 9 * * *", prompt: "theirs" });
+
+      const result = await executeCoreTool({
+        name: "cron.remove",
+        payload: { id: theirs.id },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toContain("Task not found");
+      expect(await store.get(theirs.id)).not.toBeNull();
+    });
+  });
+
+  it("toggles current-chat cron jobs", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine" });
+
+      const result = await executeCoreTool({
+        name: "cron.toggle",
+        payload: { id: mine.id },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain("disabled");
+      expect((await store.get(mine.id))?.enabled).toBe(false);
+    });
+  });
+
+  it("toggles current-chat cron jobs by unique query", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "*/10 * * * *", prompt: "看生益科技" });
+
+      const result = await executeCoreTool({
+        name: "cron.toggle",
+        payload: { query: "生益科技" },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "zh",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain(mine.id);
+      expect((await store.get(mine.id))?.enabled).toBe(false);
+    });
+  });
+
+  it("runs current-chat cron jobs on demand", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const runJobNow = vi.spyOn(scheduler, "runJobNow").mockResolvedValueOnce(undefined);
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine" });
+
+      const result = await executeCoreTool({
+        name: "cron.run",
+        payload: { id: mine.id },
+        context: {
+          cronRuntime: { store, scheduler },
+          stateDir,
+          chatId: 123,
+          userId: 456,
+          locale: "en",
+        },
+      });
+
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain("triggered");
+      expect(runJobNow).toHaveBeenCalledWith(mine.id);
+    });
+  });
+
+  it("returns from cron.run before a queued execution completes", async () => {
+    await withCronRuntime(async ({ stateDir, store, scheduler }) => {
+      const runJobNow = vi.spyOn(scheduler, "runJobNow").mockImplementationOnce(() => new Promise(() => {}));
+      const mine = await store.add({ chatId: 123, userId: 456, cronExpr: "0 9 * * *", prompt: "mine" });
+
+      const result = await Promise.race([
+        executeCoreTool({
+          name: "cron.run",
+          payload: { id: mine.id },
+          context: {
+            cronRuntime: { store, scheduler },
+            stateDir,
+            chatId: 123,
+            userId: 456,
+            locale: "en",
+          },
+        }),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 2_000)),
+      ]);
+
+      expect(result).not.toBe("timeout");
+      expect(runJobNow).toHaveBeenCalledWith(mine.id);
+    });
+  });
+
+  it("can execute a custom tool through an explicit registry", async () => {
+    const registry = new CoreToolRegistry();
+    registry.register({
+      name: "test.echo",
+      description: "Echoes a test payload.",
+      execute: async (payload) => ({
+        ok: true,
+        message: `echo:${String(payload)}`,
+      }),
+    });
+
+    await expect(executeCoreTool({
+      name: "test.echo",
+      payload: "hello",
+      context: {
+        cronRuntime: null,
+        stateDir: os.tmpdir(),
+        chatId: 123,
+        userId: 456,
+        locale: "en",
+      },
+    }, registry)).resolves.toEqual({
+      ok: true,
+      message: "echo:hello",
+    });
+  });
+
+  it("enforces string schema constraints before executing a tool", async () => {
+    const execute = vi.fn().mockResolvedValue({ ok: true, message: "ok" });
+    const registry = new CoreToolRegistry();
+    registry.register({
+      name: "test.schema",
+      description: "Validates a strict schema.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          code: { type: "string", pattern: "^[A-Z]{3}$" },
+          when: { type: "string", format: "date-time" },
+          label: { type: "string", maxLength: 4 },
+        },
+        required: ["code", "when"],
+        additionalProperties: false,
+      },
+      execute,
+    });
+
+    const result = await executeCoreTool({
+      name: "test.schema",
+      payload: { code: "abc", when: "not-a-date", label: "toolong" },
+      context: {
+        cronRuntime: null,
+        stateDir: os.tmpdir(),
+        chatId: 123,
+        userId: 456,
+        locale: "en",
+      },
+    }, registry);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("code");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate tool registrations", () => {
+    const registry = new CoreToolRegistry();
+    registry.register({
+      name: "test.echo",
+      description: "Echoes a test payload.",
+      execute: async () => ({ ok: true, message: "ok" }),
+    });
+
+    expect(() => registry.register({
+      name: "test.echo",
+      description: "Duplicate.",
+      execute: async () => ({ ok: true, message: "duplicate" }),
+    })).toThrow("tool already registered: test.echo");
+  });
+});

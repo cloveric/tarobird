@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-31",
+  "baseCommit": "48318df0235ed1b621ee5ce1f6435df7104e9570",
+  "sourceSha256": {
+    "client/src/AdhdBoard.tsx": "a52482b301ae967f54fc43d998bd8ca215b706b897170c7df2f5cf627f6a7164",
+    "client/src/App.tsx": "5319b871a12fa9687f9286af8d61f982a967d8c4c22df0dc42ae7755c9d6dec0",
+    "client/src/HostApp.tsx": "7393565cbf63ca86fc7f3509d8a4c210cb015f3f8ca164cd1bd4f07f23adba84",
+    "client/src/Workbench.tsx": "64299de323a52086d717557c8d607f0d862017cb427ca072737f3d624c1e5e62",
+    "client/src/workbench-browser.ts": "c81d316e24ca79d2ff33fdd268a60a7e358bcf61aec7b2ad46168feff3f0b6d8",
+    "client/src/workbench.css": "1560fd978715c9771b81ec4bf15afebc7bb0011df7f1538cbb32910e7bfefd44",
+    "client/e2e/workbench-adhd.spec.ts": "8b5f175650ae809a9293e54d9eaf76153e152fe8bafd190953dadf57e332b256"
+  },
+  "build": "translations + tsc + Vite passed",
+  "browser": {
+    "chromiumAdhd": 2,
+    "webkitAdhd": 2,
+    "ordinaryRegressionsChromium": 3,
+    "ordinaryRegressionsWebKit": 3,
+    "nativeBridge": "simulated for browser cases"
+  },
+  "electron": {
+    "passed": true,
+    "productionTouched": false,
+    "before": {
+      "x": 680,
+      "y": 246,
+      "width": 1440,
+      "height": 960
+    },
+    "visible": [
+      {
+        "id": 2,
+        "visible": true,
+        "bounds": {
+          "x": 1034,
+          "y": 192,
+          "width": 387,
+          "height": 725
+        },
+        "url": "http://workbench.test:61205/"
+      }
+    ],
+    "webpageContent": "阅读与整理",
+    "draftPreserved": true,
+    "retainedWebContentsId": true,
+    "webFormPreserved": true,
+    "busOverlayHidden": true,
+    "shortWindowFits": true,
+    "errors": []
+  },
+  "opus": "Opus 5.5 independent design and diff review; Bus occlusion and duplicate IDs fixed; address-focus follow-up suggestion incorporated",
+  "released": false,
+  "installed": false,
+  "notVerified": [
+    "Windows native run",
+    "physical mobile devices"
+  ],
+  "artifacts": {
+    "screenshot": "adhd-browser-native.png",
+    "sha256": "c83eb0c0ab0b94dcedd05b732e254eb8028e1b7c4b5e92fdfd455a6215f235dd"
+  }
+}

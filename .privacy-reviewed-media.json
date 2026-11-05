@@ -1,0 +1,3295 @@
+{
+  "format": 1,
+  "entries": [
+    {
+      "path": "assets/bot-avatar-sources/animals-1.jpeg",
+      "sha256": "1e05a35d7ec72781c12467cbc5d6b105b70287f2743a735f9b877670a3f2bb1d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-avatar-sources/animals-2.jpeg",
+      "sha256": "5d63aff9341f901e5049e5ee6a6eb5764d342fa5c299ad0e5a6498b9c383d6bf",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-avatar-sources/animals-3.jpeg",
+      "sha256": "cf2ed27c4faf8c845dfcc787e3e235e668e5402fef55ae1804c10d935f7e1f67",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-avatar-sources/animals-4.jpeg",
+      "sha256": "ee17efa3310b8f995fe70cabb5d34e24758f31e2d1838b80ca95f5cd113e3c1d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-avatar-sources/animals-5.jpeg",
+      "sha256": "2c929217502b030a508b683480a2b5497e1ef21a040b8519f45a5c66c6618b17",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-avatar-sources/animals-6.jpeg",
+      "sha256": "340dd78225cb8fcb756c15bf1321534ae5b317edcb396192dad1b0ae2e21f4ad",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-avatar-sources/animals-7.jpeg",
+      "sha256": "3ebc1958c6f60eb1657140e7cf03fc3e36d53a919f26a88afa9dfbc4b33c0826",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-1.png",
+      "sha256": "002f199de4cefa858ebf329fece953cb35bb11e67e217c4fecfd5fc8117fa05b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-10.png",
+      "sha256": "39f0a179ee1ec2b2958d61d3d231055290f80313f934c28d08ca6884fa9c803c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-11.png",
+      "sha256": "660f6dffad03a8e755cfbc41eddb0398c3bd96f53ee5fdfa13580bec0c1942ca",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-12.png",
+      "sha256": "01ee329c650d5c14aa3511586f169a60885fc9376b341062f474021f8f020e29",
+      "reviewer": "claude",
+      "method": "visual-review",
+      "note": "Transparent cutout of original-12.png by scripts/cutout-flat-background.py (reproduces byte-for-byte); mascot artwork only, no metadata chunks."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-2.png",
+      "sha256": "fcadb9d21d38386056d18694501ea774fb6885c68b6917ee763613d17cd52735",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-3.png",
+      "sha256": "102883097152221522c2f8188eaf13138977d42a6a8982ce3e68c39579871e45",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-4.png",
+      "sha256": "2b6ac95f37957164f8eedbcdbc19cf4a6e82f86ccb56ea17591c7be84f94415e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-5.png",
+      "sha256": "4c4cadecdc33cc10dd6b347d4645f82dca29d429589d69888d8a11362fc3cfa1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-6.png",
+      "sha256": "6c483aeaac704d316dcc470c1904e2705be71b02ddf32599b0b184cf05b56864",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-7.png",
+      "sha256": "40bd5c83ba3cae09c365f80d129d75c1e7553a1d868f663c124ef45335aa53d5",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-8.png",
+      "sha256": "a87c1c386692c12c59ca0d6e3c8a4757d10ecacb6c0b12d8dfdb5c630ef2644b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/cutouts-9.png",
+      "sha256": "6776d63971ddce62e843cdb10273b4456c1e5cfdc250d665dfba2f92cc6e4a94",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-1.jpg",
+      "sha256": "d978d9fb70b8fc6b10dfec0786d284dc1f0c854ca76fe9e2ec5827a0ed8351b9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-10.png",
+      "sha256": "f8b351264fd9d204015f28f46939b09277a7fc7ae42730120ab00fced56b0c54",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-11.png",
+      "sha256": "6c7712889e004d31598874643b04d338517eaf458e9f4644b8377eefa3dc15f5",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-12.png",
+      "sha256": "3431f1f9f5e8bfadc64ef2ac57837b6087b8f0c1b72488ff4ac9f882b9a2c397",
+      "reviewer": "claude",
+      "method": "visual-review",
+      "note": "GPT Image phoenix mascot on flat gray; no text, UI or capture. PNG holds only an OpenAI C2PA caBX provenance chunk (generator, timestamps, signing certs); no personal data seen."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-2.jpg",
+      "sha256": "6150fae1b651e72a87e9dea06565161fbc51aa70d200a6b2efa4bc06a9ae95d4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-3.jpg",
+      "sha256": "a8e3197385b37814a16345b375087b977b5044f9d50c7183ca631b8c00dd6f7a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-4.jpg",
+      "sha256": "060d6bd4a8a658886611d14dba0c089710b496d3f33740df875c6fcabf0ee621",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-5.png",
+      "sha256": "8d4df6d36e7a066468ce236181342fcef4597423f7fd903832a2bd94049f61f0",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-6.png",
+      "sha256": "76a47fe5c38088fdecdccaa5c7f6ab76e4e1a04cc1d6818e3e3c14444c7b2ad6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-7.png",
+      "sha256": "54eaaf5f22f875ecdef28a41557a2f3bf26301d6d7b075648b37783a7bf7e01b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-8.png",
+      "sha256": "51197cd6ff388cee4ac544de1b22d1888f89b78383bbefb20af3118c3d30801a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/bot-mascot-sources/original-9.png",
+      "sha256": "49339e58f9b0465cc5d94e9da1839eefe41f2983665ce09720606d0317027876",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/brand/alternates/phoenix-lean.png",
+      "sha256": "52ec63cbeecf41b63740d8cfb571869a295766984faf3147cb8651c22872626c",
+      "reviewer": "claude",
+      "method": "visual-review",
+      "note": "Previously reviewed phoenix artwork with only the lower tail flame recoloured light purple; viewed in full and zoomed; no text, UI or capture; PNG has only IHDR/IDAT/IEND."
+    },
+    {
+      "path": "assets/brand/android-foreground.svg",
+      "sha256": "746b096e507dd35b0daec0b206c11c2a11c0f5baadecf3ccb56a8e3f5e6b8e12",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "assets/brand/app-icon.svg",
+      "sha256": "34535e64fd97530ff153e114824618ba85a7821a1baf0fd2be7a0ce235a397d7",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "SVG wrapper source inspected; only geometry and local references to hash-reviewed brand artwork. No private metadata."
+    },
+    {
+      "path": "assets/brand/fox-monochrome.svg",
+      "sha256": "5e5173ca64d33cf99740ad129ac83939b008067d8c12d06dde8d395cc38f173b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "SVG source and rendered brand/model logo review; local artwork references checked, no private data or external resource references."
+    },
+    {
+      "path": "assets/brand/launcher-art.png",
+      "sha256": "52ec63cbeecf41b63740d8cfb571869a295766984faf3147cb8651c22872626c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Owner-selected archived phoenix artwork visually reviewed and pixel-matched to the supplied reference; PNG metadata checked; no text, accounts or private UI."
+    },
+    {
+      "path": "assets/brand/macos.svg",
+      "sha256": "8475f609b6a22591f1b9652139773af039b4a041de21d814a46acf2f7f0cdd5c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "SVG wrapper source inspected; only geometry and local references to hash-reviewed brand artwork. No private metadata."
+    },
+    {
+      "path": "assets/brand/phoenix-art.png",
+      "sha256": "4104e4234ca12a7b2a01f9414c60f1b94ea64a15f97e5472feffad36dec16f2a",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "assets/brand/phoenix-cutout.svg",
+      "sha256": "938e9274bf8b53ba1fb72e88b2dc43c3b90f35f773afb5707bae29ab71a5fbcf",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "assets/brand/tarobot-master.png",
+      "sha256": "d24c9d1218e1604e078fee2d12aa63ce1665e84c3dc39e4170dfff3c83909476",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "assets/brand/tarobot-tray-master.png",
+      "sha256": "9a33605e77b4d1b7a5a177488ac74ce8f23d1bcd845eafdf7f7c7547ae258714",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "assets/brand/tarobot-windows-master.png",
+      "sha256": "98ff12184edec9c89ee7c07b3b2d0e80fa83bf6532ec54db71c23c3396288388",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "assets/brand/tray-macos.svg",
+      "sha256": "9771b7e065521b05bd9e77298d4ecc1f312638439dfe4d3df33749f5be1bdaf3",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "assets/brand/windows.svg",
+      "sha256": "36aebead93fee7a1f497ba8e4b895a063c87081f52e166cb7dbeb93d9f404df8",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "SVG wrapper source inspected; only geometry and local references to hash-reviewed brand artwork. No private metadata."
+    },
+    {
+      "path": "assets/github-banner-art.png",
+      "sha256": "e6983755f32db1a65d9f7f73c4d6dcbf408d2c3fb3062b616018aab1e6e38a95",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of source artwork and metadata inspection; illustration assets only, no private account or device data."
+    },
+    {
+      "path": "assets/github-banner.png",
+      "sha256": "0f70686def8227a4ea4283c399b5bca085418fe98cafc2fe09414536da171dd8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visually reviewed phoenix artwork and product text only; no personal device, account, conversation or location data."
+    },
+    {
+      "path": "assets/github-banner.svg",
+      "sha256": "0644b43e5bcddd90c9a4c15f27756924312b66a51033ad4ec88f9d3ee4600dde",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "assets/product/adhd-demo-en.gif",
+      "sha256": "de87370ea71ddbdb92195230cfa453856c6a652e084632e0626a4df806e1fd61",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/adhd-demo-zh.gif",
+      "sha256": "27cf4e517c19b79c0676e19fd86915b5e3d9d3d0ad9e6860a2f94dd55f66cd4c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/adhd-en.png",
+      "sha256": "9a3c0398de1e5d888aaa75ef61677275a4090ff6237eb3a3fda394b48bb4ff33",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Individually inspected rendered UI with fictional demo data; English/Chinese OCR and PNG metadata checked. No personal device/account/chat data or pairing secrets. Development-source illustration only."
+    },
+    {
+      "path": "assets/product/adhd-workspace-en.png",
+      "sha256": "5ec6c5ab3f305e6c1c68bef424a1be9b7936438f7af066263d73076e16baf301",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/adhd-workspace-zh.png",
+      "sha256": "4a22967eb1ec630fc4070f67d2e05a28019e68836caa75dd31812b28ce1ce224",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/adhd-zh.png",
+      "sha256": "0c99f37e473e823d10b89625b4ac7672e0d7cd0bdba09980172d1f47959bc594",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Individually inspected rendered UI with fictional demo data; English/Chinese OCR and PNG metadata checked. No personal device/account/chat data or pairing secrets. Development-source illustration only."
+    },
+    {
+      "path": "assets/product/agent-bus-demo-en.gif",
+      "sha256": "9dc6db4db3be6556c1e4b364938e6a0d7d97b4bbd9dabfeaf69220f7b67dd979",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/agent-bus-demo-zh.gif",
+      "sha256": "fdd38856d6cdef9f436788c9957b97e93234237469387200c04a5c8aafbf9e71",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/agent-bus-en.png",
+      "sha256": "858c1234f11dd161fcecde9d352f3f9fc9df2092f7f2668d933a76e61ccb4af3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Individually inspected rendered UI with fictional demo data; English/Chinese OCR and PNG metadata checked. No personal device/account/chat data or pairing secrets. Development-source illustration only."
+    },
+    {
+      "path": "assets/product/agent-bus-setup-en.png",
+      "sha256": "9af63dd08f24f991648273b87a33d054f59b068535c98389e854f968b0b6c0e9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/agent-bus-setup-zh.png",
+      "sha256": "79dbf4ff587e5f12b0a93853cb57e9d194615a0df5c12ee65135862846b422b2",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/agent-bus-workspace-en.png",
+      "sha256": "768d12a5ba085420a32dd3bc9089b55bc0bfa74b2df3ccdb6a1578f9af6f80d8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/agent-bus-workspace-zh.png",
+      "sha256": "a0531b0ef114371f1f61291087432d19864d433969b4da6e10fae630d392a325",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/agent-bus-zh.png",
+      "sha256": "3546f7788d04b071afa4afa3ac85ed7dee4b155cd20bf942c1ea0f3623f73ab8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Individually inspected rendered UI with fictional demo data; English/Chinese OCR and PNG metadata checked. No personal device/account/chat data or pairing secrets. Development-source illustration only."
+    },
+    {
+      "path": "assets/product/approval-demo-en.gif",
+      "sha256": "48bafd309cf033a80ef140c86e087703d346d4b3039d1b6f04a89964b3933c6f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/approval-demo-zh.gif",
+      "sha256": "718e11f1fdb865dc8f4d8cca3bef34199e3ddaf0e849df7187cb609293ae167d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/browser-demo-en.gif",
+      "sha256": "38c13a824ce5222f6f2868cf3e555a0fc2019182aa4db40acdc4b166d2de1040",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/browser-demo-zh.gif",
+      "sha256": "435e083b55e7283848e98cee2f8a661db03a7e6aaf5b827826773354a3140ccf",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/canvas-demo-en.gif",
+      "sha256": "b7631ad737b0c94115a01aab97dec0ad89cf8cbe48fffb99e894d1b089fc10b9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/canvas-demo-zh.gif",
+      "sha256": "8b41d37d6cdae82cbc60e53a6141b1f2d50b123402a778a6a41d999eda629d66",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/chancellor-demo-en.gif",
+      "sha256": "ab3ab1dba2fe1051bbcfd13cd153a0d750ebfd69d6c7d28a5149aa8c46af8efb",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/chancellor-demo-zh.gif",
+      "sha256": "b7d132c5169f585a64409f38ada8bf0f7a6fc844afc16bac9e9c238bed46a647",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/chancellor-en.png",
+      "sha256": "5270a5c835fbf9a3ef3f6f7fc1b8d292f624b13d096e8ddf3d54cb62286dcc8a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/chancellor-workspace-en.png",
+      "sha256": "f975c2a2fe65bb8b45c797fb27c10116ba547809c35d321ffe9c660805ebb1cd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/chancellor-workspace-zh.png",
+      "sha256": "169009b4fbf232494f4ed361553041d8281bd50962b9a63a09c49a81ca515df4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/chancellor-zh.png",
+      "sha256": "719a556994320c928942648d009a1c0d393a77c21768775eb26f345b16a227c8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/cli-en.png",
+      "sha256": "377030a4f641b51c7e6ae4961d23863f252e78353ac3d1a612b56130f328fc40",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/cli-zh.png",
+      "sha256": "61487329a6b00b4d0cec94f491a3aa26fa26d3208570461159d2d4c5a5d0a4b3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/demo-en.gif",
+      "sha256": "96633b156df3520de975fc332c76edc4946a53893cc42e6ace807fae3756841c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/demo-zh.gif",
+      "sha256": "dca0bf049b0c30cd1ff0ef5e6b3304276209dde240a91e60e6273c146c5d0fdf",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/desktop-en.png",
+      "sha256": "979e54856e02560409cd3346c17bb7a9736679c7f5fd27da15b6ca4c3af87aea",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/desktop-zh.png",
+      "sha256": "018a34744c889d236d7a608eacfde09ac3db8cfbbb160406223f11cea8a2871a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/engines.png",
+      "sha256": "47dff7f83c2c737fc11ac9bf5b019a07a61a536fd6a766a1aad4a9b0e39ea7a7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-changes-en.png",
+      "sha256": "b5699774883249995a80412d9a81d8fbc8ab76216bdc28f0dae1854d508d31f8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-changes-zh.png",
+      "sha256": "b62fd2d8cb334f44961e678e237cf75095d4475df10cb0228c9293ea241d3862",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-group-modes-en.png",
+      "sha256": "4d1b207db13190ce3f9e619c9b6ba16f403f2a8a768bda609449278d098914c1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-group-modes-zh.png",
+      "sha256": "c40c014c34fd9185e9a22264f2ab268d5b0047ba47113d023aa335859f66f7b7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-groups-en.png",
+      "sha256": "cfe96f47377ae58a3201b1729fb1ff00aaf6c0b3f5060b73afc6f8a62334bfcb",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-groups-zh.png",
+      "sha256": "55f25a20d7f56c514f5aa1d03b3d2a78e68061ad8241ebde69facd432c5a2922",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-visual-en.png",
+      "sha256": "43c927dcb71d76cf09396f7e5b478f52afcd0dabf56acc443aebf3d2c76fa291",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-visual-zh.png",
+      "sha256": "c6dea16c63b8f4f9eb869ef7c45b64f2cbad936db042c50b615e062eb0f8829f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-voice-en.png",
+      "sha256": "68efd9a045ff855e470d46123d380d03c36afec41d955d550d0b07fb151f4db1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/feature-voice-zh.png",
+      "sha256": "da9b8cdaeb5af2ed962d71a6993a519b08b7a648dc77d1dd71e2027ddcfb4d8f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/features-en.png",
+      "sha256": "4804a8b94d56c65db1169641ab3137a004aa8c3f6bb8434db6194522d9bf6a48",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/features-zh.png",
+      "sha256": "b70fe4fd5feeff8fddb61169e193b0b9bccd29afc9e76d078099e8d222f8e1e7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/folders-en.png",
+      "sha256": "1e845b4e524d4244b7d0c41ab4de80598be71e6c0ad1cdbd04d91a996eb56b13",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/folders-zh.png",
+      "sha256": "04b9c200edaad963793ab2dadd3dc2d4928bb3eaa37d11b459e648badd524663",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/fonts/BricolageGrotesque-Bold.ttf",
+      "sha256": "a737b146fe0d77ffe8a86e3cd16700dd431d3b1e420d4fd80e142cd68a1cb50d",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "assets/product/fonts/IBMPlexMono-Regular.ttf",
+      "sha256": "ab08018ccd276b79fb2c636bb95b9c543598f9d50505fe92506fcb4dae7810cd",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "assets/product/fonts/InstrumentSans-Regular.ttf",
+      "sha256": "a22cb26e48fd79bcb01bf2fc92d36785474dce36d9c544ab0a8868c2657c4a87",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "assets/product/inbox-demo-en.gif",
+      "sha256": "ea5a759e07c486b55ce0d7aa4de95b376582b78699ec54e614ae296c33cab338",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/inbox-demo-zh.gif",
+      "sha256": "3140ec91ee7e490131d5b347998a2f3c383558aee3a2b55102cbb1ded23cc702",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/list-options-en.png",
+      "sha256": "3ccfb3e92f37d32c68dd2a8725b92c7b41d48452f40e85ff76b7f37a06756765",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/list-options-zh.png",
+      "sha256": "58acb779da7939b67e49f18140b45f8db645810c9d86da1c4455041e6e3775b2",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mobile-chat-en.png",
+      "sha256": "94e3281a9a76912f78aac009f2477b6b46ca62493b3604c7fc1cddaadaac0a9d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mobile-chat-zh.png",
+      "sha256": "8084bf3ec995f92760188c51f032c81a4a247116319b8b8365558c982eb2ab80",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mobile-en.png",
+      "sha256": "d4ee8b0efa2934f0f6e204b2f9ed35aad41184385e77b0e6aa7b05f7811e3601",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mobile-zh.png",
+      "sha256": "0996bebe93457680671dab141872489d575252cb12ec1881bcd2870a22e121dd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mono-dark-en.png",
+      "sha256": "0ad1264704af9d0636691acf954c54d834f7cb028cc0b315df29402c08b54356",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mono-dark-zh.png",
+      "sha256": "02db65e7d85624b0cb39b79e3337c1230bc1260ec372c04b13c6bcc81c4ac361",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mono-light-en.png",
+      "sha256": "1e845b4e524d4244b7d0c41ab4de80598be71e6c0ad1cdbd04d91a996eb56b13",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/mono-light-zh.png",
+      "sha256": "04b9c200edaad963793ab2dadd3dc2d4928bb3eaa37d11b459e648badd524663",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/phone-pair-en.png",
+      "sha256": "8e08c52faac99a6ada53fe0b67469179c8ea9f0db9b1ffce471a76cdbe23974b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/phone-pair-zh.png",
+      "sha256": "3fc1fde2561650b2077c3a511d15fc0c2d552c9e1b21215c1cd94d78eb948f32",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/pixel-en.png",
+      "sha256": "0e2ffe7074eb9e9d73388da71d3964414cfc936a837d458727dc8a2bde80bea6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/pixel-zh.png",
+      "sha256": "5a92c87fe0d0d0ef6108de34ea6038024c1d2199a66de4c9e24f29dc70b1df29",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact product demonstration image; OCR and known-owner-marker checks passed. Demonstration UI text only."
+    },
+    {
+      "path": "assets/product/remote-screen-en.png",
+      "sha256": "f25703e51b791e408dc01a9854fe6b480dc6f2f4152cedc0bbf8b8c7e296134b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/remote-screen-workspace-en.png",
+      "sha256": "ac15ca9536b06957125963dec8b72e3bd5fdb603157c706299d8bd6a6b304b92",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/remote-screen-workspace-zh.png",
+      "sha256": "8a50ac65927c6b449e579910aec1a70c91eed8f0b4f4eaecbdbfbfb41dd659ce",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/remote-screen-zh.png",
+      "sha256": "c09556ade352955037941bbedfaa0a3c0c8a6e3f47ff2e20a654523742c3127e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/screen-demo-en.gif",
+      "sha256": "6f633872099b00cde147951eb64b0ddfed5e23baf11037c23e9694a1aa2d6954",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/screen-demo-zh.gif",
+      "sha256": "5c91d5e8e0cfd62a9330fe74bfea353fe65474a9db8859135895fa3aecdd3c90",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/themes-en.png",
+      "sha256": "362063e3c70ad12be4a7957f3b0ab69a863802f51d1f6cb52674cec5f87c477e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/themes-zh.png",
+      "sha256": "89c418ab5e57e5d7d88a612ced6017d9e3b340d26282ce51ea6b8dc79a9e6392",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/workbench-browser-en.png",
+      "sha256": "80945c70d42d4ca3501fa667fe97692598b3e688b02584517c3876b009030d45",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-browser-framed-en.png",
+      "sha256": "cdbcfe57eff4aad49f71269d6531c1b1d0825d3ea0dc56d7f7b292cf5cc3cd19",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-browser-framed-zh.png",
+      "sha256": "4fd3046f84d27a575ae3a8bdfbc3b76c9a2835ff4122ae81482ff8ad696848d6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-browser-zh.png",
+      "sha256": "5a910a4c12d9bcd8b4572517655ae788f1aa99d8028777f21ae29ac7e4317043",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-canvas-en.png",
+      "sha256": "fc3d61b00f38e5a3ada510d2afcc256e79a89c2e4934be88af5eb7a4d01df10f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-canvas-framed-en.png",
+      "sha256": "3c62b1fb7eb623a17259479d010e19517b0bdb85d1fe44cba2412e1dcc4a5428",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-canvas-framed-zh.png",
+      "sha256": "f9219ed268771f62725f0d115859bdef4143b95a2b7d8927296a3db3fe2ac25b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-canvas-zh.png",
+      "sha256": "e7cb89efdcab0f328c6b5c979a8784abf5b434741453856e81fe120f2bb3a83f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-demo-en.gif",
+      "sha256": "e056ac0a4f65517cc35b593a20337841e64f72b5a42adbd8cb7c60401513cf08",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/workbench-demo-zh.gif",
+      "sha256": "2d921452b3b70fac00782c7ae334d387c7902fb52741b01feba09264684ef2cf",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/workbench-notes-en.png",
+      "sha256": "0236aa134dfa7dd2358fdd165fc71e9aef0cd620c7f00c06ad4c2030c3f8abf3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-notes-framed-en.png",
+      "sha256": "2d7335ac9c94f0be4db7f0cf99007c19e291afd228abcc67b271e14c449a90a1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-notes-framed-zh.png",
+      "sha256": "bc0f31c614c101cdac9ab3ce74f13ba0f141429cf9a2b44aee052f28bfa74496",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-notes-zh.png",
+      "sha256": "6fde9a64cc47afbca695874f4210c736a109a4f9ca63fa22fa201f82c3b5d32b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-ppt-en.png",
+      "sha256": "486bcf7e80f51f48efc19b07683e4a9f454cb0a7eafee88e7aef1cf806d1475d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/workbench-ppt-zh.png",
+      "sha256": "3287b2a1b1d3772eb59ac0e399165f6c0e7d5ef4f5ee9d357946341177512ebe",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/workbench-side-en.png",
+      "sha256": "3e7e932467689dbd507bd37529ec6bdcc45304e222a085179b66051ff608d253",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-side-framed-en.png",
+      "sha256": "bb12d548f5b6f8a8493f7f6ca91baf3b4dc6d9afbb51be22311005fa83d1ae92",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-side-framed-zh.png",
+      "sha256": "2a268e584747929b9e666a5a8c76e428d18b469d640145baed6ba71e583e2f0b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-side-zh.png",
+      "sha256": "2fbe1f4352b8b2f7ce6334a0c23dfac3b9a2c2d486fa675af1eb28e6a701ebe5",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-tools-demo-en.gif",
+      "sha256": "c8ecfeb4c2371cf3d558ff650247cf4c43bfe5417f92209a06152beaa68ddae2",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-tools-demo-zh.gif",
+      "sha256": "b13127dd38c9e197ddb44067b714bb9810b8c478e959c47ee55fddb66b9f1f66",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-whiteboard-en.png",
+      "sha256": "73ac1e23ea07da055323871ed61ff9f27df578283062b7401d2623c8e777ca4d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-whiteboard-framed-en.png",
+      "sha256": "4658e318674089a06fa086b81dd24345c0418b46ff384309e3cf3e7ecd3174fd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-whiteboard-framed-zh.png",
+      "sha256": "54de6b1511c7fee60e5b0a4b33a1a92114587bb46380ef15bae4935497595a23",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workbench-whiteboard-zh.png",
+      "sha256": "2a767783305b254125775fed1ba6e7660177a1de2acd257a87208a417602b0c8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product stills and recorded UI motion, sampled frames, OCR and metadata. No personal accounts, conversations, device identities or private paths observed; fixture browser site and screen data are synthetic."
+    },
+    {
+      "path": "assets/product/workspace-en.png",
+      "sha256": "1c20bc2a842a0d363ba31ae7f1e91073255f4bdfac1a62389123bfb1c5f83236",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/product/workspace-zh.png",
+      "sha256": "9d5c79ce205848dc9487e13e4be086d3044001ee19a95d88d2117a3886e740ba",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/tarobot-cover-zh.png",
+      "sha256": "1b6b4ef9896a1ecbb603b01381932e84a09df0887e96cba731cb34627a58498e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "assets/tarobot-cover.png",
+      "sha256": "ca83fd97f30fd1a937b9b796a09608c8ed854b001830bac38d01f9ccf89a9e57",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Reviewed synthetic product UI and documentation framing, sampled animation frames, OCR and metadata. Fictional conversations, local demo site and simulated screen/ticket states; no personal account, device, chat, path or credential data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+      "sha256": "f4f4891a89d2c6eafcd6935c1cdb95f1fb4f84dbfc969f17fc4cfc47fb26cb50",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png",
+      "sha256": "5f0f87816d5da0666647f8731d6b63fd1ca062cd038e07bcfe2ef2ebc1bded3d",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png",
+      "sha256": "a8cb126c6b4a676ddd2e23c947a9cf87c4690e449e915e266ac6527b29db471c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+      "sha256": "a58b215b7c4a9f7a871e56d4cc76a96e9af2740c1f6857e6f4cd0f6497a4e074",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png",
+      "sha256": "dffdfbef45da762e0e97a8e020e57e4b68dd67d66076e484c51597ac8470286a",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png",
+      "sha256": "06fc9e6a4c05a65635214ce0c8a87f7dab4ac677531ac7031fa844b465244098",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+      "sha256": "b9f51476f69ab582397067484ae0ca9b53dbcd9e3123affeec7f4070d58682d7",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png",
+      "sha256": "51035a4af7ff0baecd87aa313e8f5418d4175308c9d9dd0aa2f1f2c5811da48c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png",
+      "sha256": "2f4cd940136367510b61177c99eb1207554cee56b658dafa6a3c8414d1c9947d",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+      "sha256": "a074021e2dc9a5fdd1d76311c6cc5412c02dd77d5a7ee9456dbf821ab2f7ccd1",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+      "sha256": "74a89880f60e70d5cde9093710ed25d2bff50a870e1c199b5f2ca4eab4eedd67",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png",
+      "sha256": "9357090c84f7fe77341104ece3b64f8b8d1f9afbd8b6f4de083f8891c0f38169",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+      "sha256": "ec33e59bad80708ba5da3ec114c10d808b7e0384875cc45efc4edbdcf46db583",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+      "sha256": "74be80b3a44d147b4fbc73aae5a9fc62f3e42c0403f161c19946283916928157",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
+      "sha256": "23696d0970829a07102c810d84fedf068398295292acb10ff5cd3f34137c3a15",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/android/gradle/wrapper/gradle-wrapper.jar",
+      "sha256": "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "ZIP inventory, manifest and extracted class strings inspected; Gradle wrapper classes only, no developer home paths or private configuration."
+    },
+    {
+      "path": "client/e2e/fixtures/documents/reading.docx",
+      "sha256": "04218e4bf31963f6a5fc869766f9281a3eed357b0e1acdfe3a266f56ffa11dc3",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "All ZIP members and XML relationships inspected; synthetic reading content, one 1-pixel image, public project link and intentional script negative-test link. No author properties."
+    },
+    {
+      "path": "client/e2e/fixtures/media/clip-720p.mp4",
+      "sha256": "d1a9ada7b3bec42cd1efb1c8a314c3355399be74be4081e35cf2ac5d7c762f41",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded audio verified as a three-second 440 Hz synthetic tone; inspected container/stream metadata, no speech or private identifiers. Video contact strip inspected: generated color test pattern only."
+    },
+    {
+      "path": "client/e2e/fixtures/media/clip.mp4",
+      "sha256": "7ffa75e0274a4919219c682cd1a73966f677d76084203515a5a19d1e82d9b28a",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded audio verified as a three-second 440 Hz synthetic tone; inspected container/stream metadata, no speech or private identifiers. Video contact strip inspected: generated color test pattern only."
+    },
+    {
+      "path": "client/e2e/fixtures/media/tone.m4a",
+      "sha256": "474cbbf60afb5f563eb27651c7e4073bd9ba1b524366f20078889d3bdfdabb27",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded audio verified as a three-second 440 Hz synthetic tone; inspected container/stream metadata, no speech or private identifiers."
+    },
+    {
+      "path": "client/e2e/fixtures/media/tone.mp3",
+      "sha256": "1d4f45c678841793ca5059064db669ce7e9223d91cec65c46b055355c798530f",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded audio verified as a three-second 440 Hz synthetic tone; inspected container/stream metadata, no speech or private identifiers."
+    },
+    {
+      "path": "client/e2e/fixtures/media/tone.wav",
+      "sha256": "0fe80379443145d74d363a86b8d647f6b627b5f7a8c6fb02ca1bed6e41f75418",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded audio verified as a three-second 440 Hz synthetic tone; inspected container/stream metadata, no speech or private identifiers."
+    },
+    {
+      "path": "client/e2e/fixtures/pdf/actions.pdf",
+      "sha256": "e4cc54d5798119071746433785208bae2e7ca76d5a6381d70ba139b0e9f33f9d",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Rendered all pages, extracted text and inspected PDF metadata/actions: synthetic reading fixture, with only reserved test URL in the action fixture."
+    },
+    {
+      "path": "client/e2e/fixtures/pdf/broken.pdf",
+      "sha256": "b10ea60f1ed4b46ff0107cc855e24769d9a24ea8f9c2c34ccee5a52ef60c417c",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Entire 28-byte intentionally invalid PDF inspected; fixed negative-test text only, no metadata or private data."
+    },
+    {
+      "path": "client/e2e/fixtures/pdf/locked.pdf",
+      "sha256": "e9f6bf4d77eca33466dcb7a8a27e2888cf540000860b10038ac0459862abf7dc",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Rendered all pages, extracted text and inspected PDF metadata/actions: synthetic reading fixture, with only reserved test URL in the action fixture."
+    },
+    {
+      "path": "client/e2e/fixtures/pdf/reading.pdf",
+      "sha256": "022dee00aeac42a7193cbe5fa10a4f3272c490494857c715ff5438cecb513b6f",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Rendered all pages, extracted text and inspected PDF metadata/actions: synthetic reading fixture, with only reserved test URL in the action fixture."
+    },
+    {
+      "path": "client/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png",
+      "sha256": "d24c9d1218e1604e078fee2d12aa63ce1665e84c3dc39e4170dfff3c83909476",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/ios/App/App/Assets.xcassets/TaroBotMark.imageset/tarobot.png",
+      "sha256": "146d70e11431879dd026e8273be04cd57b1da24157eacbbc5a621b6e18062127",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "client/ios/App/App/Assets.xcassets/TaroBotMark.imageset/tarobot@3x.png",
+      "sha256": "1859a3f9b4c396d14b81c73fc0286a565b5d14dc771dec26c18222e294704714",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "client/src-tauri/icons/128x128.png",
+      "sha256": "85a987d3f91fdbf021eb182392e8be91c1d8168491594dc05ccf2686efd47a30",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/128x128@2x.png",
+      "sha256": "30dd88e9af093409a0e85140fcf8030ca145b03f3579404dbb275a702b175ca3",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/32x32.png",
+      "sha256": "ffb580387b78d4935a0c43ee93098df08d0155f64c463d104488fcb48ee97fed",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/64x64.png",
+      "sha256": "34aaa24000152a8e957a819d80f47d36226804ea8a31d5ae704a2feb2296508d",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square107x107Logo.png",
+      "sha256": "ecf58ab8bd963cc62d0bc45c0ac79e03fa6fe20881e51c4f6ee826e0e0da5dd6",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square142x142Logo.png",
+      "sha256": "2a663b550762edf1f4b11a86e5a27c791ab9d458dd9e11c995484e5618844282",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square150x150Logo.png",
+      "sha256": "1d495be2f4212f761ac39e578aa71087ee7f4f3f7a22be7d8a65c1ca71a3b8e7",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square284x284Logo.png",
+      "sha256": "2c12e0400a95c6f7653467a2d69284f21d74171d7432134cc22e73bef3a59c9e",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square30x30Logo.png",
+      "sha256": "dcdc562957303b56cc051b3923d1b6a8d3d67c4cf15290f9206eb5cc377cc1dc",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square310x310Logo.png",
+      "sha256": "790cc1e7d3d7cfb3b06183b7d1b6d82efb0e461d3fed730588556118d3a6ba4f",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square44x44Logo.png",
+      "sha256": "2f7c69b61a8f4397d5fdc43fae1fff398f10461a8fee763e7626d5a5b387ab05",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square71x71Logo.png",
+      "sha256": "304cc185eaa5158bee503f7f62ed46d163ffdaf79eb2b1d3e942d9600ae230a8",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/Square89x89Logo.png",
+      "sha256": "bd206cc9fe27fd621798f02269547ad65f519db393478054c7cb07873a2ff83a",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/StoreLogo.png",
+      "sha256": "68ac13e082b6578aba94bdeb6a961332478b35762a4e9f7dd6019ca8e6133f66",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-hdpi/ic_launcher.png",
+      "sha256": "f4f4891a89d2c6eafcd6935c1cdb95f1fb4f84dbfc969f17fc4cfc47fb26cb50",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-hdpi/ic_launcher_foreground.png",
+      "sha256": "5f0f87816d5da0666647f8731d6b63fd1ca062cd038e07bcfe2ef2ebc1bded3d",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-hdpi/ic_launcher_round.png",
+      "sha256": "a8cb126c6b4a676ddd2e23c947a9cf87c4690e449e915e266ac6527b29db471c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-mdpi/ic_launcher.png",
+      "sha256": "a58b215b7c4a9f7a871e56d4cc76a96e9af2740c1f6857e6f4cd0f6497a4e074",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-mdpi/ic_launcher_foreground.png",
+      "sha256": "dffdfbef45da762e0e97a8e020e57e4b68dd67d66076e484c51597ac8470286a",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-mdpi/ic_launcher_round.png",
+      "sha256": "06fc9e6a4c05a65635214ce0c8a87f7dab4ac677531ac7031fa844b465244098",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xhdpi/ic_launcher.png",
+      "sha256": "b9f51476f69ab582397067484ae0ca9b53dbcd9e3123affeec7f4070d58682d7",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xhdpi/ic_launcher_foreground.png",
+      "sha256": "51035a4af7ff0baecd87aa313e8f5418d4175308c9d9dd0aa2f1f2c5811da48c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xhdpi/ic_launcher_round.png",
+      "sha256": "2f4cd940136367510b61177c99eb1207554cee56b658dafa6a3c8414d1c9947d",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xxhdpi/ic_launcher.png",
+      "sha256": "a074021e2dc9a5fdd1d76311c6cc5412c02dd77d5a7ee9456dbf821ab2f7ccd1",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xxhdpi/ic_launcher_foreground.png",
+      "sha256": "74a89880f60e70d5cde9093710ed25d2bff50a870e1c199b5f2ca4eab4eedd67",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xxhdpi/ic_launcher_round.png",
+      "sha256": "9357090c84f7fe77341104ece3b64f8b8d1f9afbd8b6f4de083f8891c0f38169",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher.png",
+      "sha256": "ec33e59bad80708ba5da3ec114c10d808b7e0384875cc45efc4edbdcf46db583",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png",
+      "sha256": "74be80b3a44d147b4fbc73aae5a9fc62f3e42c0403f161c19946283916928157",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_round.png",
+      "sha256": "23696d0970829a07102c810d84fedf068398295292acb10ff5cd3f34137c3a15",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/icon.icns",
+      "sha256": "7a35e17adc1ed8b7d08caec0ae0eee1e9202722fcd9cdf6b7a966c3436d91e74",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/icon.ico",
+      "sha256": "6018978c03936a18df9227afa8db3df576f76bbc7a805314589cf39d1df388e5",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/icon.png",
+      "sha256": "47cd7cb1f559b246d73cf627793a773d57fc47f1fd8f1635dbfb93903573c9a8",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-20x20@1x.png",
+      "sha256": "6d5a0ff240429f80c60bfb4cabdce1a693e2a455023e8e4152220d06f952b945",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-20x20@2x-1.png",
+      "sha256": "d3b8cc18477224680b53e55f1a85f04fdfb551ed7de4c8266f26953a40c077e2",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-20x20@2x.png",
+      "sha256": "d3b8cc18477224680b53e55f1a85f04fdfb551ed7de4c8266f26953a40c077e2",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-20x20@3x.png",
+      "sha256": "007146a310625561e2d20ae91c1a457b51f20739604cd8ccad952fa84039f2b7",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-29x29@1x.png",
+      "sha256": "8429c4a7c2c954874fafc3e7a4d0dca2c64ab19bb71ff8513fafd8a2a980c586",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-29x29@2x-1.png",
+      "sha256": "bf39c106be38dfd5aff527195af14f766b466abc7052caf6f5278c568c85448c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-29x29@2x.png",
+      "sha256": "bf39c106be38dfd5aff527195af14f766b466abc7052caf6f5278c568c85448c",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-29x29@3x.png",
+      "sha256": "dd0407772fe6db90d8a919ac04c1a45324257f725f6994b42fbca5575d8076db",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-40x40@1x.png",
+      "sha256": "d3b8cc18477224680b53e55f1a85f04fdfb551ed7de4c8266f26953a40c077e2",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-40x40@2x-1.png",
+      "sha256": "6ef9d5ae2aa1901a5f457f632260702b0a8e4cd57cac8d4af371404bc2e2bd5b",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-40x40@2x.png",
+      "sha256": "6ef9d5ae2aa1901a5f457f632260702b0a8e4cd57cac8d4af371404bc2e2bd5b",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-40x40@3x.png",
+      "sha256": "c89355d4d08998dafef2a7185af8374bd0f77490fe86182dd1ec440a330309d5",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-512@2x.png",
+      "sha256": "d24c9d1218e1604e078fee2d12aa63ce1665e84c3dc39e4170dfff3c83909476",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-60x60@2x.png",
+      "sha256": "c89355d4d08998dafef2a7185af8374bd0f77490fe86182dd1ec440a330309d5",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-60x60@3x.png",
+      "sha256": "f34571eee51a273e09c02bd85b60dce433cd3ed106374f8b56fc7f0d1f0fea13",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-76x76@1x.png",
+      "sha256": "0cd604087b7d52c922422cf9cff70ef178ea24181a208ff02ba868f83c4ba0e9",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-76x76@2x.png",
+      "sha256": "d9370151e72cdad109c85fdc51c023373b8a5ce0ac17920100ea74f0c98ef328",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/ios/AppIcon-83.5x83.5@2x.png",
+      "sha256": "9a004ec2c7c8c00c3df88636dd2019722e8347c53e4a33c76fb527a0e4e8c46a",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src-tauri/icons/tray-macos.png",
+      "sha256": "01eb199a3160f3c87909894f2d5a3b38635ddd9c15c6885e5ef233964ade4423",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Brand PR artwork reviewed; source SVG and generated icon hashes checked. Intermediate tray variants contain only bird vector artwork; no user UI captures."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/badger.webp",
+      "sha256": "7a2e312655b1ba4fb82403c3dae3325f9d85a3a2fe0af5482d2fe06f0a0a0414",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/bat.webp",
+      "sha256": "792a3e5cafe23347e59db1f12c28b04339b53a943084b687409f2477f810e9fb",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/bear.webp",
+      "sha256": "9ed852ea107593cee13d1f337a35cb71814f0974ba774fc378a028844e8b33cf",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/beaver.webp",
+      "sha256": "7fae985ce28ca9331bb4a3755b80fe43ccb2c495313f9d3e6d4d39a2fc200535",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/bee.webp",
+      "sha256": "84c98ecff9e35273154a6dfb9850d340e52356f442646896aa2266fbc1a2f82a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/bison.webp",
+      "sha256": "dc44a7d3ec973ca28a7d8215a2aaa09394bc9b83b0e2f53badc731b22dd3834a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/camel.webp",
+      "sha256": "ff28ac685edb07436bb86fbb3be9673e4fe4eb684696fc15b9859ae5ebb609e3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/cat.webp",
+      "sha256": "358a4a32dc231557c2aded312003cfd5811941e7a3b2279c19d012a87982cc02",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/chameleon.webp",
+      "sha256": "1a530c0a9d5ece22b6269acdaee8be2afde10470d0d3b4eadc1c17d8d4fbe88c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/chick.webp",
+      "sha256": "082fe2ab492f4f794f20ff5abf11dbcc9da430a66b4a51bf182c48e2d7798dcd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/cow.webp",
+      "sha256": "b74817e248db16228e95cff3378dcc4873959ee8f7e18301ed482bd723cf3a32",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/crab.webp",
+      "sha256": "a7b4abd0577f6c9b380b529ba7157227d7f18d0321d4018e50da2669b0883cea",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/crocodile-coral.webp",
+      "sha256": "d610bf299321a3f52c26acbb01a465669d4bed28839b6919ce07ddd25e329ad7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/crocodile-gold.webp",
+      "sha256": "eaccfdd43c853e93636332e2bb6e6651cf5770f692a475deed25fec311d9afb5",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/deer.webp",
+      "sha256": "bc76953335e9fcaa2f0a33756c7c7bebbb7f3311c168ee3bbe8876af754ef232",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/dog.webp",
+      "sha256": "c9a66f53a9a25aa1e6786adc68bedc1f46eafb4d5874cac72c89312970ea75be",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/duck.webp",
+      "sha256": "f0017d1835141e998ad2e8f796bd3967da5fdd31e22fcf96a09e785e7155718e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/elephant.webp",
+      "sha256": "e2b5980f5d06509cf2a4fad0d4079c6e21273bfc0670f305fc71ebda9d327364",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/flamingo.webp",
+      "sha256": "7e7679416c1e20ec46b067dfbb70f86737787972ac2a28960dd512e847b15ed6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/fox.webp",
+      "sha256": "d556bf86256c32a10aee3394712342a7e3b226e7e36041b573c2aeae843d16d9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/frog.webp",
+      "sha256": "3af5765715aedde5e798f55b1f66a2fb46da4d6fc129baaffeda21da9e7a64cb",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/giraffe.webp",
+      "sha256": "fa7dff8730749675f4b987f872fd3f2f4150af505e75dbf83dec75467919853f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/goat.webp",
+      "sha256": "23f2e7ea1bfd1cc9d8297efaa81f3b138397373eae693d00bc8b6bf0ed295803",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/gorilla.webp",
+      "sha256": "584b7c4ac6647af740e364bec80627f1f6ef94ef42575e5573d278c73d433133",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/hamster.webp",
+      "sha256": "c62edb2d7f26982b0c8097b1d96e0b9772d61f03c652585a367ad5d40f3f12a7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/hedgehog.webp",
+      "sha256": "240fade687065eb6c37b2703d3fd2ebfa30101a154163f3d26290f2c627cfa53",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/hippo.webp",
+      "sha256": "681908ec54e393df5c0401c3be5caab097fb065c891db2c9c8ddc2d91c4e494a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/horse.webp",
+      "sha256": "6dfdf0e7862adcc67a0f628daafb69ea270983eed92c3c44009002c0f5fca63a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/kangaroo.webp",
+      "sha256": "3da0d24721c14a17ffe17d4e0c703bcc8a5b65d3c54e4582d30003d26647a948",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/koala.webp",
+      "sha256": "ee0105bd45e8f27d51445888285986899b966bcdd7d0e8ad7f677547beddce84",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/leopard.webp",
+      "sha256": "573df3172daa3362d8ee93586aa62bbe96c56e5b97f13ae951ccf8954db60bb3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/lion.webp",
+      "sha256": "1caa27f34905b0946408e02082b7750396ee04984133a7e0efc73041c9aad658",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/meerkat.webp",
+      "sha256": "ef4060edf6b377d0f8433e3a8f613f48febb0823a48363da53a6e826541f29c0",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/mole.webp",
+      "sha256": "3cfe2098ae7c4360fddcc0a2468ae8188429d2a70c5ae3e4be586513ab002823",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/monkey.webp",
+      "sha256": "bbdc892770c79c3f30c9928e318c65670ad0584c1aaf38e72fdac6c4a6ce8c3b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/mouse.webp",
+      "sha256": "cef29a74b0d5b0de3b5ac86cec52b42504929a474b51b651c26aa6dfe213e32c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/octopus.webp",
+      "sha256": "eb10bdf43baf49bf9f03940fe085258d941964108a17f559f183d28c75fc7292",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/ostrich.webp",
+      "sha256": "c5f1767693de5f356ca03ca7e00b4731d945ab4bdc3920138317a675d4e2c513",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/otter.webp",
+      "sha256": "b33ceddae0f7d0ea1e85f8c99e9552dd2847c5371284c6e4eb48418e18c3e6de",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/owl.webp",
+      "sha256": "055c7a2d3c0726366bbba1fa7639a42e5633ef2221762ca7a99b469168caa163",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/panda.webp",
+      "sha256": "037e245ddde768a288279d81c74029499872022cc42ad227b0c5b8c949359538",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/parrot.webp",
+      "sha256": "9550d9482bb80ca46bf86c5278e0ccf3eb090c74af9a9c038855fcbc933dcb10",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/peacock.webp",
+      "sha256": "6083ba5278bffba0564794f9bdb6e1a9e67c0e233ef39f7dec1929160cd3fc5a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/pelican.webp",
+      "sha256": "5f635ac24dbf5101e8a2304afe6da9ce666e4c8b01f4a61f1364cb2e5c72572c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/penguin.webp",
+      "sha256": "6724c2ae8f36782790853eb4f8c557fa61977ee88e60fc9216d7fb27b4a0dc7f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/pig.webp",
+      "sha256": "e14f2e8c89a2416ae0ba1fed7eee09ade578faf78fa82ecb673bcb92a3620f16",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/platypus.webp",
+      "sha256": "ee83dba74f182df488232d24008d35b2a3686da1cf1e11deff9e5939cde4a593",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/rabbit.webp",
+      "sha256": "7a43fef0cf61cd5ebe736fc36237d38ddbd2d3e03568b9719b13ab2ece87d9c4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/raccoon.webp",
+      "sha256": "fa817090b8b159ac789696e069ad719d69fc88ef52a71acbe9b2e51cef4d3071",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/red-panda.webp",
+      "sha256": "1b9d3ffc605b8f9dcf9c1fdde737177040c0c5a050ecdbfa0d70108fb38c8571",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/rhino.webp",
+      "sha256": "a7d2ff4fbdaade1c42a1d695c37be6868f3ff6e3ccad34d1e889ae3c2e8e611c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/seal.webp",
+      "sha256": "d1cc0732c092edb162ae97a773223ba0b49bc3d07db20d5d5504d806a0395dca",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/shark.webp",
+      "sha256": "83ef66a38d8f2f4549b465f03a6227025a68048f2e00a541bd473a461ab590fc",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/sheep.webp",
+      "sha256": "399d0f05c4b380937755c2f751f9bae3a45ef1aec127e406ee2c6574397728be",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/sloth.webp",
+      "sha256": "6e1d4b658d829924a534340b1246655b9150ef71faa38b225787a302d54f8aa4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/squirrel.webp",
+      "sha256": "b5097baa9d6aadcc543046dd7f0dab8f4c64e99576473eb31ffd6e592d54cad1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/tiger.webp",
+      "sha256": "c1c4918c48ae9bb12970077d2de83ba0b44199b3dd5b4c5acfc466ce5689d268",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/toucan.webp",
+      "sha256": "6a0bb3c43cf5a6867eb81c5cae795bc55c6817cf0d552760aec298a0c3edfe12",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/turtle.webp",
+      "sha256": "e5a9e16e9388c8849629f52562bd7021d00687c686aa74da2f9e04e8e9ec7ee7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/walrus.webp",
+      "sha256": "c64674718b1874df591f69925765a9182bada4392925582621b793eb10199b7c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/whale.webp",
+      "sha256": "7f37c440036c90580a1d05441bec489d2b7026ac70440e5b7fc70f9a67986a17",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/wolf.webp",
+      "sha256": "75c55ef24a809dca52942f8bc9912a4a13ee009d004b5a7f207d217ef2f7d901",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-avatars/zebra.webp",
+      "sha256": "0785cd89b6421d778e4b6eded7f56214997e80fb7bf3b3218fce195843b00003",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/amber-flame.webp",
+      "sha256": "c011bc48498c6ffd9c68897fd7bf977eb8a1ed6f153c2092fedd9df2a852ba8f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/aqua-shell.webp",
+      "sha256": "04f75dd1dc381c683bc5ebd685b6dd60689447d55b8edb08924b996a53c9f078",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/azure-bear.webp",
+      "sha256": "b89287c1f2a7b023973548368c0574d23a7b7dca25730db5a8d82bb5c69e847c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/blue-cloud.webp",
+      "sha256": "533d999c450d43d8db67ed748d604ab3da34a23038c607ca55fd9528cdf44c30",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/blue-curl.webp",
+      "sha256": "dda008f3a317271b8b6e6c3bd0f200a5a8b3079ee23f4830c8052eda441807cc",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/blue-mountain.webp",
+      "sha256": "1985e45ad1a078f119e1980f29d467f332f36b51296a217248e7cd0a271aadc9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/blue-pebble.webp",
+      "sha256": "de09c04980e8bc8f9580bec674c92e3ddbf16d461d0f250fec4da5840127b7a5",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/candy-heart.webp",
+      "sha256": "f951a602f38028fcdcc1c3413103dde6651cd6f87c896fdb943e35308247a33e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/caramel-bear.webp",
+      "sha256": "3eefafd2c4dd1584e344fada79368c0e4fb391ad61831691fe418fdf1107074f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/clover-leaf.webp",
+      "sha256": "8cb369fc12780a456ec1ed6d518c4d2a33e1dde9c728afe9ae0b4a844457cbe1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/clover-pebble.webp",
+      "sha256": "19d1ff59a72867832e1053e3ccdfa87a9d7efe803f61355d90a0d5317e8e61d6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/coral-flame.webp",
+      "sha256": "e00bbd6ef13c9f3ce1b86f9e248bdbaf42cfd07099535638026ecabbcdc66307",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/coral-mushroom.webp",
+      "sha256": "805f6ca1be365bdbc9950a486295c29e03437f752db6bdbdbece9eed9a892f2d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/coral-star.webp",
+      "sha256": "da1deb7bada324e526738e8df3ad0c7e4246d3d0f28634671303644084b93eab",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/cream-bunny.webp",
+      "sha256": "1b1933119bea39db18cdf4b57dc91e14aa64fc6bc4e7392b6136903085f4086a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/cream-mochi.webp",
+      "sha256": "117e5db0962cd96468d99dc2f7e5dbfcdfb1e9c58caf73e934dcd6cc59128c97",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/gold-bean.webp",
+      "sha256": "e6aa7524bfbd331ec6a401c56b36148298e777dba0f53c16df17692615ff43e6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/gold-crown.webp",
+      "sha256": "cc190affe0f6e194ece42f0b378c762b41d4d72314d570efc02916093e5805e2",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/gold-star.webp",
+      "sha256": "e6a955f975f4e5370cf918c32603afaf90cd7b4dd0838b5585f6df9b13ddafb7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/honey-cat.webp",
+      "sha256": "80284f0578865da664638471b5a5b5fb946067fa80829db6b6e35898cb936851",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/indigo-planet.webp",
+      "sha256": "432142616e5685e057ec9a2c462e98be598affef0c6602ba603951280f033b55",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/ivory-mochi.webp",
+      "sha256": "d1fa829235fe8e35742dda9716adc82f4c3ae1553d288ffc102a99f0ffe98454",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/ivory-puff.webp",
+      "sha256": "e4b0b137f61f5b3fdacb43c23247b61b4765df2fc4258a484cd0b0a9def1f94b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/jade-drop.webp",
+      "sha256": "e54ef9c9d2a29eecb56820664096647eebb116e4846f187b1a17afb2b72535cd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/jade-leaf.webp",
+      "sha256": "d47a233d029786b2d6fcabd12535aa760715f45d2d4c994578cceb11c9f37761",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/lavender-planet.webp",
+      "sha256": "1d1475e09050c4a3c3d19cef584431ebb49f1b546725ae36c5aa5548f3c25a8c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/lemon-leaf.webp",
+      "sha256": "ccc9c13f93404c11c59f5bf0e2253ed0a7de99492aa4a51bc4d52bbf05a3ce4f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/lemon-twin.webp",
+      "sha256": "bd79c05121c33b0a13993a81bbed66ad8647dc5b1b113185a6da84d2ef63f4cc",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/lilac-horns.webp",
+      "sha256": "44d98d2e3415f05c41bd6607cec91d0b73c35857d467475effc8744cc32fbaca",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/lilac-planet.webp",
+      "sha256": "3e952678421e390f449641173bee924ea7fb2b7c7ef0cbd025d8f88f33dcac13",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/lilac-shell.webp",
+      "sha256": "93a1864054c181c44bcecc8fd44bcb08b9086cb2c9992769988116956300bfa6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/lilac-swirl.webp",
+      "sha256": "5125f9a56cf2b45220d7bba1d92ccbf14a4fa51775e09203cf2aeb86f6545391",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-apple.webp",
+      "sha256": "94b414d0e03e352a860ab15707dd90c0f03a2934dea2a60528a842cc8fb37355",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-avocado.webp",
+      "sha256": "c809358aa1722b8e46fddfa07ec53efcd1119967c7c043909b8047b52dc08f6a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-bear.webp",
+      "sha256": "fdf88d0fc477c908dfb03e0c29d4ebe73315ddef8b8cb44554c44d357038f3f9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-blackbird.webp",
+      "sha256": "e4619ae599a6cc45d57f90b455e17d26bddba9c85514b434e75a1102dad9d33d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-bluebird.webp",
+      "sha256": "09edc84cad2c530c24c1eeeabf88abdd9721bd7011b5ee07b919742e609f5c97",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-brownie.webp",
+      "sha256": "6263a3bce4ac67fff90760e9b21ddd18372d9c174a7cd1c8ad63c09ab3901276",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-cherries.webp",
+      "sha256": "be21d1d5cc1981fadedd12fff9539419a247b20ff61b002586c0d3d9772ef515",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-chick.webp",
+      "sha256": "b4361e0da6b5a786995c723821968221fa70be12ac913a39650491b37a1cceab",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-cloud.webp",
+      "sha256": "1c101e276247223a69763de12b199ec11983e9ea80f8b9c96189d0999a5889f4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-clownfish.webp",
+      "sha256": "d30648c6009e78c7f43b75211ee327303503c1b6f2500b3417642926a8fa2e17",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-cockatiel-grey.webp",
+      "sha256": "6b0cbe53d78465f9a9ca3fd36bf850c62746e7bab8381dc322b1fea5047588e3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-cockatiel-yellow.webp",
+      "sha256": "3dcd313232de651240c59885aad908924a23163f480184bd79f8ccd72a6c5acd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-cookie.webp",
+      "sha256": "c918c318d8e4d3bd50789f11dbb167486b8a9827f2c746f8d6b82976ea06977d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-corgi.webp",
+      "sha256": "d157390a73969620ece693eee6c12e970eca35d40942612792d957ccc59d14f8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-crab.webp",
+      "sha256": "11ffa2019e05591f64f85fe3787f021347203393fe4c1d1c9fd98d60d89ac17a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-croissant.webp",
+      "sha256": "15b69823488e1d68596344cafcc868b0d8c504963d20f17414624a1ce7460e27",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-drop.webp",
+      "sha256": "147855015371b57543958c047729e0852408d4c7c32c867f866f1b6f380f13b8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-duck.webp",
+      "sha256": "f984080420d0b02f14124c2fd86fb2c233c7293c56864a196f55615f885ff029",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-frog.webp",
+      "sha256": "3feb0e722a9611e6131dabe1573960396b055e499b1359d2ef3f9ebe3806a2d5",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-grapes.webp",
+      "sha256": "38525fc922e6df6b09c833aa49eb96293e2233ba7bb34474dcc14cd25cd45b17",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-hen.webp",
+      "sha256": "d278fbf4b023878e607e8c2bb23f448c0dc2d0d156a4795c27d55e1fc7f460c7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-ice-cream.webp",
+      "sha256": "f48c1546382f4adfd8961e387c278993fadc5b9f7a1a21246062bffefa034382",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-jellyfish.webp",
+      "sha256": "bff9c1125396b7a5afd18c3d25d05944573630cf4a3e1501c0f058c050a90ecc",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-lemon.webp",
+      "sha256": "620b7888e33ae44a71bc49e0296a62f468760e45785c05089eb6c598b52dca02",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-macaron.webp",
+      "sha256": "507dd0aef845c1618399836f53f47e83b5ef8cbdd49c064253b0a77fbd4ffe3c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-matcha.webp",
+      "sha256": "8ecf33cdc33e5db9350035f7763a3d7c53d3e28d4c6a2e89c489337fcdb4375c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-moon.webp",
+      "sha256": "68bf04322c9b4ae814ce661fc12000f90bb0c31b0969b40376f02f1042191604",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-mushroom.webp",
+      "sha256": "1ffe18737da0080d7cc5ae9252258f759a032665d12fc0f0db5e78f2eb8f06d5",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-octopus.webp",
+      "sha256": "e9c486f43087d52820dbe3f6c5940d1cf5c9690868041abbf2810d9614bae3df",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-orange.webp",
+      "sha256": "5ce4591e9617cfa5d21321073c5ef673ed118af4ba7acbfd889a56fcc7ace85b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-owl.webp",
+      "sha256": "ea2c86d5329629b7c6c4bb95c012d4c5aa24c2d8eb94903d91961916a5497bb9",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-panda.webp",
+      "sha256": "12b138848b447f6ad083a493dfe949d4b25fd834528708261e1458cfdbb5e8f4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-parrot.webp",
+      "sha256": "b59c3b6c8cdea4d509ff5e23358f6a198ca8551464e1ef7de91b763a22040c4d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-peach.webp",
+      "sha256": "60b746066078bdcb2042ef313cd5404b2bc154da6cee3c3148bc9af889ed9143",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-penguin.webp",
+      "sha256": "c230157269f8d4733ab9980f34af46dc383aae6046cbe354015f7e5613f579f0",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-pig.webp",
+      "sha256": "3c898b2e9902ba2391aef96d672a05b84c5ab2bb777d6f78c331f3420c8ebe21",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-planet.webp",
+      "sha256": "d5995848f4f857dec1fe31b3c1d37eee7723089586d00d44570901818028a04e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-pudding.webp",
+      "sha256": "a8dd2bb6c672ded646b1cf838c90b01c51bdbe47bc0327202eff3f44221d241d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-rabbit.webp",
+      "sha256": "b4316879938f8fa571b45b4a86aedaaeea639058cfd7a1cda2cd9a49b61226e1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-rainbow.webp",
+      "sha256": "b03e3cb2efb156b0fe8393cde6b2d879e32f73e915e8250958c624b5da713b65",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-ray.webp",
+      "sha256": "f35c92aeab640f994429f8c157867230c2c8d9bc01ea1ba0dc39f0836cad82fc",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-rice-ball.webp",
+      "sha256": "73bf16cc62e16f1727322e1e6b193db68162995fdaecdf3c576569c58af39328",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-seal.webp",
+      "sha256": "925b0ff4e120f6f34b7574354b3d53987a2e8a0cb49ded3fd6f93b902077f02f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-shark.webp",
+      "sha256": "7631991f26a51280f6407aa91c88deb42b68302e02c5c6c3652801b6c3a97648",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-sheep.webp",
+      "sha256": "1e38a5b1d59c2dc99a2192214041fcb8d732909b2233a762b6d6a0a18f3da978",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-sprout.webp",
+      "sha256": "1d1d5b086036ffc43970a9efc57f0d900a1135559a69ad9db2b6407dc70164e4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-star.webp",
+      "sha256": "7f3bc2fff2b41e540590d9f50f76d5b86b9b4e8dac8250cf4e33c205c866db1d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-starfish.webp",
+      "sha256": "d9b370263bc76a2bdd17986159eb6f3e65766accef1765bd9b9f10de6d0fb577",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-strawberry.webp",
+      "sha256": "63f7ef8cd4ef188bcf07de7c9088623901ef9d99bb4bfd501a9fad407b8e4a58",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-sun.webp",
+      "sha256": "712859de53136c9e5011c655b146b1885bec1aee428a3033717e3136ce11e33c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-tiger.webp",
+      "sha256": "eacec53a30c4c8a995cb8334145e2c86f7ebaa91fc4a115fa05971c3b0cd2a45",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-toast.webp",
+      "sha256": "527695851917fa95ed6a545c401a8c2ee8e1c970c72130faa0ba2616eb1f104d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-watermelon.webp",
+      "sha256": "a3c440b2f9a03f619ff1475644376400b8d5c25413dad121e7e14348ea221a3c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mini-whale.webp",
+      "sha256": "273b1853e8e1b6ae268a4d96302f3b09618cc3835e9da7fb190aa1d51ef5082d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mint-curl.webp",
+      "sha256": "1034a079da8722ff10ec78a9d828ba324798c3084b37adddd1e5c2c4fc14223b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mint-drop.webp",
+      "sha256": "80cc6d53bb7cc2fd86585bae02f982b517352e7d4489c5472487809a3bf15c7b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/mint-sprout.webp",
+      "sha256": "47ff7996cf61dfddeec249531c3383e35f71641039c4891653d43250466a4698",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/moon-cloud.webp",
+      "sha256": "54734116bc5a3d17b9b7c359268de1c4d922d9f7363ba23e65c98a49e40285f6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/orange-cat.webp",
+      "sha256": "32d1474657036618d435178b13196e2a33dce630dd5d2d87578e7cb79379aad6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-bear.webp",
+      "sha256": "c44868a843cde4540a056b38630803314d8073cec3b2d541902c8624a12c23bf",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-cat.webp",
+      "sha256": "5d24fed46d5805c688fa32686a9fd72c34be005e3bf299eb025ea83e4773acc7",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-chick.webp",
+      "sha256": "3126a42f7c21d49b9aaeadeeeb51bbd20a7455b2f92111fbb279acb97619ddcd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-cow.webp",
+      "sha256": "8a099bcd70ccc5e4557006d36939a239aa04df231f768b2bf969a284e853e9a8",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-deer.webp",
+      "sha256": "5b9ef80e90103af02b4bb16f11618a12883e4e708a7b62db35740db8071faf44",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-duck.webp",
+      "sha256": "33a9108ff10b5d04f077d9f243cd1589e94dc7f5129380be60d652190d7cbec6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-elephant.webp",
+      "sha256": "51677c4cd8df705fcf4a06021e2869b0b4d1522fa80ebe12796b082b447952bd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-fox.webp",
+      "sha256": "496a470061aee166182cff1920d4e695f7acf01f9d9332f58cfeb2f8b072e2dc",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-frog.webp",
+      "sha256": "e9ac02a5cf3b62b9092076f91c478a978977edf422b5b05c646d348e4ecb0bda",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-hamster.webp",
+      "sha256": "dd3c418d477561a567b8953b5f52a002d68c5913cdcc864bfe037230b1ed77d2",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-hedgehog.webp",
+      "sha256": "701d31a360a3ef5e11ed7b2c2e22988b8afc69d425b91c4fcdc0946312aa23ec",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-koala.webp",
+      "sha256": "b303ec9e622aa95e1d5557df436ac8bc64ebb363a0adc60ba1209fcc1a16c91c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-lamb.webp",
+      "sha256": "d8973f12b496a59951fb942fcd45a5a97e01b525a4b813f99a58737a39ad5009",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-lion.webp",
+      "sha256": "fbe76cf95783a93107b7ada1f18132b310cf14507d05b1d8c1bdc356da74181a",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-monkey.webp",
+      "sha256": "8bd5d9c51078e4c427b392f44e94f86b9e108c6108b090a96373cd6969a3efb3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-mouse.webp",
+      "sha256": "db48f443009325a333cced3475dd46ae160e6b3bcaf25900fc4b5b4488e926a1",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-owl.webp",
+      "sha256": "69a26cbdeb8059c3186fffdb28df3a0cc03482a43a843acbbb739ca7aba850eb",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-panda.webp",
+      "sha256": "6c65eeecae7161d743c83c5c473a7db1b079a7e37d1dadb1a474f0dad1427603",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-penguin.webp",
+      "sha256": "1f026f35b34a50dcaef8408a71f84e7643b23231c8f4d2ff31ee98a25cb40a14",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-phoenix.webp",
+      "sha256": "6186f2ad2d5fa9dd265e614877be136f0ea2f34009ac9fa282243ad454abab51",
+      "reviewer": "claude",
+      "method": "visual-review",
+      "note": "256px lossless WebP packaged from cutouts-12.png by scripts/crop-bot-mascots.py --sheets 12; mascot artwork only, VP8L with no EXIF/XMP."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-pig.webp",
+      "sha256": "49c78e5f449bec8eaf701d473f884ab7d0989f43de617ea8fdefb43c3d82a6f3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-polar-bear.webp",
+      "sha256": "248c5c7aede54219de4ccfab8f6d47320c669b3186eb88943ac636825cac8405",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-puppy.webp",
+      "sha256": "e70ac91c8ad35fd09d3c710b323ba62c1ba83dc1cfe63b565db87af2bbada4d4",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-rabbit.webp",
+      "sha256": "9517a5097ba9f55b036573b0f85ea2d649e8961f61ce9b53e5d9323a3299cc0b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-raccoon.webp",
+      "sha256": "ba23b37c2fdc72b8d69d65d8fd458c3cfbb0a59c931eb61032cbc970e000953c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-sheep.webp",
+      "sha256": "309f314cb219275455e0fea700f74b2ba659ffc0ff4757929128064e95529ff6",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-squirrel.webp",
+      "sha256": "19c9e2f62b541a62166339db70713b47f8076cfd10819ee357b6b3e9ca1d76ae",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pastel-tiger.webp",
+      "sha256": "35a259fae36f8d118a989e75e27efb818ace4a79c24223af2968d31db84c884f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/peach-crown.webp",
+      "sha256": "ebccd46414e4e52441a5ec47a9e318511cd31b86a1f6ac5bf08f67872771da58",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/peach-patch-cat.webp",
+      "sha256": "b44173f6f94b3c49fe2e0f0b5a637c97d9cd45da5ce0ef47c9f941fa159a0362",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/periwinkle-drop.webp",
+      "sha256": "250ede71601cdd7472fd7d66d075e493e9e0d74186392cf7786d9c870698da05",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pink-bunny.webp",
+      "sha256": "52362fd4ae48fb06c2bc79042238c61bfe507011a2912d9a33c0f3f248ae222d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pink-heart.webp",
+      "sha256": "c03c3b27e07699b2e85846b50ef3c288de2f4a56808008b94ee17344e14d483f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/pink-mushroom.webp",
+      "sha256": "10190ba43bfbf4b16c80ca0466b1c40a215643ff48f94cd1ba2e01c6df394f5e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rain-drop.webp",
+      "sha256": "1d387743383a4a45e01efc6f6d732b4528cc6e2e880cfa4da006dce884d47574",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rose-bunny.webp",
+      "sha256": "5fc057a13b4bdc05a066ac2bdd2a138057644e7015dca7034aa5d7bed2aef10c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rose-butterfly.webp",
+      "sha256": "e5fd169050658702b8fb255e152aae32bdbd008bbbc557f2d083a7936117864e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rose-cube.webp",
+      "sha256": "98158ace1b327e226bc27474c84e612ae1176f6715bf955b66e9a5d5f3bdee26",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rose-flame.webp",
+      "sha256": "908c8337dc7471d78fb63b990470828941ca4e8a72239451204deef47c0408a0",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rose-flower.webp",
+      "sha256": "d62070acb1ff33c5c6c338df4ddb45294ba36630fa9d808b9e9532d5c18926ca",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rose-swirl.webp",
+      "sha256": "c9dcb41165231086885a95a7935cb72daed4bbebf7f88636811bc6bbb7990d4f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/rose-wave.webp",
+      "sha256": "a3746190b5ceff62c81357532a3d5a8633d9ff53802a7a78b58e4178be342f34",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/sakura-flower.webp",
+      "sha256": "553fdeb6aeafffc95e231d9f821aa1dd2b373c14ac192339e2a130245166b04e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/sky-cloud.webp",
+      "sha256": "d9330bf5f077fec3ddaa709fcac92c8f4b2582e6553d60c274f549d927f8854e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/sky-drop.webp",
+      "sha256": "fb0469de5ffd5234fbf32947a44a7aa8d9adb13e330f677ffb3cebbd5cff1d34",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/spring-clover.webp",
+      "sha256": "73d8cc7004bc715df18e9e38cbadbd09fbf13ce27a84a79f59caab848a0b9bcc",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/spring-sprout.webp",
+      "sha256": "e7ebd945c3a4952ca3766eb6ffeabb695f690749bbe4c3a41486cff006a1b63d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/star-kitten.webp",
+      "sha256": "b3ebb439c5a935f81b9b678b3699051b625396aa480ab5cb1c9b93f08cdd1332",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/taro.webp",
+      "sha256": "05c7acf61c92e047c3e9f479da3854abb91780fc10ed36bc39cdbba1a2ff3764",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/vanilla-sprout.webp",
+      "sha256": "619d46a235f5f790a623687db3bf1409e556a8f4cf8f64223ecb5c1ea3cb0e52",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/vanilla-swirl.webp",
+      "sha256": "4270fd97e223329437e8a017e3324ecf7349fd1a4b3a0a7234c9277a7d96d77b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/violet-imp.webp",
+      "sha256": "32e492b759217adb356c351177ab8817eb17c71988257979459169349fe78055",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/violet-moon.webp",
+      "sha256": "aed79af97411e25b154ab79b40a926aba3ed65e5339e9df1cf8e50f3ac9b156f",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/bot-mascots/violet-peak.webp",
+      "sha256": "596d23db16cef427c36a99cd3bbd2fb5067e2eb372f54915480514b74c06b599",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/assets/fonts/jetbrains-mono/JetBrainsMono-Regular.woff2",
+      "sha256": "f1a7a03672cdd494ce0d5543fac6e4360fe22403c6de297fdc2e55a815f7baff",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "client/src/assets/fonts/jetbrains-mono/JetBrainsMono-SemiBold.woff2",
+      "sha256": "8f20245500c375a63879b47c12560a07bcaf7a88672d272f4d8e79b68f9186ae",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "client/src/assets/fonts/sarasa-term-sc/SarasaTermSC-Regular.woff2",
+      "sha256": "112b341963594a3416fe329f97c71ef3123e55ad8cf4afbe2ef2699e3de48276",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "client/src/assets/fonts/sarasa-term-sc/SarasaTermSC-SemiBold.woff2",
+      "sha256": "a51478dad4b869574d257bbba5f7ada6d6a17d8a3177f320f40c5dc9f94e87b4",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "client/src/assets/model-brands/claude.svg",
+      "sha256": "365a70a7eb3956d9b9a96086058ebe04e1dbd8e291a756ad964e8a283fbd6d38",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "SVG source and rendered brand/model logo review; local artwork references checked, no private data or external resource references."
+    },
+    {
+      "path": "client/src/assets/model-brands/deepseek.svg",
+      "sha256": "8f9443e351b6dacce71871790201b799d92e8bf96a45ef79aeb5e9bf4db423e2",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "SVG source and rendered brand/model logo review; local artwork references checked, no private data or external resource references."
+    },
+    {
+      "path": "client/src/assets/model-brands/gemini.svg",
+      "sha256": "87d5b3c4be75a66f54c1936482a263df68185545b741129badd1b7c2449c18d3",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "SVG source and rendered brand/model logo review; local artwork references checked, no private data or external resource references."
+    },
+    {
+      "path": "client/src/assets/model-brands/kimi.svg",
+      "sha256": "ed08131b46acf70e6e2144eceb775e74098b58ea65fa21eaee04be7b05cfe63b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "SVG source and rendered brand/model logo review; local artwork references checked, no private data or external resource references."
+    },
+    {
+      "path": "client/src/assets/model-brands/openai.svg",
+      "sha256": "a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "SVG source and rendered brand/model logo review; local artwork references checked, no private data or external resource references."
+    },
+    {
+      "path": "client/src/brand/apple-touch-icon.png",
+      "sha256": "f34571eee51a273e09c02bd85b60dce433cd3ed106374f8b56fc7f0d1f0fea13",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src/brand/bear.png",
+      "sha256": "f28450e69490106eda4330f6d4fe76ee0e821e3df4e68a6cda6dabe4e3848b83",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/cat.png",
+      "sha256": "46920bf18867548093614ced341807c1a41b7c0a09f2132d9b98e06854e52fcf",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/favicon.png",
+      "sha256": "9aa1c9f689498c124b1e6d403db0a7d596e4341993f212cd7dc2be0fdb78e386",
+      "reviewer": "codex",
+      "method": "generated-from-reviewed-source",
+      "note": "Generated from the visually reviewed selected phoenix artwork; deterministic regeneration and exact icon-manifest hashes verified. Platform contact sheet and adaptive edge previews inspected; PNG metadata and icon containers checked. No private UI or identity data."
+    },
+    {
+      "path": "client/src/brand/fox.png",
+      "sha256": "b7b1910c9e56345ba0c34212364a8e6689d861290d5393446071352486bffb55",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/lion.png",
+      "sha256": "9e8910469042bec97f352d5bc9ddb7e0c790871e70a928d6efea124f94d95d1d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/panda.png",
+      "sha256": "a2914abba711f1d18cc2cf561ef3e291d2f8271d0f958ccea154968c0a76ba4c",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/penguin.png",
+      "sha256": "2e0b2ab6f985f843bcc450e152ad8d5305526d39c3c35b550237820d1bd85c11",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/rabbit.png",
+      "sha256": "0e6903fb4f5a1b9489df7a2e98956afa081bf7eb7a014917ede17db3f9d97afd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/raccoon.png",
+      "sha256": "08fc4462d786179ab4cf2b7ac00c31e8aa05e313209026e0a949136b19317354",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/tarobot.png",
+      "sha256": "146d70e11431879dd026e8273be04cd57b1da24157eacbbc5a621b6e18062127",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/src/brand/tiger.png",
+      "sha256": "b4fc81ca7fc4b65c29f271ce758c91d081e2b0fb8e60ae6f7da76726c748fd7e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Contact-sheet visual review of the exact mascot/animal artwork and metadata inspection; no user screenshots or private text."
+    },
+    {
+      "path": "client/vendor/baoyu-design/editor/assets/anthropicons-fizzy-lake-CfC2JIbf.woff2",
+      "sha256": "3b2802f4331409152b38402763d94a99520adca364f0dd65012f49f9b3383c33",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/assets/anthropicons-fizzy-lake-D4byUNVq.woff2",
+      "sha256": "f823eeae0cc8afc316c4c8ea19098265b6f25c27ffceeadbb84ec1fd16a6d1a6",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Decoded font name tables inspected; upstream public font names, authors and required copyright attribution only. No owner or machine identifiers."
+    },
+    {
+      "path": "docs/design/app-icon-concepts-2026-10-12/comparison.png",
+      "sha256": "ba9eba9ca7456582ad11328ca770b06d3110feb7ab9f82edcdec356dd99cf482",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "docs/design/app-icon-concepts-2026-10-12/conversation-t.png",
+      "sha256": "b8e79e3c12f8692f927b1d6ce94fd40af54fa875c4f9b6e8c844180ccd4317ac",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "docs/design/app-icon-concepts-2026-10-12/taro-bot-mascot.png",
+      "sha256": "d45028cb8c8900eb8b854e47885872bd3d10944cd69775a93c668b50ee8710e0",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "docs/design/dispatcher-bot-20261101/avatar-options-1-check.png",
+      "sha256": "31cbcfbabc04e9a239fa975b00b2d9ff15b6207fdcc04e14e26d4a5c284e123d",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "docs/design/dispatcher-bot-20261101/avatar-options-1-overview.png",
+      "sha256": "7fcb6a72a3aaa820a96de17ea7948602e2fdb3f19d3011ccbbe58ff70f44b4c2",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "docs/design/dispatcher-bot-20261101/avatar-options-2-check.png",
+      "sha256": "63f3f2c15d6d8043e32e84d58645ac873b4b7d09f98815d7d444a4177a9fa6dd",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "docs/design/dispatcher-bot-20261101/avatar-options-2-overview.png",
+      "sha256": "60015dda0e56c5b18b0aa4f741a7affa44304949672b94742223acbfb15f623e",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "docs/design/dispatcher-bot-20261101/avatar-star-final.png",
+      "sha256": "2797531cafc594287f2b22205ef7e04e48d5cf7c5a37f55b472542d1e45a7658",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+**/node_modules
+**/dist
+**/target
+**/build
+.git
+**/*.log
+.playwright-cli
+output
+**/test-results
+**/playwright-report
+**/.env
+**/.env.*
+!**/.env.example
+**/*.keystore
+**/*.jks
+**/*service-account*.json
+**/google-services.json

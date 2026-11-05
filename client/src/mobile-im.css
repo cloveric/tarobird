@@ -1,0 +1,1165 @@
+/*
+ * Phone IM home (MobileHome.tsx). Hidden on desktop; at <=760px it is the
+ * phone home screen instead of a shrunken sidebar. Every selector is scoped to
+ * .mobile-home, except the opt-in chat header tweaks at the end, which only
+ * apply under .mobile-im-chat.
+ */
+
+.mobile-home {
+  display: none;
+}
+
+/* Shares the motion vocabulary in brand-theme.css: --t-med with --ease-out. */
+@keyframes mh-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 760px) {
+  .mobile-home {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.4;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .mobile-home,
+  .mobile-home *,
+  .mobile-home *::before,
+  .mobile-home *::after {
+    box-sizing: border-box;
+  }
+
+  .mobile-home button,
+  .mobile-home input {
+    font: inherit;
+    /* Keep component foregrounds, especially inverse primary actions inside
+       dialogs. A descendant colour reset here hides their labels. */
+  }
+
+  .mobile-home button {
+    margin: 0;
+    cursor: pointer;
+    transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), box-shadow var(--t-med) var(--ease);
+  }
+
+  .mobile-home button:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  .mobile-home button:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+  }
+
+  .mobile-home ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .mobile-home .mh-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .mobile-home .mh-connection-notice {
+    display:flex; align-items:center; gap:10px; flex:none;
+    margin:0 max(12px, var(--app-safe-right)) 6px max(12px, var(--app-safe-left)); padding:8px 10px; border-radius:12px;
+    background:var(--surface-alt); color:var(--muted);
+    font-size:12px; line-height:1.5;
+  }
+  .mobile-home .mh-connection-notice > svg { flex:none; }
+  .mobile-home .mh-connection-notice > div { flex:1; min-width:0; }
+  .mobile-home .mh-connection-notice strong { display:block; color:var(--text); font-size:13px; font-weight:500; overflow-wrap:anywhere; }
+  .mobile-home .mh-connection-notice p { margin:2px 0 0; }
+  .mobile-home .mh-connection-notice button { display:flex; align-items:center; gap:4px; flex:none; min-height:44px; padding:4px 8px; border:0; background:transparent; color:var(--accent); border-radius:8px; }
+
+  /* Header: a large title, create menu, recessed search, segmented filters.
+     No hairline under it: the title's weight separates it from the list. */
+
+  .mobile-home .mh-header {
+    position: relative;
+    z-index: 2;
+    flex: none;
+    padding: max(4px, var(--app-safe-top)) max(12px, var(--app-safe-right)) 10px max(12px, var(--app-safe-left));
+    background: var(--bg);
+  }
+
+  /* The filter touch area already separates the title from the list options.
+     Avoid adding another spacer below it in any density setting. */
+  .mobile-home[data-tab='messages'] .mh-header {
+    --density-header-bottom: 0px;
+    padding-bottom: 0;
+  }
+
+  .mobile-home .mh-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 52px;
+    padding-left: 4px;
+  }
+
+  .mobile-home .mh-heading {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .mobile-home .mh-titlebar[data-scoped] .mh-title { font-size: 22px; }
+
+  .mobile-home .mh-scope-host {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .mobile-home .mh-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+  }
+
+  /* 44px target, 34px soft disc: the create action is present without shouting. */
+  .mobile-home .mh-icon-button {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 5px solid transparent;
+    border-radius: 50%;
+    background: var(--surface-alt);
+    background-clip: padding-box;
+    color: var(--text);
+  }
+
+  .mobile-home .mh-icon-button:active:not(:disabled),
+  .mobile-home .mh-icon-button[aria-expanded='true'] {
+    background-color: var(--selected-row);
+  }
+
+  /* styles.css `button:hover` uses the background shorthand; keep the disc clipped. */
+  .mobile-home .mh-icon-button:hover:not(:disabled),
+  .mobile-home .mh-icon-button:active:not(:disabled),
+  .mobile-home .mh-icon-button[aria-expanded='true'] {
+    background-clip: padding-box;
+  }
+
+  .mobile-home .mh-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    margin-top: 4px;
+    padding-left: 12px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--surface-alt);
+    color: var(--muted);
+    transition: background-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  }
+
+  .mobile-home .mh-search:focus-within {
+    background: var(--surface-alt);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+
+  .mobile-home .mh-search-icon {
+    display: inline-flex;
+    flex: none;
+  }
+
+  .mobile-home .mh-search input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--text);
+    /* 16px keeps iOS Safari from zooming on focus. */
+    font-size: 16px;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .mobile-home .mh-search input:focus-visible {
+    outline: none;
+    box-shadow: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .mobile-home .mh-search input::placeholder {
+    color: var(--muted);
+  }
+
+  .mobile-home .mh-search input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .mobile-home .mh-scope-help {
+    margin: 4px 16px 6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .mobile-home .mh-search-clear {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .mobile-home .mh-search-clear::after {
+    content: '';
+    position: absolute;
+    inset: -3px -2px;
+  }
+
+  /* Filters are trackless pills, the same vocabulary as the phone topic strip:
+     plain labels, the current one a recessed filled pill whose edge lines up
+     with the search field. Weight never changes, so nothing reflows. */
+  .mobile-home .mh-filters {
+    display: flex;
+    flex-wrap: wrap;
+    width: max-content;
+    max-width: 100%;
+    gap: 4px;
+    margin-top: 0;
+    padding: 0;
+    /* Longer translations can wrap without clipping keyboard focus. */
+    overflow: visible;
+    border-radius: 0;
+    background: transparent;
+    scrollbar-width: none;
+  }
+
+  .mobile-home .mh-filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-home .mh-filter-toolbar { display:flex; align-items:center; gap:4px; min-width:0; }
+  .mobile-home .mh-filter-toolbar .mh-filters { flex:1; min-width:0; width:auto; flex-wrap:nowrap; overflow-x:auto; }
+  .mobile-home .mh-filter-toolbar .mh-chip { min-width:44px; padding-inline:8px; }
+  .mobile-home .mh-list-more { background:transparent; color:var(--muted); box-shadow:none; }
+  .mobile-home .mh-list-options-dialog { width:100%; max-width:100%; }
+  .mobile-home .mh-list-preferences .sidebar-host-grouping { margin:0; gap:12px; min-height:48px; font-size:14px; }
+  .mobile-home .mh-list-preferences .sidebar-host-grouping span { min-width:0; overflow-wrap:anywhere; }
+  .mobile-home .mh-list-preferences input { flex:none; }
+  .mobile-home .mh-list-folder-actions { display:grid; gap:4px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
+  .mobile-home .mh-list-folder-actions > button { display:flex; align-items:center; gap:12px; min-height:48px; padding:8px 0; border:0; background:transparent; box-shadow:none; text-align:left; }
+  .mobile-home .mh-list-folder-actions > button > span { flex:1; min-width:0; overflow-wrap:anywhere; font-size:14px; }
+  .mobile-home .mh-list-folder-actions small { display:block; color:var(--muted); font-size:12px; }
+  .mobile-home .mh-list-folder-actions svg { flex:none; color:var(--muted); }
+
+  .mobile-home .mh-chip {
+    position: relative;
+    flex: none;
+    height: 44px;
+    min-height: 44px;
+    min-width: 56px;
+    padding: 0 14px;
+    border: 6px solid transparent;
+    border-inline-width: 0;
+    background-clip: padding-box;
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--grey);
+    font-size: 14px;
+    font-weight: 550;
+    line-height: 32px;
+    white-space: nowrap;
+  }
+
+  /* A real 44px control paints a 32px pill inside its transparent border.
+     No pseudo-element extends into the search field or neighbouring row. */
+  /* The current filter takes the tab indicator's accent tint, so state reads the
+     same way in the filter strip and the tab bar. Weight never changes. */
+  .mobile-home .mh-chip[aria-pressed='true'] {
+    background-color: var(--accent-soft);
+    background-clip: padding-box;
+    box-shadow: none;
+    color: var(--accent);
+  }
+
+  .mobile-home .mh-chip:not([aria-pressed='true']):active {
+    background-color: var(--hover);
+  }
+
+  .mobile-home .mh-attention-help {
+    margin: 8px 16px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .mobile-home .mh-attention-badge {
+    flex: none;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+
+  /* Create menu */
+
+  .mobile-home .mh-create {
+    position: relative;
+    flex: none;
+  }
+
+  .mobile-home .mh-create-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+  }
+
+  .mobile-home .mh-create-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 41;
+    width: max-content;
+    min-width: 212px;
+    max-width: calc(100vw - 24px);
+    padding: 6px;
+    border: 0;
+    border-radius: 16px;
+    background: var(--raised);
+    box-shadow: var(--elev-3);
+    transform-origin: top right;
+    animation: mh-menu-in var(--t-med) var(--ease-out) both;
+  }
+
+  .mobile-home .mh-create-scope {
+    padding: 8px 10px 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 550;
+  }
+
+  .mobile-home .mh-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    font-size: 15.5px;
+    font-weight: 500;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .mobile-home .mh-menu-item svg {
+    flex: none;
+    color: var(--grey);
+  }
+
+  .mobile-home .mh-menu-item:active,
+  .mobile-home .mh-menu-item:focus-visible {
+    outline: none;
+    background: var(--hover);
+  }
+
+  /* Scroll body */
+
+  .mobile-home .mh-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-bottom: 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-home .mh-history {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: calc(100% - 24px);
+    min-height: 56px;
+    margin: 6px 12px 4px;
+    padding: 8px 10px 8px 12px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--raised);
+    box-shadow: var(--elev-1);
+    text-align: left;
+  }
+
+  .mobile-home .mh-history-icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .mobile-home .mh-history-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .mobile-home .mh-history-label {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .mobile-home .mh-history-scope {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .mobile-home .mh-section-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 16px max(16px, var(--app-safe-right)) 4px max(16px, var(--app-safe-left));
+  }
+
+  .mobile-home .mh-section-title {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+
+  .mobile-home .mh-section-empty {
+    margin: 0;
+    padding: 8px 16px 12px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .mobile-home .mh-current {
+    flex: none;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+  }
+
+  .mobile-home .mh-status {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .mobile-home .mh-status::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--grey);
+  }
+
+  .mobile-home .mh-status[data-tone='ok']::before {
+    background: var(--green);
+  }
+
+  .mobile-home .mh-status[data-tone='bad']::before {
+    background: var(--red);
+  }
+
+  /* Conversation and bot rows */
+
+  .mobile-home .mh-list > li {
+    position: relative;
+  }
+
+  .mobile-home .mh-row,
+  .mobile-home .mh-bot-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 72px;
+    padding: 10px max(16px, var(--app-safe-right)) 10px max(16px, var(--app-safe-left));
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+  }
+
+  /* Press lands at once and lifts over --t-slow, so a tap reads as touched even
+     when navigation follows immediately. Colour only; rows never move. */
+  .mobile-home .mh-row,
+  .mobile-home button.mh-bot-main {
+    transition: background-color var(--t-slow) var(--ease-out);
+  }
+
+  .mobile-home .mh-row:active,
+  .mobile-home button.mh-bot-main:active {
+    background: var(--hover);
+    transition-duration: 0s;
+  }
+
+  .mobile-home .mh-avatar {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+  }
+
+  .mobile-home .mh-presence {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--bg);
+    border-radius: 50%;
+    background: var(--green);
+  }
+
+  .mobile-home .mh-row-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .mobile-home .mh-row-top,
+  .mobile-home .mh-row-bottom {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .mobile-home .mh-row-bottom {
+    gap: 8px;
+  }
+
+  /* Hierarchy by weight: unread rows read darker and heavier; read rows recede. */
+  .mobile-home .mh-row-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 16px;
+    font-weight: 550;
+    letter-spacing: -0.01em;
+  }
+
+  .mobile-home .mh-row[data-unread] .mh-row-title {
+    font-weight: 650;
+  }
+
+  /* The Bot / host tag is a quiet recessed label: a fill, not an outline, so
+     the row reads as title → owner instead of a row of boxed chips. */
+  .mobile-home .mh-row-tag {
+    flex: 0 3 auto;
+    min-width: 0;
+    max-width: 45%;
+    padding: 0 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 5px;
+    background: var(--surface-alt);
+    box-shadow: none;
+    color: var(--grey);
+    font-size: 11px;
+    font-weight: 550;
+    line-height: 18px;
+  }
+
+  .mobile-home .mh-pin {
+    display: inline-flex;
+    flex: none;
+    color: var(--muted);
+  }
+
+  .mobile-home .mh-row-time {
+    flex: none;
+    margin-left: auto;
+    padding-left: 8px;
+    color: var(--muted);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mobile-home .mh-row[data-unread] .mh-row-time {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .mobile-home .mh-row-preview {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .mobile-home .mh-row[data-unread] .mh-row-preview {
+    color: var(--grey);
+  }
+
+  /* Phone avatar unread counts stay red across palettes for a visible reminder.
+     It sits on the avatar's top-right corner, ringed in the page colour like the
+     presence dot; the spoken count stays after the preview. The aggregate tab
+     count follows the selected accent separately. */
+  .mobile-home .mh-badge {
+    position: absolute;
+    top: -4px;
+    right: -6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: #d13e42;
+    color: #fff;
+    box-shadow: 0 0 0 2px var(--bg);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 18px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+
+  .mobile-home .mh-bot-row {
+    display: flex;
+    align-items: center;
+    padding-right: max(12px, var(--app-safe-right));
+  }
+
+  .mobile-home .mh-bot-main {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    padding-right: 8px;
+  }
+
+  .mobile-home .mh-bot-settings {
+    flex: none;
+    width: 44px;
+    min-height: 44px;
+    margin-left: 4px;
+    padding: 10px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--grey);
+  }
+
+  .mobile-home .mh-bot-settings:active {
+    background: var(--hover);
+  }
+
+  .mobile-home .mh-new-chat {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    height: 34px;
+    padding: 0 13px 0 10px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--raised);
+    box-shadow: var(--elev-1);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 550;
+    white-space: nowrap;
+  }
+
+  .mobile-home .mh-new-chat svg {
+    color: var(--grey);
+  }
+
+  .mobile-home .mh-new-chat::after {
+    content: '';
+    position: absolute;
+    inset: -5px -4px;
+  }
+
+  .mobile-home .mh-new-chat:active {
+    background: var(--surface);
+  }
+
+  /* Me */
+
+  .mobile-home .mh-me {
+    display: flow-root;
+    padding-bottom: 8px;
+  }
+
+  /* Keep native safety areas and the page on the same canvas. The Me heading
+     lives inside its scroller, so it cannot cover the profile on small screens. */
+  .mobile-home:has(.mh-me),
+  .mobile-home:has(.mh-me) .mh-header {
+    background: var(--bg);
+  }
+
+  /* The profile is the first raised panel of the page, aligned to the grouped
+     lists below it (same 12px gutter, 16px corners, --elev-1 edge). */
+  .mobile-home .mh-me-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-height: 88px;
+    margin: 12px max(12px, var(--app-safe-right)) 0 max(12px, var(--app-safe-left));
+    padding: 16px 12px 16px 16px;
+    border: 0;
+    border-radius: 16px;
+    /* A restrained accent wash from the avatar side gives the page its focal
+       point; the solid raised base keeps text contrast in every palette. */
+    background-color: var(--raised);
+    background-image: linear-gradient(115deg, var(--accent-soft) 0, var(--raised) 64%);
+    box-shadow: var(--elev-1);
+  }
+
+  .mobile-home button.mh-me-card:active:not(:disabled) {
+    background: var(--hover);
+  }
+
+  .mobile-home .mh-avatar-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--surface-alt);
+    color: var(--muted);
+  }
+
+  .mobile-home .mh-me-text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .mobile-home .mh-me-name {
+    font-size: 21px;
+    font-weight: 680;
+    letter-spacing: -0.02em;
+  }
+
+  .mobile-home .mh-me-sub {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .mobile-home .mh-group-title {
+    margin: 22px 28px 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+
+  .mobile-home .mh-group-description {
+    margin: 0 28px 12px;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  /* Grouped cells are raised panels on the porcelain, edged by --elev-1. */
+  .mobile-home .mh-group {
+    margin: 0 12px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 16px;
+    background: var(--raised);
+    box-shadow: var(--elev-1);
+  }
+
+  .mobile-home .mh-me > section > .mh-group:first-child {
+    margin-top: 20px;
+  }
+
+  .mobile-home .mh-group > li {
+    position: relative;
+  }
+
+  .mobile-home .mh-group > li + li::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 56px;
+    height: 1px;
+    background: var(--border);
+    pointer-events: none;
+  }
+
+  .mobile-home .mh-cell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 52px;
+    padding: 0 12px 0 14px;
+    border: 0;
+    background: transparent;
+    font-size: 16px;
+    text-align: left;
+  }
+
+  .mobile-home .mh-cell:active:not(:disabled) {
+    background: var(--hover);
+  }
+
+  /* Each cell leads with a 30px recessed tile, so a grouped list scans by its
+     left edge; neutral fill in every palette, the accent stays for state. */
+  .mobile-home .mh-cell-icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: var(--surface-alt);
+    color: var(--grey);
+  }
+
+  .mobile-home .mh-cell-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-home .mh-cell-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-home .mh-cell[aria-pressed='true'] .mh-cell-label {
+    font-weight: 600;
+  }
+
+  .mobile-home .mh-cell-check {
+    display: inline-flex;
+    flex: none;
+    width: 20px;
+    color: var(--accent);
+  }
+
+  .mobile-home .mh-cell-chevron {
+    display: inline-flex;
+    flex: none;
+    color: var(--muted);
+  }
+
+  /* Empty states: one calm sentence, then the single next action. */
+
+  .mobile-home .mh-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 72px 32px 56px;
+    text-align: center;
+  }
+
+  .mobile-home .mh-empty p {
+    margin: 0;
+    color: var(--grey);
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  .mobile-home .mh-empty-action {
+    min-height: 44px;
+    padding: 0 22px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--primary-bg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 1px 2px rgba(40, 32, 24, .16);
+    color: var(--on-primary);
+    font-weight: 600;
+  }
+
+  /* Bottom tabs: 54px row (>=44px hit area) plus the home-indicator inset. The
+     current tab gets a pill indicator behind its icon that widens in (scaleX)
+     over --t-med; colour alone never carries the state (the label also gains weight). */
+
+  .mobile-home .mh-tabbar {
+    display: grid;
+    flex: none;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 0 var(--app-safe-right) var(--app-safe-bottom) var(--app-safe-left);
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .mobile-home .mh-tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 56px;
+    padding: 6px 0 5px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+  }
+
+  .mobile-home .mh-tab[aria-current='page'] {
+    color: var(--text);
+  }
+
+  .mobile-home .mh-tab-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 30px;
+    isolation: isolate;
+  }
+
+  .mobile-home .mh-tab-icon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    opacity: 0;
+    transform: scaleX(.6);
+    transition: opacity var(--t-med) var(--ease), transform var(--t-med) var(--ease-out);
+  }
+
+  .mobile-home .mh-tab[aria-current='page'] .mh-tab-icon {
+    color: var(--accent);
+  }
+
+  .mobile-home .mh-tab[aria-current='page'] .mh-tab-icon::before {
+    opacity: 1;
+    transform: none;
+  }
+
+  .mobile-home .mh-tab-badge {
+    position: absolute;
+    top: -2px;
+    left: calc(50% + 5px);
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--primary-bg);
+    box-shadow: 0 0 0 2px var(--bg);
+    color: var(--on-primary);
+    font-size: 10.5px;
+    font-weight: 650;
+    line-height: 17px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mobile-home .mh-tab-label {
+    font-size: 11px;
+    font-weight: 550;
+    line-height: 1.2;
+  }
+
+  .mobile-home .mh-tab[aria-current='page'] .mh-tab-label {
+    font-weight: 650;
+  }
+}
+
+@media (max-width: 760px) and (hover: hover) {
+  .mobile-home .mh-row:hover,
+  .mobile-home button.mh-bot-main:hover,
+  .mobile-home .mh-cell:hover:not(:disabled),
+  .mobile-home .mh-menu-item:hover {
+    background: var(--hover);
+  }
+
+  /* Discs and chips keep their clipped/raised shapes on hover. */
+  .mobile-home .mh-icon-button:hover:not(:disabled) {
+    background-color: var(--selected-row);
+  }
+
+  .mobile-home .mh-history:hover:not(:disabled),
+  .mobile-home .mh-new-chat:hover {
+    background: var(--raised);
+    box-shadow: var(--elev-2);
+  }
+
+  .mobile-home .mh-chip:not([aria-pressed='true']):hover {
+    background: var(--hover);
+  }
+}
+
+/* 320-360px phones: tighter gutters, same 48px avatars and touch targets. */
+@media (max-width: 360px) {
+  .mobile-home .mh-row,
+  .mobile-home .mh-bot-main {
+    gap: 10px;
+    padding-left: max(12px, var(--app-safe-left));
+  }
+
+  .mobile-home .mh-row {
+    padding-right: max(12px, var(--app-safe-right));
+  }
+
+  .mobile-home .mh-row-tag {
+    max-width: 38%;
+  }
+
+  .mobile-home .mh-new-chat {
+    padding: 0 10px 0 8px;
+  }
+
+  .mobile-home .mh-bot-row .mh-new-chat {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .mobile-home .mh-bot-row .mh-new-chat::after { inset: 0; }
+  .mobile-home .mh-bot-row .mh-new-chat span,
+  .mobile-home .mh-bot-row .mh-row-tag { display: none; }
+}
+
+/*
+ * Opt-in chat header for the phone IM shell: add `mobile-im-chat` to the chat
+ * root while the mobile layout is active. Back + title + more only gain
+ * sizing here; nothing is hidden (EffortControl and conversation settings stay).
+ */
+@media (max-width: 760px) {
+  .mobile-im-chat .conversation-header {
+    min-height: 52px;
+    gap: 4px;
+  }
+
+  .mobile-im-chat .conversation-header .mobile-menu,
+  .mobile-im-chat .conversation-header .mobile-back,
+  .mobile-im-chat .conversation-header .mobile-more {
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .mobile-im-chat .header-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+}
+/* List rows act on conversations; full message text remains selectable in chat. */
+.mobile-home .mh-row, .mobile-home .mh-row * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.mobile-home .mh-row { touch-action: pan-y; }
+.mobile-conversation-action-title {
+  margin: 4px 0 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.mobile-conversation-actions .mobile-chat-action-list > button.text-danger,
+.mobile-conversation-actions .mobile-chat-action-list > button.text-danger > svg {
+  color: var(--red);
+}
+.mh-cell-description {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  white-space: normal;
+}

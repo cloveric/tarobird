@@ -1,0 +1,254 @@
+[
+  {
+    "id": "parrot",
+    "name": "鹦鹉"
+  },
+  {
+    "id": "camel",
+    "name": "骆驼"
+  },
+  {
+    "id": "toucan",
+    "name": "巨嘴鸟"
+  },
+  {
+    "id": "otter",
+    "name": "水獭"
+  },
+  {
+    "id": "chameleon",
+    "name": "变色龙"
+  },
+  {
+    "id": "gorilla",
+    "name": "大猩猩"
+  },
+  {
+    "id": "walrus",
+    "name": "海象"
+  },
+  {
+    "id": "bat",
+    "name": "蝙蝠"
+  },
+  {
+    "id": "meerkat",
+    "name": "狐獴"
+  },
+  {
+    "id": "whale",
+    "name": "鲸鱼"
+  },
+  {
+    "id": "red-panda",
+    "name": "小熊猫"
+  },
+  {
+    "id": "kangaroo",
+    "name": "袋鼠"
+  },
+  {
+    "id": "sloth",
+    "name": "树懒"
+  },
+  {
+    "id": "octopus",
+    "name": "章鱼"
+  },
+  {
+    "id": "beaver",
+    "name": "河狸"
+  },
+  {
+    "id": "goat",
+    "name": "山羊"
+  },
+  {
+    "id": "crab",
+    "name": "螃蟹"
+  },
+  {
+    "id": "badger",
+    "name": "獾"
+  },
+  {
+    "id": "zebra",
+    "name": "斑马"
+  },
+  {
+    "id": "raccoon",
+    "name": "浣熊"
+  },
+  {
+    "id": "squirrel",
+    "name": "松鼠"
+  },
+  {
+    "id": "hippo",
+    "name": "河马"
+  },
+  {
+    "id": "crocodile-coral",
+    "name": "鳄鱼·珊瑚"
+  },
+  {
+    "id": "hedgehog",
+    "name": "刺猬"
+  },
+  {
+    "id": "chick",
+    "name": "小鸡"
+  },
+  {
+    "id": "turtle",
+    "name": "乌龟"
+  },
+  {
+    "id": "mouse",
+    "name": "小鼠"
+  },
+  {
+    "id": "platypus",
+    "name": "鸭嘴兽"
+  },
+  {
+    "id": "shark",
+    "name": "鲨鱼"
+  },
+  {
+    "id": "peacock",
+    "name": "孔雀"
+  },
+  {
+    "id": "flamingo",
+    "name": "火烈鸟"
+  },
+  {
+    "id": "pelican",
+    "name": "鹈鹕"
+  },
+  {
+    "id": "ostrich",
+    "name": "鸵鸟"
+  },
+  {
+    "id": "bison",
+    "name": "野牛"
+  },
+  {
+    "id": "bee",
+    "name": "蜜蜂"
+  },
+  {
+    "id": "mole",
+    "name": "鼹鼠"
+  },
+  {
+    "id": "wolf",
+    "name": "狼"
+  },
+  {
+    "id": "seal",
+    "name": "海豹"
+  },
+  {
+    "id": "horse",
+    "name": "马"
+  },
+  {
+    "id": "crocodile-gold",
+    "name": "鳄鱼·金黄"
+  },
+  {
+    "id": "duck",
+    "name": "鸭子"
+  },
+  {
+    "id": "leopard",
+    "name": "花豹"
+  },
+  {
+    "id": "rhino",
+    "name": "犀牛"
+  },
+  {
+    "id": "cow",
+    "name": "奶牛"
+  },
+  {
+    "id": "hamster",
+    "name": "仓鼠"
+  },
+  {
+    "id": "lion",
+    "name": "狮子"
+  },
+  {
+    "id": "elephant",
+    "name": "大象"
+  },
+  {
+    "id": "panda",
+    "name": "熊猫"
+  },
+  {
+    "id": "koala",
+    "name": "考拉"
+  },
+  {
+    "id": "tiger",
+    "name": "老虎"
+  },
+  {
+    "id": "pig",
+    "name": "小猪"
+  },
+  {
+    "id": "sheep",
+    "name": "绵羊"
+  },
+  {
+    "id": "giraffe",
+    "name": "长颈鹿"
+  },
+  {
+    "id": "deer",
+    "name": "小鹿"
+  },
+  {
+    "id": "cat",
+    "name": "猫咪"
+  },
+  {
+    "id": "dog",
+    "name": "小狗"
+  },
+  {
+    "id": "owl",
+    "name": "猫头鹰"
+  },
+  {
+    "id": "fox",
+    "name": "狐狸"
+  },
+  {
+    "id": "bear",
+    "name": "小熊"
+  },
+  {
+    "id": "rabbit",
+    "name": "兔子"
+  },
+  {
+    "id": "penguin",
+    "name": "企鹅"
+  },
+  {
+    "id": "frog",
+    "name": "青蛙"
+  },
+  {
+    "id": "monkey",
+    "name": "猴子"
+  }
+]

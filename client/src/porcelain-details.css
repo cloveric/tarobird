@@ -1,0 +1,557 @@
+/* =============================================================================
+   Detail pass (2026-10-25), revised after an independent design review.
+   Loaded after the palette and feature sheets. Layout and geometry (avatars,
+   rows, reading size) stay with layout-density.css.
+
+   House rules for this layer
+   - One neutral family. Porcelain Violet moves every grey onto a
+     faintly violet-tinted scale; other Porcelain hues keep their own neutrals.
+   - Planes: chat and sidebar list are white; secondary planes (sidebar dock,
+     settings navigation, details panel) use the W1 canvas. ADHD uses one
+     flat reading plane, including its reply cards and composers.
+   - Fills mean input (search, selects); rings mean button; lavender means
+     selection or unread. Red is only for destructive actions.
+   - Icons stay monochrome line glyphs, like the engines' own apps.
+   Scope: Porcelain (white-*), Monochrome and the unset default. Structural
+   settings fixes also apply to the classic palettes; terminal/Pixel are untouched.
+   ========================================================================== */
+
+/* ---------- 1. Neutrals: Porcelain Violet ---------- */
+:root[data-palette=white-violet], .palette-preview[data-palette=white-violet]{
+  --canvas:#f9f9fc; --canvas-hover:#f5f5f9; --hover:#f5f5f9;
+  --surface:#f2f2f6; --surface-alt:#ebebf1;
+  --border:#e7e7ed; --border-strong:#d0d0d9;
+  --text:#1f1e26; --grey:#4d4b58; --muted:#6b6a77;
+  --selected-row:#f0edfd; --label:#8a8896;
+  --dock:#f9f9fc;
+}
+:root[data-palette=white-violet][data-theme=dark], :root[data-theme=dark] .palette-preview[data-palette=white-violet]{
+  --bg:#19191d; --canvas:#151418; --canvas-hover:#1f1e23; --raised:#202025; --hover:#222127;
+  --surface:#25242a; --surface-alt:#2c2b32;
+  --border:#2e2d34; --border-strong:#3f3f47;
+  --text:#eeeef2; --grey:#cfcdd8; --muted:#aaa9b4;
+  --selected-row:#2c2840; --self-message-bg:#332b47; --self-message-border:#3d3454;
+  --label:#8f8d9a; --dock:#111115;
+}
+@media(prefers-color-scheme:dark){
+:root[data-palette=white-violet][data-theme=system], :root[data-theme=system] .palette-preview[data-palette=white-violet]{
+  --bg:#19191d; --canvas:#151418; --canvas-hover:#1f1e23; --raised:#202025; --hover:#222127;
+  --surface:#25242a; --surface-alt:#2c2b32;
+  --border:#2e2d34; --border-strong:#3f3f47;
+  --text:#eeeef2; --grey:#cfcdd8; --muted:#aaa9b4;
+  --selected-row:#2c2840; --self-message-bg:#332b47; --self-message-border:#3d3454;
+  --label:#8f8d9a; --dock:#111115;
+}}
+/* Shared planes for every Porcelain hue and Monochrome. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]){--sidebar-plane:var(--bg)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono])[data-theme=dark]{--sidebar-plane:var(--canvas)}
+@media(prefers-color-scheme:dark){:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono])[data-theme=system]{--sidebar-plane:var(--canvas)}}
+
+/* ---------- 2. Sidebar: white header and list, a W1 dock, one hairline edge ---------- */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar{background:var(--sidebar-plane)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar :is(.host-heading-row,.host-heading,.host-heading:hover:not(:disabled)){background:var(--sidebar-plane)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .avatar i{border-color:var(--sidebar-plane)}
+/* A folded current Bot sits on the selected row, not the sidebar plane. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .bot-identity.is-collapsed-current .avatar i{border-color:var(--selected-row)}
+/* Search is an input: a quiet fill at rest, a white field with a ring on focus. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .search-box{height:36px;border-radius:10px;background:var(--surface);box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .search-box:focus-within{background:var(--raised);box-shadow:0 0 0 1px var(--border-strong),0 0 0 4px color-mix(in srgb,var(--focus) 12%,transparent)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .search-box:not(:focus-within) kbd{opacity:0}
+/* The view switch: a filled track with a raised white chip. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar-layout-switch{background:var(--surface)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar-layout-switch>button[aria-pressed=true]{background:var(--raised);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(31,30,38,.08),0 0 0 .5px rgba(31,30,38,.06)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar-layout-switch>button[aria-pressed=true]>svg{color:var(--accent)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.sidebar-label,.sidebar .folder-heading){font-size:11.5px;font-weight:600;color:var(--label,var(--muted))}
+/* Rows: one selection signal in every list view. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .conversation-row.selected{border-radius:8px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.bot-tree-conversations,.group-tree-topics) .conversation-row.selected::before{display:none}
+/* The workspace switch blends into the footer; hover still identifies the action. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar>.sidebar-footer{margin:6px -10px 0;padding:0 12px;background:var(--dock,var(--canvas));border-top-color:var(--border)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono])[data-theme=dark] .sidebar>.sidebar-footer{background:var(--dock,color-mix(in srgb,var(--canvas) 80%,#000))}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .workspace-trigger{background:transparent;box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .workspace-trigger:hover:not(:disabled){background:var(--hover)}
+
+/* ---------- 3. Chat ---------- */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.header-bot-name,.header-bot-name .bot-name-label){background:transparent;color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .connection-pill.online svg{color:var(--muted)}
+@media(hover:hover){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user:not(:hover,:focus-within) .message-meta time{opacity:0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-meta time{transition:opacity var(--t-fast) var(--ease)}
+}
+/* Bot reply cards keep their frame: softer, rounder, aligned with the bubbles. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .message-blocks>.rich-card{border-color:var(--border);border-radius:14px;box-shadow:0 1px 2px rgba(31,30,38,.03),0 8px 22px -18px rgba(31,30,38,.22)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .message-blocks>.rich-card>.card-body{padding:12px 18px 14px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .message-blocks>.rich-card>.card-header{padding-inline:18px}
+@media(max-width:760px){:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .message-blocks>.rich-card>.card-body{padding:11px 15px 13px}}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .markdown .markdown-table>.table-scroll{border:1px solid var(--border);border-radius:10px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .markdown .markdown-table table{border-style:hidden}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-meta>.message-actions:not(:has(>:is(a,.error-text))){padding:0 2px;border-radius:9px;background:var(--raised);box-shadow:0 0 0 1px var(--border),0 2px 6px -3px rgba(31,30,38,.12)}
+/* Card actions match the app's buttons: one radius and height, a ringed secondary, a tinted destructive action and a filled select. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .rich-card .button-group{gap:8px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .card-button{min-height:34px;padding:0 14px;border-radius:9px;font-weight:500}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .card-button.default{box-shadow:0 0 0 1px var(--border-strong)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .card-button.default:hover:not(:disabled){background:var(--hover);box-shadow:0 0 0 1px var(--border-strong)}
+:root:is(:not([data-palette]),[data-palette^=white-]) .card-button.primary:not(:disabled){background-image:none;box-shadow:0 1px 2px rgba(53,31,110,.2)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .rich-card .card-field select{min-height:38px;border-color:transparent;border-radius:10px;background-color:var(--surface)}
+/* Dark card fields need a separate input plane; explicit and system dark agree. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono])[data-theme=dark] .rich-card .card-field select{background-color:var(--surface-alt);border-color:var(--border-strong)}
+@media(prefers-color-scheme:dark){:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono])[data-theme=system] .rich-card .card-field select{background-color:var(--surface-alt);border-color:var(--border-strong)}}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .card-button.danger{border-color:transparent;background:color-mix(in srgb,var(--red) 7%,var(--bg));color:var(--red);box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .card-button.danger:hover:not(:disabled){border-color:transparent;background:color-mix(in srgb,var(--red) 12%,var(--bg));color:var(--red)}
+/* Compact card styling must not shrink phone or wide-touch controls. */
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.card-button,.rich-card .card-field select){min-height:44px}
+}
+/* Default unread treatment; desktop list badges are overridden below. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .unread-badge{background:var(--selected-row);color:var(--avatar-fg);font-weight:650}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .conversation-row.selected .unread-badge{background:var(--raised)}
+/* Composer: a quiet hairline at rest and a slightly darker neutral line on focus; never the accent colour. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer{border-color:var(--border)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer:focus-within{border-color:var(--border-strong)}
+@media(min-width:761px){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer{box-shadow:0 10px 28px -16px rgba(31,30,38,.16)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer:focus-within{border-color:var(--border-strong);box-shadow:0 10px 28px -16px rgba(31,30,38,.16)}
+}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-model-controls>.composer-effort-trigger:not([aria-expanded=true]){background:transparent;color:var(--muted)}
+/* Group "who replies" when nobody is chosen: a quiet dashed slot on desktop and grey text on the phone, not a coloured warning pill. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-toolbar>button.composer-recipients.is-empty,:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-toolbar>button.composer-recipients.is-empty:hover:not(:disabled){background:transparent;color:var(--grey);outline:1px dashed var(--border-strong);outline-offset:-1px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-toolbar>button.composer-recipients.is-empty:hover:not(:disabled){background:var(--hover)}
+:root:not([data-focus-intent=pointer]):is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-toolbar>button.composer-recipients.is-empty:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .phone-recipient-trigger.is-empty{color:var(--grey)}
+/* Touch composers retain the quiet border from the phone UI; wide touch
+   windows must not pick up desktop rings merely because they are wider. */
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer,
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer:focus-within{box-shadow:none}
+}
+/* File rows: ghost actions, one row style for every file. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .file-card{min-height:56px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .file-card button:not(.file-card-primary){background:transparent;color:var(--grey);font-size:13px;font-weight:500}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .file-card>button:has(>svg):not(.file-card-primary){color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .file-card button:not(.file-card-primary):hover:not(:disabled){background:var(--hover);color:var(--text)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .file-card strong{font-size:14px;font-weight:500}
+
+/* Compact file controls are desktop-only. Keep existing 44px touch targets. */
+@media(min-width:761px) and (hover:hover) and (pointer:fine){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .file-card button:not(.file-card-primary){min-height:32px}
+}
+
+/* Group strip: a quiet line under the header, not a second grey band. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .group-discussion-strip{background:var(--bg);border-bottom-color:var(--rule-soft,var(--border))}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .group-discussion-strip.is-active{background:color-mix(in srgb,var(--accent) 4%,var(--bg))}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .group-mention-hint{color:var(--label,var(--muted))}
+/* ---------- 4. Attachments ---------- */
+/* Bot image batches: equal tiles that keep the whole picture; three images lead with a wide tile. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .image-grid{gap:6px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .image-grid>.attachment-image>.image-thumbnail{display:flex;align-items:center;justify-content:center;width:100%;max-height:320px;aspect-ratio:1;border-radius:10px;background:var(--hover)}
+/* Absolute containment resolves percentage bounds against the aspect-ratio tile
+   in WebKit as well; intrinsic image size must not enlarge or escape its tile. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .image-grid>.attachment-image>.image-thumbnail img{position:absolute;inset:0;margin:auto;width:auto;height:auto;max-width:100%;max-height:100%;object-fit:contain}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .image-grid:has(>.attachment-image:nth-child(3):last-child)>.attachment-image:first-child{grid-column:1/-1}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .image-grid:has(>.attachment-image:nth-child(3):last-child)>.attachment-image:first-child>.image-thumbnail{aspect-ratio:2/1}
+/* Your own attachments leave the bubble: the words keep it, pictures, files and audio stand on their own, joined by a 3px seam. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image,.attachment-audio){display:flex;flex-direction:column;align-items:flex-end;gap:3px;padding:0;border-radius:0;background:none;box-shadow:none;color:var(--text)}
+/* Quotes and sources now sit on the page, so they read the page's tokens rather than the bubble's. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image,.attachment-audio)>:is(.quoted-message,.forwarded-message){--text:inherit;--muted:inherit;--grey:inherit;--accent:inherit;--border:inherit;--border-strong:inherit;--raised:inherit;--surface:inherit;--code-keyword:inherit;--code-string:inherit;--code-title:inherit;--self-code-bg:var(--surface);color:var(--muted)}
+/* Inline link titles and their fold control also leave the bubble. Remap their
+   bubble tokens only here; text-only messages retain their inverse colours. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image,.attachment-audio)>.message-link-preview{--self-message-fg:var(--text);--self-message-muted:var(--muted);--self-message-link:var(--accent);--self-code-inline-bg:var(--surface)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image,.attachment-audio)>:is(.markdown,.attachment-image,.image-grid,.file-card,.attachment-audio){margin-block:0}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image,.attachment-audio)>.markdown{max-width:100%;padding:8px 14px 9px;border-radius:18px;background:var(--self-message-bg);color:var(--self-message-fg)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image,.attachment-audio)>.markdown:has(+:is(.attachment-image,.image-grid,.file-card,.attachment-audio)){border-bottom-right-radius:6px}
+/* One picture is the object itself: its own proportions within the compact 180×200 frame, rounded, no grey tile. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks>.attachment-image:not([data-long]){width:min(180px,calc(200px * var(--image-ratio,1)));max-width:100%}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks>.attachment-image:not([data-long])>.image-thumbnail{display:block;width:100%;border-radius:14px;background:transparent;box-shadow:0 0 0 .5px rgba(31,30,38,.08)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks>.attachment-image:not([data-long])>.image-thumbnail img{display:block;width:100%;height:auto;max-height:200px;object-fit:cover}
+/* Several pictures: one rounded two-column mosaic at a fixed width; a percentage would follow a short caption and squeeze the pictures. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks>.image-grid{width:264px;max-width:100%;min-width:0;gap:3px;border-radius:14px;overflow:hidden}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks>.image-grid .image-thumbnail{border-radius:0;background:var(--surface)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks>.image-grid .attachment-image>.image-thumbnail img{height:130px}
+/* "长图 · 点击查看": a quiet caption strip along the thumbnail's bottom edge, never a wrapped black disc. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-image .long-image-label{left:0;right:0;bottom:0;max-width:none;padding:18px 8px 6px;border-radius:0;background:linear-gradient(to bottom,rgba(17,16,22,0),rgba(17,16,22,.58));color:#fff;font-size:10.5px;font-weight:500;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .image-grid .attachment-image .long-image-label{padding:16px 6px 5px;font-size:10px}
+/* Files: one white list with a hairline, the same width alone or together. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(>.file-card){min-width:min(100%,300px)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown)>.file-card{width:min(100%,300px);margin:0;border-radius:0;background:var(--raised);box-shadow:inset 1px 0 0 var(--border),inset -1px 0 0 var(--border),inset 0 1px 0 var(--border)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown)>.file-card+.file-card{margin-top:-3px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown)>.file-card:not(.file-card+.file-card){border-top-left-radius:12px;border-top-right-radius:12px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown)>.file-card:not(:has(+.file-card)){border-bottom-left-radius:12px;border-bottom-right-radius:12px;box-shadow:inset 1px 0 0 var(--border),inset -1px 0 0 var(--border),inset 0 1px 0 var(--border),inset 0 -1px 0 var(--border)}
+@media(min-width:761px){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown):has(>.file-card){min-width:min(100%,380px)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown)>.file-card{width:min(100%,380px)}
+}
+/* Where the words meet what follows, both corners tighten. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown)>.markdown+.attachment-image>.image-thumbnail,:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks:has(>.markdown)>.markdown+:is(.image-grid,.file-card:not(.file-card+.file-card)){border-top-right-radius:6px}
+/* 引用 / 转发 sit under the attachments as quiet icons, outside any bubble. */
+/* "Forwarded from": one quiet line above the message instead of a three-line block. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks.has-reference>.forwarded-message{width:auto;max-width:100%;margin:0 0 2px;padding:0;border:0;border-radius:8px;background:none;color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks.has-reference>.forwarded-message .message-reference-source{gap:6px;padding:2px 6px;color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks.has-reference>.forwarded-message .message-reference-source>span{display:flex;flex:0 1 auto;flex-wrap:wrap;align-items:baseline;gap:0 6px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks.has-reference>.forwarded-message .message-reference-source strong{font-size:12px;font-weight:500;color:var(--grey)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks.has-reference>.forwarded-message .message-reference-source :is(span>span,small){font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.user .message-blocks.has-reference>.forwarded-message .message-reference-source>svg{width:13px;height:13px}
+@media(max-width:760px){
+  /* Voice messages keep their full width and controls but sit as a slimmer bar. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message .attachment-audio>audio{height:40px}
+  /* Balance the source line between author and content. Bottom alignment left
+     an empty band below the author; keep the full, non-overlapping 44px target. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-body:has(>.bot-reply-source-row)>.message-meta{margin-bottom:0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-body>.bot-reply-source-row{margin:0}
+}
+/* Draft tray: equal tiles, a caption under each, a small dark remove badge. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-draft-thumbnail{border-radius:10px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-draft-file>.draft-file-remove{top:0;right:0;background:transparent;box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-draft-file>.draft-file-remove>svg{box-sizing:border-box;width:20px;height:20px;padding:4px;border-radius:50%;background:rgba(31,30,38,.72);color:#fff}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .draft-attachment-summary small{font-size:12px;color:var(--label,var(--muted))}
+@media(hover:hover) and (min-width:761px){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-draft-file:not(:hover,:focus-within)>.draft-file-remove{opacity:0}
+}
+@media(max-width:760px){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file:not(.audio-draft){flex:0 0 64px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file:not(.audio-draft) .attachment-draft-thumbnail{width:64px;height:64px;border-radius:10px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file:not(.audio-draft) .draft-file-name{display:flex}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file:not(.audio-draft) .draft-file-name>small{display:none}
+}
+/* Attach sheet: the same grouped list as the long-press sheet. */
+@media(max-width:760px){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-source-list{gap:0;padding:0;border-radius:14px;background:var(--canvas)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-source-list>button{position:relative;min-height:52px;padding:0 16px;font-size:16px;font-weight:500;border-radius:0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-source-list>button:first-child{border-radius:14px 14px 0 0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-source-list>button:last-child{border-radius:0 0 14px 14px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-source-list>button+button::before{content:"";position:absolute;top:0;right:0;left:56px;height:1px;background:var(--border)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .attachment-source-list>button>span{flex:0 0 24px;width:24px;height:24px;background:transparent;color:var(--grey)}
+}
+
+/* Search results lead with the message; the repeated conversation name becomes a small label. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .search-results>button{border-color:var(--rule-soft,var(--border));border-radius:12px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .search-results>button>strong{font-size:12px;font-weight:500;color:var(--label,var(--muted))}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .search-results>button>p{margin:4px 0 6px;color:var(--text)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .search-results>button>small{font-size:12px;color:var(--label,var(--muted));font-variant-numeric:tabular-nums}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .search-filters{border-radius:12px}
+/* ---------- 5. Lists ---------- */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .inbox-row-bot{flex-shrink:0;padding-inline:0;background:transparent}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.inbox-row-bot,.mobile-home .mh-row-tag) .bot-name-label{padding-inline:0;background:transparent;color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-row-tag:not(:has(.bot-name)){padding-inline:0;background:transparent;color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-row[data-unread] .mh-row-time{color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .profile-avatar-group.profile-avatar-composite{background:transparent}
+
+/* Selecting messages: the hover actions step aside, and the bar's buttons match the app's. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.is-selecting .message-actions{visibility:hidden}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-selection-bar button{border-color:transparent;border-radius:10px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-selection-bar button:not(.message-delete-action){background:var(--raised);box-shadow:0 0 0 1px var(--border-strong)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-selection-bar .message-delete-action{border-color:transparent;background:color-mix(in srgb,var(--red) 7%,var(--bg));color:var(--red);box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-selection-bar .message-delete-action:hover:not(:disabled){border-color:transparent;background:color-mix(in srgb,var(--red) 12%,var(--bg));color:var(--red)}
+/* ---------- 6. Menus ---------- */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.desktop-menu,.desktop-menu-context)>button{font-weight:400}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .desktop-menu>button:has(.desktop-menu-text) .desktop-menu-text>:first-child{font-weight:400}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .create-menu>button .desktop-menu-text>:first-child{font-weight:500}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .desktop-menu-text>small{font-size:12px;color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .chat-menu{max-width:280px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .desktop-menu-context>button>kbd{padding:1px 5px;border-radius:var(--radius-xs);background:var(--surface);font-size:10.5px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-settings-menu{border-color:transparent}
+
+/* ---------- 7. Buttons: flat primary, ringed white secondary ---------- */
+:root:is(:not([data-palette]),[data-palette^=white-]) :is(.primary,.send-button):not(:disabled){background-image:none;box-shadow:0 1px 2px rgba(53,31,110,.2)}
+/* ADHD navigation is unframed; retain the existing hit area, hover and keyboard feedback. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-toolbar :is(.agent-bus-entry,.adhd-exit){border-color:transparent;box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(button.secondary,.settings-content .quick-actions>button:not(.primary),.avatar-setting>button,.adhd-overview,.adhd-start,.folder-manager-dialog .folder-new-choice){border:0;background:var(--raised);color:var(--text);font-weight:500;box-shadow:0 0 0 1px var(--border-strong),0 1px 2px rgba(31,30,38,.05)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(button.secondary,.settings-content .quick-actions>button:not(.primary),.avatar-setting>button,.adhd-overview,.adhd-start,.folder-manager-dialog .folder-new-choice):hover:not(:disabled){background:var(--hover)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(button.secondary,.settings-content .quick-actions>button:not(.primary),.avatar-setting>button):disabled{box-shadow:0 0 0 1px var(--border);color:var(--muted)}
+/* Stop is one outlined square in the plus colour: no ring inside the round button, and the same 1.75 line as the other icons. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-stop svg>circle{display:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-stop svg>rect{transform:scale(2.1);transform-origin:12px 12px;stroke-width:.83}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .composer-toolbar .icon-button.composer-stop.is-live{color:var(--grey)}
+/* Selects are inputs: a fill and a chevron, never the drawn triangle. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) select:not([multiple]){background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b6a77' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-position:right 10px center;background-size:14px 14px;background-repeat:no-repeat}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono])[data-theme=dark] select:not([multiple]){background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aaa9b4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")}
+@media(prefers-color-scheme:dark){:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono])[data-theme=system] select:not([multiple]){background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aaa9b4' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")}}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.settings-content select,.adhd-display-control select){border-color:transparent;border-radius:10px;background-color:var(--surface)}
+
+/* Dialog fields share the search field's language; disabled primary reads as unavailable; plain disclosures use the settings chevron. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.primary,.card-button):disabled{opacity:1;border-color:transparent;background:var(--surface-alt);color:var(--muted);box-shadow:none}
+/* Violet's tinted surface needs the secondary foreground for legible disabled labels. */
+:root[data-palette=white-violet] :is(.primary,.card-button):disabled{color:var(--grey)}
+/* Wrapped search fields own their surface and focus border, including the icon. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) dialog :is(input:not([type=checkbox],[type=radio],[type=range],[type=color],[type=file]),select:not([multiple]),textarea):not(.forward-search input,.topic-search input,.run-details-tools input,.workbench-library-search input){border-color:transparent;border-radius:10px;background-color:var(--surface)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) dialog :is(input:not([type=checkbox],[type=radio],[type=range],[type=color],[type=file]),select:not([multiple]),textarea):not(.forward-search input,.topic-search input,.run-details-tools input,.workbench-library-search input):focus{border-color:color-mix(in srgb,var(--focus) 45%,var(--bg));background-color:var(--raised);box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 12%,transparent)}
+/* Queue editing keeps the focus border, without the surrounding input halo. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .creation-dialog.prompt-queue-panel .prompt-queue-editor textarea:focus{box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .creation-dialog :is(.forward-search,.topic-search){border-color:transparent;border-radius:10px;background:var(--surface)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .creation-dialog :is(.forward-search,.topic-search):focus-within{border-color:color-mix(in srgb,var(--focus) 45%,var(--bg));background:var(--raised);box-shadow:0 0 0 3px color-mix(in srgb,var(--focus) 12%,transparent)}
+:root:not([data-palette=cli]) dialog details:not([class])>summary:not([data-disclosure-icon]){display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none}
+:root:not([data-palette=cli]) dialog details:not([class])>summary:not([data-disclosure-icon])::-webkit-details-marker{display:none}
+:root:not([data-palette=cli]) dialog details:not([class])>summary:not([data-disclosure-icon])::before{content:"›";font-size:18px;line-height:1;transition:transform var(--t-fast) var(--ease)}
+:root:not([data-palette=cli]) dialog details:not([class])[open]>summary:not([data-disclosure-icon])::before{transform:rotate(90deg)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) dialog>.runtime-host-label,:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) dialog>.settings-dialog-body>.runtime-host-label{margin-bottom:12px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .forward-dialog .forward-target{border-radius:10px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .forward-dialog .forward-target:hover:not(:disabled,[aria-pressed=true]){background:var(--hover)}
+/* ---------- 8. Settings ---------- */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-navigation{background:var(--canvas)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-navigation>button[aria-current=page],:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-navigation>button[aria-current=page]:hover:not(:disabled){background:var(--raised);color:var(--text);box-shadow:0 0 0 1px var(--border),0 1px 2px rgba(31,30,38,.05)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .settings-group{padding-inline:16px;border:1px solid var(--border);border-radius:var(--radius-xl);background:var(--raised)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .settings-group>.settings-row:last-child{border-bottom:0}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .settings-group.quiet-card{padding-inline:0}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .settings-group>.settings-callout{margin:0 0 12px;padding:10px 12px;border:0;border-radius:10px;background:var(--canvas);font-size:13px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .settings-group>.settings-row:has(+.settings-callout){border-bottom:0}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .network-settings-options{border-radius:var(--radius-xl)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .network-settings-option{background:var(--raised)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .network-settings-option:hover:not(:disabled){background:var(--hover)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .local-asr-setup{border-radius:14px;background:var(--raised)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content input[type=time]{width:132px;flex:none;font-variant-numeric:tabular-nums}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content input[type=time][value=""]{color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content input[type=time]::-webkit-calendar-picker-indicator{opacity:.45}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-grants-scope{padding-left:0;border-left:0}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-grants-self{color:var(--muted)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.device-id,.device-facts code){font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+@media(min-width:761px) and (hover:hover) and (pointer:fine){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content button:not(.icon-button,[role=switch],.model-brand-toggle,.network-settings-option,.settings-help>summary){min-height:36px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content .device-row button{min-height:32px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .settings-content select{min-height:36px}
+}
+/* Structural fixes for every non-terminal palette. */
+:root:not([data-palette=cli]) .settings-content .settings-note{margin-inline:0}
+:root:not([data-palette=cli]) .settings-content :is(.settings-group-heading,.device-host-scope)+.settings-lede{margin-top:0}
+:root:not([data-palette=cli]) .settings-content .device-host-scope{margin:0 0 6px;font-weight:500;color:var(--grey)}
+:root:not([data-palette=cli]) .settings-content details:not(.settings-help)>summary:not([data-disclosure-icon]){display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none}
+:root:not([data-palette=cli]) .settings-content details:not(.settings-help)>summary:not([data-disclosure-icon])::-webkit-details-marker{display:none}
+:root:not([data-palette=cli]) .settings-content details:not(.settings-help)>summary:not([data-disclosure-icon])::before{content:"›";font-size:18px;line-height:1;transition:transform var(--t-fast) var(--ease)}
+:root:not([data-palette=cli]) .settings-content details:not(.settings-help)[open]>summary:not([data-disclosure-icon])::before{transform:rotate(90deg)}
+
+/* One notice: a soft tinted panel with a small mark, the same in every dialog. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(dialog,.settings-panel,.settings-content) :is(p,div).error-text[role=alert]:not(:empty):not(.capabilities-error>*){display:flex;align-items:flex-start;gap:8px;margin:10px 0;padding:10px 12px;border:0;border-radius:10px;background:color-mix(in srgb,var(--red) 6%,var(--bg));color:color-mix(in srgb,var(--red) 85%,var(--text));font-size:13px;line-height:1.5}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(dialog,.settings-panel,.settings-content) :is(p,div).error-text[role=alert]:not(:empty):not(.capabilities-error>*)::before{content:"";flex:none;width:14px;height:14px;margin-top:3px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E") center/contain no-repeat}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(dialog,.settings-panel,.settings-content) div.error-text[role=alert]>p{margin:0}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .capabilities-error{padding:8px 8px 8px 12px;border-radius:10px;background:color-mix(in srgb,var(--red) 6%,var(--bg))}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .capabilities-error .error-text{font-size:13px;color:color-mix(in srgb,var(--red) 85%,var(--text))}
+/* ---------- 9. Secondary planes: details panel and ADHD ---------- */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .conversation-details{background:var(--canvas);border-left-color:var(--border)}
+@media(min-width:761px){:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .conversation-details>header{height:64px;border-bottom:1px solid var(--border)}}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .details-link small{text-wrap:pretty}
+/* Separate the neutral workspace/header chrome from each white reading pane.
+   Dark mode retains the corresponding theme surfaces rather than forcing white. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-shell{--adhd-workspace-bg:#f7f8fa;--adhd-header-bg:#fcfcfc}
+:root[data-theme=dark] .adhd-shell{--adhd-workspace-bg:var(--canvas);--adhd-header-bg:color-mix(in srgb,var(--surface) 40%,var(--bg))}
+@media(prefers-color-scheme:dark){:root[data-theme=system] .adhd-shell{--adhd-workspace-bg:var(--canvas);--adhd-header-bg:color-mix(in srgb,var(--surface) 40%,var(--bg))}}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.adhd-shell,.adhd-workbench,.adhd-toolbar){background:var(--adhd-workspace-bg)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.adhd-card-bar,.adhd-card .conversation-header){background:var(--adhd-header-bg)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-toolbar .adhd-display-control select{background-color:var(--raised);border-color:var(--border)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-card .message-meta strong{font-size:inherit}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-card{--adhd-card-radius:14px}
+/* The pane already has an outer frame; the ordinary chat/sidebar separator
+   would double its left edge inside this nested conversation. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-card .conversation-main{border-left:0}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-card:not([data-adhd-dragging=true]){box-shadow:none}
+/* Nested reply cards and composers otherwise retain the shared chat shadows.
+   Keep their existing fine borders, including while typing, so the whole pane
+   reads as one surface. Menus/dialogs and the temporary drag lift stay separate. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-card :is(.message.bot .message-blocks>.rich-card,.composer,.composer:focus-within){box-shadow:none}
+/* A steady accent frame identifies the active conversation without a shadow
+   or geometry change. Unfocused attention and temporary drag lift stay separate. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-card.is-focused:not([data-adhd-dragging=true]){border-color:var(--adhd-focus-color);box-shadow:none}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .adhd-card.needs-attention:not(.is-focused):not([data-adhd-dragging=true]){border-top-color:var(--accent,var(--blue))}
+
+/* ---------- 11. Phone ---------- */
+@media(max-width:760px){
+  /* Header actions are glyphs with a full tap area, not filled discs. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-icon-button{background:transparent;box-shadow:none;color:var(--text)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-icon-button svg{width:24px;height:24px}
+  /* Filters are words: the current one turns ink with a short thin accent line just beneath; no pill. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-filters{gap:0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-chip{min-width:44px;padding:0 12px;border-radius:0;color:var(--muted)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-chip:first-child{padding-left:4px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-chip[aria-pressed='true']{background-color:transparent;color:var(--text)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-chip[aria-pressed='true']::after{content:"";position:absolute;bottom:4px;left:50%;width:12px;height:1.5px;margin-left:-6px;border-radius:1px;background:var(--accent)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-chip:first-child[aria-pressed='true']::after{left:calc(50% - 4px)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-chip:not([aria-pressed='true']):is(:hover,:active){background-color:transparent;color:var(--grey)}
+  /* Bot tab: quiet ringed "New chat", lighter gears. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-new-chat{background:transparent;box-shadow:inset 0 0 0 1px var(--border);color:var(--grey);font-weight:500}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-bot-settings{color:var(--label,var(--muted))}
+  /* Narrow phones show only the plus: a 32px soft disc painted inside the 44px target, no ring. */
+  @media(max-width:360px){
+    :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-bot-row .mh-new-chat{padding:6px;border-radius:50%;background:var(--hover);background-clip:content-box;box-shadow:none;color:var(--grey)}
+    :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-bot-row .mh-new-chat svg{color:inherit}
+    :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-bot-row .mh-new-chat:active{background-color:var(--surface)}
+  }
+  /* Me card is flat; no accent wash. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-home .mh-me-card{background-image:none;background-color:var(--raised);box-shadow:0 0 0 1px var(--border)}
+  /* Grouped action sheets: a filled list, separators start after the icon. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-chat-action-list{border:0;box-shadow:none;background:var(--canvas);border-radius:14px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-chat-action-list>button{position:relative}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-chat-action-list>button+button{box-shadow:none}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-chat-action-list>button+button::before{content:"";position:absolute;top:0;right:0;left:56px;height:1px;background:var(--border);pointer-events:none}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-conversation-action-title{font-size:17px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .mobile-conversation-actions{padding-bottom:max(16px,env(safe-area-inset-bottom))}
+}
+/* Phone 运行状态: white grouped cards on the canvas. Refresh is a small pill, the Hub entries are one
+   list with chevrons, each instance is one card with its avatar inline, and its actions are soft tiles. */
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-panel>.operations-body{background:var(--canvas)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body>h3{margin:20px 4px 8px;padding-top:0;border-top:0;font-size:12.5px;font-weight:600;color:var(--label,var(--muted))}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body>button:first-child{position:relative;display:flex;align-items:center;gap:6px;min-height:36px;margin:0 0 -8px auto;padding:0 14px;border:0;border-radius:999px;background:var(--raised);box-shadow:0 0 0 1px var(--border);font-size:13px;font-weight:500;color:var(--grey)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body>button:first-child::before{content:"";width:14px;height:14px;background:currentColor;-webkit-mask:var(--ops-refresh) center/contain no-repeat;mask:var(--ops-refresh) center/contain no-repeat;--ops-refresh:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8'/%3E%3Cpath d='M21 3v5h-5'/%3E%3C/svg%3E")}
+  /* Compact pills keep a 44px touch target. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.operations-body>button:first-child,.operation-bot>.avatar-setting>button)::after{content:"";position:absolute;inset:-6px -2px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-metrics{gap:6px;margin:0 0 10px}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-metrics span{padding:6px 12px;border-radius:999px;background:var(--raised);box-shadow:0 0 0 1px var(--border);font-size:12.5px;color:var(--grey)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body>.operation-metrics~button{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:50px;margin:0;padding:0 16px;border:0;border-radius:0;background:var(--raised);box-shadow:inset 1px 0 0 var(--border),inset -1px 0 0 var(--border),inset 0 1px 0 var(--border);font-size:14.5px;font-weight:500;color:var(--text);text-align:left}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body>.operation-metrics~button::after{content:"";flex:none;width:16px;height:16px;background:var(--muted);-webkit-mask:var(--ops-chevron) center/contain no-repeat;mask:var(--ops-chevron) center/contain no-repeat;--ops-chevron:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E")}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body>.operation-metrics+button{border-radius:14px 14px 0 0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body>.operation-metrics~button:has(+h3){border-radius:0 0 14px 14px;box-shadow:inset 1px 0 0 var(--border),inset -1px 0 0 var(--border),inset 0 1px 0 var(--border),inset 0 -1px 0 var(--border)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot{display:grid;grid-template-columns:44px minmax(0,1fr) auto;column-gap:12px;align-items:center;margin:0 0 10px;padding:14px 16px;border:0;border-radius:16px;background:var(--raised);box-shadow:0 0 0 1px var(--border)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>header{grid-column:2;grid-row:1;display:flex;flex-direction:column;align-items:flex-start;gap:2px;margin:0;min-width:0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>header strong{display:flex;align-items:center;gap:6px;font-size:15.5px;min-width:0;max-width:100%;overflow-wrap:anywhere}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>header small{font-size:12px;color:var(--label,var(--muted))}
+  /* The avatar editor joins the card's grid; its label and name repeat the header, but a save receipt still shows. */
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>.avatar-setting{display:contents}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>.avatar-setting>.profile-avatar{grid-column:1;grid-row:1;width:44px!important;height:44px!important}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>.avatar-setting>div>:is(strong,small:not([role=status])){display:none}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>.avatar-setting>:is(div,p){grid-column:1/-1}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operations-body .operation-bot>.avatar-setting>button{position:relative;grid-column:3;grid-row:1;min-height:32px;padding:0 10px;border:0;border-radius:999px;background:var(--surface);box-shadow:none;font-size:12.5px;color:var(--grey)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>:not(header,.avatar-setting){grid-column:1/-1}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot>p{margin:10px 0 0;font-size:13px;color:var(--grey)}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot .quick-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:14px 0 0}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot .quick-actions>button{min-height:44px;margin:0;padding:0 10px;border:0;border-radius:11px;background:var(--surface);box-shadow:none;font-size:13.5px;font-weight:500;color:var(--text);justify-content:center}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot .quick-actions>button:nth-last-child(2):nth-child(odd){grid-column:1/-1}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .operation-bot .quick-actions>button:last-child{grid-column:1/-1;background:transparent;box-shadow:inset 0 0 0 1px var(--border);color:var(--grey)}
+}
+/* One sidebar edge: the conversation's own left border, so the header rule meets it in a clean T.
+   The splitter keeps only its hover and drag highlight. */
+@media(min-width:761px){:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .app-shell>.sidebar>.sidebar-resize-handle::before{background:transparent}}
+
+/* With no accent selected, retain the quieter grey aggregate count. */
+:root[data-palette=mono] .mobile-home .mh-tab-badge{background:var(--mono-summary-bg,#737373);color:var(--mono-summary-ink,#fff)}
+/* ---------- 12. Craft pass (second review) ---------- */
+/* Elevation ink follows the violet neutrals instead of the old warm brown. */
+:root[data-palette=white-violet]{
+  --elev-1:0 0 0 1px rgba(31,30,38,.07),0 1px 2px rgba(37,28,64,.07);
+  --elev-2:0 0 0 1px rgba(31,30,38,.07),0 1px 2px rgba(37,28,64,.05),0 8px 24px -8px rgba(37,28,64,.16);
+  --elev-3:0 0 0 1px rgba(31,30,38,.06),0 16px 40px -12px rgba(37,28,64,.24),0 40px 80px -32px rgba(37,28,64,.20);
+  --rule-soft:#efeff3; --label:#706e7c;
+}
+:root[data-theme=dark][data-palette=white-violet]{--rule-soft:#26252b;--label:#8f8d9a}
+@media(prefers-color-scheme:dark){:root[data-theme=system][data-palette=white-violet]{--rule-soft:#26252b;--label:#8f8d9a}}
+/* Three line tiers: the column divider keeps --border; inner rules are softer. */
+:root[data-palette=white-violet] .conversation-header{border-bottom-color:var(--rule-soft)}
+:root[data-palette=white-violet] :is(.bot-tree-conversations,.group-tree-topics){border-left-color:var(--rule-soft)}
+:root[data-palette=white-violet] .message .markdown :is(th,td){border-color:var(--rule-soft)}
+/* Secondary unread surfaces retain neutral violet styling. */
+:root[data-palette=white-violet] .unread-badge{background:#efeef4;color:#4d4b58;font-weight:600;font-variant-numeric:tabular-nums}
+:root[data-theme=dark][data-palette=white-violet] .unread-badge{background:#2a2930;color:#cfcdd8}
+@media(prefers-color-scheme:dark){:root[data-theme=system][data-palette=white-violet] .unread-badge{background:#2a2930;color:#cfcdd8}}
+/* CJK weights: PingFang renders only real steps, so use 400/500/600 deliberately. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .bot-identity strong{font-size:14px;font-weight:500}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .conversation-row strong{font-size:13px;font-weight:500}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .conversation-row:has(.unread-badge) strong{font-weight:600}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .sidebar .conversation-row small{font-size:12px}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .header-title h1{font-size:16px;font-weight:600}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message-meta strong{font-size:13px;font-weight:600}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .message.bot .markdown{line-height:1.72}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.message-meta time,.conversation-row time,.row-source-meta,.mh-row-time,.folder-count,.sidebar-label span){font-variant-numeric:tabular-nums}
+/* Monochrome accent (optional setting, off by default): the marks in Bot replies pick up one muted colour. */
+:root[data-palette=mono][data-mono-accent=graphite]{--mono-mark:#8e8e8e}
+:root[data-palette=mono][data-mono-accent=warm-gray]{--mono-mark:#a39b91}
+:root[data-palette=mono][data-mono-accent=mist]{--mono-mark:#7d8ea3}
+:root[data-palette=mono][data-mono-accent=sage]{--mono-mark:#8c9a84}
+:root[data-palette=mono][data-mono-accent=rose]{--mono-mark:#b8958d}
+:root[data-palette=mono][data-mono-accent=oat]{--mono-mark:#ab9a7f}
+:root[data-palette=mono][data-mono-accent=mauve]{--mono-mark:#988ea8}
+/* Keyboard focus follows the optional accent instead of the neutral action
+   colour. Deepen light swatches enough to remain visible on pale controls. */
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]){
+  --focus:color-mix(in srgb,var(--mono-mark) 75%,var(--text));
+  --ring:color-mix(in srgb,var(--focus) 18%,transparent);
+  --self-message-focus:color-mix(in srgb,var(--mono-mark) 75%,var(--self-message-fg));
+}
+
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .sidebar .search-box:focus-within{box-shadow:0 0 0 1px var(--focus),0 0 0 4px var(--ring)}
+
+/* Most summary badges use a deeper accent for their small white digits;
+   pale warm grey and sage override both fill and ink below.
+   Recording ink mixes with theme text for contrast; cancellation keeps its red. */
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]){--mono-summary-bg:color-mix(in srgb,var(--mono-mark) 70%,#171717);--recording-accent:color-mix(in srgb,var(--mono-mark) 62%,var(--text))}
+/* Local solid-control tokens: never recolour neutral controls, badges or bubbles.
+   Muted accents use white labels; pale warm grey and sage use dark labels.
+   Other accents keep dark mode's original pale controls. */
+:root[data-palette=mono]{--mono-control-bg:var(--primary-bg);--mono-control-hover:var(--primary-hover);--mono-control-ink:var(--on-primary)}
+:root[data-palette=mono][data-theme=light][data-mono-accent]:not([data-mono-accent=none],[data-mono-accent=warm-gray],[data-mono-accent=sage]){--mono-control-bg:color-mix(in srgb,var(--mono-mark) 70%,#171717);--mono-control-hover:color-mix(in srgb,var(--mono-mark) 60%,#171717)}
+@media(prefers-color-scheme:light){
+  :root[data-palette=mono][data-theme=system][data-mono-accent]:not([data-mono-accent=none],[data-mono-accent=warm-gray],[data-mono-accent=sage]){--mono-control-bg:color-mix(in srgb,var(--mono-mark) 70%,#171717);--mono-control-hover:color-mix(in srgb,var(--mono-mark) 60%,#171717)}
+}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) :is(button.primary:not(.danger,.text-danger),.send-button,.model-brand-toggle[aria-checked=true],input[type=range],.conversation-empty button,.creation-empty button,.mh-empty-action,.hold-voice.is-recording .hold-voice-button,.spreadsheet-tabs button[aria-pressed=true]):not(:disabled,[aria-disabled=true]){--primary-bg:var(--mono-control-bg);--primary-hover:var(--mono-control-hover);--on-primary:var(--mono-control-ink)}
+/* Light warm grey matches the first-run setup surface in every theme. Keep
+   the existing deeper --mono-mark for readable text/status/chart accents;
+   never darken the chosen fill merely to retain white button labels. */
+:root[data-palette=mono][data-theme][data-mono-accent=warm-gray]{
+  --mono-control-bg:#e7e2dc;
+  --mono-control-hover:#dbd5ce;
+  --mono-control-ink:#514c45;
+  --mono-summary-bg:#e7e2dc;
+  --mono-summary-ink:#514c45;
+}
+/* Sage uses a pale grey-green fill with dark ink, like the light warm-grey
+   option above. Preserve the readable marker/recording/chart shades. */
+:root[data-palette=mono][data-theme][data-mono-accent=sage]{
+  --mono-control-bg:#dce4d6;
+  --mono-control-hover:#cbd7c4;
+  --mono-control-ink:#43513d;
+  --mono-summary-bg:#dce4d6;
+  --mono-summary-ink:#43513d;
+}
+/* Configuration actions keep their approved warm neutral fill, even when an
+   accent is selected. Set the accent mapping locally as well as the primary
+   tokens, so enabling a control cannot restore the accent fill. Disabled
+   controls still use the shared unavailable-state styling above.
+   Scope to setup/settings surfaces; chat actions and destructive controls
+   retain their own colours. Dark/system modes use the same readable pair. */
+:root[data-palette=mono] :is(.pairing-page,.pairing-scanner,.pairing-wizard,.preferences-dialog,.network-manager,.bot-setup,.integration-recommendations,.routes-settings,.voice-settings,.local-asr-setup,.local-connection-settings,.desktop-host-invite,.local-relay-settings,.pairing-pending) button.primary:not(.danger,.text-danger){
+  --mono-control-bg:#e7e2dc;
+  --mono-control-hover:#dbd5ce;
+  --mono-control-ink:#514c45;
+  --primary-bg:var(--mono-control-bg);
+  --primary-hover:var(--mono-control-hover);
+  --on-primary:var(--mono-control-ink);
+}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .font-size-slider input:not(:disabled){--font-size-thumb:var(--mono-control-bg)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .message.bot .markdown :is(ul,ol)>li::marker{color:var(--mono-mark)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .message.bot .markdown ol>li::marker{font-weight:600;color:color-mix(in srgb,var(--mono-mark) 62%,var(--text))}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .message.bot .markdown hr{height:1px;border:0;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--mono-mark) 60%,transparent) 50%,transparent)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .message.bot .markdown blockquote{border-left-color:var(--mono-mark)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .message.bot .markdown a:not([class]){color:color-mix(in srgb,var(--mono-mark) 62%,var(--text))}
+/* The working signals follow the chosen accent too: the reply status, the typing dots, the run spinner and the active filter. */
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]){--mono-signal:color-mix(in srgb,var(--mono-mark) 85%,var(--text))}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .connection-pill.online svg{color:color-mix(in srgb,var(--mono-mark) 62%,var(--text))}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) :is(.header-activity:not([data-offline]),.user-reply-state.is-replying){color:color-mix(in srgb,var(--mono-mark) 62%,var(--text))}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .header-activity:not([data-offline]) .activity-dot,:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .header-activity:not([data-offline]) .activity-dot::after{background:var(--mono-signal)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .header-activity:not([data-offline]) .activity-dot{box-shadow:0 0 0 2px color-mix(in srgb,var(--mono-mark) 24%,transparent)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .message-avatar.bot.is-working::before,:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .run-status .spin{color:var(--mono-signal)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) .mobile-home .mh-chip[aria-pressed='true']::after{background:var(--mono-signal)}
+/* Engine marks recede: a small grey glyph, not a near-black logo after every name. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) .bot-brand-icon{flex-basis:12px;width:12px;height:12px;color:var(--label,var(--muted))}
+/* Keyboard focus and pressed states share one language. */
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.conversation-row,.bot-identity,.details-link):focus-visible{outline:none;box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--focus) 55%,transparent)}
+:root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]) :is(.conversation-row,.bot-identity,.details-link):focus-visible{box-shadow:inset 0 0 0 2px var(--focus)}
+:root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.conversation-row,.bot-identity):active:not(:disabled,.selected){background:var(--canvas-hover)}
+/* Keep timeline edges opaque: fading the scrollport also fades readable text
+   and delivery receipts when a bubble reaches the composer. */
+/* Monochrome Bot replies are white cards on white; the palette preview keeps an outline so the bar stays visible. */
+.palette-preview[data-palette=mono] .palette-preview-bot{box-shadow:inset 0 0 0 1px var(--border)}
+/* Monochrome: a checked box is an outlined tick on white, not a solid black square. */
+:root[data-palette=mono] input[type=checkbox]:checked{border-color:color-mix(in srgb,var(--text) 78%,var(--bg));background:var(--raised)}
+:root[data-palette=mono] input[type=checkbox]:checked::before{background:var(--text)}
+:root[data-palette=mono] .adhd-picker-check input:checked+span{border-color:color-mix(in srgb,var(--text) 78%,var(--bg));background:var(--raised);color:var(--text)}
+
+/* Desktop lists use a quiet red dot instead of the count pill. Keep the count
+   in the DOM/accessibility label and retain existing read/aggregation semantics.
+   Selected rows, folded Bots/folders and ADHD share this; phone badges do not. */
+@media(min-width:761px){
+  :root .sidebar :is(.unread-badge,.conversation-row.selected .unread-badge){background:#d13e42;color:#fff;width:8px;min-width:8px;height:8px;padding:0;border-radius:50%;font-size:0;line-height:0}
+}
+@media(min-width:761px) and (forced-colors:active){
+  :root .sidebar :is(.unread-badge,.conversation-row.selected .unread-badge){background:CanvasText;forced-color-adjust:none}
+}
+
+/* Let the system's high-contrast focus colour win over optional accents. */
+@media(forced-colors:active){
+  :root[data-palette=mono][data-mono-accent]:not([data-mono-accent=none]){--focus:Highlight;--self-message-focus:Highlight}
+  :root:is(:not([data-palette]),[data-palette^=white-],[data-palette=mono]) :is(.conversation-row,.bot-identity,.details-link):focus-visible{outline:2px solid Highlight;outline-offset:-2px;box-shadow:none}
+}

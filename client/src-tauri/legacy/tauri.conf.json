@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TaroBot",
+  "version": "1.0.119",
+  "identifier": "com.tarobot.client",
+  "build": {
+    "frontendDist": "../../../.desktop-migration-exporter-dist",
+    "windows": {
+      "staticVCRuntime": false
+    }
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'none'; connect-src ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'",
+      "capabilities": [
+        {
+          "identifier": "migration-exporter",
+          "windows": [
+            "main"
+          ],
+          "permissions": []
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "../icons/32x32.png"
+    ]
+  }
+}

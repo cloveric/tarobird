@@ -1,0 +1,1454 @@
+/* =============================================================================
+   TaroCub workspace skin. Coordinated colour tokens live in palette-tokens.css.
+   Loaded after styles.css; palette-tokens.css follows this component skin.
+   E2E fixtures load styles.css alone; keep product styling in this file.
+
+   House rules for this file
+   - Declare only properties that change. Where styles.css / preferences.css
+     change a property on phones (max-width:760px/600px) or wide screens
+     (min-width:1500px), the value is restated in the matching section at the end.
+   - Never animate, transform or transition `.message`: react-virtual places
+     each row with an inline translateY. Nothing inside the virtual list gets an
+     entry animation; streamed tokens never replay motion.
+   - Motion is functional only and shares one vocabulary (tokens below):
+     --t-fast 120ms colour/opacity feedback; --t-med 180ms selection indicators
+     and popovers; --t-slow 220ms dialogs; --t-sheet 280ms phone sheets.
+     Entrances use --ease-out, sheets --ease-sheet, state changes --ease.
+     Presses land at once (0s) and release over the control's own transition;
+     press is a tone, never a scale. Anchored popovers grow from their source.
+     Loops exist only for real state: progress spinners, the recording dot and
+     the reply-activity halo (only while a reply streams; paused while the page
+     is hidden). No looping decoration, no bouncing, no press scaling, no
+     staggered entrances.
+   - One accent. --accent / --primary carry action, focus, selection, unread
+     and live reply activity. Green, amber and red stay semantic. --blue and --selected (styles.css and
+     the feature sheets) are aliases of the accent.
+   - Two planes (Atelier, 2026-10-04): stone canvas (sidebar) and porcelain
+     reading plane; on desktop the reading plane is an inset sheet (Studio,
+     2026-10-05: 8px stone margin, 14px corners, --elev-1, no sidebar rule).
+     On either, selected and secondary controls are raised chips
+     (--raised + --elev-1: a hairline ring and a short shadow, no layout-shifting
+     border); fields are recessed fills that lift to raised on focus; overlays
+     use --elev-2 / --elev-3. Hairlines still separate regions. Plain Bot text remains
+     unboxed; structured replies use a compact, raised reading card with a
+     hairline outline (2026-10-11).
+   - Identity: default Bot pictures are lit "dots", default groups lit tiles,
+     tinted by a stable per-id hue (Avatar.tsx data-hue). Custom pictures win.
+   - Radii: 4 (chips, badges), 6 (controls), 8 (rows, cards, segments), 10
+     (grouped lists, tracks), 12–16 (dialogs, popovers, file cards), 18 (own
+     bubble, 6px tail corner), 10 (Bot cards), 22 (composer). Full circles for
+     counters, dots and round actions.
+   - Dialogue: own messages are a right-aligned, borderless tinted bubble, with
+     tone-aware text in light and dark themes (--self-message-*); Bot text is
+     unboxed on the reading plane at a ~42em measure, identified by avatar + name.
+     Everything that sits inside the self bubble restates its colours.
+   - Text, syntax, primary actions and focus contrast are checked for each
+     palette in both modes. Status colours keep their semantic meaning.
+   - No `transition: all`, no animated width/height, no forced smooth scroll.
+   ========================================================================== */
+
+/* ---------- Tokens: light (also data-theme=system on a light OS) ---------- */
+:root{
+  --font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --font-mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+
+  --green:#1d7a45; --green-soft:#e7f3eb; --orange:#9a5800; --orange-soft:#fbf2e2; --red:#c1353b; --red-soft:#fcecec;
+
+  --scrim:rgba(24,23,21,.32);
+  --shadow-sm:0 1px 2px rgba(24,23,21,.05);
+  --shadow:0 1px 2px rgba(24,23,21,.04),0 4px 14px rgba(24,23,21,.07);
+  --shadow-lg:0 2px 6px rgba(24,23,21,.05),0 18px 48px rgba(24,23,21,.16);
+  /* Elevation: hairline ring + soft drop. 1 = raised chip, 2 = composer/popover, 3 = dialog. */
+  --elev-1:0 0 0 1px rgba(40,32,24,.07),0 1px 2px rgba(40,32,24,.07);
+  --elev-2:0 0 0 1px rgba(40,32,24,.07),0 1px 2px rgba(40,32,24,.05),0 8px 24px -8px rgba(40,32,24,.16);
+  --elev-3:0 0 0 1px rgba(40,32,24,.06),0 16px 40px -12px rgba(40,32,24,.24),0 40px 80px -32px rgba(40,32,24,.20);
+  --on-tone:#fff;
+  --ease:cubic-bezier(.2,0,0,1); --ease-out:cubic-bezier(.16,1,.3,1); --ease-sheet:cubic-bezier(.32,.72,0,1);
+  --t-fast:120ms; --t-med:180ms; --t-slow:220ms; --t-sheet:280ms;
+  --radius-xs:4px; --radius-sm:6px; --radius:8px; --radius-lg:10px; --radius-xl:12px; --radius-2xl:16px;
+  /* Card templates are Bot-chosen content semantics, kept muted. */
+  --card-blue-bg:#e9eef7; --card-blue-fg:#2c4f86; --card-green-bg:#e7f3eb; --card-green-fg:#1d6f3f; --card-orange-bg:#fbf0dd; --card-orange-fg:#8a5200; --card-red-bg:#fcebea; --card-red-fg:#b02f2f;
+  font-family:var(--font-sans); color-scheme:light;
+}
+/* ---------- Tokens: dark (explicit, and system on a dark OS) ---------- */
+:root[data-theme=dark]{
+
+  --green:#5fc285; --green-soft:#1c3226; --orange:#e6ad55; --orange-soft:#372b18; --red:#f2737a; --red-soft:#3d2326;
+
+  --scrim:rgba(0,0,0,.5);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.32);
+  --shadow-lg:0 20px 56px rgba(0,0,0,.55);
+  --elev-1:0 0 0 1px rgba(255,255,255,.07),0 1px 2px rgba(0,0,0,.4);
+  --elev-2:0 0 0 1px rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.3),0 10px 28px -8px rgba(0,0,0,.55);
+  --elev-3:0 0 0 1px rgba(255,255,255,.08),0 24px 64px -16px rgba(0,0,0,.65);
+  --card-blue-bg:#24303f; --card-blue-fg:#a9c1e3; --card-green-bg:#1f3a2a; --card-green-fg:#92d5a3; --card-orange-bg:#3f321d; --card-orange-fg:#efc27e; --card-red-bg:#43282b; --card-red-fg:#f6a5a8;
+  color-scheme:dark;
+}
+@media(prefers-color-scheme:dark){:root[data-theme=system]{
+
+  --green:#5fc285; --green-soft:#1c3226; --orange:#e6ad55; --orange-soft:#372b18; --red:#f2737a; --red-soft:#3d2326;
+
+  --scrim:rgba(0,0,0,.5);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3);
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.32);
+  --shadow-lg:0 20px 56px rgba(0,0,0,.55);
+  --elev-1:0 0 0 1px rgba(255,255,255,.07),0 1px 2px rgba(0,0,0,.4);
+  --elev-2:0 0 0 1px rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.3),0 10px 28px -8px rgba(0,0,0,.55);
+  --elev-3:0 0 0 1px rgba(255,255,255,.08),0 24px 64px -16px rgba(0,0,0,.65);
+  --card-blue-bg:#24303f; --card-blue-fg:#a9c1e3; --card-green-bg:#1f3a2a; --card-green-fg:#92d5a3; --card-orange-bg:#3f321d; --card-orange-fg:#efc27e; --card-red-bg:#43282b; --card-red-fg:#f6a5a8;
+  color-scheme:dark;
+}}
+
+/* ---------- Base controls ---------- */
+/* Grayscale antialiasing and kerning keep CJK and Latin strokes even on macOS; no web fonts. */
+body{background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;font-kerning:normal}
+::selection{background:var(--selection)}
+.lucide{stroke-width:1.75}
+button{border-radius:var(--radius-sm);transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease),opacity var(--t-fast) var(--ease)}
+/* Phones draw these controls inside wide transparent borders that desktop does
+   not have. Animating border-color from currentColor flashed a grey ring after a
+   breakpoint change, so their borders switch instantly. */
+:is(.file-card button,.composer-toolbar button,.topic-tabs button){transition-property:background-color,color,box-shadow,opacity}
+/* A press lands on pointer-down; only the release eases back. */
+button:active:not(:disabled){transition-duration:0s}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* Preserve each region's existing outline geometry, including native defaults. */
+:where([tabindex]):focus-visible{outline-color:var(--focus)}
+/* Restored pointer focus must not paint a keyboard ring on dialog/toolbar
+   buttons. Keep text-field focus and each theme's decorative borders intact. */
+:root[data-focus-intent=pointer] button:focus-visible{outline:none}
+input,select,textarea{background:var(--raised);border-color:var(--border-strong);border-radius:var(--radius-sm);transition:border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+/* Text fields show focus as an accent border and soft ring, not a detached outline. */
+:is(input:not([type=checkbox],[type=radio],[type=range],[type=file]),select,textarea):focus-visible{outline:none;border-color:var(--focus);box-shadow:0 0 0 3px var(--ring)}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+input[type=checkbox],input[type=radio],input[type=range]{accent-color:var(--primary-bg)}
+/* Checkboxes are a soft rounded square in every palette except CLI,
+   which keeps its square terminal geometry. Each control keeps its own
+   size; the check uses the primary colours so it stays legible in dark modes. */
+:where(:root:not([data-palette=cli])) input[type=checkbox]{appearance:none;-webkit-appearance:none;display:inline-grid;place-content:center;flex:none;width:16px;height:16px;min-height:0;margin:0;padding:0;border:1.5px solid var(--border-strong);border-radius:5px;background:var(--raised);box-shadow:none;vertical-align:middle;cursor:pointer;transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease)}
+:where(:root:not([data-palette=cli])) input[type=checkbox]::before{content:"";width:11px;height:11px;background:var(--on-primary);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/contain no-repeat;transform:scale(0);transition:transform var(--t-fast) var(--ease-out)}
+:where(:root:not([data-palette=cli])) input[type=checkbox]:hover:not(:disabled){border-color:var(--accent-line)}
+:where(:root:not([data-palette=cli])) input[type=checkbox]:checked{border-color:var(--primary-bg);background:var(--primary-bg)}
+:where(:root:not([data-palette=cli])) input[type=checkbox]:checked::before{transform:none}
+:where(:root:not([data-palette=cli])) input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}
+/* Let the platform draw check marks in forced colours. A masked custom mark
+   otherwise gets the same Canvas fill as its background and disappears. */
+@media(forced-colors:active){
+  :where(:root:not([data-palette=cli])) input[type=checkbox]{appearance:auto;-webkit-appearance:auto}
+  :where(:root:not([data-palette=cli])) input[type=checkbox]::before{content:none}
+}
+input[type=range]{border:0;background:transparent}
+select:not([multiple]){-webkit-appearance:none;appearance:none;padding-right:30px;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat}
+/* Primary actions carry a faint top light and contact shadow: pressed-from-material, not flat paint. */
+.primary{background:var(--primary-bg);border-color:var(--primary-bg);color:var(--on-primary);font-weight:600;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(40,32,24,.16)}
+.primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover);color:var(--on-primary)}
+.primary:disabled{opacity:.45;box-shadow:none}
+.full{min-height:40px;border-radius:var(--radius)}
+.icon-button{border-radius:var(--radius-sm);color:var(--grey)}
+.icon-button:hover:not(:disabled){color:var(--text)}
+.text-danger,.error-text{color:var(--red)}
+.muted{color:var(--muted)}
+kbd{font:500 11px/1 var(--font-sans);color:var(--muted)}
+/* Lists clip their overflow, so their focus ring sits inside the row. Grouped
+   sheet lists and anchored menus are flush-edged lists too. */
+:is(.conversation-row,.bot-identity,.group-toggle,.topic-tabs button,.topic-directory-row,.topic-default-row,.forward-target,.file-unit,.search-results>button,.settings-navigation>button,.welcome-action,.mobile-chat-action-list>button,.message-sheet-list>a,.attachment-source-list>button,.command-menu button):focus-visible{outline-offset:-2px}
+
+/* ---------- Wordmark: scenes show the mascot, then the name; sidebars show the name only ---------- */
+.wordmark{display:inline-flex;align-items:center;gap:9px;min-width:0;color:var(--text)}
+.wordmark-icon{display:block;flex-shrink:0;width:32px;height:32px;border-radius:8px;object-fit:contain;user-select:none}
+.wordmark-icon-flat{display:none}
+.wordmark-text{font-size:15.5px;font-weight:680;letter-spacing:-.02em;white-space:nowrap}
+
+/* ---------- App shell and sidebar ---------- */
+/* Stone canvas. Rows are quiet text until hovered; the current row is a raised
+   chip. Field = recessed fill; creation = raised chips; utilities appear on
+   hover/focus where a pointer exists and stay visible on touch. */
+.app-shell{background:var(--canvas)}
+.sidebar{width:272px;padding:0 10px;background:var(--canvas);border-right:1px solid transparent}
+.brand{position:relative;height:56px;gap:8px;padding:0 0 0 6px}
+.brand>.icon-button{margin-left:auto;width:32px;height:32px;border-radius:var(--radius);color:var(--grey)}
+.brand>.icon-button:hover:not(:disabled){background:var(--canvas-hover);color:var(--text)}
+/* Creation is one quiet toolbar, with left-aligned accent glyphs matching the
+   host controls above. It stays flat on the stone so the current
+   conversation is the only raised object in the sidebar; each half fills on
+   hover and one tone darker on press. */
+.sidebar-create{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;margin:0 0 8px;padding:0;border-radius:0;background:transparent;box-shadow:none}
+.sidebar-create button{position:relative;justify-content:flex-start;min-height:34px;padding:0 8px;gap:6px;border:0;border-radius:var(--radius);background:transparent;box-shadow:none;font-size:12.5px;font-weight:580;letter-spacing:-.003em;color:var(--text)}
+.sidebar-create button svg{color:var(--accent)}
+.sidebar-create button:hover:not(:disabled){background:var(--canvas-hover);box-shadow:none}
+.sidebar-create button:active:not(:disabled){background:var(--selected-row);box-shadow:none}
+.sidebar-create button:focus-visible{outline-offset:-2px}
+.search-box{flex:none;height:34px;margin:0 0 4px;padding:0 6px 0 10px;gap:8px;border:0;border-radius:var(--radius);background:var(--canvas-hover);box-shadow:inset 0 0 0 1px var(--border);color:var(--muted);transition:background-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.search-box>svg{flex:none}
+.search-box:focus-within{background:var(--raised);box-shadow:0 0 0 1px var(--composer-focus),0 0 0 4px var(--ring)}
+.search-box input{font-size:13px;color:var(--text)}
+/* Composite search fields draw focus on their wrapper, including its icon.
+   A native text-input ring inside that wrapper produces a second inset box. */
+:is(.search-box,.capabilities-search) input:focus-visible{outline:none;box-shadow:none}
+.search-box kbd{padding:3px 5px;border:0;border-radius:var(--radius-xs);background:var(--raised);box-shadow:var(--elev-1)}
+/* Section labels are small, tracked and quiet; the count is a tabular figure, never a badge. */
+.sidebar-label{padding:18px 8px 6px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:none;color:var(--muted)}
+.sidebar-label span{font-size:11px;font-weight:500;letter-spacing:0;font-variant-numeric:tabular-nums;color:var(--muted);opacity:.8}
+.conversation-list{padding-bottom:10px;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+.empty-sidebar{margin:8px 0;padding:8px;font-size:12.5px;line-height:1.6;color:var(--muted)}
+/* Bot → independent chats, group → topics: one guide line per parent. */
+.bot-tree,.group-tree{margin:0 0 6px}
+.bot-tree-heading{gap:0}
+.bot-identity{min-height:48px;padding:4px 8px;gap:10px;border-radius:var(--radius)}
+.bot-identity:hover:not(:disabled){background:var(--canvas-hover)}
+.bot-identity>span:last-child{gap:0}
+.bot-identity strong{font-size:13.5px;font-weight:600;letter-spacing:-.005em;color:var(--text)}
+.bot-identity small{font-size:11.5px;color:var(--muted)}
+.bot-tree-heading>.icon-button{width:28px;height:28px;padding:6px;border-radius:var(--radius);color:var(--muted)}
+.bot-tree-heading>.icon-button:hover:not(:disabled){background:var(--canvas-hover);color:var(--text)}
+@media(hover:hover) and (pointer:fine){
+  .bot-tree-heading>.icon-button{opacity:0}
+  .bot-tree-heading:is(:hover,:focus-within)>.icon-button{opacity:1}
+}
+.bot-tree-conversations,.group-tree-topics{margin:0 0 6px 28px;padding-left:7px;border-left:1px solid var(--border)}
+/* The guide follows the 40px portrait's centre; chat text aligns with the Bot
+   name. Topics retain their extra glyph instead of repeating the parent image. */
+.bot-tree-conversations{padding-left:21px}
+.conversation-row{position:relative;align-items:center;min-height:38px;margin:1px 0;padding:6px 8px;gap:10px;border-radius:var(--radius)}
+.conversation-row:hover:not(:disabled){background:var(--canvas-hover)}
+/* Press is one tone darker than hover and starts on pointer-down; nothing scales,
+   and the selected chip keeps its raised fill. */
+:is(.conversation-row:not(.selected),.bot-identity,.file-center-entry,.archive-actions button):active:not(:disabled){background:var(--selected-row)}
+:is(.conversation-row:not(.selected),.bot-identity):active:not(:disabled) .avatar i{border-color:var(--selected-row)}
+.conversation-row strong{font-size:13.5px;font-weight:550;color:var(--text)}
+.conversation-row small{font-size:12px;color:var(--muted)}
+.conversation-row>span.row-text{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+/* Nested rows show a preview only when one exists, so a title-only row centres its glyph. */
+.row-glyph{display:grid;place-items:center;flex-shrink:0;width:16px;align-self:flex-start;height:20px;color:var(--muted)}
+.conversation-row:not(:has(small)) .row-glyph{align-self:center}
+.conversation-row.topic-row{padding-left:8px!important}
+.bot-tree-conversations .conversation-row,.group-tree-topics .topic-row{min-height:34px;padding:6px 8px}
+.bot-tree-conversations strong,.group-tree-topics strong{font-size:13px;font-weight:450}
+.bot-tree-conversations small{font-size:12px}
+/* Desktop navigation keeps the two-line preview but removes stacked row/group
+   whitespace. Phone navigation retains its larger touch targets below. */
+@media(min-width:761px){
+  .sidebar .sidebar-label{padding-top:12px;padding-bottom:4px}
+  .sidebar :is(.bot-tree,.group-tree){margin-bottom:4px}
+  .sidebar .bot-identity{min-height:44px;padding-block:2px}
+  .sidebar :is(.bot-tree-conversations,.group-tree-topics){margin-bottom:0}
+  .sidebar :is(.bot-tree-conversations,.group-tree-topics) .conversation-row{min-height:34px;margin-block:0;padding-block:3px}
+  /* Read and selected conversations share a clear title/preview hierarchy. */
+  .sidebar .conversation-row>span.row-text{gap:2px;line-height:1.4}
+  .sidebar .conversation-row strong{font-size:13.5px;font-weight:600;line-height:1.4}
+  .sidebar .conversation-row small{font-size:12px;font-weight:400;line-height:1.4}
+  .sidebar .conversation-row:is(.selected,:has(.unread-badge)) strong{font-weight:650}
+}
+/* The current conversation is a raised chip on the stone: crisp edge, no tint. */
+.conversation-row.selected,.conversation-row.selected:hover:not(:disabled){background:var(--selected-row);box-shadow:none}
+.conversation-row.selected strong{font-weight:600}
+.conversation-row.selected .row-glyph{color:var(--text)}
+/* The selected child lights its segment of the parent's guide line. */
+:is(.bot-tree-conversations,.group-tree-topics) .conversation-row.selected::before{content:"";position:absolute;left:0;top:9px;bottom:9px;width:2px;border-radius:1px;background:var(--accent);animation:tc-guide-in var(--t-med) var(--ease-out) both}
+.group-toggle{width:28px;height:28px;min-height:28px;padding:6px;color:var(--muted);border-radius:var(--radius)}
+.group-toggle:hover:not(:disabled){background:var(--canvas-hover);color:var(--text)}
+/* Unread is a tinted counter and the row title gains weight, so the sidebar reads
+   by hierarchy instead of a column of solid dots. */
+.unread-badge{min-width:18px;height:18px;padding:0 6px;border-radius:9px;background:var(--primary-bg);color:var(--on-primary);font-size:10.5px;font-weight:700;line-height:18px;letter-spacing:.01em;text-align:center;font-variant-numeric:tabular-nums}
+.conversation-row:has(.unread-badge) strong{font-weight:620;color:var(--text)}
+.file-center-entry{min-height:32px;margin:1px 0;padding:6px 8px;gap:10px;justify-content:flex-start;border-radius:var(--radius);font-size:13px;font-weight:500;color:var(--grey)}
+.file-center-entry svg{width:16px;height:16px;color:var(--muted)}
+.file-center-entry:hover:not(:disabled){background:var(--canvas-hover);color:var(--text)}
+.file-center-entry:hover:not(:disabled) svg{color:var(--grey)}
+.sidebar-footer{position:relative;height:56px;margin-top:6px;padding:0 2px;gap:4px;border-top:1px solid var(--border)}
+.sidebar-footer>span{margin-left:6px;gap:6px;font-size:12px;font-weight:500;color:var(--grey)}
+.sidebar-footer .icon-button{width:32px;height:32px;padding:7px;border-radius:var(--radius)}
+.sidebar-footer .icon-button:hover:not(:disabled){background:var(--canvas-hover)}
+.sidebar-footer>.icon-button:has(.profile-avatar){padding:3px;border-radius:50%}
+/* Returning from settings keeps keyboard focus, without framing the portrait
+   in a detached circle. Use the same quiet fill as hover for navigation. */
+.sidebar-footer>.icon-button[data-settings-entry=profile]:focus-visible{outline:none;box-shadow:none}
+:root:not([data-focus-intent=pointer]) .sidebar-footer>.icon-button[data-settings-entry=profile]:focus-visible{background:var(--canvas-hover)}
+@media(forced-colors:active){:root:not([data-focus-intent=pointer]) .sidebar-footer>.icon-button[data-settings-entry=profile]:focus-visible{background:Highlight;forced-color-adjust:none}}
+.status-dot{width:7px;height:7px}
+.status-dot.online{background:var(--green);box-shadow:0 0 0 3px var(--green-soft)}
+
+/* ---------- Avatars: custom pictures first, then lit identity defaults ---------- */
+/* Row wrappers hug the avatar; the presence dot belongs to Bot and group rows,
+   and is drawn only while online (absence reads as offline, as in any IM). */
+.avatar,.avatar.group,.conversation-row .avatar{width:auto;height:auto;border-radius:0;background:transparent;color:inherit}
+.avatar.topic{background:transparent!important}
+.avatar i{right:-2px;bottom:-2px;width:10px;height:10px;border:2px solid var(--canvas)}
+.avatar i:not(.online){display:none}
+.conversation-row:hover .avatar i,.bot-identity:hover .avatar i{border-color:var(--canvas-hover)}
+.conversation-row.selected .avatar i{border-color:var(--raised)}
+/* People stay round; Bot animal portraits use soft tiles, including custom pictures. */
+.profile-avatar,.profile-avatar-user,.profile-avatar-bot{border-radius:50%;background:var(--avatar-bg);color:var(--avatar-fg)}
+.profile-avatar-bot{border-radius:24%;background:transparent}
+/* Built-in cutouts keep their full silhouette; uploaded photos keep their crop. */
+.profile-avatar-bot[data-preset],.avatar-library-preview>.profile-avatar:has(.bot-portrait){border-radius:0;overflow:visible}
+.profile-avatar-group{border-radius:28%;background:var(--avatar-bg);color:var(--avatar-fg)}
+.profile-avatar-conversation{border-radius:24%;background:transparent}
+.profile-avatar-group.profile-avatar-composite{border-radius:22%;background:var(--surface);box-shadow:none}
+.group-avatar-members{display:flex;flex-wrap:wrap;align-content:center;align-items:center;justify-content:center;box-sizing:border-box;width:100%;height:100%;flex:none}
+.group-avatar-members>.profile-avatar{flex:none}
+/* Identity hues for default pictures only (Avatar.tsx sets data-hue when no custom
+   picture exists). Muted mid-value bases shared by every palette and mode; the
+   white glyph stays above 5:1 even at the brightest gradient stop. The solid
+   base also preserves legibility without color-mix support. */
+.profile-avatar[data-hue="0"]{--hue:#754f32}
+.profile-avatar[data-hue="1"]{--hue:#4c6642}
+.profile-avatar[data-hue="2"]{--hue:#425c74}
+.profile-avatar[data-hue="3"]{--hue:#664871}
+.profile-avatar[data-hue="4"]{--hue:#27615e}
+.profile-avatar[data-hue="5"]{--hue:#745a21}
+.profile-avatar[data-hue="6"]{--hue:#82424c}
+.profile-avatar[data-hue="7"]{--hue:#4d4c48}
+/* Glazed dot: a key light from the upper left, a darker lower rim and a 1px
+   specular edge, so a default identity reads as an object rather than a flat
+   sticker. Pure gradients and inset shadows: nothing animates, nothing loads. */
+.profile-avatar[data-hue]{color:var(--on-tone);background-color:var(--hue);background-image:radial-gradient(120% 120% at 30% 18%,color-mix(in srgb,var(--hue) 78%,#fff) 0,var(--hue) 52%,color-mix(in srgb,var(--hue) 78%,#000) 100%);box-shadow:inset 0 0 0 1px rgba(0,0,0,.08),inset 0 1px 0 rgba(255,255,255,.22),inset 0 -2px 3px rgba(0,0,0,.14)}
+.profile-avatar-group[data-hue]{background-image:linear-gradient(165deg,color-mix(in srgb,var(--hue) 80%,#fff) 0,var(--hue) 52%,color-mix(in srgb,var(--hue) 82%,#000) 100%)}
+.profile-avatar[data-hue]>svg{filter:drop-shadow(0 1px 0 rgba(0,0,0,.12))}
+.message-avatar,.message-avatar.user{width:28px;height:28px;margin-top:0;color:var(--grey)}
+.message-avatar>.profile-avatar{width:100%!important;height:100%!important}
+ .chat-identity{display:flex;align-items:center;justify-content:flex-start;gap:10px;max-width:100%;min-height:40px;padding:3px 6px 3px 0;border:0;border-radius:8px;background:transparent;font:inherit;color:inherit;text-align:left}
+.chat-identity>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-identity>svg{flex:none;color:var(--muted)}
+.chat-identity:hover:not(:disabled),.chat-identity[aria-expanded=true]{background:var(--hover)}
+.screen-reader-only{position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;overflow:hidden!important;clip:rect(0 0 0 0)!important;clip-path:inset(50%)!important;white-space:nowrap!important}
+.header-avatar-button{border-radius:50%}
+.header-avatar-button:has(.profile-avatar-group){border-radius:28%}
+.header-avatar-button:hover:not(:disabled){background:transparent}
+/* Quiet typing dots below the portrait, never a frame or glow on the picture.
+   App.tsx `presence()` removes them on completion/error or disconnection. The
+   absolute marker cannot resize messages; the header already names the state. */
+.message-avatar.bot{position:relative;overflow:visible}
+.message-avatar.bot:is(.is-working,.is-pending)::before{content:"";position:absolute;top:calc(100% + 3px);left:50%;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;background:currentColor;color:var(--muted);box-shadow:-5px 0 0 currentColor,5px 0 0 currentColor;opacity:.55;pointer-events:none}
+.message-avatar.bot.is-working::before{color:var(--accent);animation:tc-reply-dots 2.4s ease-in-out infinite}
+/* The inline header status (ReplyActivity.tsx), the IM "typing…" idiom: an accent
+   lit dot and the words, shown only while a reply really streams. The dot holds
+   a static halo; a second halo breathes (opacity + a small transform on the
+   pseudo-element, never the avatar). Hidden pages keep the
+   still dot and text. While idle the polite region stays mounted, visually hidden. */
+.header-activity{display:inline-flex;align-items:center;flex:0 1 auto;gap:6px;min-width:0;max-width:48%;color:var(--accent);font-size:12px;font-weight:560;line-height:1.4;white-space:nowrap}
+.header-activity>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.header-activity:empty{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%)}
+.activity-dot{position:relative;flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.activity-dot::after{content:"";position:absolute;inset:-3px;border-radius:50%;background:var(--accent);opacity:0;pointer-events:none;animation:tc-breathe 2.4s ease-in-out infinite}
+.activity-dot[data-paused]::after{animation:none}
+.header-activity[data-offline]{color:var(--muted)}
+.header-activity[data-offline] .activity-dot{background:currentColor;box-shadow:none}
+/* ---------- Conversation header, banners, topic navigation ---------- */
+/* One continuous reading plane, separated from navigation by a single rule. */
+.conversation-main{margin:0;border-radius:0;background:var(--bg);box-shadow:none;overflow:clip;border-left:1px solid var(--border)}
+.conversation-header{position:relative;height:64px;min-height:64px;padding:0 16px 0 20px;gap:8px;border-bottom:1px solid var(--border);border-radius:0;background:var(--bg)}
+.header-avatar-button{margin-right:4px}
+.header-title h1{font-size:15.5px;font-weight:650;letter-spacing:-.012em;line-height:1.3}
+.header-heading-row{display:flex;align-items:center;gap:8px;min-width:0}
+.header-heading-row>h1{flex:0 1 auto;min-width:0}
+.header-bot-name{flex:0 0 auto;max-width:8em;min-width:0;padding:2px 6px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.4;font-weight:500}
+.header-heading-row>.header-activity{flex-shrink:0;max-width:50%}
+.header-heading-row>.header-bot-name~.header-activity{max-width:none}
+.header-title>span{margin-top:1px;overflow:hidden;font-size:12px;line-height:1.4;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+.history-search-symbol{flex-shrink:0;margin:0 8px 0 4px;color:var(--muted)}
+/* Runtime location is separate only when multiple hosts need disambiguation. */
+.header-detail-row{gap:8px}
+.header-detail-row>.runtime-host-label{font-size:12px}
+.header-detail-row>.runtime-host-label+.header-effort{padding-left:9px;background:linear-gradient(var(--border-strong),var(--border-strong)) 0 50%/1px 10px no-repeat}
+/* Actions are ghost controls so the title leads; connection is a small status chip, not a button row. */
+.header-new-chat{min-height:32px;padding:0 10px 0 8px;gap:6px;border:0;border-radius:var(--radius);background:transparent;color:var(--grey);font-size:12.5px;font-weight:550}
+.header-new-chat svg{color:var(--muted)}
+.header-new-chat:hover:not(:disabled){background:var(--hover);color:var(--text)}
+.connection-pill{min-height:26px;margin:0 2px;padding:0 9px 0 8px;gap:6px;border:0;border-radius:999px;background:var(--surface);color:var(--muted);font-size:11.5px;font-weight:500;font-variant-numeric:tabular-nums}
+/* A healthy route is plain status text with its green glyph; the chip fill
+   returns only while connecting or offline, so the header speaks up only when
+   something needs attention and the title leads. */
+.connection-pill.online{width:32px;height:32px;min-height:32px;padding:0;justify-content:center;background:transparent;color:var(--grey)}
+.connection-pill.online>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.connection-pill.online:hover:not(:disabled){background:var(--hover)}
+.connection-pill.online svg{color:var(--green)}
+.connection-pill.connecting{background:var(--orange-soft);color:var(--orange)}
+.connection-pill:hover:not(:disabled){background:var(--surface-alt);color:var(--text)}
+.conversation-header>.icon-button{width:32px;height:32px;padding:7px;border-radius:var(--radius)}
+.offline-banner{padding:8px 20px;border-bottom:1px solid var(--border);background:var(--orange-soft);color:var(--orange);font-size:12.5px;font-weight:500}
+.history-sync-status{display:flex;align-items:center;gap:12px;flex-shrink:0;padding:7px 16px;border-bottom:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.history-sync-status progress{width:64px;height:3px;border:0;border-radius:999px;overflow:hidden;appearance:none;background:var(--border);accent-color:var(--green)}
+.history-sync-status progress::-webkit-progress-bar{background:var(--border)}
+.history-sync-status progress::-webkit-progress-value{background:var(--green);border-radius:999px}
+.history-sync-status progress::-moz-progress-bar{background:var(--green);border-radius:999px}
+.error-banner{padding:4px 12px 4px 20px;min-height:36px;border-bottom:1px solid var(--border);background:var(--red-soft);color:var(--red);font-size:12.5px}
+.error-banner .icon-button{width:28px;height:28px;padding:7px;color:inherit}
+/* Group chrome is one row under the header (no second hairline): the back/group
+   control, the topic strip, the directory and creation. The header subtitle
+   states whether this is the group discussion or a topic of which group. */
+.conversation-header:has(+.group-topic-navigation){border-bottom-color:transparent}
+.group-topic-navigation{border-bottom:1px solid var(--border);background:var(--bg)}
+.group-topic-navigation .topic-bar{min-height:48px;padding:0 12px 10px 18px;gap:4px}
+.group-breadcrumb{position:relative;flex-shrink:0;width:32px;max-width:none;height:32px;min-height:32px;margin-right:9px;padding:0;justify-content:center;border-radius:var(--radius);color:var(--grey)}
+.group-breadcrumb:hover:not(:disabled){background:var(--hover);color:var(--text)}
+.group-breadcrumb::after{content:"";position:absolute;top:8px;right:-6px;bottom:8px;width:1px;background:var(--border)}
+.group-breadcrumb>span{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.topic-directory-button{flex-shrink:0;min-height:32px;margin-left:auto;padding:0 8px;gap:6px;border-radius:var(--radius);color:var(--grey);font-size:12.5px;font-weight:550}
+.topic-directory-button svg{color:var(--muted)}
+.topic-directory-button:hover:not(:disabled){background:var(--hover);color:var(--text)}
+.topic-directory-button b{min-width:18px;padding:0 5px;border-radius:9px;background:var(--surface-alt);color:var(--grey);font-size:11px;font-weight:600;line-height:18px;text-align:center;font-variant-numeric:tabular-nums}
+/* A segmented control: a recessed track that hugs its topics, the current one a
+   raised segment. Weight never changes, so the strip never reflows. */
+.topic-tabs{flex:0 1 auto;gap:2px;padding:3px;border-radius:var(--radius-lg);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);scrollbar-width:none}
+.topic-tabs::-webkit-scrollbar{display:none}
+.topic-tabs button,.group-topic-navigation .topic-tabs button{min-height:30px;padding:0 11px;gap:6px;border:0;border-radius:var(--radius);background-color:transparent;color:var(--grey);font-size:13px;font-weight:550;box-shadow:none;transition-duration:var(--t-med)}
+.topic-tabs button svg{color:var(--muted)}
+.topic-tabs button:hover:not(:disabled){background-color:var(--surface-alt);color:var(--text);box-shadow:none}
+.topic-tabs button[aria-current=page],.topic-tabs button[aria-current=page]:hover:not(:disabled){background-color:var(--raised);color:var(--text);font-weight:550;box-shadow:var(--elev-1)}
+.topic-tabs button[aria-current=page] svg{color:var(--text)}
+.topic-unread-dot{background:var(--accent)}
+.topic-create{flex-shrink:0;min-height:32px;padding:0 10px 0 8px;gap:5px;border-radius:var(--radius);background:transparent;color:var(--grey);font-size:12.5px;font-weight:550}
+.topic-create svg{color:var(--muted)}
+.topic-create:hover:not(:disabled){background:var(--hover);color:var(--text)}
+.archived-notice{padding:14px 24px;border-top:1px solid var(--border);background:var(--surface);color:var(--grey);font-size:12.5px}
+.archived-notice button{min-height:30px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--raised);color:var(--text);font-weight:550}
+.archived-notice button:hover:not(:disabled){background:var(--hover)}
+
+/* ---------- Message list (reading surface) ---------- */
+.message-scroll{padding:20px 28px 0;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+.conversation-intro{padding:22px 0 12px;font-size:11.5px;letter-spacing:.01em;color:var(--muted)}
+.conversation-intro svg{width:13px;height:13px;color:var(--muted)}
+.virtual-messages{max-width:760px}
+/* Desktop chat uses the pane edges, not a centred reading column. Keep long
+   replies bounded on their row so wider windows do not create longer lines. */
+@media(min-width:761px){
+  .virtual-messages{max-width:none}
+  .message:not(.user){max-width:760px}
+  :root[data-palette=cli] .message.user{max-width:760px}
+}
+/* Rows only gain padding/flex alignment here; .message transform stays owned by react-virtual. */
+.message{gap:12px;padding:4px 0 6px}
+.message-meta{gap:8px;margin-bottom:3px;padding-left:0;line-height:20px}
+.message-meta strong{font-size:13px;font-weight:620;letter-spacing:-.005em;color:var(--text)}
+.message-meta time{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* Direct message text uses the chosen reading size, matching Bot reply cards. */
+.message .message-blocks>.markdown{font-size:1rem;line-height:1.62}
+/* Virtual message rows are transformed. Isolate bounded parser chunks, not
+   every paragraph: thousands of individual groups make Layerize expensive.
+   Full content stays available after painting; no text heights are estimated. */
+.markdown-chunk{isolation:isolate}
+.markdown-chunk:first-child>:first-child{margin-top:0}
+.markdown-chunk:last-child>:last-child{margin-bottom:0}
+/* Own messages use a quiet palette tint, right aligned. Author stays accessible. */
+.message.user .message-avatar{display:none}
+.message.user .message-body{display:flex;flex-direction:column;align-items:flex-end}
+.message.user .message-meta{margin-bottom:4px;padding:0 6px 0 0}
+.message.user .message-meta time{font-size:11px}
+.message.user .message-meta strong{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+/* Text makes the bubble (every text block renders a direct .markdown child); a
+   lone image, file or card stands on its own. Only the bubble's own text is
+   recoloured: cards, files and link previews inside it (e.g. a forwarded
+   reply) keep page colours. */
+.message.user .message-blocks{max-width:min(100%,560px);padding:0;border:0;border-radius:0;background:none}
+/* Flat tint from the selected palette; 18px corners and a 6px trailing corner. */
+.message.user .message-blocks:has(>.markdown){padding:8px 14px 9px;border-radius:18px 18px 6px 18px;background-color:var(--self-message-bg);color:var(--self-message-fg);box-shadow:none}
+/* Files and images sent with text sit inset in the same bubble: a 6px gutter,
+   so their 12px corners run parallel to the bubble's 18px ones. */
+.message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image){padding:6px}
+.message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image)>.markdown{padding:2px 8px 3px}
+.message.user .message-blocks>* ::selection{background:var(--selection)}
+/* Own-message bubbles may stay light in a dark theme. Focus uses their ink. */
+.message.user .message-blocks:is(:has(>.markdown),.has-reference){--focus:var(--self-message-focus,var(--self-message-link))}
+.message.user .message-blocks>.markdown :focus-visible{outline-color:var(--self-message-focus,var(--self-message-link))}
+.message.user .message-blocks>.markdown a:not([class]){color:var(--self-message-link);text-decoration-color:currentColor}
+.message.user .message-blocks>.markdown code{border-color:var(--self-message-line);background:var(--self-code-inline-bg);color:inherit}
+.message.user .message-blocks>.markdown pre{border-color:var(--self-message-line);background:var(--self-code-bg)}
+.message.user .message-blocks>.markdown pre code{background:transparent}
+.message.user .message-blocks>.markdown blockquote{border-left-color:var(--self-message-line);color:var(--self-message-muted)}
+.message.user .message-blocks>.markdown :is(th,td){border-color:var(--self-message-line)}
+.message.user .message-blocks>.markdown th{background:var(--self-code-inline-bg)}
+.message.user .message-blocks>.markdown hr{border-top-color:var(--self-message-line)}
+.message.user .message-blocks>.markdown :is(.code-copy,.hljs-comment){color:var(--self-message-muted)}
+.message.user .message-blocks>.markdown :is(.hljs-keyword,.hljs-selector-tag,.hljs-type){color:var(--self-code-keyword)}
+.message.user .message-blocks>.markdown :is(.hljs-string,.hljs-attr){color:var(--self-code-string)}
+.message.user .message-blocks>.markdown :is(.hljs-title,.hljs-function){color:var(--self-code-title)}
+.message.user .message-blocks>.markdown .bot-reference{border-color:var(--self-message-line);background:var(--self-code-inline-bg);color:inherit}
+.message.user .message-blocks>.markdown .code-copy:hover:not(:disabled){background:var(--self-code-inline-bg);color:var(--self-message-fg)}
+.message.user .message-blocks:has(>.markdown)>.attachment-image figcaption{color:var(--self-message-fg)}
+.message.user .message-blocks:has(>.markdown)>.error-text{color:var(--self-error)}
+.message.user .message-blocks :is(.rich-card,.file-card,.link-preview-card){color:var(--text)}
+.message.user .message-blocks .link-preview-card.link-preview-inline{color:var(--self-message-fg)}
+.message.user .message-blocks .link-preview-inline .link-preview-site{color:var(--self-message-muted)}
+.message.user .message-blocks .link-preview-inline>svg{color:var(--self-message-link)}
+.message.user .message-blocks .link-preview-toggle{color:var(--self-message-muted)}
+.message.user .message-blocks .link-preview-toggle:hover:not(:disabled){background:var(--self-code-inline-bg);color:var(--self-message-fg)}
+/* Bot text is set as reading text on the porcelain, not in a bubble: the avatar
+   and name carry identity, prose holds a ~42em measure, and code, tables and
+   cards may still use the full column. Status rows, files and images are unboxed too. */
+.message.bot .message-blocks:has(>.markdown){width:auto;max-width:100%;padding:1px 0 0;border-radius:0;background:none}
+.message.bot .message-blocks>.markdown>.markdown-pending,.message.bot .message-blocks>.markdown>.markdown-chunk>:is(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,dl){max-width:42em}
+/* Chat paragraphs can be tens of thousands of CJK characters. Keep line
+   breaking linear in the reading flow, including the worker's plain fallback. */
+.message.bot .message-blocks>.markdown>.markdown-pending,.message.bot .message-blocks>.markdown>.markdown-chunk>p{text-wrap:wrap}
+/* Headings lead their section: more air above than below, tightened tracking. */
+.message.bot .message-blocks>.markdown>.markdown-chunk>:is(h1,h2,h3,h4){margin:1.1em 0 .4em;line-height:1.4;letter-spacing:-.012em}
+.message.bot .message-blocks>.markdown>:first-child,.message.bot .message-blocks>.markdown>.markdown-chunk:first-child>:first-child{margin-top:0}
+.message.bot .message-blocks>.markdown li{margin:.3em 0}
+.message-blocks>.usage-footer:last-child{margin-bottom:0}
+.message.bot .message-blocks .markdown pre{background:var(--surface);border-color:transparent;box-shadow:inset 0 0 0 1px var(--border)}
+.message.bot .message-blocks .markdown code{background:var(--surface)}
+.message.bot .message-blocks .markdown pre code{background:transparent}
+.message.bot .message-blocks .markdown th{background:var(--surface)}
+/* A card owns its reading surface; do not add a second bubble around it. */
+.message.bot .message-blocks:has(>.rich-card){width:auto;padding:0;border-radius:0;background:none}
+.message.bot .message-blocks:has(>.rich-card)>:is(.markdown,.markdown-pending){padding:0 2px 6px}
+/* Actions share the author/time row instead of reserving an empty line below
+   every bubble. Opacity keeps both the header and virtual row stable on hover.
+   Phones keep their hold-to-open menu. */
+/* Retire the previous toolbar immediately; only the newly active one fades in.
+   Keep the existing keyboard navigation and pointer targeting unchanged. */
+.message-actions{gap:2px;height:28px}
+.message[data-actions-hover] .message-actions,
+:root:not([data-focus-intent=pointer]) .message:is(:focus-visible,:has(:focus-visible)) .message-actions{transition:opacity var(--t-fast) var(--ease)}
+@media(min-width:761px){
+  .message-meta{min-height:28px;margin-bottom:2px}
+  .message-meta>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .message-meta>time{flex-shrink:0}
+  .message-meta>.message-actions{flex-shrink:0;margin:0 0 0 auto}
+  /* A fitted reply card's column is only as wide as the card, so the hover
+     toolbar ends at the card edge instead of the empty 720px reading column.
+     Full-width cards (tables, forms, questions) keep the whole column. */
+  /* Run cards keep their stable reading width through streamed patches. */
+  .message.bot .message-body:has(>.message-blocks>.rich-card:not(.reply-card):only-child):not(:has(.native-question,.card-form,.card-columns,.table-scroll)){display:grid;grid-template-columns:fit-content(100%);align-content:start}
+  .message.bot .message-body:has(>.message-blocks>.rich-card:not(.reply-card):only-child):not(:has(.native-question,.card-form,.card-columns,.table-scroll))>*{min-width:0}
+  .message.user .message-meta{align-self:stretch;margin-bottom:2px}
+  .message.user .message-meta>.message-actions{order:-1;margin:0 0 0 auto}
+  /* Export feedback is exceptional content: let it wrap without pushing the
+     author or controls beyond a narrow window. */
+  .message-meta:has(>.message-actions>:is(a,.error-text)){flex-wrap:wrap}
+  .message-meta>.message-actions:has(>:is(a,.error-text)){flex:1 1 100%;flex-wrap:wrap;height:auto}
+  .message-meta>.message-actions>:is(a,.error-text){flex-basis:100%;overflow-wrap:anywhere}
+}
+.message.user .message-actions{justify-content:flex-end}
+.message-actions button{min-width:28px;min-height:28px;padding:0 7px;gap:5px;border-radius:var(--radius);color:var(--muted);font-size:12px;font-weight:500}
+.message-actions button svg{width:14px;height:14px}
+.message-actions button:hover:not(:disabled){background:var(--hover);color:var(--text)}
+@media(hover:none){.message-actions{opacity:1}}
+/* Message-location targets retain their scroll anchor without framing the
+   entire reply. Keyboard focus indicators belong to individual controls. */
+/* Quotes are a light context line above the bubble, sized to their text. */
+.message-reference{width:fit-content;max-width:min(100%,520px);margin:0 0 6px;padding:4px 10px;gap:8px;border-left:2px solid var(--accent-line);border-radius:0 var(--radius) var(--radius) 0;background:transparent;color:var(--muted)}
+.message-reference strong{font-weight:600;color:var(--grey)}
+.message-reference:hover:not(:disabled){background:var(--hover);color:var(--grey)}
+.forwarded-message{border-left-color:var(--border-strong)}
+.quoted-message{border-left:2px solid var(--border-strong);border-radius:0 var(--radius) var(--radius) 0;background:transparent}
+.queued-message{max-width:760px;margin:8px auto;padding:10px 12px 10px 14px;gap:12px;border:1px dashed var(--border-strong);border-radius:var(--radius-xl);background:var(--surface);color:var(--grey);font-size:13px}
+.queued-message button{min-height:30px;padding:0 10px;border:0;border-radius:var(--radius);background:var(--raised);box-shadow:var(--elev-1);font-size:12.5px;font-weight:550}
+.queued-message button:hover:not(:disabled){background:var(--raised);box-shadow:var(--elev-2)}
+.markdown{line-height:1.7}
+/* Timeline list nesting must not change the meaning of Markdown list levels. */
+.markdown ul{list-style-type:disc}
+.markdown :is(ul,ol) ul{list-style-type:circle}
+.markdown :is(ul,ol) :is(ul,ol) ul{list-style-type:square}
+.markdown code{padding:1px 4px;border-color:var(--border);border-radius:var(--radius-xs);background:var(--surface);font-family:var(--font-mono);font-size:.86em}
+.markdown pre{border-color:var(--border);border-radius:var(--radius);background:var(--surface)}
+.markdown pre code{font-size:.88em}
+.markdown blockquote{border-left:2px solid var(--border-strong);color:var(--grey)}
+.markdown th{background:var(--surface);font-weight:600}
+.markdown th,.markdown td{border-color:var(--border)}
+.markdown img{border-radius:var(--radius-sm)}
+/* The accent link keeps an underline: colour alone is not enough on the reading surface. */
+.markdown a:not([class]){color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:var(--accent-line);text-underline-offset:2px}
+.markdown a:not([class]):hover{text-decoration-color:currentColor}
+.code-copy{border-radius:var(--radius-xs);color:var(--muted)}
+.bot-reference{border-color:var(--border);border-radius:var(--radius-xs);background:var(--surface)}
+.usage-footer{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.run-status{display:inline-flex;gap:6px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.run-status .spin{color:var(--accent)}
+/* Structured replies read like a document: quiet surface, hairline outline,
+   restrained corners and compact prose. Short cards still hug their content. */
+.rich-card{width:fit-content;min-width:min(100%,280px);max-width:min(100%,680px);border:1px solid var(--border);border-radius:10px;background:var(--raised);box-shadow:none}
+/* Image batches keep their fixed 420px grid; the card fits it instead of the column. */
+.rich-card:has(.native-question,.card-form,.card-columns,.table-scroll){width:auto}
+/* Live reasoning, tool panels and their folded final state share one bounded
+   column; intrinsic sizing makes the bubble breathe with every stream patch. */
+.rich-card.reply-card{width:min(100%,680px)}
+.card-header{padding:10px 14px 0;border-bottom:0;font-size:14px;font-weight:600;line-height:1.5}
+:is(.template-default,.template-grey) .card-header{background:transparent}
+:is(.template-blue,.template-green,.template-orange,.template-red) .card-header{padding-bottom:10px}
+.rich-card>.card-body{padding:8px 14px 12px;gap:8px}
+.card-text .markdown li::marker{color:var(--accent)}
+/* Feishu "grey" borders map to the body-text colour in card-layout.ts; inside a
+   card that reads as a heavy tool box, so they become a hairline here. Colours
+   with meaning (red/blue/green/orange) keep their inline border. */
+.rich-card [style*="solid var(--grey)"]{border-color:var(--border-strong)!important}
+.card-collapse{padding:5px 9px;border-color:var(--border);border-radius:var(--radius);background:transparent;color:var(--grey)}
+.card-collapse[open]{background:transparent}
+/* A component that paints its own chevron owns the disclosure indicator.
+   Theme fallbacks must not add another, and native markers stay suppressed. */
+summary[data-disclosure-icon]{list-style:none}
+summary[data-disclosure-icon]::marker{content:""}
+summary[data-disclosure-icon]::-webkit-details-marker{display:none}
+.card-collapse summary{min-height:22px;font-weight:500}
+.card-collapse summary:hover{color:var(--text)}
+.card-collapse summary>.lucide{transition:transform var(--t-med) var(--ease)}
+.card-button{min-height:32px;padding:0 12px;border-color:transparent;border-radius:var(--radius);background:var(--raised);box-shadow:var(--elev-1);font-weight:550}
+.card-button:hover:not(:disabled){border-color:transparent;background:var(--raised);box-shadow:var(--elev-2);color:var(--text)}
+.card-button.primary{border-color:var(--primary-bg);background:var(--primary-bg);color:var(--on-primary)}
+.card-button.primary:hover:not(:disabled){border-color:var(--primary-hover);background:var(--primary-hover);color:var(--on-primary)}
+.card-button.danger{border-color:var(--red);background:var(--raised);box-shadow:none;color:var(--red)}
+.card-button.danger:hover:not(:disabled){border-color:var(--red);background:var(--red-soft);box-shadow:none;color:var(--red)}
+.multi-select{border-color:var(--border);border-radius:var(--radius)}
+/* File card: a compact row (tile, name over size, 打开 as a soft pill,
+   另存为 as a ghost disc). Phone buttons keep real 44px targets; the narrowest
+   phones give the filename its own row instead of squeezing it between actions. */
+.file-card{max-width:400px;padding:8px 8px 8px 10px;gap:10px;border-color:transparent;border-radius:14px;background:var(--raised);box-shadow:var(--elev-1)}
+.file-card>svg:first-child:not(.file-type-icon){box-sizing:border-box;flex:none;width:34px;height:34px;padding:7px;border-radius:var(--radius-lg);background:var(--accent-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent);color:var(--accent)}
+.file-card>span{gap:1px}
+.file-card strong{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;font-size:13.5px;font-weight:580;line-height:1.35;color:var(--text)}
+.file-card>span>small{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.file-card button{position:relative;flex:none;min-height:32px;padding:0 12px;border:0;border-radius:999px;background:var(--surface);color:var(--text);font-size:12.5px;font-weight:580}
+.file-card button:hover:not(:disabled){background:var(--surface-alt)}
+.file-card>button:has(>svg){width:32px;min-width:32px;padding:0;justify-content:center;background:transparent;color:var(--grey)}
+.file-card>button:has(>svg):hover:not(:disabled){background:var(--surface);color:var(--text)}
+/* File actions report one step in a row under the name: a determinate bar with
+   cancel while downloading, a spinner for local work, plain text while a system
+   dialog or share sheet holds the choice. Only a confirmed save is green;
+   handoffs and the user's own cancel stay neutral; errors are red with a retry. */
+.file-card{flex-wrap:wrap;row-gap:8px}
+.file-card>button[aria-disabled=true]{opacity:.45;cursor:default}
+.file-card>button[aria-disabled=true]:hover{background:var(--surface)}
+.file-status{display:flex;flex:1 0 100%;flex-wrap:wrap;align-items:center;gap:6px 8px;min-width:0;padding-inline-start:0;color:var(--grey);font-size:12px;line-height:1.45}
+.file-card>.file-status{padding-inline-start:46px}
+.file-card.has-video-thumbnail>.file-status{padding-inline-start:0}
+.file-status[data-tone=done]{color:var(--green)}
+.file-status[data-tone=error]{color:var(--red)}
+.file-status-message{display:flex;flex:0 1 auto;align-items:center;gap:6px;min-width:0;max-width:100%}
+.file-status-message>svg{flex:none}
+.file-status small{min-width:0;color:inherit;font-size:inherit;overflow-wrap:anywhere}
+.file-status-actions{display:flex;flex:0 0 auto;align-items:center;gap:4px;max-width:100%}
+.file-primary-actions,.file-saved-actions{display:flex;flex:none;align-items:center;gap:4px;max-width:100%}
+.file-status[data-tone=error][data-local-file] .file-status-actions>button:first-child{margin-inline-end:8px}
+.file-status .file-status-actions button{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:none;min-height:28px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--accent);font-size:12px;font-weight:500;line-height:1.4;white-space:nowrap}
+.file-status .file-status-actions button:hover:not([aria-disabled=true]){background:var(--hover)}
+.file-status .file-status-actions button[aria-disabled=true]{opacity:.45;cursor:default;background:transparent}
+.file-status .file-status-actions button:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.file-status .file-status-actions .file-status-reveal{width:28px;min-width:28px;padding:0;color:var(--grey)}
+.file-status .file-open-error{flex:1 0 100%;color:var(--red)}
+:root:is([data-palette=cli]) .file-status .file-status-actions button{border-radius:0}
+/* Saved-file actions share the right edge and icon column of Preview / Save.
+   Keep preview-dialog feedback and phone receipt layouts independent. */
+@media(min-width:761px) and (pointer:fine){
+  .file-card>.file-status[data-local-file]>.file-status-actions{margin-inline-start:auto}
+  .file-card>.file-status[data-local-file] .file-status-reveal{width:32px;min-width:32px}
+}
+@media(max-width:760px),(pointer:coarse){
+  .file-status .file-status-actions button{min-width:44px;min-height:44px}
+  .file-status .file-status-actions .file-status-reveal{width:44px;min-width:44px}
+}
+@media(forced-colors:active){.file-status .file-status-actions button{border:1px solid ButtonText}}
+.file-progress{order:-1;flex:1 0 100%;height:3px;border-radius:999px;background:var(--surface-alt);overflow:hidden}
+.file-progress>div{height:100%;background:var(--accent);transform-origin:left;transition:transform var(--t-med) var(--ease)}
+.file-progress[data-paused]>div{background:var(--muted)}
+.attachment-image>button,.attachment-image img{border-radius:var(--radius-xl)}
+.link-preview-card{border:1px solid transparent;border-radius:var(--radius-xl);background:var(--raised);box-shadow:var(--elev-1)}
+.link-preview-card:hover{background:var(--raised);box-shadow:var(--elev-2)}
+.link-preview-cover{border-radius:var(--radius)}
+.link-preview-card.link-preview-inline{border:0;border-radius:0;background:transparent;box-shadow:none;padding:4px 0}
+.native-question h3{font-size:13px;font-weight:600;color:var(--grey)}
+.question-progress{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.question-steps button{min-height:30px;border-color:var(--border);border-radius:var(--radius-sm);background:var(--raised)}
+.question-steps button[aria-current=step]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.question-option{border-color:var(--border-strong);border-radius:var(--radius);background:var(--raised);transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.question-option:hover{background:var(--surface)}
+.question-option.selected{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.question-option:focus-within{outline-color:var(--focus)}
+/* A touch selection needs one quiet edge, not the selected inset stroke plus
+   a full-row focus ring. Native input focus remains available to keyboards. */
+@media(hover:none) and (pointer:coarse){
+  .native-question .question-option.selected{box-shadow:none}
+  .native-question .question-option:focus-within{outline:none}
+  :root[data-focus-intent=pointer] .question-option input:focus-visible{outline:none}
+}
+.question-preview pre{border-radius:var(--radius-sm)}
+.question-footer{border-top-color:var(--border)}
+
+/* ---------- Empty states: quiet text above the empty list, no boxes ---------- */
+.conversation-empty{max-width:440px;margin:40px auto 20px;padding:0 16px;border:0;background:none;box-shadow:none;color:var(--grey)}
+/* The library glyph sits in a soft disc so the empty state has a focal point without illustration. */
+.conversation-empty>svg{display:block;box-sizing:content-box;width:20px;height:20px;margin:0 auto 14px;padding:12px;border-radius:50%;background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);color:var(--grey)}
+.conversation-empty h2{margin-bottom:6px;font-size:16.5px;font-weight:650;letter-spacing:-.012em;color:var(--text)}
+.conversation-empty p{font-size:13.5px;line-height:1.6;color:var(--grey)}
+.conversation-empty button{min-height:34px;margin-top:18px;padding:0 14px;gap:6px;border:1px solid var(--primary-bg);border-radius:999px;background:var(--primary-bg);color:var(--on-primary);font-size:13px;font-weight:600;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 1px 2px rgba(40,32,24,.16)}
+.conversation-empty button:hover:not(:disabled){border-color:var(--primary-hover);background:var(--primary-hover);color:var(--on-primary)}
+.direct-empty{display:flex;align-items:flex-start;gap:16px;max-width:760px;margin:12px auto 20px;padding:4px 0 24px;border-bottom:1px solid var(--border)}
+.direct-empty-copy{flex:1;min-width:0}
+.direct-empty h2{font-size:17px;font-weight:650;letter-spacing:-.015em;line-height:1.4;overflow-wrap:anywhere}
+.direct-empty p{max-width:560px;margin-top:4px;font-size:13.5px;line-height:1.6;color:var(--grey)}
+.direct-empty-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.direct-empty-actions button{min-height:32px;padding:0 12px;gap:7px;border:0;border-radius:999px;background:var(--raised);box-shadow:var(--elev-1);color:var(--text);font-size:12.5px;font-weight:550}
+.direct-empty-actions button svg{color:var(--muted)}
+.direct-empty-actions button:hover:not(:disabled){background:var(--raised);box-shadow:var(--elev-2)}
+.direct-empty-actions kbd{padding:2px 5px;border:0;border-radius:var(--radius-xs);background:var(--surface-alt);font:600 11px/1 var(--font-mono);color:var(--grey)}
+
+/* ---------- Welcome (connected, nothing selected): actions first ---------- */
+.welcome.brand-welcome{display:block;flex:1;gap:0;overflow-y:auto;padding:min(14vh,112px) 32px 48px;text-align:left;background:var(--bg)}
+.welcome-panel{max-width:560px;margin:0 auto}
+.welcome h2{margin:0 0 8px;font-size:24px;font-weight:680;letter-spacing:-.025em;line-height:1.25;color:var(--text)}
+.welcome-panel>p{margin:0 0 24px;font-size:14px;line-height:1.6;color:var(--grey)}
+.welcome-actions{display:flex;flex-direction:column;margin:0;padding:0;list-style:none;border:0;border-radius:var(--radius-2xl);background:var(--raised);box-shadow:var(--elev-2);overflow:hidden}
+.welcome-actions>li+li{border-top:1px solid var(--border)}
+.welcome-action{display:flex;width:100%;min-height:64px;align-items:center;justify-content:flex-start;gap:14px;padding:12px 16px;border:0;border-radius:0;text-align:left}
+.welcome-action:hover:not(:disabled){background:var(--surface)}
+.welcome-action-icon{display:grid;place-items:center;flex-shrink:0;width:36px;height:36px;border-radius:var(--radius-lg);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);color:var(--grey)}
+.welcome-action.is-primary .welcome-action-icon{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent-line);color:var(--accent)}
+.welcome-action-copy{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0}
+.welcome-action strong{font-size:14px;font-weight:620;letter-spacing:-.005em;color:var(--text)}
+.welcome-action small{font-size:12.5px;line-height:1.5;color:var(--muted)}
+.welcome-action-chevron{flex-shrink:0;color:var(--muted);transition:transform var(--t-med) var(--ease-out),color var(--t-fast) var(--ease)}
+.welcome-action:hover:not(:disabled) .welcome-action-chevron{color:var(--grey);transform:translateX(2px)}
+.welcome-model-title{margin:36px 0 12px;font-size:11.5px;font-weight:600;letter-spacing:.02em;color:var(--muted)}
+.welcome-model{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 28px;margin:0}
+.welcome-model dt{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text)}
+.welcome-model dt svg{flex-shrink:0;color:var(--muted)}
+.welcome-model dd{margin:4px 0 0;font-size:12.5px;line-height:1.6;color:var(--grey)}
+
+/* ---------- Composer ---------- */
+/* A single outlined input, growing with the draft on all WebViews. */
+.composer-wrap{max-width:816px;padding:8px 28px 20px}
+@media(min-width:761px){.composer-wrap{max-width:none}}
+.composer{border:1px solid var(--border-strong);border-radius:18px;background:var(--raised);box-shadow:0 2px 8px #00000004;transition:border-color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out)}
+@media(min-width:761px){
+  .composer{padding-block:8px}
+  /* Keep the extra height above the main desktop editor; retain the toolbar's own bottom inset. */
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane)>.conversation-main>.composer-wrap>.composer-input-row>.composer{padding-bottom:0}
+  .adhd-card .composer{padding-block:0}
+}
+.composer:hover{border-color:var(--muted)}
+.composer:focus-within{border-color:var(--composer-focus);box-shadow:0 0 0 2px var(--ring)}
+.composer textarea{height:46px;min-height:0;padding:11px 16px 9px;font-size:calc(1rem + 1px);line-height:1.62;color:var(--text)}
+/* Main desktop drafts follow the chosen reading size, including narrow windows. */
+@media(hover:hover) and (pointer:fine){
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane)>.conversation-main>.composer-wrap>.composer-input-row>.composer>textarea{font-size:1rem}
+}
+/* Desktop prompts are interface hints, independent of the reading/input size.
+   Native phones, compact panes and the side composer keep their own sizing. */
+@media(min-width:761px){
+  /* Main and side use the same vertical rhythm. Redistribute each row's
+     existing padding so the outer height and multiline measurements stay put. */
+  :root:not([data-platform=ios],[data-platform=android]) :is(.app-shell:not(.conversation-pane)>.conversation-main>.composer-wrap>.composer-input-row>.composer,.side-compose>.side-composer)>textarea{--composer-text-lift:8px;padding-top:3px;padding-bottom:17px}
+  :root:not([data-platform=ios],[data-platform=android]) :is(.app-shell:not(.conversation-pane)>.conversation-main>.composer-wrap>.composer-input-row>.composer,.side-compose>.side-composer)>.composer-toolbar{padding-top:4px;padding-bottom:6px}
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane)>.conversation-main>.composer-wrap>.composer-input-row>.composer>textarea::placeholder{font-size:13px}
+}
+.composer textarea:focus-visible{outline:none;box-shadow:none}
+.composer-toolbar{gap:2px;padding:0 10px 10px 8px}
+.composer-toolbar .icon-button{width:32px;height:32px;padding:7px;border-radius:50%;color:var(--muted)}
+.composer-toolbar .icon-button:hover:not(:disabled){background-color:var(--surface);color:var(--text)}
+.composer-toolbar .icon-button:active:not(:disabled){background-color:var(--surface-alt);color:var(--text)}
+/* Stopping a reply is a normal toolbar action. Match the theme's surfaces;
+   the stop glyph and readable foreground identify the live control. */
+:root .composer-toolbar .icon-button.composer-stop.is-live{background-color:var(--surface);color:var(--text)}
+:root .composer-toolbar .icon-button.composer-stop.is-live:hover:not(:disabled){background-color:var(--surface-alt);color:var(--text)}
+:root .composer-toolbar .icon-button.composer-stop.is-live:active:not(:disabled){background-color:var(--selected-row);color:var(--text)}
+/* Labelled toolbar actions (引导, cancel upload) are ghost pills like the round
+   actions beside them, so Send is the one filled control. 引导 takes the soft
+   fill only while a reply is running, when steering is the live choice. */
+.composer-toolbar>button:not(.icon-button,.send-button){min-height:30px;padding:0 11px;gap:6px;border:0;border-radius:999px;background:transparent;color:var(--grey);font-size:12px;font-weight:550}
+.composer-toolbar:has(.composer-stop.is-live)>button.composer-steer{background-color:var(--surface);color:var(--text)}
+.composer-toolbar>button:not(.icon-button,.send-button):hover:not(:disabled){background-color:var(--surface-alt);color:var(--text)}
+.composer-toolbar>button:not(.icon-button,.send-button):active:not(:disabled){background-color:var(--selected-row);color:var(--text)}
+.composer-steer svg{color:var(--muted)}
+.composer-collaborate>span{display:none}
+.composer-hint{min-width:0;margin-left:6px;overflow:hidden;font-size:11.5px;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}
+.send-button{width:32px;height:32px;flex-shrink:0;margin-left:6px;padding:0;border-radius:50%;background:var(--primary-bg);color:var(--on-primary);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 1px 2px rgba(40,32,24,.18)}
+.send-button:hover:not(:disabled){background-color:var(--primary-hover)}
+/* Pressed-in material: the top light turns into a short inner shade; no scaling. */
+.send-button:active:not(:disabled){background-color:var(--primary-hover);box-shadow:inset 0 1px 2px rgba(0,0,0,.22)}
+.send-button svg{transition:transform var(--t-med) var(--ease-out)}
+@media(hover:hover){.send-button:hover:not(:disabled) svg{transform:translateY(-1.5px)}}
+.send-button:active:not(:disabled) svg{transform:none;transition-duration:0s}
+/* Disabled Send is a flat recessed pill, as on phones: never an outlined secondary. */
+.send-button:disabled{opacity:1;background-color:var(--surface-alt);color:var(--muted);box-shadow:none}
+.recording{background-color:var(--red-soft);color:var(--red)}
+.reply-preview{margin:0 20px;padding:6px 6px 6px 14px;border:0;border-radius:var(--radius-xl) var(--radius-xl) 0 0;background:var(--surface);box-shadow:inset 0 0 0 1px var(--border)}
+.reply-preview strong{font-weight:600;color:var(--text)}
+.reply-bots{gap:6px;padding:0 6px 10px;font-size:12px}
+.reply-bots>span{font-weight:550;color:var(--muted)}
+.reply-bots button{min-height:28px;padding:0 11px;gap:4px;border:0;border-radius:999px;background:transparent;box-shadow:inset 0 0 0 1px var(--border-strong);color:var(--grey);font-size:12px;font-weight:550}
+.reply-bots button:hover:not(:disabled){background:var(--surface);color:var(--text)}
+.reply-bots button[aria-checked=true],.reply-bots button[aria-checked=true]:hover:not(:disabled){background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent-line);color:var(--accent)}
+/* Slash commands and @ mentions are a compact anchored menu, not a full-width
+   panel: it hugs its rows (up to the composer width) at the composer's leading
+   edge, where the trigger character is typed, and grows from that corner.
+   Rows press one tone darker; focus rings sit inside the rows. Phones restate a
+   full-width list (phone section). */
+.command-menu{left:24px;right:auto;width:max-content;min-width:min(280px,calc(100% - 48px));max-width:min(520px,calc(100% - 48px));margin-bottom:8px;padding:5px;border:0;border-radius:var(--radius-xl);background:var(--raised);box-shadow:var(--elev-2);transform-origin:bottom left;animation:tc-pop var(--t-med) var(--ease-out) both}
+.command-menu button{padding:8px 10px;border-radius:var(--radius);text-align:left}
+.command-menu button:hover:not(:disabled){background:var(--surface)}
+.command-menu button:active:not(:disabled){background:var(--surface-alt)}
+.command-menu{max-height:min(288px,var(--composer-menu-room,0px));overflow-y:auto;overscroll-behavior-y:contain;scroll-padding-block:5px;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+.command-menu[data-no-space=true]{visibility:hidden;pointer-events:none}
+.command-menu strong{font:600 12.5px/1.5 var(--font-mono);color:var(--accent)}
+.jump-latest{min-height:30px;padding:0 14px;border:0;border-radius:999px;background:var(--raised);box-shadow:var(--elev-2);color:var(--grey);font-weight:550;animation:tc-rise var(--t-med) var(--ease-out) both}
+.jump-latest:hover:not(:disabled){background:var(--raised);color:var(--text)}
+.voice-recording{margin:8px 10px;padding:8px 10px;border-radius:var(--radius-xl);background:var(--red-soft);color:var(--text)}
+.voice-recording button{min-height:30px;border-radius:999px}
+.voice-recording>button:not(.primary){border:0;background:var(--raised);box-shadow:var(--elev-1)}
+.voice-recording-dot{animation:tc-pulse 1.2s ease-in-out infinite}
+.attachment-draft-file{border-color:transparent;border-radius:var(--radius-lg);background:var(--surface);box-shadow:inset 0 0 0 1px var(--border)}
+.attachment-draft-thumbnail{border-radius:var(--radius-sm);color:var(--grey)}
+
+/* ---------- Pairing, loading, lock ---------- */
+.creation-dialog form>label :is(input,select,textarea){font-weight:400}
+.loading-screen{flex-direction:column;gap:16px;background:var(--canvas);color:var(--grey)}
+.loading-screen>span{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.app-lock-screen{background:var(--canvas)}
+.app-lock-screen>svg{color:var(--muted)}
+.app-lock-screen h1{font-size:18px;font-weight:600}
+.app-lock-screen p{font-size:13px;color:var(--grey)}
+
+/* ---------- Dialogs and panels ---------- */
+/* Modal containers receive focus when a nested dialog removes its trigger.
+   Focus rings belong to the controls inside, not around the whole sheet. */
+dialog:focus{outline:none}
+.creation-dialog>header h2:focus{outline:none}
+.creation-dialog>header .icon-button:not(:focus-visible){outline:none}
+/* Dialogs rise 8px and settle from 98.5% over --t-slow; the scrim fades. On
+   phones the same dialogs dock as bottom sheets (phone section). */
+.modal-scrim{background:var(--scrim);-webkit-backdrop-filter:none;backdrop-filter:none;animation:tc-fade var(--t-med) var(--ease) both}
+.modal-scrim>[role=dialog]{animation:tc-dialog-in var(--t-slow) var(--ease-out) both}
+.settings-panel,.new-chat-panel{padding:20px 24px 24px;border:0;border-radius:var(--radius-2xl);background:var(--bg);box-shadow:var(--elev-3)}
+.settings-panel>header,.new-chat-panel>header{margin-bottom:16px}
+.settings-panel>header h2,.new-chat-panel>header h2,.search-results>header h2{font-size:16.5px;font-weight:650;letter-spacing:-.012em}
+.settings-panel>header .icon-button,.new-chat-panel>header .icon-button{margin-right:-8px;border-radius:50%;color:var(--muted)}
+.settings-panel>header .icon-button:hover:not(:disabled),.new-chat-panel>header .icon-button:hover:not(:disabled){background:var(--surface);color:var(--text)}
+.settings-panel>h3,.settings-panel>.settings-dialog-body>h3{margin:22px 0 10px;padding-top:18px;border-top:1px solid var(--border);font-size:13px;font-weight:600}
+.settings-panel form>label{font-size:13px;font-weight:500}
+.creation-dialog::backdrop,.preferences-dialog::backdrop{background:var(--scrim);-webkit-backdrop-filter:none;backdrop-filter:none}
+.creation-dialog[open],.preferences-dialog[open]{animation:tc-dialog-in var(--t-slow) var(--ease-out) both}
+.creation-dialog[open]::backdrop,.preferences-dialog[open]::backdrop{animation:tc-fade var(--t-med) var(--ease) both}
+.creation-help{margin-bottom:16px;font-size:13px;line-height:1.6;color:var(--grey)}
+.creation-dialog form>label{gap:6px;margin-bottom:16px;font-size:13px;font-weight:500}
+.creation-dialog legend{margin-bottom:2px;font-size:13px;font-weight:500;color:var(--grey)}
+.new-chat-panel .bot-option{margin-top:6px;padding:10px 12px;gap:12px;border-color:var(--border);border-radius:var(--radius-lg);background:var(--raised);cursor:pointer;transition:border-color var(--t-fast) var(--ease),background-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.new-chat-panel .bot-option:hover{border-color:var(--border-strong)}
+.new-chat-panel .bot-option:has(input:checked){border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.bot-option>.bot-option-copy{gap:2px;min-width:0}
+.bot-option>.bot-option-status{flex:none;font-size:12px}
+.bot-option>.profile-avatar{flex:none}
+.bot-option strong{font-size:13.5px;font-weight:600}
+.creation-empty{padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);font-size:13px}
+.creation-empty button{min-height:32px;margin-top:10px;padding:0 12px;border-radius:var(--radius-sm);background:var(--primary-bg);color:var(--on-primary);font-weight:600}
+.creation-empty button:hover:not(:disabled){background:var(--primary-hover);color:var(--on-primary)}
+.inherited-bots span{border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface)}
+.bot-fields summary{font-weight:550;color:var(--grey)}
+.bot-created h3{font-size:16px;font-weight:600}
+.topic-search,.creation-dialog .forward-search{border-color:var(--border-strong);border-radius:var(--radius-sm);background:var(--raised)}
+.topic-search:focus-within,.creation-dialog .forward-search:focus-within{border-color:var(--focus);box-shadow:0 0 0 3px var(--ring)}
+:is(.topic-search,.forward-search) input:focus-visible{outline:none;box-shadow:none}
+.topic-directory-group>svg{color:var(--muted)}
+.topic-directory-filters button{min-height:32px;border-radius:var(--radius-sm)}
+.topic-directory-filters button[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.topic-directory-row,.topic-default-row{min-height:52px;padding:8px 10px;border-bottom-color:var(--border);border-radius:0}
+.topic-directory-row.selected{background:var(--accent-soft)}
+.topic-default-row{border-radius:var(--radius-sm);background:var(--surface)}
+.forward-preview,.delegation-route{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.forward-preview>svg{color:var(--muted)}
+.forward-target{min-height:52px;border-radius:var(--radius-sm)}
+.forward-target[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft)}
+.forward-destination p{color:var(--accent)}
+.avatar-setting{margin:0 0 4px;padding:12px 14px;gap:12px;border:1px solid transparent;border-radius:var(--radius-lg);background:var(--raised);box-shadow:var(--elev-1)}
+.avatar-setting strong{font-size:13.5px;font-weight:600}
+/* Same recessed fill as the settings actions: no outlined box inside the panel. */
+.avatar-setting>button{min-height:32px;padding:0 10px;gap:6px;border:1px solid transparent;border-radius:var(--radius-sm);background:var(--surface-alt);font-size:12.5px;font-weight:550}
+.avatar-setting>button:hover:not(:disabled){background:var(--selected-row)}
+.avatar-crop-preview canvas{box-shadow:0 0 0 1px var(--border)}
+.avatar-crop-preview.group canvas{border-radius:28%}
+.avatar-conflict{border-radius:var(--radius)}
+.quick-actions{gap:6px}
+.quick-actions button,.operations-panel>button{min-height:32px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);background:var(--raised);font-size:12.5px;font-weight:550}
+.quick-actions button:hover:not(:disabled),.operations-panel>button:hover:not(:disabled){background:var(--hover);border-color:var(--border-strong);color:var(--text)}
+.quick-actions button.text-danger{border-color:var(--red);color:var(--red)}
+.quick-actions button.text-danger:hover:not(:disabled){background:var(--red-soft);color:var(--red)}
+.operation-bot{border-color:var(--border);border-radius:var(--radius);background:var(--raised)}
+.operation-metrics{gap:6px}
+.operation-metrics span{padding:3px 8px;border-radius:var(--radius-xs);background:var(--surface);font-size:12px;font-variant-numeric:tabular-nums}
+.operation-log,.update-notes,.file-location{border-radius:var(--radius-sm);font-family:var(--font-mono)}
+.share-inbox-button{border-radius:var(--radius);border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.lightbox{background:rgba(12,12,11,.9)}
+.file-preview{border-radius:var(--radius-xl)}
+.file-preview-lightbox,.image-preview-lightbox{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:0;border:0}
+.file-preview-lightbox::backdrop,.image-preview-lightbox::backdrop{background:transparent}
+/* Save-as from the preview reports in the preview, not on the card it covers. */
+.file-preview>.file-status{flex:none;margin:-4px 0 12px;padding-inline-start:0}
+.file-preview header>button[aria-disabled=true]{opacity:.45;cursor:default}
+
+/* ---------- Settings: a preference window, not a stack of cards ---------- */
+.preferences-dialog{width:min(860px,calc(100vw - 48px));height:min(640px,calc(100dvh - 48px));border-color:transparent;border-radius:var(--radius-2xl);background:var(--bg);box-shadow:var(--elev-3)}
+.preferences-header{min-height:52px;padding:8px 10px 8px 20px;border-bottom-color:var(--border)}
+.preferences-header h2{font-size:15px;font-weight:600}
+.preferences-header .icon-button{width:32px;height:32px;padding:6px}
+.settings-navigation{width:208px;padding:12px 8px;border-right-color:var(--border);background:var(--canvas)}
+.settings-navigation>button{min-height:34px;margin:1px 0;padding:6px 10px;gap:10px;border-radius:var(--radius-sm);color:var(--grey)}
+.settings-navigation>button>svg:first-child{width:16px;height:16px;color:var(--muted)}
+.settings-navigation strong{font-size:13px;font-weight:500}
+.settings-navigation>button:hover:not(:disabled){background:var(--canvas-hover);color:var(--text)}
+.settings-navigation>button[aria-current=page],.settings-navigation>button[aria-current=page]:hover:not(:disabled){background:var(--selected-row);color:var(--text)}
+.settings-navigation>button[aria-current=page]>svg:first-child{color:var(--accent)}
+.settings-unsaved-dot{background:var(--orange)}
+.settings-content{padding:24px 28px 28px}
+/* Section headings inside a page; the first h3 of each page is its title. */
+.settings-content h3,.settings-content h4{margin:28px 0 8px;font-size:12.5px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--grey)}
+.settings-content>section>h3:first-child{margin:0 0 20px;font-size:18px;font-weight:600;letter-spacing:-.01em;color:var(--text)}
+.settings-content>section>h3:first-child+p.muted,.settings-content .settings-lede{margin:-14px 0 20px}
+/* One sentence under each page title says where its changes take effect. */
+.settings-content .settings-lede{max-width:64ch;font-size:13px;color:var(--grey)}
+.settings-group-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin:28px 0 8px}
+.settings-content .settings-group-heading h4{margin:0}
+/* Scope is explanatory text, not an action: no filled button-like container. */
+.settings-scope{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:2px 0;border-radius:0;background:transparent;color:var(--muted);font-size:11.5px;font-weight:500;line-height:1.5;overflow-wrap:anywhere}
+.settings-scope svg{flex-shrink:0}
+.settings-content p{font-size:12.5px;line-height:1.6;margin:8px 0}
+.settings-content .muted{color:var(--muted)}
+.settings-content .settings-note{margin:8px 2px 0}
+.settings-content .settings-row{min-height:48px;margin:0;padding:8px 0;gap:8px 16px;border-bottom:1px solid var(--border)}
+.settings-content .settings-row>:is(label,span):first-child{flex:1;min-width:120px;font-size:13.5px;color:var(--text)}
+/* A row title with a short caption beneath it (scope, current state). */
+.settings-row-text{display:flex;flex:1;flex-direction:column;gap:2px;min-width:120px}
+.settings-content .settings-row-text>:first-child{flex:none;font-size:13.5px;color:var(--text)}
+.settings-row-text small{font-size:12px;line-height:1.45;color:var(--muted)}
+.settings-state-on{display:inline-flex;align-items:center;gap:6px}
+.settings-state-on::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green)}
+.settings-group>.settings-row:has(+.settings-font-preview){border-bottom:0}
+.settings-font-preview{display:flex;align-items:baseline;gap:10px;padding:0 0 12px;font-size:1rem;line-height:1.5;color:var(--grey);overflow-wrap:anywhere}
+.settings-font-preview b{font-weight:600;color:var(--text)}
+.settings-group{border:0;border-radius:0;background:transparent;box-shadow:none}
+.settings-group>.settings-row{padding:12px 0}
+.settings-group>.settings-row:last-child{border-bottom:0}
+/* Choices in a settings row are recessed fills, not white boxes inside the white
+   group; focus lifts them to raised with the accent edge (the house field rule). */
+.settings-content .settings-row select{flex:0 1 240px;width:240px;min-height:34px;border-color:transparent;background-color:var(--surface-alt);transition:background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease),box-shadow var(--t-fast) var(--ease)}
+.settings-content .settings-row select:hover:not(:disabled,:focus-visible){background-color:var(--selected-row)}
+.settings-content .settings-row select:focus-visible{border-color:var(--focus);background-color:var(--raised)}
+.settings-content .settings-row>input[type=range]{flex:0 1 200px;width:200px;max-width:none;min-height:24px}
+.settings-content .settings-row>input[type=range]+span{min-width:40px;text-align:right;font-size:12.5px;color:var(--grey);font-variant-numeric:tabular-nums}
+.settings-content .settings-row input[type=checkbox]{width:18px;height:18px}
+.settings-content .settings-row label:has(input[type=time]){display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;font-size:13px}
+.settings-content button{min-height:34px}
+.settings-content input:not([type=range]):not([type=checkbox]),.settings-content select{min-height:34px}
+/* Secondary actions share the fields' recessed fill (labels centred, fields carry
+   a value and chevron); outlines are reserved for destructive actions (red). */
+.settings-content :is(.quick-actions button,.secondary,.settings-row>button,.desktop-updates>button,.pair-approve>button,.device-row form>button,.notification-actions>button):not(.primary,.text-danger){padding:0 12px;border:1px solid transparent;border-radius:var(--radius-sm);background:var(--surface-alt);font-size:13px;font-weight:550}
+.settings-content :is(.quick-actions button,.secondary,.settings-row>button,.desktop-updates>button,.pair-approve>button,.device-row form>button,.notification-actions>button):not(.primary,.text-danger):hover:not(:disabled){background:var(--selected-row)}
+.settings-content .device-row .text-danger,.settings-danger button.text-danger{min-height:32px;padding:0 12px;border:1px solid var(--red);border-radius:var(--radius-sm);background:var(--raised);font-size:12.5px;font-weight:550;color:var(--red)}
+.settings-content .device-row .text-danger:hover:not(:disabled),.settings-danger button.text-danger:hover:not(:disabled){background:var(--red-soft)}
+/* Destructive actions sit last, in their own block, with the consequence spelt out. */
+.settings-danger{margin-top:36px;padding-top:0;border-top:0}
+.settings-content .settings-danger h4{color:var(--red)}
+.settings-danger-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--raised)}
+.settings-danger-row>div{flex:1 1 260px;min-width:0}
+.settings-danger-row strong{display:block;font-size:13.5px;font-weight:600;color:var(--text)}
+.settings-content .settings-danger-row p{margin:4px 0 0}
+.settings-danger-row>button{flex-shrink:0}
+.settings-content .settings-feedback{color:var(--green)}
+.settings-content .settings-pending{color:var(--orange)}
+.settings-content .settings-warning{padding:8px 10px;border-radius:var(--radius-sm);background:var(--orange-soft);color:var(--orange)}
+.settings-content .settings-offline{margin:-8px 0 16px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--surface);color:var(--grey)}
+/* Notification prerequisites: what is missing and the next step, before Enable. */
+.settings-callout{display:flex;gap:10px;margin:10px 0 0;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.settings-callout>svg{flex-shrink:0;margin-top:2px;color:var(--orange)}
+.settings-callout>div{min-width:0}
+.settings-callout strong{display:block;font-size:13px;font-weight:600;color:var(--text)}
+.settings-content .settings-callout p{margin:4px 0 0;color:var(--grey)}
+.settings-callout button{margin-top:10px}
+/* Notification controls keep one readable action per row at phone widths. */
+.settings-group>.settings-callout{margin:0;border:0;border-top:1px solid var(--border);border-radius:0;background:transparent;padding:12px 16px 14px}
+.settings-group>.settings-callout>svg{color:var(--grey)}
+.settings-help{font-size:13px;line-height:1.6;color:var(--grey)}
+.settings-help>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;list-style:none}
+.settings-help>summary::before{content:"›";font-size:18px;transition:transform var(--t-fast) var(--ease)}
+.settings-help[open]>summary::before{transform:rotate(90deg)}
+.settings-help>summary::-webkit-details-marker{display:none}
+.settings-help>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:var(--radius-sm)}
+.settings-content .settings-help p{margin:0 0 8px}
+.notification-policy{margin-top:8px}
+.quiet-times>label{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:68px;padding:10px 16px;font-size:13px}
+.quiet-times>label+label{border-top:1px solid var(--border)}
+.settings-quiet input[type=time]{flex:0 1 150px;width:150px;min-width:120px;min-height:44px;font-variant-numeric:tabular-nums;background:var(--surface-alt);border-color:transparent}
+.settings-content .quiet-preview{margin:0;padding:8px 16px 14px;font-size:12px;color:var(--grey);line-height:1.6;overflow-wrap:anywhere}
+.quiet-save-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;border-top:1px solid var(--border)}
+.quiet-save-row>span{font-size:12px;color:var(--grey);line-height:1.5}
+.quiet-actions{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.quiet-actions button{font-size:13px;min-width:56px}
+@media(max-width:360px){.quiet-actions{width:100%;margin-left:0}.quiet-actions>button{flex:1}.quiet-times>label{padding-inline:12px}.quiet-save-row{padding-inline:12px}}
+.notification-help{margin-top:16px;padding:14px 16px}
+.notification-help>strong{font-size:13px;font-weight:600}
+.notification-help .settings-row{min-height:0;margin:12px 0 0;padding:0;border:0}
+.notification-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.settings-content .settings-state-line{font-weight:550;color:var(--text)}
+/* Connection: state first, then the saved routes in the order they are tried. */
+.connection-summary{justify-content:flex-start;align-items:flex-start;gap:12px;padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--raised);font-size:13px}
+.connection-summary>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.connection-summary strong{font-size:14px;font-weight:600}
+.connection-summary .connection-retry{margin-inline-start:auto;flex-shrink:0;align-self:center}
+.connection-summary>div>span{font-size:12.5px;color:var(--grey);overflow-wrap:anywhere}
+.connection-dot{width:8px;height:8px;margin-top:6px;border-radius:50%;background:var(--muted)}
+.connection-summary[data-status=online] .connection-dot{background:var(--green)}
+.connection-summary[data-status=connecting] .connection-dot{background:var(--orange)}
+.saved-routes{margin:8px 0 16px;border:1px solid var(--border);border-radius:var(--radius);background:var(--raised)}
+.saved-routes li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:start;gap:4px 12px;padding:12px 14px}
+.saved-routes li:last-child{border-bottom:0}
+.saved-routes li>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.saved-routes li>div>span{font-family:var(--font-mono);font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.saved-route-index,.settings-steps>li::before{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--surface-alt);color:var(--grey);font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.route-state{padding:1px 7px;border-radius:var(--radius-xs);background:var(--surface);color:var(--grey);font-size:11.5px;font-weight:500;white-space:nowrap}
+.route-state[data-tone=current]{background:var(--green-soft);color:var(--green)}
+.route-state[data-tone=warn]{background:var(--orange-soft);color:var(--orange)}
+.route-state[data-tone=bad]{background:var(--red-soft);color:var(--red)}
+.route-current,.deployment-summary{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.settings-invite,.notification-help{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.vps-route{border-color:var(--border);border-radius:var(--radius);background:var(--surface)}
+.deployment-guide>select{border-color:var(--border-strong);border-radius:var(--radius-sm);background-color:var(--raised)}
+.deployment-security summary{color:var(--grey)}
+.route-save-bar{bottom:-28px;margin:16px -28px -1px;padding:12px 28px;border-top-color:var(--border);background:var(--bg)}
+/* Pairing: numbered steps, each tagged with the device the person acts on. */
+.settings-steps{margin:0;padding:0;list-style:none;counter-reset:settings-step;border:1px solid var(--border);border-radius:var(--radius);background:var(--raised)}
+.settings-steps>li{position:relative;padding:14px 16px 14px 52px;border-bottom:1px solid var(--border);counter-increment:settings-step}
+.settings-steps>li:last-child{border-bottom:0}
+.settings-steps>li::before{content:counter(settings-step);position:absolute;left:16px;top:14px}
+.settings-step-title{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;min-height:22px}
+.settings-step-title strong{font-size:13.5px;font-weight:600;color:var(--text)}
+.settings-step-device{padding:1px 7px;border-radius:var(--radius-xs);background:var(--surface);color:var(--muted);font-size:11.5px;font-weight:500}
+.settings-step-device[data-device=this]{background:var(--accent-soft);color:var(--accent)}
+.settings-content .settings-steps p{margin:4px 0 10px;color:var(--grey)}
+.settings-content .settings-steps>li>p:last-child{margin-bottom:0}
+.settings-steps .settings-invite{display:grid;justify-items:start;gap:4px;margin-top:12px;padding:0;border:0;background:none;text-align:left}
+.settings-steps .settings-invite .pair-qr{margin:0;border-radius:var(--radius-sm)}
+.settings-content .settings-steps .settings-invite p{margin:0}
+.settings-steps .pair-approve{flex-wrap:wrap;gap:8px;margin:0}
+.settings-steps .pair-approve input{flex:1 1 180px;width:auto;min-width:0;font-variant-numeric:tabular-nums}
+.settings-steps .pair-approve input:not(:placeholder-shown){letter-spacing:.12em}
+.settings-steps .pair-approve button{flex:0 0 auto}
+.settings-steps .pair-approve+p{margin-top:10px}
+/* Authorized devices: platform glyph, editable name, then state tags. */
+.settings-device-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:24px 0 10px}
+.settings-device-heading .settings-group-heading{margin:0;flex:1 1 220px}
+.settings-device-heading button{flex-shrink:0;min-height:36px}
+.settings-devices{padding:0 14px}
+.settings-devices>.device-row:last-child{border-bottom:0}
+.device-row,.saved-routes li{border-bottom-color:var(--border)}
+.settings-content .device-row{align-items:center;gap:12px;padding:10px 0}
+.settings-content .device-row>svg{margin-top:0;color:var(--muted)}
+.settings-content .device-row small{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:12px;color:var(--muted)}
+.settings-device-tag{padding:0 6px;border-radius:var(--radius-xs);background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600;line-height:18px}
+.settings-device-tag[data-tone=muted]{background:var(--surface);color:var(--muted)}
+.device-name{font-weight:550}
+.settings-content .device-name{display:inline-flex;align-items:center;gap:6px;min-height:28px;max-width:100%;color:var(--text);font-size:13.5px}
+.settings-content .device-name svg{flex-shrink:0;color:var(--muted)}
+.settings-content .device-row.revoked .device-name{color:var(--muted)}
+.device-rename{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.device-rename input{flex:1 1 160px;min-width:0;max-width:none}
+.device-rename small{flex-basis:100%}
+.pair-approve{gap:8px}
+
+/* ---------- Search, file center, dashboard, diagnostics ---------- */
+.search-results{padding:24px;background:var(--bg)}
+.search-filters{padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.search-results>button{margin:8px 0;padding:12px 14px;border-color:var(--border);border-radius:var(--radius);background:var(--raised)}
+.search-results>button:hover:not(:disabled){border-color:var(--border-strong);background:var(--surface)}
+.file-center{border-color:transparent;border-radius:var(--radius-2xl);background:var(--bg);box-shadow:var(--elev-3)}
+.file-center-header h2{font-size:17px;font-weight:600}
+.file-center-header h2 svg{color:var(--muted)}
+.file-center-summary{border-top:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--canvas)}
+.file-action{min-height:32px;border-radius:var(--radius-sm);font-weight:550}
+.file-action:not(.primary){border-color:var(--border-strong);background:var(--raised)}
+.file-action:not(.primary):hover:not(:disabled){background:var(--hover)}
+.file-action.primary{background:var(--primary-bg);border-color:var(--primary-bg);color:var(--on-primary)}
+.file-action.primary:hover:not(:disabled){background:var(--primary-hover);border-color:var(--primary-hover);color:var(--on-primary)}
+.file-unit{border-color:var(--border);border-radius:var(--radius);background:var(--raised)}
+.file-unit:hover:not(:disabled){border-color:var(--border-strong);background:var(--surface)}
+.file-unit.selected,.file-unit.selected:hover:not(:disabled){border-color:var(--accent);background:var(--accent-soft)}
+.file-safety{border-radius:var(--radius-xs)}
+.dashboard-nav{border-radius:var(--radius)}
+.dashboard-nav button{border-radius:var(--radius-sm)}
+.dashboard-nav button[aria-pressed=true]{background:var(--raised);color:var(--text);box-shadow:var(--shadow-sm)}
+.dashboard-metrics>div,.diagnostic-metrics>div{border:1px solid var(--border);border-radius:var(--radius);background:var(--raised)}
+.dashboard-card,.diagnostic-event{border-color:var(--border);border-radius:var(--radius);background:var(--raised)}
+.dashboard-badge,.diagnostic-tags>span{border-radius:var(--radius-xs)}
+.dashboard-card summary{color:var(--grey)}
+
+/* ---------- Wide screens: restate styles.css @media(min-width:1500px) ---------- */
+/* Keep conversation content insets stable: native side-panel expansion may
+   cross this breakpoint while the main conversation keeps its old width. */
+@media(min-width:1500px){
+  .sidebar{width:288px}
+  .message-scroll{padding:20px 28px 0}
+  .composer-wrap{padding-bottom:20px}
+}
+
+/* ---------- Phones: restate what styles.css / preferences.css set at 760px ---------- */
+@media(max-width:760px){
+  .card-collapse{padding-block:0}
+  .card-collapse summary{min-height:44px}
+  .sidebar{width:min(300px,86vw);box-shadow:none;transition:transform var(--t-slow) var(--ease)}
+  .sidebar.shown{box-shadow:var(--shadow-lg)}
+  .sidebar-backdrop,.sidebar-backdrop:hover:not(:disabled){background:var(--scrim)}
+  .sidebar-backdrop{animation:tc-fade var(--t-fast) linear both}
+  .brand{height:56px}
+  .brand>.icon-button,.bot-tree-heading>.icon-button,.sidebar-footer .icon-button,.group-toggle{width:44px;height:44px;padding:12px}
+  .sidebar-footer>.icon-button:has(.profile-avatar){padding:9px}
+  .sidebar-footer{height:56px}
+  .sidebar-create button,.file-center-entry{min-height:44px}
+  .search-box{height:44px}
+  .search-box input{font-size:16px}
+  .bot-identity{min-height:48px}
+  .conversation-row,.bot-tree-conversations .conversation-row,.group-tree-topics .topic-row{min-height:48px}
+  /* Header priority on phones: the conversation title comes first. "新对话" and
+     the route/latency label stay in the DOM (accessible names, e2e text) but
+     fold into 44px icon targets; the offline banner still speaks. */
+  .conversation-main{margin:0;border-radius:0;box-shadow:none;overflow:visible}
+  .conversation-header{height:56px;min-height:56px;padding:0 6px;gap:2px;border-radius:0}
+  .conversation-header>.icon-button{width:44px;height:44px;padding:12px}
+  .header-avatar-button{margin:0 6px 0 2px}
+  .header-title h1{font-size:15px}
+  .header-title>span{max-width:none;font-size:11px}
+  .header-new-chat,.connection-pill{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44px;max-width:none;height:44px;min-height:44px;padding:0;gap:0;border:0;border-radius:var(--radius);background:transparent}
+  .header-new-chat:hover:not(:disabled),.connection-pill:hover:not(:disabled){background:var(--hover)}
+  .header-new-chat svg{width:20px;height:20px;color:var(--grey)}
+  .connection-pill svg{width:18px;height:18px}
+  .header-new-chat>span,.connection-pill>span{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+  .offline-banner{padding:8px 12px}
+  .error-banner{padding:4px 4px 4px 12px}
+  .error-banner .icon-button{width:44px;height:44px;padding:15px}
+  /* One topic row on phones too: 44px back/group, directory (icon + count) and
+     create targets; their text labels stay in the accessible name. No track on
+     phones (the strip scrolls under an edge fade); the current topic is a 34px
+     pill drawn inside its 44px target. */
+  .group-topic-navigation .topic-bar{min-height:48px;padding:0 4px 4px 6px;gap:2px}
+  .group-breadcrumb{width:44px;height:44px;min-height:44px;margin-right:7px}
+  .group-breadcrumb::after{top:12px;bottom:12px;right:-4px}
+  .topic-tabs{flex:1 1 auto;padding:0;border-radius:0;background:none;box-shadow:none}
+  .topic-tabs button,.group-topic-navigation .topic-tabs button{min-height:44px;max-width:170px;padding:0 12px;border-block:5px solid transparent;border-radius:999px}
+  /* Clip restated with hover/current specificity: styles.css `button:hover` uses the background shorthand. */
+  .topic-tabs button,.topic-tabs button:hover:not(:disabled),.topic-tabs button[aria-current=page],.topic-tabs button[aria-current=page]:hover:not(:disabled){background-clip:padding-box}
+  .topic-tabs button[aria-current=page],.topic-tabs button[aria-current=page]:hover:not(:disabled){background-color:var(--surface-alt);box-shadow:none}
+  .topic-directory-button{min-width:44px;min-height:44px;margin-left:0;padding:0 6px;justify-content:center}
+  .topic-create{width:44px;min-height:44px;padding:0;justify-content:center}
+  :is(.topic-directory-button,.topic-create)>span{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+  .archived-notice{padding:12px}
+  .archived-notice button{min-height:44px}
+  .message-scroll{padding:0 12px}
+  .message{gap:8px;padding:0 0 2px}
+  .message.user .message-blocks{max-width:86%}
+  .conversation-intro{font-size:11px}
+  .direct-empty{gap:12px}
+  .direct-empty-actions button,.conversation-empty button,.reply-bots button,.queued-message button{min-height:40px}
+  /* Actual control bounds remain 44px, including native accessibility and
+     focus outlines; no overlapping invisible target extensions are needed. */
+  .file-card>button{min-width:44px;min-height:44px}
+  .file-card>button:has(>svg){width:44px;min-width:44px}
+  /* Keep the real 44px control while painting a quieter 32px pill inside it.
+     Restate clipping on hover because the shared background shorthand resets it. */
+  .file-card>button:not(:has(>svg)),.file-card>button:not(:has(>svg)):hover:not(:disabled){border:6px solid transparent;background-clip:padding-box;padding-inline:8px}
+  .file-card>button:not(:has(>svg)):focus-visible{outline-offset:-4px}
+  .file-status>button,.file-preview button{min-width:44px;min-height:44px}
+  .welcome.brand-welcome{padding:28px 16px 32px}
+  .welcome h2{font-size:21px}
+  .welcome-panel>p{margin-bottom:18px;font-size:13.5px}
+  .welcome-action{min-height:64px}
+  .welcome-model{grid-template-columns:minmax(0,1fr);gap:14px}
+  /* Phone composer: a lighter, rounder surface. Draft content controls its height.
+     Round actions keep 44px targets but draw 36px discs (transparent border +
+     padding-box background). Send/Stop share one slot; queue state is a tooltip. */
+  .composer-wrap{padding:6px 10px max(8px,var(--app-safe-bottom))}
+  .composer{border-radius:24px}
+  .composer textarea{height:44px;min-height:0;padding:10px 12px;font-size:16px;line-height:1.5}
+  .composer-toolbar{gap:0;padding:0 4px 4px}
+  .composer-toolbar .icon-button{width:44px;height:44px;padding:9px;border:4px solid transparent}
+  .composer-toolbar>button:not(.icon-button,.send-button){min-height:44px;padding:0 12px;border:4px solid transparent;border-inline-width:0}
+  .composer-hint{margin-left:2px;font-size:11px}
+  .send-button{width:44px;min-width:44px;height:44px;margin-left:auto;padding:0;gap:0;border:4px solid transparent;box-shadow:none}
+  .send-button:disabled{background-color:var(--surface-alt);box-shadow:none}
+  /* Discs are painted inside the transparent border. Restated above the specificity
+     of every hover/disabled rule that uses the background shorthand (styles.css). */
+  .composer-toolbar .icon-button.icon-button,.composer-toolbar .icon-button:hover:not(:disabled),
+  .composer-toolbar>button:not(.icon-button,.send-button),.composer-toolbar>button:not(.icon-button,.send-button):hover:not(:disabled),
+  .composer-toolbar .send-button.send-button,.composer-toolbar .send-button:hover:not(:disabled),.composer-toolbar .send-button:disabled{background-clip:padding-box}
+  .composer-toolbar>button.composer-collaborate{width:auto;padding:0 10px;gap:5px;border-radius:22px;font-size:12px}
+  .composer-collaborate>span{display:inline;white-space:nowrap}
+  .composer-toolbar:has(.composer-stop.is-live)>button.composer-collaborate{width:44px;padding:0;gap:0}
+  .composer-toolbar:has(.composer-stop.is-live) .composer-collaborate>span{display:none}
+  /* Keep the send target fixed while another device ends the current turn.
+      Queue state remains in its tooltip; the phone action stays a disc. */
+  .command-menu{left:10px;right:10px;width:auto;min-width:0;max-width:none}
+  .command-menu button{min-height:44px}
+  .reply-preview{margin:0 16px}
+  .search-results{padding:16px}
+  .question-steps button{min-height:36px}
+  .card-button{min-height:40px}
+  .modal-scrim{padding:12px}
+  .settings-panel,.new-chat-panel{padding:16px}
+  /* Phone dialogs are bottom sheets: full width, docked, top corners rounded,
+     home-indicator inset respected. Content scrolls inside the sheet. */
+  .creation-dialog{width:100%;max-width:100%;margin:auto 0 0;max-height:calc(100dvh - max(20px,var(--app-safe-top)) - 12px);padding:8px 16px max(18px,var(--app-safe-bottom));border-radius:20px 20px 0 0;box-shadow:var(--elev-3)}
+  .creation-dialog>header{min-height:48px;margin-bottom:8px}
+  .creation-dialog>header .icon-button{width:44px;height:44px;min-width:44px;min-height:44px}
+  .creation-dialog[open]{animation:tc-sheet-up var(--t-sheet) var(--ease-sheet) both}
+  .modal-scrim:has(>.settings-panel){align-items:flex-end;padding:0}
+  .modal-scrim>.settings-panel{width:100%;max-height:calc(100dvh - max(20px,var(--app-safe-top)) - 12px);padding:8px 16px max(18px,var(--app-safe-bottom));border-radius:20px 20px 0 0;animation:tc-sheet-up var(--t-sheet) var(--ease-sheet) both}
+  .modal-scrim>.settings-panel>header{min-height:48px;margin-bottom:8px}
+  .quick-actions button,.operations-panel>button,.avatar-setting>button{min-height:40px}
+  .new-chat-panel .bot-option{min-height:56px}
+  .topic-directory-row{min-height:60px}
+  .forward-target{min-height:56px}
+  .preferences-dialog{width:100%;height:100dvh;margin:0;border:0;border-radius:0;background:var(--canvas)}
+  /* Phone settings detail pages share the Me tab's grouped cells: raised panels,
+     16px corners, on the stone. */
+  .settings-content :is(.settings-group,.avatar-setting,.settings-danger-row,.connection-summary,.saved-routes,.settings-steps){border-color:transparent;border-radius:var(--radius-2xl);box-shadow:var(--elev-1)}
+  /* Phone settings are pushed pages, like a chat: Back leads and the header
+     names the current page, at the chat header's size. */
+  .preferences-header{min-height:56px;gap:4px;padding:calc(6px + var(--app-safe-top)) max(12px,var(--app-safe-right)) 6px max(6px,var(--app-safe-left))}
+  .preferences-header .icon-button{width:44px;height:44px;margin:0;padding:10px;border-radius:50%}
+  .preferences-header h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16.5px;font-weight:650;letter-spacing:-.015em}
+  .settings-navigation{width:100%;padding:16px;border:0;background:var(--canvas)}
+  .settings-navigation>button{position:relative;min-height:64px;margin:0;padding:10px 14px;gap:14px;border:1px solid var(--border);border-block-width:0;border-radius:0;background:var(--raised);color:var(--text)}
+  /* The same grouped list as the Me tab one tap earlier: 16px outer corners and
+     separators inset to the text column (14 + 32px tile + 14). */
+  .settings-navigation>button:first-child{border-top-width:1px;border-radius:var(--radius-2xl) var(--radius-2xl) 0 0}
+  .settings-navigation>button:last-child{border-bottom-width:1px;border-radius:0 0 var(--radius-2xl) var(--radius-2xl)}
+  .settings-navigation>button+button::before{content:"";position:absolute;top:0;right:0;left:60px;height:1px;background:var(--border);pointer-events:none}
+  .settings-navigation>button[aria-current=page],.settings-navigation>button[aria-current=page]:hover:not(:disabled){background:var(--raised)}
+  .settings-navigation>button:active:not(:disabled),.settings-navigation>button[aria-current=page]:active:not(:disabled){background:var(--hover)}
+  .settings-navigation>button>svg:first-child,.settings-navigation>button[aria-current=page]>svg:first-child{box-sizing:content-box;width:18px;height:18px;padding:7px;border-radius:var(--radius);background:var(--surface-alt);color:var(--grey)}
+  .settings-navigation strong{font-size:15px;font-weight:550}
+  .settings-navigation small{margin-top:2px;font-size:12px;color:var(--muted)}
+  .settings-content{padding:20px 16px max(20px,var(--app-safe-bottom))}
+  .settings-content .settings-group{padding:4px 16px}
+  .settings-content .settings-group .settings-row>:is(label,span):first-child{min-width:0}
+  .settings-content .settings-group .settings-font-preview{padding-bottom:16px}
+  /* The header already carries the page title; the lede leads the page. */
+  .settings-content>section>h3:first-child{display:none}
+  .settings-content>section>h3:first-child+p.muted,.settings-content .settings-lede{margin:0 0 20px}
+  .settings-content button{min-height:44px}
+  .settings-content input:not([type=range]):not([type=checkbox]),.settings-content select{min-height:44px}
+  .settings-content .settings-row select{flex:1 1 160px;width:auto;min-height:44px}
+  .settings-content .settings-row>input[type=range]{flex:1 1 0;min-width:0;width:auto;max-width:none;min-height:44px}
+  .settings-content .settings-row:has(>input[type=range]){flex-wrap:nowrap;column-gap:12px}
+  .settings-content .settings-row:has(>input[type=range])>span{width:auto;min-width:3ch}
+  /* Font size: a short label lets the slider and its value share one line. */
+  .settings-content .settings-row:has(>input[type=range])>label:first-child{flex:0 0 auto;min-width:0}
+  .settings-content .settings-row input[type=checkbox]{width:22px;height:22px}
+  /* 16px text fields stop iOS from zooming the sheet on focus. */
+  .settings-content input:is(:not([type]),[type=text],[type=time]){font-size:16px}
+  .route-save-bar{bottom:-20px;margin-inline:-16px;padding:12px 16px max(12px,var(--app-safe-bottom))}
+  .settings-steps>li{padding:14px 14px 14px 46px}
+  .settings-steps>li::before{left:14px}
+  .settings-steps .pair-approve input{flex-basis:100%}
+  .settings-steps .pair-approve button{flex:1 1 auto}
+  .settings-devices{padding:0 12px}
+  .settings-content .device-name,.settings-content .device-row .text-danger,.settings-danger button.text-danger{min-height:44px}
+  .settings-danger-row{padding:14px}
+}
+/* Touch screens wider than a phone keep the desktop settings layout, with 44px targets. */
+@media(min-width:761px) and (pointer:coarse){
+  .preferences-header .icon-button{width:44px;height:44px;padding:12px}
+  .settings-navigation>button{min-height:44px}
+  .settings-content button,.settings-content input:not([type=range]):not([type=checkbox]),.settings-content select,.settings-content .settings-row select,.settings-content .settings-row>input[type=range]{min-height:44px}
+  .settings-content .device-name,.settings-content .device-row .text-danger,.settings-danger button.text-danger{min-height:44px}
+  .file-card button,.file-card>button:has(>svg),.file-preview button{min-width:44px;min-height:44px}
+}
+@media(max-width:480px){
+  /* Still one row on narrow phones: the name takes one line with an ellipsis
+     (the full name stays the card's accessible name), size never wraps, and
+     progress/status drops beneath the whole row. */
+  .file-card{padding:6px 6px 6px 8px;gap:8px}
+  .file-card>svg:first-child:not(.file-type-icon){width:32px;height:32px;padding:7px;border-radius:9px}
+  .file-card strong{-webkit-line-clamp:1;word-break:break-all;font-size:13.5px}
+  .file-card>span>small{white-space:nowrap}
+  .file-card>button+button{margin-left:-2px}
+  .file-card>.file-status{padding-inline-start:0}
+  .message.user .message-blocks:has(>.markdown):has(.file-card,.attachment-image){padding:5px}
+  .message.user .message-blocks:has(>.markdown) .file-card{border-radius:13px}
+  .saved-routes li{grid-template-columns:22px minmax(0,1fr)}
+  .route-state{grid-column:2;justify-self:start;white-space:normal}
+}
+@media(max-width:360px){
+  /* Preserve readable names with larger fonts and English labels on the
+     smallest phones. This is a content constraint, not a smaller touch target. */
+  .file-card{display:grid;grid-template-columns:32px minmax(0,1fr) auto;row-gap:4px}
+  .file-card>svg:first-child:not(.file-type-icon){grid-column:1;grid-row:1}
+  .file-card>span{grid-column:2 / -1;grid-row:1}
+  .file-card strong{-webkit-line-clamp:2;word-break:normal;overflow-wrap:anywhere}
+  .file-card>button{grid-row:2;justify-self:end}
+  .file-card>button:first-of-type{grid-column:2}
+  .file-card>button:last-of-type{grid-column:3}
+  .file-card>.file-status{grid-column:1 / -1;grid-row:3;padding-inline-start:0}
+}
+@media(max-width:360px){
+  .composer-toolbar>button.composer-steer{padding:0}
+  .composer-toolbar>button.composer-collaborate{width:44px;padding:0;gap:0}
+  .composer-collaborate>span{display:none}
+}
+@media(max-width:700px){.file-center{border:0;border-radius:0}.file-action{min-height:40px}}
+@media(max-width:600px){
+  .avatar-setting{padding:10px 12px;gap:10px}
+  .avatar-setting>button{padding:0 10px;font-size:12.5px}
+  .voice-recording{margin:6px 8px;padding:8px;gap:6px}
+}
+
+/* ---------- Motion: brief and functional ----------
+   fade      scrims, backdrops                     --t-med  --ease
+   rise      jump-to-latest                         --t-med  --ease-out   4px
+   pop       command / mention menu, from its       --t-med  --ease-out   4px, 98%
+             bottom-left source corner
+   menu-in   phone create menu (mobile-im.css)      --t-med  --ease-out   -4px, 97%
+   dialog-in desktop dialogs                        --t-slow --ease-out   8px, 98.5%
+   sheet-up  phone dialogs / scrim panels           --t-sheet --ease-sheet from below
+   sheet-in  phone settings (full screen)           --t-slow --ease-out   16px
+   guide-in  sidebar selection segment               --t-med  --ease-out   scaleY .35
+   breathe   reply-activity halo, only while a      2.4s ease-in-out loop; opacity 0-.3,
+             reply streams                          scale .6-1.3 on the halo only
+   Composer focus is a --t-med box-shadow halo. Presses land at once (0s) as a
+   darker tone and release over the control's own transition (--t-fast for
+   buttons, --t-slow for phone inbox rows); sources of an open sheet or menu
+   (composer +, message entry) keep a tinted open state while it shows.
+   Selection feedback (segments, tab indicator, rows, chips) is a --t-fast/--t-med
+   colour/shadow transition; nothing in the message list moves. Close is
+   immediate: dialogs unmount, so focus returns without waiting for an exit. */
+@keyframes tc-fade{from{opacity:0}to{opacity:1}}
+@keyframes tc-rise{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes tc-pop{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes tc-breathe{0%,100%{opacity:0;transform:scale(.6)}50%{opacity:.3;transform:scale(1.3)}}
+@keyframes tc-dialog-in{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes tc-sheet-up{from{transform:translateY(100%)}to{transform:none}}
+@keyframes tc-sheet-in{from{opacity:.6;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes tc-pulse{50%{opacity:.35}}
+@keyframes tc-reply-dots{0%,100%{opacity:.35}50%{opacity:.8}}
+@keyframes tc-guide-in{from{opacity:0;transform:scaleY(.35)}to{opacity:1;transform:none}}
+@media(max-width:760px){.preferences-dialog[open]{animation:tc-sheet-in var(--t-slow) var(--ease-out) both}}
+
+/* Palette choices preview the same tokens as the workspace. Native radio inputs
+   provide keyboard navigation and expose selection without relying on colour. */
+.palette-picker{min-width:0;margin:22px 0 0;padding:0;border:0}
+.palette-picker legend{padding:0;margin-bottom:10px;font-size:13px;font-weight:600;color:var(--text)}
+.palette-family{margin-top:18px}
+.palette-family>h4{margin:0 0 9px;font-size:12px;font-weight:600;color:var(--grey)}
+.palette-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.palette-option{position:relative;min-width:0;cursor:pointer}
+.settings-content .palette-option>input[type=radio]{position:absolute;right:12px;top:89px;bottom:auto;width:15px;height:15px;min-height:15px;margin:0;padding:0;z-index:1;cursor:pointer}
+.palette-card{display:flex;flex-direction:column;gap:4px;padding:8px 8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--raised);transition:border-color var(--t-fast),box-shadow var(--t-fast)}
+.palette-option:hover .palette-card{border-color:var(--border-strong)}
+.palette-option>input:checked+.palette-card{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.palette-option>input:focus-visible{outline:none}
+.palette-option>input:focus-visible+.palette-card{outline:2px solid var(--focus);outline-offset:3px}
+.palette-name{padding:3px 28px 0 4px;font-size:13px;font-weight:600;color:var(--text)}
+.palette-description{padding:0 4px;color:var(--muted);font-size:11px;line-height:1.5}
+.palette-preview{display:flex;height:72px;border:1px solid var(--border);border-radius:5px;overflow:hidden;background:var(--bg)}
+.palette-preview-sidebar{display:flex;flex-direction:column;gap:6px;padding:12px 7px;width:28%;background:var(--canvas);border-right:1px solid var(--border)}
+.palette-preview-sidebar i{height:4px;border-radius:2px;background:var(--border-strong)}
+.palette-preview-sidebar i:nth-child(2){background:var(--accent);width:70%}
+.palette-preview-chat{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:8px 10px;flex:1}
+.palette-preview-bot{width:62%;height:10px;border-radius:4px;background:var(--bot-message-bg)}
+.palette-preview-self{align-self:flex-end;width:72%;height:14px;border-radius:5px;background:var(--self-message-bg);border:1px solid var(--self-message-line)}
+.palette-preview-compose{display:flex;justify-content:flex-end;width:100%;height:14px;margin-top:auto;border:1px solid var(--border);border-radius:4px;background:var(--raised)}
+.palette-preview-compose b{width:8px;height:8px;margin:2px;border-radius:3px;background:var(--primary-bg)}
+@media(max-width:380px){.palette-options{gap:8px}.palette-description{font-size:10.5px}.palette-preview-chat{padding:8px 6px}}
+
+/* Syntax colours follow the palette for Bot output as well as own messages. */
+/* Inverse own-message bubbles may need a different syntax scale from documents. */
+.markdown :is(.hljs-keyword,.hljs-selector-tag,.hljs-type){color:var(--code-keyword,var(--self-code-keyword))}
+.markdown :is(.hljs-string,.hljs-attr){color:var(--code-string,var(--self-code-string))}
+.markdown :is(.hljs-title,.hljs-function){color:var(--code-title,var(--self-code-title))}
+/* Inside the own bubble, cards are inset tiles: no ring or drop, 12px corners (18 − 6px gutter). */
+.message.user .message-blocks:has(>.markdown) :is(.file-card,.link-preview-card){border-color:transparent;box-shadow:none}
+.message.user .message-blocks:has(>.markdown) .file-card{max-width:none;border-radius:12px}
+.message.user .message-blocks:has(>.markdown) :is(.attachment-image>button,.attachment-image img){border-radius:12px}
+
+/* The model/effort line uses the full title area as its touch target. */
+.header-title:has(.header-effort){position:relative;min-height:44px;display:flex;flex-direction:column;justify-content:center}
+.header-effort{padding:0;min-height:20px;max-width:100%;gap:4px;justify-content:flex-start;color:var(--muted);font-size:12px;line-height:1.4;border:0;background:transparent;text-align:left}
+.header-effort>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.header-effort svg{flex-shrink:0}
+.header-effort::after{content:"";position:absolute;inset:0;border-radius:var(--radius)}
+.header-effort:hover:not(:disabled){color:var(--text)}
+.header-effort:focus-visible::after{outline:2px solid var(--focus);outline-offset:2px}
+.header-effort:disabled{opacity:1;cursor:default}
+.effort-settings{font-size:14px;line-height:1.6}
+.effort-settings label{display:flex;flex-direction:column;gap:8px;margin:18px 0 10px;font-weight:500}
+.effort-settings select{width:100%;min-height:44px}
+.effort-settings .muted{font-size:12px;margin:12px 0}
+.effort-scope{display:flex;flex-direction:column;gap:3px;padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin:18px 0}
+.effort-scope span{font-size:12px;color:var(--muted)}
+.effort-actions{display:flex;justify-content:space-between;gap:12px;margin-top:22px}
+.effort-actions button{min-height:44px}
+@media(max-width:760px){.header-effort{font-size:11px}}
+
+/* Receiving status is separate from the user's reminder switch. */
+.notification-readiness { margin: 12px 0; padding: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
+.notification-readiness-body { display: flex; align-items: flex-start; gap: 10px; }
+.notification-readiness-body > svg { flex: 0 0 auto; margin-top: 2px; color: var(--muted); }
+.notification-readiness-body strong { font-size: 13px; line-height: 1.6; }
+.notification-readiness-body p { margin: 5px 0 0; font-size: 12px; line-height: 1.7; color: var(--muted); overflow-wrap: anywhere; }
+.notification-readiness-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.notification-readiness-actions button { min-height: 44px; white-space: normal; }
+
+/* Desktop-only navigation controls; phones render separate IM controls. */
+@media(min-width:761px){
+  /* ---------- Sidebar: brand + create, search, list, footer ---------- */
+  /* Right-aligned under "+", within the 252px brand row. */
+  .create-menu{width:248px;min-width:0}
+  .host-controls{padding:0 0 6px}
+  /* One line per Bot; its chats and topics stay listed beneath it. */
+  .workspace-trigger{display:flex;align-items:center;flex:1;min-width:0;height:40px;gap:8px;padding:0 8px;border:0;border-radius:var(--radius);background:transparent;color:var(--text);text-align:left;justify-content:flex-start}
+  .workspace-trigger:hover:not(:disabled){background:var(--canvas-hover)}
+  .workspace-trigger:active:not(:disabled){background:var(--selected-row)}
+  .workspace-trigger[aria-expanded=true],.workspace-trigger[aria-expanded=true]:hover:not(:disabled){background:var(--raised);box-shadow:var(--elev-1)}
+  .workspace-trigger:focus-visible{outline-offset:-2px}
+  .workspace-trigger>svg{flex-shrink:0;color:var(--muted)}
+  .workspace-trigger-text{display:grid;flex:1;min-width:0;line-height:1.3}
+  .workspace-trigger-text>small{font-size:10.5px;font-weight:600;letter-spacing:.04em;color:var(--muted)}
+  .workspace-trigger-text>span{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;font-weight:560}
+  .workspace-trigger-text>span>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .workspace-menu{left:0;right:0;max-width:none}
+  .status-dot.connecting{background:var(--orange)}
+
+  /* ---------- Conversation header ---------- */
+  .conversation-header .mobile-chat-more{display:inline-flex}
+  .conversation-header>.mobile-chat-more{color:var(--grey)}
+  .conversation-header>.header-group-back{margin-right:-2px;color:var(--muted)}
+  .conversation-header>.header-group-back:hover:not(:disabled){background:var(--hover);color:var(--text)}
+  .chat-menu{right:8px;min-width:288px}
+  .header-topic{display:inline-flex;align-items:center;flex:0 1 auto;gap:5px;min-width:0;max-width:62%;min-height:20px;padding:0;border:0;border-radius:var(--radius-sm);background-color:transparent;color:var(--muted);font-size:12px;font-weight:500;line-height:1.4;white-space:nowrap}
+  .header-topic>svg{flex-shrink:0}
+  .header-topic-label{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--grey);font-weight:560}
+  .header-topic-count{flex:none}
+  .header-topic-count::before{content:"·";margin-right:5px}
+  .header-topic:hover:not(:disabled),.header-topic:hover:not(:disabled) .header-topic-label{color:var(--text)}
+  .header-topic .topic-unread-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .header-topic-unread{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+
+  .composer:not(:focus-within) .composer-hint.is-tip{visibility:hidden}
+  .composer-toolbar>button.composer-recipients{max-width:240px;min-height:28px;margin-left:4px;padding:0 9px 0 8px;gap:5px;background:var(--surface);color:var(--grey)}
+  .composer-toolbar>button.composer-recipients>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .composer-toolbar>button.composer-recipients>svg{flex-shrink:0;color:var(--muted)}
+  .composer-toolbar>button.composer-recipients.is-empty,.composer-toolbar>button.composer-recipients.is-empty:hover:not(:disabled){background:var(--orange-soft);color:var(--orange)}
+  .composer-toolbar>button.composer-recipients.is-empty>svg{color:inherit}
+  .composer-toolbar>button.composer-recipients[aria-expanded=true],.composer-toolbar>button.composer-recipients[aria-expanded=true]:hover:not(:disabled){background:var(--accent-soft);color:var(--accent)}
+  .recipient-menu{left:24px;min-width:220px}
+  .recipient-menu>button[aria-checked=true]{font-weight:560}
+  .recipient-check{display:grid;place-items:center;flex-shrink:0;width:16px;height:16px;border-radius:var(--radius-xs);box-shadow:inset 0 0 0 1px var(--border-strong);color:var(--on-primary)}
+  .recipient-menu>button[aria-checked=true] .recipient-check{background:var(--primary-bg);box-shadow:none}
+
+}
+
+/* Bot persona editor: readable instructions with explicit shared scope. */
+.persona-entry{width:100%;margin-top:12px;text-align:left}
+.persona-panel{width:min(600px,100%)}
+.persona-scope{display:flex;flex-direction:column;gap:4px;margin:12px 0}
+.persona-scope span,.persona-panel>.muted,.persona-panel>.settings-dialog-body>.muted,.persona-panel form>.muted{font-size:13px;color:var(--muted);line-height:1.6}
+.persona-panel form>label{display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:600}
+.persona-panel textarea{width:100%;resize:vertical;min-height:160px;max-height:36dvh;padding:12px;font:400 16px/1.6 var(--font-sans);color:var(--text)}
+.persona-count{margin-top:4px;text-align:right;font-size:12px;color:var(--muted)}
+.persona-discard{margin-top:12px;padding:12px;background:var(--surface-alt);border-radius:12px}
+.persona-discard p{font-size:13px;margin:0 0 8px}
+.persona-discard button{margin-right:8px;padding:8px}
+
+.effort-settings label.chrome-toggle{flex-direction:row;align-items:center;justify-content:space-between;gap:16px}
+.chrome-toggle input{width:20px;height:20px;min-height:20px;flex:none;accent-color:var(--accent)}
+
+/* Transient connection/error notices must not resize a reader's viewport. */
+.conversation-notices{position:relative;flex:0 0 0;min-height:0;z-index:8}
+.conversation-notices-content{position:absolute;inset:0 0 auto;max-height:min(40dvh,240px);overflow:auto;box-shadow:0 4px 12px #0001}
+.conversation-notices-content:empty{display:none}

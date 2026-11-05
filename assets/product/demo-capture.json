@@ -1,0 +1,185 @@
+{
+  "sourceRevision": "a0411ba26bfac96a5372e1022d838447eaa584af",
+  "sourceDirty": true,
+  "clientEntry": {
+    "file": "assets/index-BYzlevgr.js",
+    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
+    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+  },
+  "captured": "2026-11-04T11:02:28.960Z",
+  "source": "Overview assembled from the actual UI recordings referenced in each scene. Synthetic conversations and workflow states; native browser uses an isolated Electron harness and a fictional local website; remote screen data and connection are simulated. No model execution, real repository push, installed-App or physical-device acceptance.",
+  "images": [
+    {
+      "file": "demo-zh.gif",
+      "locale": "zh",
+      "duration": 58.25,
+      "fps": 8,
+      "size": {
+        "width": 1280,
+        "height": 864
+      },
+      "scenes": [
+        {
+          "label": "桌面与手机 · 按对话或 Bot 整理",
+          "start": 0,
+          "duration": 12.5,
+          "source": "inbox-demo-zh.gif",
+          "sourceSha256": "3140ec91ee7e490131d5b347998a2f3c383558aee3a2b55102cbb1ded23cc702",
+          "recordingSha256": "028e085fc58d8a84fbcc54ab2d6e34183f33ec8e41835c5e43f490432a926ed6",
+          "recordingOffset": 0
+        },
+        {
+          "label": "ADHD · 多个对话，同时跟进",
+          "start": 12.5,
+          "duration": 9,
+          "source": "adhd-demo-zh.gif",
+          "sourceSha256": "27cf4e517c19b79c0676e19fd86915b5e3d9d3d0ad9e6860a2f94dd55f66cd4c",
+          "recordingSha256": "2b16c0567018ff25aa9264037bf874d54588f57ea6ab63178d36941481d033b8",
+          "recordingOffset": 0
+        },
+        {
+          "label": "Agent Bus · 把工作交给团队",
+          "start": 21.5,
+          "duration": 7,
+          "source": "agent-bus-demo-zh.gif",
+          "sourceSha256": "fdd38856d6cdef9f436788c9957b97e93234237469387200c04a5c8aafbf9e71",
+          "recordingSha256": "f0d122e0126940bf7b4714da40d826affc0d499cc1c7f7299158ccbfb049524b",
+          "recordingOffset": 0
+        },
+        {
+          "label": "工作台 · 打开网页，阅读资料",
+          "start": 28.5,
+          "duration": 8.75,
+          "source": "browser-demo-zh.gif",
+          "sourceSha256": "435e083b55e7283848e98cee2f8a661db03a7e6aaf5b827826773354a3140ccf",
+          "recordingSha256": "5521667dc1c471acda07c59ed076e259a9b6a3a8bf0789bc441ef62b8b4d8913",
+          "recordingOffset": 0
+        },
+        {
+          "label": "画布 · 选中文字，继续修改",
+          "start": 37.25,
+          "duration": 6.5,
+          "source": "canvas-demo-zh.gif",
+          "sourceSha256": "8b41d37d6cdae82cbc60e53a6141b1f2d50b123402a778a6a41d999eda629d66",
+          "recordingSha256": "4ce8a1c7e864cac4d2a8a9e1fd0eb4fd3230b5fd29bfc8b8aae399e47a80ba2d",
+          "recordingOffset": 0
+        },
+        {
+          "label": "侧边工作台 · 白板与笔记",
+          "start": 43.75,
+          "duration": 6.5,
+          "source": "workbench-tools-demo-zh.gif",
+          "sourceSha256": "b13127dd38c9e197ddb44067b714bb9810b8c478e959c47ee55fddb66b9f1f66",
+          "recordingSha256": "5ce335f815d915a479395ec5375694101a0bd9f09af6471d1465bdc6f7466f31",
+          "recordingOffset": 0
+        },
+        {
+          "label": "屏幕控制 · 查看与接管",
+          "start": 50.25,
+          "duration": 4.25,
+          "source": "screen-demo-zh.gif",
+          "sourceSha256": "5c91d5e8e0cfd62a9330fe74bfea353fe65474a9db8859135895fa3aecdd3c90",
+          "recordingSha256": "7548b2b9ab82e78dc7b8c8939bc0d121aa225be14e9caf20fb3ec33ca9bbbd28",
+          "recordingOffset": 0
+        },
+        {
+          "label": "幕僚长 · 跟进每张工单",
+          "start": 54.5,
+          "duration": 3.75,
+          "source": "chancellor-demo-zh.gif",
+          "sourceSha256": "b7d132c5169f585a64409f38ada8bf0f7a6fc844afc16bac9e9c238bed46a647",
+          "recordingSha256": "fdec8fd99f917ce3873f6291d4b6533adcaa9df1267be7021f4c0c4b3d9464ce",
+          "recordingOffset": 0
+        }
+      ],
+      "bytes": 3079742,
+      "sha256": "dca0bf049b0c30cd1ff0ef5e6b3304276209dde240a91e60e6273c146c5d0fdf"
+    },
+    {
+      "file": "demo-en.gif",
+      "locale": "en",
+      "duration": 58.875,
+      "fps": 8,
+      "size": {
+        "width": 1280,
+        "height": 864
+      },
+      "scenes": [
+        {
+          "label": "Desktop and phone · Organize by chat or Bot",
+          "start": 0,
+          "duration": 13,
+          "source": "inbox-demo-en.gif",
+          "sourceSha256": "ea5a759e07c486b55ce0d7aa4de95b376582b78699ec54e614ae296c33cab338",
+          "recordingSha256": "ac0e6722475bdb54d444a1176ae03e07f568b9a1bc24af78a6c2c636ab19afb6",
+          "recordingOffset": 0
+        },
+        {
+          "label": "ADHD · Keep several conversations in view.",
+          "start": 13,
+          "duration": 9.25,
+          "source": "adhd-demo-en.gif",
+          "sourceSha256": "de87370ea71ddbdb92195230cfa453856c6a652e084632e0626a4df806e1fd61",
+          "recordingSha256": "33a58bd12b5621d0fdf959fdc1f2e2f1005f0cb575b6e9921b94c69301415dd9",
+          "recordingOffset": 0
+        },
+        {
+          "label": "Agent Bus · Put your team to work.",
+          "start": 22.25,
+          "duration": 7,
+          "source": "agent-bus-demo-en.gif",
+          "sourceSha256": "9dc6db4db3be6556c1e4b364938e6a0d7d97b4bbd9dabfeaf69220f7b67dd979",
+          "recordingSha256": "5707b5a610ed54b5a51edabb27a5e1cbd7df8952768ee6fafc0450560a59c908",
+          "recordingOffset": 0
+        },
+        {
+          "label": "Workbench · Open a webpage and explore.",
+          "start": 29.25,
+          "duration": 8.625,
+          "source": "browser-demo-en.gif",
+          "sourceSha256": "38c13a824ce5222f6f2868cf3e555a0fc2019182aa4db40acdc4b166d2de1040",
+          "recordingSha256": "697122a863fe5022ea1ef20370fe679c477690efd4de61dc328b8f0e7a56ded1",
+          "recordingOffset": 0
+        },
+        {
+          "label": "Canvas · Select the text. Make it yours.",
+          "start": 37.875,
+          "duration": 6.5,
+          "source": "canvas-demo-en.gif",
+          "sourceSha256": "b7631ad737b0c94115a01aab97dec0ad89cf8cbe48fffb99e894d1b089fc10b9",
+          "recordingSha256": "fc09de2ab6325a6a5e2b6f1eaf21abbd2234bedded48c8c2551e65fa59f04e81",
+          "recordingOffset": 0
+        },
+        {
+          "label": "Side panel · Whiteboard and notes",
+          "start": 44.375,
+          "duration": 6.5,
+          "source": "workbench-tools-demo-en.gif",
+          "sourceSha256": "c8ecfeb4c2371cf3d558ff650247cf4c43bfe5417f92209a06152beaa68ddae2",
+          "recordingSha256": "e77cb745269d8a26b9d4c483f800b1ef35a9f990d7a6492b1375600538bef3e4",
+          "recordingOffset": 0
+        },
+        {
+          "label": "Screen control · View and interact.",
+          "start": 50.875,
+          "duration": 4.25,
+          "source": "screen-demo-en.gif",
+          "sourceSha256": "6f633872099b00cde147951eb64b0ddfed5e23baf11037c23e9694a1aa2d6954",
+          "recordingSha256": "0f4b902215c592019cc7fd57f37a5efa4d92a1fef82b6a3e25527a08c6923303",
+          "recordingOffset": 0
+        },
+        {
+          "label": "Chancellor · Follow every ticket.",
+          "start": 55.125,
+          "duration": 3.75,
+          "source": "chancellor-demo-en.gif",
+          "sourceSha256": "ab3ab1dba2fe1051bbcfd13cd153a0d750ebfd69d6c7d28a5149aa8c46af8efb",
+          "recordingSha256": "b08be58111d45be36c983f59b52fc29ee5afb9fd1a63221c42f20db984050762",
+          "recordingOffset": 0
+        }
+      ],
+      "bytes": 3350082,
+      "sha256": "96633b156df3520de975fc332c76edc4946a53893cc42e6ace807fae3756841c"
+    }
+  ]
+}

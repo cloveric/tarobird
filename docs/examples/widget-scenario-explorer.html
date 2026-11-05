@@ -1,0 +1,40 @@
+<section id="scenario">
+  <p>调整人数与天数，比较两种活动方案。</p>
+  <p class="muted">演示数据 · 单位：元 · 本地计算</p>
+  <form id="parameters">
+    <div class="grid">
+      <label>人数 <output id="people-label">6</output><input id="people" aria-label="人数" type="range" min="2" max="20" value="6"></label>
+      <label>天数<select id="days" aria-label="天数"><option value="1">1 天</option><option value="2" selected>2 天</option><option value="3">3 天</option></select></label>
+    </div>
+    <div class="row options"><label><input id="meal" type="checkbox" checked> 包含餐饮</label><button type="reset">重置参数</button></div>
+  </form>
+  <p id="result" role="status">6 人 × 2 天，推荐轻量方案，预计 2,960 元。</p>
+  <div class="tabs" role="group" aria-label="比较方案"><button id="light" aria-pressed="true">轻量方案</button><button id="comfort" aria-pressed="false">舒适方案</button></div>
+  <svg id="costs" viewBox="0 0 330 100" role="img" aria-label="两个方案的费用比较"></svg>
+  <details id="extra-question"><summary>补充问题（可选）</summary><div class="question-label"><textarea id="question" aria-label="补充问题" rows="2" maxlength="1000" placeholder="例如：怎样减少交通支出？"></textarea></div></details>
+  <div class="row handoff"><button id="compose" type="button" hidden>填入输入框</button><small class="muted" id="handoff-note">选择会留在本组件内。</small></div>
+  <details><summary>计算说明</summary><p>轻量方案固定费用 800 元，每人每天 120 元；舒适方案固定费用 1,200 元，每人每天 200 元。餐饮每人每天 60 元。仅为交互验收示例。</p></details>
+</section>
+<style>
+#scenario{max-width:760px;margin:auto}#scenario .grid{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}#scenario input[type=range],#scenario select{display:block;width:100%;margin-top:6px}#scenario output{float:right;font-variant-numeric:tabular-nums}#scenario .options{margin:14px 0}#scenario #result{margin-top:16px}#scenario svg{display:block;width:100%;max-width:330px;height:100px;margin:8px 0 12px}#scenario textarea{margin-top:6px}#scenario .handoff{margin:12px 0}#scenario details{margin-top:12px}#scenario .question-label{display:block;margin-top:8px}#scenario text{fill:var(--text);font:15px system-ui}
+</style>
+<script>
+const root=document.querySelector('#scenario'), people=root.querySelector('#people'), days=root.querySelector('#days'), meal=root.querySelector('#meal'), questionField=root.querySelector('#question');
+let selected='light';
+const saved=window.tarobot?.state?.initial;
+if(saved && typeof saved==='object'){if(Number.isInteger(saved.people)&&saved.people>=2&&saved.people<=20)people.value=String(saved.people);if([1,2,3].includes(saved.days))days.value=String(saved.days);if(typeof saved.meal==='boolean')meal.checked=saved.meal;if(['light','comfort'].includes(saved.selected))selected=saved.selected}
+if(typeof saved?.question==='string'){questionField.value=saved.question.slice(0,1000);if(questionField.value)root.querySelector('#extra-question').open=true}
+const data=()=>{const count=Number(people.value), duration=Number(days.value), food=meal.checked?60:0;return {count,duration,light:800+count*duration*(120+food),comfort:1200+count*duration*(200+food)}};
+function remember(){const d=data();window.tarobot?.state?.set({people:d.count,days:d.duration,meal:meal.checked,selected,question:questionField.value.slice(0,1000)})}
+questionField.addEventListener('input',remember);
+function draw(){const d=data();remember();root.querySelector('#people-label').textContent=String(d.count);const label=selected==='light'?'轻量方案':'舒适方案';root.querySelector('#result').textContent=d.count+' 人 × '+d.duration+' 天，当前'+label+'，预计 '+d[selected].toLocaleString()+' 元。';
+root.querySelector('#light').setAttribute('aria-pressed',String(selected==='light'));root.querySelector('#comfort').setAttribute('aria-pressed',String(selected==='comfort'));
+const svg=root.querySelector('#costs');svg.textContent='';['light','comfort'].forEach((key,i)=>{const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');rect.setAttribute('x','90');rect.setAttribute('y',String(12+i*44));rect.setAttribute('height','22');rect.setAttribute('width',String(d[key]/d.comfort*160));rect.setAttribute('fill',key===selected?'var(--accent)':'var(--border)');svg.appendChild(rect);const text=document.createElementNS('http://www.w3.org/2000/svg','text');text.setAttribute('x','0');text.setAttribute('y',String(28+i*44));text.textContent=(key==='light'?'轻量':'舒适')+' '+d[key].toLocaleString();svg.appendChild(text)})}
+people.addEventListener('input',draw);days.addEventListener('change',draw);meal.addEventListener('change',draw);
+root.querySelector('#parameters').addEventListener('submit',event=>{event.preventDefault();draw()});
+root.querySelector('#parameters').addEventListener('reset',()=>{selected='light';setTimeout(draw,0)});
+for(const key of ['light','comfort'])root.querySelector('#'+key).onclick=()=>{selected=key;draw()};
+const compose=root.querySelector('#compose'), note=root.querySelector('#handoff-note');
+if(window.tarobot?.prompt?.compose){compose.hidden=false;note.textContent='放入当前对话草稿，由你选择发送。';compose.onclick=async()=>{const d=data(), question=root.querySelector('#question').value.trim();const text='请分析'+(selected==='light'?'轻量':'舒适')+'活动方案：'+d.count+'人，'+d.duration+'天，'+(meal.checked?'含':'不含')+'餐饮，总预算'+d[selected]+'元。'+(question||'还有哪些可以改善的地方？');const accepted=await tarobot.prompt.compose(text);note.textContent=accepted?'已填入，未自动发送。':'未能填入，请稍后重试。'}}
+draw();
+</script>

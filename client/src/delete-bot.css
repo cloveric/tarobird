@@ -1,0 +1,6 @@
+.bot-delete-setting{margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
+.bot-delete-setting>button{gap:8px;min-height:44px}.bot-delete-setting>p{font-size:12px;margin-top:8px}
+.delete-bot-dialog>p{line-height:1.6}.delete-bot-dialog>ul{padding-left:22px;line-height:1.65}.delete-bot-dialog li+li{margin-top:8px}
+.delete-bot-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:20px}.delete-bot-actions button{min-height:44px}
+
+.bot-delete-setting button.danger{color:var(--red);border:1px solid var(--red);background:transparent}.bot-delete-setting button.danger:disabled{opacity:.5}

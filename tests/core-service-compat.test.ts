@@ -1,0 +1,16316 @@
+// Migrated from tests/lark-service.test.ts for issue #48 (retire transport adapters).
+//
+// These cases exercise the shared core directly (src/core/*). With no Gateway
+// context active, core runs under its default compatibility channel profile
+// (channelProfile() === "feishu"): the same branch older Bots and persisted state
+// still use. The Lark-shaped fixtures (oc_/ou_ ids, lark:<chat> conversation keys,
+// cctb_lark card values, lark-group-mode.json, .lark-files/.lark-out paths) are
+// retained compatibility data, not a dependency on the retired Feishu adapter;
+// nothing here imports src/lark or the Feishu SDK. Behavior the adapter used to
+// attach from its SDK client is supplied as explicit core ports by the fixtures.
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, symlink, truncate, utimes, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { Readable } from "node:stream";
+
+import { describe, expect, it, vi } from "vitest";
+
+import type { EngineApprovalRequest, EngineStreamEvent } from "../src/codex/adapter.js";
+import { handleCoreCardAction, requestCoreApproval } from "../src/core/card-actions.js";
+import { buildCoreCronExecutor, sendCoreCronFailureNotification } from "../src/core/cron.js";
+import { CORE_FILE_UPLOAD_MAX_BYTES, deliverCoreResponse } from "../src/core/delivery.js";
+import { CoreGroupModeStore } from "../src/core/group-mode-store.js";
+import { createCoreRunCardController, handleCoreMessage } from "../src/core/message-handler.js";
+import { stableCoreNumericId } from "../src/core/message-normalizer.js";
+import { createCoreServiceRuntime } from "../src/core/runtime.js";
+import type { CoreBridgeLike } from "../src/core/types.js";
+import { CronStore } from "../src/state/cron-store.js";
+import type { CronJobRecord } from "../src/state/cron-store-schema.js";
+import { FileWorkflowStore } from "../src/state/file-workflow-store.js";
+import { MiniBusStore } from "../src/state/mini-bus-store.js";
+import { BoardStore } from "../src/state/board-store.js";
+import { SessionStore } from "../src/state/session-store.js";
+import {
+  markDeliveryDelivered,
+  recordDeliveryObligation,
+} from "../src/state/delivery-obligation-store.js";
+import { AccessStore } from "../src/state/access-store.js";
+import { parseTimelineEvents } from "../src/state/timeline-log.js";
+import { UsageStore } from "../src/state/usage-store.js";
+import { loadInstanceConfig } from "../src/state/instance-config.js";
+import { PartialMediaTranscriptionError } from "../src/runtime/media-transcript.js";
+import {
+  createZipBuffer,
+  expectLarkFinalAnswer,
+  fakeChannel,
+  fakeLarkMessage,
+  imageCreateMock,
+  type FakeLarkChannel,
+} from "./helpers/core-compat-fixtures.js";
+
+describe("core service compatibility profile", () => {
+
+  it("does not add reactions to ignored Lark group messages", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-reaction-ignored-"));
+    const channel = fakeChannel({
+      addReaction: vi.fn(async () => "reaction_1"),
+      removeReaction: vi.fn(async () => undefined),
+      getChatMode: vi.fn(async () => "group"),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        reactionSettings: {
+          processingEmoji: "OnIt",
+          doneEmoji: "DONE",
+          failureEmoji: "Warning",
+        },
+        message: {
+          messageId: "om_ignored",
+          chatId: "oc_group",
+          chatType: "group",
+          senderId: "ou_user",
+          content: "ordinary group chatter",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(handled).toBe(false);
+      expect(channel.getChatMode).not.toHaveBeenCalled();
+      expect(channel.addReaction).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not run the engine for an unpaired Lark private chat", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-access-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "使用配对码 ABC123 配对此私聊" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "hello",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: expect.stringContaining("node dist/src/index.js lark access pair ABC123") },
+        { replyTo: "om_1", replyInThread: false },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "denied",
+        detail: "access denied",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("replies with single-chat lock messages for Lark private chats", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-single-chat-sibling-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({
+        kind: "reply" as const,
+        text: "此实例已锁定到另一个聊天。",
+        reason: "single_chat_locked" as const,
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_sibling_lock",
+          chatType: "p2p",
+          content: "hello from the target bot chat",
+        }),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "此实例已锁定到另一个聊天。" },
+        { replyTo: "om_sibling_lock", replyInThread: false },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "denied",
+        detail: "access denied",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates a topic reply in a topic-form group into its own thread session", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-thread-session-"));
+    const channel = fakeChannel({
+      getChatTopicForm: vi.fn(async () => true), // topic message form (thread / topic group)
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_group_thread",
+          chatType: "group",
+          threadId: "omt_group_reply",
+          mentionedBot: true,
+          content: "继续",
+        }),
+      });
+
+      expect(channel.getChatTopicForm).toHaveBeenCalledWith("oc_chat");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatType: "group",
+        conversationKey: "lark:oc_chat:omt_group_reply",
+      }));
+      const known = JSON.parse(await readFile(path.join(stateDir, "known-chats.json"), "utf8")) as {
+        chats: Array<{ conversationKey: string; label: string; threadId?: string }>;
+      };
+      expect(known.chats).toContainEqual(expect.objectContaining({
+        conversationKey: "lark:oc_chat:omt_group_reply",
+        threadId: "omt_group_reply",
+      }));
+      expectLarkFinalAnswer(channel, "done");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs a delivery follow-up before a stale 'scroll up' claim reaches the user", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-followup-"));
+    const workspace = path.join(stateDir, "workspace");
+    const imagePath = path.join(workspace, "watercolor-01.png");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(imagePath, "image bytes");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn()
+        .mockImplementationOnce(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+          const text = "好了，图片刚发在上面，往上翻能看到。";
+          await input.onEngineEvent?.({ type: "assistant_text", text, delta: true });
+          await input.onEngineEvent?.({ type: "result", text });
+          return {
+            text,
+            usage: { inputTokens: 10, outputTokens: 5 },
+          };
+        })
+        .mockImplementationOnce(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+          const text = `P1 水彩版（本轮补发）\n[send-image:${imagePath}]`;
+          await input.onEngineEvent?.({ type: "assistant_text", text, delta: true });
+          await input.onEngineEvent?.({ type: "result", text });
+          return {
+            text,
+            usage: { inputTokens: 7, outputTokens: 3 },
+          };
+        }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_delivery_followup", content: "好了吗" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expect(bridge.handleAuthorizedMessage.mock.calls[0]![0]).toEqual(expect.objectContaining({
+        text: expect.stringContaining("好了吗"),
+        instructions: expect.not.stringContaining("verify platform delivery, not session memory"),
+        turnInstructions: expect.stringContaining("verify platform delivery, not session memory"),
+      }));
+      expect(bridge.handleAuthorizedMessage.mock.calls[1]![0]).toEqual(expect.objectContaining({
+        text: expect.stringContaining("Delivery verification retry"),
+        replyContext: undefined,
+      }));
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(1);
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).not.toContain("往上翻");
+      expect(rendered).toContain("P1 水彩版");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        outcome: "retry",
+        detail: "delivery_followup_unverified_claim",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers verified follow-up artifacts streamed before an engine interruption", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-followup-partial-"));
+    const workspace = path.join(stateDir, "workspace");
+    const imagePath = path.join(workspace, "recovered-cover.png");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(imagePath, "image bytes");
+    const channel = fakeChannel();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        const prefix = "P1 封面（本轮补发）\n";
+        const directive = `[send-image:${imagePath}]`;
+        await input.onEngineEvent?.({ type: "assistant_text", text: prefix, delta: true });
+        await input.onEngineEvent?.({ type: "assistant_text", text: directive, delta: true });
+        throw new Error("The stream was interrupted. Please continue the task you were working on.");
+      }),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_delivery_followup_partial", content: "图给我看看" }),
+      })).resolves.toBe(true);
+
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(1);
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).toContain("部分完成");
+      expect(rendered).toContain("P1 封面");
+      expect(rendered).not.toContain("执行失败");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        outcome: "recovered",
+        detail: "delivery_followup_partial_recovered",
+      }));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "partial",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers verified artifacts from an ordinary turn streamed before an engine interruption", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-streamed-artifact-partial-"));
+    const workspace = path.join(stateDir, "workspace");
+    const imagePath = path.join(workspace, "generated-cover.png");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(imagePath, "image bytes");
+    const channel = fakeChannel();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        const prefix = "生成完成\n";
+        const directive = `[send-image:${imagePath}]`;
+        await input.onEngineEvent?.({ type: "assistant_text", text: prefix, delta: true });
+        await input.onEngineEvent?.({ type: "assistant_text", text: directive, delta: true });
+        throw new Error("The stream was interrupted. Please continue the task you were working on.");
+      }),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_streamed_artifact_partial", content: "生成一张新封面" }),
+      })).resolves.toBe(true);
+
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(1);
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).toContain("部分完成");
+      expect(rendered).toContain("生成完成");
+      expect(rendered).not.toContain("执行失败");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        outcome: "recovered",
+        detail: "streamed_artifact_partial_recovered",
+      }));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "partial",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("groups streamed PNGs misplaced in send.batch files when the engine later returns 503", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-streamed-file-images-partial-"));
+    const workspace = path.join(stateDir, "workspace");
+    const first = path.join(workspace, "01-cover.png");
+    const second = path.join(workspace, "02-detail.png");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(first, "first image bytes");
+    await writeFile(second, "second image bytes");
+    const channel = fakeChannel();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        const directive = [
+          "```tool-call",
+          JSON.stringify({
+            name: "send.batch",
+            payload: {
+              files: [
+                { path: first, caption: "P1 封面" },
+                { path: second, caption: "P2 内页" },
+              ],
+            },
+          }),
+          "```",
+        ].join("\n");
+        await input.onEngineEvent?.({ type: "assistant_text", text: directive, delta: true });
+        throw new Error("API error (attempt 1): UNAVAILABLE (code 503): No capacity available for model");
+      }),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_streamed_file_images_partial", content: "生成两张图" }),
+      })).resolves.toBe(true);
+
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(2);
+      const imageCards = (channel.send.mock.calls as unknown[][])
+        .map((call) => (call[1] as { card?: { body?: { elements?: Array<Record<string, unknown>> } } } | undefined)?.card)
+        .filter((card): card is { body: { elements: Array<Record<string, unknown>> } } =>
+          Boolean(card?.body?.elements?.some((element) => element.tag === "img")));
+      expect(imageCards).toHaveLength(1);
+      expect(imageCards[0]!.body.elements).toEqual([
+        { tag: "markdown", content: "P1 封面" },
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "P1 封面" } },
+        { tag: "markdown", content: "P2 内页" },
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "P2 内页" } },
+      ]);
+      expect((channel.send.mock.calls as unknown[][]).some((call) => {
+        const payload = call[1] as { file?: unknown } | undefined;
+        return payload?.file !== undefined;
+      })).toBe(false);
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        outcome: "recovered",
+        detail: "streamed_artifact_partial_recovered",
+      }));
+      expect(timeline).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "file.accepted", metadata: expect.objectContaining({ kind: "image" }) }),
+      ]));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not deliver buffered follow-up artifacts after a user stop", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-followup-stopped-"));
+    const workspace = path.join(stateDir, "workspace");
+    const imagePath = path.join(workspace, "stopped-cover.png");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(imagePath, "image bytes");
+    const channel = fakeChannel();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await input.onEngineEvent?.({
+          type: "assistant_text",
+          text: `[send-image:${imagePath}]`,
+          delta: true,
+        });
+        throw new Error("Task was stopped by user");
+      }),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_delivery_followup_stopped", content: "图呢" }),
+      })).resolves.toBe(true);
+
+      expect(imageCreateMock(channel)).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).toContain("已中断");
+      expect(rendered).not.toContain("部分完成");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).not.toContainEqual(expect.objectContaining({
+        detail: "delivery_followup_partial_recovered",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a valid short prefix answer and session without automatically replaying work", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stale-answer-"));
+    const conversationKey = "lark:oc_chat";
+    const previousAnswer = "可以，这版更像微信一点，但抓手还在：第一，保留核心结论；第二，补充执行步骤；第三，明确下一步负责人。";
+    const staleAnswer = "可以，这版更像微信一点，但抓手还在。";
+    const obligationId = await recordDeliveryObligation(stateDir, {
+      channel: "lark",
+      chatId: "oc_chat",
+      conversationKey,
+      replyTo: "om_previous",
+      content: previousAnswer,
+    });
+    await markDeliveryDelivered(stateDir, obligationId!);
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    await sessionStore.upsert({
+      telegramChatId: stableCoreNumericId(conversationKey),
+      conversationKey,
+      codexSessionId: "codex-saturated-thread",
+      status: "idle",
+      updatedAt: new Date().toISOString(),
+    });
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn()
+        .mockImplementationOnce(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+          await input.onEngineEvent?.({ type: "tool_use", toolName: "WebSearch", toolUseId: "search-1" });
+          await input.onEngineEvent?.({ type: "tool_result", toolName: "WebSearch", toolUseId: "search-1", output: "results" });
+          await input.onEngineEvent?.({ type: "assistant_text", text: staleAnswer, delta: true });
+          await input.onEngineEvent?.({ type: "result", text: staleAnswer });
+          return { text: staleAnswer, usage: { inputTokens: 20, outputTokens: 5 } };
+        })
+        .mockImplementationOnce(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+          const text = "天元今年收到两项监管措施，分别来自浙江证监局和深圳证券交易所。";
+          await input.onEngineEvent?.({ type: "assistant_text", text, delta: true });
+          await input.onEngineEvent?.({ type: "result", text });
+          return { text, usage: { inputTokens: 8, outputTokens: 4 } };
+        }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_regulatory_question",
+          content: "请只复述上一条的第一句话",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(await sessionStore.findByConversationKey(conversationKey)).not.toBeNull();
+      expectLarkFinalAnswer(channel, staleAnswer);
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        outcome: "observed",
+        detail: "response_matches_previous_prefix",
+        metadata: expect.objectContaining({ automaticReplay: false, sessionPreserved: true }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not replay a mutating tool turn when its answer resembles an older delivered response", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stale-mutation-"));
+    const conversationKey = "lark:oc_chat";
+    const previousAnswer = "可以，这版更像微信一点，但抓手还在：第一，保留核心结论；第二，补充执行步骤；第三，明确下一步负责人。";
+    const currentAnswer = "可以，这版更像微信一点，但抓手还在。";
+    const obligationId = await recordDeliveryObligation(stateDir, {
+      channel: "lark",
+      chatId: "oc_chat",
+      conversationKey,
+      replyTo: "om_previous",
+      content: previousAnswer,
+    });
+    await markDeliveryDelivered(stateDir, obligationId!);
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+        await input.onEngineEvent?.({
+          type: "tool_use",
+          toolName: "Write",
+          toolUseId: "write-1",
+          toolInput: { file_path: "/tmp/result.txt", content: "changed" },
+        });
+        await input.onEngineEvent?.({
+          type: "tool_result",
+          toolName: "Write",
+          toolUseId: "write-1",
+          output: "written",
+        });
+        await input.onEngineEvent?.({ type: "result", text: currentAnswer });
+        return { text: currentAnswer };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_mutating_turn",
+          content: "修改配置并告诉我结果",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expectLarkFinalAnswer(channel, currentAnswer);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts a verified resend from the default instance workspace without a repair turn", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-followup-default-root-"));
+    const workspace = path.join(stateDir, "workspace");
+    const filePath = path.join(workspace, "result.txt");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(filePath, "verified result");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: `已经发过了，本轮重新发送。[send-file:${filePath}]`,
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_delivery_followup_default_root", content: "我没有收到文件" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { file: { source: Buffer.from("verified result"), fileName: "result.txt" } },
+        { replyTo: "om_delivery_followup_default_root" },
+      );
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).not.toContain("交付未确认");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks a repeated unverified delivery claim when the repair turn also omits tags", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-followup-block-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn()
+        .mockResolvedValueOnce({ text: "已经发过了，往上翻。" })
+        .mockResolvedValueOnce({ text: "刚刚已经发送了，还是往上翻。" }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_delivery_followup_block", content: "图片呢" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).not.toContain("往上翻");
+      expect(rendered).not.toContain("刚刚已经发送了");
+      expect(rendered).toContain("交付未确认");
+      expect(rendered).toContain("已被拦截");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("streams an ordinary technical answer containing '没看到' without delivery repair", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-followup-false-positive-"));
+    const channel = fakeChannel();
+    const answer = "这个字段是后续版本加的，我会说明对应的配置位置。";
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+        await input.onEngineEvent?.({ type: "assistant_text", text: answer, delta: true });
+        await input.onEngineEvent?.({ type: "result", text: answer });
+        return { text: answer };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_delivery_followup_false_positive",
+          content: "我没看到 config.json 里有这个字段",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(bridge.handleAuthorizedMessage.mock.calls[0]![0]).toEqual(expect.objectContaining({
+        instructions: expect.not.stringContaining("verify platform delivery"),
+      }));
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).toContain(answer);
+      expect(rendered).not.toContain("交付未确认");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).not.toContainEqual(expect.objectContaining({
+        metadata: expect.objectContaining({ suppressedBy: "delivery-followup-guard" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("isolates a private Lark thread while authorizing against the parent p2p chat", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-private-thread-session-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "private thread answer" })),
+    };
+    const accessChatId = stableCoreNumericId("lark:oc_chat");
+    const conversationChatId = stableCoreNumericId("lark:oc_chat:omt_private_topic");
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_private_thread",
+          chatType: "p2p",
+          threadId: "omt_private_topic",
+          content: "private side conversation",
+        }),
+      });
+
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: accessChatId,
+        conversationChatId,
+        chatType: "private",
+        conversationKey: "lark:oc_chat:omt_private_topic",
+      }));
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: accessChatId,
+        chatType: "private",
+        conversationKey: "lark:oc_chat:omt_private_topic",
+      }));
+      const known = JSON.parse(await readFile(path.join(stateDir, "known-chats.json"), "utf8")) as {
+        chats: Array<{ conversationKey: string; threadId?: string }>;
+      };
+      expect(known.chats).toContainEqual(expect.objectContaining({
+        conversationKey: "lark:oc_chat:omt_private_topic",
+        threadId: "omt_private_topic",
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        expect.anything(),
+        expect.objectContaining({ replyInThread: true }),
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a conversation-form group's topic reply in the shared group session", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-convo-thread-session-"));
+    const channel = fakeChannel({
+      getChatTopicForm: vi.fn(async () => false), // conversation message form (group_message_type=chat)
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_convo_thread",
+          chatType: "group",
+          threadId: "omt_convo_reply",
+          mentionedBot: true,
+          content: "继续",
+        }),
+      });
+
+      expect(channel.getChatTopicForm).toHaveBeenCalledWith("oc_chat");
+      // Conversation form: the topic reply shares the one group session.
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatType: "group",
+        conversationKey: "lark:oc_chat",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes an existing thread session in a topic-form group", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-existing-thread-session-"));
+    const threadConversationKey = "lark:oc_chat:omt_existing_thread";
+    await new SessionStore(path.join(stateDir, "session.json")).upsert({
+      telegramChatId: stableCoreNumericId(threadConversationKey),
+      conversationKey: threadConversationKey,
+      codexSessionId: "claude-existing-thread",
+      status: "idle",
+      updatedAt: new Date("2026-05-29T06:20:00.000Z").toISOString(),
+    });
+    const channel = fakeChannel({
+      getChatTopicForm: vi.fn(async () => true),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_existing_thread",
+          chatType: "group",
+          threadId: "omt_existing_thread",
+          mentionedBot: true,
+          content: "继续",
+        }),
+      });
+
+      // The topic is isolated by thread key, so its existing session is resumed.
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatType: "group",
+        conversationKey: threadConversationKey,
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-resolves a group's form after the cache TTL so toggling 群消息形式 applies without restart", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-form-ttl-"));
+    const runtime = createCoreServiceRuntime();
+    let topicForm = false; // starts as conversation form (shares)
+    const channel = fakeChannel({ getChatTopicForm: vi.fn(async () => topicForm) });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const send = (messageId: string) => handleCoreMessage({
+      channel, bridge, runtime, stateDir,
+      message: fakeLarkMessage({ messageId, chatType: "group", threadId: "omt_x", mentionedBot: true, content: "x" }),
+    });
+
+    try {
+      await send("om_1"); // conversation form → shares the group session
+      expect(bridge.handleAuthorizedMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ conversationKey: "lark:oc_chat" }),
+      );
+
+      // Toggle to topic form, but still within the TTL → cached form is reused.
+      topicForm = true;
+      nowSpy.mockReturnValue(1_000_000 + 10_000);
+      await send("om_2");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ conversationKey: "lark:oc_chat" }),
+      );
+
+      // Past the TTL → re-resolves the form → now isolates the topic.
+      nowSpy.mockReturnValue(1_000_000 + 31_000);
+      await send("om_3");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ conversationKey: "lark:oc_chat:omt_x" }),
+      );
+      expect(channel.getChatTopicForm).toHaveBeenCalledTimes(2); // fetched at t0 and after TTL, not the cached middle call
+    } finally {
+      nowSpy.mockRestore();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("guides unauthorized Lark groups to invite or allow the group without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-denied-help-"));
+    const channel = fakeChannel({
+      getChatMode: vi.fn(async () => "group"),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_group_denied_help",
+          chatType: "group",
+          mentionedBot: true,
+          content: "帮我看一下",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        {
+          text: expect.stringContaining("/invite group"),
+        },
+        { replyTo: "om_group_denied_help", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("/group allow");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces shared turn pool waits in Lark timeline and chat", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-turn-pool-wait-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+        await input.onTurnPoolWait?.({
+          waitedMs: 12_000,
+          activeCount: 2,
+          maxActive: 2,
+          reason: "turn_pool",
+        });
+        return { text: "done" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_pool_wait",
+          content: "do work",
+        }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        expect.objectContaining({
+          markdown: expect.stringContaining("AI worker"),
+        }),
+        { replyTo: "om_pool_wait" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.lock.waiting",
+        channel: "lark",
+        conversationKey: "lark:oc_chat",
+        detail: "waiting for shared AI worker capacity",
+        metadata: expect.objectContaining({
+          waitedMs: 12_000,
+          activeCount: 2,
+          maxActive: 2,
+          reason: "turn_pool",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the resumed workspace to ordinary Lark messages", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-workspace-"));
+    const workspacePath = path.join(stateDir, "external-workspace");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "ok" })),
+    };
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+        resume: {
+          sessionId: "claude-session-1",
+          dirName: "-Users-example-projects-cc-telegram-bridge",
+          workspacePath,
+        },
+      }));
+      await sessionStore.upsert({
+        telegramChatId: stableCoreNumericId("lark:oc_chat"),
+        conversationKey: "lark:oc_chat",
+        codexSessionId: "claude-session-1",
+        status: "idle",
+        updatedAt: new Date().toISOString(),
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_resume",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "continue",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        workspaceOverride: workspacePath,
+      }));
+      expect((await sessionStore.findByConversationKey("lark:oc_chat"))?.resume).toMatchObject({
+        sessionId: "claude-session-1",
+        workspacePath,
+      });
+      expect((await loadInstanceConfig(stateDir)).resume).toBeUndefined();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not add reactions before Lark access allows a message", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-reaction-denied-"));
+    const channel = fakeChannel({
+      addReaction: vi.fn(async () => "reaction_1"),
+      removeReaction: vi.fn(async () => undefined),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "使用配对码 ABC123 配对此私聊" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        reactionSettings: {
+          processingEmoji: "OnIt",
+          doneEmoji: "DONE",
+          failureEmoji: "Warning",
+        },
+        message: {
+          messageId: "om_denied_reaction",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "hello",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.addReaction).not.toHaveBeenCalled();
+      expect(channel.removeReaction).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes Lark messages through the bridge and sends the final result directly", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-service-"));
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => Buffer.from("hello file")),
+    });
+    let bridgeReadAttachment = false;
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        chatType: string;
+        conversationKey?: string;
+        files: string[];
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        bridgeReadAttachment = (await readFile(input.files[0]!, "utf8")) === "hello file";
+        await input.onEngineEvent?.({ type: "assistant_text", text: "Done from bridge" });
+        await input.onEngineEvent?.({ type: "result", text: "Done from bridge" });
+        return {
+          text: "Done from bridge",
+          usage: {
+            inputTokens: 11,
+            outputTokens: 7,
+            cachedTokens: 3,
+            costUsd: 0.0012,
+          },
+        };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "hello",
+          rawContentType: "text",
+          resources: [{ type: "file", fileKey: "file_1", fileName: "note.txt" }],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        text: expect.stringContaining("hello"),
+      }));
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.files).toHaveLength(1);
+      expect(bridgeReadAttachment).toBe(true);
+      expectLarkFinalAnswer(channel, "Done from bridge");
+      await expect(new UsageStore(stateDir).load()).resolves.toMatchObject({
+        requestCount: 1,
+        totalInputTokens: 11,
+        totalOutputTokens: 7,
+        totalCachedTokens: 3,
+        totalCostUsd: 0.0012,
+      });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("coalesces a multi-image burst and its caption into ONE turn, downloading each image from its carrier message", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-img-burst-"));
+    const resourceCalls: Array<{ messageId: string; fileKey: string }> = [];
+    const channel = fakeChannel({
+      downloadMessageResource: vi.fn(async (messageId: string, fileKey: string) => {
+        resourceCalls.push({ messageId, fileKey });
+        return Readable.from([Buffer.from("img-bytes")]);
+      }),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: { text: string; files: string[] }) => ({ text: `收到 ${input.files.length} 图` })),
+    };
+    const runtime = createCoreServiceRuntime();
+    const send = (overrides: Parameters<typeof fakeLarkMessage>[0]) =>
+      handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage(overrides) });
+
+    try {
+      // Mobile multi-select: two image messages arrive back-to-back, then the
+      // caption as its own text message — all inside the burst quiet window.
+      const turns = [
+        send({ messageId: "om_img1", content: "", rawContentType: "image", resources: [{ type: "image", fileKey: "key_1" }] }),
+        send({ messageId: "om_img2", content: "", rawContentType: "image", resources: [{ type: "image", fileKey: "key_2" }] }),
+        send({ messageId: "om_cap", content: "对比这两张图", rawContentType: "text" }),
+      ];
+      await Promise.all(turns);
+
+      // ONE merged turn carrying both images and the caption.
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const input = bridge.handleAuthorizedMessage.mock.calls[0]![0] as { text: string; files: string[] };
+      expect(input.files).toHaveLength(2);
+      expect(input.text).toContain("对比这两张图");
+      // Each image was fetched from its ORIGINAL carrier message, not the
+      // merged turn's (newest) messageId — Feishu rejects mismatched pairs.
+      expect(resourceCalls).toContainEqual({ messageId: "om_img1", fileKey: "key_1" });
+      expect(resourceCalls).toContainEqual({ messageId: "om_img2", fileKey: "key_2" });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("waits for an explicitly announced follow-up image and runs both messages as ONE turn", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-announced-image-"));
+    const resourceCalls: Array<{ messageId: string; fileKey: string }> = [];
+    const channel = fakeChannel({
+      downloadMessageResource: vi.fn(async (messageId: string, fileKey: string) => {
+        resourceCalls.push({ messageId, fileKey });
+        return Readable.from([Buffer.from("signature-bytes")]);
+      }),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: { text: string; files: string[] }) => ({ text: `received ${input.files.length}` })),
+    };
+    const runtime = createCoreServiceRuntime();
+    const send = (overrides: Parameters<typeof fakeLarkMessage>[0]) =>
+      handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage(overrides) });
+
+    try {
+      const instruction = send({
+        messageId: "om_instruction",
+        content: "我发你个图，帮我把名字抠出来，背景要透明",
+        rawContentType: "text",
+      });
+      // State-store setup can exceed waitFor's 1s default on a loaded runner.
+      // Wait for that setup, still well inside the 15s attachment hold window.
+      await vi.waitFor(() => expect(runtime.pendingBatches.size).toBe(1), { timeout: 5_000 });
+      const image = send({
+        messageId: "om_signature",
+        content: "",
+        rawContentType: "image",
+        resources: [{ type: "image", fileKey: "key_signature" }],
+      });
+      await Promise.all([instruction, image]);
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const input = bridge.handleAuthorizedMessage.mock.calls[0]![0] as { text: string; files: string[] };
+      expect(input.text).toContain("帮我把名字抠出来");
+      expect(input.files).toHaveLength(1);
+      expect(resourceCalls).toEqual([{ messageId: "om_signature", fileKey: "key_signature" }]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("releases an announced attachment request when no attachment arrives", async () => {
+    vi.useFakeTimers();
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-announced-image-timeout-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "continue without attachment" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      const turn = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_no_attachment",
+          content: "我稍后发一个文件，请帮我检查",
+          rawContentType: "text",
+        }),
+      });
+      await vi.waitFor(() => expect(runtime.pendingBatches.size).toBe(1));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await turn;
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(runtime.pendingBatches.size).toBe(0);
+    } finally {
+      for (const batch of runtime.pendingBatches.values()) clearTimeout(batch.timer);
+      runtime.pendingBatches.clear();
+      vi.useRealTimers();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not hold messages that refer to attachments already sent or meant for someone else", async () => {
+    vi.useFakeTimers();
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-past-attachment-text-"));
+    const channel = fakeChannel();
+    const bridge = { handleAuthorizedMessage: vi.fn(async () => ({ text: "answered" })) };
+    const runtime = createCoreServiceRuntime();
+    const phrases = [
+      "我刚发的截图是什么意思",
+      "我昨天发你的图片看了吗",
+      "我之前发的文件还在吗",
+      "我要发给客户的文档帮我润色一下",
+      "我发的表格第三列不对",
+      "马上帮我看下我发的文件",
+      "接着分析我发的截图",
+      "一会儿我发的截图你对比下上面那张",
+      "稍后发的文件记得汇总",
+      "我先发的那张截图和后面的有啥区别",
+      "我发给你的文件打不开",
+      "我再发一遍文件你还是打不开吗",
+    ];
+
+    try {
+      for (const [index, content] of phrases.entries()) {
+        const turn = handleCoreMessage({
+          channel,
+          bridge,
+          runtime,
+          stateDir,
+          message: fakeLarkMessage({ messageId: `om_past_${index}`, content }),
+        });
+        await vi.waitFor(() => {
+          expect(runtime.pendingBatches.size > 0 || bridge.handleAuthorizedMessage.mock.calls.length > index).toBe(true);
+        });
+        if (runtime.pendingBatches.size > 0) {
+          expect([...runtime.pendingBatches.values()][0]?.awaitingAttachment).toBe(false);
+        }
+        await vi.advanceTimersByTimeAsync(500);
+        await turn;
+      }
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(phrases.length);
+    } finally {
+      for (const batch of runtime.pendingBatches.values()) clearTimeout(batch.timer);
+      runtime.pendingBatches.clear();
+      vi.useRealTimers();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts an unmentioned group attachment only for the same sender's announced batch", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-announced-image-"));
+    const channel = fakeChannel({
+      downloadMessageResource: vi.fn(async () => Readable.from([Buffer.from("image-bytes")])),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (request: { files: string[] }) => ({ text: `received ${request.files.length}` })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      const instruction = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          chatId: "oc_group",
+          chatType: "group",
+          chatMode: "group",
+          messageId: "om_instruction",
+          senderId: "ou_user",
+          mentionedBot: true,
+          content: "我待会发你截图，帮我看看哪里错了",
+        }),
+      });
+      await vi.waitFor(() => expect(runtime.pendingBatches.size).toBe(1));
+      const image = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          chatId: "oc_group",
+          chatType: "group",
+          chatMode: "group",
+          messageId: "om_image",
+          senderId: "ou_user",
+          mentionedBot: false,
+          content: "",
+          rawContentType: "image",
+          resources: [{ type: "image", fileKey: "key_image" }],
+        }),
+      });
+
+      await Promise.all([instruction, image]);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        files: [expect.any(String)],
+        text: expect.stringContaining("帮我看看哪里错了"),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("does not merge an unmentioned attachment from another group sender", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-announced-image-"));
+    const channel = fakeChannel({
+      downloadMessageResource: vi.fn(async () => Readable.from([Buffer.from("image-bytes")])),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (request: { files: string[] }) => ({ text: `received ${request.files.length}` })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      const instruction = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          chatId: "oc_group",
+          chatType: "group",
+          chatMode: "group",
+          messageId: "om_instruction",
+          senderId: "ou_user",
+          mentionedBot: true,
+          content: "我待会发你截图，帮我看看哪里错了",
+        }),
+      });
+      await vi.waitFor(() => expect(runtime.pendingBatches.size).toBe(1));
+      const image = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          chatId: "oc_group",
+          chatType: "group",
+          chatMode: "group",
+          messageId: "om_image",
+          senderId: "ou_other",
+          mentionedBot: false,
+          content: "",
+          rawContentType: "image",
+          resources: [{ type: "image", fileKey: "key_image" }],
+        }),
+      });
+
+      await Promise.all([instruction, image]);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        files: [],
+        text: expect.stringContaining("帮我看看哪里错了"),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  }, 22_000);
+
+  it("keeps same-named files from a merged burst distinct instead of overwriting", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-burst-collide-"));
+    const channel = fakeChannel({
+      downloadMessageResource: vi.fn(async (_messageId: string, fileKey: string) => Readable.from([Buffer.from(`content-of-${fileKey}`)])),
+    });
+    // Post-turn cleanup removes the staged files, so capture their contents
+    // DURING the turn (same pattern as the base attachment test).
+    let stagedContents: string[] = [];
+    let stagedPaths: string[] = [];
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: { files: string[] }) => {
+        stagedPaths = input.files;
+        stagedContents = await Promise.all(input.files.map((file) => readFile(file, "utf8")));
+        return { text: "ok" };
+      }),
+    };
+    const runtime = createCoreServiceRuntime();
+    const send = (overrides: Parameters<typeof fakeLarkMessage>[0]) =>
+      handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage(overrides) });
+
+    try {
+      await Promise.all([
+        send({ messageId: "om_f1", content: "", rawContentType: "file", resources: [{ type: "file", fileKey: "key_f1", fileName: "IMG_001.jpg" }] }),
+        send({ messageId: "om_f2", content: "", rawContentType: "file", resources: [{ type: "file", fileKey: "key_f2", fileName: "IMG_001.jpg" }] }),
+      ]);
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      // Distinct paths, each preserving its own bytes — no silent overwrite.
+      expect(stagedPaths).toHaveLength(2);
+      expect(new Set(stagedPaths).size).toBe(2);
+      expect([...stagedContents].sort()).toEqual(["content-of-key_f1", "content-of-key_f2"]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("does not merge another sender's message into a group attachment burst", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-img-burst-group-"));
+    const channel = fakeChannel({
+      downloadMessageResource: vi.fn(async () => Readable.from([Buffer.from("img")])),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "ok" })),
+    };
+    const runtime = createCoreServiceRuntime();
+    const send = (overrides: Parameters<typeof fakeLarkMessage>[0]) =>
+      handleCoreMessage({ channel, bridge, runtime, stateDir, requireMentionInGroup: false, message: fakeLarkMessage(overrides) });
+
+    try {
+      const turns = [
+        send({ chatId: "oc_g", chatType: "group", messageId: "om_a_img", senderId: "ou_alice", mentionedBot: true, content: "", rawContentType: "image", resources: [{ type: "image", fileKey: "key_a" }] }),
+        send({ chatId: "oc_g", chatType: "group", messageId: "om_b_text", senderId: "ou_bob", mentionedBot: true, content: "我是另一个人的消息", rawContentType: "text" }),
+      ];
+      await Promise.all(turns);
+
+      // Two separate turns: Bob's text must NOT ride into Alice's image burst.
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      const texts = (bridge.handleAuthorizedMessage.mock.calls as unknown[][]).map((call) => (call[0] as { text: string }).text);
+      const aliceTurn = texts.find((text) => !text.includes("我是另一个人的消息"));
+      const bobTurn = texts.find((text) => text.includes("我是另一个人的消息"));
+      expect(aliceTurn).toBeDefined();
+      expect(bobTurn).toBeDefined();
+      expect(bobTurn).not.toContain("#2");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  it("notifies Lark users and records a timeline event when a turn waits on the shared engine lock", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-lock-wait-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onTurnLockWait?: (event: {
+          sessionId: string;
+          waitedMs: number;
+          reason: "in_process_queue" | "file_lock";
+          lockPath: string;
+        }) => void | Promise<void>;
+      }) => {
+        await input.onTurnLockWait?.({
+          sessionId: "codex-thread-1",
+          waitedMs: 10_250,
+          reason: "file_lock",
+          lockPath: "/tmp/tarocub-turn-locks/test.lock",
+        });
+        return { text: "Done from bridge" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "hello",
+        }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("排队") },
+        { replyTo: "om_1" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.lock.waiting",
+        channel: "lark",
+        conversationKey: "lark:oc_chat",
+        metadata: expect.objectContaining({
+          sessionId: "codex-thread-1",
+          waitedMs: 10_250,
+          reason: "file_lock",
+          larkChatId: "oc_chat",
+          larkMessageId: "om_1",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("expands merged forwarded Lark messages before running the bridge", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-merge-forward-"));
+    const channel = fakeChannel({
+      fetchMessage: vi.fn(async () => ({
+        messageId: "om_forward",
+        messageType: "merge_forward",
+        content: "Merged and Forwarded Message",
+        children: [
+          {
+            messageId: "om_child_1",
+            messageType: "text",
+            senderName: "Leader",
+            content: JSON.stringify({ text: "请今天处理这个需求" }),
+          },
+          {
+            messageId: "om_child_2",
+            messageType: "post",
+            senderName: "PM",
+            content: JSON.stringify({
+              title: "补充背景",
+              content: [[{ tag: "text", text: "优先看飞书合并转发" }]],
+            }),
+          },
+        ],
+      })),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string }) => ({ text: "merged handled" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_forward",
+          content: "Merged and Forwarded Message",
+          rawContentType: "merge_forward",
+        }),
+      });
+
+      expect(channel.fetchMessage).toHaveBeenCalledWith("om_forward");
+      const bridgeText = bridge.handleAuthorizedMessage.mock.calls[0]![0].text;
+      expect(bridgeText).toContain("<forwarded_lark_messages>");
+      expect(bridgeText).toContain("Leader");
+      expect(bridgeText).toContain("请今天处理这个需求");
+      expect(bridgeText).toContain("PM");
+      expect(bridgeText).toContain("补充背景");
+      expect(bridgeText).not.toMatch(/<forwarded_lark_messages>\s*Merged and Forwarded Message\s*<\/forwarded_lark_messages>/);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a forwarded interactive card through the fetchCardContent port and feeds its text to the engine", async () => {
+    // Regression: a forwarded CardKit/managed card arrives as "[interactive card]" with no
+    // content, so the bot saw nothing. The bridge must re-fetch the original card JSON
+    // through the channel's fetchCardContent port and splice the card's text into the prompt.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-fwd-card-"));
+    const cardJson = {
+      schema: "2.0",
+      header: { title: { tag: "plain_text", content: "NVIDIA GTC 总结" } },
+      body: {
+        elements: [
+          { tag: "markdown", content: "NVIDIA 认为 AI 进入了 Agent + AI 工厂时代。" },
+          { tag: "div", text: { tag: "lark_md", content: "核心是低成本产 token、安全运行 Agent。" } },
+        ],
+      },
+    };
+    const fetchCardContent = vi.fn(async () => cardJson);
+    const channel = fakeChannel({ fetchCardContent });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string }) => ({ text: "card handled" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_fwd_card",
+          content: "[interactive card]",
+          rawContentType: "interactive",
+        }),
+      });
+
+      expect(fetchCardContent).toHaveBeenCalledWith("om_fwd_card");
+      const bridgeText = bridge.handleAuthorizedMessage.mock.calls[0]![0].text;
+      expect(bridgeText).toContain("<forwarded_card>");
+      expect(bridgeText).toContain("NVIDIA GTC 总结");
+      expect(bridgeText).toContain("Agent + AI 工厂时代");
+      expect(bridgeText).not.toContain("[interactive card]");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the configured Lark locale into ordinary engine turns and access checks", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-turn-locale-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "Done from bridge" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_locale_turn", content: "hello" }),
+      });
+
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        locale: "en",
+      }));
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        locale: "en",
+        text: expect.stringContaining("hello"),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders default Lark chat access denials in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-access-denial-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_access_denial_en", content: "hello" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Current chat is not authorized." },
+        { replyTo: "om_access_denial_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers Lark background task notifications from engine stream events", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-notification-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: "后台命令已经完成。",
+        });
+        return { text: "任务已启动。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task", content: "跑一个后台任务" }),
+      });
+
+      expect(channel.stream).not.toHaveBeenCalled();
+      // The out-of-band notification is delivered as a CARD (matching the bot's
+      // card UX), not a bare plain-text message.
+      const notificationCardCall = (channel.send.mock.calls as unknown[][]).find((call) => {
+        const payload = call[1] as { card?: { body?: { elements?: Array<{ content?: string }> } } };
+        return payload?.card && JSON.stringify(payload.card).includes("后台任务完成");
+      });
+      expect(notificationCardCall).toBeDefined();
+      const notificationCard = JSON.stringify((notificationCardCall![1] as { card: unknown }).card);
+      expect(notificationCard).toContain("**后台任务完成**");
+      expect(notificationCard).toContain("后台命令已经完成。");
+      // It is NOT sent as a plain markdown message anymore.
+      expect(channel.send).not.toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "后台任务完成\n后台命令已经完成。" },
+        expect.anything(),
+      );
+      expectLarkFinalAnswer(channel, "任务已启动。");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        detail: "task_notification",
+        metadata: expect.objectContaining({
+          textChars: "后台命令已经完成。".length,
+          larkChatId: "oc_chat",
+          larkMessageId: "om_task",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records suppressed background transitions without delivering them to Lark", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-suppressed-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          taskId: "bash-first-attempt",
+          status: "failed",
+          text: "INTERNAL_RETRY_FAILURE",
+          suppressUserDelivery: true,
+        });
+        return { text: "任务仍在自动修复。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_suppressed", content: "生成并检查图片" }),
+      });
+
+      expect((channel.send.mock.calls as unknown[][]).some((call) => (
+        JSON.stringify(call[1]).includes("INTERNAL_RETRY_FAILURE")
+      ))).toBe(false);
+      expectLarkFinalAnswer(channel, "任务仍在自动修复。");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        detail: "task_notification",
+        metadata: expect.objectContaining({
+          taskId: "bash-first-attempt",
+          status: "failed",
+          textChars: "INTERNAL_RETRY_FAILURE".length,
+          userDeliverySuppressed: true,
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("headers a stopped background task as stopped, not completed", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-stopped-"));
+    const channel = fakeChannel();
+    // The shape actually observed in the field: a background shell orphaned by a
+    // service restart resurfaces on the next turn with status "stopped", and its
+    // body says a completion record was NOT found. Announcing that as 后台任务完成
+    // contradicts the body — and since the card replies to whatever the user last
+    // asked, it reads as a wrong answer to that question.
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "stopped",
+          origin: "unattributed",
+          text: "No completion record was found for this background shell command from the previous session.",
+        });
+        return { text: "好的。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_stopped", chatType: "group", threadId: "omt_report", mentionedBot: true, content: "国内ETF份额日频历史哪里可以查到" }),
+      });
+
+      const notificationCardCall = (channel.send.mock.calls as unknown[][]).find((call) => {
+        const payload = call[1] as { card?: unknown };
+        return payload?.card && JSON.stringify(payload.card).includes("后台任务");
+      });
+      expect(notificationCardCall).toBeDefined();
+      expect(notificationCardCall![2]).toMatchObject({ replyTo: "om_task_stopped", replyInThread: true });
+      const notificationCard = JSON.stringify((notificationCardCall![1] as { card: unknown }).card);
+      expect(notificationCard).toContain("**后台任务已停止**");
+      expect(notificationCard).not.toContain("后台任务完成");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spills an oversize background notification into continuation cards, not a plain-text dump", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-notification-long-"));
+    const channel = fakeChannel();
+    // Over the single-card cap but within the overflow-card budget → card 1 + "↪ 接上".
+    const longBody = `开头标记 ${"这是一段很长的后台任务报告。".repeat(400)} 结尾标记`;
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({ type: "task_notification", status: "completed", text: longBody });
+        return { text: "任务已启动。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_long", content: "跑一个长后台任务" }),
+      });
+
+      const calls = channel.send.mock.calls as unknown[][];
+      const cardPayloads = calls
+        .map((call) => call[1] as { card?: unknown })
+        .filter((payload) => payload?.card)
+        .map((payload) => JSON.stringify(payload.card));
+      // The notification card carries chunk 1, and the tail follows as at least
+      // one continuation card — same flow as a long main answer.
+      expect(cardPayloads.some((card) => card.includes("后台任务完成") && card.includes("开头标记"))).toBe(true);
+      expect(cardPayloads.some((card) => card.includes("接上"))).toBe(true);
+      // Nothing lost: the cards jointly cover the body through its very end.
+      expect(cardPayloads.some((card) => card.includes("结尾标记"))).toBe(true);
+      // And no plain-markdown dump of the notification.
+      const markdownCalls = calls
+        .map((call) => call[1] as { markdown?: string })
+        .filter((payload) => typeof payload?.markdown === "string" && payload.markdown.includes("后台任务完成"));
+      expect(markdownCalls.length).toBe(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spills a six-table background notification into two valid cards", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-notification-tables-"));
+    const channel = fakeChannel();
+    const report = Array.from({ length: 6 }, (_, index) => [
+      `| 指标 ${index + 1} | 数值 |`,
+      "| --- | --- |",
+      `| row-${index + 1} | ${index + 1} |`,
+    ].join("\n")).join("\n\n");
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({ type: "task_notification", status: "completed", text: report });
+        return { text: "任务已启动。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_tables", content: "跑一个多表格后台任务" }),
+      });
+
+      const calls = channel.send.mock.calls as unknown[][];
+      const tableCards = calls
+        .map((call) => call[1] as { card?: unknown })
+        .filter((payload) => payload.card && (
+          JSON.stringify(payload.card).includes("后台任务完成")
+          || JSON.stringify(payload.card).includes("接上")
+        ))
+        .map((payload) => JSON.stringify(payload.card));
+      expect(tableCards).toHaveLength(2);
+      expect(tableCards[0]).toContain("row-5");
+      expect(tableCards[0]).not.toContain("指标 6");
+      expect(tableCards[1]).toContain("row-6");
+      expect(calls.some((call) => JSON.stringify(call[1]).includes("单卡表格上限"))).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still falls back to chunked plain text for a document-sized background notification", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-notification-doc-"));
+    const channel = fakeChannel();
+    // Over the overflow-card budget (LARK_MAX_OVERFLOW_CARDS × card cap) — a stream
+    // of 7+ cards would be worse than text, so the plain-text path still applies.
+    const hugeBody = "这是一段很长的后台任务报告。".repeat(2500);
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({ type: "task_notification", status: "completed", text: hugeBody });
+        return { text: "任务已启动。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_doc", content: "跑一个超长后台任务" }),
+      });
+
+      const calls = channel.send.mock.calls as unknown[][];
+      const notificationCard = calls.find((call) => {
+        const payload = call[1] as { card?: unknown };
+        return payload?.card && JSON.stringify(payload.card).includes("后台任务完成");
+      });
+      expect(notificationCard).toBeUndefined();
+      const markdownCalls = calls
+        .map((call) => call[1] as { markdown?: string })
+        .filter((payload) => typeof payload?.markdown === "string" && payload.markdown.includes("后台任务完成"));
+      expect(markdownCalls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers a background notification whole file block as a file, not as a markdown code block", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-notification-file-block-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: "```file:report.md\n# Report\n\nAll clear.\n```",
+        });
+        return { text: "任务已启动。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_file_block", content: "跑一个后台文件任务" }),
+      });
+
+      const calls = channel.send.mock.calls as unknown[][];
+      expect(calls).toContainEqual([
+        "oc_chat",
+        {
+          file: {
+            source: Buffer.from("# Report\n\nAll clear.\n", "utf8"),
+            fileName: "report.md",
+          },
+        },
+        { replyTo: "om_task_file_block" },
+      ]);
+      expect(calls.some((call) => {
+        const payload = call[1] as { markdown?: string; text?: string };
+        return payload.markdown?.includes("```file:report.md") || payload.text?.includes("```file:report.md");
+      })).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not expose delivery tags when a background notification card falls back to text", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-notification-card-fallback-tags-"));
+    const reportPath = path.join(stateDir, "workspace", "report.txt");
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await writeFile(reportPath, "report body", "utf8");
+    const channel = fakeChannel({
+      send: vi.fn(async (_chatId: string, input: unknown) => {
+        const payload = input as { card?: unknown };
+        if (payload.card) {
+          throw new Error("card send failed");
+        }
+        return { messageId: "sent_1" };
+      }),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: `报告已生成。\n[send-file:${reportPath}]`,
+        });
+        return { text: "任务已启动。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_card_fallback_tags", content: "跑一个后台报告任务" }),
+      });
+
+      const calls = channel.send.mock.calls as unknown[][];
+      expect(calls.some((call) => Boolean((call[1] as { file?: unknown }).file))).toBe(true);
+      const fallbackTexts = calls
+        .map((call) => call[1] as { text?: string })
+        .filter((payload) => typeof payload.text === "string")
+        .map((payload) => payload.text!);
+      expect(fallbackTexts.some((text) => text.includes("报告已生成。"))).toBe(true);
+      expect(fallbackTexts.join("\n")).not.toContain("[send-file:");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to send a dotenv/credentials file even from inside the workspace", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-file-credentials-"));
+    const secretPath = path.join(stateDir, "workspace", ".env.local");
+    await mkdir(path.dirname(secretPath), { recursive: true });
+    await writeFile(secretPath, "ALIBABA_CLOUD_ACCESS_KEY_ID=placeholder\n", "utf8");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: `配置在这。[send-file:${secretPath}]` })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_file_credentials", content: "把配置发我" }),
+      });
+
+      const calls = channel.send.mock.calls as unknown[][];
+      // Never uploaded, regardless of the workspace sandbox result.
+      expect(calls.some((call) => Boolean((call[1] as { file?: unknown }).file))).toBe(false);
+      const texts = calls
+        .map((call) => call[1] as { text?: string })
+        .map((payload) => payload.text)
+        .filter((text): text is string => typeof text === "string");
+      const notice = texts.find((text) => text.includes("拒绝发送凭据类文件"));
+      expect(notice).toBeDefined();
+      expect(notice).toContain(".env.local");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("names the file and the tested-safe 26MB cap when a [send-file:] target exceeds Feishu's upload limit", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-file-too-large-"));
+    const bigPath = path.join(stateDir, "workspace", "books_bundle.zip");
+    await mkdir(path.dirname(bigPath), { recursive: true });
+    await writeFile(bigPath, "");
+    await truncate(bigPath, 31 * 1024 * 1024); // sparse 31MB — instant to create
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: `打包好了。[send-file:${bigPath}]` })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_file_too_large", content: "把书包发我" }),
+      });
+
+      const calls = channel.send.mock.calls as unknown[][];
+      // Rejected up front — no upload attempt at all.
+      expect(calls.some((call) => Boolean((call[1] as { file?: unknown }).file))).toBe(false);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expectLarkFinalAnswer(channel, "books_bundle.zip");
+      expectLarkFinalAnswer(channel, "31MB");
+      expectLarkFinalAnswer(channel, "26MB");
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).not.toContain("读取文件失败");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("says the file does not exist (with its name) when a [send-file:] target was never created", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-file-not-found-"));
+    await mkdir(path.join(stateDir, "workspace"), { recursive: true });
+    const ghostPath = path.join(stateDir, "workspace", "ghost_summary.md");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: `复盘完成。[send-file:${ghostPath}]` })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_file_ghost", content: "发我复盘" }),
+      });
+
+      const texts = (channel.send.mock.calls as unknown[][])
+        .map((call) => call[1] as { text?: string })
+        .map((payload) => payload.text)
+        .filter((text): text is string => typeof text === "string");
+      const notice = texts.find((text) => text.includes("ghost_summary.md"));
+      expect(notice).toBeDefined();
+      expect(notice).toContain("文件不存在");
+      expect(notice).not.toContain("读取文件失败");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("says Feishu rejected the upload when the file read fine but the send failed", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-file-upload-failed-"));
+    const reportPath = path.join(stateDir, "workspace", "report_pack.zip");
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await writeFile(reportPath, "small but rejected", "utf8");
+    const channel = fakeChannel({
+      send: vi.fn(async (_chatId: string, input: unknown) => {
+        const payload = input as { file?: unknown };
+        if (payload.file) {
+          throw new Error("file upload failed");
+        }
+        return { messageId: "sent_x" };
+      }),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: `发包。[send-file:${reportPath}]` })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_file_upload_fail", content: "发我" }),
+      });
+
+      const texts = (channel.send.mock.calls as unknown[][])
+        .map((call) => call[1] as { text?: string })
+        .map((payload) => payload.text)
+        .filter((text): text is string => typeof text === "string");
+      const notice = texts.find((text) => text.includes("report_pack.zip"));
+      expect(notice).toBeDefined();
+      expect(notice).toContain("上传被飞书拒绝");
+      expect(notice).not.toContain("读取文件失败");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not send a duplicate Lark notification when a background task settles the active turn", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-terminal-task-notification-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          text: "# 审计完成\n\n完整报告。",
+          status: "completed",
+          settlesCurrentTurn: true,
+        });
+        return { text: "# 审计完成\n\n完整报告。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_terminal_task", content: "跑一个长审计" }),
+      });
+
+      const sentMarkdown = (channel.send.mock.calls as unknown[][])
+        .map((call) => call[1])
+        .filter((payload): payload is { markdown: string } =>
+          typeof payload === "object" &&
+          payload !== null &&
+          "markdown" in payload &&
+          typeof payload.markdown === "string"
+        )
+        .map((payload) => payload.markdown);
+      expect(sentMarkdown).not.toContain("后台任务完成\n# 审计完成\n\n完整报告。");
+      const rendered = `${JSON.stringify(channel.send.mock.calls)}\n${JSON.stringify(channel.updateCard.mock.calls)}`;
+      expect(rendered).toContain("完整报告。");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark background task notifications in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-task-notification-en-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: "Background command finished.",
+        });
+        return { text: "Task started." };
+      }),
+    };
+
+    try {
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_task_en", content: "run a background task" }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("后台任务完成");
+      // Delivered as a card with the English header + body.
+      const cardCall = (channel.send.mock.calls as unknown[][]).find((call) => {
+        const payload = call[1] as { card?: unknown };
+        return payload?.card && JSON.stringify(payload.card).includes("Background task completed");
+      });
+      expect(cardCall).toBeDefined();
+      const card = JSON.stringify((cardCall![1] as { card: unknown }).card);
+      expect(card).toContain("**Background task completed**");
+      expect(card).toContain("Background command finished.");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  // The markdown bodies of any continuation cards (card 2..N of a long answer) sent via
+  // channel.send, identified by the "接上"/"Continued" heading the renderer stamps on them.
+  function larkContinuationCardsSent(channel: FakeLarkChannel): string[] {
+    return (channel.send.mock.calls as unknown[][])
+      .map((call) => call[1] as { card?: { body?: { elements?: Array<{ content?: string }> } } } | undefined)
+      .filter((p): p is { card: { body: { elements: Array<{ content?: string }> } } } =>
+        Boolean(p?.card?.body?.elements?.some((el) => typeof el.content === "string" && /接上|Continued/.test(el.content))))
+      .map((p) => p.card.body.elements.map((el) => el.content ?? "").join("\n"));
+  }
+
+  it("falls back to a .md file (not an inline dump) when the overflow doc cannot be created", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-long-reply-fb-"));
+    const channel = fakeChannel();
+    // Document-sized (~40000 CJK chars — over 6 × 5000) so it routes to the doc path; the
+    // doc creation then fails, exercising the .md-file fallback.
+    const longReply = `FALLBACKMARKER ${"甲".repeat(40000)}`;
+    const createDocument = vi.fn(async () => { throw new Error("not logged in"); });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: longReply })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({ createDocument }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_long_fb", content: "写一份长报告" }),
+      });
+
+      // Doc creation failed → the full reply is delivered as a .md FILE (clean chat,
+      // and a file vs a link signals the doc step failed) — NOT an inline dump.
+      expect(createDocument).toHaveBeenCalledTimes(1);
+      const calls = channel.send.mock.calls as unknown as unknown[][];
+      const fileCall = calls.find((c) => (c[1] as { file?: unknown } | undefined)?.file);
+      expect(fileCall).toBeDefined();
+      const file = (fileCall![1] as { file: { source: Buffer; fileName: string } }).file;
+      expect(file.fileName).toMatch(/\.md$/);
+      expect(file.source.toString("utf8")).toContain("FALLBACKMARKER");
+      // No inline markdown dump of the full reply, and no (broken) doc link.
+      const markdowns = calls
+        .map((c) => (c[1] as { markdown?: string } | undefined)?.markdown)
+        .filter(Boolean)
+        .join("\n");
+      expect(markdowns).not.toContain("FALLBACKMARKER");
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain("feishu.cn/docx");
+      // The doc failure is logged (otherwise invisible) so the .md fallback is traceable.
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event.delivery_failed",
+        channel: "lark",
+        detail: "overflow_doc_create_failed",
+        metadata: expect.objectContaining({
+          fallback: "file",
+          docError: "not logged in",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fetches replied Lark message text and passes it as bridge reply context", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-reply-context-"));
+    const channel = fakeChannel({
+      fetchMessage: vi.fn(async () => ({
+        messageId: "om_parent",
+        messageType: "text",
+        content: JSON.stringify({ text: "上一条结论：采用方案 B" }),
+      })),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_reply",
+          content: "就按这个继续",
+          replyToMessageId: "om_parent",
+        }),
+      });
+
+      expect(channel.fetchMessage).toHaveBeenCalledWith("om_parent");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        replyContext: {
+          messageId: "om_parent",
+          text: "上一条结论：采用方案 B",
+        },
+      }));
+      expectLarkFinalAnswer(channel, "done");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("continues Lark turns when replied message lookup fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-reply-context-fallback-"));
+    const channel = fakeChannel({
+      fetchMessage: vi.fn(async () => {
+        throw new Error("message get failed");
+      }),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_reply",
+          content: "继续",
+          replyToMessageId: "om_parent",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.not.objectContaining({
+        replyContext: expect.anything(),
+      }));
+      expectLarkFinalAnswer(channel, "done");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("transcribes Lark audio and video inputs before running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-asr-"));
+    const transcribeMedia = vi.fn(async (filePath: string) => `transcript:${path.basename(filePath)}`);
+    const prepareVideoInput = vi.fn(async (filePath: string) => ({
+      durationSeconds: 7,
+      framePaths: [`${filePath}.frames/frame-01.jpg`, `${filePath}.frames/frame-02.jpg`],
+      mode: "frames" as const,
+    }));
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async (key: string) => Buffer.from(`media:${key}`)),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; files: string[] }) => ({ text: "done" })),
+    };
+    const runtime = createCoreServiceRuntime({ transcribeMedia, prepareVideoInput });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_media",
+          content: "整理这两段素材",
+          resources: [
+            { type: "audio", fileKey: "audio_key", fileName: "voice.m4a" },
+            { type: "video", fileKey: "video_key", fileName: "clip.mp4" },
+          ],
+        }),
+      });
+
+      expect(transcribeMedia).toHaveBeenCalledTimes(2);
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.text).toContain("整理这两段素材");
+      expect(bridgeInput.text.match(/\[Bridge media transcription completed\]/g)).toHaveLength(2);
+      expect(bridgeInput.text).toContain("[Bridge video prepared]");
+      expect(bridgeInput.text).toContain("Do not inspect, probe, split, or transcribe the attached media again");
+      expect(bridgeInput.text).toContain("transcript:voice.m4a");
+      expect(bridgeInput.text).toContain("transcript:clip.mp4");
+      expect(bridgeInput.files).toEqual(expect.arrayContaining([
+        expect.stringContaining("clip.mp4.frames/frame-01.jpg"),
+        expect.stringContaining("clip.mp4.frames/frame-02.jpg"),
+        expect.stringContaining("clip.mp4"),
+      ]));
+      expectLarkFinalAnswer(channel, "done");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes an incomplete Lark transcript to the engine with an explicit gap warning", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-asr-partial-"));
+    const transcribeMedia = vi.fn(async () => {
+      throw new PartialMediaTranscriptionError("first part\nthird part", [2], 3);
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => Buffer.from("audio")),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; files: string[] }) => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({ transcribeMedia }),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_partial_audio",
+          content: "总结录音",
+          resources: [{ type: "audio", fileKey: "audio_key", fileName: "meeting.m4a" }],
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.text).toContain("[Bridge media transcription partial]");
+      expect(bridgeInput.text).toContain("missing audio chunk(s): 2/3");
+      expect(bridgeInput.text).toContain("first part\nthird part");
+      expect(bridgeInput.text).not.toContain("[Bridge media transcription completed]");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        outcome: "partial",
+        metadata: expect.objectContaining({ failedChunkNumbers: [2], totalChunks: 3 }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps short silent videos actionable when audio transcription fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-video-silent-"));
+    const transcribeMedia = vi.fn(async () => {
+      throw new Error("video has no audio stream");
+    });
+    const prepareVideoInput = vi.fn(async (filePath: string) => ({
+      durationSeconds: 7,
+      framePaths: [`${filePath}.frames/frame-01.jpg`, `${filePath}.frames/frame-02.jpg`],
+      mode: "frames" as const,
+    }));
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => Buffer.from("video")),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; files: string[] }) => ({
+        text: "I can see the game result",
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({ transcribeMedia, prepareVideoInput }),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_silent_video",
+          content: "看看这个视频",
+          resources: [{ type: "video", fileKey: "video_key", fileName: "game.mp4" }],
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.text).toContain("[Bridge video prepared]");
+      expect(bridgeInput.files).toEqual(expect.arrayContaining([
+        expect.stringContaining("game.mp4.frames/frame-01.jpg"),
+        expect.stringContaining("game.mp4.frames/frame-02.jpg"),
+        expect.stringContaining("game.mp4"),
+      ]));
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain("音视频转写失败");
+      expectLarkFinalAnswer(channel, "I can see the game result");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes videos over ten seconds directly without automatic transcription", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-video-long-"));
+    const transcribeMedia = vi.fn(async () => "should not run");
+    const prepareVideoInput = vi.fn(async () => ({
+      durationSeconds: 30,
+      framePaths: [],
+      mode: "direct" as const,
+    }));
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => Buffer.from("video")),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; files: string[] }) => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({ transcribeMedia, prepareVideoInput }),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_long_video",
+          content: "分析这个长视频",
+          resources: [{ type: "video", fileKey: "video_key", fileName: "long.mp4" }],
+        }),
+      });
+
+      expect(transcribeMedia).not.toHaveBeenCalled();
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.files).toEqual([expect.stringContaining("long.mp4")]);
+      expect(bridgeInput.text).toContain("exceeds 10 seconds");
+      expectLarkFinalAnswer(channel, "done");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("transcribes a recording forwarded as a FILE, and keeps the file actionable", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-asr-file-"));
+    const transcribeMedia = vi.fn(async (filePath: string) => `transcript:${path.basename(filePath)}`);
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async (key: string) => Buffer.from(`media:${key}`)),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; files: string[] }) => ({ text: "done" })),
+    };
+    const runtime = createCoreServiceRuntime({ transcribeMedia });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_forwarded_recording",
+          content: "帮我听一下这个录音",
+          resources: [
+            // A recording forwarded from another app: Feishu calls it a FILE,
+            // not an audio message. It must still be transcribed — otherwise
+            // the long-audio cloud route never gets a chance.
+            { type: "file", fileKey: "rec_key", fileName: "会议录音.m4a" },
+            // A real document alongside it must NOT be transcribed.
+            { type: "file", fileKey: "doc_key", fileName: "合同.docx" },
+          ],
+        }),
+      });
+
+      expect(transcribeMedia).toHaveBeenCalledTimes(1);
+      expect(transcribeMedia.mock.calls[0]![0]).toContain("会议录音.m4a");
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.text).toContain("[Bridge media transcription completed]");
+      expect(bridgeInput.text).toContain('File: "会议录音.m4a"');
+      expect(bridgeInput.text).toContain("transcript:会议录音.m4a");
+      // The document is still a workflow file, AND the promoted recording keeps
+      // its path so the engine can act on the file itself.
+      expect(bridgeInput.files.some((f: string) => f.includes("合同.docx"))).toBe(true);
+      expect(bridgeInput.files.some((f: string) => f.includes("会议录音.m4a"))).toBe(true);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still hands over a promoted recording when its transcription fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-asr-file-fail-"));
+    const transcribeMedia = vi.fn(async () => {
+      throw new Error("asr exploded");
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async (key: string) => Buffer.from(`media:${key}`)),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; files: string[] }) => ({ text: "done" })),
+    };
+    const runtime = createCoreServiceRuntime({ transcribeMedia });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_promoted_fail",
+          content: "这个文件处理一下",
+          resources: [{ type: "file", fileKey: "rec_key", fileName: "录音.m4a" }],
+        }),
+      });
+
+      // Before promotion existed this file simply reached the engine. A failed
+      // transcription must not turn that into a dead-end "转写失败" reply.
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.files.some((f: string) => f.includes("录音.m4a"))).toBe(true);
+      expect(bridgeInput.text).toContain("Bridge media transcription unavailable for 录音.m4a");
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain("转写");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("downloads user-sent Lark audio as a file resource before transcription", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-audio-resource-"));
+    const downloadMessageResource = vi.fn(async () => Readable.from([Buffer.from("voice body")]));
+    const transcribeMedia = vi.fn(async (filePath: string) => `transcript:${path.basename(filePath)}`);
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => {
+        throw new Error("wrong Lark resource download API");
+      }),
+      downloadMessageResource,
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+    const runtime = createCoreServiceRuntime({ transcribeMedia });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_voice",
+          content: "",
+          resources: [
+            { type: "audio", fileKey: "file_v3_voice" },
+          ],
+        }),
+      });
+
+      expect(downloadMessageResource).toHaveBeenCalledWith("om_voice", "file_v3_voice", "file");
+      expect(transcribeMedia).toHaveBeenCalledWith(
+        expect.stringMatching(/audio-1\.ogg$/),
+        expect.objectContaining({ stateDir }),
+      );
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        files: [],
+        text: expect.stringContaining("transcript:audio-1.ogg"),
+      }));
+      expect(channel.downloadResource).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark audio transcription failures in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-asr-en-fail-"));
+    const transcribeMedia = vi.fn(async () => {
+      throw new Error("asr down");
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async (key: string) => Buffer.from(`media:${key}`)),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime({ transcribeMedia });
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_media_fail_en",
+          content: "summarize this",
+          resources: [
+            { type: "audio", fileKey: "audio_key", fileName: "voice.m4a" },
+          ],
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Audio transcription failed. Please send text or a shorter audio file." },
+        { replyTo: "om_media_fail_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("summarizes Lark zip archives and waits for continue instead of running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-summary-"));
+    const zipBuffer = createZipBuffer({
+      "README.md": "# hello",
+      "src/index.ts": "console.log('hi')",
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.stream).not.toHaveBeenCalled();
+      // One localized card carries the summary AND the Continue button (zh
+      // default locale). No separate English plain-text blob anymore.
+      const sent = JSON.stringify(channel.send.mock.calls);
+      expect(sent).toContain("压缩包摘要");
+      expect(sent).toContain("repo.zip");
+      expect(sent).toContain("README.md");
+      expect(sent).toContain("continue_archive");
+      expect(sent).toContain("继续分析");
+      // The old English plain-text summary line is no longer delivered to Lark.
+      expect(sent).not.toContain("Archive summary: repo.zip");
+      // It is a card, not a markdown message.
+      const cardCalls = (channel.send.mock.calls as unknown[][]).filter((call) => ((call[1] ?? {}) as { card?: unknown }).card);
+      expect(cardCalls.length).toBeGreaterThanOrEqual(1);
+
+      const workflowState = JSON.parse(await readFile(path.join(stateDir, "file-workflow.json"), "utf8")) as {
+        records: Array<{ kind: string; status: string; chatId: number; summary: string }>;
+      };
+      expect(workflowState.records).toHaveLength(1);
+      expect(workflowState.records[0]).toMatchObject({
+        kind: "archive",
+        status: "awaiting_continue",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+      });
+      expect(workflowState.records[0]?.summary).toContain("src/");
+      expect(workflowState.records[0]?.summary).toContain("index.ts");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark archive continuation cards in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-summary-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const zipBuffer = createZipBuffer({
+      "README.md": "# hello",
+      "src/index.ts": "console.log('hi')",
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip_en",
+          content: "Analyze this archive",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+
+      const calls = JSON.stringify(channel.send.mock.calls);
+      expect(calls).toContain("Archive Summary");
+      expect(calls).toContain("Continue Analysis");
+      expect(calls).toContain("repo.zip");
+      expect(calls).not.toContain("压缩包摘要");
+      expect(calls).not.toContain("继续分析");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("takes over a lingering queued card with the archive summary instead of recalling it", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-takeover-"));
+    const zipBuffer = createZipBuffer({ "README.md": "# hello", "src/index.ts": "x" });
+    const channel = fakeChannel({ downloadResource: vi.fn(async () => zipBuffer) });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime();
+    // Simulate the upload having waited in the queue: a "queued" card is already
+    // tracked for this message (inline card → no managed handle).
+    runtime.queueCards.set("om_zip", { messageId: "om_queue_card" });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+
+      // The queued card was transitioned IN PLACE to the summary — no recall, no
+      // fresh card send, and the tracked entry is cleared so the finally-block's
+      // lingering-card settle can't recall it afterward.
+      expect(channel.updateCard).toHaveBeenCalledWith(
+        "om_queue_card",
+        expect.objectContaining({ schema: "2.0" }),
+      );
+      expect(channel.recallMessage).not.toHaveBeenCalled();
+      expect(runtime.queueCards.get("om_zip")).toBeUndefined();
+      const updatedCard = JSON.stringify(channel.updateCard.mock.calls);
+      expect(updatedCard).toContain("压缩包摘要");
+      expect(updatedCard).toContain("continue_archive");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("recalls the stale queued card and posts a fresh summary when the in-place take-over fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-takeover-fail-"));
+    const zipBuffer = createZipBuffer({ "README.md": "# hello" });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+      // The in-place update is rejected (e.g. CardKit hiccup).
+      updateCard: vi.fn(async () => { throw new Error("update rejected"); }),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime();
+    runtime.queueCards.set("om_zip", { messageId: "om_queue_card" });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+
+      // Take-over failed → the stale queued card is recalled (finally-block) AND
+      // a fresh summary card is posted, so no orphaned "排队中" card is left.
+      expect(channel.recallMessage).toHaveBeenCalledWith("om_queue_card");
+      const freshCard = JSON.stringify(channel.send.mock.calls);
+      expect(freshCard).toContain("压缩包摘要");
+      expect(freshCard).toContain("continue_archive");
+      expect(runtime.queueCards.get("om_zip")).toBeUndefined();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("continues Lark zip archive analysis from the summary card button", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-card-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const zipBuffer = createZipBuffer({
+      "README.md": "# hello",
+      "src/index.ts": "console.log('hi')",
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; files: string[]; locale?: string }) => ({ text: "analysis from card done" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+      bridge.handleAuthorizedMessage.mockClear();
+
+      const workflowState = JSON.parse(await readFile(path.join(stateDir, "file-workflow.json"), "utf8")) as {
+        records: Array<{ uploadId: string; status: string }>;
+      };
+      const uploadId = workflowState.records[0]!.uploadId;
+      await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          messageId: "om_card",
+          chatId: "oc_chat",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "continue_archive",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              uploadId,
+            },
+          },
+        },
+      });
+
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const bridgeInput = bridge.handleAuthorizedMessage.mock.calls[0]![0];
+      expect(bridgeInput.locale).toBe("en");
+      expect(bridgeInput.text).toContain("[Archive Analysis Context]");
+      expect(bridgeInput.text).toContain("Extracted files live under:");
+      expectLarkFinalAnswer(channel, "analysis from card done");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("acknowledges a queued archive continuation immediately and ignores repeated taps", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-card-dedupe-"));
+    const zipBuffer = createZipBuffer({
+      "README.md": "# hello",
+      "src/index.ts": "console.log('hi')",
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "archive analysis done" })),
+    };
+    const runtime = createCoreServiceRuntime();
+    let releaseBlocker = (): void => undefined;
+    let resolveStarted = (): void => undefined;
+    const blockerStarted = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const blockerGate = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    let firstAction: Promise<boolean> | undefined;
+    let blocker: Promise<boolean> | undefined;
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+      expect(runtime.choiceCards.get("sent_1")).toMatchObject({ status: "active" });
+
+      const workflowState = JSON.parse(await readFile(path.join(stateDir, "file-workflow.json"), "utf8")) as {
+        records: Array<{ uploadId: string }>;
+      };
+      const uploadId = workflowState.records[0]!.uploadId;
+      channel.send.mockClear();
+      channel.recallMessage.mockClear();
+
+      blocker = runtime.chatQueue.enqueue("lark:oc_chat", async () => {
+        resolveStarted();
+        await blockerGate;
+        return true;
+      });
+      await blockerStarted;
+
+      const actionInput = () => ({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          messageId: "sent_1",
+          chatId: "oc_chat",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "continue_archive",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              uploadId,
+            },
+          },
+        },
+      });
+
+      firstAction = handleCoreCardAction(actionInput());
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const firstResult = await Promise.race<boolean | "timeout">([
+        firstAction,
+        new Promise<"timeout">((resolve) => {
+          timeout = setTimeout(() => resolve("timeout"), 300);
+        }),
+      ]);
+      if (timeout) clearTimeout(timeout);
+      expect(firstResult).toBe(true);
+      await expect(handleCoreCardAction(actionInput())).resolves.toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+
+      await vi.waitFor(() => expect(channel.recallMessage).toHaveBeenCalledWith("sent_1"));
+      const acceptedCard = JSON.stringify(channel.send.mock.calls);
+      expect(acceptedCard).toContain("已收到继续请求");
+      expect(acceptedCard).toContain("正在检查压缩包状态");
+      expect(acceptedCard).not.toContain('"tag":"button"');
+      expect(acceptedCard).not.toContain('"cctb_lark":"continue_archive"');
+      expect(runtime.choiceCards.get("sent_1")).toMatchObject({
+        status: "resolved",
+        selectedLabel: "继续分析",
+      });
+
+      releaseBlocker();
+      await blocker;
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseBlocker();
+      await blocker?.catch(() => undefined);
+      await firstAction?.catch(() => undefined);
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders missing Lark archive continuation replies in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-missing-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        event: {
+          messageId: "om_card_missing",
+          chatId: "oc_chat",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "continue_archive",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              uploadId: "missing-upload",
+            },
+          },
+        },
+      });
+
+      await vi.waitFor(() => expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "That archive is no longer waiting for continued analysis in this chat." },
+        { replyTo: "om_card_missing" },
+      ));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers Lark archive continuation background task notifications from engine events", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-card-task-notification-"));
+    const zipBuffer = createZipBuffer({
+      "README.md": "# hello",
+      "src/index.ts": "console.log('hi')",
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: "压缩包后台分析完成。",
+        });
+        return { text: "archive analysis done" };
+      }),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+      bridge.handleAuthorizedMessage.mockClear();
+
+      const workflowState = JSON.parse(await readFile(path.join(stateDir, "file-workflow.json"), "utf8")) as {
+        records: Array<{ uploadId: string; status: string }>;
+      };
+      const uploadId = workflowState.records[0]!.uploadId;
+      await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_archive",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "continue_archive",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              uploadId,
+            },
+          },
+        },
+      });
+
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "后台任务完成\n压缩包后台分析完成。" },
+        { replyTo: "card_archive" },
+      );
+      expectLarkFinalAnswer(channel, "archive analysis done");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        detail: "task_notification",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "continue_archive",
+          uploadId,
+          textChars: "压缩包后台分析完成。".length,
+          larkChatId: "oc_chat",
+          larkMessageId: "card_archive",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("continues Lark zip archive analysis from the waiting workflow", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-continue-"));
+    const zipBuffer = createZipBuffer({
+      "README.md": "# hello",
+      "src/index.ts": "console.log('hi')",
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "analysis done" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_continue",
+          content: "继续分析 看看结构",
+          resources: [],
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const bridgeInput = (bridge.handleAuthorizedMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+        chatType: string;
+        conversationKey: string;
+        files: string[];
+        text: string;
+      };
+      expect(bridgeInput).toEqual(expect.objectContaining({
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        files: [],
+        text: expect.stringContaining("[Archive Analysis Context]"),
+      }));
+      expect(bridgeInput.text).toContain("看看结构");
+      expect(bridgeInput.text).toContain("Extracted files live under:");
+      expect(channel.stream).not.toHaveBeenCalled();
+      expectLarkFinalAnswer(channel, "analysis done");
+
+      const workflowState = JSON.parse(await readFile(path.join(stateDir, "file-workflow.json"), "utf8")) as {
+        records: Array<{ status: string }>;
+      };
+      expect(workflowState.records[0]?.status).toBe("completed");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("continues Lark zip archive analysis from the literal /continue slash command", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-slash-continue-"));
+    const zipBuffer = createZipBuffer({
+      "README.md": "# hello",
+      "src/index.ts": "console.log('hi')",
+    });
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => zipBuffer),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "slash analysis done" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_zip",
+          content: "分析这个压缩包",
+          resources: [{ type: "file", fileKey: "file_zip", fileName: "repo.zip" }],
+        }),
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_slash_continue",
+          content: "/continue 看看结构",
+          resources: [],
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const bridgeInput = (bridge.handleAuthorizedMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+        conversationKey: string;
+        files: string[];
+        text: string;
+      };
+      expect(bridgeInput).toEqual(expect.objectContaining({
+        conversationKey: "lark:oc_chat",
+        files: [],
+        text: expect.stringContaining("[Archive Analysis Context]"),
+      }));
+      expect(bridgeInput.text).toContain("看看结构");
+      expectLarkFinalAnswer(channel, "slash analysis done");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers the Lark help command without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-help-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => undefined),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_help",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "/help",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/context") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/ask <实例> <提示>") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/continue") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/approve [session]") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/group") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("**会话**") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/ultrareview") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("`im:message.group_msg`") },
+        { replyTo: "om_help", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("claude|codex|kimi|deepseek|antigravity");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("DeepSeek Harness");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers the Lark help command in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-help-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => undefined),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_help_en", content: "/help" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("**Session**") },
+        { replyTo: "om_help_en", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/ask <instance> <prompt>") },
+        { replyTo: "om_help_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("settles a lingering queued card when the queued task is a slash command", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-cmd-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime();
+    // Simulate the "排队中" card that was shown while this command waited behind a
+    // running task — keyed by the command's own message id, as the live code does.
+    runtime.queueCards.set("om_queued_cmd", { messageId: "card_queued" });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_queued_cmd", content: "/help" }),
+      });
+
+      // The slash command is handled without a run card taking the queued card
+      // over, so the stale card must be settled (recalled) — not left forever on
+      // "排队中" with dead buttons (the bug). The command itself still ran.
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.recallMessage).toHaveBeenCalledWith("card_queued");
+      expect(runtime.queueCards.has("om_queued_cmd")).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers Lark /group status without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group status",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("Lark 群聊模式") },
+        { replyTo: "om_group", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("需要 @bot") },
+        { replyTo: "om_group", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("invites and removes the current Lark group with friendly access commands", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-invite-group-"));
+    const channel = fakeChannel({
+      getChatMode: vi.fn(async () => "group"),
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_invite_group",
+          chatType: "group",
+          content: "/invite group",
+          mentionedBot: false,
+        }),
+      });
+
+      let cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.groupMode.allowedChatIds).toContain(stableCoreNumericId("lark:oc_chat"));
+      expect(channel.send).toHaveBeenLastCalledWith(
+        "oc_chat",
+        expect.objectContaining({ markdown: expect.stringContaining("已允许当前飞书群") }),
+        { replyTo: "om_invite_group" },
+      );
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_remove_group",
+          chatType: "group",
+          content: "/remove group",
+          mentionedBot: false,
+        }),
+      });
+
+      cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.groupMode.allowedChatIds).not.toContain(stableCoreNumericId("lark:oc_chat"));
+      expect(channel.send).toHaveBeenLastCalledWith(
+        "oc_chat",
+        expect.objectContaining({ markdown: expect.stringContaining("已移除当前飞书群") }),
+        { replyTo: "om_remove_group" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("invites and removes mentioned Lark users for group access without changing fail-open defaults", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-invite-user-"));
+    const channel = fakeChannel({
+      getChatMode: vi.fn(async () => "group"),
+    });
+    const targetUserId = stableCoreNumericId("user:ou_target");
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_invite_user",
+          chatType: "group",
+          content: "/invite user @Target",
+          mentionedBot: false,
+          mentions: [{ id: { openId: "ou_target" }, name: "Target" }],
+        }),
+      });
+
+      await expect(new AccessStore(path.join(stateDir, "access.json")).load()).resolves.toEqual(expect.objectContaining({
+        allowlist: expect.arrayContaining([targetUserId]),
+      }));
+      expect(channel.send).toHaveBeenLastCalledWith(
+        "oc_chat",
+        expect.objectContaining({ markdown: expect.stringContaining("已邀请用户 Target") }),
+        { replyTo: "om_invite_user" },
+      );
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_remove_user",
+          chatType: "group",
+          content: "/remove user @Target",
+          mentionedBot: false,
+          mentions: [{ id: { openId: "ou_target" }, name: "Target" }],
+        }),
+      });
+
+      await expect(new AccessStore(path.join(stateDir, "access.json")).load()).resolves.toEqual(expect.objectContaining({
+        allowlist: expect.not.arrayContaining([targetUserId]),
+      }));
+      expect(channel.send).toHaveBeenLastCalledWith(
+        "oc_chat",
+        expect.objectContaining({ markdown: expect.stringContaining("已移除用户 Target") }),
+        { replyTo: "om_remove_user" },
+      );
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_invite_user_with_bot_mention",
+          chatType: "group",
+          content: "/invite user @Target",
+          mentionedBot: true,
+          mentions: [
+            { id: { openId: "ou_bot" }, name: "TaroCub", isBot: true },
+            { id: { openId: "ou_target" }, name: "Target", isBot: false },
+          ],
+        }),
+      });
+      await expect(new AccessStore(path.join(stateDir, "access.json")).load()).resolves.toEqual(expect.objectContaining({
+        allowlist: expect.arrayContaining([targetUserId]),
+      }));
+      expect(channel.send).toHaveBeenLastCalledWith(
+        "oc_chat",
+        expect.objectContaining({ markdown: expect.stringContaining("已邀请用户 Target") }),
+        { replyTo: "om_invite_user_with_bot_mention" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets an authorized Lark user allow the current group before the group itself is allowed", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-allow-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "当前聊天未获授权。" })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const groupChatId = stableCoreNumericId("lark:oc_group");
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_allow",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group allow",
+        }),
+      });
+
+      const cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.groupMode.enabled).toBe(true);
+      expect(cfg.groupMode.allowedChatIds).toContain(groupChatId);
+      expect(bridge.checkUserAuthorization).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: groupChatId,
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "group",
+      }));
+      expect(bridge.checkAccess).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("已允许当前飞书群") },
+        { replyTo: "om_group_allow", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stores Lark /group allow from a thread against the base group", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-thread-group-allow-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "当前聊天未获授权。" })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const groupChatId = stableCoreNumericId("lark:oc_group");
+    const threadChatId = stableCoreNumericId("lark:oc_group:omt_topic");
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_allow_thread",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: true,
+          content: "/group allow",
+        }),
+      });
+
+      const cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.groupMode.enabled).toBe(true);
+      expect(cfg.groupMode.allowedChatIds).toContain(groupChatId);
+      expect(cfg.groupMode.allowedChatIds).not.toContain(threadChatId);
+      expect(bridge.checkUserAuthorization).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: groupChatId,
+        conversationKey: "lark:oc_group:omt_topic",
+      }));
+      expect(bridge.checkAccess).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets an allowed Lark group authorize messages inside its threads without another /group allow", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-thread-access-"));
+    const channel = fakeChannel();
+    const groupChatId = stableCoreNumericId("lark:oc_group");
+    const threadChatId = stableCoreNumericId("lark:oc_group:omt_topic");
+    const bridge = {
+      checkAccess: vi.fn(async (input: { chatId: number }) => input.chatId === groupChatId
+        ? { kind: "allow" as const }
+        : { kind: "reply" as const, text: `unexpected chat ${input.chatId}` }),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "thread answer" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_allow",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group allow",
+        }),
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_thread_request",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: true,
+          content: "thread question",
+        }),
+      });
+
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: groupChatId,
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "group",
+        conversationKey: "lark:oc_group:omt_topic",
+      }));
+      expect(bridge.checkAccess).not.toHaveBeenCalledWith(expect.objectContaining({
+        chatId: threadChatId,
+      }));
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: groupChatId,
+        conversationKey: "lark:oc_group:omt_topic",
+        text: expect.stringContaining("thread question"),
+      }));
+      expectLarkFinalAnswer(channel, "thread answer");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not intercept legacy /new chat prompts as Lark group creation", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-new-legacy-"));
+    const channel = fakeChannel();
+    const createChat = vi.fn(async () => ({
+      chatId: "oc_should_not_create",
+      name: "不该创建",
+    }));
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "engine saw legacy new command" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({ createChat }),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_legacy_new",
+          content: "/new chat 产品需求讨论",
+        }),
+      });
+
+      expect(createChat).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledOnce();
+      expectLarkFinalAnswer(channel, "engine saw legacy new command");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the configured Lark locale into group command access checks", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-locale-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_allow_en",
+          chatId: "oc_group_en",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group allow",
+        }),
+      });
+
+      expect(bridge.checkUserAuthorization).toHaveBeenCalledWith(expect.objectContaining({
+        locale: "en",
+        conversationKey: "lark:oc_group_en",
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders default Lark group command authorization denials in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-denial-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "reply" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_denial_en",
+          chatId: "oc_group_en",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group allow",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group_en",
+        { text: "Current user is not authorized." },
+        { replyTo: "om_group_denial_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark group command replies in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-output-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_all_en",
+          chatId: "oc_group_en",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group all",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("Current group switched to ordinary group messages.");
+      expect(rendered).toContain("Platform requirement");
+      expect(rendered).not.toContain("当前飞书群");
+      expect(rendered).not.toContain("飞书群聊模式");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("accepts Lark slash commands with a bot username suffix", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-command-suffix-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "当前聊天未获授权。" })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const groupChatId = stableCoreNumericId("lark:oc_group");
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_suffix",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: false,
+          content: "/group@cloveric17bot allow",
+        }),
+      });
+
+      const cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.groupMode.allowedChatIds).toContain(groupChatId);
+      expect(bridge.checkUserAuthorization).toHaveBeenCalled();
+      expect(bridge.checkAccess).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("已允许当前飞书群") },
+        { replyTo: "om_group_suffix", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets Lark /group all accept ordinary group messages until /group at restores mention-only mode", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-mode-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "group answer" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_all",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group all",
+        }),
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_plain",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: false,
+          content: "普通群消息也应该响应",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: expect.stringContaining("普通群消息也应该响应"),
+      }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_at",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group at",
+        }),
+      });
+      bridge.handleAuthorizedMessage.mockClear();
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_ignored",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: false,
+          content: "恢复后这条不应该响应",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("监听所有普通消息") },
+        { replyTo: "om_group_all", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("im:message.group_msg") },
+        { replyTo: "om_group_all", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("只响应 @bot") },
+        { replyTo: "om_group_at", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies Lark /group all and /group at across every topic in the same topic group", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-mode-topics-"));
+    const channel = fakeChannel({ getChatTopicForm: vi.fn(async () => true) });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "topic answer" })),
+    };
+    const runtime = createCoreServiceRuntime();
+    const baseChatId = stableCoreNumericId("lark:oc_topic_group");
+    const topicAChatId = stableCoreNumericId("lark:oc_topic_group:omt_a");
+    const topicBChatId = stableCoreNumericId("lark:oc_topic_group:omt_b");
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_all_topic_a",
+          chatId: "oc_topic_group",
+          chatType: "group",
+          threadId: "omt_a",
+          mentionedBot: true,
+          content: "/group all",
+        }),
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_plain_topic_b",
+          chatId: "oc_topic_group",
+          chatType: "group",
+          threadId: "omt_b",
+          mentionedBot: false,
+          content: "topic B ordinary message",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: baseChatId,
+        conversationKey: "lark:oc_topic_group:omt_b",
+        text: expect.stringContaining("topic B ordinary message"),
+      }));
+      let cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.groupMode.allowedChatIds).toContain(baseChatId);
+      expect(cfg.groupMode.allowedChatIds).not.toContain(topicAChatId);
+      expect(cfg.groupMode.listenAllChatIds).toContain(baseChatId);
+      expect(cfg.groupMode.listenAllChatIds).not.toContain(topicAChatId);
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_at_topic_b",
+          chatId: "oc_topic_group",
+          chatType: "group",
+          threadId: "omt_b",
+          mentionedBot: true,
+          content: "/group at",
+        }),
+      });
+      bridge.handleAuthorizedMessage.mockClear();
+
+      const handled = await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_plain_topic_a_after_at",
+          chatId: "oc_topic_group",
+          chatType: "group",
+          threadId: "omt_a",
+          mentionedBot: false,
+          content: "topic A should be ignored again",
+        }),
+      });
+
+      expect(handled).toBe(false);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.groupMode.listenAllChatIds).not.toContain(baseChatId);
+      expect(cfg.groupMode.listenAllChatIds).not.toContain(topicBChatId);
+      expect(await new CoreGroupModeStore(stateDir).isListenAll("oc_topic_group")).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("honors numeric Lark listen-all state when the raw group-mode store is missing", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-mode-legacy-"));
+    const channel = fakeChannel();
+    const threadChatId = stableCoreNumericId("lark:oc_group:omt_topic");
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "legacy group answer" })),
+    };
+
+    try {
+      await writeFile(
+        path.join(stateDir, "config.json"),
+        JSON.stringify({
+          groupMode: {
+            enabled: true,
+            allowedChatIds: [threadChatId],
+            listenAllChatIds: [threadChatId],
+          },
+        }),
+        "utf8",
+      );
+
+      const handled = await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_legacy_plain",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: false,
+          content: "历史 numeric listen-all 状态也应该响应",
+        }),
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: expect.stringContaining("历史 numeric listen-all 状态也应该响应"),
+      }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_legacy_status",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: false,
+          content: "/status",
+        }),
+      });
+
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("群聊触发：接受普通群消息");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("群聊模式来源：/group all override");
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_legacy_at",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: true,
+          content: "/group at",
+        }),
+      });
+      expect((await loadInstanceConfig(stateDir)).groupMode.listenAllChatIds).not.toContain(threadChatId);
+      bridge.handleAuthorizedMessage.mockClear();
+
+      const handledAfterAt = await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_legacy_after_at",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: false,
+          content: "切回 @ 后这条不应该响应",
+        }),
+      });
+
+      expect(handledAfterAt).toBe(false);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("makes Lark /group off stop ordinary group messages even after /group all", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-off-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "group answer" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_all",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group all",
+        }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_off",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group off",
+        }),
+      });
+      expect(await new CoreGroupModeStore(stateDir).countListenAll()).toBe(0);
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("群聊模式：关闭") },
+        { replyTo: "om_group_off", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("当前触发：需要 @bot") },
+        { replyTo: "om_group_off", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("正在监听普通消息的 Lark 群数：0") },
+        { replyTo: "om_group_off", replyInThread: false },
+      );
+      bridge.handleAuthorizedMessage.mockClear();
+      bridge.checkAccess.mockClear();
+
+      const handled = await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_ordinary_after_off",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: false,
+          content: "关掉以后普通消息不该进队列",
+        }),
+      });
+
+      expect(handled).toBe(false);
+      expect(bridge.checkAccess).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still accepts explicit Lark slash commands without a mention after /group off", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-group-on-command-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      checkUserAuthorization: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_off",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group off",
+        }),
+      });
+
+      const handled = await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_on",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: false,
+          content: "/group on",
+        }),
+      });
+
+      const cfg = await loadInstanceConfig(stateDir);
+      expect(handled).toBe(true);
+      expect(cfg.groupMode.enabled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: expect.stringContaining("Lark 群聊模式已开启") },
+        { replyTo: "om_group_on", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers the Lark account command with a read-only app card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-account-"));
+    const runtime = createCoreServiceRuntime();
+    runtime.appInfo = { appId: "cli_zzzz1111aaaa", domain: "feishu" };
+    const channel = fakeChannel();
+    const bridge = { handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })) };
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        instanceName: "ccfcc2",
+        message: fakeLarkMessage({ messageId: "om_account", content: "/account" }),
+      });
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("cli_zzzz****aaaa");
+      expect(rendered).not.toContain("cli_zzzz1111aaaa");
+      expect(rendered).toContain("lark wizard");
+      expect(rendered).not.toContain("app_secret");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers the Lark status command without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-"));
+    const runtime = createCoreServiceRuntime();
+    runtime.activeRuns.set("lark:oc_chat", { abortController: new AbortController() });
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      model: "gpt-5.4",
+      effort: "xhigh",
+      codexServiceTier: "fast",
+      approvalMode: "full-auto",
+      budgetUsd: 12.5,
+      locale: "zh",
+      verbosity: 2,
+      timezone: "Asia/Shanghai",
+    }) + "\n");
+    await new FileWorkflowStore(stateDir).append({
+      uploadId: "archive-waiting",
+      chatId: stableCoreNumericId("lark:oc_chat"),
+      userId: stableCoreNumericId("user:ou_user"),
+      kind: "archive",
+      status: "awaiting_continue",
+      sourceFiles: [],
+      derivedFiles: [],
+      summary: "waiting archive",
+      createdAt: new Date("2026-05-25T00:00:00.000Z").toISOString(),
+      updatedAt: new Date("2026-05-25T00:00:00.000Z").toISOString(),
+    });
+    await new SessionStore(path.join(stateDir, "session.json")).upsert({
+      telegramChatId: stableCoreNumericId("lark:oc_chat"),
+      conversationKey: "lark:oc_chat",
+      codexSessionId: "thread-status-123",
+      status: "idle",
+      updatedAt: new Date("2026-05-25T00:00:00.000Z").toISOString(),
+    });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: {
+          messageId: "om_status",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "/status",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { card: expect.any(Object) },
+        { replyTo: "om_status", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("lark:oc_chat");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("会话绑定：是");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("审批模式：YOLO/full-auto");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("飞书会话状态");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("打开配置");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("恢复会话");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("预算：$12.50");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("语言：zh");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("详细度：2");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("时区：Asia/Shanghai");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("当前运行：是");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("等待工作流：1");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("阻塞工作流：0");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records known Lark chat labels and shows them in status", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-known-status-"));
+    const channel = fakeChannel({ getChatMode: vi.fn(async () => "group") });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_known_status",
+          chatId: "oc_known_group",
+          chatType: "group",
+          chatName: "研发群",
+          senderName: "Alice",
+          content: "/status",
+        }),
+      });
+
+      const known = JSON.parse(await readFile(path.join(stateDir, "known-chats.json"), "utf8")) as {
+        chats: Array<{ chatId: string; label: string }>;
+      };
+      expect(known.chats).toContainEqual(expect.objectContaining({
+        chatId: "oc_known_group",
+        label: "研发群",
+      }));
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("当前聊天：研发群");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers the Lark status command in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-en-"));
+    const codexHome = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-codex-home-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en", engine: "codex" }) + "\n");
+    await writeFile(path.join(codexHome, "config.toml"), 'model = "gpt-test-default"\nmodel_reasoning_effort = "xhigh"\n');
+    await new SessionStore(path.join(stateDir, "session.json")).upsert({
+      telegramChatId: stableCoreNumericId("lark:oc_chat"),
+      conversationKey: "lark:oc_chat",
+      codexSessionId: "thread-status-en",
+      status: "idle",
+      updatedAt: new Date("2026-05-25T00:00:00.000Z").toISOString(),
+    });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime() as ReturnType<typeof createCoreServiceRuntime> & {
+      detectLarkCli?: () => Promise<{ available: boolean; version?: string }>;
+    };
+    runtime.detectLarkCli = async () => ({
+      available: true,
+      version: "lark-cli version 1.0.40",
+    });
+
+    try {
+      process.env.CODEX_HOME = codexHome;
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_status_en", content: "/status" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { card: expect.any(Object) },
+        { replyTo: "om_status_en", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Engine: codex");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Lark conversation status");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Open config");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Resume session");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Model: default (Codex config: gpt-test-default)");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Effort: default (Codex config: xhigh)");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Session bound: yes");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Current thread: thread-status-en");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Lark CLI: available (lark-cli version 1.0.40)");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Active run: no");
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = previousCodexHome;
+      }
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(codexHome, { recursive: true, force: true });
+    }
+  });
+
+  it("shows the bound DeepSeek Harness session in Lark status", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-deepseek-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      locale: "en",
+      engine: "deepseek",
+    }) + "\n");
+    await new SessionStore(path.join(stateDir, "session.json")).upsert({
+      telegramChatId: stableCoreNumericId("lark:oc_chat"),
+      conversationKey: "lark:oc_chat",
+      codexSessionId: "deepseek-status-session",
+      status: "idle",
+      updatedAt: new Date("2026-08-28T00:00:00.000Z").toISOString(),
+    });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_status_deepseek", content: "/status" }),
+      });
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("Engine: deepseek");
+      expect(rendered).toContain("Current DeepSeek Harness session: deepseek-status-session");
+      expect(rendered).toContain("reports token usage but not dollar cost");
+      expect(rendered).not.toContain("configured budget cap");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("explains Claude CLI defaults in the Lark status card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-claude-default-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en", engine: "claude" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_status_claude_default", content: "/status" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("Engine: claude");
+      expect(rendered).toContain("Model: default (Claude CLI default; no --model override)");
+      expect(rendered).toContain("Effort: default (Claude CLI default; no --effort override)");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not report the Lark status command itself as an active run", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-idle-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_status_idle", content: "/status" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { card: expect.any(Object) },
+        { replyTo: "om_status_idle", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("当前运行：否");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the Lark status command usable when config.json is malformed", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-malformed-config-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), "{not json", "utf8");
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_status_bad_config", content: "/status" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { card: expect.any(Object) },
+        { replyTo: "om_status_bad_config", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("**Lark 会话状态**");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("引擎：codex");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("审批模式：YOLO unsafe/bypass");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("shows Lark group trigger mode in /status", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-group-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_all_for_status",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/group all",
+        }),
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_status",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: false,
+          content: "/status",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { card: expect.any(Object) },
+        { replyTo: "om_group_status", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("群聊触发：接受普通群消息");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("群聊模式来源：/group all override");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not report stale listen-all state while Lark group mode is disabled", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-status-disabled-group-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const runtime = createCoreServiceRuntime();
+
+    try {
+      await writeFile(
+        path.join(stateDir, "config.json"),
+        JSON.stringify({
+          groupMode: {
+            enabled: false,
+            allowedChatIds: [stableCoreNumericId("lark:oc_group")],
+            listenAllChatIds: [stableCoreNumericId("lark:oc_group")],
+          },
+        }),
+        "utf8",
+      );
+      await new CoreGroupModeStore(stateDir).setListenAll("oc_group", true);
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_group_disabled_status",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/status",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { card: expect.any(Object) },
+        { replyTo: "om_group_disabled_status", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("群聊触发：需要 @bot / mention");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("群聊模式来源：群聊模式已关闭");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("aborts the active run from a Lark stop text command", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stop-"));
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: {
+          messageId: "om_stop",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "/stop",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(abortController.signal.aborted).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "已停止。" },
+        { replyTo: "om_stop", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not post a redundant '已停止。' on /stop when a run card shows 已中断 in place", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stop-card-"));
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    // The active run has a live run card → its in-place "已中断" update is the ack.
+    runtime.activeRuns.set("lark:oc_chat", { abortController, hasRunCard: true });
+    const channel = fakeChannel();
+    const bridge = { handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })) };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: {
+          messageId: "om_stop", chatId: "oc_chat", chatType: "p2p", senderId: "ou_user",
+          content: "/stop", rawContentType: "text", resources: [], mentions: [],
+          mentionAll: false, mentionedBot: false, createTime: Date.now(),
+        },
+      });
+
+      expect(abortController.signal.aborted).toBe(true);
+      // No redundant text — the run card itself reflects the stop.
+      expect(channel.send).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("Lark /stop aborts the active task but does NOT cancel the queue", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stop-queue-"));
+    const runtime = createCoreServiceRuntime();
+    const clearPendingSpy = vi.spyOn(runtime.chatQueue, "clearPending");
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+    const bridge = { handleAuthorizedMessage: vi.fn(async () => ({ text: "x" })) };
+
+    try {
+      await handleCoreMessage({
+        channel, bridge, runtime, stateDir,
+        message: {
+          messageId: "om_stop", chatId: "oc_chat", chatType: "p2p", senderId: "ou_user",
+          content: "/stop", rawContentType: "text", resources: [], mentions: [],
+          mentionAll: false, mentionedBot: false, createTime: Date.now(),
+        },
+      });
+
+      expect(abortController.signal.aborted).toBe(true);     // running task stopped
+      expect(clearPendingSpy).not.toHaveBeenCalled();         // queued tasks left intact
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark stop text replies in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stop-en-"));
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_stop_en", content: "/stop" }),
+      });
+
+      expect(abortController.signal.aborted).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Stopped." },
+        { replyTo: "om_stop_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unauthorized Lark stop text commands before aborting active runs", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stop-text-denied-"));
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "未授权" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: {
+          messageId: "om_stop_denied",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_intruder",
+          content: "/stop",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_intruder"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+      }));
+      expect(abortController.signal.aborted).toBe(false);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "未授权" },
+        { replyTo: "om_stop_denied", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers the Lark usage command from the shared usage store", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-usage-"));
+    await new UsageStore(stateDir).record({
+      inputTokens: 100,
+      outputTokens: 40,
+      cachedTokens: 10,
+      costUsd: 0.0123,
+    }, new Date("2026-05-25T00:00:00.000Z"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_usage", content: "/usage" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("请求数：1") },
+        { replyTo: "om_usage", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers the Lark usage command in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-usage-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    await new UsageStore(stateDir).record({
+      inputTokens: 100,
+      outputTokens: 40,
+      cachedTokens: 10,
+      costUsd: 0.0123,
+    }, new Date("2026-05-25T00:00:00.000Z"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_usage_en", content: "/usage" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Requests: 1") },
+        { replyTo: "om_usage_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("discloses missing Kimi usage telemetry in Lark even without a budget", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-usage-kimi-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi", locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_usage_kimi", content: "/usage" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Kimi turns are excluded from these totals") },
+        { replyTo: "om_usage_kimi", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("discloses missing DeepSeek dollar telemetry in Lark even without a budget", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-usage-deepseek-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "deepseek", locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_usage_deepseek", content: "/usage" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("reports token usage but not dollar cost") },
+        { replyTo: "om_usage_deepseek", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sets Lark model and effort commands in the shared instance config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_model", content: "/model claude-opus-5 [1m]" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort", content: "/effort max" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.model).toBe("claude-opus-5[1m]");
+      expect(config.effort).toBe("max");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("模型已设为 `claude-opus-5[1m]`");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Effort 已设为 max");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Claude model commands as code so Lark preserves the 1m suffix", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-model-help-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude", locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_model_help", content: "/model" }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("Current model: `default`");
+      expect(rendered).toContain("`/model claude-opus-5-5[1m]`");
+      expect(rendered).toContain("Latest Opus alias: `/model opus[1m]`");
+      expect(rendered).not.toContain("claude-opus-5 [1m]");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("explains DeepSeek Harness provider/model IDs on bare Lark /model", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-model-deepseek-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "deepseek", locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_model_deepseek", content: "/model" }),
+      });
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("DeepSeek Harness");
+      expect(rendered).toContain("provider/model");
+      expect(rendered).not.toContain("Antigravity model switching");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sets GPT-5.6 Sol with case-insensitive ultra effort from Lark", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_model_sol", content: "/model gpt-5.6-sol" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort_ultra", content: "/effort Ultra" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.model).toBe("gpt-5.6-sol");
+      expect(config.effort).toBe("ultra");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("模型已设为 `gpt-5.6-sol`");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Effort 已设为 ultra");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects DeepSeek Harness effort levels DSH cannot run without changing config", async () => {
+    // xhigh/medium/ultra used to persist and then fail every turn before any
+    // prompt (DSH rejects the effort at session.selectModel).
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "deepseek",
+      model: "deepseek-v4-flash",
+      effort: "high",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort_deepseek_xhigh", content: "/effort xhigh" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.effort).toBe("high");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("DeepSeek Harness effort 仅支持 low、high、max 或 off");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects Lark ultra effort for GPT-5.6 Luna without changing config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      model: "gpt-5.6-luna",
+      effort: "max",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort_luna_ultra", content: "/effort ultra" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.effort).toBe("max");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("gpt-5.6-luna 不支持 ultra；最高可用 max");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects Lark max effort until an explicit compatible Codex model is selected", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort_default_max", content: "/effort max" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.effort).toBeUndefined();
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("请先选择明确兼容的模型再设置 max");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects restoring the default Lark model while ultra still depends on Sol", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      model: "gpt-5.6-sol",
+      effort: "ultra",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_model_off_ultra", content: "/model off" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.model).toBe("gpt-5.6-sol");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("当前 effort 为 ultra，不能恢复默认模型");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers Lark fast status in Chinese when Lark locale is Chinese", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-fast-status-zh-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      codexServiceTier: "fast",
+      locale: "zh",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_fast_status_zh", content: "/fast status" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "Codex Fast Mode：开启" },
+        { replyTo: "om_fast_status_zh", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("toggles Lark element streaming via /stream off|status|on and persists the instance config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stream-toggle-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "claude",
+      locale: "zh",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const dispatch = async (messageId: string, content: string) => {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId, content }),
+      });
+    };
+    const configuredStream = async () => {
+      const cfg = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      return cfg.elementStream;
+    };
+
+    try {
+      await dispatch("om_stream_off", "/stream off");
+      expect(await configuredStream()).toBe(false);
+      await dispatch("om_stream_status", "/stream");
+      await dispatch("om_stream_on", "/stream on");
+      // "on" is the default → the override is removed rather than stored.
+      expect(await configuredStream()).toBeUndefined();
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const markdowns = (channel.send.mock.calls as unknown[][]).map((call) => ((call[1] ?? {}) as { markdown?: string }).markdown ?? "");
+      expect(markdowns[0]).toContain("已关闭");
+      expect(markdowns[1]).toContain("流式打字机：关闭");
+      expect(markdowns[2]).toContain("已开启");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("toggles the single-turn time cap via /timeout off|status|on and persists the instance config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-timeout-toggle-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", locale: "zh" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const dispatch = async (messageId: string, content: string) => {
+      await handleCoreMessage({
+        channel, bridge, runtime: createCoreServiceRuntime(), stateDir,
+        message: fakeLarkMessage({ messageId, content }),
+      });
+    };
+    const configured = async () => {
+      const cfg = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      return cfg.disableRuntimeTimeout;
+    };
+
+    try {
+      await dispatch("om_to_off", "/timeout off");
+      expect(await configured()).toBe(true);            // cap lifted
+      await dispatch("om_to_status", "/timeout");
+      await dispatch("om_to_on", "/timeout on");
+      expect(await configured()).toBeUndefined();        // back to default → override removed
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const markdowns = (channel.send.mock.calls as unknown[][]).map((call) => ((call[1] ?? {}) as { markdown?: string }).markdown ?? "");
+      expect(markdowns[0]).toContain("已放开");
+      expect(markdowns[1]).toContain("已放开");          // status reflects the lifted cap
+      expect(markdowns[2]).toContain("已恢复");
+      // codex engine → no Claude note
+      expect(markdowns.join("\n")).not.toContain("Claude 引擎");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("describes Claude /timeout as controlling its inactivity watchdog without claiming a hard cap", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-timeout-claude-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude", locale: "zh" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    try {
+      await handleCoreMessage({
+        channel, bridge, runtime: createCoreServiceRuntime(), stateDir,
+        message: fakeLarkMessage({ messageId: "om_to_claude", content: "/timeout off" }),
+      });
+      const md = (channel.send.mock.calls as unknown[][]).map((c) => ((c[1] ?? {}) as { markdown?: string }).markdown ?? "").join("\n");
+      expect(md).toContain("Claude");
+      expect(md).toContain("静默看门狗");
+      expect(md).not.toContain("Codex/Antigravity");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("describes DeepSeek /timeout as controlling both its hard cap and inactivity watchdog", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-timeout-deepseek-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "deepseek", locale: "zh" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_to_deepseek", content: "/timeout off" }),
+      });
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("DeepSeek Harness");
+      expect(rendered).toContain("硬上限");
+      expect(rendered).toContain("静默看门狗");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers Lark local config commands in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      locale: "en",
+      effort: "high",
+      approvalMode: "full-auto",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_model_en", content: "/model" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort_en", content: "/effort" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_fast_en", content: "/fast status" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_engine_en", content: "/engine" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_yolo_en", content: "/yolo status" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("Current model: default");
+      expect(rendered).toContain("/model gpt-6-astra");
+      expect(rendered).toContain("/model gpt-6.1-sol");
+      expect(rendered).toContain("/model gpt-6-sol");
+      expect(rendered).toContain("/model gpt-6-luna");
+      expect(rendered).toContain("/model gpt-5.6-sol");
+      expect(rendered).toContain("/model gpt-5.6-terra");
+      expect(rendered).toContain("/model gpt-5.6-luna");
+      expect(rendered).toContain("Luna supports max but not ultra");
+      expect(rendered).toContain("Current effort: high");
+      expect(rendered).toContain("Codex Fast Mode: off");
+      expect(rendered).toContain("Current engine: codex");
+      expect(rendered).toContain("Current YOLO: full-auto");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders a Lark config card without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-card-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      locale: "zh",
+      codexServiceTier: "fast",
+      approvalMode: "full-auto",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_config", chatName: "配置私聊", senderName: "Alice", content: "/config" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { card: expect.any(Object) },
+        { replyTo: "om_config", replyInThread: false },
+      );
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("飞书配置面板");
+      expect(rendered).toContain("聊天: 配置私聊");
+      expect(rendered).toContain('"tag":"form"');
+      expect(rendered).toContain('"tag":"select_static"');
+      expect(rendered).toContain('"form_action_type":"submit"');
+      expect(rendered).toContain('"cctb_lark":"config"');
+      expect(rendered).toContain('"action":"engine"');
+      expect(rendered).toContain('"value":"deepseek"');
+      expect(rendered).toContain("DeepSeek Harness");
+      expect(rendered).toContain('"action":"yolo"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("explains Claude CLI defaults in the Lark config card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-card-claude-default-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "claude",
+      locale: "en",
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_config_claude_default", content: "/config" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("Engine: claude");
+      expect(rendered).toContain("Model: default (Claude CLI default; no --model override)");
+      expect(rendered).toContain("Effort: default (Claude CLI default; no --effort override)");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders legacy numeric Lark group state in topic config cards", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-card-legacy-group-"));
+    const threadChatId = stableCoreNumericId("lark:oc_group:omt_topic");
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      locale: "zh",
+      groupMode: {
+        enabled: true,
+        allowedChatIds: [threadChatId],
+        listenAllChatIds: [threadChatId],
+      },
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_config_legacy_group",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: true,
+          content: "/config",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("已允许; 监听普通消息");
+      expect(rendered).toContain("✓ 全量监听");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stores Lark Antigravity model commands locally instead of forwarding them", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-agy-model-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "antigravity" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_model", content: "/model gemini-3.7-flash-high" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.model).toBe("gemini-3.7-flash-high");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("gemini-3.7-flash-high") },
+        { replyTo: "om_model", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stores only agy-compatible Antigravity effort from Lark", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-agy-effort-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "antigravity" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort", content: "/effort max" }),
+      });
+      let config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.effort).toBe("max");
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort_xhigh", content: "/effort xhigh" }),
+      });
+      config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.effort).toBe("xhigh");
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_effort_bad", content: "/effort ultra" }),
+      });
+      config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.effort).toBe("xhigh");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("low、medium、high、xhigh、max");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("toggles Lark Codex fast mode through the shared instance config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-fast-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_fast", content: "/fast on" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.codexServiceTier).toBe("fast");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Fast Mode 已开启") },
+        { replyTo: "om_fast", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("switches the Lark engine through the shared instance config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-engine-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", model: "gpt-5.4" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_engine", content: "/engine antigravity" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.engine).toBe("antigravity");
+      expect(config.model).toBeUndefined();
+      expect(config.approvalMode).toBe("bypass");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("引擎已设为 antigravity") },
+        { replyTo: "om_engine", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("switches the Lark engine to DeepSeek Harness through the shared instance config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-engine-deepseek-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", model: "gpt-5.4" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_engine_deepseek", content: "/engine deepseek" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.engine).toBe("deepseek");
+      expect(config.model).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("引擎已设为 deepseek") },
+        { replyTo: "om_engine_deepseek", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("toggles Lark YOLO mode through the shared instance config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-yolo-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_yolo", content: "/yolo on" }),
+      });
+
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.approvalMode).toBe("full-auto");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("YOLO mode ON") },
+        { replyTo: "om_yolo", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("requires an explicit Lark command before Kimi uses ACP Never Ask mode", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-kimi-auto-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_kimi_auto", content: "/yolo unsafe" }),
+      });
+      let config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config).toMatchObject({
+        approvalMode: "bypass",
+        kimiAutoNeverAskAcknowledged: true,
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_kimi_yolo", content: "/yolo on" }),
+      });
+      config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.approvalMode).toBe("full-auto");
+      expect(config.kimiAutoNeverAskAcknowledged).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resets the current Lark conversation session without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-reset-"));
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    await sessionStore.upsert({
+      telegramChatId: stableCoreNumericId("lark:oc_chat"),
+      conversationKey: "lark:oc_chat",
+      codexSessionId: "thread-old",
+      status: "idle",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      resume: { sessionId: "old", dirName: "old", workspacePath: "/tmp/old" },
+    }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_reset", content: "/reset" }),
+      });
+
+      expect(await sessionStore.findByConversationKey("lark:oc_chat")).toBeNull();
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(config.resume).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("当前聊天的会话已重置") },
+        { replyTo: "om_reset", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("detaches the current Lark Codex thread without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-detach-"));
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    await sessionStore.upsert({
+      telegramChatId: stableCoreNumericId("lark:oc_chat"),
+      conversationKey: "lark:oc_chat",
+      codexSessionId: "thread-old",
+      status: "idle",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    });
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => undefined),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_detach", content: "/detach" }),
+      });
+
+      expect(await sessionStore.findByConversationKey("lark:oc_chat")).toBeNull();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已断开当前 Codex thread") },
+        { replyTo: "om_detach", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("binds an explicit Codex thread from Lark resume without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-thread-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => undefined),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume", content: "/resume thread thread-abc" }),
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      expect(record?.codexSessionId).toBe("thread-abc");
+      expect(record?.telegramChatId).toBe(stableCoreNumericId("lark:oc_chat"));
+      expect(bridge.validateCodexThread).toHaveBeenCalledWith("thread-abc");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已绑定 Codex thread：thread-abc") },
+        { replyTo: "om_resume", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("binds an explicit Kimi session from Lark resume without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-kimi-"));
+    const canonicalStateDir = await realpath(stateDir);
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => ({
+        sessionId: "kimi-abc",
+        cwd: stateDir,
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_kimi", content: "/resume session kimi-abc" }),
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      expect(record?.codexSessionId).toBe("kimi-abc");
+      expect(bridge.validateCodexThread).toHaveBeenCalledWith("kimi-abc");
+      expect(record?.resume).toEqual({
+        sessionId: "kimi-abc",
+        dirName: "kimi-abc",
+        workspacePath: canonicalStateDir,
+      });
+      expect((await loadInstanceConfig(stateDir)).resume).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已绑定 Kimi session：kimi-abc") },
+        { replyTo: "om_resume_kimi", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("scans and binds a Kimi session from Lark by number", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-kimi-scan-"));
+    const canonicalStateDir = await realpath(stateDir);
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      listExternalSessions: vi.fn(async () => [{
+        sessionId: "kimi-session-1",
+        cwd: stateDir,
+        title: "Demo session",
+        updatedAt: "2026-08-03T00:00:00.000Z",
+      }]),
+      validateCodexThread: vi.fn(async () => ({
+        sessionId: "kimi-session-1",
+        cwd: stateDir,
+        title: "Demo session",
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_kimi_scan", content: "/resume" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_kimi_pick", content: "/resume 1" }),
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      expect(record?.codexSessionId).toBe("kimi-session-1");
+      expect(bridge.listExternalSessions).toHaveBeenCalledWith({ limit: 20 });
+      expect(bridge.validateCodexThread).toHaveBeenCalledWith("kimi-session-1");
+      expect(record?.resume).toEqual({
+        sessionId: "kimi-session-1",
+        dirName: "kimi-session-1",
+        workspacePath: canonicalStateDir,
+      });
+      expect((await loadInstanceConfig(stateDir)).resume).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("恢复 Kimi session");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("Demo session");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已绑定 Kimi session：kimi-session-1") },
+        { replyTo: "om_resume_kimi_pick", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers Lark resume guidance in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => undefined),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_en", content: "/resume" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("For Codex, use /resume thread <thread-id>.") },
+        { replyTo: "om_resume_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("binds an explicit Antigravity conversation from Lark resume without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-agy-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "antigravity" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_resume",
+          content: "/resume conversation fdfc8ab1-7936-4599-98b0-d8ba2593c250",
+        }),
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      expect(record?.codexSessionId).toBe("fdfc8ab1-7936-4599-98b0-d8ba2593c250");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已绑定 Antigravity conversation") },
+        { replyTo: "om_resume", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes a scanned Claude session from Lark without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-claude-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const scanRecentSessions = vi.fn(async () => [
+      {
+        sessionId: "claude-session-1",
+        dirName: "-Users-example-projects-demo",
+        workspacePath: "/Users/example/projects/demo",
+        modifiedAt: new Date("2026-05-25T06:00:00.000Z"),
+        displayName: "demo",
+      },
+    ]);
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          sessionRuntime: { scanRecentSessions },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_scan", content: "/resume" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          sessionRuntime: { scanRecentSessions },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_pick", content: "/resume 1" }),
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      expect(record?.codexSessionId).toBe("claude-session-1");
+      expect(record?.telegramChatId).toBe(stableCoreNumericId("lark:oc_chat"));
+      const config = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, any>;
+      expect(record?.resume).toMatchObject({
+        sessionId: "claude-session-1",
+        dirName: "-Users-example-projects-demo",
+        workspacePath: "/Users/example/projects/demo",
+      });
+      expect(config.resume).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { card: expect.any(Object) },
+        { replyTo: "om_resume_scan", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("恢复历史会话");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("恢复此会话");
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("claude-session-1");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已绑定 session：claude-session-1") },
+        { replyTo: "om_resume_pick", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("scans and resumes a DeepSeek Harness session from Lark without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-deepseek-"));
+    const canonicalStateDir = await realpath(stateDir);
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "deepseek" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      listExternalSessions: vi.fn(async () => [{
+        sessionId: "deepseek-session-1",
+        cwd: stateDir,
+        title: "Harness Project",
+        updatedAt: "2026-08-28T06:00:00.000Z",
+      }]),
+      validateCodexThread: vi.fn(async () => ({
+        sessionId: "deepseek-session-1",
+        cwd: stateDir,
+        title: "Harness Project",
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_deepseek_scan", content: "/resume" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_resume_deepseek_pick", content: "/resume 1" }),
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      expect(bridge.listExternalSessions).toHaveBeenCalledWith({ limit: 20 });
+      expect(bridge.validateCodexThread).toHaveBeenCalledWith("deepseek-session-1");
+      expect(record?.codexSessionId).toBe("deepseek-session-1");
+      expect(record?.resume).toEqual({
+        sessionId: "deepseek-session-1",
+        dirName: "deepseek-session-1",
+        workspacePath: canonicalStateDir,
+      });
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("恢复 DeepSeek Harness session");
+      expect(rendered).toContain("deepseek-session-1");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已绑定 DeepSeek Harness session") },
+        { replyTo: "om_resume_deepseek_pick", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds Lark cron jobs with raw Lark routing metadata", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-add-"));
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cron",
+          content: "/cron add 0 9 * * * morning summary",
+        }),
+      });
+
+      const jobs = await store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        larkChatId: "oc_chat",
+        larkMessageId: "om_cron",
+        conversationKey: "lark:oc_chat",
+        prompt: "morning summary",
+      });
+      expect(scheduler.refresh).toHaveBeenCalledOnce();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已添加任务") },
+        { replyTo: "om_cron", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders missing Lark cron runtime guidance in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-runtime-en-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_cron_runtime_en", content: "/cron list" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "Lark cron runtime is not started. Restart the Lark service and try again." },
+        { replyTo: "om_cron_runtime_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the configured Lark locale into cron commands", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-locale-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cron_en",
+          content: "/cron add 0 9 * * * morning summary",
+        }),
+      });
+
+      const jobs = await store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        channel: "lark",
+        locale: "en",
+        prompt: "morning summary",
+      });
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Added task") },
+        { replyTo: "om_cron_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds Lark cron jobs from cron.add tool tags with raw Lark routing metadata", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-tool-"));
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: 'ok\n[tool:{"name":"cron.add","payload":{"in":"10m","prompt":"check inbox"}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        instanceName: "lark-alpha",
+        message: fakeLarkMessage({
+          messageId: "om_cron_tool",
+          content: "10分钟后提醒我查邮件",
+        }),
+      });
+
+      const jobs = await store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        larkChatId: "oc_chat",
+        larkMessageId: "om_cron_tool",
+        conversationKey: "lark:oc_chat",
+        prompt: "check inbox",
+        deliveryMode: "notify",
+      });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "command.handled",
+        instanceName: "lark-alpha",
+        detail: "cron.add tool accepted",
+      }));
+      expect(scheduler.refresh).toHaveBeenCalledOnce();
+      expectLarkFinalAnswer(channel, "ok");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已添加定时任务") },
+        { replyTo: "om_cron_tool" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the configured Lark locale into cron.add tool tags", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-tool-locale-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: 'ok\n[tool:{"name":"cron.add","payload":{"in":"10m","prompt":"check inbox"}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cron_tool_en",
+          content: "remind me to check inbox",
+        }),
+      });
+
+      const jobs = await store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        channel: "lark",
+        locale: "en",
+        prompt: "check inbox",
+      });
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Scheduled task added") },
+        { replyTo: "om_cron_tool_en" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not preserve misleading Lark text when cron.add tool tags are rejected", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-tool-rejected-"));
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '已设置\n[tool:{"name":"cron.add","payload":{"in":"bad","prompt":"check inbox"}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cron_tool_rejected",
+          content: "提醒我查邮件",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("提醒延迟格式无效");
+      expect(rendered).not.toContain("已设置");
+      expect(await store.list()).toHaveLength(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("executes Lark cron management tool tags in the current Lark conversation", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-tool-manage-"));
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          '先看看任务\n[tool:{"name":"cron.list","payload":{}}]',
+          `[tool:{"name":"cron.toggle","payload":{"id":"${jobId}"}}]`,
+          `[tool:{"name":"cron.remove","payload":{"id":"${jobId}"}}]`,
+        ].join("\n"),
+      })),
+    };
+    let jobId = "";
+
+    try {
+      const job = await store.add({
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        larkMessageId: "om_existing",
+        cronExpr: "*/10 * * * *",
+        prompt: "看生益科技",
+      });
+      jobId = job.id;
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cron_tool_manage",
+          content: "停掉每 10 分钟看生益科技的任务",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("看生益科技");
+      expect(rendered).toContain(`任务 ${job.id} 已停用`);
+      expect(rendered).toContain(`已删除任务  ID  ${job.id}`);
+      expect(await store.get(job.id)).toBeNull();
+      expect(scheduler.refresh).toHaveBeenCalledTimes(2);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("removes Lark cron jobs by query from tool tags when there is a unique current-chat match", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-tool-query-remove-"));
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"cron.remove","payload":{"query":"生益科技"}}]',
+      })),
+    };
+
+    try {
+      const job = await store.add({
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        cronExpr: "*/10 * * * *",
+        prompt: "每 10 分钟看生益科技",
+      });
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cron_tool_query_remove",
+          content: "停掉看生益科技的任务",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain(`已删除任务  ID  ${job.id}`);
+      expect(await store.get(job.id)).toBeNull();
+      expect(scheduler.refresh).toHaveBeenCalledOnce();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds Lark cron jobs from cron-add fallback tags", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-fallback-"));
+    const store = new CronStore(stateDir);
+    const scheduler = { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) };
+    const runtime = createCoreServiceRuntime({ cronRuntime: { store, scheduler } });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '已设置\n[cron-add:{"in":"10m","prompt":"检查邮箱"}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cron_fallback",
+          content: "10分钟后提醒我查邮件",
+        }),
+      });
+
+      const jobs = await store.list();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]).toMatchObject({
+        channel: "lark",
+        larkChatId: "oc_chat",
+        larkMessageId: "om_cron_fallback",
+        prompt: "检查邮箱",
+      });
+      expectLarkFinalAnswer(channel, "已设置");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已添加定时任务") },
+        { replyTo: "om_cron_fallback" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs Lark cron notifications back to the raw Lark chat", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-run-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+    });
+
+    try {
+      await executor({
+        id: "1234abcd",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: "提醒我：明天早定课",
+        enabled: true,
+        runOnce: true,
+        sessionMode: "new_per_run",
+        deliveryMode: "notify",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+      });
+
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      // A reminder now goes out as its own card (still a separate fire → still a
+      // push; never batched). The card carries the heading + reminder body.
+      expect(channel.send).toHaveBeenCalledTimes(1);
+      const reminderPayload = (channel.send as ReturnType<typeof vi.fn>).mock.calls[0][1] as { card?: unknown; text?: string };
+      expect(reminderPayload.card).toBeDefined();
+      expect(reminderPayload.text).toBeUndefined();
+      const reminderJson = JSON.stringify(reminderPayload.card);
+      expect(reminderJson).toContain("提醒");
+      expect(reminderJson).toContain("早定课");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs Lark cron notifications back into the originating Lark thread", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-thread-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+    });
+
+    try {
+      await executor({
+        id: "1234abcd",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat:omt_thread"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "group",
+        conversationKey: "lark:oc_chat:omt_thread",
+        larkChatId: "oc_chat",
+        larkThreadId: "omt_thread",
+        larkMessageId: "om_cron_thread",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: "提醒我：明天早定课",
+        enabled: true,
+        runOnce: true,
+        sessionMode: "new_per_run",
+        deliveryMode: "notify",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+      });
+
+      expect(channel.send).toHaveBeenCalledTimes(1);
+      const [threadChat, threadPayload, threadOpts] = (channel.send as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(threadChat).toBe("oc_chat");
+      expect((threadPayload as { card?: unknown }).card).toBeDefined();
+      expect(JSON.stringify(threadPayload)).toContain("早定课");
+      // Still threaded back to the originating message.
+      expect(threadOpts).toEqual({ replyTo: "om_cron_thread", replyInThread: true });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("honors locale and session mode for Lark cron agent tasks", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-agent-locale-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (_input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => ({
+        text: "agent result",
+      })),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+    });
+
+    try {
+      const job: CronJobRecord = {
+        id: "1234abcd",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: "daily summary",
+        enabled: true,
+        runOnce: false,
+        sessionMode: "new_per_run",
+        deliveryMode: "agent",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+        locale: "en",
+      };
+
+      await executor(job);
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        locale: "en",
+        conversationKey: "lark:oc_chat",
+        sessionIdOverride: expect.stringMatching(/^tarobot-cron-1234abcd-/),
+        text: "daily summary",
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "agent result" },
+        {},
+      );
+
+      bridge.handleAuthorizedMessage.mockClear();
+      await executor({ ...job, sessionMode: "reuse" });
+      expect(bridge.handleAuthorizedMessage.mock.calls[0]?.[0]?.sessionIdOverride).toBeUndefined();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders a Kimi agent-mode Lark cron result into a run card and still delivers files", async () => {
+    // Production wiring (createRunCard provided): the AI task's result reads like a
+    // chat reply (run card), the [send-file:] tag is stripped from the card text,
+    // and the file is still delivered via deliverResponse alongside the card.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-agent-card-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi" }) + "\n");
+    const channel = fakeChannel(); // has updateCard → the run-card path engages
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { requestOutputDir?: string }) => {
+        const dir = input.requestOutputDir!;
+        await mkdir(dir, { recursive: true });
+        const reportPath = path.join(dir, "out.txt");
+        await writeFile(reportPath, "data");
+        return { text: `Here is the summary [send-file:${reportPath}]` };
+      }),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+      deliverResponse: deliverCoreResponse,
+      createRunCard: createCoreRunCardController,
+    });
+
+    try {
+      await executor({
+        id: "agentcard1",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: "daily summary",
+        enabled: true,
+        runOnce: false,
+        sessionMode: "new_per_run",
+        deliveryMode: "agent",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+      });
+
+      // The answer lands in the run card (finished via updateCard), tag stripped.
+      const cardUpdates = JSON.stringify((channel.updateCard as ReturnType<typeof vi.fn>).mock.calls);
+      expect(cardUpdates).toContain("Here is the summary");
+      expect(cardUpdates).not.toContain("send-file:");
+      const cardUpdateCalls = (channel.updateCard as ReturnType<typeof vi.fn>).mock.calls.map((call) => JSON.stringify(call));
+      const deliveringIndex = cardUpdateCalls.findIndex((call) => call.includes("正在交付结果"));
+      const completedIndex = cardUpdateCalls.findIndex((call) => call.includes("已完成"));
+      expect(deliveringIndex).toBeGreaterThanOrEqual(0);
+      expect(completedIndex).toBeGreaterThan(deliveringIndex);
+      // The file is still delivered (deliverResponse runs with sendText:false).
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        metadata: expect.objectContaining({ fileName: "out.txt", larkChatId: "oc_chat" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spills a long Lark cron result into continuation cards without repeating the first chunk", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-agent-overflow-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const longAnswer = `CRON_HEAD ${"甲".repeat(5_500)}\nCRON_TAIL ${"乙".repeat(500)}`;
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: longAnswer })),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+      deliverResponse: deliverCoreResponse,
+      createRunCard: createCoreRunCardController,
+    });
+
+    try {
+      await executor({
+        id: "cronoverflow1",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: "daily summary",
+        enabled: true,
+        runOnce: false,
+        sessionMode: "new_per_run",
+        deliveryMode: "agent",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+      });
+
+      const continuationCards = larkContinuationCardsSent(channel);
+      expect(continuationCards.length).toBeGreaterThanOrEqual(1);
+      expect(continuationCards.join("\n")).toContain("CRON_TAIL");
+      expect(continuationCards.join("\n")).not.toContain("CRON_HEAD");
+
+      const repeatedFullAnswer = channel.send.mock.calls.filter((call: unknown[]) => {
+        const payload = call[1] as { text?: string; markdown?: string } | undefined;
+        return (typeof payload?.text === "string" && payload.text.includes("CRON_HEAD"))
+          || (typeof payload?.markdown === "string" && payload.markdown.includes("CRON_HEAD"));
+      });
+      expect(repeatedFullAnswer.length).toBe(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders empty Lark cron agent replies in the stored Lark locale", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-empty-en-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "" })),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+    });
+
+    try {
+      await executor({
+        id: "emptycron",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: "daily summary",
+        enabled: true,
+        runOnce: false,
+        sessionMode: "new_per_run",
+        deliveryMode: "agent",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+        locale: "en",
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "(empty reply)" },
+        {},
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records Lark cron file deliveries with the originating chat and user ids", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-file-timeline-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { requestOutputDir?: string }) => {
+        const outputDir = input.requestOutputDir!;
+        const reportPath = path.join(outputDir, "cron-report.txt");
+        await mkdir(outputDir, { recursive: true });
+        await writeFile(reportPath, "cron report");
+        return { text: `Report ready [send-file:${reportPath}]` };
+      }),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+      deliverResponse: deliverCoreResponse,
+    });
+
+    try {
+      await executor({
+        id: "cronfile1",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat:omt_thread"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "group",
+        conversationKey: "lark:oc_chat:omt_thread",
+        larkChatId: "oc_chat",
+        larkThreadId: "omt_thread",
+        larkMessageId: "om_cron_thread",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: "生成报告",
+        enabled: true,
+        runOnce: true,
+        sessionMode: "new_per_run",
+        deliveryMode: "agent",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+      });
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat:omt_thread"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat:omt_thread",
+        metadata: expect.objectContaining({
+          fileName: "cron-report.txt",
+          larkChatId: "oc_chat",
+          larkMessageId: "om_cron_thread",
+          bridgeChatType: "group",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds long Lark cron notification prompts before sending", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cron-long-notify-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const executor = buildCoreCronExecutor({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+    });
+
+    try {
+      await executor({
+        id: "1234abcd",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        larkChatId: "oc_chat",
+        cronExpr: "0 9 * * *",
+        timezone: "Asia/Shanghai",
+        prompt: `提醒我：${"很长".repeat(3000)}`,
+        enabled: true,
+        runOnce: true,
+        sessionMode: "new_per_run",
+        deliveryMode: "notify",
+        mute: false,
+        silent: false,
+        timeoutMins: 30,
+        maxFailures: 3,
+        createdAt: "2026-05-25T00:00:00.000Z",
+        updatedAt: "2026-05-25T00:00:00.000Z",
+        failureCount: 0,
+        runHistory: [],
+      });
+
+      expect(channel.send).toHaveBeenCalledTimes(1);
+      const longPayload = (channel.send.mock.calls[0] as unknown as Array<unknown>)[1] as { card?: unknown };
+      expect(longPayload.card).toBeDefined();
+      // The card body element is bounded — not the raw 6000-char prompt.
+      let maxEl = 0;
+      const walkCard = (n: unknown): void => {
+        if (Array.isArray(n)) { n.forEach(walkCard); return; }
+        if (n && typeof n === "object") {
+          const rec = n as Record<string, unknown>;
+          if (rec.tag === "markdown" && typeof rec.content === "string") maxEl = Math.max(maxEl, rec.content.length);
+          Object.values(rec).forEach(walkCard);
+        }
+      };
+      walkCard(longPayload.card);
+      expect(maxEl).toBeLessThanOrEqual(5001); // LARK_CARD_ANSWER_MAX (5000) + slack
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports Lark cron failures back into the originating Lark thread", async () => {
+    const channel = fakeChannel();
+
+    await sendCoreCronFailureNotification(channel, {
+      id: "1234abcd",
+      channel: "lark",
+      chatId: stableCoreNumericId("lark:oc_chat:omt_thread"),
+      userId: stableCoreNumericId("user:ou_user"),
+      chatType: "group",
+      conversationKey: "lark:oc_chat:omt_thread",
+      larkChatId: "oc_chat",
+      larkThreadId: "omt_thread",
+      larkMessageId: "om_cron_thread",
+      cronExpr: "0 9 * * *",
+      timezone: "Asia/Shanghai",
+      prompt: "检查日报",
+      enabled: true,
+      runOnce: true,
+      sessionMode: "new_per_run",
+      deliveryMode: "agent",
+      mute: false,
+      silent: false,
+      timeoutMins: 30,
+      maxFailures: 3,
+      createdAt: "2026-05-25T00:00:00.000Z",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+      failureCount: 0,
+      runHistory: [],
+    }, "boom");
+
+    expect(channel.send).toHaveBeenCalledWith(
+      "oc_chat",
+      { text: expect.stringContaining("定时任务执行失败") },
+      { replyTo: "om_cron_thread", replyInThread: true },
+    );
+    expect(channel.send).toHaveBeenCalledWith(
+      "oc_chat",
+      { text: expect.stringContaining("boom") },
+      { replyTo: "om_cron_thread", replyInThread: true },
+    );
+  });
+
+  it("bounds long Lark cron failure notifications before sending", async () => {
+    const channel = fakeChannel();
+
+    await sendCoreCronFailureNotification(channel, {
+      id: "1234abcd",
+      channel: "lark",
+      chatId: stableCoreNumericId("lark:oc_chat"),
+      userId: stableCoreNumericId("user:ou_user"),
+      chatType: "private",
+      conversationKey: "lark:oc_chat",
+      larkChatId: "oc_chat",
+      cronExpr: "0 9 * * *",
+      timezone: "Asia/Shanghai",
+      prompt: "检查日报",
+      enabled: true,
+      runOnce: true,
+      sessionMode: "new_per_run",
+      deliveryMode: "agent",
+      mute: false,
+      silent: false,
+      timeoutMins: 30,
+      maxFailures: 3,
+      createdAt: "2026-05-25T00:00:00.000Z",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+      failureCount: 0,
+      runHistory: [],
+    }, `stack\n${"x".repeat(9000)}`);
+
+    expect(channel.send).toHaveBeenCalledTimes(1);
+    const payload = (channel.send.mock.calls[0] as unknown as Array<unknown>)[1] as { text: string };
+    expect(payload.text.length).toBeLessThanOrEqual(3500);
+    expect(payload.text).toContain("已截断");
+  });
+
+  it("does not report muted Lark cron failures", async () => {
+    const channel = fakeChannel();
+
+    await sendCoreCronFailureNotification(channel, {
+      id: "1234abcd",
+      channel: "lark",
+      chatId: stableCoreNumericId("lark:oc_chat"),
+      userId: stableCoreNumericId("user:ou_user"),
+      chatType: "private",
+      conversationKey: "lark:oc_chat",
+      larkChatId: "oc_chat",
+      cronExpr: "0 9 * * *",
+      timezone: "Asia/Shanghai",
+      prompt: "检查日报",
+      enabled: true,
+      runOnce: true,
+      sessionMode: "new_per_run",
+      deliveryMode: "agent",
+      mute: true,
+      silent: false,
+      timeoutMins: 30,
+      maxFailures: 3,
+      createdAt: "2026-05-25T00:00:00.000Z",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+      failureCount: 0,
+      runHistory: [],
+    }, "boom");
+
+    expect(channel.send).not.toHaveBeenCalled();
+  });
+
+  it("sets an unbounded structured Codex goal from Lark by default", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-budget-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      setThreadGoal: vi.fn(async () => ({
+        goal: {
+          threadId: "lark:oc_chat",
+          objective: "ship the release",
+          status: "active" as const,
+          tokenBudget: null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 1779690000,
+          updatedAt: 1779690000,
+        },
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal", content: "/goal ship the release" }),
+      });
+
+      expect(bridge.setThreadGoal).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        objective: "ship the release",
+        tokenBudget: null,
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("预算：不限制") },
+        { replyTo: "om_goal", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("invokes watchThreadGoal bound to the bridge for a live Codex /goal run card", async () => {
+    // Regression: the handler used `const fn = input.bridge.watchThreadGoal` then called
+    // `fn(...)` unbound, so the method's `this.adapter` threw "Cannot read properties of
+    // undefined (reading 'adapter')" and /goal failed end-to-end (while the adapter passed
+    // in isolation). watchThreadGoal MUST be invoked with the bridge as `this`.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-watch-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel(); // has updateCard → the run-card (watch) path engages
+    let observedThis: unknown = "NOT_CALLED";
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      // A real method (not an arrow) so `this` is dynamic and observable.
+      watchThreadGoal: async function (this: unknown, input: { objective: string }) {
+        observedThis = this;
+        return {
+          goal: {
+            threadId: "t",
+            objective: input.objective,
+            status: "complete" as const,
+            tokenBudget: null,
+            tokensUsed: 1,
+            timeUsedSeconds: 1,
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        };
+      },
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal_watch", content: "/goal ship it" }),
+      });
+      // The watch runs detached; give it a tick to invoke watchThreadGoal.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(observedThis).toBe(bridge); // unbound (the regression) would be undefined
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes an interactive approval handler into a live DeepSeek /goal watcher", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-deepseek-goal-approval-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "deepseek" }) + "\n");
+    const channel = fakeChannel();
+    let watchInput: Record<string, unknown> | undefined;
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      watchThreadGoal: async (input: Record<string, unknown>) => {
+        watchInput = input;
+        return {
+          goal: {
+            threadId: "deepseek-thread",
+            objective: String(input.objective),
+            status: "complete" as const,
+            tokenBudget: null,
+            tokensUsed: 1,
+            timeUsedSeconds: 1,
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        };
+      },
+      clearThreadGoal: vi.fn(async () => ({ cleared: true })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_deepseek_goal", content: "/goal use a protected tool" }),
+      });
+      await vi.waitFor(() => expect(watchInput).toBeDefined());
+      expect(watchInput).toEqual(expect.objectContaining({
+        objective: "use a protected tool",
+        onApprovalRequest: expect.any(Function),
+        abortSignal: expect.any(AbortSignal),
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preempts an existing active run when a Codex /goal claims the conversation (no orphan)", async () => {
+    // The watcher runs detached (outside the chat queue); overwriting activeRuns
+    // without aborting the prior run would orphan it (untracked → /stop can't reach
+    // it). The goal-set must abort the existing run before claiming the slot.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-preempt-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel(); // updateCard → the live watch path engages
+    const runtime = createCoreServiceRuntime();
+    const preAbort = new AbortController(); // a run already active for this conversation
+    runtime.activeRuns.set("lark:oc_chat", { abortController: preAbort });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      watchThreadGoal: async () => ({
+        goal: {
+          threadId: "t", objective: "ship it", status: "complete" as const,
+          tokenBudget: null, tokensUsed: 1, timeUsedSeconds: 1, createdAt: 0, updatedAt: 0,
+        },
+      }),
+      clearThreadGoal: vi.fn(async () => ({ cleared: true })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal_preempt", content: "/goal ship it" }),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(preAbort.signal.aborted).toBe(true);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("aborts the active goal watcher on /goal clear (stops it cleanly, no double-clear)", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-clear-abort-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const watcherAbort = new AbortController(); // an active goal watcher
+    runtime.activeRuns.set("lark:oc_chat", { abortController: watcherAbort, hasRunCard: true, goalWatch: true });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      clearThreadGoal: vi.fn(async () => ({ cleared: true })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal_clear", content: "/goal clear" }),
+      });
+      // The watcher is aborted (its own abort path clears the goal + interrupts the
+      // card), so the clear handler must NOT double-clear, and confirms to the user.
+      expect(watcherAbort.signal.aborted).toBe(true);
+      expect(bridge.clearThreadGoal).not.toHaveBeenCalled();
+      expect(JSON.stringify((channel.send as ReturnType<typeof vi.fn>).mock.calls)).toContain("已清除");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("clears the Codex thread-goal when the goal completes, not only on abort (no lingering goal)", async () => {
+    // Previously the watcher cleared the goal only on abort; a normally-completed goal
+    // stayed SET in the Codex thread and bled into later ordinary turns. Completion must
+    // clear it too.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-complete-clear-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel(); // updateCard → the live watch path engages
+    const runtime = createCoreServiceRuntime();
+    const clearThreadGoal = vi.fn(async () => ({ cleared: true }));
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      watchThreadGoal: async () => ({
+        sessionId: "original-goal-session",
+        goal: {
+          threadId: "t", objective: "ship it", status: "complete" as const,
+          tokenBudget: null, tokensUsed: 1, timeUsedSeconds: 1, createdAt: 0, updatedAt: 0,
+        },
+      }),
+      clearThreadGoal,
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal_complete", content: "/goal ship it" }),
+      });
+      // The watch runs detached; the completion branch must clear the goal.
+      await vi.waitFor(() => expect(clearThreadGoal).toHaveBeenCalled());
+      expect(clearThreadGoal).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "original-goal-session" }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans the published goal session when cancellation rejects the watch", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-abort-publish-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel(), runtime = createCoreServiceRuntime();
+    const clearThreadGoal = vi.fn(async () => ({ cleared: true }));
+    const bridge = {
+      checkAccess: async () => ({ kind: "allow" as const }), clearThreadGoal, handleAuthorizedMessage: vi.fn(),
+      watchThreadGoal: async (input: { onEngineEvent: (event: { type: "session"; sessionId: string }) => void }) => {
+        input.onEngineEvent({ type: "session", sessionId: "published-before-abort" });
+        [...runtime.activeRuns.values()][0]!.abortController.abort();
+        throw new DOMException("Stopped", "AbortError");
+      },
+    };
+    try {
+      await handleCoreMessage({ channel, bridge: bridge as never, runtime, stateDir, message: fakeLarkMessage({ messageId: "goal-abort-publish", content: "/goal first" }) });
+      await vi.waitFor(() => expect(clearThreadGoal).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "published-before-abort" })));
+      await vi.waitFor(() => expect(runtime.activeRuns.size).toBe(0));
+    } finally { await rm(stateDir, { recursive: true, force: true }); }
+  });
+
+  it("waits for the old pursuit's native cleanup before starting a replacement goal", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-replace-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel(), runtime = createCoreServiceRuntime();
+    let releaseClear!: () => void;
+    const clearGate = new Promise<void>((resolve) => { releaseClear = resolve; });
+    const order: string[] = [];
+    const watchThreadGoal = vi.fn(async (input: { objective: string; abortSignal: AbortSignal }) => {
+      order.push(`watch:${input.objective}`);
+      if (input.objective === "first") await new Promise<void>((resolve) => input.abortSignal.addEventListener("abort", () => resolve(), { once: true }));
+      return { goal: null, sessionId: "same-native-session" };
+    });
+    const clearThreadGoal = vi.fn(async () => {
+      order.push("clear");
+      if (order.filter((value) => value === "clear").length === 1) await clearGate;
+      order.push("cleared"); return { cleared: true };
+    });
+    const bridge = { checkAccess: async () => ({ kind: "allow" as const }), watchThreadGoal, clearThreadGoal, handleAuthorizedMessage: vi.fn() };
+    try {
+      await handleCoreMessage({ channel, bridge: bridge as never, runtime, stateDir, message: fakeLarkMessage({ messageId: "goal-first", content: "/goal first" }) });
+      await vi.waitFor(() => expect(watchThreadGoal).toHaveBeenCalledTimes(1));
+      await handleCoreMessage({ channel, bridge: bridge as never, runtime, stateDir, message: fakeLarkMessage({ messageId: "goal-second", content: "/goal second" }) });
+      await vi.waitFor(() => expect(clearThreadGoal).toHaveBeenCalledTimes(1));
+      expect(watchThreadGoal).toHaveBeenCalledTimes(1);
+      releaseClear();
+      await vi.waitFor(() => expect(runtime.activeRuns.size).toBe(0));
+      expect(order).toEqual(["watch:first", "clear", "cleared", "watch:second", "clear", "cleared"]);
+    } finally { releaseClear(); await rm(stateDir, { recursive: true, force: true }); }
+  });
+
+  it("clears an orphaned Codex thread-goal before a normal turn (no live watcher) so a normal message isn't resumed into a stale goal", async () => {
+    // The operator's case: a goal's watcher was killed by a service restart, leaving the
+    // goal SET in the Codex thread with no watcher. A later NORMAL message must clear it
+    // first, then run as an ordinary turn — not silently resume the old goal.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-orphan-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime(); // NO activeRuns entry → no live watcher
+    const getThreadGoal = vi.fn(async () => ({
+      goal: {
+        threadId: "t", objective: "old goal", status: "active" as const,
+        tokenBudget: null, tokensUsed: 1, timeUsedSeconds: 1, createdAt: 0, updatedAt: 0,
+      },
+    }));
+    const clearThreadGoal = vi.fn(async () => ({ cleared: true }));
+    const handleAuthorizedMessage = vi.fn(async () => ({ text: "normal reply" }));
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      getThreadGoal,
+      clearThreadGoal,
+      handleAuthorizedMessage,
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_normal_after_goal", content: "继续写第二段" }),
+      });
+      // Reconciled (cleared) before the ordinary turn, which still runs.
+      expect(getThreadGoal).toHaveBeenCalled();
+      expect(clearThreadGoal).toHaveBeenCalled();
+      expect(handleAuthorizedMessage).toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not clear anything before a normal turn when the thread has no goal", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-none-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const getThreadGoal = vi.fn(async () => ({ goal: null }));
+    const clearThreadGoal = vi.fn(async () => ({ cleared: true }));
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      getThreadGoal,
+      clearThreadGoal,
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "normal reply" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_normal_no_goal", content: "写个普通回复" }),
+      });
+      expect(getThreadGoal).toHaveBeenCalled();
+      expect(clearThreadGoal).not.toHaveBeenCalled(); // nothing to clear
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not abort a normal turn on /goal clear — only goal watchers", async () => {
+    // Regression guard (the v0.1.117 over-broad abort): /goal clear must target the
+    // goal, not kill an unrelated normal turn that happens to occupy the activeRuns
+    // slot (nor falsely report it cleared).
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-clear-turn-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const turnAbort = new AbortController(); // a NORMAL turn (no goalWatch flag)
+    runtime.activeRuns.set("lark:oc_chat", { abortController: turnAbort, hasRunCard: true });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      clearThreadGoal: vi.fn(async () => ({ cleared: false })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal_clear_turn", content: "/goal clear" }),
+      });
+      // The running turn is NOT killed; the handler falls through to clearThreadGoal
+      // (which reports there is no goal to clear).
+      expect(turnAbort.signal.aborted).toBe(false);
+      expect(bridge.clearThreadGoal).toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an active goal watcher alive when a normal Lark turn arrives (the turn runs alongside it)", async () => {
+    // Reversal of the old semantics (which aborted the watcher here): a pursued
+    // /goal must survive ordinary messages — the operator's "how's it going?"
+    // used to kill the watcher, whose abort path erased the goal. The ordinary
+    // turn still runs (on its own controller); the pursuit keeps the slot.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-normal-keeps-goal-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const goalAbort = new AbortController();
+    // startedAt far in the past so the message can't try to steer into the goal.
+    runtime.activeRuns.set("lark:oc_chat", { abortController: goalAbort, hasRunCard: true, goalWatch: true, startedAt: Date.now() - 120_000 });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "normal answer" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_normal_after_goal", content: "hello" }),
+      });
+
+      expect(goalAbort.signal.aborted).toBe(false);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalled();
+      // The pursuit still owns the conversation's activeRuns slot.
+      expect(runtime.activeRuns.get("lark:oc_chat")?.abortController).toBe(goalAbort);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not delete a newer active run when a normal Lark turn finishes", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-normal-run-guard-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const replacementAbort = new AbortController();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => {
+        runtime.activeRuns.set("lark:oc_chat", { abortController: replacementAbort, hasRunCard: true, goalWatch: true });
+        return { text: "normal answer" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge: bridge as never,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_normal_replaced", content: "hello" }),
+      });
+
+      expect(runtime.activeRuns.get("lark:oc_chat")?.abortController).toBe(replacementAbort);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders structured Lark goal replies in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", locale: "en" }) + "\n");
+    const goal = {
+      threadId: "thread-lark",
+      objective: "ship the Lark channel",
+      status: "active" as const,
+      tokenBudget: null,
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      setThreadGoal: vi.fn(async () => ({ goal })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal_en", content: "/goal ship the Lark channel" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(bridge.setThreadGoal).toHaveBeenCalledWith(expect.objectContaining({
+        objective: "ship the Lark channel",
+        tokenBudget: null,
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Goal set.") },
+        { replyTo: "om_goal_en", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Budget: unbounded") },
+        { replyTo: "om_goal_en", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Goal usage: not recorded yet") },
+        { replyTo: "om_goal_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sets a structured Codex goal from Lark without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      setThreadGoal: vi.fn(async () => ({
+        goal: {
+          threadId: "lark:oc_chat",
+          objective: "ship the release",
+          status: "active" as const,
+          tokenBudget: 50_000,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 1779690000,
+          updatedAt: 1779690000,
+        },
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal", content: "/goal -b 50k ship the release" }),
+      });
+
+      expect(bridge.setThreadGoal).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        objective: "ship the release",
+        tokenBudget: 50_000,
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Goal 已设置") },
+        { replyTo: "om_goal", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes unbounded Claude goals through by default from Lark", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-claude-goal-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const seenTexts: string[] = [];
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { text: string }) => {
+        seenTexts.push(input.text);
+        return { text: "goal passed through" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal", content: "/goal 写发布说明" }),
+      });
+
+      expect(seenTexts).toEqual(["/goal 写发布说明"]);
+      expect(channel.stream).not.toHaveBeenCalled();
+      expectLarkFinalAnswer(channel, "goal passed through");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects Kimi goals without forwarding a fake ordinary turn", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-kimi-goal-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi", locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_kimi_goal", content: "/goal ship the release" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Unknown ACP command") },
+        { replyTo: "om_kimi_goal", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("frames a Claude /goal turn's run card with a 🎯 goal banner (full path)", async () => {
+    // The fall-through path (command sets normalized.goalObjective → message-handler
+    // → run card) must actually reach the card, not just type-check — same lesson as
+    // the watchThreadGoal bind bug: exercise the whole wiring, not the pieces.
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-claude-goal-banner-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const seenTexts: string[] = [];
+    const channel = fakeChannel(); // has updateCard → the run-card path engages
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { text: string }) => {
+        seenTexts.push(input.text);
+        return { text: "done reviewing" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal_banner", content: "/goal review the auth bugs" }),
+      });
+
+      // Forwarded as Claude's native /goal turn (no thread-goal API).
+      expect(seenTexts).toEqual(["/goal review the auth bugs"]);
+      // …and the turn's run card is framed as a goal: 🎯 banner + the objective.
+      const cards = JSON.stringify([
+        ...(channel.send as ReturnType<typeof vi.fn>).mock.calls,
+        ...(channel.updateCard as ReturnType<typeof vi.fn>).mock.calls,
+      ]);
+      expect(cards).toContain("🎯");
+      expect(cards).toContain("review the auth bugs");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes explicitly unbounded Claude goals through as native slash commands from Lark", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-claude-goal-unbounded-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const seenTexts: string[] = [];
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { text: string }) => {
+        seenTexts.push(input.text);
+        return { text: "goal passed through" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_goal", content: "/goal --unbounded 写发布说明" }),
+      });
+
+      expect(seenTexts).toEqual(["/goal 写发布说明"]);
+      expect(channel.stream).not.toHaveBeenCalled();
+      expectLarkFinalAnswer(channel, "goal passed through");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards Claude context commands from Lark without starting a regular stream turn", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-context-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { text: string }) => ({ text: `native ${input.text} result` })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_context", content: "/context" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        text: "/context",
+        files: [],
+      }));
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "native /context result" },
+        { replyTo: "om_context", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("answers Lark context wrong-engine guidance in English when Lark locale is explicitly English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-context-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_context_en", content: "/context" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/context is only supported with the Claude or DeepSeek engine.") },
+        { replyTo: "om_context_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects Lark compact commands on non-Claude engines instead of prompting the model", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-compact-wrong-engine-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_compact_wrong_engine", content: "/compact" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("/compact 仅支持 Claude、Kimi 与 DeepSeek 引擎") },
+        { replyTo: "om_compact_wrong_engine", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards Kimi compact commands from Lark to the ACP session", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-compact-kimi-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "Compaction completed" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_compact_kimi", content: "/compact" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({ text: "/compact" }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "上下文已压缩。\n\nCompaction completed" },
+        { replyTo: "om_compact_kimi", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards Claude compact commands from Lark and relays the compacted result", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-compact-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { text: string }) => ({ text: `native ${input.text} result` })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_compact", content: "/compact" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        text: "/compact",
+        files: [],
+      }));
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenNthCalledWith(
+        1,
+        "oc_chat",
+        { markdown: "正在压缩会话上下文..." },
+        { replyTo: "om_compact", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenNthCalledWith(
+        2,
+        "oc_chat",
+        { markdown: "上下文已压缩。\n\nnative /compact result" },
+        { replyTo: "om_compact", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards Claude ultrareview commands from Lark and relays the review result", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-ultrareview-"));
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "claude",
+      resume: { sessionId: "claude-session", dirName: "work", workspacePath: "/tmp/work" },
+    }) + "\n");
+    await sessionStore.upsert({
+      telegramChatId: stableCoreNumericId("lark:oc_chat"),
+      conversationKey: "lark:oc_chat",
+      codexSessionId: "claude-session",
+      status: "idle",
+      updatedAt: new Date().toISOString(),
+    });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "review output" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_ultrareview", content: "/ultrareview" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        text: "/ultrareview",
+        files: [],
+        workspaceOverride: "/tmp/work",
+      }));
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenNthCalledWith(
+        1,
+        "oc_chat",
+        { markdown: "正在进行代码审查..." },
+        { replyTo: "om_ultrareview", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenNthCalledWith(
+        2,
+        "oc_chat",
+        { markdown: "review output" },
+        { replyTo: "om_ultrareview", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets /stop abort an in-flight Lark context command", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-context-stop-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    let releaseContext!: () => void;
+    const contextReleased = new Promise<void>((resolve) => {
+      releaseContext = resolve;
+    });
+    let resolveContextStarted!: () => void;
+    const contextStarted = new Promise<void>((resolve) => {
+      resolveContextStarted = resolve;
+    });
+    let capturedSignal: AbortSignal | undefined;
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: { text: string; abortSignal?: AbortSignal }) => {
+        capturedSignal = input.abortSignal;
+        resolveContextStarted();
+        await contextReleased;
+        return { text: "native context result" };
+      }),
+    };
+
+    const contextRun = handleCoreMessage({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+      message: fakeLarkMessage({ messageId: "om_context_long", content: "/context" }),
+    });
+
+    try {
+      await contextStarted;
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_stop_context", content: "/stop" }),
+      });
+
+      expect(capturedSignal?.aborted).toBe(true);
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "已停止。" },
+        { replyTo: "om_stop_context", replyInThread: false },
+      );
+    } finally {
+      releaseContext();
+      await contextRun;
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles Lark board add and list without running the engine", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-board-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_board_add", content: "/board add Ship Lark parity" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_board_list", content: "/board list" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已创建 B1") },
+        { replyTo: "om_board_add", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("Ship Lark parity") },
+        { replyTo: "om_board_list", replyInThread: false },
+      );
+
+      const events = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(events.filter((event) => event.metadata?.command === "board").map((event) => event.channel)).toEqual(["lark", "lark"]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the configured Lark locale into board commands", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-board-locale-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_board_list_en", content: "/board list" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("No board tasks yet") },
+        { replyTo: "om_board_list_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark board task cards and handles board card actions", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-board-card-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const store = new BoardStore(stateDir);
+    await store.createTask({
+      title: "Ship Kanban card UX",
+      createdBy: {
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+      },
+    });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_board_show", content: "/board show B1" }),
+      });
+
+      const cardCall = (channel.send.mock.calls as unknown[][]).find((call) => Boolean((call[1] as { card?: unknown } | undefined)?.card));
+      expect(cardCall).toBeTruthy();
+      expect(JSON.stringify((cardCall?.[1] as { card?: unknown }).card)).toContain("Ship Kanban card UX");
+      expect(JSON.stringify((cardCall?.[1] as { card?: unknown }).card)).toContain("\"cctb_lark\":\"board\"");
+
+      await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_board_card",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "board",
+              command: "/board ready B1",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              bridgeChatId: stableCoreNumericId("lark:oc_chat"),
+            },
+          },
+        },
+      });
+
+      await expect(store.getTask("B1")).resolves.toMatchObject({ status: "ready" });
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        expect.objectContaining({ markdown: expect.stringContaining("Ready B1") }),
+        { replyTo: "om_board_card", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("derives Lark board card chat identity from the authenticated conversation key", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-board-card-chat-id-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "forged peer should not run" })),
+    };
+    const store = new BoardStore(stateDir);
+    const miniStore = new MiniBusStore(stateDir);
+    await miniStore.upsertPeer({
+      name: "writer",
+      chatId: stableCoreNumericId("lark:oc_other"),
+      conversationKey: "lark:oc_other",
+    });
+    await store.createTask({
+      title: "Ship Kanban card UX",
+      assignee: "writer",
+      createdBy: {
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+      },
+    });
+    await store.markReady("B1");
+
+    try {
+      await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_board_card",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "board",
+              command: "/board run B1",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              bridgeChatId: stableCoreNumericId("lark:oc_other"),
+            },
+          },
+        },
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      await expect(store.getTask("B1")).resolves.toMatchObject({
+        status: "ready",
+        runs: [],
+      });
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        expect.objectContaining({ markdown: expect.stringContaining("执行失败 B1") }),
+        { replyTo: "om_board_card", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles Lark fan delegation through the shared Agent Bus command path", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-fan-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "self answer" })),
+    };
+    const delegateToInstance = vi.fn(async () => ({ success: true, text: "peer answer" }));
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          busRuntime: {
+            loadBusConfig: vi.fn(async () => ({
+              peers: "*" as const,
+              maxDepth: 3,
+              port: 0,
+              secret: "secret",
+              parallel: ["peer1"],
+              chain: [],
+              verifier: null,
+              crew: null,
+            })),
+            delegateToInstance,
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_fan", content: "/fan compare this" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        text: "compare this",
+      }));
+      expect(delegateToInstance).toHaveBeenCalledWith(expect.objectContaining({
+        fromInstance: "lark",
+        targetInstance: "peer1",
+        prompt: "compare this",
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("正在并行查询 2 个 bot") },
+        { replyTo: "om_fan", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("[peer1]\npeer answer") },
+        { replyTo: "om_fan", replyInThread: false },
+      );
+
+      const events = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(events).toContainEqual(expect.objectContaining({
+        channel: "lark",
+        metadata: expect.objectContaining({ command: "fan", fanTargets: ["peer1"] }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles Lark /btw as an isolated side question without touching the current conversation", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-btw-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "side answer" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_btw", content: "/btw quick side question" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        userId: stableCoreNumericId("user:ou_user"),
+        chatType: "bus",
+        text: "quick side question",
+        files: [],
+      }));
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.not.objectContaining({
+        conversationKey: "lark:oc_chat",
+      }));
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "side answer" },
+        { replyTo: "om_btw", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers Lark /btw background task notifications from engine events", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-btw-task-notification-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: "Side question background work done.",
+        });
+        return { text: "side answer" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_btw_notify", content: "/btw quick side question" }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "后台任务完成\nSide question background work done." },
+        { replyTo: "om_btw_notify" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        channel: "lark",
+        detail: "task_notification",
+        metadata: expect.objectContaining({ source: "delegation" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("splits long Lark /btw answers before sending them", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-btw-long-"));
+    const channel = fakeChannel();
+    const longAnswer = "旁问无换行长答案：" + "甲".repeat(7600);
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: longAnswer })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_btw_long", content: "/btw 写一个长解释" }),
+      });
+
+      const sendCalls = channel.send.mock.calls as unknown as Array<[string, unknown, unknown?]>;
+      const markdownSends = sendCalls
+        .map((call) => call[1])
+        .filter((payload): payload is { markdown: string } => Boolean((payload as { markdown?: unknown }).markdown));
+      expect(markdownSends.length).toBeGreaterThan(1);
+      expect(markdownSends.map((payload) => payload.markdown).join("")).toBe(longAnswer);
+      for (const payload of markdownSends) {
+        expect(payload.markdown.length).toBeLessThanOrEqual(3500);
+      }
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("runs configured Lark research-report crew for ordinary messages before the default engine turn", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-crew-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: "1. What changed?\n2. What should we do next?",
+      })),
+    };
+    const delegateToInstance = vi.fn()
+      .mockResolvedValueOnce({ text: "Research A" })
+      .mockResolvedValueOnce({ text: "Research B" })
+      .mockResolvedValueOnce({ text: "Analysis" })
+      .mockResolvedValueOnce({ text: "Draft report" })
+      .mockResolvedValueOnce({ text: "VERDICT: PASS\nISSUES:\n- none" });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          busRuntime: {
+            loadBusConfig: vi.fn(async () => ({
+              peers: "*" as const,
+              maxDepth: 3,
+              port: 0,
+              secret: "secret",
+              parallel: [],
+              chain: [],
+              verifier: null,
+              crew: {
+                enabled: true,
+                workflow: "research-report" as const,
+                coordinator: "lark",
+                roles: {
+                  researcher: "researcher",
+                  analyst: "analyst",
+                  writer: "writer",
+                  reviewer: "reviewer",
+                },
+                maxResearchQuestions: 2,
+                maxRevisionRounds: 1,
+              },
+            })),
+            delegateToInstance,
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_crew", content: "Analyze the market shift" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatType: "bus",
+        text: expect.stringContaining("coordinator agent"),
+      }));
+      expect(delegateToInstance).toHaveBeenCalledTimes(5);
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "正在运行 research-report crew..." },
+        { replyTo: "om_crew", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "Draft report" },
+        { replyTo: "om_crew", replyInThread: false },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      const crewEvents = timeline.filter((event) => String(event.type).startsWith("crew."));
+      expect(crewEvents.length).toBeGreaterThan(0);
+      expect([...new Set(crewEvents.map((event) => event.channel))]).toEqual(["lark"]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles Lark ask delegation through the shared Agent Bus command path", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-ask-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const delegateToInstance = vi.fn(async () => ({ success: true, text: "peer answer" }));
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          busRuntime: {
+            loadBusConfig: vi.fn(),
+            delegateToInstance,
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_ask", content: "/ask reviewer inspect this" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(delegateToInstance).toHaveBeenCalledWith(expect.objectContaining({
+        fromInstance: "lark",
+        targetInstance: "reviewer",
+        prompt: "inspect this",
+        depth: 0,
+        stateDir,
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "正在转发给 reviewer..." },
+        { replyTo: "om_ask", replyInThread: false },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "[来自 reviewer]\n\npeer answer" },
+        { replyTo: "om_ask", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles Lark chain delegation through configured Agent Bus peers", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-chain-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const delegateToInstance = vi.fn()
+      .mockResolvedValueOnce({ success: true, text: "draft" })
+      .mockResolvedValueOnce({ success: true, text: "final" });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          busRuntime: {
+            loadBusConfig: vi.fn(async () => ({
+              peers: "*" as const,
+              maxDepth: 3,
+              port: 0,
+              secret: "secret",
+              parallel: [],
+              chain: ["reviewer", "writer"],
+              verifier: null,
+              crew: null,
+            })),
+            delegateToInstance,
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_chain", content: "/chain improve this" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(delegateToInstance).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        fromInstance: "lark",
+        targetInstance: "reviewer",
+        prompt: "improve this",
+      }));
+      expect(delegateToInstance).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        fromInstance: "lark",
+        targetInstance: "writer",
+        prompt: expect.stringContaining("draft"),
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("[链路阶段 2: writer]") },
+        { replyTo: "om_chain", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("handles Lark verify delegation through the shared verifier path", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-verify-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "draft answer" })),
+    };
+    const delegateToInstance = vi.fn(async () => ({ success: true, text: "looks good" }));
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          busRuntime: {
+            loadBusConfig: vi.fn(async () => ({
+              peers: "*" as const,
+              maxDepth: 3,
+              port: 0,
+              secret: "secret",
+              parallel: [],
+              chain: [],
+              verifier: "reviewer",
+              crew: null,
+            })),
+            delegateToInstance,
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_verify", content: "/verify check this" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        text: "check this",
+      }));
+      expect(delegateToInstance).toHaveBeenCalledWith(expect.objectContaining({
+        fromInstance: "lark",
+        targetInstance: "reviewer",
+        prompt: expect.stringContaining("draft answer"),
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("[reviewer 的验证]") },
+        { replyTo: "om_verify", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("registers a Lark thread as a Mini Bus peer", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-mini-here-"));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_mini_here",
+          chatType: "group",
+          threadId: "omt_planner",
+          mentionedBot: true,
+          content: "/mini here planner",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("已注册 Mini Bus peer planner") },
+        { replyTo: "om_mini_here", replyInThread: true },
+      );
+
+      const groupChatId = stableCoreNumericId("lark-group:oc_chat");
+      const threadId = stableCoreNumericId("lark-thread:omt_planner");
+      await expect(new MiniBusStore(stateDir).listPeers(groupChatId)).resolves.toEqual([
+        expect.objectContaining({
+          name: "planner",
+          chatId: groupChatId,
+          messageThreadId: threadId,
+          conversationKey: "lark:oc_chat:omt_planner",
+        }),
+      ]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("asks a registered Lark Mini Bus peer through its thread conversation", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-mini-ask-"));
+    const channel = fakeChannel();
+    const groupChatId = stableCoreNumericId("lark-group:oc_chat");
+    const writerThreadId = stableCoreNumericId("lark-thread:omt_writer");
+    await new MiniBusStore(stateDir).upsertPeer({
+      name: "writer",
+      chatId: groupChatId,
+      messageThreadId: writerThreadId,
+      conversationKey: "lark:oc_chat:omt_writer",
+    });
+    const queuedBridgeTurns: string[] = [];
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "writer answer" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          miniRuntime: {
+            runQueuedBridgeTurn: async (conversationKey, job) => {
+              queuedBridgeTurns.push(conversationKey);
+              return await job();
+            },
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_mini_ask",
+          chatType: "group",
+          threadId: "omt_planner",
+          mentionedBot: true,
+          content: "/mini ask writer draft this",
+        }),
+      });
+
+      expect(queuedBridgeTurns).toEqual(["lark:oc_chat:omt_writer"]);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: groupChatId,
+        chatType: "bus",
+        messageThreadId: writerThreadId,
+        conversationKey: "lark:oc_chat:omt_writer",
+        text: "draft this",
+      }));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: expect.stringContaining("[writer]\n\nwriter answer") },
+        { replyTo: "om_mini_ask", replyInThread: true },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("executes delivery directives returned by a Lark Mini Bus peer", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-mini-delivery-"));
+    const workspace = path.join(stateDir, "workspace");
+    const filePath = path.join(workspace, "mini-result.txt");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(filePath, "mini result");
+    const channel = fakeChannel();
+    const groupChatId = stableCoreNumericId("lark-group:oc_chat");
+    const writerThreadId = stableCoreNumericId("lark-thread:omt_writer");
+    await new MiniBusStore(stateDir).upsertPeer({
+      name: "writer",
+      chatId: groupChatId,
+      messageThreadId: writerThreadId,
+      conversationKey: "lark:oc_chat:omt_writer",
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: `ready\n[send-file:${filePath}]` })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          miniRuntime: { runQueuedBridgeTurn: async (_conversationKey, job) => await job() },
+        }),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_mini_delivery",
+          chatType: "group",
+          threadId: "omt_planner",
+          mentionedBot: true,
+          content: "/mini ask writer create result",
+        }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { file: { source: Buffer.from("mini result"), fileName: "mini-result.txt" } },
+        { replyTo: "om_mini_delivery", replyInThread: true },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain(`[send-file:${filePath}]`);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers Lark Mini Bus background task notifications from engine events", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-mini-task-notification-"));
+    const channel = fakeChannel();
+    const groupChatId = stableCoreNumericId("lark-group:oc_chat");
+    const writerThreadId = stableCoreNumericId("lark-thread:omt_writer");
+    await new MiniBusStore(stateDir).upsertPeer({
+      name: "writer",
+      chatId: groupChatId,
+      messageThreadId: writerThreadId,
+      conversationKey: "lark:oc_chat:omt_writer",
+    });
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: "Mini topic finished its background job.",
+        });
+        return { text: "writer answer" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          miniRuntime: {
+            runQueuedBridgeTurn: async (_conversationKey, job) => await job(),
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_mini_notify",
+          chatType: "group",
+          threadId: "omt_planner",
+          mentionedBot: true,
+          content: "/mini ask writer draft this",
+        }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "后台任务完成\nMini topic finished its background job." },
+        { replyTo: "om_mini_notify", replyInThread: true },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        channel: "lark",
+        detail: "task_notification",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("aborts the active run from a stop card action", async () => {
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "stop", conversationKey: "lark:oc_chat" },
+        },
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(abortController.signal.aborted).toBe(true);
+    expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "已停止。" }, { replyTo: "om_card" });
+  });
+
+  it("does not post a redundant '已停止。' from a stop card action when a run card exists", async () => {
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    // Active run HAS a live run card → its in-place "已中断" update is the ack.
+    runtime.activeRuns.set("lark:oc_chat", { abortController, hasRunCard: true });
+    const channel = fakeChannel();
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat" } },
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(abortController.signal.aborted).toBe(true);
+    expect(channel.send).not.toHaveBeenCalled();
+  });
+
+  it("cancels just the queued task from its card without aborting the active run", async () => {
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    runtime.queueCards.set("om_queued", { messageId: "card_q" }); // inline card (no CardKit)
+    const cancelSpy = vi.spyOn(runtime.chatQueue, "cancel").mockReturnValue(true);
+    const channel = fakeChannel();
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat", taskId: "om_queued" } },
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(cancelSpy).toHaveBeenCalledWith("lark:oc_chat", "om_queued");
+    expect(abortController.signal.aborted).toBe(false); // the running task is left alone
+    expect(runtime.cancelledQueueTaskIds.has("om_queued")).toBe(true); // skip stays silent later
+    expect(runtime.queueCards.has("om_queued")).toBe(false); // card forgotten
+    // Posts a fresh "cancelled" notice and recalls the queue card — never an
+    // in-place patch (Feishu reverts a just-clicked card's async patch).
+    expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: expect.stringContaining("已取消") }, expect.any(Object));
+    expect(channel.recallMessage).toHaveBeenCalledWith("card_q");
+  });
+
+  it("still confirms the cancel even if recalling the queue card fails", async () => {
+    const runtime = createCoreServiceRuntime();
+    runtime.queueCards.set("om_queued", { messageId: "card_q" }); // inline card (no CardKit)
+    vi.spyOn(runtime.chatQueue, "cancel").mockReturnValue(true);
+    // Recall can fail (e.g. outside the recall window): the cancel must still
+    // be confirmed by the fresh notice, never vanish silently.
+    const channel = fakeChannel({ recallMessage: vi.fn(async () => { throw new Error("recall window expired"); }) });
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat", taskId: "om_queued" } },
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(runtime.cancelledQueueTaskIds.has("om_queued")).toBe(true); // claimed → later skip stays silent
+    expect(channel.recallMessage).toHaveBeenCalledWith("card_q");
+    expect(channel.send).toHaveBeenCalledWith(
+      "oc_chat",
+      { text: expect.stringContaining("已取消") },
+      expect.any(Object),
+    );
+  });
+
+  it("cancels a managed queue card in place through the managed-card port (no recall, no extra notice)", async () => {
+    const runtime = createCoreServiceRuntime();
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({ managedCards: { send: vi.fn(async () => undefined), update, updateElement: vi.fn(async () => false) } });
+    // The queue card was delivered as a managed card → handle tracked.
+    runtime.queueCards.set("om_queued", { messageId: "om_qcard", handle: { messageId: "om_qcard", cardId: "card_q", sequence: 0 } });
+    vi.spyOn(runtime.chatQueue, "cancel").mockReturnValue(true);
+
+    const handled = await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat", taskId: "om_queued" } } },
+    });
+
+    expect(handled).toBe(true);
+    // The cancel is claimed immediately; the card flip to "已取消" is detached +
+    // delayed (settle window) so the client's post-tap lock doesn't revert it.
+    expect(runtime.cancelledQueueTaskIds.has("om_queued")).toBe(true);
+    expect(runtime.queueCards.has("om_queued")).toBe(false);
+    // Flipped IN PLACE via a managed-card full update — no recall, no second message.
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    const body = JSON.stringify(update.mock.calls.at(-1));
+    expect(body).toContain("card_q");
+    expect(body).toContain("已取消");
+    expect(channel.recallMessage).not.toHaveBeenCalled();
+    expect(channel.send).not.toHaveBeenCalled();
+  });
+
+  it("falls back to recall + notice when the managed-card cancel update fails", async () => {
+    const runtime = createCoreServiceRuntime();
+    // ManagedCardTransport reports a failed in-place update as false.
+    const update = vi.fn(async () => false);
+    const channel = fakeChannel({ managedCards: { send: vi.fn(async () => undefined), update, updateElement: vi.fn(async () => false) } });
+    runtime.queueCards.set("om_queued", { messageId: "om_qcard", handle: { messageId: "om_qcard", cardId: "card_q", sequence: 0 } });
+    vi.spyOn(runtime.chatQueue, "cancel").mockReturnValue(true);
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat", taskId: "om_queued" } } },
+    });
+
+    // The managed-card update is detached + delayed; it fails → fall back to
+    // the fresh notice + recall.
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    await vi.waitFor(
+      () => expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: expect.stringContaining("已取消") }, expect.any(Object)),
+      { timeout: 2000 },
+    );
+    expect(channel.recallMessage).toHaveBeenCalledWith("om_qcard");
+  });
+
+  it("treats a stale queue-card stop tap as a no-op instead of aborting the active run", async () => {
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    vi.spyOn(runtime.chatQueue, "cancel").mockReturnValue(false); // taskId no longer queued
+    const channel = fakeChannel();
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat", taskId: "om_active" } },
+      },
+    });
+
+    expect(handled).toBe(true);
+    // A taskId-carrying stop tap targets a QUEUE card. When its task is no longer
+    // pending, the card is stale — it must never abort whatever run is active NOW
+    // (that's /stop or the run card's own taskId-less stop button).
+    expect(abortController.signal.aborted).toBe(false);
+    expect(channel.send).toHaveBeenCalledWith(
+      "oc_chat",
+      { text: expect.stringContaining("已不在队列中") },
+      expect.any(Object),
+    );
+  });
+
+  it("treats a repeat cancel tap as a no-op and never aborts the active run", async () => {
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    // First cancel already marked this task cancelled (silent-skip claim).
+    runtime.cancelledQueueTaskIds.add("om_queued");
+    const cancelSpy = vi.spyOn(runtime.chatQueue, "cancel");
+    const channel = fakeChannel();
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat", taskId: "om_queued" } },
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(cancelSpy).not.toHaveBeenCalled(); // short-circuited
+    expect(abortController.signal.aborted).toBe(false); // did NOT fall through to abort active
+  });
+
+  it("renders Lark stop card action replies in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stop-card-en-"));
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      const handled = await handleCoreCardAction({
+        channel,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_card_en",
+          operator: { openId: "ou_user" },
+          action: {
+            value: { cctb_lark: "stop", conversationKey: "lark:oc_chat" },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(abortController.signal.aborted).toBe(true);
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "Stopped." }, { replyTo: "om_card_en" });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers generated files with bracketed names from bridge delivery tags", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    const filePath = path.join(outputDir, "report [video-id].txt");
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(filePath, "report body");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({ type: "result", text: `Here [send-file:${filePath}]` });
+        return { text: `Here [send-file:${filePath}]` };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "make report",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { file: { source: Buffer.from("report body"), fileName: "report [video-id].txt" } },
+        { replyTo: "om_1" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        metadata: expect.objectContaining({
+          fileName: "report [video-id].txt",
+          bytes: Buffer.byteLength("report body"),
+          via: "post-turn",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not mark the run card completed until generated-image delivery finishes", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-status-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    const imagePath = path.join(outputDir, "cover.png");
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(imagePath, "image body");
+
+    let signalUploadStarted!: () => void;
+    const uploadStarted = new Promise<void>((resolve) => {
+      signalUploadStarted = resolve;
+    });
+    let releaseUpload!: () => void;
+    const uploadGate = new Promise<void>((resolve) => {
+      releaseUpload = resolve;
+    });
+    const channel = fakeChannel({
+      send: vi.fn(async (_chatId: string, payload: unknown) => {
+        if (payload && typeof payload === "object" && "image" in payload) {
+          signalUploadStarted();
+          await uploadGate;
+        }
+        return { messageId: "sent_1" };
+      }),
+      uploadImage: vi.fn(async () => {
+        signalUploadStarted();
+        await uploadGate;
+        return "img_key_delivery_status";
+      }),
+    });
+    const responseText = `图片已生成。\n[send-image:${imagePath}]`;
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({ type: "result", text: responseText });
+        return { text: responseText };
+      }),
+    };
+    let turn: Promise<boolean> | undefined;
+
+    try {
+      turn = handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_delivery_status", content: "生成图片" }),
+      });
+
+      await uploadStarted;
+      const whileUploading = JSON.stringify(channel.updateCard.mock.calls);
+      expect(whileUploading).toContain("正在交付结果");
+      expect(whileUploading).not.toContain("已完成");
+
+      releaseUpload();
+      await turn;
+      const finalUpdate = JSON.stringify(channel.updateCard.mock.calls.at(-1));
+      expect(finalUpdate).toContain("已完成");
+    } finally {
+      releaseUpload?.();
+      await turn?.catch(() => undefined);
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("streams Kimi thinking/tools into the Lark run card and auto-delivers .lark-out files", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-kimi-stream-delivery-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        requestOutputDir?: string;
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        const outputDir = input.requestOutputDir!;
+        const reportPath = path.join(outputDir, "kimi-report.txt");
+        await writeFile(reportPath, "kimi report");
+        await input.onEngineEvent?.({ type: "thinking", text: "Kimi reasoning" });
+        await input.onEngineEvent?.({ type: "tool_use", toolName: "Read", toolInput: { path: "README.md" }, toolUseId: "kimi-read" });
+        await input.onEngineEvent?.({ type: "tool_result", toolName: "Read", toolUseId: "kimi-read", output: "read ok" });
+        await input.onEngineEvent?.({ type: "assistant_text", text: "Kimi answer", delta: true });
+        await input.onEngineEvent?.({ type: "result", text: `Kimi answer\n[send-file:${reportPath}]` });
+        return { text: `Kimi answer\n[send-file:${reportPath}]` };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_kimi_stream", content: "make a report" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        requestOutputDir: expect.stringContaining(path.join("workspace", ".lark-out", "om_kimi_stream")),
+      }));
+      const cards = JSON.stringify(channel.updateCard.mock.calls);
+      expect(cards).toContain("Kimi reasoning");
+      expect(cards).toContain("Read");
+      expect(cards).toContain("Kimi answer");
+      expect(cards).not.toContain("send-file:");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { file: { source: Buffer.from("kimi report"), fileName: "kimi-report.txt" } },
+        { replyTo: "om_kimi_stream" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to file delivery when Lark image delivery fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-fallback-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    const imagePath = path.join(outputDir, "cover.png");
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(imagePath, "image body");
+    const channel = fakeChannel({
+      send: vi.fn(async (_chatId: string, payload: unknown) => {
+        if (payload && typeof payload === "object" && "image" in payload) {
+          throw new Error("image upload failed");
+        }
+        return { messageId: "sent_1" };
+      }),
+      // Force the captioned-card path to fail so this still exercises the
+      // image-message → file fallback (card → image → file is the full chain).
+      uploadImage: vi.fn(async () => { throw new Error("card upload failed"); }),
+    });
+
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: `Cover ready [send-image:${imagePath}]`,
+        stateDir,
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { image: { source: Buffer.from("image body") } },
+        undefined,
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { file: { source: Buffer.from("image body"), fileName: "cover.png" } },
+        undefined,
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        metadata: expect.objectContaining({
+          fileName: "cover.png",
+          kind: "file",
+          fallbackFrom: "image",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still delivers the text reply when image delivery fails entirely (a send failure must not abort the turn)", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-abort-"));
+    const workspace = path.join(stateDir, "workspace");
+    const imagePath = path.join(workspace, "cover.png");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(imagePath, "image body");
+    const channel = fakeChannel({
+      // Every image / file / card send fails; only the plain markdown text succeeds.
+      send: vi.fn(async (_chatId: string, payload: unknown) => {
+        if (payload && typeof payload === "object" && ("image" in payload || "file" in payload || "card" in payload)) {
+          throw new Error("send failed");
+        }
+        return { messageId: "sent_1" };
+      }),
+      uploadImage: vi.fn(async () => { throw new Error("upload failed"); }),
+    });
+
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: `答案文本\n[send-image:${imagePath}]`,
+        stateDir,
+      });
+
+      // The text answer (with the image tag stripped) is still delivered despite the
+      // total image-delivery failure — it is NOT aborted by the thrown send.
+      const textSent = (channel.send.mock.calls as unknown[][]).some((c) => {
+        const payload = c[1] as { markdown?: string } | undefined;
+        return typeof payload?.markdown === "string" && payload.markdown.includes("答案文本");
+      });
+      expect(textSent).toBe(true);
+      expect((channel.send.mock.calls as unknown[][]).some((c) => {
+        const payload = c[1] as { text?: string } | undefined;
+        return payload?.text?.includes("上传被飞书拒绝") === true;
+      })).toBe(true);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers a titled [send-image:] batch as ONE card, each image keeping its own caption", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-card-"));
+    const workspace = path.join(stateDir, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const p1 = path.join(workspace, "p1.png");
+    const p2 = path.join(workspace, "p2.png");
+    await writeFile(p1, "p1 bytes");
+    await writeFile(p2, "p2 bytes");
+    const channel = fakeChannel();
+
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: `这是封面图\n\nP1 封面标题\n[send-image:${p1}]\n\nP2 内页标题\n[send-image:${p2}]`,
+        stateDir,
+      });
+
+      // Both images are uploaded (for img_keys) and packed into a SINGLE card — a
+      // titled series stays grouped instead of fanning out to one card per image.
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(2);
+      const cardCalls = (channel.send.mock.calls as unknown[][])
+        .map((c) => (c[1] as { card?: { body?: { elements?: Array<Record<string, unknown>> } } } | undefined)?.card)
+        .filter((card): card is { body: { elements: Array<Record<string, unknown>> } } => Boolean(card));
+      expect(cardCalls).toHaveLength(1);
+
+      // The one card carries both caption→image pairs, in order.
+      const els = cardCalls[0]!.body.elements;
+      expect(els).toEqual([
+        { tag: "markdown", content: "P1 封面标题" },
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "P1 封面标题" } },
+        { tag: "markdown", content: "P2 内页标题" },
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "P2 内页标题" } },
+      ]);
+
+      // No bare image message was sent (everything went through the consolidated card).
+      expect((channel.send.mock.calls as unknown[][]).some((c) =>
+        c[1] && typeof c[1] === "object" && "image" in (c[1] as object))).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not reuse preceding prose as the first caption of an untitled image batch", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-prose-caption-"));
+    const workspace = path.join(stateDir, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const p1 = path.join(workspace, "p1.png");
+    const p2 = path.join(workspace, "p2.png");
+    await writeFile(p1, "p1 bytes");
+    await writeFile(p2, "p2 bytes");
+    const channel = fakeChannel();
+
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: `图刚才应该发出来了，我重发一次：\n\n[send-image:${p1}]\n[send-image:${p2}]\n\n两张按顺序交付。`,
+        stateDir,
+      });
+
+      const imageCard = (channel.send.mock.calls as unknown[][])
+        .map((call) => (call[1] as { card?: { body?: { elements?: Array<Record<string, unknown>> } } } | undefined)?.card)
+        .find((card): card is { body: { elements: Array<Record<string, unknown>> } } => Boolean(card));
+      expect(imageCard?.body.elements).toEqual([
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "图片" } },
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "图片" } },
+      ]);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("packs a large in-limit [send-image:] batch into a single card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-onecard-"));
+    const workspace = path.join(stateDir, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const total = 15;
+    const captions: string[] = [];
+    const blocks: string[] = [];
+    for (let i = 1; i <= total; i++) {
+      const label = `P${String(i).padStart(2, "0")}`;
+      const file = path.join(workspace, `${label}.png`);
+      await writeFile(file, `${label} bytes`);
+      captions.push(label);
+      blocks.push(`${label} 标题\n[send-image:${file}]`);
+    }
+    const channel = fakeChannel();
+
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: blocks.join("\n\n"),
+        stateDir,
+      });
+
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(total);
+      const cardCalls = (channel.send.mock.calls as unknown[][])
+        .map((c) => (c[1] as { card?: { body?: { elements?: Array<Record<string, unknown>> } } } | undefined)?.card)
+        .filter((card): card is { body: { elements: Array<Record<string, unknown>> } } => Boolean(card));
+
+      // The whole validated batch rides in one card.
+      expect(cardCalls).toHaveLength(1);
+      expect(cardCalls[0]!.body.elements.filter((e) => e.tag === "img")).toHaveLength(total);
+
+      // Every caption present, in order.
+      const orderedCaptions = cardCalls[0]!.body.elements.filter((e) => e.tag === "markdown").map((e) => e.content as string);
+      expect(orderedCaptions).toEqual(captions.map((c) => `${c} 标题`));
+
+      // No bare image fallback — everything rode in the one card.
+      expect((channel.send.mock.calls as unknown[][]).some((c) =>
+        c[1] && typeof c[1] === "object" && "image" in (c[1] as object))).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("splits in half and retries only when the channel rejects an oversized card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-split-"));
+    const workspace = path.join(stateDir, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const total = 15;
+    const captions: string[] = [];
+    const blocks: string[] = [];
+    for (let i = 1; i <= total; i++) {
+      const label = `P${String(i).padStart(2, "0")}`;
+      const file = path.join(workspace, `${label}.png`);
+      await writeFile(file, `${label} bytes`);
+      captions.push(label);
+      blocks.push(`${label} 标题\n[send-image:${file}]`);
+    }
+    // Simulate Feishu rejecting any card carrying more than 10 images (a stand-in for
+    // the byte ceiling); smaller cards are accepted.
+    const REJECT_OVER = 10;
+    const channel = fakeChannel({
+      send: vi.fn(async (_chatId: string, payload: unknown) => {
+        const card = (payload as { card?: { body?: { elements?: Array<{ tag?: string }> } } } | undefined)?.card;
+        if (card) {
+          const imgs = (card.body?.elements ?? []).filter((e) => e.tag === "img").length;
+          if (imgs > REJECT_OVER) {
+            return Promise.reject("card payload too large");
+          }
+        }
+        return { messageId: "sent" };
+      }),
+    });
+
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: blocks.join("\n\n"),
+        stateDir,
+      });
+
+      const cardCalls = (channel.send.mock.calls as unknown[][])
+        .map((c) => (c[1] as { card?: { body?: { elements?: Array<Record<string, unknown>> } } } | undefined)?.card)
+        .filter((card): card is { body: { elements: Array<Record<string, unknown>> } } => Boolean(card));
+      const imgCount = (card: { body: { elements: Array<Record<string, unknown>> } }) =>
+        card.body.elements.filter((e) => e.tag === "img").length;
+
+      // It tried the whole batch in one card first (rejected), then split in half.
+      expect(cardCalls.map(imgCount)).toContain(total);
+      // The cards that fit (<= the limit) carry every image exactly once, in order.
+      const acceptedCards = cardCalls.filter((c) => imgCount(c) <= REJECT_OVER);
+      expect(acceptedCards.reduce((n, c) => n + imgCount(c), 0)).toBe(total);
+      const orderedCaptions = acceptedCards
+        .flatMap((c) => c.body.elements.filter((e) => e.tag === "markdown").map((e) => e.content as string));
+      expect(orderedCaptions).toEqual(captions.map((c) => `${c} 标题`));
+
+      // Split cards succeeded, so no bare image fallback was needed.
+      expect((channel.send.mock.calls as unknown[][]).some((c) =>
+        c[1] && typeof c[1] === "object" && "image" in (c[1] as object))).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not resend an image batch when the card acknowledgement is ambiguous", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-ambiguous-"));
+    const workspace = path.join(stateDir, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const first = path.join(workspace, "first.png");
+    const second = path.join(workspace, "second.png");
+    await writeFile(first, "first image");
+    await writeFile(second, "second image");
+    const channel = fakeChannel({
+      send: vi.fn(async (_chatId: string, payload: unknown) => {
+        const card = (payload as { card?: { body?: { elements?: Array<{ tag?: string }> } } } | undefined)?.card;
+        const imageCount = (card?.body?.elements ?? []).filter((element) => element.tag === "img").length;
+        if (imageCount > 0) {
+          const error = Object.assign(new Error("timed out waiting for card acknowledgement"), {
+            code: "ETIMEDOUT",
+          });
+          throw error;
+        }
+        return { messageId: "sent" };
+      }),
+    });
+
+    try {
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: `P1\n[send-image:${first}]\n\nP2\n[send-image:${second}]`,
+        stateDir,
+      });
+
+      const cardCalls = (channel.send.mock.calls as unknown[][])
+        .map((call) => (call[1] as { card?: { body?: { elements?: Array<{ tag?: string }> } } } | undefined)?.card)
+        .filter((card): card is { body: { elements: Array<{ tag?: string }> } } => Boolean(card));
+      const imageCounts = cardCalls.map((card) => card.body.elements.filter((element) => element.tag === "img").length);
+      expect(imageCounts).toEqual([2]);
+      expect((channel.send.mock.calls as unknown[][]).some((call) => {
+        const payload = call[1] as { image?: unknown; file?: unknown } | undefined;
+        return payload?.image !== undefined || payload?.file !== undefined;
+      })).toBe(false);
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("避免重复");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records rejected Lark file delivery tags in the timeline", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-reject-"));
+    const outsideDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-outside-"));
+    const outsidePath = path.join(outsideDir, "secret.txt");
+    await writeFile(outsidePath, "do not send");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: `[tool:{"name":"send.file","payload":{"path":${JSON.stringify(outsidePath)}}}]`,
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_reject_file",
+          content: "send outside file",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).toContain("不在允许发送的目录内");
+      // The final truthful failure names the exact allowed directory after the
+      // automatic repair turn also returns a rejected path.
+      expect(rendered).toContain(`${path.sep}workspace`);
+      expect(channel.send).not.toHaveBeenCalledWith(
+        "oc_chat",
+        { file: expect.anything() },
+        expect.anything(),
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.rejected",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        outcome: "rejected",
+        metadata: expect.objectContaining({
+          path: outsidePath,
+          reason: "outside-workspace",
+          kind: "file",
+        }),
+      }));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "partial",
+        detail: "engine completed; artifact delivery preflight failed",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs an outside-workspace delivery path before it reaches the user", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-repair-"));
+    const outsideDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-repair-outside-"));
+    const outsidePath = path.join(outsideDir, "wx-final.png");
+    const workspacePath = path.join(stateDir, "workspace", "wx-final.png");
+    await writeFile(outsidePath, "qr image bytes");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn()
+        .mockResolvedValueOnce({
+          text: `请扫码完成验证。\n[send-image:${outsidePath}]`,
+          usage: { inputTokens: 10, outputTokens: 5 },
+        })
+        .mockImplementationOnce(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+          expect(input.text).toContain("Delivery preflight retry");
+          expect(input.text).toContain(outsidePath);
+          expect(input.text).toContain(path.join(stateDir, "workspace"));
+          await mkdir(path.dirname(workspacePath), { recursive: true });
+          await copyFile(outsidePath, workspacePath);
+          return {
+            text: `[send-image:${workspacePath}]`,
+            usage: { inputTokens: 7, outputTokens: 3 },
+          };
+        }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_repair_outside_image",
+          content: "把登录二维码发给我",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(1);
+      const rendered = JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls);
+      expectLarkFinalAnswer(channel, "请扫码完成验证");
+      expect(rendered).not.toContain("不在允许发送的目录内");
+      expect(rendered).not.toContain(outsidePath);
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        outcome: "retry",
+        detail: "delivery_preflight_rejected_path",
+        metadata: expect.objectContaining({ phase: "delivery-preflight-guard" }),
+      }));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "success",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs an oversized video before attempting the Lark upload", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-oversize-repair-"));
+    const workspace = path.join(stateDir, "workspace");
+    const oversizedPath = path.join(workspace, "full-video.mp4");
+    const compressedPath = path.join(workspace, "full-video-compressed.mp4");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(oversizedPath, "");
+    await truncate(oversizedPath, CORE_FILE_UPLOAD_MAX_BYTES + 1);
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn()
+        .mockResolvedValueOnce({
+          text: `视频已生成。\n[send-file:${oversizedPath}]`,
+        })
+        .mockImplementationOnce(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+          expect(input.text).toContain("Delivery preflight retry");
+          expect(input.text).toContain(oversizedPath);
+          expect(input.text).toContain("too-large");
+          expect(input.text).toContain("26 MiB");
+          expect(input.text).toContain("compressed replacement or split parts");
+          await writeFile(compressedPath, "compressed video body");
+          return { text: `[send-file:${compressedPath}]` };
+        }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_repair_oversized_video",
+          content: "把视频发给我",
+        }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { video: { source: Buffer.from("compressed video body"), fileName: "full-video-compressed.mp4" } },
+        { replyTo: "om_repair_oversized_video" },
+      );
+      expect((channel.send.mock.calls as unknown[][]).some((call) => {
+        return Boolean((call[1] as { file?: unknown }).file);
+      })).toBe(false);
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.rejected",
+        outcome: "rejected",
+        metadata: expect.objectContaining({
+          path: oversizedPath,
+          reason: "too-large",
+        }),
+      }));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "success",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("still delivers verified siblings when a delivery repair round fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-partial-repair-"));
+    const workspace = path.join(stateDir, "workspace");
+    const validPath = path.join(workspace, "valid.txt");
+    const outsideDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-delivery-partial-outside-"));
+    const outsidePath = path.join(outsideDir, "outside.txt");
+    await mkdir(workspace, { recursive: true });
+    await writeFile(validPath, "valid sibling");
+    await writeFile(outsidePath, "outside artifact");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn()
+        .mockResolvedValueOnce({
+          text: `报告如下。\n[send-file:${validPath}]\n[send-file:${outsidePath}]`,
+        })
+        .mockResolvedValueOnce({ text: "无法修复该文件。" }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_partial_repair", content: "发送两份报告" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { file: { source: Buffer.from("valid sibling"), fileName: "valid.txt" } },
+        { replyTo: "om_partial_repair" },
+      );
+      expectLarkFinalAnswer(channel, "报告如下");
+      expectLarkFinalAnswer(channel, "交付失败");
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain("outside artifact");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs a mixed generated_images response before any partial delivery", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-genimg-"));
+    const codexHome = await mkdtemp(path.join(os.tmpdir(), "cctb-codex-home-"));
+    const genDir = path.join(codexHome, "generated_images", "session-1");
+    await mkdir(genDir, { recursive: true });
+    const imageA = path.join(genDir, "call_a.png");
+    await writeFile(imageA, "png-bytes-a");
+    // A symlink planted inside generated_images must NOT smuggle an outside file.
+    const outsideDir = await mkdtemp(path.join(os.tmpdir(), "cctb-genimg-outside-"));
+    const smuggled = path.join(outsideDir, "secret.png");
+    await writeFile(smuggled, "secret");
+    const smuggleLink = path.join(genDir, "link.png");
+    await symlink(smuggled, smuggleLink);
+    const outsideB = path.join(outsideDir, "b.png");
+    const outsideC = path.join(outsideDir, "c.png");
+    await writeFile(outsideB, "b");
+    await writeFile(outsideC, "c");
+
+    const repairedDir = path.join(stateDir, "workspace", "repaired");
+    const repairedSmuggle = path.join(repairedDir, "link.png");
+    const repairedB = path.join(repairedDir, "b.png");
+    const repairedC = path.join(repairedDir, "c.png");
+    const store = new CronStore(stateDir);
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn()
+        .mockResolvedValueOnce({
+          // One legit generated image + a symlink escape + two other outside paths.
+          text: [
+            "四张图如下。",
+            '[tool:{"name":"cron.add","payload":{"in":"1d","prompt":"review delivery"}}]',
+            `[send-image:${imageA}]`,
+            `[send-image:${smuggleLink}]`,
+            `[send-image:${outsideB}]`,
+            `[send-image:${outsideC}]`,
+          ].join("\n"),
+        })
+        .mockImplementationOnce(async () => {
+          await mkdir(repairedDir, { recursive: true });
+          await Promise.all([
+            copyFile(smuggled, repairedSmuggle),
+            copyFile(outsideB, repairedB),
+            copyFile(outsideC, repairedC),
+          ]);
+          return {
+            text: [
+              `[send-image:${repairedSmuggle}]`,
+              `[send-image:${repairedB}]`,
+              `[send-image:${repairedC}]`,
+            ].join("\n"),
+          };
+        }),
+    };
+    const prevCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime({
+          cronRuntime: {
+            store,
+            scheduler: { refresh: vi.fn(async () => undefined), runJobNow: vi.fn(async () => undefined) },
+          },
+        }),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_genimg", content: "发图" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ text: expect.stringContaining("Delivery preflight retry") }),
+      );
+      expectLarkFinalAnswer(channel, "四张图如下");
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(4);
+      expect(await store.list()).toEqual([
+        expect.objectContaining({ runOnce: true, prompt: "review delivery" }),
+      ]);
+      expect(JSON.stringify(channel.send.mock.calls) + JSON.stringify(channel.updateCard.mock.calls)).not.toContain("交付失败");
+      // The timeline still records every rejected path individually.
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      const rejected = timeline.filter((event) => event.type === "file.rejected");
+      expect(rejected.map((event) => (event.metadata as { path?: string }).path).sort()).toEqual(
+        [smuggleLink, outsideB, outsideC].sort(),
+      );
+    } finally {
+      if (prevCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = prevCodexHome;
+      }
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(codexHome, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sends an out-of-workspace file when CCTB_LARK_ALLOW_ANY_FILE_PATH is enabled", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-anypath-"));
+    const outsideDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-outside-ok-"));
+    const outsidePath = path.join(outsideDir, "report.txt");
+    await writeFile(outsidePath, "send me");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: `[tool:{"name":"send.file","payload":{"path":${JSON.stringify(outsidePath)}}}]`,
+      })),
+    };
+    const prev = process.env.CCTB_LARK_ALLOW_ANY_FILE_PATH;
+    process.env.CCTB_LARK_ALLOW_ANY_FILE_PATH = "1";
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_anypath", content: "send outside file" }),
+      });
+
+      // Toggle on → the out-of-workspace file is sent, not rejected.
+      const calls = channel.send.mock.calls as unknown as unknown[][];
+      const fileCall = calls.find((c) => (c[1] as { file?: unknown } | undefined)?.file);
+      expect(fileCall).toBeDefined();
+      expect((fileCall![1] as { file: { fileName: string } }).file.fileName).toBe("report.txt");
+      const texts = calls.map((c) => (c[1] as { text?: string } | undefined)?.text).filter(Boolean).join("\n");
+      expect(texts).not.toContain("不在允许发送的目录内");
+    } finally {
+      if (prev === undefined) {
+        delete process.env.CCTB_LARK_ALLOW_ANY_FILE_PATH;
+      } else {
+        process.env.CCTB_LARK_ALLOW_ANY_FILE_PATH = prev;
+      }
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not preserve misleading Lark delivery claims when a send tool is rejected", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-send-tool-reject-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: 'Done, file sent.\n[tool:{"name":"send.file","payload":{"path":"/tmp/cctb-lark-missing-report.txt"}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_missing_file",
+          content: "send missing file",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("Done, file sent.");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "文件未发送：文件不存在（cctb-lark-missing-report.txt）。发送方引用了一个从未生成的路径。" },
+        { replyTo: "om_missing_file" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not preserve misleading Lark send.batch messages when a batch file is rejected", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-send-batch-reject-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"send.batch","payload":{"message":"All files sent.","files":["/tmp/cctb-lark-missing-batch.txt"]}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_missing_batch",
+          content: "send missing batch",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("All files sent.");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "文件未发送：文件不存在（cctb-lark-missing-batch.txt）。发送方引用了一个从未生成的路径。" },
+        { replyTo: "om_missing_batch" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("executes fenced send.batch tool-call blocks in Lark replies", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-fenced-batch-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    const filePath = path.join(outputDir, "report.txt");
+    const imagePath = path.join(outputDir, "plot.png");
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(filePath, "report body");
+    await writeFile(imagePath, "image body");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          "```tool-call",
+          JSON.stringify({
+            name: "send.batch",
+            payload: {
+              message: "Batch ready.",
+              files: [filePath],
+              images: [imagePath],
+            },
+          }),
+          "```",
+        ].join("\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_fenced_batch",
+          content: "send batch",
+        }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { image: { source: Buffer.from("image body") } },
+        { replyTo: "om_fenced_batch" },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { file: { source: Buffer.from("report body"), fileName: "report.txt" } },
+        { replyTo: "om_fenced_batch" },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "Batch ready." },
+        { replyTo: "om_fenced_batch" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers Kimi send.batch files given as {path, caption} objects", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-kimi-captioned-files-"));
+    const outputDir = path.join(stateDir, "workspace");
+    const paths = ["report.md", "report.html", "report.pdf"].map((name) => path.join(outputDir, name));
+    await mkdir(outputDir, { recursive: true });
+    await Promise.all(paths.map(async (filePath) => await writeFile(filePath, path.basename(filePath))));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          "```tool-call",
+          JSON.stringify({
+            name: "send.batch",
+            payload: {
+              files: paths.map((filePath) => ({ path: filePath, caption: path.basename(filePath) })),
+            },
+          }),
+          "```",
+        ].join("\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_kimi_captioned_files", content: "send reports" }),
+      });
+
+      for (const filePath of paths) {
+        expect(channel.send).toHaveBeenCalledWith(
+          "oc_chat",
+          { markdown: path.basename(filePath) },
+          { replyTo: "om_kimi_captioned_files" },
+        );
+        expect(channel.send).toHaveBeenCalledWith(
+          "oc_chat",
+          { file: { source: Buffer.from(path.basename(filePath)), fileName: path.basename(filePath) } },
+          { replyTo: "om_kimi_captioned_files" },
+        );
+      }
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain("飞书工具参数无效");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders send.batch images given as {path, caption} objects in ONE grouped card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-batch-caption-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    await mkdir(outputDir, { recursive: true });
+    const p1 = path.join(outputDir, "p1.png");
+    const p2 = path.join(outputDir, "p2.png");
+    await writeFile(p1, "p1 bytes");
+    await writeFile(p2, "p2 bytes");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          "```tool-call",
+          JSON.stringify({
+            name: "send.batch",
+            payload: { images: [{ path: p1, caption: "P1 · 封面" }, { path: p2, caption: "P2 · 内页" }] },
+          }),
+          "```",
+        ].join("\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_batch_caption", content: "出图" }),
+      });
+
+      // A structured batch follows the same one-card contract as adjacent
+      // [send-image:] tags: every title stays paired with its image in order.
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(2);
+      const cardCalls = (channel.send.mock.calls as unknown[][])
+        .map((c) => (c[1] as { card?: { body?: { elements?: Array<Record<string, unknown>> } } } | undefined)?.card)
+        .filter((card): card is { body: { elements: Array<Record<string, unknown>> } } =>
+          Boolean(card?.body?.elements?.some((element) => element.tag === "img")));
+      expect(cardCalls).toHaveLength(1);
+      expect(cardCalls[0]!.body.elements).toEqual([
+        { tag: "markdown", content: "P1 · 封面" },
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "P1 · 封面" } },
+        { tag: "markdown", content: "P2 · 内页" },
+        { tag: "img", img_key: "img_key_fake", alt: { tag: "plain_text", content: "P2 · 内页" } },
+      ]);
+      // Not bare image messages.
+      expect((channel.send.mock.calls as unknown[][]).some((c) =>
+        c[1] && typeof c[1] === "object" && "image" in (c[1] as object))).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers each image once when send.batch and legacy tags repeat the same paths", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-cross-protocol-dedup-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    await mkdir(outputDir, { recursive: true });
+    const p1 = path.join(outputDir, "p1.png");
+    const p2 = path.join(outputDir, "p2.png");
+    await writeFile(p1, "p1 bytes");
+    await writeFile(p2, "p2 bytes");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          "```tool-call",
+          JSON.stringify({
+            name: "send.batch",
+            payload: { images: [{ path: p1, caption: "P1" }, { path: p2, caption: "P2" }] },
+          }),
+          "```",
+          `P1 legacy\n[send-image:${p1}]`,
+          `P2 legacy\n[send-image:${p2}]`,
+          "两种协议不应导致重复交付。",
+        ].join("\n\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_cross_protocol_dedup", content: "出图" }),
+      });
+
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(2);
+      const imageCards = (channel.send.mock.calls as unknown[][])
+        .map((call) => (call[1] as { card?: { body?: { elements?: Array<{ tag?: string }> } } } | undefined)?.card)
+        .filter((card) => card?.body?.elements?.some((element) => element.tag === "img"));
+      expect(imageCards).toHaveLength(1);
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline.filter((event) => event.type === "file.accepted")).toHaveLength(2);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("deduplicates structured and legacy image paths that resolve through a symlink", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-realpath-dedup-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    await mkdir(outputDir, { recursive: true });
+    const realImage = path.join(outputDir, "cover.png");
+    const imageAlias = path.join(outputDir, "cover-alias.png");
+    await writeFile(realImage, "cover bytes");
+    await symlink(realImage, imageAlias);
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          "```tool-call",
+          JSON.stringify({
+            name: "send.image",
+            payload: { path: realImage, caption: "Cover" },
+          }),
+          "```",
+          `Cover legacy\n[send-image:${imageAlias}]`,
+        ].join("\n\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_realpath_dedup", content: "出图" }),
+      });
+
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(1);
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline.filter((event) => event.type === "file.accepted")).toHaveLength(1);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders a send.image with a caption as a title+image card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-image-caption-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    await mkdir(outputDir, { recursive: true });
+    const img = path.join(outputDir, "cover.png");
+    await writeFile(img, "cover bytes");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: `[tool:${JSON.stringify({ name: "send.image", payload: { path: img, caption: "封面标题" } })}]`,
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_img_caption", content: "出图" }),
+      });
+
+      expect(imageCreateMock(channel)).toHaveBeenCalledTimes(1);
+      const pairs = (channel.send.mock.calls as unknown[][])
+        .map((c) => (c[1] as { card?: { body?: { elements?: Array<Record<string, unknown>> } } } | undefined)?.card)
+        .filter((card): card is { body: { elements: Array<Record<string, unknown>> } } => Boolean(card))
+        .map((card) => ({
+          caption: card.body.elements.find((e) => e.tag === "markdown")?.content as string | undefined,
+          imgKey: card.body.elements.find((e) => e.tag === "img")?.img_key as string | undefined,
+        }));
+      expect(pairs).toContainEqual({ caption: "封面标题", imgKey: "img_key_fake" });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unknown Lark tool tags instead of silently dropping them", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-unknown-tool-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: 'Done.\n[tool:{"name":"send.location","payload":{"lat":1,"lng":2}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_unknown_tool",
+          content: "send location",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("Done.");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "错误：不支持的飞书工具 send.location。" },
+        { replyTo: "om_unknown_tool" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid Lark send.file payloads instead of treating them as unknown tools", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-invalid-send-file-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: 'Done.\n[tool:{"name":"send.file","payload":{}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_invalid_send_file",
+          content: "send invalid file",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("Done.");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ text: expect.stringContaining("Delivery preflight retry") }),
+      );
+      expectLarkFinalAnswer(channel, "invalid-directive");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders invalid Lark send.file payload errors in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-invalid-send-file-en-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: 'Done.\n[tool:{"name":"send.file","payload":{}}]',
+      })),
+    };
+
+    try {
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_invalid_send_file_en",
+          content: "send invalid file",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("Done.");
+      expect(rendered).not.toContain("错误：");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expectLarkFinalAnswer(channel, "Delivery failed");
+      expectLarkFinalAnswer(channel, "invalid-directive");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid Lark send.batch array entries instead of silently ignoring them", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-invalid-send-batch-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"send.batch","payload":{"message":"Batch ready.","files":[123]}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_invalid_send_batch",
+          content: "send invalid batch",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("Batch ready.");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expectLarkFinalAnswer(channel, "invalid-directive");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects invalid Lark send.batch audio and video arrays", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-invalid-media-batch-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"send.batch","payload":{"message":"Media ready.","audios":["/tmp/a.mp3"],"videos":[42]}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_invalid_media_batch",
+          content: "send invalid media batch",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("Media ready.");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expectLarkFinalAnswer(channel, "invalid-directive");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not preserve misleading claims when a Lark tool tag contains malformed JSON", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-malformed-tool-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '9 张图都已发出。\n[tool:{"name":"send.batch","payload":{"message":"Done" "images":["/tmp/a.png"]}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_malformed_tool",
+          content: "send malformed batch",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("都已发出");
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expectLarkFinalAnswer(channel, "invalid-directive");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports a sanitized error when attachment download fails before the engine starts", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-download-fail-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => {
+        throw new Error(`/private/tmp/${path.basename(stateDir)}/download failed`);
+      }),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "see file",
+          rawContentType: "text",
+          resources: [{ type: "file", fileKey: "file_1", fileName: "note.txt" }],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      })).resolves.toBe(true);
+
+      expect(runtime.activeRuns.size).toBe(0);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      // A failed attachment download is a FILE problem, not an unexplained
+      // prepare failure: it is named so classifyFailure lands on file-workflow
+      // and the user gets something actionable. The raw path must still never
+      // reach the chat.
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "错误：文件处理失败，请换一个文件或缩小文件后重试。" },
+        { replyTo: "om_1", replyInThread: false },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain(stateDir);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports sanitized Lark preparation errors in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-download-fail-en-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => {
+        throw new Error(`/private/tmp/${path.basename(stateDir)}/download failed`);
+      }),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: {
+          messageId: "om_1_en",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "see file",
+          rawContentType: "text",
+          resources: [{ type: "file", fileKey: "file_1", fileName: "note.txt" }],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      })).resolves.toBe(true);
+
+      expect(runtime.activeRuns.size).toBe(0);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Error: file processing failed. Try a smaller or different file." },
+        { replyTo: "om_1_en", replyInThread: false },
+      );
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("错误：");
+      expect(rendered).not.toContain(stateDir);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps engine error details out of user-visible Lark cards", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-engine-error-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => {
+        throw new Error(`/Users/tester/.cctb/${path.basename(stateDir)}/engine exploded`);
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "hello",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      // The sanitized error is shown to the user (in the run card or, when the
+      // card is unavailable, as a markdown message) and never leaks raw details.
+      const rendered = JSON.stringify([
+        ...(channel.send.mock.calls as unknown[][]),
+        ...((channel.updateCard?.mock?.calls as unknown[][] | undefined) ?? []),
+      ]);
+      expect(rendered).toContain("引擎运行失败");
+      expect(rendered).not.toContain("/Users/tester");
+      expect(rendered).not.toContain("engine exploded");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("marks the Lark card as an idle timeout when the engine turn goes silent", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-idle-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => {
+        throw new Error("Codex app-server turn became inactive after 15 minutes");
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_idle", content: "do a long task" }),
+      });
+
+      const rendered = JSON.stringify([
+        ...(channel.send.mock.calls as unknown[][]),
+        ...((channel.updateCard?.mock?.calls as unknown[][] | undefined) ?? []),
+      ]);
+      expect(rendered).toContain("15 分钟无响应");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers rich Lark post and custom interactive card tool tags", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-rich-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          "plain intro",
+          '[tool:{"name":"lark.post","payload":{"post":{"zh_cn":{"title":"周报","content":[[{"tag":"text","text":"重点"}]]}}}}]',
+          '[tool:{"name":"lark.card","payload":{"title":"请选择","body":"下一步怎么做？","actions":[{"label":"继续","value":"continue"},{"label":"停止","value":"stop"}]}}]',
+        ].join("\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "send rich",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", {
+        post: {
+          zh_cn: {
+            title: "周报",
+            content: [[{ tag: "text", text: "重点" }]],
+          },
+        },
+      }, { replyTo: "om_1" });
+      const sendCalls = channel.send.mock.calls as unknown as Array<[string, unknown, unknown?]>;
+      const cardCall = sendCalls.find((call) => JSON.stringify(call[1]).includes("下一步怎么做"));
+      expect(cardCall?.[1]).toMatchObject({ card: expect.any(Object) });
+      expect(JSON.stringify(cardCall?.[1])).toContain("cctb_lark");
+      expect(JSON.stringify(cardCall?.[1])).toContain("choice");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders default lark.card labels in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-default-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.card","payload":{"actions":[{"value":"continue"}]}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_default_card_en",
+          content: "send default card",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("Choose");
+      expect(rendered).not.toContain("请选择");
+      expect(rendered).not.toContain("选择");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders lark.choice as a bridge-managed interactive choice card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-tool-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.choice","payload":{"prompt":"下一步怎么做？","options":[{"label":"继续","value":"continue"},{"label":"改写","value":"rewrite"}]}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_choice_tool",
+          content: "ask choice",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("下一步怎么做？");
+      expect(rendered).toContain("继续");
+      expect(rendered).toContain("改写");
+      expect(rendered).toContain('"cctb_lark":"choice"');
+      expect(rendered).toContain('"conversationKey":"lark:oc_chat"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders request_user_input tool calls as bridge-managed Plan Mode choice cards", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-plan-choice-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          "```tool-call",
+          JSON.stringify({
+            name: "request_user_input",
+            payload: {
+              questions: [
+                {
+                  header: "方向",
+                  id: "direction",
+                  question: "下一步先做哪条？",
+                  options: [
+                    {
+                      label: "结构性修复",
+                      description: "重构卡片 UI 和 Plan Mode 入口，后续都能复用。",
+                    },
+                    {
+                      label: "保守修复",
+                      description: "只修当前 bug，最快上线。",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          "```",
+        ].join("\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_plan_choice",
+          content: "plan mode",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("下一步先做哪条？");
+      expect(rendered).toContain("A. **结构性修复**");
+      expect(rendered).toContain("重构卡片 UI");
+      expect(rendered).toContain('"content":"提交"');
+      expect(rendered).toContain('"cctb_lark":"ask_user_question"');
+      expect(rendered).toContain('"name":"q0"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Codex async user-input events as an immediate interactive choice card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-codex-async-choice-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+        await input.onEngineEvent?.({
+          type: "user_input_request",
+          toolName: "request_user_input_async",
+          toolInput: {
+            questions: [{
+              title: "这套 8 张系列图文用哪种风格？",
+              options: ["高精度手绘科技科普（推荐）", "编辑插画水彩／现代绘本", "日式精致插画／马克笔"],
+            }],
+          },
+          requestId: "question-1",
+          sessionId: "codex-thread-1",
+        });
+        return { text: "已继续准备其余素材。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_codex_async_choice",
+          content: "制作系列图文",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain("这套 8 张系列图文用哪种风格？");
+      expect(rendered).toContain("高精度手绘科技科普（推荐）");
+      expect(rendered).toContain("编辑插画水彩／现代绘本");
+      expect(rendered).toContain("日式精致插画／马克笔");
+      expect(rendered).toContain('"cctb_lark":"ask_user_question"');
+      expect(rendered).toContain('"conversationKey":"lark:oc_chat"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders long Lark choices as readable option sections instead of long button labels", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-rich-"));
+    const channel = fakeChannel();
+    const longLabel = "结构性修复：重构卡片 UI，把说明和按钮拆开，避免按钮文字被截断";
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: `[tool:{"name":"lark.choice","payload":{"title":"请选择执行方向","prompt":"这次更像飞书原生交互。","options":[{"label":"${longLabel}","value":"structured","description":"适合要做成产品级体验；耗时更长，但后续 Plan Mode 和配置卡都能复用。"},{"label":"保守修复","value":"minimal","description":"只修当前问题，最快上线。"}]}}]`,
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_choice_rich",
+          content: "ask rich choice",
+        }),
+      });
+
+      const sendCalls = channel.send.mock.calls as unknown as Array<[string, unknown, unknown?]>;
+      const card = sendCalls.find((call) => JSON.stringify(call).includes("请选择执行方向"))?.[1];
+      const rendered = JSON.stringify(card);
+      expect(rendered).toContain("A. 结构性修复");
+      expect(rendered).toContain("适合要做成产品级体验");
+      expect(rendered).toContain('"content":"选择"');
+      expect(rendered).not.toContain(`"content":"${longLabel}"`);
+      expect(rendered).toContain('"value":"structured"');
+      expect(rendered).toContain('"cctb_lark":"choice"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("decorates raw lark.card buttons so choices route back to the bridge", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-raw-card-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.card","payload":{"card":{"schema":"2.0","body":{"elements":[{"tag":"button","text":{"tag":"plain_text","content":"批准"},"value":{"id":"approve"}}]}}}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "send raw card",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      const raw = JSON.stringify(channel.send.mock.calls);
+      expect(raw).toContain('"behaviors"');
+      expect(raw).toContain('"cctb_lark":"choice"');
+      expect(raw).toContain('"conversationKey":"lark:oc_chat"');
+      expect(raw).toContain('"id":"approve"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not turn raw Lark open_url buttons into bridge choices", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-open-url-card-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.card","payload":{"card":{"schema":"2.0","body":{"elements":[{"tag":"button","text":{"tag":"plain_text","content":"打开文档"},"behaviors":[{"type":"open_url","default_url":"https://example.com/doc"}]}]}}}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_open_url_card",
+          content: "send link card",
+        }),
+      });
+
+      const raw = JSON.stringify(channel.send.mock.calls);
+      expect(raw).toContain('"type":"open_url"');
+      expect(raw).toContain("https://example.com/doc");
+      expect(raw).not.toContain('"cctb_lark":"choice"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("removes deprecated top-level card button values after migrating Lark callback behaviors", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-value-migration-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.card","payload":{"card":{"schema":"2.0","body":{"elements":[{"tag":"button","text":{"tag":"plain_text","content":"继续"},"value":{"cctb_lark":"choice","value":"legacy"},"behaviors":[{"type":"callback","value":{"cctb_lark":"choice","value":"modern"}}]}]}}}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_card_value_migration",
+          content: "send legacy card",
+        }),
+      });
+
+      const sendCalls = channel.send.mock.calls as unknown as Array<[string, unknown, unknown?]>;
+      const cardCall = sendCalls.find((call) => JSON.stringify(call[1]).includes("modern"));
+      const button = (((cardCall?.[1] as { card?: any })?.card?.body?.elements?.[0]) ?? {}) as Record<string, unknown>;
+      expect(button).not.toHaveProperty("value");
+      expect(JSON.stringify(button)).toContain('"behaviors"');
+      expect(JSON.stringify(button)).toContain('"value":"modern"');
+      expect(JSON.stringify(button)).not.toContain('"value":"legacy"');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("decorates Lark card buttons with thread routing when delivered in a thread", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-thread-card-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.card","payload":{"title":"请选择","actions":[{"label":"继续","value":"continue"}]}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_thread_card",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          mentionedBot: true,
+          content: "send card",
+        }),
+      });
+
+      const sendCalls = channel.send.mock.calls as unknown as Array<[string, unknown, unknown?]>;
+      const cardCall = sendCalls.find((call) => JSON.stringify(call[1]).includes("请选择"));
+      const cardJson = JSON.stringify(cardCall?.[1]);
+      expect(cardJson).toContain('"conversationKey":"lark:oc_group:omt_topic"');
+      expect(cardJson).toContain('"replyInThread":true');
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers audio and video tool tags through Lark media payloads", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-media-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    const audioPath = path.join(outputDir, "clip.mp3");
+    const videoPath = path.join(outputDir, "clip.mp4");
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(audioPath, "audio body");
+    await writeFile(videoPath, "video body");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: [
+          `[tool:{"name":"send.audio","payload":{"path":"${audioPath}"}}]`,
+          `[tool:{"name":"send.video","payload":{"path":"${videoPath}"}}]`,
+        ].join("\n"),
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "send media",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { audio: { source: Buffer.from("audio body"), fileName: "clip.mp3" } },
+        { replyTo: "om_1" },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { video: { source: Buffer.from("video body"), fileName: "clip.mp4" } },
+        { replyTo: "om_1" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs an MP4 sent through the generic file tag into a Lark video upload", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-mp4-file-tag-"));
+    const outputDir = path.join(stateDir, "workspace", "out");
+    const videoPath = path.join(outputDir, "generated-video.MP4");
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(videoPath, "video body");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: `Video ready.\n[send-file:${videoPath}]`,
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_mp4_file_tag", content: "send the video" }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { video: { source: Buffer.from("video body"), fileName: "generated-video.MP4" } },
+        { replyTo: "om_mp4_file_tag" },
+      );
+      expect((channel.send.mock.calls as unknown[][]).some((call) => {
+        return Boolean((call[1] as { file?: unknown }).file);
+      })).toBe(false);
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        metadata: expect.objectContaining({
+          fileName: "generated-video.MP4",
+          kind: "video",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers whole-response file fenced blocks as Lark files", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-fenced-file-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: "```file:notes.txt\nhello from fenced file\n```",
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_file_block",
+          content: "make a small file",
+        }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", {
+        file: {
+          source: Buffer.from("hello from fenced file\n", "utf8"),
+          fileName: "notes.txt",
+        },
+      }, { replyTo: "om_file_block" });
+      expect(channel.send).not.toHaveBeenCalledWith("oc_chat", {
+        markdown: expect.stringContaining("```file:notes.txt"),
+      }, expect.anything());
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.accepted",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        metadata: expect.objectContaining({
+          fileName: "notes.txt",
+          bytes: Buffer.byteLength("hello from fenced file\n"),
+          kind: "file",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an oversized whole-response file block before calling the Lark upload API", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-fenced-file-oversize-"));
+    const channel = fakeChannel();
+    try {
+      const body = "x".repeat(CORE_FILE_UPLOAD_MAX_BYTES + 1);
+      await deliverCoreResponse({
+        channel,
+        runtime: createCoreServiceRuntime(),
+        chatId: "oc_chat",
+        text: `\`\`\`file:too-large.bin\n${body}\n\`\`\``,
+        stateDir,
+      });
+
+      expect((channel.send.mock.calls as unknown[][]).some((call) => {
+        const payload = call[1] as { file?: unknown } | undefined;
+        return payload?.file !== undefined;
+      })).toBe(false);
+      expect((channel.send.mock.calls as unknown[][]).some((call) => {
+        const payload = call[1] as { text?: string } | undefined;
+        return payload?.text?.includes("26MB") === true;
+      })).toBe(true);
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "file.rejected",
+        outcome: "rejected",
+        metadata: expect.objectContaining({ reason: "too-large", path: "too-large.bin" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps inbound attachment downloads after the turn so later turns can refer back to them", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-attachment-cleanup-"));
+    const downloadedPath = path.join(stateDir, "workspace", ".lark-files", "om_cleanup", "input", "report.txt");
+    let engineSawDownloadedFile = false;
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async () => Buffer.from("report body")),
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: { files: string[] }) => {
+        engineSawDownloadedFile = (await readFile(input.files[0]!, "utf8")) === "report body";
+        return { text: "done" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_cleanup",
+          content: "read this",
+          resources: [{ type: "file", fileKey: "file_1", fileName: "report.txt" }],
+        }),
+      });
+
+      expect(engineSawDownloadedFile).toBe(true);
+      // Deleting at turn end broke the operator's real usage — send a file, then
+      // a turn later say "用刚才那个文件…" and the recorded path was gone. The
+      // download now survives the turn (swept by retention days instead).
+      expect(await readFile(downloadedPath, "utf8")).toBe("report body");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("prunes inbound attachment downloads past the retention window, keeping fresh ones", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-retention-"));
+    const { pruneCoreInboundFileDirs, cleanupCoreMessageArtifacts } = await import("../src/core/files.js");
+    const oldDir = path.join(root, "om_old", "input");
+    const freshDir = path.join(root, "om_fresh", "input");
+    await mkdir(oldDir, { recursive: true });
+    await mkdir(freshDir, { recursive: true });
+    await writeFile(path.join(oldDir, "stale.txt"), "stale");
+    await writeFile(path.join(freshDir, "fresh.txt"), "fresh");
+    const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60_000);
+    await utimes(path.join(root, "om_old"), fourDaysAgo, fourDaysAgo);
+
+    try {
+      const pruned = await pruneCoreInboundFileDirs(root, 3);
+      expect(pruned).toBe(1);
+      await expect(readFile(path.join(oldDir, "stale.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(path.join(freshDir, "fresh.txt"), "utf8")).toBe("fresh");
+
+      // retention 0 restores the old delete-immediately behaviour for this message.
+      const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-retention0-"));
+      const immediateDir = path.join(stateDir, "workspace", ".lark-files", "om_now", "input");
+      await mkdir(immediateDir, { recursive: true });
+      await writeFile(path.join(immediateDir, "gone.txt"), "gone");
+      await cleanupCoreMessageArtifacts(stateDir, "om_now", 0);
+      await expect(readFile(path.join(immediateDir, "gone.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      await rm(stateDir, { recursive: true, force: true });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("records Lark turns in the shared timeline", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-timeline-"));
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "hello",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      });
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "input.received",
+          channel: "lark",
+          conversationKey: "lark:oc_chat",
+        }),
+        expect.objectContaining({
+          type: "turn.started",
+          channel: "lark",
+          conversationKey: "lark:oc_chat",
+          metadata: expect.objectContaining({
+            larkMessageId: "om_1",
+            phase: "queued-job",
+          }),
+        }),
+        expect.objectContaining({
+          type: "turn.completed",
+          channel: "lark",
+          conversationKey: "lark:oc_chat",
+          outcome: "success",
+        }),
+      ]));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records skipped queued Lark messages in the shared timeline", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-message-skipped-"));
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
+        onSkipped?: () => T | Promise<T>;
+      }): Promise<T> => {
+        return options?.onSkipped ? await options.onSkipped() : undefined as T;
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_skipped", content: "hello" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "已跳过排队中的任务。" },
+        { replyTo: "om_skipped", replyInThread: false },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        conversationKey: "lark:oc_chat",
+        outcome: "skipped",
+        detail: "queued turn skipped",
+        metadata: expect.objectContaining({
+          phase: "queue",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("notifies Lark users when a message waits in the conversation queue", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-message-queue-wait-"));
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: string }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({
+          chatId: "lark:oc_chat",
+          waitedMs: 10_500,
+          reason: "conversation_queue",
+        });
+        return await job();
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "Done after queue" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_waiting", content: "hello" }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        expect.objectContaining({ card: expect.any(Object) }),
+        { replyTo: "om_waiting" },
+      );
+      expect(JSON.stringify(channel.send.mock.calls)).toContain("取消此排队任务");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.lock.waiting",
+        channel: "lark",
+        conversationKey: "lark:oc_chat",
+        detail: "waiting for Lark conversation queue",
+        metadata: expect.objectContaining({
+          waitedMs: 10_500,
+          reason: "conversation_queue",
+          larkChatId: "oc_chat",
+          larkMessageId: "om_waiting",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not render a wait card for a task already cancelled from its card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-wait-cancelled-"));
+    const runtime = createCoreServiceRuntime();
+    runtime.cancelledQueueTaskIds.add("om_waiting_cancelled"); // user already tapped "cancel queue"
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: string }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({ chatId: "lark:oc_chat", waitedMs: 10_500, reason: "conversation_queue" });
+        return await job();
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const channel = fakeChannel();
+    const bridge = { handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })) };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_waiting_cancelled", content: "hello" }),
+      });
+      // The cancelled task's wait notification must be suppressed — otherwise it
+      // would overwrite the "cancelled" card back to "queued" (flicker-then-revert).
+      // (updateCard may still be used by the run card; only the queue-wait render
+      // must be skipped, which the guard does before any card/timeline work.)
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain("取消此排队任务");
+      const timelineRaw = await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8").catch(() => "");
+      expect(timelineRaw).not.toContain("waiting for Lark conversation queue");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("continues an already queued Lark message after the active engine turn fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-after-error-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    let rejectFirst!: (error: Error) => void;
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => {
+        if (bridge.handleAuthorizedMessage.mock.calls.length === 1) {
+          await new Promise<never>((_resolve, reject) => {
+            rejectFirst = reject;
+          });
+        }
+        return { text: "second done" };
+      }),
+    };
+
+    try {
+      const first = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_active", content: "first" }),
+      });
+      await vi.waitFor(() => expect(rejectFirst).toBeTypeOf("function"));
+      const second = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_queued", content: "second" }),
+      });
+
+      rejectFirst(new Error("active turn failed"));
+
+      await expect(first).resolves.toBe(true);
+      await expect(second).resolves.toBe(true);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(2);
+      expectLarkFinalAnswer(channel, "second done");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "turn.completed",
+          outcome: "error",
+          metadata: expect.objectContaining({ larkMessageId: "om_active" }),
+        }),
+        expect.objectContaining({
+          type: "turn.completed",
+          outcome: "success",
+          metadata: expect.objectContaining({ larkMessageId: "om_queued" }),
+        }),
+      ]));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("updates a native Lark run card while the engine is streaming events", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-run-card-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "thinking", text: "checking the repo" }));
+        await Promise.resolve(input.onEngineEvent?.({ type: "tool_use", toolName: "Read", toolInput: { file_path: "README.md" }, toolUseId: "tu1" }));
+        await Promise.resolve(input.onEngineEvent?.({ type: "tool_result", toolUseId: "tu1", output: "readme body" }));
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "final answer" }));
+        await Promise.resolve(input.onEngineEvent?.({ type: "result", text: "final answer" }));
+        return { text: "final answer" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_run_card", content: "please work" }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        expect.objectContaining({ card: expect.any(Object) }),
+        { replyTo: "om_run_card" },
+      );
+      expect(channel.updateCard).toHaveBeenCalledWith("sent_1", expect.any(Object));
+      const updates = JSON.stringify(channel.updateCard.mock.calls);
+      // Live updates are throttled (coalesced), so a fast synchronous burst lands
+      // as the finalized card: answer prominent, process (thinking + tool names)
+      // folded into the condensed panel; verbose tool output is dropped.
+      expect(updates).toContain("final answer");
+      expect(updates).toContain("checking the repo");
+      expect(updates).toContain("Read");
+      expect(updates).not.toContain("readme body");
+      // Throttling coalesces the burst: far fewer patches than engine events.
+      expect(channel.updateCard.mock.calls.length).toBeLessThanOrEqual(2);
+      // Card is canonical: the final answer must NOT also be sent as a separate
+      // markdown message when the run card is active.
+      const markdownSends = channel.send.mock.calls.filter((call: unknown[]) => {
+        const payload = call[1] as { markdown?: string } | undefined;
+        return typeof payload?.markdown === "string" && payload.markdown.includes("final answer");
+      });
+      expect(markdownSends).toHaveLength(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an engine-complete turn successful when continuation delivery fails", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-post-engine-delivery-"));
+    let initialCardSent = false;
+    const channel = fakeChannel({
+      send: vi.fn(async (_chatId: string, input: unknown) => {
+        const payload = input as { card?: unknown; markdown?: string; text?: string };
+        if (payload.card && !initialCardSent) {
+          initialCardSent = true;
+          return { messageId: "run_card" };
+        }
+        if (payload.card || payload.markdown || payload.text) {
+          throw new Error("continuation delivery failed");
+        }
+        return { messageId: "sent_other" };
+      }),
+      addReaction: vi.fn(async (_messageId: string, emoji: string) => `reaction_${emoji}`),
+      removeReaction: vi.fn(async () => undefined),
+    });
+    const answer = `start ${"long answer segment ".repeat(500)} end`;
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: answer })),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        reactionSettings: { processingEmoji: null, doneEmoji: "DONE", failureEmoji: "ERROR" },
+        message: fakeLarkMessage({ messageId: "om_post_delivery", content: "produce a long answer" }),
+      })).resolves.toBe(true);
+
+      expect(channel.addReaction).toHaveBeenCalledWith("om_post_delivery", "DONE");
+      expect(channel.addReaction).not.toHaveBeenCalledWith("om_post_delivery", "ERROR");
+      const cardUpdates = JSON.stringify(channel.updateCard.mock.calls);
+      expect(cardUpdates).not.toContain("执行失败");
+      expect(cardUpdates).toContain("交付未完成");
+      expect(cardUpdates).not.toContain("**已完成**");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event.delivery_failed",
+        detail: "continuation delivery failed",
+        metadata: expect.objectContaining({ phase: "post-engine", larkMessageId: "om_post_delivery" }),
+      }));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "partial",
+        metadata: expect.objectContaining({ larkMessageId: "om_post_delivery" }),
+      }));
+      expect(timeline).not.toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "error",
+        metadata: expect.objectContaining({ larkMessageId: "om_post_delivery" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("marks a turn partial when the engine fails after streaming answer text", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stream-then-fail-"));
+    const channel = fakeChannel({
+      addReaction: vi.fn(async (_messageId: string, emoji: string) => `reaction_${emoji}`),
+      removeReaction: vi.fn(async () => undefined),
+    });
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "发言稿初稿已完成。" }));
+        throw new Error("Selected model is at capacity. Please try a different model.");
+      }),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        reactionSettings: { processingEmoji: null, doneEmoji: "DONE", failureEmoji: "ERROR" },
+        message: fakeLarkMessage({ messageId: "om_stream_then_fail", content: "write the speech" }),
+      })).resolves.toBe(true);
+
+      const updates = JSON.stringify(channel.updateCard.mock.calls);
+      expect(updates).toContain("部分完成");
+      expect(updates).toContain("发言稿初稿已完成。");
+      expect(updates).toContain("以上内容可能不完整");
+      expect(updates).toContain("模型服务暂时繁忙");
+      expect(updates).not.toContain("执行失败");
+      expect(channel.addReaction).toHaveBeenCalledWith("om_stream_then_fail", "ERROR");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "partial",
+        metadata: expect.objectContaining({ larkMessageId: "om_stream_then_fail" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-sends the answer as a fresh card when run-card in-place updates always fail (no frozen card, no text spill)", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-run-card-fail-"));
+    // Simulate Feishu rejecting every in-place patch (e.g. a post-interaction revert or
+    // an oversized card). The finished answer must NOT be swallowed — it is re-SENT as a
+    // fresh card (a new message, not a revert-prone patch), so it still lands in a card.
+    const channel = fakeChannel({
+      updateCard: vi.fn(async () => { throw new Error("card patch rejected"); }),
+      recallMessage: vi.fn(async () => undefined),
+    });
+    const runtime = createCoreServiceRuntime();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "the final answer" }));
+        return { text: "the final answer" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_fail_card", content: "do work" }),
+      });
+
+      // The in-place card could never update, so the answer is re-sent as a fresh card
+      // and must arrive (here, inside that card) — not swallowed, not frozen in "running".
+      const answerSends = channel.send.mock.calls.filter((call: unknown[]) => {
+        const payload = call[1] as { text?: string; markdown?: string; card?: unknown } | undefined;
+        return JSON.stringify(payload ?? {}).includes("the final answer");
+      });
+      expect(answerSends.length).toBeGreaterThan(0);
+      // "no frozen card" — the stale, un-updatable run card is RECALLED once the fresh card
+      // lands, instead of being left stuck in "running" beside the answer.
+      expect(channel.recallMessage).toHaveBeenCalled();
+      // The fresh-card recovery is recorded, so a "the completion came as text, no card"
+      // report is diagnosable from the timeline instead of guessed at.
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      const finishEvent = timeline.find((e) => e.type === "engine.event.card_finish");
+      expect(finishEvent?.metadata).toMatchObject({ shown: true, reason: "fresh-card" });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("continues finalization on a replacement inline card instead of sending the answer twice", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-run-card-replacement-"));
+    const filePath = path.join(stateDir, "workspace", "replacement.txt");
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, "replacement file");
+    let sendCount = 0;
+    const channel = fakeChannel({
+      send: vi.fn(async () => ({ messageId: sendCount++ === 0 ? "run_card_old" : "run_card_fresh" })),
+      updateCard: vi.fn(async (messageId: string) => {
+        if (messageId === "run_card_old") {
+          throw new Error("old inline card cannot be patched");
+        }
+      }),
+      recallMessage: vi.fn(async () => undefined),
+    });
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: `replacement answer\n[send-file:${filePath}]`,
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_replace_card", content: "do work" }),
+      });
+
+      const answerCards = channel.send.mock.calls.filter((call: unknown[]) =>
+        JSON.stringify(call[1] ?? {}).includes("replacement answer"));
+      expect(answerCards).toHaveLength(1);
+      expect(channel.recallMessage).toHaveBeenCalledWith("run_card_old");
+      const freshUpdates = channel.updateCard.mock.calls.filter((call: unknown[]) => call[0] === "run_card_fresh");
+      expect(freshUpdates).toHaveLength(1);
+      expect(JSON.stringify(freshUpdates[0])).toContain("已完成");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records a card_finish=fit event when the answer lands in the run card normally", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-finish-fit-"));
+    const channel = fakeChannel();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "ok done" }));
+        return { text: "ok done" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_fit", content: "do work" }),
+      });
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      const finishEvent = timeline.find((e) => e.type === "engine.event.card_finish");
+      expect(finishEvent?.metadata).toMatchObject({ shown: true, reason: "fit" });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not duplicate a normal-length answer as text when the run card renders it", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-ok-"));
+    const channel = fakeChannel(); // updateCard succeeds
+    const runtime = createCoreServiceRuntime();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "short answer XYZ" }));
+        return { text: "short answer XYZ" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel, bridge, runtime, stateDir,
+        message: fakeLarkMessage({ messageId: "om_ok_card", content: "do work" }),
+      });
+
+      // The answer lives in the card (via updateCard); it must NOT also be sent
+      // as a separate text/markdown message (that was the duplicate bug).
+      const answerSends = channel.send.mock.calls.filter((call: unknown[]) => {
+        const p = call[1] as { text?: string; markdown?: string } | undefined;
+        return (typeof p?.text === "string" && p.text.includes("short answer XYZ"))
+          || (typeof p?.markdown === "string" && p.markdown.includes("short answer XYZ"));
+      });
+      expect(answerSends.length).toBe(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spills a moderately-long over-card answer into continuation cards (not a doc, no inline dump)", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-long-"));
+    const channel = fakeChannel();
+    const createDocument = vi.fn(async () => ({ url: "https://feishu.cn/docx/SHOULDNOTHAPPEN" }));
+    const runtime = createCoreServiceRuntime({ createDocument });
+    // Over the card's answer cap but well within the continuation-card budget → it spills
+    // into continuation cards (card 2 continues card 1), not a doc and not an inline dump.
+    const longAnswer = `LONGMARKER ${"好".repeat(7000)}`;
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: longAnswer }));
+        return { text: longAnswer };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel, bridge, runtime, stateDir,
+        message: fakeLarkMessage({ messageId: "om_long_card", content: "do work" }),
+      });
+
+      // No doc; the answer flows across continuation cards instead.
+      expect(createDocument).not.toHaveBeenCalled();
+      const continuationCards = larkContinuationCardsSent(channel);
+      expect(continuationCards.length).toBeGreaterThanOrEqual(1);
+      expect(continuationCards.join("")).toContain("好");
+      // And it is NOT dumped as an inline text/markdown message.
+      const inlineDump = channel.send.mock.calls.filter((call: unknown[]) => {
+        const p = call[1] as { text?: string; markdown?: string } | undefined;
+        return (typeof p?.text === "string" && p.text.includes("LONGMARKER"))
+          || (typeof p?.markdown === "string" && p.markdown.includes("LONGMARKER"));
+      });
+      expect(inlineDump.length).toBe(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spills a promoted substantive update when the terminal result is only a running placeholder", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-promoted-long-"));
+    const channel = fakeChannel();
+    const createDocument = vi.fn(async () => ({ url: "https://feishu.cn/docx/SHOULDNOTHAPPEN" }));
+    const runtime = createCoreServiceRuntime({ createDocument });
+    const substantive = `PROMOTED_LONG ${"有信息量的完整判断。".repeat(800)} PROMOTED_END`;
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: substantive }));
+        return { text: "在跑了。" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_promoted_long", content: "给出完整判断" }),
+      });
+
+      expect(createDocument).not.toHaveBeenCalled();
+      const continuationCards = larkContinuationCardsSent(channel);
+      expect(continuationCards.length).toBeGreaterThanOrEqual(1);
+      expect(continuationCards.join("")).toContain("PROMOTED_END");
+      expect(JSON.stringify(channel.send.mock.calls)).not.toContain("在跑了");
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      const finishEvent = timeline.find((event) => event.type === "engine.event.card_finish");
+      expect(finishEvent?.metadata).toMatchObject({ spillCards: expect.any(Number) });
+      expect(Number(finishEvent?.metadata?.answerChars)).toBeGreaterThan(5000);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark conversation queue waits as stop-capable cards", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-card-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({ chatId: "lark:oc_chat", waitedMs: 10_000, reason: "conversation_queue" });
+        return await job();
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_wait_card", content: "second" }),
+      });
+
+      const sent = JSON.stringify(channel.send.mock.calls);
+      expect(sent).toContain("正在排队");
+      expect(sent).toContain("stop");
+      expect(sent).toContain("conversationKey");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("transitions a queued media card as soon as transcription starts", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-media-started-"));
+    const channel = fakeChannel({
+      downloadResource: vi.fn(async (key: string) => Buffer.from(`media:${key}`)),
+    });
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({ chatId: "lark:oc_chat", waitedMs: 10_000, reason: "conversation_queue" });
+        return await job();
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    let resolveTranscript!: (value: string) => void;
+    runtime.transcribeMedia = vi.fn(async () => await new Promise<string>((resolve) => {
+      resolveTranscript = resolve;
+    }));
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "done" })),
+    };
+
+    const turn = handleCoreMessage({
+      channel,
+      bridge,
+      runtime,
+      stateDir,
+      message: fakeLarkMessage({
+        messageId: "om_queue_media_started",
+        content: "整理这段录音",
+        resources: [{ type: "file", fileKey: "rec_key", fileName: "会议录音.m4a" }],
+      }),
+    });
+
+    try {
+      await vi.waitFor(() => expect(runtime.transcribeMedia).toHaveBeenCalledTimes(1));
+
+      // The task already owns the conversation queue while ASR is running. Its
+      // old queue card must stop saying that another task is still ahead of it,
+      // and the button must now stop this active task rather than cancel a
+      // no-longer-pending queue entry.
+      expect(channel.updateCard).toHaveBeenCalledWith("sent_1", expect.any(Object));
+      const latestUpdate = channel.updateCard.mock.calls.at(-1) as unknown[] | undefined;
+      const startedCard = JSON.stringify(latestUpdate?.[1]);
+      expect(startedCard).toContain("已结束排队");
+      expect(startedCard).toContain("正在转写");
+      expect(startedCard).not.toContain("正在排队");
+      expect(startedCard).not.toContain("taskId");
+      expect(startedCard).toContain('"cctb_lark":"stop"');
+    } finally {
+      resolveTranscript?.("transcript ready");
+      await turn;
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reuses the queued card as the run card instead of leaving it stale", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-reuse-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({ chatId: "lark:oc_chat", waitedMs: 10_000, reason: "conversation_queue" });
+        return await job();
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "answer text" }));
+        return { text: "answer text" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_reuse", content: "go" }),
+      });
+
+      // The queued card (sent as "sent_1") is taken over by the run card via
+      // updateCard — not orphaned, and no second card is sent.
+      expect(channel.updateCard).toHaveBeenCalledWith("sent_1", expect.any(Object));
+      expect(JSON.stringify(channel.updateCard.mock.calls)).toContain("answer text");
+      const cardSends = channel.send.mock.calls.filter((call: unknown[]) => Boolean((call[1] as { card?: unknown } | undefined)?.card));
+      expect(cardSends).toHaveLength(1); // only the queued card was *sent*
+      expect(runtime.queueCards.size).toBe(0); // no stale queued-card id left behind
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("gives each queued task its own card (keyed by message id, not shared)", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-multi-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    // Stub the queue so each task fires its wait notification but stays "queued"
+    // (job not run), letting us inspect how its card is keyed.
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({ chatId: "lark:oc_chat", waitedMs: 10_000, reason: "conversation_queue" });
+        return true as unknown as T;
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const bridge: CoreBridgeLike = { handleAuthorizedMessage: vi.fn(async () => ({ text: "x" })) };
+
+    try {
+      await handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ messageId: "om_q1", content: "first" }) });
+      await handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ messageId: "om_q2", content: "second" }) });
+
+      // Two queued tasks → two distinct cards, keyed by their message ids — not
+      // a single card keyed by conversationKey (which they would have shared).
+      expect(runtime.queueCards.has("om_q1")).toBe(true);
+      expect(runtime.queueCards.has("om_q2")).toBe(true);
+      expect(runtime.queueCards.has("lark:oc_chat")).toBe(false);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sends the queue-wait card as a managed card when the channel provides managed-card transport", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-managed-"));
+    const create = vi.fn(async () => ({ messageId: "om_qcard", cardId: "card_q", sequence: 0 }));
+    const channel = fakeChannel({
+      managedCards: { send: create, update: vi.fn(async () => true), updateElement: vi.fn(async () => false) },
+    });
+    const runtime = createCoreServiceRuntime();
+    // Stay queued (don't run the job) so the managed card isn't taken over.
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({ chatId: "lark:oc_chat", waitedMs: 10_000, reason: "conversation_queue" });
+        return true as unknown as T;
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const bridge: CoreBridgeLike = { handleAuthorizedMessage: vi.fn(async () => ({ text: "x" })) };
+
+    try {
+      await handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ messageId: "om_q_managed", content: "second" }) });
+
+      // Created through the managed-card port, with its handle tracked so the
+      // cancel tap can update it in place — not sent as a plain inline card via
+      // channel.send.
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(runtime.queueCards.get("om_q_managed")?.handle?.cardId).toBe("card_q");
+      const cardSends = channel.send.mock.calls.filter((call: unknown[]) => Boolean((call[1] as { card?: unknown } | undefined)?.card));
+      expect(cardSends).toHaveLength(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("takes over a managed queue card as the run card in place through the managed-card port", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-queue-managed-takeover-"));
+    const create = vi.fn(async () => ({ messageId: "om_qcard", cardId: "card_q", sequence: 0 }));
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({
+      managedCards: { send: create, update, updateElement: vi.fn(async () => false) },
+    });
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
+        onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
+      }): Promise<T> => {
+        await options?.onWait?.({ chatId: "lark:oc_chat", waitedMs: 10_000, reason: "conversation_queue" });
+        return await job();
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "answer text" }));
+        return { text: "answer text" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ messageId: "om_reuse_managed", content: "go" }) });
+
+      // The managed queue card (card_q) is taken over as the run card and
+      // updated IN PLACE through the managed-card port — no recall, no fresh card, no patch.
+      expect(create).toHaveBeenCalledTimes(1); // only the queue card was created
+      expect(JSON.stringify(update.mock.calls)).toContain("answer text"); // run card updates through the managed-card port
+      expect(channel.recallMessage).not.toHaveBeenCalled();
+      const cardSends = channel.send.mock.calls.filter((call: unknown[]) => Boolean((call[1] as { card?: unknown } | undefined)?.card));
+      expect(cardSends).toHaveLength(0); // nothing sent fresh
+      expect(channel.updateCard).not.toHaveBeenCalled(); // not patched
+      expect(runtime.queueCards.size).toBe(0);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sends a fresh run card as a managed card when there is no queued card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-runcard-managed-"));
+    const create = vi.fn(async () => ({ messageId: "om_runcard", cardId: "card_run", sequence: 0 }));
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({
+      managedCards: { send: create, update, updateElement: vi.fn(async () => false) },
+    });
+    const runtime = createCoreServiceRuntime();
+    const bridge: CoreBridgeLike = {
+      handleAuthorizedMessage: vi.fn(async (input) => {
+        await Promise.resolve(input.onEngineEvent?.({ type: "assistant_text", text: "answer text" }));
+        return { text: "answer text" };
+      }),
+    };
+
+    try {
+      await handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ messageId: "om_run", content: "go" }) });
+
+      // No queue wait → the run card is created fresh through the managed-card
+      // port and updated in place through it, not patched.
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(update.mock.calls)).toContain("answer text");
+      expect(channel.updateCard).not.toHaveBeenCalled();
+      const cardSends = channel.send.mock.calls.filter((call: unknown[]) => Boolean((call[1] as { card?: unknown } | undefined)?.card));
+      expect(cardSends).toHaveLength(0); // not an inline card send
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preempts an active Lark turn only when the optional queue policy enables it", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-preempt-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime({
+      queuePolicy: { preempt: true, batchWindowMs: 0 },
+    });
+    const activeController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController: activeController });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "new answer" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_preempt", content: "replace the active run" }),
+      });
+
+      expect(activeController.signal.aborted).toBe(true);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the default Lark queue policy conservative", async () => {
+    const runtime = createCoreServiceRuntime();
+    expect(runtime.queuePolicy).toEqual({ preempt: false, batchWindowMs: 0 });
+  });
+
+  it("optionally batches dense Lark text messages before entering the conservative queue", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-batch-"));
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime({
+      queuePolicy: { preempt: false, batchWindowMs: 25 },
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "batched answer" })),
+    };
+
+    try {
+      const first = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_batch_1", content: "first dense message" }),
+      });
+      const second = handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_batch_2", content: "second dense message" }),
+      });
+
+      await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+      const batchText = (bridge.handleAuthorizedMessage.mock.calls[0] as unknown as [{ text: string }])[0].text;
+      expect(batchText).toContain("#1");
+      expect(batchText).toContain("first dense message");
+      expect(batchText).toContain("#2");
+      expect(batchText).toContain("second dense message");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "command.handled",
+        outcome: "success",
+        detail: "batch-merged",
+        metadata: expect.objectContaining({
+          larkMessageId: "om_batch_1",
+          mergedInto: "om_batch_2",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("manages Lark workspace profiles with /ws commands", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-ws-"));
+    const workspacePath = path.join(stateDir, "workspaces", "demo");
+    const channel = fakeChannel();
+    const runtime = createCoreServiceRuntime();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_ws_save", content: `/ws save demo ${workspacePath}` }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_ws_use", content: "/ws use demo" }),
+      });
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_ws_list", content: "/ws list" }),
+      });
+
+      const cfg = await loadInstanceConfig(stateDir);
+      expect(cfg.workspacePath).toBe(workspacePath);
+      expect(cfg.workspaceProfiles).toEqual([
+        expect.objectContaining({ name: "demo", path: workspacePath }),
+      ]);
+      const replies = JSON.stringify(channel.send.mock.calls);
+      expect(replies).toContain("demo");
+      expect(replies).toContain(workspacePath);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders skipped queued Lark messages in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-message-skipped-en-"));
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
+        onSkipped?: () => T | Promise<T>;
+      }): Promise<T> => {
+        return options?.onSkipped ? await options.onSkipped() : undefined as T;
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({ messageId: "om_skipped_en", content: "hello" }),
+      });
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Queued task skipped." },
+        { replyTo: "om_skipped_en", replyInThread: false },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sanitizes Lark tool execution errors before replying to users", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-tool-error-"));
+    const runtime = createCoreServiceRuntime({
+      createDocument: vi.fn(async () => {
+        throw new Error(`lark-cli failed in ${stateDir} with Authorization: Bearer leaked-token and app_secret=secret-personal`);
+      }),
+    });
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.doc.create","payload":{"title":"Spec","content":"# Spec","docFormat":"markdown"}}]',
+      })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_doc_fail",
+          content: "write spec",
+        }),
+      });
+
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "错误：飞书工具执行失败，详细原因已记录到日志。" },
+        { replyTo: "om_doc_fail" },
+      );
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain(stateDir);
+      expect(rendered).not.toContain("leaked-token");
+      expect(rendered).not.toContain("secret-personal");
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "service.error",
+        channel: "lark",
+        detail: expect.stringContaining("[redacted]"),
+        metadata: expect.objectContaining({ tool: "lark.doc.create" }),
+      }));
+      expect(JSON.stringify(timeline)).not.toContain("leaked-token");
+      expect(JSON.stringify(timeline)).not.toContain("secret-personal");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sanitizes Lark engine errors before writing timeline details", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-engine-error-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => {
+        throw new Error("engine failed with Authorization: Bearer leaked-token and app_secret=secret-personal");
+      }),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_engine_fail",
+          content: "run this",
+        }),
+      });
+
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("leaked-token");
+      expect(rendered).not.toContain("secret-personal");
+
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        outcome: "error",
+        detail: "engine failed with Authorization: Bearer [redacted] and app_secret=[redacted]",
+      }));
+      expect(JSON.stringify(timeline)).not.toContain("leaked-token");
+      expect(JSON.stringify(timeline)).not.toContain("secret-personal");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("detects Lark numeric id collisions before access state can be shared", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-id-collision-"));
+    const bridgeChatId = stableCoreNumericId("lark:oc_chat");
+    await writeFile(path.join(stateDir, "lark-chat-id-map.json"), JSON.stringify({
+      [String(bridgeChatId)]: "chat:lark:other_chat",
+    }));
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await expect(handleCoreMessage({
+        channel,
+        bridge,
+        runtime: createCoreServiceRuntime(),
+        stateDir,
+        message: {
+          messageId: "om_1",
+          chatId: "oc_chat",
+          chatType: "p2p",
+          senderId: "ou_user",
+          content: "hello",
+          rawContentType: "text",
+          resources: [],
+          mentions: [],
+          mentionAll: false,
+          mentionedBot: false,
+          createTime: Date.now(),
+        },
+      })).rejects.toThrow("Conversation chat numeric ID collision");
+
+      expect(bridge.checkAccess).not.toHaveBeenCalled();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("feeds interactive card choices back into the bridge", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; locale?: string; conversationKey?: string }) => ({ text: "choice handled" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_user", name: "Clover" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "choice handled" },
+        { replyTo: "card_1" },
+      );
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+        text: expect.stringContaining("continue"),
+        requestOutputDir: expect.stringContaining(".lark-out"),
+        onApprovalRequest: expect.any(Function),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("settles a queued choice card immediately and ignores repeated taps", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-dedupe-"));
+    const runtime = createCoreServiceRuntime();
+    const enqueue = vi.spyOn(runtime.chatQueue, "enqueue");
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({
+      managedCards: {
+        send: vi.fn(async () => ({ messageId: "om_choice", cardId: "card_choice", sequence: 0 })),
+        update,
+        updateElement: vi.fn(async () => false),
+      },
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "choice handled" })),
+    };
+    let releaseBlocker = (): void => undefined;
+    let resolveStarted = (): void => undefined;
+    const blockerStarted = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const blockerGate = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    let firstAction: Promise<boolean> | undefined;
+    let blocker: Promise<boolean> | undefined;
+
+    try {
+      const { sendTrackedCoreChoiceCard } = await import("../src/core/delivery.js");
+      await sendTrackedCoreChoiceCard({ channel, runtime, chatId: "oc_chat", locale: "zh",
+        card: { schema: "2.0", body: { elements: [{ tag: "markdown", content: "请选择执行方向" }] } },
+        fallbackText: "请选择执行方向", options: { replyTo: "om_origin" } });
+      expect(runtime.choiceCards.get("om_choice")?.handle?.cardId).toBe("card_choice");
+
+      blocker = runtime.chatQueue.enqueue("lark:oc_chat", async () => {
+        resolveStarted();
+        await blockerGate;
+        return true;
+      });
+      await blockerStarted;
+
+      const actionInput = () => ({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_choice",
+          operator: { openId: "ou_user", name: "Clover" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      firstAction = handleCoreCardAction(actionInput());
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const firstResult = await Promise.race<boolean | "timeout">([
+        firstAction,
+        new Promise<"timeout">((resolve) => {
+          timeout = setTimeout(() => resolve("timeout"), 300);
+        }),
+      ]);
+      if (timeout) clearTimeout(timeout);
+      expect(firstResult).toBe(true);
+      await expect(handleCoreCardAction(actionInput())).resolves.toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+
+      await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2000 });
+      const terminalCard = JSON.stringify(update.mock.calls[0]);
+      expect(terminalCard).toContain("已收到选择");
+      expect(terminalCard).toContain("继续");
+      expect(terminalCard).not.toContain('"tag":"button"');
+      expect(terminalCard).not.toContain('"cctb_lark":"choice"');
+      expect(runtime.choiceCards.get("om_choice")).toMatchObject({
+        status: "resolved",
+        selectedLabel: "继续",
+      });
+      const queuedTimeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(queuedTimeline).toContainEqual(expect.objectContaining({
+        type: "input.received",
+        outcome: "accepted",
+        conversationKey: "lark:oc_chat",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "choice",
+          choiceLabel: "继续",
+          larkMessageId: "om_choice",
+        }),
+      }));
+      expect(queuedTimeline).not.toContainEqual(expect.objectContaining({
+        type: "turn.started",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "choice",
+          larkMessageId: "om_choice",
+        }),
+      }));
+
+      releaseBlocker();
+      await blocker;
+      // The callback only acknowledges admission; await its queued turn through
+      // response delivery and timeline writes, not a short idle polling timeout.
+      await Promise.all(enqueue.mock.results.map((result) => result.value));
+      expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseBlocker();
+      await blocker?.catch(() => undefined);
+      await firstAction?.catch(() => undefined);
+      await Promise.allSettled(enqueue.mock.results.map((result) => result.value));
+      enqueue.mockRestore();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a custom rich card body when settling its choice", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-rich-card-settle-"));
+    const runtime = createCoreServiceRuntime();
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({
+      managedCards: {
+        send: vi.fn(async () => ({ messageId: "om_rich", cardId: "card_rich", sequence: 0 })),
+        update,
+        updateElement: vi.fn(async () => false),
+      },
+    });
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "segment detail" })),
+    };
+
+    try {
+      const card = {
+        schema: "2.0",
+        body: {
+          elements: [
+            { tag: "markdown", content: "Q3 revenue: 123.4M (+18% YoY). Gross margin 41%." },
+            { tag: "button", text: { tag: "plain_text", content: "Show segment detail" } },
+          ],
+        },
+      };
+      await deliverCoreResponse({
+        channel,
+        runtime,
+        chatId: "oc_chat",
+        replyTo: "om_user",
+        text: ["```tool-call", JSON.stringify({ name: "lark.card", payload: { card } }), "```"].join("\n"),
+        stateDir,
+        conversationKey: "lark:oc_chat",
+        bridgeChatType: "private",
+      });
+
+      await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_rich",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "Show segment detail",
+              value: "show-segments",
+            },
+          },
+        },
+      });
+
+      await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2500 });
+      const settled = JSON.stringify(update.mock.calls[0]);
+      expect(settled).toContain("Q3 revenue: 123.4M");
+      expect(settled).toContain("Show segment detail");
+      expect(settled).toContain("已选择");
+      expect(settled).not.toContain('"cctb_lark":"choice"');
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("closes and reports a choice turn that fails before the engine starts", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-preflight-error-"));
+    await writeFile(path.join(stateDir, "workspace"), "not a directory");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = { handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })) };
+
+    try {
+      await expect(handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_choice",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "A",
+              value: "a",
+            },
+          },
+        },
+      })).resolves.toBe(true);
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: expect.stringContaining("本轮运行失败") },
+        { replyTo: "om_choice" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "error",
+        metadata: expect.objectContaining({ action: "choice", larkMessageId: "om_choice" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("closes an archive continuation card after its waiting workflow is gone", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-noop-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = { handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })) };
+
+    try {
+      await expect(handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_archive",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "continue_archive",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              uploadId: "upload_gone",
+            },
+          },
+        },
+      })).resolves.toBe(true);
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const sent = JSON.stringify(channel.send.mock.calls);
+      expect(sent).toContain("已收到继续请求");
+      expect(sent).toContain("已不在当前聊天中等待继续分析");
+      expect(sent).not.toContain("That archive is no longer waiting");
+      expect(sent).not.toContain("已开始深入分析");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        outcome: "noop",
+        metadata: expect.objectContaining({ action: "continue_archive", larkMessageId: "om_archive" }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the configured Lark locale into interactive card choice turns", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-locale-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const enqueue = vi.spyOn(runtime.chatQueue, "enqueue");
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (_input: { text: string; locale?: string; conversationKey?: string }) => ({ text: "choice handled" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_user", name: "Clover" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "Continue",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      await Promise.all(enqueue.mock.results.map((result) => result.value));
+      expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false);
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        locale: "en",
+        conversationKey: "lark:oc_chat",
+        text: expect.stringContaining("The user clicked a Lark card button: Continue"),
+      }));
+      const bridgeText = bridge.handleAuthorizedMessage.mock.calls[0]![0].text;
+      expect(bridgeText).not.toContain("用户点击了飞书卡片按钮");
+    } finally {
+      // A failed assertion must not remove the fixture while a detached card
+      // turn is still delivering its response or writing completion records.
+      await Promise.allSettled(enqueue.mock.results.map((result) => result.value));
+      enqueue.mockRestore();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("delivers Lark card choice background task notifications from engine events", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-task-notification-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async (input: {
+        onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+      }) => {
+        await input.onEngineEvent?.({
+          type: "task_notification",
+          status: "completed",
+          text: "卡片后台任务完成。",
+        });
+        return { text: "choice handled" };
+      }),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_user", name: "Clover" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+      expect(channel.stream).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "后台任务完成\n卡片后台任务完成。" },
+        { replyTo: "card_1" },
+      );
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { markdown: "choice handled" },
+        { replyTo: "card_1" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        detail: "task_notification",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "choice",
+          textChars: "卡片后台任务完成。".length,
+          larkChatId: "oc_chat",
+          larkMessageId: "card_1",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records Lark card choice turns in the shared timeline", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-timeline-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "choice handled" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_user", name: "Clover" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "input.received",
+          channel: "lark",
+          chatId: stableCoreNumericId("lark:oc_chat"),
+          userId: stableCoreNumericId("user:ou_user"),
+          conversationKey: "lark:oc_chat",
+          outcome: "accepted",
+          metadata: expect.objectContaining({
+            source: "card_action",
+            action: "choice",
+            larkChatId: "oc_chat",
+            larkMessageId: "card_1",
+            bridgeChatType: "private",
+          }),
+        }),
+        expect.objectContaining({
+          type: "turn.started",
+          channel: "lark",
+          chatId: stableCoreNumericId("lark:oc_chat"),
+          userId: stableCoreNumericId("user:ou_user"),
+          conversationKey: "lark:oc_chat",
+          metadata: expect.objectContaining({
+            source: "card_action",
+            action: "choice",
+            larkChatId: "oc_chat",
+            larkMessageId: "card_1",
+            bridgeChatType: "private",
+          }),
+        }),
+        expect.objectContaining({
+          type: "turn.completed",
+          channel: "lark",
+          chatId: stableCoreNumericId("lark:oc_chat"),
+          userId: stableCoreNumericId("user:ou_user"),
+          conversationKey: "lark:oc_chat",
+          outcome: "success",
+          metadata: expect.objectContaining({
+            source: "card_action",
+            action: "choice",
+            responseChars: "choice handled".length,
+          }),
+        }),
+      ]));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records Lark card choice tool errors with chat, user, and message metadata", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-tool-error-"));
+    const runtime = createCoreServiceRuntime({
+      createDocument: vi.fn(async () => {
+        throw new Error("lark doc failed");
+      }),
+    });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({
+        text: '[tool:{"name":"lark.doc.create","payload":{"title":"Spec","content":"# Spec","docFormat":"markdown"}}]',
+      })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_user", name: "Clover" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(false));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "错误：飞书工具执行失败，详细原因已记录到日志。" },
+        { replyTo: "card_1" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "service.error",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        metadata: expect.objectContaining({
+          phase: "tool",
+          tool: "lark.doc.create",
+          larkChatId: "oc_chat",
+          larkMessageId: "card_1",
+          bridgeChatType: "private",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps interactive card choice responses inside the originating thread", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-thread-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "choice handled" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_group",
+          messageId: "card_1",
+          operator: { openId: "ou_user", name: "Clover" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_group:omt_topic",
+              bridgeChatType: "group",
+              replyInThread: true,
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      await vi.waitFor(() => expect(runtime.chatQueue.isBusy("lark:oc_group:omt_topic")).toBe(false));
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { markdown: "choice handled" },
+        { replyTo: "card_1", replyInThread: true },
+      );
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledWith(expect.objectContaining({
+        conversationKey: "lark:oc_group:omt_topic",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports skipped Lark card choices when the conversation queue is cleared", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-skipped-"));
+    const runtime = createCoreServiceRuntime();
+    const enqueueSpy = vi.fn();
+    runtime.chatQueue = {
+      enqueue: async <T,>(conversationKey: string | number, job: () => Promise<T>, options?: {
+        onSkipped?: () => T | Promise<T>;
+      }): Promise<T> => {
+        enqueueSpy(conversationKey, job, options);
+        return options?.onSkipped ? await options.onSkipped() : undefined as T;
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "choice handled" })),
+    };
+
+    try {
+      await expect(handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      })).resolves.toBe(true);
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(enqueueSpy).toHaveBeenCalledWith("lark:oc_chat", expect.any(Function), expect.objectContaining({
+        onSkipped: expect.any(Function),
+      }));
+      await vi.waitFor(() => expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "已跳过排队中的任务。" },
+        { replyTo: "card_1" },
+      ));
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "已跳过排队中的任务。" }, { replyTo: "card_1" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "skipped",
+        detail: "queued turn skipped",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "choice",
+          larkChatId: "oc_chat",
+          larkMessageId: "card_1",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records skipped Lark archive continuation card actions in the timeline", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-skipped-"));
+    const runtime = createCoreServiceRuntime();
+    runtime.chatQueue = {
+      enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
+        onSkipped?: () => T | Promise<T>;
+      }): Promise<T> => {
+        return options?.onSkipped ? await options.onSkipped() : undefined as T;
+      },
+      clearPending: vi.fn(),
+      isBusy: vi.fn(),
+    } as unknown as typeof runtime.chatQueue;
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await expect(handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_archive",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "continue_archive",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              uploadId: "upload_1",
+            },
+          },
+        },
+      })).resolves.toBe(true);
+
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "已跳过排队中的任务。" },
+        { replyTo: "card_archive" },
+      ));
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "skipped",
+        detail: "queued turn skipped",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "continue_archive",
+          larkChatId: "oc_chat",
+          larkMessageId: "card_archive",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unauthorized Lark card choices before running the bridge", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-denied-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "未授权" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_intruder" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_intruder"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "未授权" }, { replyTo: "card_1" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_intruder"),
+        conversationKey: "lark:oc_chat",
+        outcome: "denied",
+        detail: "access denied",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "choice",
+          larkChatId: "oc_chat",
+          larkMessageId: "card_1",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("replies with single-chat lock card-action access denials for Lark private chats", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-choice-single-chat-sibling-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({
+        kind: "reply" as const,
+        text: "此实例已锁定到另一个聊天。",
+        reason: "single_chat_locked" as const,
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_sibling_lock",
+          operator: { openId: "ou_user" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "此实例已锁定到另一个聊天。" },
+        { replyTo: "card_sibling_lock" },
+      );
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "denied",
+        detail: "access denied",
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the configured Lark locale into card action access checks", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-access-locale-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "deny" as const, text: "not authorized" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_intruder", name: "Intruder" },
+          action: {
+            value: {
+              cctb_lark: "choice",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              label: "继续",
+              value: "continue",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        locale: "en",
+        conversationKey: "lark:oc_chat",
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies Lark config card actions after access checks and refreshes the card", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-action-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      model: "gpt-5.4",
+      locale: "zh",
+    }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    await sessionStore.upsert({
+      telegramChatId: stableCoreNumericId("lark:oc_chat"),
+      conversationKey: "lark:oc_chat",
+      codexSessionId: "thread-old",
+      status: "idle",
+      updatedAt: "2026-05-26T00:00:00.000Z",
+    });
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_config",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "config",
+              action: "engine",
+              value: "antigravity",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        conversationKey: "lark:oc_chat",
+      }));
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      const config = await loadInstanceConfig(stateDir);
+      expect(config.engine).toBe("antigravity");
+      expect(config.model).toBeUndefined();
+      expect(await sessionStore.findByConversationKey("lark:oc_chat")).toBeNull();
+      expect(channel.updateCard).toHaveBeenCalledWith("card_config", expect.any(Object));
+      expect(JSON.stringify(channel.updateCard.mock.calls)).toContain("已更新");
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        conversationKey: "lark:oc_chat",
+        outcome: "success",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "config",
+          configAction: "engine",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies Lark config form submissions after access checks", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-form-action-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      locale: "zh",
+      codexServiceTier: "fast",
+      approvalMode: "full-auto",
+    }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_config_form",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "config",
+              action: "submit",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+            },
+            form_value: {
+              engine: "claude",
+              fast: "off",
+              yolo: "off",
+              locale: "en",
+            },
+          },
+        },
+      });
+
+      const config = await loadInstanceConfig(stateDir);
+      const rawConfig = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(handled).toBe(true);
+      expect(config.engine).toBe("claude");
+      expect(config.locale).toBe("en");
+      expect(rawConfig.approvalMode).toBe("normal");
+      expect(config.codexServiceTier).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.updateCard).toHaveBeenCalledWith("card_config_form", expect.any(Object));
+      expect(JSON.stringify(channel.updateCard.mock.calls)).toContain("Saved");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers Lark config form submissions from the raw event when the SDK drops action.form_value", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-form-raw-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      locale: "zh",
+      codexServiceTier: "fast",
+      approvalMode: "full-auto",
+    }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const callbackValue = {
+      cctb_lark: "config",
+      action: "submit",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_config_form_raw",
+          operator: { openId: "ou_user", name: "User" },
+          action: { value: callbackValue },
+          raw: {
+            action: {
+              value: callbackValue,
+              form_value: {
+                engine: "claude",
+                fast: "off",
+                yolo: "off",
+                locale: "en",
+              },
+            },
+          },
+        },
+      });
+
+      const config = await loadInstanceConfig(stateDir);
+      const rawConfig = JSON.parse(await readFile(path.join(stateDir, "config.json"), "utf8")) as Record<string, unknown>;
+      expect(handled).toBe(true);
+      expect(config.engine).toBe("claude");
+      expect(config.locale).toBe("en");
+      expect(rawConfig.approvalMode).toBe("normal");
+      expect(config.codexServiceTier).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.updateCard).toHaveBeenCalledWith("card_config_form_raw", expect.any(Object));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Lark group config unchanged when submitting the config form without a group change", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-form-group-keep-"));
+    const groupChatId = stableCoreNumericId("lark:oc_group");
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
+      engine: "codex",
+      locale: "zh",
+      groupMode: {
+        enabled: true,
+        allowedChatIds: [groupChatId],
+        listenAllChatIds: [groupChatId],
+      },
+    }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        requireMentionInGroup: true,
+        message: fakeLarkMessage({
+          messageId: "om_config_group_keep",
+          chatId: "oc_group",
+          chatType: "group",
+          mentionedBot: true,
+          content: "/config",
+        }),
+      });
+
+      let rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).toContain('"name":"group","initial_option":"keep"');
+      expect(rendered).toContain("保持当前群聊设置");
+
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_group",
+          messageId: "card_config_group_keep",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "config",
+              action: "submit",
+              conversationKey: "lark:oc_group",
+              bridgeChatType: "group",
+              larkChatId: "oc_group",
+            },
+            form_value: {
+              engine: "codex",
+              fast: "off",
+              yolo: "unsafe",
+              locale: "zh",
+              group: "keep",
+            },
+          },
+        },
+      });
+
+      const config = await loadInstanceConfig(stateDir);
+      expect(handled).toBe(true);
+      expect(config.groupMode.allowedChatIds).toContain(groupChatId);
+      expect(config.groupMode.listenAllChatIds).toContain(groupChatId);
+      rendered = JSON.stringify(channel.updateCard.mock.calls);
+      expect(rendered).not.toContain("无效的群聊设置");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes a Claude session from a Lark resume card button", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-resume-card-action-"));
+    const canonicalStateDir = await realpath(stateDir);
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_resume",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "resume",
+              engine: "claude",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              sessionId: "claude-session-card",
+              dirName: "-Users-example-projects-demo",
+              displayName: "demo",
+              workspacePath: stateDir, // must be an existing directory (validated on resume)
+            },
+          },
+        },
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      const config = await loadInstanceConfig(stateDir);
+      expect(handled).toBe(true);
+      expect(record?.codexSessionId).toBe("claude-session-card");
+      expect(record?.resume).toMatchObject({
+        sessionId: "claude-session-card",
+        workspacePath: canonicalStateDir,
+      });
+      expect(config.resume).toBeUndefined();
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: expect.stringContaining("已恢复 session：demo") },
+        { replyTo: "card_resume" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates a Kimi resume card through ACP and ignores a forged workspace path", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-kimi-resume-card-action-"));
+    const canonicalStateDir = await realpath(stateDir);
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => ({
+        sessionId: "kimi-session-card",
+        cwd: stateDir,
+        title: "Kimi card session",
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_resume_kimi",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "resume",
+              engine: "kimi",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              sessionId: "kimi-session-card",
+              workspacePath: "/tmp/forged-kimi-workspace",
+            },
+          },
+        },
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      const config = await loadInstanceConfig(stateDir);
+      expect(handled).toBe(true);
+      expect(bridge.validateCodexThread).toHaveBeenCalledWith("kimi-session-card");
+      expect(record?.codexSessionId).toBe("kimi-session-card");
+      expect(record?.resume).toEqual({
+        sessionId: "kimi-session-card",
+        dirName: "kimi-session-card",
+        workspacePath: canonicalStateDir,
+      });
+      expect(config.resume).toBeUndefined();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: expect.stringContaining(`工作区：${canonicalStateDir}`) },
+        { replyTo: "card_resume_kimi" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates a DeepSeek resume card through Harness and ignores a forged workspace path", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-deepseek-resume-card-action-"));
+    const canonicalStateDir = await realpath(stateDir);
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "deepseek" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => ({
+        sessionId: "deepseek-session-card",
+        cwd: stateDir,
+        title: "Harness card session",
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_resume_deepseek",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "resume",
+              engine: "deepseek",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              sessionId: "deepseek-session-card",
+              workspacePath: "/tmp/forged-deepseek-workspace",
+            },
+          },
+        },
+      });
+
+      const record = await sessionStore.findByConversationKey("lark:oc_chat");
+      expect(handled).toBe(true);
+      expect(bridge.validateCodexThread).toHaveBeenCalledWith("deepseek-session-card");
+      expect(record?.resume).toEqual({
+        sessionId: "deepseek-session-card",
+        dirName: "deepseek-session-card",
+        workspacePath: canonicalStateDir,
+      });
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: expect.stringContaining("已绑定 DeepSeek Harness session") },
+        { replyTo: "card_resume_deepseek" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a stale Kimi resume card after the instance engine changes", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stale-kimi-resume-card-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
+    const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      validateCodexThread: vi.fn(async () => ({
+        sessionId: "kimi-stale",
+        cwd: stateDir,
+      })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_resume_kimi_stale",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "resume",
+              engine: "kimi",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+              sessionId: "kimi-stale",
+              workspacePath: stateDir,
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.validateCodexThread).not.toHaveBeenCalled();
+      expect(await sessionStore.findByConversationKey("lark:oc_chat")).toBeNull();
+      expect((await loadInstanceConfig(stateDir)).resume).toBeUndefined();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: expect.stringContaining("bot 引擎已经切换") },
+        { replyTo: "card_resume_kimi_stale" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not make the status resume card scan Claude sessions for a Codex instance", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-codex-resume-scan-card-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      listExternalSessions: vi.fn(async () => []),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_resume_scan_codex",
+          operator: { openId: "ou_user", name: "User" },
+          action: {
+            value: {
+              cctb_lark: "resume_scan",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.listExternalSessions).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: expect.stringContaining("/resume thread <thread-id>") },
+        { replyTo: "card_resume_scan_codex" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unauthorized Lark config card actions without changing config", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-config-action-denied-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "未授权" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_config_denied",
+          operator: { openId: "ou_intruder" },
+          action: {
+            value: {
+              cctb_lark: "config",
+              action: "engine",
+              value: "claude",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect((await loadInstanceConfig(stateDir)).engine).toBe("codex");
+      expect(channel.updateCard).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "未授权" }, { replyTo: "card_config_denied" });
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders default Lark card action operator denials in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-card-denial-en-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }) + "\n");
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_denial_en",
+          operator: { openId: "ou_intruder" },
+          action: {
+            value: {
+              cctb_lark: "stop",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(abortController.signal.aborted).toBe(false);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Current operator is not authorized." },
+        { replyTo: "card_denial_en" },
+      );
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unauthorized Lark stop actions", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-stop-denied-"));
+    const runtime = createCoreServiceRuntime();
+    const abortController = new AbortController();
+    runtime.activeRuns.set("lark:oc_chat", { abortController });
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "未授权" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "card_1",
+          operator: { openId: "ou_intruder" },
+          action: {
+            value: {
+              cctb_lark: "stop",
+              conversationKey: "lark:oc_chat",
+              bridgeChatType: "private",
+            },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(abortController.signal.aborted).toBe(false);
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "未授权" }, { replyTo: "card_1" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_intruder"),
+        conversationKey: "lark:oc_chat",
+        outcome: "denied",
+        detail: "access denied",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "stop",
+          larkChatId: "oc_chat",
+          larkMessageId: "card_1",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves approval card actions", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_chat",
+      replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "approval", requestId, decision: "allow_session" },
+        },
+      },
+    });
+
+    await expect(pending).resolves.toEqual({ behavior: "allow", scope: "session" });
+  });
+
+  it("renders AskUserQuestion as one native form (no per-tap toggling)", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: {
+          questions: [
+            { question: "Which mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] },
+            { question: "Which features?", header: "Features", multiSelect: true, options: [{ label: "A" }, { label: "B" }, { label: "C" }] },
+          ],
+        },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    // No managed-card port on the fake channel, so the form
+    // falls back to a normal card send (after the async managed-card attempt).
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+    const payload = JSON.stringify((channel.send.mock.calls[0] as unknown[])?.[1]);
+    expect(payload).toContain('"tag":"form"');
+    expect(payload).toContain('"name":"askq_form"');
+    expect(payload).toContain('"select_static"');       // single-select question
+    expect(payload).toContain('"multi_select_static"');  // multiSelect question
+    expect(payload).toContain('"name":"q0"');
+    expect(payload).toContain('"name":"q1"');
+    expect(payload).toContain('"name":"askq_submit"');
+    expect(payload).toContain('"form_action_type":"submit"');
+    expect(payload).not.toContain('"action_type":"form_submit"');
+    expect(payload).toContain('"action":"form_submit"');
+    // Option values are per-question indices, not labels — labels aren't unique.
+    expect(payload).toContain('"value":"0"');
+    expect(payload).not.toContain('"value":"Fast"');
+    // Each question has a free-text "Other" input; not Feishu-`required` because
+    // the Other value is a valid alternative (enforced by the submit backstop).
+    expect(payload).toContain('"tag":"input"');
+    expect(payload).toContain("q0_other");
+    expect(payload).toContain("q1_other");
+    expect(payload).not.toContain("collapsible_panel");
+    expect(payload).not.toContain('"action":"toggle"');
+
+    // Resolve via submit so the dangling approval (no abortSignal) settles.
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        // Legacy label-valued submit (q0:"Fast") — exercises the backward-compat
+        // fallback for forms rendered before the index migration.
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "Fast", q1: ["A"] } } },
+    });
+    await pending.catch(() => undefined);
+  });
+
+  it("renders Codex choices and free-answer fields without inventing an Other option", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_codex",
+      request: { engine: "codex", toolName: "AskUserQuestion", toolInput: { questions: [
+        { question: "Choose", header: "Choice", options: [{ label: "Blue" }, { label: "Green" }], allowFreeText: false },
+        { question: "Name", header: "Name", options: [], allowFreeText: true },
+      ] } },
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+    const payload = JSON.stringify((channel.send.mock.calls[0] as unknown[])?.[1]);
+    expect(payload).toContain('"name":"q0"');
+    expect(payload).not.toContain('"name":"q0_other"');
+    expect(payload).not.toContain('"name":"q1"');
+    expect(payload).toContain('"name":"q1_other"');
+    expect(payload).toContain("填写你的回答");
+    await handleCoreCardAction({ channel, runtime, event: {
+      chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+      action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "0", q0_other: "forged", q1_other: "Acorn" } },
+    } });
+    await expect(pending).resolves.toMatchObject({ behavior: "allow", updatedInput: { answers: { Choose: "Blue", Name: "Acorn" } } });
+  });
+
+  it("renders Kimi AskUserQuestion as a native option-only form", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_kimi",
+      locale: "en",
+      request: {
+        engine: "kimi",
+        toolName: "AskUserQuestion",
+        toolInput: {
+          questions: [{
+            question: "Which do you choose?",
+            header: "Choice",
+            multi_select: false,
+            options: [{ label: "red" }, { label: "blue" }],
+          }],
+        },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+    const payload = JSON.stringify((channel.send.mock.calls[0] as unknown[])?.[1]);
+    expect(payload).toContain("Kimi is asking a question");
+    expect(payload).toContain('"name":"q0"');
+    expect(payload).not.toContain("q0_other");
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "ask_user_question", action: "form_submit", requestId },
+          form_value: { q0: "1" },
+        },
+      },
+    });
+    await expect(pending).resolves.toMatchObject({
+      behavior: "allow",
+      updatedInput: { answers: { "Which do you choose?": "blue" } },
+    });
+  });
+
+  it("preserves DeepSeek Harness custom AskUserQuestion answers", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_deepseek",
+      locale: "en",
+      request: {
+        engine: "deepseek",
+        toolName: "AskUserQuestion",
+        toolInput: {
+          questions: [{
+            question: "Which do you choose?",
+            header: "Choice",
+            multiSelect: false,
+            options: [{ label: "safe" }, { label: "fast" }],
+          }],
+        },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+    const payload = JSON.stringify((channel.send.mock.calls[0] as unknown[])?.[1]);
+    expect(payload).toContain("DeepSeek Harness is asking a question");
+    expect(payload).toContain('"name":"q0"');
+    expect(payload).toContain("q0_other");
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "ask_user_question", action: "form_submit", requestId },
+          form_value: { q0: "", q0_other: "balanced" },
+        },
+      },
+    });
+    await expect(pending).resolves.toMatchObject({
+      behavior: "allow",
+      updatedInput: { answers: { "Which do you choose?": "balanced" } },
+    });
+  });
+
+  it("flips an unanswered AskUserQuestion card to a timed-out state without claiming a default answer", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createCoreServiceRuntime();
+      const update = vi.fn(async () => true);
+      const channel = fakeChannel({
+        managedCards: {
+          send: vi.fn(async () => ({ messageId: "om_mc", cardId: "card_timeout", sequence: 0 })),
+          update,
+          updateElement: vi.fn(async () => true),
+        },
+      });
+      const pending = requestCoreApproval({
+        channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+        request: {
+          engine: "claude",
+          toolName: "AskUserQuestion",
+          toolInput: {
+            questions: [
+              { question: "Which mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] },
+            ],
+          },
+        } satisfies EngineApprovalRequest,
+      });
+      // Let the managed-card send settle so pending.managedCard is tracked
+      // (the managed send being called isn't enough — the handle lands after the async
+      // send resolves).
+      const requestId = [...runtime.pendingApprovals.keys()][0]!;
+      await vi.waitFor(() => {
+        expect(runtime.pendingApprovals.get(requestId)?.managedCard).toBeTruthy();
+      });
+
+      await vi.advanceTimersByTimeAsync(29 * 60 * 1000 + 50);
+      // The pending resolves as deny (default path continues).
+      await expect(pending).resolves.toEqual({ behavior: "deny" });
+      // The managed card was flipped in place to the timed-out state.
+      await vi.waitFor(() => {
+        const flipped = (update.mock.calls as unknown[][]).map((call) => JSON.stringify(call[1])).join("\n");
+        expect(flipped).toContain("选择已超时");
+        expect(flipped).toContain("没有代你选择默认选项");
+      });
+      // And the audible notice says what actually happened (not just "expired").
+      const texts = (channel.send.mock.calls as unknown[][])
+        .map((call) => (call[1] as { text?: string }).text)
+        .filter((text): text is string => typeof text === "string");
+      expect(texts.some((text) => text.includes("问题已过期") && text.includes("没有代你选择答案"))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("explains an expired choice card on a late form submit instead of 'no pending approval'", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId: "req_gone" }, form_value: { q0: "0" } } },
+    });
+    const texts = (channel.send.mock.calls as unknown[][])
+      .map((call) => (call[1] as { text?: string }).text)
+      .filter((text): text is string => typeof text === "string");
+    // Cause-neutral copy: the pending entry is also gone after a /stop-style
+    // abort, so the notice must not fabricate "expired + continued with the
+    // default option".
+    expect(texts.some((text) => text.includes("该选择已失效") && text.includes("超时或任务已结束"))).toBe(true);
+    expect(texts.join("\n")).not.toContain("没有待处理的审批");
+    expect(texts.join("\n")).not.toContain("默认选项继续");
+  });
+
+  it("resolves every AskUserQuestion answer from a single form submit", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: {
+          questions: [
+            { question: "Which mode should we use?", header: "Mode", multiSelect: false,
+              options: [{ label: "Fast", description: "Finish quickly" }, { label: "Careful", description: "Check more" }] },
+            { question: "Which features?", header: "Features", multiSelect: true,
+              options: [{ label: "Alpha" }, { label: "Beta" }, { label: "Gamma" }] },
+          ],
+        },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "ask_user_question", action: "form_submit", requestId },
+          // Index-valued submit: q0 → option 1 ("Careful"); q1 → options 0,2 ("Alpha","Gamma").
+          form_value: { q0: "1", q1: ["0", "2"] },
+        },
+      },
+    });
+
+    const resolved = await pending as { behavior: string; updatedInput: { answers: Record<string, string> } };
+    expect(resolved.behavior).toBe("allow");
+    expect(resolved.updatedInput.answers).toEqual({
+      "Which mode should we use?": "Careful",
+      "Which features?": "Alpha, Gamma",
+    });
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("re-renders the form (keeping the picks already made) when a submit misses an answer", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: {
+          questions: [
+            { question: "这套图用哪个画风？", header: "画风", multiSelect: false,
+              options: [{ label: "编辑插画水彩" }, { label: "高精度手绘" }, { label: "设计感水彩" }] },
+            { question: "12 页这个体量可以吗？", header: "页数", multiSelect: false,
+              options: [{ label: "就 12 页" }, { label: "精简到 9 页左右" }, { label: "再加厚" }] },
+          ],
+        },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    // The field report: 页数 answered, 画风 missed.
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "ask_user_question", action: "form_submit", requestId },
+          form_value: { q0: "", q1: "1" },
+        },
+      },
+    });
+
+    // The approval must stay open — nothing was resolved.
+    expect(runtime.pendingApprovals.size).toBe(1);
+
+    // A text-only re-prompt strands the form: the client holds a post-submit
+    // lock until the server pushes a card, so the user's next 提交 never
+    // leaves the device. A card must go back out.
+    const cardCall = (channel.send.mock.calls as unknown[][])
+      .map((call) => call[1] as { card?: unknown })
+      .filter((payload) => payload?.card)
+      .pop();
+    expect(cardCall).toBeDefined();
+    const card = JSON.stringify(cardCall!.card);
+    expect(card).toContain("请先选择");
+    expect(card).toContain("画风");
+    // …and it must carry the answer already given, so 页数 does not have to be redone.
+    expect(card).toContain("\"initial_option\":\"1\"");
+    void pending;
+  });
+
+  it("re-renders a required multi-select instead of declining the whole Kimi form", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "kimi",
+        toolName: "AskUserQuestion",
+        toolInput: {
+          questions: [{
+            question: "Which traits?",
+            header: "Traits",
+            multi_select: true,
+            required: true,
+            options: [{ label: "Fast" }, { label: "Safe" }],
+          }],
+        },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "ask_user_question", action: "form_submit", requestId },
+          form_value: { q0: [] },
+        },
+      },
+    });
+
+    expect(runtime.pendingApprovals.size).toBe(1);
+    const card = JSON.stringify((channel.send.mock.calls as unknown[][])
+      .map((call) => (call[1] as { card?: unknown })?.card)
+      .filter(Boolean)
+      .at(-1));
+    expect(card).toContain("请先选择");
+    expect(card).toContain("Traits");
+    void pending;
+  });
+
+  it("shows and enforces Kimi multi-select bounds before resolving the form", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "kimi",
+        toolName: "AskUserQuestion",
+        toolInput: {
+          questions: [{
+            question: "Which traits?",
+            header: "Traits",
+            multi_select: true,
+            required: true,
+            min_selections: 2,
+            max_selections: 3,
+            options: [{ label: "Fast" }, { label: "Safe, stable" }, { label: "Thorough" }],
+          }],
+        },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+    expect(JSON.stringify(channel.send.mock.calls[0])).toContain("至少 2 项");
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "ask_user_question", action: "form_submit", requestId },
+          form_value: { q0: ["1"] },
+        },
+      },
+    });
+
+    expect(runtime.pendingApprovals.size).toBe(1);
+    expect(JSON.stringify(channel.send.mock.calls)).toContain("请至少选择 2 项");
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card_retry", operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "ask_user_question", action: "form_submit", requestId },
+          form_value: { q0: ["1", "2"] },
+        },
+      },
+    });
+
+    await expect(pending).resolves.toMatchObject({
+      behavior: "allow",
+      updatedInput: { answers: { "Which traits?": "Safe, stable, Thorough" } },
+    });
+  });
+
+  it("parses a multi-select form value delivered as a JSON string", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Pick", header: "Pick", multiSelect: true, options: [{ label: "A" }, { label: "B" }, { label: "C" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        // Multi-select as a JSON string of indices: options 0 ("A") and 2 ("C").
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: '["0","2"]' } },
+      },
+    });
+
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Pick": "A, C" });
+  });
+
+  it("gives duplicate-label options distinct values so a selection is unambiguous", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Confirm?", header: "Confirm", multiSelect: false, options: [{ label: "Yes" }, { label: "Yes" }, { label: "No" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled());
+    const payload = JSON.stringify((channel.send.mock.calls[0] as unknown[])?.[1]);
+    // The two identical "Yes" labels get DISTINCT option values (indices), so Feishu
+    // renders/selects them unambiguously; a label-keyed value would collide on "Yes".
+    expect(payload).toContain('"value":"0"');
+    expect(payload).toContain('"value":"1"');
+    expect(payload).toContain('"value":"2"');
+    expect(payload).not.toContain('"value":"Yes"');
+
+    // Picking the second option (index 1) resolves to its label, "Yes".
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "1" } } },
+    });
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Confirm?": "Yes" });
+  });
+
+  it("posts a read-only summary and recalls the form on submit (Feishu ignores form-card patches)", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "Fast" } } },
+    });
+
+    await pending;
+    // The LAST send is a compact read-only summary (not an in-place patch, which
+    // Feishu ignores on a submitted form), carrying the pick and no interactive
+    // parts (the earlier send was the original form, which does have them).
+    const summarySend = JSON.stringify(channel.send.mock.calls.at(-1));
+    expect(summarySend).toContain("已提交");
+    expect(summarySend).toContain("Fast");
+    expect(summarySend).not.toContain("select_static");
+    expect(summarySend).not.toContain("form_submit");
+    // The now-useless interactive form is recalled.
+    expect(channel.recallMessage).toHaveBeenCalledWith("om_card");
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("replaces an invalid managed AskUserQuestion form with a fresh submit-capable card", async () => {
+    const runtime = createCoreServiceRuntime();
+    let cardNumber = 0;
+    const create = vi.fn(async (_chatId: string, _card: object, _options: { replyTo?: string; replyInThread?: boolean }) => {
+      cardNumber += 1;
+      return { messageId: `om_form_${cardNumber}`, cardId: `card_aqq_${cardNumber}`, sequence: 0 };
+    });
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({
+      managedCards: { send: create, update, updateElement: vi.fn(async () => false) },
+    });
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+    await vi.waitFor(() => expect(runtime.pendingApprovals.get(requestId)?.managedCard?.cardId).toBe("card_aqq_1"));
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_form_1", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: {} } },
+    });
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[1]?.[2]).toEqual(expect.objectContaining({ replyTo: expect.any(String) }));
+    expect(runtime.pendingApprovals.get(requestId)?.managedCard?.cardId).toBe("card_aqq_2");
+    expect(channel.send).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    const retiredCard = JSON.stringify(update.mock.calls[0]);
+    expect(retiredCard).toContain("card_aqq_1");
+    expect(retiredCard).toContain("请填写新表单");
+    expect(retiredCard).not.toContain("form_submit");
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_form_2", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0_other: "No image" } } },
+    });
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Mode?": "No image" });
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    const submittedCard = JSON.stringify(update.mock.calls[1]);
+    expect(submittedCard).toContain("card_aqq_2");
+    expect(submittedCard).toContain("已提交");
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("updates the AskUserQuestion form in place through the managed-card port (no recall) when managed cards work", async () => {
+    const runtime = createCoreServiceRuntime();
+    const create = vi.fn(async (_chatId: string, _card: object, _options: { replyTo?: string; replyInThread?: boolean }) => ({ messageId: "om_form", cardId: "card_aqq", sequence: 0 }));
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({
+      managedCards: { send: create, update, updateElement: vi.fn(async () => false) },
+    });
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    // The form is sent through the managed-card port, not via channel.send, and
+    // the handle is tracked on the pending.
+    await vi.waitFor(() => expect(runtime.pendingApprovals.get(requestId)?.managedCard).toBeDefined());
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]?.[2]).toEqual(expect.objectContaining({ replyTo: "om_1" }));
+    expect(channel.send).not.toHaveBeenCalled();
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_form", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "Careful" } } },
+    });
+
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Mode?": "Careful" });
+
+    // The form is turned read-only IN PLACE via a managed-card full update — but the
+    // update is detached + delayed (settle window) so the client's post-submit
+    // lock doesn't revert it, so wait for it. No fresh summary, no recall.
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    const updateBody = JSON.stringify(update.mock.calls.at(-1));
+    expect(updateBody).toContain("card_aqq");
+    expect(updateBody).toContain("已提交");
+    expect(updateBody).toContain("Careful");
+    expect(channel.send).not.toHaveBeenCalled();
+    expect(channel.recallMessage).not.toHaveBeenCalled();
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("falls back to a recall + summary when the managed-card in-place update fails", async () => {
+    const runtime = createCoreServiceRuntime();
+    // ManagedCardTransport reports a rejected in-place update as false.
+    const update = vi.fn(async () => false);
+    const channel = fakeChannel({
+      managedCards: {
+        send: vi.fn(async () => ({ messageId: "om_form", cardId: "card_aqq", sequence: 0 })),
+        update,
+        updateElement: vi.fn(async () => false),
+      },
+    });
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+    await vi.waitFor(() => expect(runtime.pendingApprovals.get(requestId)?.managedCard).toBeDefined());
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_form", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "Fast" } } },
+    });
+    await pending;
+
+    // The managed-card update is detached + delayed; it fails → fall back to
+    // a read-only summary send and recall of the original form message.
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalled(), { timeout: 2000 });
+    const summarySend = JSON.stringify(channel.send.mock.calls.at(-1));
+    expect(summarySend).toContain("已提交");
+    expect(summarySend).toContain("Fast");
+    expect(channel.recallMessage).toHaveBeenCalledWith("om_form");
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("updates a command-approval card in place through the managed-card port (no separate reply) when the operator decides", async () => {
+    const runtime = createCoreServiceRuntime();
+    const create = vi.fn(async () => ({ messageId: "om_appr", cardId: "card_appr", sequence: 0 }));
+    const update = vi.fn(async () => true);
+    const channel = fakeChannel({
+      managedCards: { send: create, update, updateElement: vi.fn(async () => false) },
+    });
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "codex",
+        toolName: "Codex command approval",
+        toolInput: "rm -rf /tmp/x",
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    // Sent through the managed-card port (not channel.send); the handle is tracked so
+    // the decision can flip it in place.
+    await vi.waitFor(() => expect(runtime.pendingApprovals.get(requestId)?.managedCard).toBeDefined());
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(channel.send).not.toHaveBeenCalled();
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_appr", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "approval", requestId, decision: "allow_once" } } },
+    });
+
+    expect(await pending).toEqual({ behavior: "allow", scope: "once" });
+
+    // The card is flipped to resolved IN PLACE (managed-card update, detached + delayed):
+    // shows the decision, drops the buttons, and posts NO separate reply.
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    const updateBody = JSON.stringify(update.mock.calls.at(-1));
+    expect(updateBody).toContain("card_appr");
+    expect(updateBody).toContain("已允许一次");
+    expect(updateBody).not.toContain("column_set");
+    expect(channel.send).not.toHaveBeenCalled();
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("re-prompts instead of resolving when a required single-select answer is missing", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+    await vi.waitFor(() => expect(channel.send).toHaveBeenCalledTimes(1));
+
+    // Submit with nothing selected → must NOT resolve; should send a fresh form
+    // instead of reusing the client-locked card.
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: {} } },
+    });
+    expect(runtime.pendingApprovals.size).toBe(1);
+    expect(channel.send).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(channel.send.mock.calls)).toContain("请先选择");
+
+    // A real selection then resolves.
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "Careful" } } },
+    });
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Mode?": "Careful" });
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("recovers AskUserQuestion answers from raw events produced by unpatched SDK installs", async () => {
+    // Keep raw-event recovery for old SDK installs and alternate callback
+    // adapters even though TaroCub's postinstall patch now preserves form_value.
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    const callbackValue = { cctb_lark: "ask_user_question", action: "form_submit", requestId };
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: callbackValue },
+        raw: { action: { value: callbackValue, form_value: { q0: "Careful" } } },
+      },
+    });
+
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Mode?": "Careful" });
+    expect(runtime.pendingApprovals.size).toBe(0);
+    expect(JSON.stringify(channel.send.mock.calls)).not.toContain("请先选择");
+  });
+
+  it("recovers stringified AskUserQuestion form values from nested callback envelopes", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+    const callbackValue = { cctb_lark: "ask_user_question", action: "form_submit", requestId };
+
+    await handleCoreCardAction({
+      channel, runtime,
+      event: {
+        chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: callbackValue },
+        raw: {
+          data: {
+            event: {
+              action: {
+                value: callbackValue,
+                form_value: JSON.stringify({ askq_form: { q0: "", q0_other: "No image" } }),
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Mode?": "No image" });
+    expect(runtime.pendingApprovals.size).toBe(0);
+  });
+
+  it("accepts the free-text Other answer when no option is picked", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel, runtime, chatId: "oc_chat", replyTo: "om_1",
+      request: {
+        engine: "claude",
+        toolName: "AskUserQuestion",
+        toolInput: { questions: [{ question: "Mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast" }, { label: "Careful" }] }] },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    // Nothing picked from the dropdown, but the "Other" field is filled.
+    await handleCoreCardAction({
+      channel, runtime,
+      event: { chatId: "oc_chat", messageId: "om_card", operator: { openId: "ou_user" },
+        action: { value: { cctb_lark: "ask_user_question", action: "form_submit", requestId }, form_value: { q0: "", q0_other: "Whimsical" } } },
+    });
+
+    const resolved = await pending as { updatedInput: { answers: Record<string, string> } };
+    expect(resolved.updatedInput.answers).toEqual({ "Mode?": "Whimsical" });
+    expect(runtime.pendingApprovals.size).toBe(0);
+    expect(JSON.stringify(channel.send.mock.calls)).not.toContain("请先选择");
+  });
+
+  it("answers unsupported Lark card actions instead of silently ignoring them", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: {
+          value: {
+            cctb_lark: "ask_user_question_smoke",
+            answer: "Continue",
+          },
+        },
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(channel.send).toHaveBeenCalledWith(
+      "oc_chat",
+      { text: expect.stringContaining("不再有效") },
+      { replyTo: "om_card" },
+    );
+  });
+
+  it("accepts stringified Lark card action values from callback payloads", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+
+    const handled = await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_chat",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: {
+          value: JSON.stringify({
+            cctb_lark: "ask_user_question_smoke",
+            answer: "Continue",
+            replyInThread: true,
+          }),
+        },
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(channel.send).toHaveBeenCalledWith(
+      "oc_chat",
+      { text: expect.stringContaining("不再有效") },
+      { replyTo: "om_card", replyInThread: true },
+    );
+  });
+
+  it("renders Lark approval timeout replies in English when Lark locale is English", async () => {
+    vi.useFakeTimers();
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_chat",
+      replyTo: "om_request",
+      locale: "en",
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+      } satisfies EngineApprovalRequest,
+    });
+
+    try {
+      await vi.runAllTimersAsync();
+
+      await expect(pending).resolves.toEqual({ behavior: "deny" });
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Approval expired (denied)." },
+        { replyTo: "om_request" },
+      );
+    } finally {
+      runtime.pendingApprovals.clear();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps Lark approval card action replies inside the originating thread", async () => {
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_group",
+      conversationKey: "lark:oc_group:omt_topic",
+      bridgeChatType: "group",
+      replyTo: "om_request",
+      replyInThread: true,
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    await handleCoreCardAction({
+      channel,
+      runtime,
+      event: {
+        chatId: "oc_group",
+        messageId: "om_card",
+        operator: { openId: "ou_user" },
+        action: {
+          value: { cctb_lark: "approval", requestId, decision: "allow_session" },
+        },
+      },
+    });
+
+    await expect(pending).resolves.toEqual({ behavior: "allow", scope: "session" });
+    expect(channel.send).toHaveBeenCalledWith(
+      "oc_group",
+      { text: "已允许本轮。" },
+      { replyTo: "om_card", replyInThread: true },
+    );
+  });
+
+  it("renders Lark approval card action replies in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-card-en-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_chat",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+      replyTo: "om_request",
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+      } satisfies EngineApprovalRequest,
+    });
+    const requestId = [...runtime.pendingApprovals.keys()][0]!;
+
+    try {
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreCardAction({
+        channel,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_card_en",
+          operator: { openId: "ou_user" },
+          action: {
+            value: { cctb_lark: "approval", requestId, decision: "allow_session" },
+          },
+        },
+      });
+
+      await expect(pending).resolves.toEqual({ behavior: "allow", scope: "session" });
+      const rendered = JSON.stringify(channel.send.mock.calls);
+      expect(rendered).not.toContain("已允许");
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "Allowed for this turn." },
+        { replyTo: "om_card_en" },
+      );
+    } finally {
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records successful Lark approval card actions in the shared timeline", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-success-timeline-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timer = setTimeout(() => undefined, 60_000);
+    runtime.pendingApprovals.set("req_1", {
+      requestId: "req_1",
+      chatId: "oc_chat",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+      resolve,
+      reject,
+      timer,
+    });
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_card",
+          operator: { openId: "ou_user" },
+          action: {
+            value: { cctb_lark: "approval", requestId: "req_1", decision: "allow_session" },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(resolve).toHaveBeenCalledWith({ behavior: "allow", scope: "session" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "success",
+        detail: "approval",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "approval",
+          decision: "allow_session",
+          requestId: "req_1",
+          larkChatId: "oc_chat",
+          larkMessageId: "om_card",
+        }),
+      }));
+    } finally {
+      clearTimeout(timer);
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records noop Lark approval card actions when the pending request is missing", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-noop-timeline-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_card",
+          operator: { openId: "ou_user" },
+          action: {
+            value: { cctb_lark: "approval", requestId: "missing_req", decision: "allow_once" },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "没有待处理的审批。" }, { replyTo: "om_card" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "noop",
+        detail: "approval",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "approval",
+          decision: "allow_once",
+          requestId: "missing_req",
+          reason: "no-pending",
+          larkChatId: "oc_chat",
+          larkMessageId: "om_card",
+        }),
+      }));
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves Lark approval requests from text commands when cards are unavailable", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-text-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_chat",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+      replyTo: "om_request",
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+      } satisfies EngineApprovalRequest,
+    });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_approve",
+          content: "/approve session",
+        }),
+      });
+
+      await expect(pending).resolves.toEqual({ behavior: "allow", scope: "session" });
+      expect(runtime.pendingApprovals.size).toBe(0);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "已允许本轮。" }, { replyTo: "om_approve" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "command.handled",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "success",
+        detail: "approval",
+        metadata: expect.objectContaining({
+          command: "approval",
+          choice: "session",
+        }),
+      }));
+    } finally {
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not let text /approve resolve an AskUserQuestion without an answer", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-ask-text-approve-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timer = setTimeout(() => undefined, 60_000);
+    runtime.pendingApprovals.set("req_ask", {
+      requestId: "req_ask",
+      chatId: "oc_chat",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+      askUserQuestionInput: {
+        questions: [{
+          header: "Scope",
+          question: "Pick one",
+          options: [{ label: "A", description: "alpha" }],
+        }],
+      },
+      resolve,
+      reject,
+      timer,
+    });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_approve_ask",
+          content: "/approve",
+        }),
+      });
+
+      expect(resolve).not.toHaveBeenCalled();
+      expect(reject).not.toHaveBeenCalled();
+      expect(runtime.pendingApprovals.has("req_ask")).toBe(true);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_chat",
+        { text: "这个是问题卡片，请在卡片里选择答案，不能用 /approve 代替。" },
+        { replyTo: "om_approve_ask" },
+      );
+    } finally {
+      clearTimeout(timer);
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves Lark approval fallback commands by request id", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-id-text-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+
+    try {
+      const pendingOnce = requestCoreApproval({
+        channel,
+        runtime,
+        chatId: "oc_chat",
+        conversationKey: "lark:oc_chat",
+        bridgeChatType: "private",
+        replyTo: "om_request_once",
+        request: {
+          engine: "claude",
+          toolName: "Bash",
+          toolInput: { command: "npm test" },
+        } satisfies EngineApprovalRequest,
+      });
+      const onceRequestId = [...runtime.pendingApprovals.keys()][0]!;
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_approve_once",
+          content: `/approve ${onceRequestId}`,
+        }),
+      });
+
+      await expect(pendingOnce).resolves.toEqual({ behavior: "allow", scope: "once" });
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "已允许一次。" }, { replyTo: "om_approve_once" });
+
+      const pendingSession = requestCoreApproval({
+        channel,
+        runtime,
+        chatId: "oc_chat",
+        conversationKey: "lark:oc_chat",
+        bridgeChatType: "private",
+        replyTo: "om_request_session",
+        request: {
+          engine: "claude",
+          toolName: "Bash",
+          toolInput: { command: "npm run build" },
+        } satisfies EngineApprovalRequest,
+      });
+      const sessionRequestId = [...runtime.pendingApprovals.keys()][0]!;
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_approve_session",
+          content: `/approve-session ${sessionRequestId}`,
+        }),
+      });
+
+      await expect(pendingSession).resolves.toEqual({ behavior: "allow", scope: "session" });
+      expect(runtime.pendingApprovals.size).toBe(0);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "已允许本轮。" }, { replyTo: "om_approve_session" });
+    } finally {
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("denies Lark approval requests from /deny text commands when cards are unavailable", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-deny-text-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_chat",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+      replyTo: "om_request",
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "rm -rf /tmp/example" },
+      } satisfies EngineApprovalRequest,
+    });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_deny",
+          content: "/deny",
+        }),
+      });
+
+      await expect(pending).resolves.toEqual({ behavior: "deny" });
+      expect(runtime.pendingApprovals.size).toBe(0);
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "已拒绝。" }, { replyTo: "om_deny" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "command.handled",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_user"),
+        conversationKey: "lark:oc_chat",
+        outcome: "success",
+        detail: "approval",
+        metadata: expect.objectContaining({
+          command: "approval",
+          choice: "deny",
+        }),
+      }));
+    } finally {
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("renders Lark approval text command replies in English when Lark locale is English", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-text-en-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_chat",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+      replyTo: "om_request",
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+      } satisfies EngineApprovalRequest,
+    });
+
+    try {
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ locale: "en" }));
+
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_approve_en",
+          content: "/approve session",
+        }),
+      });
+
+      await expect(pending).resolves.toEqual({ behavior: "allow", scope: "session" });
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "Allowed for this turn." }, { replyTo: "om_approve_en" });
+    } finally {
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Lark approval text command replies inside the current thread", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-text-thread-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const pending = requestCoreApproval({
+      channel,
+      runtime,
+      chatId: "oc_group",
+      conversationKey: "lark:oc_group:omt_topic",
+      bridgeChatType: "group",
+      replyTo: "om_request",
+      request: {
+        engine: "claude",
+        toolName: "Bash",
+        toolInput: { command: "npm test" },
+      } satisfies EngineApprovalRequest,
+    });
+
+    try {
+      await handleCoreMessage({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        message: fakeLarkMessage({
+          messageId: "om_thread_approve",
+          chatId: "oc_group",
+          chatType: "group",
+          threadId: "omt_topic",
+          content: "/approve",
+        }),
+      });
+
+      await expect(pending).resolves.toEqual({ behavior: "allow", scope: "once" });
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { text: "已允许一次。" },
+        { replyTo: "om_thread_approve", replyInThread: true },
+      );
+    } finally {
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unauthorized Lark approval actions without resolving the approval", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-denied-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "未授权" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timer = setTimeout(() => undefined, 60_000);
+    runtime.pendingApprovals.set("req_1", {
+      requestId: "req_1",
+      chatId: "oc_chat",
+      conversationKey: "lark:oc_chat",
+      bridgeChatType: "private",
+      resolve,
+      reject,
+      timer,
+    });
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_card",
+          operator: { openId: "ou_intruder" },
+          action: {
+            value: { cctb_lark: "approval", requestId: "req_1", decision: "allow_session" },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(reject).not.toHaveBeenCalled();
+      expect(runtime.pendingApprovals.has("req_1")).toBe(true);
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "未授权" }, { replyTo: "om_card" });
+      const timeline = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "turn.completed",
+        channel: "lark",
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_intruder"),
+        conversationKey: "lark:oc_chat",
+        outcome: "denied",
+        detail: "access denied",
+        metadata: expect.objectContaining({
+          source: "card_action",
+          action: "approval",
+          larkChatId: "oc_chat",
+          larkMessageId: "om_card",
+        }),
+      }));
+    } finally {
+      clearTimeout(timer);
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unauthorized legacy Lark approval actions without a stored conversation key", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-legacy-denied-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "未授权" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timer = setTimeout(() => undefined, 60_000);
+    runtime.pendingApprovals.set("req_legacy", {
+      requestId: "req_legacy",
+      chatId: "oc_chat",
+      resolve,
+      reject,
+      timer,
+    });
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_chat",
+          messageId: "om_card",
+          operator: { openId: "ou_intruder" },
+          action: {
+            value: { cctb_lark: "approval", requestId: "req_legacy", decision: "allow_session" },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(reject).not.toHaveBeenCalled();
+      expect(runtime.pendingApprovals.has("req_legacy")).toBe(true);
+      expect(bridge.checkAccess).toHaveBeenCalledWith(expect.objectContaining({
+        chatId: stableCoreNumericId("lark:oc_chat"),
+        userId: stableCoreNumericId("user:ou_intruder"),
+        chatType: "private",
+        conversationKey: "lark:oc_chat",
+      }));
+      expect(channel.send).toHaveBeenCalledWith("oc_chat", { text: "未授权" }, { replyTo: "om_card" });
+    } finally {
+      clearTimeout(timer);
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps unauthorized Lark approval action denials inside the originating thread", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-approval-denied-thread-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    const bridge = {
+      checkAccess: vi.fn(async () => ({ kind: "reply" as const, text: "未授权" })),
+      handleAuthorizedMessage: vi.fn(async () => ({ text: "should not run" })),
+    };
+    const resolve = vi.fn();
+    const reject = vi.fn();
+    const timer = setTimeout(() => undefined, 60_000);
+    runtime.pendingApprovals.set("req_1", {
+      requestId: "req_1",
+      chatId: "oc_group",
+      conversationKey: "lark:oc_group:omt_topic",
+      bridgeChatType: "group",
+      replyInThread: true,
+      resolve,
+      reject,
+      timer,
+    });
+
+    try {
+      const handled = await handleCoreCardAction({
+        channel,
+        bridge,
+        runtime,
+        stateDir,
+        event: {
+          chatId: "oc_group",
+          messageId: "om_card",
+          operator: { openId: "ou_intruder" },
+          action: {
+            value: { cctb_lark: "approval", requestId: "req_1", decision: "allow_session" },
+          },
+        },
+      });
+
+      expect(handled).toBe(true);
+      expect(resolve).not.toHaveBeenCalled();
+      expect(reject).not.toHaveBeenCalled();
+      expect(runtime.pendingApprovals.has("req_1")).toBe(true);
+      expect(channel.send).toHaveBeenCalledWith(
+        "oc_group",
+        { text: "未授权" },
+        { replyTo: "om_card", replyInThread: true },
+      );
+    } finally {
+      clearTimeout(timer);
+      runtime.pendingApprovals.clear();
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+});
+
+
+it("cancels a real queued card task without starting its engine or stopping the first task", async () => {
+  const runtime = createCoreServiceRuntime(), channel = fakeChannel(), secondEngine = vi.fn(async () => true);
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), ready = new Promise<void>(resolve => { started = resolve; });
+  const first = runtime.chatQueue.enqueue("lark:oc_chat", async () => { started(); await gate; return true; });
+  await ready;
+  const second = runtime.chatQueue.enqueue("lark:oc_chat", secondEngine, { taskId: "queued-real" });
+  try {
+    await handleCoreCardAction({ channel, runtime, event: { chatId: "oc_chat", messageId: "queue-card", operator: { openId: "ou_user" }, action: { value: { cctb_lark: "stop", conversationKey: "lark:oc_chat", taskId: "queued-real" } } } });
+    expect(secondEngine).not.toHaveBeenCalled(); expect(runtime.chatQueue.isBusy("lark:oc_chat")).toBe(true);
+    release(); await first; await second; expect(secondEngine).not.toHaveBeenCalled();
+  } finally { release(); await first; await second; }
+});
+
+it("does not clear a newer queued prompt while preempt authorization is pending", async () => {
+  const stateDir = await mkdtemp(path.join(os.tmpdir(), "preempt-admission-"));
+  const runtime = createCoreServiceRuntime({ queuePolicy: { preempt: true, batchWindowMs: 0 } });
+  const channel = fakeChannel(); const newer = vi.fn(async () => true);
+  let releaseFirst!: () => void, allow!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { releaseFirst = resolve; }), authorization = new Promise<void>(resolve => { allow = resolve; }), ready = new Promise<void>(resolve => { entered = resolve; });
+  const active = runtime.chatQueue.enqueue("lark:oc_chat", () => gate);
+  runtime.activeRuns.set("lark:oc_chat", { abortController: new AbortController() });
+  let preemptStarted = false; const snapshot = runtime.chatQueue.pendingTaskSnapshot.bind(runtime.chatQueue);
+  vi.spyOn(runtime.chatQueue, "pendingTaskSnapshot").mockImplementation(key => { preemptStarted = true; return snapshot(key); });
+  const bridge = { checkAccess: vi.fn(async () => { if (preemptStarted) { entered(); await authorization; } return { kind: "allow" as const }; }), handleAuthorizedMessage: vi.fn(async () => ({ text: "replacement" })) };
+  const replace = handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ content: "replace", messageId: "replace" }) });
+  await ready;
+  const queued = runtime.chatQueue.enqueue("lark:oc_chat", newer, { taskId: "newer-q" });
+  allow(); await vi.waitFor(() => expect(runtime.activeRuns.get("lark:oc_chat")?.abortController.signal.aborted).toBe(true));
+  releaseFirst();
+  try { await active; await queued; await replace; expect(newer).toHaveBeenCalledOnce(); }
+  finally { releaseFirst(); allow(); await rm(stateDir, { recursive: true, force: true }); }
+});

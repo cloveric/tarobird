@@ -1,0 +1,7 @@
+.group-settings .avatar-setting{margin-bottom:20px}
+.group-settings .group-member-options{max-height:320px;overflow:auto;overscroll-behavior:contain;padding:1px}
+.group-settings .bot-option-copy strong{overflow-wrap:anywhere}
+.group-settings fieldset:focus-visible{outline:2px solid var(--focus);outline-offset:4px;border-radius:8px}
+.group-settings .creation-help{margin:8px 0 12px}
+.group-settings .rename-conversation-actions{margin-top:20px}
+@media(max-width:760px){.group-settings .group-member-options{max-height:35dvh}}

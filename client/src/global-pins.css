@@ -1,0 +1,5 @@
+.global-pin-section { min-width: 0; }
+.global-pin-heading { justify-content: flex-start; }
+.global-pin-heading > span { display: inline-flex; align-items: center; gap: 6px; }
+.global-pin-heading svg { color: var(--accent); flex: none; }
+.conversation-pin-mark { margin-inline-start: 4px; vertical-align: middle; color: var(--accent); }

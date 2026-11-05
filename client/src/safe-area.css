@@ -1,0 +1,155 @@
+/* Layout ownership: each edge-touching surface consumes the shared tokens.
+   Do not pad the App root as well: native dialogs live in a separate top layer,
+   while headers and bottom bars must only reserve each inset once. */
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  :root .conversation-header {
+    --header-content-height: 64px;
+    height: calc(var(--header-content-height) + var(--app-safe-top));
+    min-height: calc(var(--header-content-height) + var(--app-safe-top));
+    flex-shrink: 0;
+    padding-top: var(--app-safe-top);
+    padding-right: max(16px, var(--app-safe-right));
+    padding-left: max(20px, var(--app-safe-left));
+  }
+
+  :root .composer-wrap {
+    padding-left: max(10px, var(--app-safe-left));
+    padding-right: max(10px, var(--app-safe-right));
+    padding-bottom: max(8px, var(--app-safe-bottom));
+  }
+
+  :root .message-scroll,
+  :root .group-topic-navigation {
+    padding-left: max(12px, var(--app-safe-left));
+    padding-right: max(12px, var(--app-safe-right));
+  }
+
+  :root .sidebar {
+    padding-top: var(--app-safe-top);
+    padding-bottom: var(--app-safe-bottom);
+    padding-left: max(12px, var(--app-safe-left));
+  }
+
+  :root .pairing-page {
+    padding-left: max(24px, var(--app-safe-left));
+    padding-right: max(24px, var(--app-safe-right));
+  }
+
+  :root :is(.loading-screen, .app-lock-screen) {
+    padding: max(24px, var(--app-safe-top)) max(24px, var(--app-safe-right)) max(24px, var(--app-safe-bottom)) max(24px, var(--app-safe-left));
+  }
+
+  /* Bottom sheets retain their own bottom padding; ordinary overlays leave
+     room around their whole panel. All heights also track the keyboard band. */
+  :root .modal-scrim:not(.file-center-scrim) {
+    padding: max(12px, var(--app-safe-top)) max(12px, var(--app-safe-right)) max(12px, var(--app-safe-bottom)) max(12px, var(--app-safe-left));
+  }
+
+  :root .modal-scrim:has(> .settings-panel) { padding-bottom: 0; }
+
+  :root .modal-scrim > :is(.new-chat-panel, .settings-panel) {
+    max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px);
+  }
+
+  :root dialog.creation-dialog:not(.mobile-settings-dialog):not(.conversation-files):not(.conversation-details-phone):not(.markdown-table-dialog):not(.run-details):not(.device-detail):not(.prompt-queue-panel):not(.diff-viewer):not(.delegation-dialog) {
+    max-width: calc(100% - var(--app-safe-left) - var(--app-safe-right));
+    max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px);
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  :root .file-preview-lightbox {
+    top: var(--shell-top);
+    bottom: auto;
+    height: var(--shell-height);
+    padding: var(--app-safe-top) var(--app-safe-right) var(--app-safe-bottom) var(--app-safe-left);
+    background: var(--bg);
+    overflow: hidden;
+  }
+
+  /* Phone readers fill the OS-safe rectangle. Android's native window owns
+     its insets; browser/iOS tokens reserve theirs here, exactly once. Keep
+     the header outside the reader scrollport, including on rotated phones. */
+  :root .file-preview-lightbox > .file-preview {
+    width: 100%; height: 100%; max-height: 100%; max-width: 100%;
+    min-width: 0; min-height: 0; padding: 0; border-radius: 0;
+  }
+  :root .file-preview > header {
+    flex: none; align-items: center; margin: 0; padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  :root .file-preview > header > strong {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden; overflow-wrap: anywhere; font-size: 13px; line-height: 1.4;
+  }
+  :root .file-preview > header button { flex-shrink: 0; min-height: 44px; }
+  :root .file-preview .native-file-actions > button { flex-direction: row; min-height: 44px; }
+  :root .file-preview > :is(.file-status, .document-preview-note) { margin: 0; padding: 8px 12px !important; }
+  :root .file-preview > pre { min-height: 0; margin: 0; overscroll-behavior: contain; }
+  :root .file-preview .document-scroll { padding: 0; border-radius: 0; background: var(--bg); }
+  :root .file-preview .document-page { padding: 12px; }
+  :root .file-preview > :is(.pdf-reader, .spreadsheet-reader) { padding: 0; gap: 6px; }
+  :root .file-preview :is(.pdf-reader-stage, .spreadsheet-scroll) { border-radius: 0; }
+  :root .file-preview :is(.pdf-reader-bar, .spreadsheet-tabs, .spreadsheet-footer) { padding: 6px 8px; }
+
+  /* Image previews consume the same insets in message-images.css; their
+     save/share toolbar stays outside the independently scrolling image. */
+}
+
+@media (max-width: 760px) {
+  :root .conversation-header {
+    --header-content-height: 56px;
+    padding-left: max(6px, var(--app-safe-left));
+    padding-right: max(6px, var(--app-safe-right));
+  }
+
+  /* The full-page preferences container owns the side insets. */
+  :root .preferences-body > :is(.settings-navigation, .settings-content) {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  :root .preferences-body > .settings-navigation { padding-bottom: max(12px, var(--app-safe-bottom)); }
+
+  :root .creation-dialog.conversation-files {
+    height: var(--shell-height);
+    padding-left: max(16px, var(--app-safe-left));
+    padding-right: max(16px, var(--app-safe-right));
+  }
+}
+
+@media (max-width: 700px) {
+  :root .file-center {
+    padding-left: var(--app-safe-left);
+    padding-right: var(--app-safe-right);
+  }
+}
+
+@media (max-width: 760px), (hover: none) and (pointer: coarse) {
+  :root .host-error {
+    top: calc(var(--app-safe-top) + 10px);
+    max-width: calc(100vw - var(--app-safe-left) - var(--app-safe-right) - 24px);
+    box-sizing: border-box;
+  }
+}
+
+/* A rotated phone may cross the desktop breakpoint but is still a touch
+   viewport. Centre floating dialogs within its usable rectangle. */
+@media (min-width: 761px) and (hover: none) and (pointer: coarse) {
+  :root dialog:is(.creation-dialog, .preferences-dialog) {
+    top: calc(var(--shell-top) + var(--app-safe-top));
+    bottom: calc(100% - var(--shell-top) - var(--shell-height) + var(--app-safe-bottom));
+    left: var(--app-safe-left);
+    right: var(--app-safe-right);
+    max-width: calc(100% - var(--app-safe-left) - var(--app-safe-right) - 24px);
+    max-height: calc(var(--shell-height) - var(--app-safe-top) - var(--app-safe-bottom) - 24px);
+  }
+
+  :root .modal-scrim.file-center-scrim {
+    padding: calc(12px + var(--app-safe-top)) calc(12px + var(--app-safe-right)) calc(12px + var(--app-safe-bottom)) calc(12px + var(--app-safe-left));
+  }
+  :root .file-center { max-height: 100%; }
+  :root .pairing-page {
+    padding-top: calc(24px + var(--app-safe-top));
+    padding-bottom: calc(24px + var(--app-safe-bottom));
+  }
+}

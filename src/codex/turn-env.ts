@@ -1,0 +1,42 @@
+const ALLOWED_TURN_EXTRA_ENV_KEYS = new Set([
+  "CCTB_SEND_URL",
+  "CCTB_SEND_TOKEN",
+  "CCTB_SEND_COMMAND",
+  "TAROBOT_MESSAGE_ID",
+  "TAROBOT_HOST_DIR",
+  "TAROBOT_CLI_ENTRYPOINT",
+  "TAROBOT_NODE_EXECUTABLE",
+  "TAROBOT_ACTIVE_TURN",
+  "TAROBOT_ACTIVE_INSTANCE",
+  "TAROBOT_ACTIVE_STATE_DIR",
+  "CCTB_LARK_ACTIVE_TURN",
+  "CCTB_LARK_ACTIVE_INSTANCE",
+  "CCTB_LARK_ACTIVE_STATE_DIR",
+  "PATH",
+]);
+
+const DEPRECATED_TURN_EXTRA_ENV_KEYS = [
+  "CCTB_CRON_URL",
+  "CCTB_CRON_TOKEN",
+] as const;
+
+export function mergeAllowedTurnExtraEnv(
+  childEnv: NodeJS.ProcessEnv,
+  extraEnv?: Record<string, string>,
+): NodeJS.ProcessEnv {
+  const merged: NodeJS.ProcessEnv = { ...childEnv };
+  for (const key of DEPRECATED_TURN_EXTRA_ENV_KEYS) {
+    delete merged[key];
+  }
+
+  if (!extraEnv) {
+    return merged;
+  }
+
+  for (const [key, value] of Object.entries(extraEnv)) {
+    if (ALLOWED_TURN_EXTRA_ENV_KEYS.has(key)) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}

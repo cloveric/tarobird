@@ -1,0 +1,10 @@
+{
+  "engine": "codex",
+  "cli": "codex-cli 0.162.1",
+  "model": "gpt-6-astra",
+  "pairedDevices": 2,
+  "nativeAsyncFreeText": true,
+  "normalOriginCompleted": true,
+  "phoneAnswerObserved": true,
+  "answeredOnce": true
+}

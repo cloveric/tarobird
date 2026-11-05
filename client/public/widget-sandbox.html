@@ -1,0 +1,78 @@
+<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src about:; base-uri 'none'; form-action 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe title="Widget content" sandbox="allow-scripts" referrerpolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"></iframe><script>
+// Trusted outer relay. It never executes widget code or calls App/native APIs.
+// In particular its frame-src prevents the guest navigating itself to a server.
+(() => {
+  if (parent === window) return;
+  const guest = document.querySelector('iframe');
+  let key, initialized = false, started = false, ready = false, warned = false, failed = false, heightFrame = 0, height, lastHeight, lastClose = -Infinity, lastCompose = -Infinity;
+  const pendingCompose = new Set();
+  let stateTimer = 0, pendingState, lastState = -Infinity, flushId;
+  const send = (type, detail = {}) => parent.postMessage({type, key, ...detail}, '*');
+  addEventListener('message', event => {
+    const data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (event.source === parent) {
+      if (data.type === 'tarobot-widget-init' && !initialized && typeof data.key === 'string' && typeof data.document === 'string' && data.document.length < 2097152) {
+        initialized = true; key = data.key;
+        if (typeof data.title === 'string' && data.title.length <= 200) guest.title = data.title;
+        guest.srcdoc = data.document;
+      } else if (initialized && data.type === 'tarobot-widget-theme' && data.key === key) guest.contentWindow.postMessage(data, '*');
+      else if (initialized && data.type === 'tarobot-widget-state-flush' && data.key === key && !flushId && typeof data.id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(data.id)) {
+        flushId=data.id;
+        if(failed)send('tarobot-widget-state-flushed',{id:flushId,ok:false});
+        else if(started)guest.contentWindow.postMessage({type:data.type,key,id:flushId}, '*');
+      }
+      else if (initialized && data.type === 'tarobot-widget-compose-result' && data.key === key && pendingCompose.delete(data.id)) {
+        guest.contentWindow.postMessage({type:data.type,key,id:data.id,accepted:data.accepted===true}, '*');
+      }
+    } else if (initialized && event.source === guest.contentWindow && data.key === key) {
+      // Coalesce resize bursts before they reach every App message listener.
+      // Reconstruct the small protocol payload instead of cloning arbitrary
+      // guest properties into the host, even when the per-load key is known.
+      if (data.type === 'tarobot-widget-state-flushed' && flushId && data.id === flushId) {
+        clearTimeout(stateTimer);stateTimer=0;
+        const valid=data.ok===true&&(data.state===undefined||typeof data.state==='string'&&data.state.length<=16384);
+        if(valid&&data.state!==undefined)pendingState=data.state;
+        send(data.type,{id:flushId,ok:valid,...(valid&&pendingState!==undefined?{state:pendingState}:{})});
+      }
+      else if (data.type === 'tarobot-widget-height' && Number.isFinite(data.height)) {
+        height = Math.max(80, Math.min(720, data.height));
+        if (!heightFrame) heightFrame = requestAnimationFrame(() => {
+          heightFrame = 0;
+          if (height !== lastHeight) { lastHeight = height; send('tarobot-widget-height', {height}); }
+        });
+      } else if (data.type === 'tarobot-widget-started' && !started) {
+        started = true;
+        if(flushId)guest.contentWindow.postMessage({type:'tarobot-widget-state-flush',key,id:flushId}, '*');
+      }
+      else if (data.type === 'tarobot-widget-ready' && !ready) {
+        // A previously loaded App bundle may use the old viewer, whose ready
+        // message was its transport handshake. It has no separate started event.
+        const legacyStart=!started;started=true;ready=true;send(data.type,{interactive:data.interactive===true});
+        if(legacyStart&&flushId)guest.contentWindow.postMessage({type:'tarobot-widget-state-flush',key,id:flushId}, '*');
+      }
+      else if (data.type === 'tarobot-widget-error' && !failed && (!warned || data.persistent === true)) {
+        warned = true; failed = data.persistent === true; send(data.type, {persistent: failed, ...(typeof data.detail==='string'?{detail:data.detail.slice(0,500)}:{}), ...(['cpu','limit','error','unsupported'].includes(data.reason) ? {reason:data.reason} : {})});
+        if(failed&&flushId)send('tarobot-widget-state-flushed',{id:flushId,ok:false});
+      }
+      else if (data.type === 'tarobot-widget-close' && performance.now() - lastClose > 100) { lastClose = performance.now(); send(data.type); }
+      else if (data.type === 'tarobot-widget-state' && !failed && typeof data.state === 'string' && data.state.length <= 16384) {
+        pendingState = data.state;
+        const flush = () => { stateTimer = 0; lastState = performance.now(); send('tarobot-widget-state', {state:pendingState}); };
+        if (performance.now() - lastState >= 250) { if (stateTimer) clearTimeout(stateTimer); flush(); }
+        else if (!stateTimer) stateTimer = setTimeout(flush, 250 - (performance.now() - lastState));
+      }
+      else if (data.type === 'tarobot-widget-compose' && !failed && typeof data.id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(data.id) && typeof data.text === 'string' && data.text.length <= 4000) {
+        if (flushId || document.visibilityState === 'hidden' || document.activeElement !== guest || performance.now() - lastCompose < 500 || pendingCompose.size >= 4 || pendingCompose.has(data.id)) {
+          guest.contentWindow.postMessage({type:'tarobot-widget-compose-result',key,id:data.id,accepted:false}, '*'); return;
+        }
+        lastCompose = performance.now(); pendingCompose.add(data.id);
+        // Keep the relay receipt alive beyond the viewer's six-second deadline.
+        setTimeout(() => pendingCompose.delete(data.id), 7000);
+        send(data.type, {id:data.id,text:data.text});
+      }
+    }
+  });
+  parent.postMessage({type:'tarobot-widget-shell-ready'}, '*');
+})();
+</script></body></html>

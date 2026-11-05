@@ -1,0 +1,12 @@
+/* App motion is always enabled across desktop and phone clients. */
+@media (max-width: 760px) {
+  :root { --t-slow: 180ms; --t-sheet: 200ms; }
+  /* Full-screen pages move sideways; smaller sheets keep their vertical entry. */
+  .preferences-dialog[open], .creation-dialog.conversation-details-phone[open] {
+    animation: tarobot-page-in 180ms cubic-bezier(.2,.8,.2,1) both;
+  }
+}
+@keyframes tarobot-page-in {
+  from { opacity: .82; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}

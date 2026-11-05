@@ -1,0 +1,13 @@
+# Keychain-serialized tests (shared device_keychain permit) run one at a time.
+[env]
+RUST_TEST_THREADS = "1"
+
+[build]
+target-dir = "target.noindex"
+
+# Windows binaries run from the NSIS plugin directory before the App exists:
+# link the C runtime statically, as a standalone recovery helper must.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,0 +1,25 @@
+.background-task-group{width:100%;max-width:660px;min-width:0;border:1px solid var(--border);border-radius:10px;background:var(--raised);overflow:clip;color:var(--text)}
+.background-group-heading{display:flex;align-items:center;gap:7px;min-height:38px;width:100%;padding:8px 11px;background:var(--surface);border:0;color:var(--text);font-size:12px;text-align:start}
+.background-group-heading>svg{flex:none;color:var(--muted)}
+.background-group-title{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:550;line-height:1.5}
+.background-group-count{font-size:11px;color:var(--muted);text-align:end;line-height:1.5}
+.background-group-heading time{font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--muted)}
+.background-task-group .is-running,.background-task-dock .is-running{color:var(--accent)}
+.background-task-group .is-error,.background-task-dock .is-error{color:var(--red)}
+.background-group-rows[hidden],.background-group-rows>[hidden]{display:none}
+.background-task-row{border-radius:0;display:flex;align-items:center;gap:8px;min-height:38px;width:100%;padding:8px 11px;border:0;border-top:1px solid var(--border);background:transparent;color:var(--text);font-size:12px;text-align:start}
+.background-task-row:hover,.background-group-heading:hover{background:var(--hover)}
+.background-task-row>svg{flex:none;color:var(--muted)}
+.background-task-dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--mono-signal,var(--accent))}
+.background-task-row[data-phase=done] .background-task-dot{background:var(--text)}
+.background-task-row[data-phase=error] .background-task-dot{background:var(--red)}
+.background-task-row[data-phase=error] .background-task-state{color:var(--red)}
+.background-task-row:is([data-phase=stopped],[data-phase=interrupted],[data-phase=partial]) .background-task-dot,.background-task-dot.is-uncertain{background:var(--muted)}
+.background-task-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.5}
+.background-task-row time,.background-task-state{flex:none;white-space:nowrap;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.background-task-state{min-width:2em;text-align:end}
+.background-group-more{display:block;width:100%;min-height:32px;border:0;border-top:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px}
+.background-task-dock{display:flex;align-items:center;gap:7px;flex:none;min-height:32px;margin:0 8px 4px;padding:5px 9px;border:1px solid var(--border);border-radius:8px;background:var(--raised);color:var(--text);font-size:12px;text-align:start}
+.background-task-dock>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.background-task-dock>svg{flex:none;color:var(--accent)}.background-task-dock>small{flex:none;color:var(--muted);font-size:11px}
+.background-dock-scope{color:var(--muted);font-size:11px;margin-inline-end:6px}
+@media(max-width:760px){.background-task-row{min-height:40px}.background-task-group{max-width:100%}.background-task-dock{min-height:36px}}

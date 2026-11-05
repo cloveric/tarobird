@@ -1,0 +1,55 @@
+/* Density changes component geometry, never the viewport, OS insets or reading
+   font. Standard deliberately retains the existing layout in every palette. */
+.density-preview[data-density=standard]{--density-home-title:27px;--density-row-gap:12px;--density-row-height:72px;--density-row-padding:10px;--density-avatar:48px;--density-row-title:16px;--density-row-preview:14px}
+:root[data-density=compact],.density-preview[data-density=compact]{
+  --density-home-title:22px;--density-row-title:14px;--density-row-preview:12.5px;
+  --density-row-time:11px;--density-row-gap:10px;--density-row-height:60px;--density-row-padding:6px;--density-avatar:40px;
+  --density-titlebar:44px;--density-header-bottom:6px;--density-chip-font:13px;--density-tab-height:52px;
+  --density-cell-height:48px;--density-cell-font:14px;--density-me-title:19px;
+  --density-chat-header:56px;--density-message-top:3px;--density-message-bottom:4px;
+  --density-desktop-title:13px;--density-desktop-preview:11.5px;--density-desktop-row-padding:2px;--density-desktop-inbox:56px;--density-desktop-inbox-padding:6px;
+  --density-settings-row-padding:8px;
+}
+/* iPhone's perceived size differs from Android and desktop. Keep its
+   readability adjustment local, including previews and narrow windows. */
+:root[data-platform=ios][data-density=compact],
+:root[data-platform=ios] .density-preview[data-density=compact]{
+  --density-home-title:24px;--density-row-title:16px;--density-row-preview:14px;
+  --density-row-time:12px;--density-row-gap:12px;--density-row-height:64px;--density-row-padding:8px;--density-avatar:44px;
+}
+:root[data-density=comfortable],.density-preview[data-density=comfortable]{
+  --density-home-title:30px;--density-row-title:17px;--density-row-preview:15px;
+  --density-row-time:13px;--density-row-gap:14px;--density-row-height:84px;--density-row-padding:14px;--density-avatar:56px;
+  --density-titlebar:60px;--density-header-bottom:14px;--density-chip-font:15px;--density-tab-height:64px;
+  --density-cell-height:64px;--density-cell-font:17px;--density-me-title:23px;
+  --density-chat-header:72px;--density-message-top:8px;--density-message-bottom:10px;
+  --density-desktop-title:14.5px;--density-desktop-preview:13px;--density-desktop-row-padding:6px;--density-desktop-inbox:76px;--density-desktop-inbox-padding:14px;
+  --density-settings-row-padding:16px;
+}
+:root[data-density]:not([data-density=standard]) .message{padding-top:var(--density-message-top);padding-bottom:var(--density-message-bottom)}
+:root[data-density]:not([data-density=standard]) .settings-group>.settings-row{padding-block:var(--density-settings-row-padding)}
+@media(min-width:761px){
+  :root[data-density]:not([data-density=standard]) .sidebar .conversation-row strong{font-size:var(--density-desktop-title)}
+  :root[data-density]:not([data-density=standard]) .sidebar .conversation-row small{font-size:var(--density-desktop-preview)}
+  :root[data-density]:not([data-density=standard]) .sidebar :is(.bot-tree-conversations,.group-tree-topics) .conversation-row{padding-block:var(--density-desktop-row-padding)}
+  :root[data-density]:not([data-density=standard]) .sidebar .conversation-inbox .conversation-row{min-height:var(--density-desktop-inbox);padding-block:var(--density-desktop-inbox-padding)}
+}
+@media(max-width:760px){
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-titlebar{min-height:var(--density-titlebar)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-title{font-size:var(--density-home-title)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-titlebar[data-scoped] .mh-title{font-size:min(var(--density-home-title),24px)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-header{padding-bottom:var(--density-header-bottom)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-chip{font-size:var(--density-chip-font)}
+  :root[data-density]:not([data-density=standard]) .mobile-home :is(.mh-row,.mh-bot-main){min-height:var(--density-row-height);padding-block:var(--density-row-padding);gap:var(--density-row-gap)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-row-title{font-size:var(--density-row-title)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-row-preview{font-size:var(--density-row-preview)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-row-time{font-size:var(--density-row-time)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-tab{min-height:var(--density-tab-height)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-cell{min-height:var(--density-cell-height);font-size:var(--density-cell-font)}
+  :root[data-density]:not([data-density=standard]) .mobile-home .mh-me-name{font-size:var(--density-me-title)}
+  /* The visible list is denser; independent touch controls stay at least 44px. */
+  :root[data-density]:not([data-density=standard]) .mobile-home .folder-heading{min-height:44px}
+}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  :root[data-density]:not([data-density=standard]) .conversation-header{--header-content-height:var(--density-chat-header)}
+}

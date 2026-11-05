@@ -1,0 +1,26 @@
+.bot-name{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;vertical-align:middle;line-height:inherit}
+.bot-name-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bot-brand-icon{display:block;flex:0 0 14px;width:14px;height:14px;background:currentColor;mask:var(--brand-icon) center/contain no-repeat;-webkit-mask:var(--brand-icon) center/contain no-repeat}
+.bot-name-compact{gap:6px}
+.bot-name-compact .bot-brand-icon{flex-basis:12px;width:12px;height:12px}
+.mobile-home .mh-row-tag:has(.bot-name){display:inline-flex;align-items:center;padding:0;background:transparent}
+.mobile-home .mh-row-tag .bot-name-label{padding:0 6px;border-radius:5px;background:var(--surface-alt)}
+.bot-identity strong:has(.bot-name){display:flex;min-width:0}
+.header-bot-name:has(.bot-name){display:inline-flex;align-items:center;padding:0;background:transparent}
+.conversation-header button.header-bot-name > span:has(.bot-name){display:inline-flex;min-width:0;max-width:100%;padding:0;background:transparent}
+.header-bot-name .bot-name-label{padding:2px 6px;border-radius:4px;background:var(--surface)}
+/* Keep terminal brackets around the name, with the mark outside the label. */
+:root[data-palette=cli] :is(.mh-row-tag,span.header-bot-name,button.header-bot-name>span):has(.bot-name)::before,
+:root[data-palette=cli] :is(.mh-row-tag,span.header-bot-name,button.header-bot-name>span):has(.bot-name)::after{content:none}
+:root[data-palette=cli] :is(.mh-row-tag,.header-bot-name) .bot-name-label{padding:0;background:transparent}
+:root[data-palette=cli] :is(.mh-row-tag,.header-bot-name) .bot-name-label::before{content:"[" / ""}
+:root[data-palette=cli] :is(.mh-row-tag,.header-bot-name) .bot-name-label::after{content:"]" / ""}
+:root[data-model-icons=hidden] .bot-brand-icon{display:none}
+:root[data-model-icons=hidden] .bot-name{gap:0}
+.settings-content .settings-row > button.model-brand-toggle[role=switch]{flex:none;width:44px;height:44px;padding:0;border:0;background:transparent;box-shadow:none}
+.settings-content .settings-row > button.model-brand-toggle[role=switch]:hover:not(:disabled){background:transparent}
+.model-brand-toggle-track{position:relative;display:block;flex:0 0 36px;width:36px;height:22px;border:1px solid var(--border-strong);border-radius:999px;background:var(--surface-alt)}
+.model-brand-toggle-track::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--muted)}
+.model-brand-toggle[aria-checked=true] .model-brand-toggle-track{background:var(--primary-bg);border-color:var(--primary-bg)}
+.model-brand-toggle[aria-checked=true] .model-brand-toggle-track::after{left:17px;background:var(--on-primary)}
+@media (forced-colors:active){.bot-brand-icon{forced-color-adjust:none;background:CanvasText}}

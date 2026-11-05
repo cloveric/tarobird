@@ -1,0 +1,2 @@
+export const CORE_APPROVAL_TIMEOUT_MS = 29 * 60 * 1000;
+export const APPROVAL_BRIDGE_FETCH_TIMEOUT_MS = 31 * 60 * 1000;

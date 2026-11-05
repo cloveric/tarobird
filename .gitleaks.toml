@@ -1,0 +1,73 @@
+title = "Repository secret scanning"
+[extend]
+useDefault = true
+[[allowlists]]
+description = "Reviewed upstream Design JavaScript shortcut comparison, not a credential"
+condition = "AND"
+paths = ['^client/vendor/baoyu-design/editor/assets/index-DyKwtQBI\.js$', '^client/vendor/baoyu-design/editor/assets/index-CYLuwRoc\.js$']
+regexTarget = "match"
+regexes = ['\Aaria-keyshortcuts":J\.shortcut===void \z']
+[[allowlists]]
+description = "Reviewed upstream Slides JavaScript shortcut comparison, not a credential"
+condition = "AND"
+paths = ['^client/vendor/baoyu-slides/editor/assets/index-S9woRl4b\.js$', '^client/vendor/baoyu-slides/editor/assets/index-7OEzB54c\.js$']
+regexTarget = "match"
+regexes = ['\Aaria-keyshortcuts":te\.shortcut===void \z']
+[[allowlists]]
+description = "Exact non-credential strings in the Design scanner regression itself"
+condition = "AND"
+paths = ['^scripts/privacy-guards\.node-test\.mjs$']
+regexTarget = "match"
+regexes = ['\Aaria-keyshortcuts":J\.shortcut===void \z', '\AapiKey="J\.shortcut===void"\z', '\Aaria-keyshortcuts":te\.shortcut===void \z', '\AapiKey="te\.shortcut===void"\z']
+[[allowlists]]
+description = "Reviewed upstream Slides compiler keyboard modifier constant, not a credential"
+condition = "AND"
+paths = ['^client/vendor/baoyu-slides/editor/node/compiler\.cjs$']
+regexTarget = "match"
+regexes = ['\AmodifierKeys: MODIFIER_KEYS2\z']
+[[allowlists]]
+description = "Deterministic Ed25519 public-key fixture (bytes 00 through 1f); no private key"
+regexTarget = "secret"
+regexes = ['^MCowBQYDK2VwAyEAAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=$']
+[[allowlists]]
+description = "Fixed Ed25519 SPKI header in the historical synthetic pairing QR test; no key bytes"
+condition = "AND"
+paths = ['^tests/client-pairing-qr\.test\.ts$']
+regexTarget = "secret"
+regexes = ['^MCowBQYDK2VwAyEA$']
+
+# Public Happy DOM virtual-server fixture; exact PEM bytes AND exact vendored path.
+# Proof: docs/client/release-1.0.123-preflight-2026-10-31.md
+[[allowlists]]
+description = "Public Happy DOM virtual-server key, never a TaroBot credential"
+condition = "AND"
+paths = ['^client/vendor/baoyu-design/editor/artifact-type/fast-edit-worker\.js$']
+regexTarget = "secret"
+regexes = ['''\A\Q-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCp6tBJASD9LFXF
+GLCUi2K2Gvl7kQxmjWeyq3/E7FqBualbcgSa3SNulsfuIQXgMMSjsoA7BQI7BVZ4
+XFGhqDyUbZrHjzCuCOUKdrjlcOfRd6DUBFqMvTiCzjodnRWvMiWhUZ+WfTOC39W6
+bkE2qz05zl9CgGag/dwCfd2fhlVw/QAq2G1zI+WrYO41E3Q9XQPZG0xKIDL2XUqj
+o3nH6wB4KUPI4v6xMMueBkFV5nI4q30h3XlLxm1e0DpUyAeecXeMKGfulqDvuux3
+/LmIA0BU1lipGX4SDvFoNyy9uAfjpQE6sFwHf1C1OHky2OjF6nl7dkMUb6RDUdQT
+6LPk7mfTAgMBAAECggEAKkwTkTjAt4UjzK56tl+EMQTB+ep/hb/JgoaChci4Nva6
+m9LkJpDJ0yuhlTuPNOGu8XjrxsVWas7HWarRf0Zb3i7yip6wZYI9Ub+AA015x4DZ
+/i0fRU2NFbK0cM67qSL4jxG8gj+kZP3HPGNZxHwX/53JxMolwgmvjMc8NgvAlSFd
+NnV9h4xtbhUh1NGS5zmP3iU2rwnE8JrIEzwy6axLom7nekAgkdcbAr0UoBs8gcgH
+aYNhU4Gz3tGcZZ0IXAfT/bJIH1Ko8AGv4pssWc3BXcmmNdm/+kzvHIxEIV7Qegmo
+XG1ZyZCyD/0b4/3e8ySDBEDqwR+HeyTW2isWG2agAQKBgQDp44aTwr3dkIXY30xv
+FPfUOipg/B49dWnffYJ9MWc1FT9ijNPAngWSk0EIiEQIazICcUBI4Yji6/KeyqLJ
+GdLpDi1CkKqtyh73mjELinYp3EUQgEa77aQogGa2+nMOVfu+O5CtloUrv/A18jX3
++VEyaEASK0fWmnSI0OdlxQHIAQKBgQC5+xOls2F3MlKASvWRLlnW1wHqlDTtVoYg
+5Nh8syZH4Ci2UH8tON3A5/7SWNM0t1cgV6Cw4zW8Z2spgIT/W0iYYrQ4hHL1xdCu
++CxL1km4Gy8Uwpsd+KdFahFqF/XTmLzW0HXLxWSK0fTwmdV0SFrKF3MXfTCU2AeZ
+jJoMFb6P0wKBgQC3Odw6s0vkYAzLGhuZxfZkVvDOK5RRF0NKpttr0iEFL9EJFkPo
+2KKK8jr3QTDy229BBJGUxsJi6u6VwS8HlehpVQbV59kd7oKV/EBBx0XMg1fDlopT
+PNbmN7i/zbIG4AsoOyebJZjL7kBzMn1e9vzKHWtcEHXlw/hZGja8vjooAQKBgAeg
+xK2HLfg1mCyq5meN/yFQsENu0LzrT5UJzddPgcJw7zqLEqxIKNBAs7Ls8by3yFsL
+PQwERa/0jfCl1M6kb9XQNpQa2pw6ANUsWKTDpUJn2wZ+9N3F1RaDwzMWyH5lRVmK
+M0qoTfdjpSg5Jwgd75taWt4bxGJWeflSSv8z5R0BAoGAWL8c527AbeBvx2tOYKkD
+2TFranvANNcoMrbeviZSkkGvMNDP3p8b6juJwXOIeWNr8q4vFgCzLmq6d1/9gYm2
+3XJwwyD0LKlqzkBrrKU47qrnmMosUrIRlrAzd3HbShOptxc6Iz2apSaUDKGKXkaw
+gl5OpEjeliU7Mus0BVS858g=
+-----END PRIVATE KEY-----\E\z''']

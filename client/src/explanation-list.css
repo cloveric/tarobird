@@ -1,0 +1,25 @@
+.explanation-list{display:grid;gap:12px;margin:16px 0;font-size:13px;line-height:1.65}
+.explanation-list>div{display:grid;grid-template-columns:6em minmax(0,1fr);gap:16px;align-items:baseline}
+.explanation-list dt{color:var(--grey);font-weight:400}
+.explanation-list dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+.creation-dialog.confirmation-dialog{width:460px;max-width:calc(100vw - 32px)}
+.confirmation-dialog .confirmation-subject{margin:18px 0 6px;font-size:17px;font-weight:600;line-height:1.5;overflow-wrap:anywhere}
+.confirmation-dialog .confirmation-lead{margin:8px 0 18px;font-size:14px;line-height:1.65;color:var(--text)}
+.confirmation-dialog .explanation-list{padding:16px 0;border-block:1px solid var(--border)}
+.confirmation-dialog .confirmation-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
+.confirmation-dialog .confirmation-actions>button{min-height:44px;min-width:88px;padding:10px 18px;font-size:14px;font-weight:500;border-radius:var(--radius-sm)}
+.confirmation-dialog .confirmation-actions>button:not(.primary,.text-danger){background:var(--surface);color:var(--text)}
+.confirmation-dialog .confirmation-actions>button:not(.primary,.text-danger):hover:not(:disabled){background:var(--hover)}
+.confirmation-dialog .confirmation-actions>.text-danger{background:var(--red-soft);color:var(--red);border-color:transparent}
+.confirmation-dialog .confirmation-actions>.text-danger:hover:not(:disabled){background:color-mix(in srgb,var(--red-soft) 88%,var(--red))}
+/* Keep safe cancellation focused, with a compact neutral keyboard indicator. */
+:root:not([data-focus-intent=pointer]) .confirmation-dialog .confirmation-actions>button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.settings-help .explanation-list{margin-top:4px}
+.turn-stop-tasks{font-size:13px;line-height:1.6;margin:16px 0}
+.turn-stop-tasks>summary{cursor:pointer;color:var(--text)}
+.turn-stop-tasks>ul{max-height:25dvh;overflow:auto;overscroll-behavior:contain;padding-left:22px;margin:8px 0;overflow-wrap:anywhere}
+@media(max-width:760px){
+  .creation-dialog.confirmation-dialog{width:100%;max-width:100%}
+  .confirmation-dialog .confirmation-actions>button{flex:1;min-width:0}
+  .explanation-list>div{gap:12px}
+}

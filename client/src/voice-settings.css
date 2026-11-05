@@ -1,0 +1,71 @@
+.voice-settings { min-width:0; max-width:740px; }
+.voice-settings p { font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+.voice-settings-intro { color:var(--grey); margin:0 0 12px; }
+.voice-cloud { border:1px solid var(--border); border-radius:14px; padding:20px; margin-top:14px; background:var(--bg); min-width:0; }
+.voice-cloud header { display:flex; align-items:center; gap:10px; }
+.voice-cloud header>div { flex:1; min-width:0; }
+.voice-cloud header h3 { font-size:15px; margin:0; }
+.voice-cloud header p { color:var(--grey); margin:3px 0 0; font-size:12px; }
+.voice-cloud header>svg,.voice-cloud header>button { flex-shrink:0; }
+.voice-setting-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 0 4px; font-size:13px; }
+.voice-setting-row label { min-width:0; }
+.voice-setting-row small { display:block; color:var(--grey); margin-top:4px; font-size:12px; }
+.voice-setting-row input[type=checkbox],.voice-consent input { width:18px; height:18px; flex:none; accent-color:var(--accent); }
+.voice-duration { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.voice-duration input { width:64px; min-width:0; box-sizing:border-box; padding:8px; }
+.voice-provider { border:1px solid var(--border); border-radius:10px; margin-top:18px; padding:14px 14px 0; min-width:0; }
+.voice-provider-heading { display:flex; align-items:center; gap:10px; }
+.voice-provider-heading>div { flex:1; min-width:0; }
+.voice-provider-heading strong { font-size:13px; }
+.voice-provider-icon { display:grid; place-items:center; width:34px; height:34px; flex:none; border-radius:9px; background:var(--surface); color:var(--grey); }
+.voice-provider-caption { display:block; margin-top:3px; font-size:11px; color:var(--grey); }
+.voice-config-badge { flex:none; max-width:45%; font-size:11px; line-height:1.5; padding:4px 8px; border-radius:6px; background:var(--surface); color:var(--grey); }
+.voice-config-badge.incomplete { color:var(--orange); background:color-mix(in srgb,var(--orange) 9%,var(--bg)); }
+.voice-settings .voice-provider-status { margin:12px 0; font-size:12px; color:var(--grey); }
+.voice-adapter-details { border-top:1px solid var(--border); font-size:12px; }
+.voice-adapter-details summary { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; cursor:pointer; list-style:none; color:var(--grey); }
+.voice-adapter-details summary::-webkit-details-marker,.voice-consent-details summary::-webkit-details-marker { display:none; }
+.voice-adapter-details[open]>summary>svg,.voice-consent-details[open]>summary>svg:last-child { transform:rotate(90deg); }
+.voice-adapter-details summary:focus-visible,.voice-consent-details summary:focus-visible { outline:2px solid var(--focus); outline-offset:2px; border-radius:4px; }
+.voice-adapter-content { padding-bottom:4px; }
+.voice-adapter-details label { display:grid; gap:8px; margin:2px 0 8px; }
+.voice-adapter-details select { width:100%; min-width:0; }
+.voice-adapter-details code { display:block; overflow-wrap:anywhere; color:var(--grey); }
+.voice-adapter-details ul { padding:0; list-style:none; display:grid; gap:6px; }
+.voice-adapter-details li { display:flex; justify-content:space-between; gap:12px; }
+.voice-adapter-details li>span:last-child { color:var(--grey); }
+.voice-privacy { color:var(--grey); }
+.voice-upload-policy { display:flex; align-items:flex-start; gap:9px; padding:16px 2px 0; color:var(--grey); }
+.voice-upload-policy>svg { margin-top:2px; flex:none; }
+.voice-upload-policy>div { min-width:0; }
+.voice-upload-policy strong { font-size:12px; font-weight:600; color:var(--text); }
+.voice-settings .voice-upload-policy p { margin:5px 0 0; font-size:12px; }
+.voice-consent { display:flex; align-items:flex-start; gap:8px; font-size:12px; line-height:1.6; margin:12px 0 0; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); }
+.voice-consent input { margin:1px 0 0; }
+.voice-consent-details { margin-top:8px; font-size:12px; }
+.voice-consent-details summary { display:flex; align-items:center; gap:5px; min-height:28px; cursor:pointer; list-style:none; width:fit-content; }
+.voice-consent-details summary>svg { flex:none; }
+.voice-consent-details summary>svg:first-child { color:var(--green); }
+.voice-cloud footer { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; gap:12px; margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
+.voice-settings .voice-save-notice { display:flex; align-items:flex-start; gap:6px; margin:0; font-size:12px; color:var(--grey); flex:1 1 200px; }
+.voice-save-notice svg { flex:none; margin-top:2px; }
+.voice-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-left:auto; }
+.voice-actions button { min-height:36px; }
+.voice-cloud [role=alert] { color:var(--red); }
+@media(max-width:600px) { .voice-cloud { padding:14px; } .voice-actions { width:100%; } .voice-actions button { flex:1; } .voice-provider { padding:12px 12px 0; } .voice-setting-row { align-items:flex-start; } }
+
+.voice-modes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; border:0; padding:0; margin:16px 0 4px; min-width:0; }
+.voice-modes legend { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.voice-modes label { display:flex; align-items:flex-start; gap:8px; border:1px solid var(--border); border-radius:9px; padding:12px 9px; cursor:pointer; background:var(--bg); min-width:0; }
+.voice-modes label.selected { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 5%,var(--bg)); }
+.voice-modes input { width:16px; height:16px; margin:1px 0 0; flex:none; accent-color:var(--accent); }
+.voice-modes strong { display:block; font-size:13px; line-height:1.4; }
+.voice-modes small { display:block; margin-top:5px; color:var(--grey); font-size:11px; line-height:1.5; }
+.voice-modes label:has(input:focus-visible) { outline:2px solid var(--focus); outline-offset:2px; }
+.voice-modes label:has(input:disabled) { cursor:default; opacity:.7; }
+.voice-settings>.local-asr-setup { margin-top:14px; }
+@media(max-width:600px) { .voice-modes { grid-template-columns:1fr; } .voice-modes label { padding:10px 12px; align-items:center; } .voice-modes small { margin-top:2px; } }
+
+@media (max-width:760px), (hover:none) and (pointer:coarse) {
+  .voice-actions button, .voice-adapter-details summary, .voice-consent-details summary { min-height:44px; }
+}

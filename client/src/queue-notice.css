@@ -1,0 +1,12 @@
+.queue-notice{box-sizing:border-box;width:100%;min-width:0;padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--raised,var(--bg));font-size:inherit;line-height:1.5}
+.queue-notice-header{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.queue-notice-label{display:inline-flex;align-items:center;gap:7px;min-width:0;color:var(--muted);font-size:12px;font-weight:550}
+.queue-notice-label svg{flex:none}
+.queue-notice-cancel{flex:none;min-height:28px;padding:3px 8px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
+.queue-notice-cancel:hover:not([aria-disabled=true]){background:var(--hover);color:var(--text)}
+.queue-notice-cancel:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.queue-notice-cancel[aria-disabled=true]{opacity:.55;cursor:default}
+.queue-notice-detail,.queue-notice-error{margin-top:2px;color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.queue-notice-error{color:var(--red)}
+@media(pointer:coarse){.queue-notice-cancel{min-height:44px;min-width:44px}}
+html[data-palette=cli] .queue-notice{border-radius:2px}
