@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/cloveric/tarobird/releases"><b>下载</b></a> &nbsp;·&nbsp;
+  <a href="https://testflight.apple.com/join/ByFWEfFW"><b>iOS TestFlight 公测</b></a> &nbsp;·&nbsp;
   <a href="#快速开始"><b>快速开始</b></a> &nbsp;·&nbsp;
   <a href="#联机方式">联机方式</a> &nbsp;·&nbsp;
   <a href="docs/details.zh-CN.md">详细说明</a> &nbsp;·&nbsp;
@@ -244,7 +245,7 @@ TaroBird 是一款自托管的 AI 智能体工作空间。它把电脑或服务�
 
 ### 02 · 配对手机
 
-1. 在手机上安装 TaroBird（Android 可使用 Releases 中的 APK）。
+1. 在手机上安装 TaroBird。**iOS：**先安装 Apple 的 TestFlight App，再[加入 TaroBird 公开测试](https://testflight.apple.com/join/ByFWEfFW)。**Android：**安装 [Releases](https://github.com/cloveric/tarobird/releases) 中的 APK。
 2. 在电脑上打开 **设置 → 网络与连接 → 添加设备**，选择[联机方式](#联机方式)并生成二维码。首次生成时主机会短暂重启，建议待当前任务完成后操作。
 3. 在手机上打开 TaroBird，点击 **扫描连接二维码**；也可以选择 **导入二维码图片** 或 **粘贴连接信息**。
 4. 手机将显示 **8 位配对码**（5 分钟内有效）。在电脑上输入该配对码并点击 **确认配对**，手机即自动进入聊天。
