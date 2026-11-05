@@ -6,6 +6,7 @@ import { Avatar } from "./Avatar.js";
 import { HubHttpError } from "./http-error.js";
 import { t } from "./i18n.js";
 import "./bot-message-grants.css";
+import { CrossHostMessageGrants } from "./CrossHostMessageGrants.js";
 
 const route = "/api/bot-messages/grants";
 const allows = (view: BotMessageGrantsSnapshot, source: string, target: string) => view.grants.some(grant => grant.sourceBot === source && grant.targetBot === target);
@@ -18,9 +19,25 @@ function errorText(error: unknown): string {
   return t("无法核对主机权限，请恢复连接后重试。");
 }
 
-export function BotMessageGrants({ connection, initialBotId, active, online, onDirty, onBusy }: {
+type GrantsProps = {
   connection: HubConnection; initialBotId?: string; active: boolean; online: boolean; onDirty: (value: boolean) => void; onBusy: (value: boolean) => void;
-}) {
+};
+export function BotMessageGrants(props: GrantsProps) {
+  const [scope, setScope] = useState<'local' | 'cross'>('local');
+  const [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false);
+  const dirtyChanged = useCallback((value: boolean) => { setDirty(value); props.onDirty(value); }, [props.onDirty]);
+  const busyChanged = useCallback((value: boolean) => { setBusy(value); props.onBusy(value); }, [props.onBusy]);
+  return <div className="message-grants-settings">
+    <div className="message-grants-scopes" role="group" aria-label={t("授权范围")}>
+      <button type="button" aria-pressed={scope === 'local'} disabled={busy || dirty && scope !== 'local'} onClick={() => setScope('local')}>{t("本机")}</button>
+      <button type="button" aria-pressed={scope === 'cross'} disabled={busy || dirty && scope !== 'cross'} onClick={() => setScope('cross')}>{t("跨主机")}</button>
+    </div>
+    <p className="message-grants-hint" style={{ visibility: dirty ? 'visible' : 'hidden' }} aria-hidden={!dirty}>{t("保存或放弃修改后，可以切换授权范围。")}</p>
+    {scope === 'local' ? <LocalBotMessageGrants {...props} onDirty={dirtyChanged} onBusy={busyChanged}/> : <CrossHostMessageGrants {...props} onDirty={dirtyChanged} onBusy={busyChanged}/>}
+  </div>;
+}
+
+function LocalBotMessageGrants({ connection, initialBotId, active, online, onDirty, onBusy }: GrantsProps) {
   const [view, setView] = useState<BotMessageGrantsSnapshot>();
   const [selected, setSelected] = useState(initialBotId ?? ""), [query, setQuery] = useState("");
   const [edits, setEdits] = useState<Record<string, boolean>>({});

@@ -49,7 +49,7 @@ import { CONVERSATION_SYNC_CAPABILITY, SNAPSHOT_ACTIVITY_CAPABILITY, SYNC_LINEAG
 import { cache as legacyCache, type ClientCache, type OutboxEntry, type Identity, type Route } from "./storage.js";
 import { randomNonce, signChallenge, signDeviceAction, verifyHub, verifyRevocation } from "./identity.js";
 import { boundDeviceActionStatement, deviceActionSchema } from "../../src/client-protocol/device-actions.js";
-import { botMessageGrantsCommandSchema, botMessageGrantsSnapshotSchema, type BotMessageGrantsCommand } from "../../src/client-protocol/bot-message-grants.js";
+import { botMessageGrantsCommandSchema, botMessageGrantsSnapshotSchema, type BotMessageGrantsCommand, crossHostMessageGrantsCommandSchema, crossHostMessageGrantsSnapshotSchema, type CrossHostMessageGrantsCommand } from "../../src/client-protocol/bot-message-grants.js";
 import { HubHttpError } from "./http-error.js";
 /** Bound for `screenStatus` / `screenOpen` / `screenStop` only. */
 export const SCREEN_REQUEST_TIMEOUT_MS = 15_000;
@@ -1181,10 +1181,13 @@ export class HubConnection {
   async screenStop(sessionId?: string) { return this.screenRequest("/api/screens/stop", { method: "POST", body: JSON.stringify({ sessionId }) }); }
 
   async saveBotMessageGrants(raw: BotMessageGrantsCommand, signal?: AbortSignal, submitting?: () => void) {
-    return this.duringMutation(() => this.performBotMessageGrants(raw, signal, submitting));
+    return this.duringMutation(async () => botMessageGrantsSnapshotSchema.parse(await this.performMessageGrantRequest("/api/bot-messages/grants", botMessageGrantsCommandSchema.parse(raw), signal, submitting)));
   }
-  private async performBotMessageGrants(raw: BotMessageGrantsCommand, signal?: AbortSignal, submitting?: () => void) {
-    const command = botMessageGrantsCommandSchema.parse(raw), token = this.token, epoch = this.httpEpoch;
+  async saveCrossHostMessageGrants(raw: CrossHostMessageGrantsCommand, signal?: AbortSignal, submitting?: () => void) {
+    return this.duringMutation(async () => crossHostMessageGrantsSnapshotSchema.parse(await this.performMessageGrantRequest("/api/bot-messages/cross-host-grants", crossHostMessageGrantsCommandSchema.parse(raw), signal, submitting)));
+  }
+  private async performMessageGrantRequest(route: string, command: BotMessageGrantsCommand | CrossHostMessageGrantsCommand, signal?: AbortSignal, submitting?: () => void) {
+    const token = this.token, epoch = this.httpEpoch;
     const current = () => { if (!token || this.closed || this.token !== token || this.httpEpoch !== epoch || epoch.signal.aborted || signal?.aborted) throw new HubHttpError(409, "device_action_cancelled"); };
     current();
     const action = deviceActionSchema.parse({ operation: "bot-message-grant", target: bytesToHex(sha256(new TextEncoder().encode(networkCanonical(command)))) });
@@ -1192,8 +1195,8 @@ export class HubConnection {
       { action, hubPublicKey: this.identity.hubPublicKey ?? "", deviceId: this.identity.deviceId, sessionHash: bytesToHex(sha256(new TextEncoder().encode(token!))) });
     current(); const signature = await signDeviceAction(this.identity, statement); current();
     submitting?.();
-    const result = await this.httpRequest("/api/bot-messages/grants", { method: "POST", signal, body: JSON.stringify({ command, proof: { nonce: statement.nonce, signature } }) });
-    current(); return botMessageGrantsSnapshotSchema.parse(result);
+    const result = await this.httpRequest(route, { method: "POST", signal, body: JSON.stringify({ command, proof: { nonce: statement.nonce, signature } }) });
+    current(); return result;
   }
 
   private async deviceAction<T>(route: string, init: RequestInit): Promise<T> {

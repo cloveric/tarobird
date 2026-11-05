@@ -155,7 +155,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
     { id: "voice" as const, title: t("语音转写"), detail: t("本地语音与通义长录音转写"), icon: AudioLines },
     { id: "notifications" as const, title: t("通知"), detail: t("此设备的提醒与勿扰时段"), icon: Bell },
     { id: "devices" as const, title: t("设备与安全"), detail: t("查看设备、修改名称与撤销授权"), icon: ShieldCheck },
-    { id: "botMessages" as const, title: t("Bot 消息授权"), detail: t("管理当前主机 Bot 之间的直接消息权限"), icon: Link },
+    { id: "botMessages" as const, title: t("Bot 消息授权"), detail: t("管理本机与跨主机 Bot 的直接消息权限"), icon: Link },
   ];
   const requestClose = () => {
     if (settingsBusy || busy) return;

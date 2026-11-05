@@ -500,7 +500,7 @@ tarobot messages clear CONVERSATION --through MESSAGE_ID --yes --json
 
 App Bot 发送时使用本轮附加提示提供的 `--context-message CURRENT_INPUT_ID`，不要复制历史消息 ID。普通终端操作员在 **list、send、wait 三条命令上都加** `--source-bot LOCAL_BOT_ID`，不传 `--context-message`。这不是让 Bot 申请操作员权限的入口。
 
-目标主机所有者先执行 `messages allow --from SOURCE_HOST/SOURCE_BOT_ID --bot TARGET_BOT`，撤销使用 `messages revoke`。Bot 不能自行授权。`wait` 超时后，用返回的 messageId 和主机/Bot/对话 ID 再次等待；`send` 断线且没有回执时，只能用相同 requestId、目标和内容核对恢复，不自动重发或换新编号。完整例子、队列语义与验收边界见[跨主机消息 MVP](client/cross-host-bot-messages-2026-10-17.md)。
+目标主机所有者可在 App 的该主机「设置 → Bot 消息授权 → 跨主机」选择来源主机/Bot 和本机接收 Bot，允许或撤销单向权限；也可在普通终端执行 `messages allow --from SOURCE_HOST/SOURCE_BOT_ID --bot TARGET_BOT`，撤销使用 `messages revoke`。`messages grants --cross-host --json` 查看与 App 相同的跨主机授权，原 `messages grants` 继续只查看本机授权。已离网来源或已删除目标的残留授权可在 App 中撤销。Bot 不能自行授权。`wait` 超时后，用返回的 messageId 和主机/Bot/对话 ID 再次等待；`send` 断线且没有回执时，只能用相同 requestId、目标和内容核对恢复，不自动重发或换新编号。完整例子、队列语义与验收边界见[跨主机消息 MVP](client/cross-host-bot-messages-2026-10-17.md)。
 
 Bot 间的新任务、审阅结果和后续补充都使用 `messages send`，收件方正在执行时也如此；这些消息进入持久队列。不要为了跟进正在运行的 Bot 而改用 `steer send`。后者只针对指定当前轮次，轮次结束就拒绝，且不进入下一轮。
 

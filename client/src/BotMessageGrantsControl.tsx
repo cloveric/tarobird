@@ -11,7 +11,7 @@ export function BotMessageGrantsControl({ connection, bot, online, owner }: {
   useLocale();
   const [open, setOpen] = useState(false), trigger = useRef<HTMLButtonElement>(null);
   return <><button ref={trigger} className="details-link message-grants-entry" aria-label={t("Bot 消息授权")} disabled={!owner} onClick={() => setOpen(true)}>
-    <Link size={18}/><span><strong>{t("Bot 消息授权")}</strong><small>{t("管理当前主机 Bot 之间的直接消息权限")}</small></span><ChevronRight size={16}/>
+    <Link size={18}/><span><strong>{t("Bot 消息授权")}</strong><small>{t("管理本机与跨主机 Bot 的直接消息权限")}</small></span><ChevronRight size={16}/>
   </button>{open && owner && <GrantsDialog key={`${connection.identity.hubPublicKey}:${bot.id}`} connection={connection} bot={bot} online={online} close={() => setOpen(false)} returnFocus={trigger}/>}</>;
 }
 

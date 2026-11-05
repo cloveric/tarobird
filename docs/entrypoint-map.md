@@ -535,6 +535,23 @@ and the existing network/run/delete suites listed in that audit.
   Regressions: `hub-bot-message-grants`, existing Bot-message/auth/CLI tests,
   browser `bot-message-grants`/settings and native device-action signing checks.
 
+- Cross-host message grant settings: `client/src/CrossHostMessageGrants.tsx` is
+  the Cross-host scope of the same Settings/Bot-settings entry. The receiving
+  Host owns `GET/POST /api/bot-messages/cross-host-grants`; the existing signed
+  device-action proof covers the complete command. The old loopback CLI write
+  endpoint remains restricted. `messages grants --cross-host` reads the same
+  snapshot; existing `allow/revoke` records are reused without migration.
+  Authenticated App connections provide source Bot names through
+  `bot-message-hosts.ts`; the UI never publishes a peer Bot directory or grants
+  network membership. Without a connected source, the owner can enter an exact
+  Bot ID with an explicit unverified-name explanation. Internal workers stay
+  out of selectors. Removed peers and deleted recipients retain revocable
+  records. Save/readback uncertainty never resubmits a change automatically.
+  Regressions include the cross-host grant policy/proof tests, existing
+  Bot-message/CLI tests and browser `bot-message-grants` (local and cross-host).
+  Browser and isolated Hub evidence does not establish installed mobile or
+  physical cross-machine acceptance. [Owner workflow and boundaries](client/cross-host-message-permissions.md).
+
 - Visual Agent Bus workspaces: `client/src/AgentBusPanel.tsx`, `AgentBusList.tsx`
   and `AdhdBoard.tsx` provide the desktop configuration, saved workspace list and
   member panes. `AgentBusSlots.tsx` renders editable per-slot tasks and the

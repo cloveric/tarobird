@@ -105,8 +105,9 @@ export const HOST_CLI_HELP = `TaroBird — 同一台主机，桌面与命令行�
   integrations voice status [--request-id ID] [--json]
   integrations voice set --mode local|cloud|auto --adapter ID --threshold-seconds N --revision REV --yes [--request-id ID] [--json]
     管理当前主机转写方式；云端需确认上传与费用。旧 --enabled on/off 对应 auto/local。
-  messages grants [--json]
+  messages grants [--cross-host] [--json]
     查看本机 Bot 的直接消息授权，与 App 的「Bot 消息授权」使用同一份记录
+    --cross-host 改为查看其他主机 Bot → 本机 Bot 的单向授权（含已离网来源的残留授权），与 App「跨主机」标签同一份快照
   messages send --to HOST/BOT[/CONVERSATION] --text-file FILE [--file FILE]... [--new-conversation NAME] [--request-id ID] [--context-message ID] [--source-bot LOCAL_BOT_ID]
   messages wait --to HOST_ID/BOT_ID/CONVERSATION_ID --message ID [--timeout SECONDS] [--out DIRECTORY] [--source-bot LOCAL_BOT_ID]
     默认等待 120 秒；timeout/pending 只结束本次查询，不会中断任务或自动恢复。用同一消息 ID 继续查询，勿重复发送。
@@ -280,7 +281,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     "html-file": { type: "string" }, "report-file": { type: "string" }, title: { type: "string" }, summary: { type: "string" },
     token: { type: "string" }, target: { type: "string" }, task: { type: "string" }, bot: { type: "string" }, message: { type: "string" }, before: { type: "string" }, through: { type: "string" }, last: { type: "boolean" },
     path: { type: "string" }, operation: { type: "string" }, preview: { type: "boolean" },
-    host: { type: "string" }, to: { type: "string" }, "source-bot": { type: "string" }, "context-message": { type: "string" }, file: { type: "string", multiple: true }, "new-conversation": { type: "string" }, timeout: { type: "string" },
+    host: { type: "string" }, to: { type: "string" }, "source-bot": { type: "string" }, "cross-host": { type: "boolean" }, "context-message": { type: "string" }, file: { type: "string", multiple: true }, "new-conversation": { type: "string" }, timeout: { type: "string" },
     "reply-to": { type: "string" }, ids: { type: "string" }, text: { type: "string" }, "text-file": { type: "string" }, run: { type: "string" },
     coordinator: { type: "string" }, members: { type: "string" },
     participants: { type: "string" }, supersedes: { type: "string" }, then: { type: "string" }, "if-running": { type: "boolean" },
@@ -308,7 +309,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     folders: ["enabled", "revision", "unfiled"],
     conversations: ["host", "bot", "source-bot", "ids", "yes", "folder", "new-folder", "unfiled", "revision", "request-id"],
     widgets: ["html-file", "report-file", "title", "summary", "request-id", "enabled", "revision"],
-    messages: ["ids", "before", "through", "yes", "to", "source-bot", "text-file", "file", "new-conversation", "message", "timeout", "out", "request-id", "from", "bot", "context-message"],
+    messages: ["ids", "before", "through", "yes", "to", "source-bot", "text-file", "file", "new-conversation", "message", "timeout", "out", "request-id", "from", "bot", "context-message", "cross-host"],
     queue: ["bot", "message", "before", "last", "text", "text-file", "revision", "request-id"],
     tasks: ["bot", "task", "token", "yes", "request-id"],
     steer: ["bot", "target", "text", "request-id", "mode", "message"],
@@ -324,6 +325,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
   if (p.length > (positionalLimit[command] ?? 1)) throw new Error("此命令不接受额外的位置参数。请执行 tarobot --help。");
   if (v.force && !["stop", "restart", "tickets"].includes(command)) throw new Error("--force 仅支持 stop、restart 或 tickets dispatch。");
   if (v.reset && command !== "enroll") throw new Error("--reset 仅支持本机 CLI 控制器重新登记。");
+  if (v["cross-host"] && !(command === "messages" && sub === "grants")) throw new Error("--cross-host 仅支持 messages grants。");
   if (command === "network" && v.tailscale && sub !== "local") throw new Error("--tailscale 仅支持 network local。");
   if (command === "network" && sub === "local" && (v.name || v.from || v.out || v.yes)) throw new Error("network local 只读，不接受 --name/--from/--out/--yes。");
   if (command === "update") {
@@ -643,7 +645,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     if (command === "conversations" && [v.ids, v.yes, v.folder, v["new-folder"], v.unfiled, v.revision, v["request-id"]].some(value => value !== undefined)) throw new Error("conversations list 不接受批量修改参数。");
     await output(await runBotMessagesCommand(directory, sub!, {
       host: v.host, bot: v.bot, to: v.to, "source-bot": v["source-bot"], "context-message": v["context-message"], "text-file": v["text-file"], file: v.file,
-      "new-conversation": v["new-conversation"], message: v.message, timeout: v.timeout, out: v.out, "request-id": v["request-id"], from: v.from,
+      "new-conversation": v["new-conversation"], message: v.message, timeout: v.timeout, out: v.out, "request-id": v["request-id"], from: v.from, "cross-host": v["cross-host"],
     }, abort.signal)); return;
   }
   if (command === "tickets") {

@@ -1656,6 +1656,19 @@ export class HubServer {
         }
         return;
       }
+      // App owner devices: one-way grants from another Host's Bot to this Host's
+      // Bots. Same signed domain/storage as the local tab; the legacy loopback
+      // CLI route below keeps its own local-controller requirement.
+      if (route === "/api/bot-messages/cross-host-grants" && (req.method === "GET" || req.method === "POST")) {
+        await requireOwner();
+        if (req.method === "GET") await reply(200, await this.botMessages.readCrossHostGrants(userId, validateInQueue));
+        else {
+          const input = z.object({ command: z.record(z.string(), z.unknown()), proof: deviceActionProofSchema }).strict().parse(await this.jsonBody(req));
+          await reply(200, await this.botMessages.updateCrossHostGrants(userId, session.deviceId, input.command, validateInQueue,
+            () => this.auth.consumeBotMessageGrant(session, hashSecret(networkCanonical(input.command)), input.proof)));
+        }
+        return;
+      }
       if (route === "/api/bot-messages/grant" && req.method === "POST") {
         if (!instanceAllowed || !isLoopback(req.socket.remoteAddress ?? "")) throw new HubError("local_controller_required", 403);
         messageControllerRequired = true; await requireOwner();

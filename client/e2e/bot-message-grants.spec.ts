@@ -6,10 +6,13 @@ import path from "node:path";
 import os from "node:os";
 import { HubServer } from "../../src/hub/server.js";
 import { hashSecret } from "../../src/hub/auth.js";
-import { messageHostId } from "../../src/hub/bot-messages.js";
+import { BotMessages, messageHostId } from "../../src/hub/bot-messages.js";
+import { networkManifestSchema } from "../../src/client-protocol/private-network.js";
+import { networkId } from "../../src/hub/private-network.js";
 import { attachGateway } from "../../src/gateway/service.js";
 import { createCoreServiceRuntime } from "../../src/core/runtime.js";
 import { openSettings } from "./fixtures/settings.js";
+import { clickAppAction } from "./fixtures/desktop-actions.js";
 import { mobileHome, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
 
 test.use({ serviceWorkers: "block" });
@@ -48,6 +51,174 @@ async function fixture(page:Page, runtime=false, oldHost=false, openPermissions=
   }
   return {root,hub,host,calls,grant,close:async()=>{await page.close();for(const channel of channels)await channel.disconnect();await hub.close();await rm(root,{recursive:true,force:true});}};
 }
+
+async function crossPeer(f: Awaited<ReturnType<typeof fixture>>) {
+  const peer = await HubServer.start({ stateDir: path.join(f.root, 'peer'), origins: [f.hub.url] });
+  await peer.profile.update({ name: '来源电脑', revision: 0 });
+  for (const id of ['remote', 'existing']) await peer.store.db.run("INSERT INTO bots(id,name,secret_hash,engine) VALUES(?,?,?,'codex')", [id, `来源助手 ${id}`, 'fixture']);
+  const nonce = randomBytes(32).toString('base64url');
+  const manifest = networkManifestSchema.parse({ v: 2, id: networkId(f.hub.auth.publicKey, nonce), name: '权限验收网络', authorityKey: f.hub.auth.publicKey, genesisNonce: nonce, revision: 1,
+    hosts: [f.hub, peer].map((hub, index) => ({ publicKey: hub.auth.publicKey, name: index ? '来源电脑' : '授权验收主机', routes: [], protocol: 2, state: 'active', revoked: false })), devices: [], revokedMembers: [], blockedBindings: [] });
+  const membership = { manifest, signature: f.hub.auth.signNetworkManifest(manifest) };
+  for (const hub of [f.hub, peer]) await hub.store.db.run("INSERT INTO meta(key,value) VALUES('private-network:v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [JSON.stringify({ v: 1, routes: [], membership, imported: {}, revokedMembers: [], revokedHosts: [], retiredNetworks: [], admissions: [], peers: [], proofs: [], intents: {}, lastSyncedAt: Date.now(), waiting: false })]);
+  const id = messageHostId(peer.auth.publicKey);
+  await f.hub.botMessages.grant({ sourceHost: id, sourceBot: 'existing', targetBot: 'beta' }, guard);
+  // Real signed messages and Hub policy; only the inter-host transport is local.
+  const sender = new BotMessages(peer.store, peer.auth, peer.network, peer.attachments, async (_host, signed, body) => f.hub.botMessages.receive(signed, signed.passport.method, signed.passport.path, body));
+  return { peer, id, sender };
+}
+
+for (const width of [390, 1360]) test(`cross-host permissions grant, verify replies and revoke through the real receiving Hub at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 900 });
+  const f = await fixture(page, false, false, false), remote = await crossPeer(f);
+  try {
+    await openGrants(page); await page.getByRole('button', { name: '跨主机', exact: true }).click();
+    const p = page.locator('.cross-host-message-grants');
+    await expect(p.getByText('接收主机：授权验收主机', { exact: true })).toBeVisible();
+    await expect(p.locator('.cross-grants-edge')).toContainText('existing');
+    const input = { operation: 'resolve' as const, host: f.host, bot: 'alpha', requestId: 'ui-cross-task', data: {} };
+    await expect(remote.sender.local(input, 'remote', guard, true)).rejects.toThrow('not_authorized');
+    await p.getByLabel('来源 Bot ID', { exact: true }).fill('remote');
+    await p.getByLabel('本机接收 Bot', { exact: true }).selectOption('alpha');
+    await expect(page.getByRole('button', { name: '本机', exact: true })).toBeDisabled();
+    await expect(p.locator('.cross-grants-direction')).toHaveText('来源电脑 · remote → 授权验收主机 · 研究助手');
+    await p.getByRole('button', { name: '允许发送', exact: true }).click();
+    await expect(p.getByRole('status')).toHaveText('已允许发送，并从接收主机核对生效。');
+    await expect(p.getByRole('status')).toBeInViewport();
+    const target: any = await remote.sender.local(input, 'remote', guard, true);
+    const sent: any = await remote.sender.local({ ...input, operation: 'send', conversation: target.conversationId, data: { text: 'Permission verified', attachments: [] } }, 'remote', guard, true);
+    await f.hub.store.publishBotMessage('alpha', { conversationId: target.conversationId, replyTo: sent.messageId, blocks: [{ type: 'text', text: 'Original task reply' }] });
+    await f.hub.store.acknowledgeDelivery('alpha', sent.messageId);
+    expect(await remote.sender.local({ ...input, operation: 'wait', conversation: target.conversationId, data: { messageId: sent.messageId } }, 'remote', guard, true)).toMatchObject({ status: 'completed', text: 'Original task reply' });
+    await expect.poll(() => p.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: info.outputPath(`cross-host-permissions-${width}.png`), fullPage: true });
+    await p.getByRole('button', { name: '撤销 来源电脑 · remote → 授权验收主机 · 研究助手', exact: true }).click();
+    await expect(p.getByRole('status')).toHaveText('已撤销授权，并从接收主机核对生效。');
+    await expect(p.getByRole('status')).toBeInViewport();
+    await expect(remote.sender.local({ ...input, requestId: 'after-revoke' }, 'remote', guard, true)).rejects.toThrow('not_authorized');
+    await expect(p.locator('.cross-grants-edge')).toHaveCount(1);
+    await page.getByRole('button', { name: '本机', exact: true }).click();
+    await expect(panel(page).getByRole('checkbox', { name: '允许 研究助手 → 复核助手', exact: true })).toBeChecked();
+  } finally { await remote.peer.close(); await f.close(); }
+});
+
+test("cross-host source names come from an authenticated App connection, hide workers, and fit English phone layouts", async ({ page }, info) => {
+  const f = await fixture(page, false, false, false), remote = await crossPeer(f);
+  try {
+    await remote.peer.store.db.run("INSERT INTO bots(id,name,secret_hash,role) VALUES('worker','Hidden internal worker','fixture','worker')");
+    await clickAppAction(page, '连接另一台主机');
+    await page.getByLabel('主机名称', { exact: true }).fill('来源电脑');
+    await page.getByLabel('Hub 地址', { exact: true }).fill(remote.peer.url);
+    await preparePairing(page, remote.peer); await page.getByRole('button', { name: '配对此设备', exact: true }).click();
+    await remote.peer.auth.approve(await page.getByLabel('配对码', { exact: true }).innerText(), 'local-owner');
+    await page.getByLabel('配对码', { exact: true }).waitFor({ state: 'hidden' });
+    await page.getByLabel('筛选运行主机').filter({ visible: true }).first().selectOption({ label: '授权验收主机' });
+    await openGrants(page); await page.getByRole('button', { name: '跨主机', exact: true }).click();
+    const p = page.locator('.cross-host-message-grants');
+    await expect(p.getByLabel('来源 Bot', { exact: true })).toBeVisible();
+    await expect(p.getByLabel('来源 Bot', { exact: true }).locator('option')).toHaveText(['选择来源 Bot', '来源助手 existing', '来源助手 remote']);
+    await p.getByRole('button', { name: '使用 Bot ID', exact: true }).click();
+    await p.getByLabel('来源 Bot ID', { exact: true }).fill('worker');
+    await expect(p.getByRole('button', { name: '允许发送', exact: true })).toBeDisabled();
+    await expect(p.getByRole('alert')).toHaveText('内部执行者不参与手动消息授权，请选择普通 Bot。');
+    await p.getByRole('button', { name: '按名称选择 Bot', exact: true }).click();
+    await p.getByLabel('来源 Bot', { exact: true }).selectOption('remote');
+    await p.getByRole('button', { name: '允许发送', exact: true }).click();
+    await expect(p.getByRole('status')).toHaveText('已允许发送，并从接收主机核对生效。');
+    await page.getByRole('navigation', { name: '设置分类' }).getByRole('button', { name: /^通用/ }).click();
+    await page.locator('#language').selectOption('en');
+    await page.getByRole('navigation', { name: 'Settings categories' }).getByRole('button', { name: /^Bot message permissions/ }).click();
+    await page.getByRole('button', { name: 'Cross-host', exact: true }).click();
+    await expect(p.getByLabel('Source Bot', { exact: true })).toBeVisible();
+    await expect(p.getByText('Receiving host: 授权验收主机', { exact: true })).toBeVisible();
+    for (const width of [1360, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => p.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
+      await p.getByRole('button', { name: /^Revoke 来源电脑 · 来源助手 remote/ }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: info.outputPath(`cross-host-connected-en-${width}.png`), fullPage: true });
+    }
+  } finally { await remote.peer.close(); await f.close(); }
+});
+
+for (const action of ["allow", "revoke"]) test(`cross-host ${action} loss of receipt stays unconfirmed until an explicit readback, without replay`, async ({ page }) => {
+  const f = await fixture(page, false, false, false), remote = await crossPeer(f);
+  try {
+    await openGrants(page); await page.getByRole('button', { name: '跨主机', exact: true }).click();
+    const p = page.locator('.cross-host-message-grants');
+    if (action === 'allow') await p.getByLabel('来源 Bot ID', { exact: true }).fill('remote');
+    let writes = 0;
+    await page.route('**/api/bot-messages/cross-host-grants', async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      writes++; await route.fetch(); await route.abort('failed');
+    });
+    await p.getByRole('button', { name: action === 'allow' ? '允许发送' : '撤销 来源电脑 · existing → 授权验收主机 · 复核助手', exact: true }).click();
+    await expect(p.getByRole('alert')).toContainText('尚未确认保存结果');
+    await expect(page.getByRole('button', { name: '本机', exact: true })).toBeDisabled();
+    await expect(p.getByRole('button', { name: '允许发送', exact: true })).toBeDisabled();
+    await p.getByRole('button', { name: '刷新跨主机授权', exact: true }).click();
+    await expect(p.getByRole('alert')).toContainText('尚未确认保存结果');
+    expect(writes).toBe(1);
+    await p.getByRole('button', { name: '重新载入并核对', exact: true }).click();
+    await expect(p.getByRole('alert')).toHaveCount(0);
+    if (action === 'allow') await expect(p.getByRole('button', { name: '已授权', exact: true })).toBeDisabled();
+    else await expect(p.locator('.cross-grants-edge')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '本机', exact: true })).toBeEnabled();
+    expect(writes).toBe(1);
+  } finally { await remote.peer.close(); await f.close(); }
+});
+
+test("cross-host expired device verification explains recovery without claiming the owner lacks permission", async ({ page }) => {
+  const f = await fixture(page, false, false, false), remote = await crossPeer(f);
+  try {
+    await openGrants(page); await page.getByRole('button', { name: '跨主机', exact: true }).click();
+    const p = page.locator('.cross-host-message-grants');
+    await p.getByLabel('来源 Bot ID', { exact: true }).fill('remote');
+    await page.route('**/api/devices/challenge', route => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'device_action_expired' }) }), { times: 1 });
+    await p.getByRole('button', { name: '允许发送', exact: true }).click();
+    await expect(p.getByRole('alert')).toHaveText('设备验证已失效，请重新载入后重试。');
+    await expect(p.getByRole('button', { name: '允许发送', exact: true })).toBeDisabled();
+    expect((await f.hub.botMessages.readCrossHostGrants('owner', guard)).grants).toHaveLength(1);
+    await p.getByRole('button', { name: '重新载入并核对', exact: true }).click();
+    await p.getByRole('button', { name: '允许发送', exact: true }).click();
+    await expect(p.getByRole('status')).toHaveText('已允许发送，并从接收主机核对生效。');
+  } finally { await remote.peer.close(); await f.close(); }
+});
+
+test("cross-host changes block stale drafts and leave removed sources and deleted recipients revocable", async ({ page }) => {
+  const f = await fixture(page, false, false, false), remote = await crossPeer(f);
+  try {
+    await openGrants(page); await page.getByRole('button', { name: '跨主机', exact: true }).click();
+    const p = page.locator('.cross-host-message-grants');
+    await p.getByLabel('来源 Bot ID', { exact: true }).fill('remote');
+    const row = await f.hub.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key='private-network:v1'");
+    const state = JSON.parse(row!.value);
+    state.membership.manifest.hosts.find((host: { publicKey: string }) => host.publicKey === remote.peer.auth.publicKey).revoked = true;
+    state.membership.manifest.revision++;
+    state.membership.signature = f.hub.auth.signNetworkManifest(state.membership.manifest);
+    await f.hub.store.db.run("UPDATE meta SET value=? WHERE key='private-network:v1'", [JSON.stringify(state)]);
+    await f.hub.store.db.run("UPDATE bots SET deleted_at=? WHERE id='beta'", [Date.now()]);
+    await p.getByRole('button', { name: '刷新跨主机授权', exact: true }).click();
+    await expect(p.getByRole('alert')).toContainText('状态已变化');
+    await expect(p.getByRole('button', { name: '撤销 来源电脑 · existing → 授权验收主机 · 复核助手', exact: true })).toBeDisabled();
+    await p.getByRole('button', { name: '重新载入并核对', exact: true }).click();
+    await expect(p.getByText('来源主机当前不可用，仅可撤销', { exact: true })).toBeVisible();
+    await expect(p.getByText('接收 Bot 已不可用，仅可撤销', { exact: true })).toBeVisible();
+    await p.getByRole('button', { name: '撤销 来源电脑 · existing → 授权验收主机 · 复核助手', exact: true }).click();
+    await expect(p.getByRole('status')).toHaveText('已撤销授权，并从接收主机核对生效。');
+    await expect(p.locator('.cross-grants-edge')).toHaveCount(0);
+  } finally { await remote.peer.close(); await f.close(); }
+});
+
+test("old hosts explain the cross-host upgrade without breaking local grants", async ({ page }) => {
+  const f = await fixture(page);
+  try {
+    await page.route('**/api/bot-messages/cross-host-grants', route => route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'not_found' }) }));
+    await page.getByRole('button', { name: '跨主机', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveText('请更新接收主机后使用跨主机消息授权。');
+    await page.getByRole('button', { name: '本机', exact: true }).click();
+    await expect(panel(page).getByRole('checkbox', { name: '允许 研究助手 → 复核助手', exact: true })).toBeChecked();
+  } finally { await f.close(); }
+});
 
 test("message grants hide internal workers but keep the dispatcher and same-name user Bots", async ({ page }) => {
   const f = await fixture(page, false, false, false), p = panel(page);

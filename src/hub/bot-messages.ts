@@ -10,7 +10,7 @@ import { HubError, type HubStore } from "./store.js";
 import type { HubAttachments } from "./attachments.js";
 import type { PrivateNetwork } from "./private-network.js";
 import { exchangeBotMessage } from "./bot-message-transport.js";
-import { botMessageGrantsCommandSchema, type BotMessageGrantsSnapshot } from "../client-protocol/bot-message-grants.js";
+import { botMessageGrantsCommandSchema, crossHostMessageGrantsCommandSchema, type BotMessageGrantsSnapshot, type CrossHostMessageGrantsSnapshot } from "../client-protocol/bot-message-grants.js";
 
 export const messageHostId = (key: string) => `hub_${createHash("sha256").update(Buffer.from(key, "base64")).digest("hex")}`;
 const digest = (b: Buffer) => createHash("sha256").update(b).digest("hex");
@@ -20,6 +20,12 @@ const memoKey = (kind: string, ...parts: string[]) => `bot-messages:${kind}:${ha
 type Guard = () => Promise<unknown>;
 type Grant = { sourceKey: string; sourceBot: string; targetBot: string; revoked: boolean };
 const grantSchema = z.object({ sourceHost: z.string().min(1).max(256), sourceBot: idSchema, targetBot: z.string().min(1).max(256), revoke: z.boolean().default(false) }).strict();
+const LOCAL_GRANTS_EPOCH = "bot-messages:local-grants-revision", CROSS_HOST_GRANTS_EPOCH = "bot-messages:cross-host-grants-revision";
+// Only the host list of the stored signed membership is read here; message
+// eligibility itself is always PrivateNetwork.requireMessagePeerInTransaction.
+const storedMembershipHostsSchema = z.object({ membership: z.object({ manifest: z.object({ id: z.string(),
+  hosts: z.array(z.object({ publicKey: z.string(), name: z.string(), state: z.string(), revoked: z.boolean() }).passthrough()) }).passthrough() }).passthrough().optional() }).passthrough();
+type CrossHostState = { snapshot: CrossHostMessageGrantsSnapshot; keys: Map<string, string>; live: Set<string>; listed: Set<string> };
 
 /** A narrow peer protocol, independent of Agent Bus. All authority is checked
  * by the receiving Hub; the CLI never receives either Hub's signing key. */
@@ -53,7 +59,8 @@ export class BotMessages {
       await guard(); await admit?.(); await this.network.requireMessagePeerInTransaction(host.publicKey);
       if (!await this.store.db.get("SELECT 1 FROM bots WHERE id=? AND deleted_at IS NULL", [bot.id])) throw new HubError("bot_deleted", 410);
       await this.put(key, { sourceKey: host.publicKey, sourceBot: input.sourceBot, targetBot: bot.id, revoked: input.revoke } satisfies Grant);
-      if (host.publicKey === this.auth.publicKey) await this.put("bot-messages:local-grants-revision", randomUUID());
+      // Either tab's revision covers CLI writes, including allow/revoke ABA.
+      await this.put(host.publicKey === this.auth.publicKey ? LOCAL_GRANTS_EPOCH : CROSS_HOST_GRANTS_EPOCH, randomUUID());
       await this.store.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), actor, input.revoke ? "bot-message.grant-revoked" : "bot-message.granted", JSON.stringify({ hostId: host.id, sourceBot: input.sourceBot, targetBot: bot.id })]);
     });
     return { hostId: host.id, sourceBotId: input.sourceBot, botId: bot.id, revoked: input.revoke };
@@ -70,7 +77,7 @@ export class BotMessages {
       if (grant.sourceKey === this.auth.publicKey && ids.has(grant.sourceBot) && ids.has(grant.targetBot)
         && row.key === memoKey("grant", grant.sourceKey, grant.sourceBot, grant.targetBot)) local.push(grant);
     }
-    const epoch = await this.memo<string>("bot-messages:local-grants-revision") ?? "legacy";
+    const epoch = await this.memo<string>(LOCAL_GRANTS_EPOCH) ?? "legacy";
     return { revision: hashSecret(networkCanonical({ epoch, ids: [...ids], local, selfTargetSupported: true })), selfTargetSupported: true,
       bots: bots.map(bot => ({ ...bot, online: !!bot.online })),
       grants: local.filter(grant => !grant.revoked).map(({ sourceBot, targetBot }) => ({ sourceBot, targetBot })) };
@@ -90,10 +97,85 @@ export class BotMessages {
         await this.put(memoKey("grant", this.auth.publicKey, command.sourceBot, change.targetBot),
           { sourceKey: this.auth.publicKey, sourceBot: command.sourceBot, targetBot: change.targetBot, revoked: !change.allowed } satisfies Grant);
       }
-      await this.put("bot-messages:local-grants-revision", randomUUID());
+      await this.put(LOCAL_GRANTS_EPOCH, randomUUID());
       await this.store.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), actor, "bot-message.grants-updated", JSON.stringify({ sourceBot: command.sourceBot, changes: command.changes.map(change => ({ ...change,
         previous: before.grants.some(grant => grant.sourceBot === command.sourceBot && grant.targetBot === change.targetBot) })) })]);
       return this.grantsInTransaction();
+    });
+  }
+  /** Caller holds the DB queue. The receiving Host's view of one-way edges from
+   * other Hosts to its own Bots. `hostName` is display-only. Workers stay hidden
+   * as in the local tab; their stored grants and history remain untouched. */
+  private async crossHostInTransaction(hostName: string): Promise<CrossHostState> {
+    const own = this.auth.publicKey, ownId = messageHostId(own);
+    const row = await this.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key='private-network:v1'");
+    const manifest = row ? storedMembershipHostsSchema.parse(JSON.parse(row.value)).membership?.manifest : undefined;
+    const names = new Map<string, string>(), keys = new Map<string, string>(), available = new Set<string>();
+    for (const host of manifest?.hosts ?? []) {
+      if (host.publicKey === own) continue;
+      const id = messageHostId(host.publicKey);
+      names.set(id, host.name); keys.set(id, host.publicKey);
+      // Each check reloads network state; only active entries (at most 32) can pass.
+      if (host.state !== "active" || host.revoked) continue;
+      try { await this.network.requireMessagePeerInTransaction(host.publicKey); available.add(id); }
+      catch (error) { if (!(error instanceof HubError)) throw error; }
+    }
+    const bots = await this.store.db.all<{ id: string; name: string; online: number; deleted_at: number | null }>("SELECT id,name,online,deleted_at FROM bots WHERE role!='worker' ORDER BY id");
+    const byId = new Map(bots.map(bot => [bot.id, bot]));
+    const grants: CrossHostMessageGrantsSnapshot["grants"] = [];
+    for (const row of await this.store.db.all<{ key: string; value: string }>("SELECT key,value FROM meta WHERE key LIKE 'bot-messages:grant:%' ORDER BY key")) {
+      const grant = JSON.parse(row.value) as Grant;
+      if (grant.revoked || grant.sourceKey === own || !byId.has(grant.targetBot) || !idSchema.safeParse(grant.sourceBot).success
+        || row.key !== memoKey("grant", grant.sourceKey, grant.sourceBot, grant.targetBot)) continue;
+      const id = messageHostId(grant.sourceKey);
+      keys.set(id, grant.sourceKey);
+      grants.push({ sourceHost: id, sourceBot: grant.sourceBot, targetBot: grant.targetBot });
+    }
+    const order = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0;
+    grants.sort((x, y) => order(x.sourceHost, y.sourceHost) || order(x.sourceBot, y.sourceBot) || order(x.targetBot, y.targetBot));
+    const targets = new Set(grants.map(grant => grant.targetBot)), live = new Set(bots.filter(bot => bot.deleted_at === null).map(bot => bot.id));
+    const listed = bots.filter(bot => bot.deleted_at === null || targets.has(bot.id));
+    const residual = new Set(grants.map(grant => grant.sourceHost));
+    const hosts = [...new Set([...available, ...residual])].sort(order).map(id => ({ id, name: names.get(id) ?? id, available: available.has(id) }));
+    // Names and online state are excluded so they never invalidate a draft.
+    const epoch = await this.memo<string>(CROSS_HOST_GRANTS_EPOCH) ?? "legacy";
+    const revision = hashSecret(networkCanonical({ kind: "cross-host", epoch, network: manifest?.id ?? null, available: [...available].sort(order), live: [...live], grants }));
+    return { keys, live, listed: new Set(listed.map(bot => bot.id)), snapshot: { revision, host: { id: ownId, name: hostName }, hosts, grants,
+      bots: listed.map(bot => bot.deleted_at === null ? { id: bot.id, name: bot.name, online: !!bot.online } : { id: bot.id, name: bot.name, online: false, deleted: true as const }) } };
+  }
+  async readCrossHostGrants(userId: string, guard: Guard): Promise<CrossHostMessageGrantsSnapshot> {
+    const check = async () => { await guard(); await this.store.requireOwner(userId); };
+    const { host } = await this.network.view(check);
+    return this.store.db.serial(async () => { await check(); return (await this.crossHostInTransaction(host.name)).snapshot; });
+  }
+  /** Owner + one-use device proof (`admit`); every check repeats in the write
+   * transaction. A batch is all-or-nothing: an allow for a source that is not
+   * a current message peer rejects its revocations too. Revocation needs an
+   * existing visible edge, which keeps removed/offline sources revocable. */
+  async updateCrossHostGrants(userId: string, actor: string, raw: unknown, guard: Guard, admit: Guard): Promise<CrossHostMessageGrantsSnapshot> {
+    const command = crossHostMessageGrantsCommandSchema.parse(raw);
+    const check = async () => { await guard(); await this.store.requireOwner(userId); };
+    const { host } = await this.network.view(check);
+    return this.store.db.transaction(async () => {
+      await check(); await admit();
+      const before = await this.crossHostInTransaction(host.name);
+      if (command.revision !== before.snapshot.revision) throw new HubError("bot_message_grants_changed", 409);
+      // This Host's own Bots use the local tab, which also excludes worker sources.
+      if (command.sourceHost === before.snapshot.host.id) throw new HubError("bot_message_grant_local_source", 400);
+      const sourceKey = before.keys.get(command.sourceHost);
+      if (!sourceKey) throw new HubError("bot_message_host_not_found", 404);
+      const existing = new Set(before.snapshot.grants.filter(grant => grant.sourceHost === command.sourceHost && grant.sourceBot === command.sourceBot).map(grant => grant.targetBot));
+      if (command.changes.some(change => change.allowed)) await this.network.requireMessagePeerInTransaction(sourceKey);
+      for (const change of command.changes) {
+        if (change.allowed ? !before.live.has(change.targetBot) : !before.listed.has(change.targetBot)) throw new HubError("bot_deleted", 410);
+        if (!change.allowed && !existing.has(change.targetBot)) throw new HubError("bot_message_grant_not_found", 409);
+      }
+      for (const change of command.changes) await this.put(memoKey("grant", sourceKey, command.sourceBot, change.targetBot),
+        { sourceKey, sourceBot: command.sourceBot, targetBot: change.targetBot, revoked: !change.allowed } satisfies Grant);
+      await this.put(CROSS_HOST_GRANTS_EPOCH, randomUUID());
+      await this.store.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), actor, "bot-message.cross-host-grants-updated", JSON.stringify({ sourceHost: command.sourceHost, sourceBot: command.sourceBot,
+        changes: command.changes.map(change => ({ ...change, previous: existing.has(change.targetBot) })) })]);
+      return (await this.crossHostInTransaction(host.name)).snapshot;
     });
   }
   private async allowed(p: BotPassport, botId: string): Promise<void> {

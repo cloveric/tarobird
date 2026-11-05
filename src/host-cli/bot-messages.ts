@@ -15,7 +15,7 @@ import { withChannelProfile } from "../core/channel-profile.js";
 import { loadInstanceConfig, resolveInstanceWorkspacePath } from "../state/instance-config.js";
 
 export type BotMessageOptions = { host?: string; bot?: string; to?: string; "source-bot"?: string; "text-file"?: string; file?: string[];
-  "new-conversation"?: string; message?: string; timeout?: string; out?: string; "request-id"?: string; "context-message"?: string; from?: string };
+  "new-conversation"?: string; message?: string; timeout?: string; out?: string; "request-id"?: string; "context-message"?: string; from?: string; "cross-host"?: boolean };
 type Call = (body: BotLocalRequest) => Promise<any>;
 const replyFileSchema = uploadSchema.omit({ conversationId: true }).extend({ id: idSchema, size: uploadSchema.shape.size.max(MAX_FILE_BYTES) });
 
@@ -100,14 +100,15 @@ function replyFilename(id: string, value: string): string {
 export async function runBotMessagesCommand(directory: string, command: string, options: BotMessageOptions, signal: AbortSignal = new AbortController().signal) {
   const allow: Record<string, string[]> = {
     list: ["host", "bot", "source-bot"], send: ["to", "source-bot", "text-file", "file", "new-conversation", "request-id", "context-message"],
-    wait: ["to", "source-bot", "message", "timeout", "out"], allow: ["from", "bot"], revoke: ["from", "bot"], grants: [],
+    wait: ["to", "source-bot", "message", "timeout", "out"], allow: ["from", "bot"], revoke: ["from", "bot"], grants: ["cross-host"],
   };
   if (!allow[command]) throw new Error("unknown_bot_message_command");
   for (const [key, value] of Object.entries(options)) if (value !== undefined && !allow[command]!.includes(key)) throw new Error(`unsupported_option_${key}`);
   if (command === "grants") {
     if (process.env.TAROBOT_INSTANCE || process.env.TAROBOT_ACTIVE_INSTANCE) throw new Error("bot_message_grant_requires_owner_controller");
     const owner = await LocalHostClient.connect(directory);
-    try { return await owner.request("/api/bot-messages/grants"); } finally { owner.close(); }
+    // --cross-host reads the App's cross-host tab snapshot; the default output is unchanged.
+    try { return await owner.request(options["cross-host"] ? "/api/bot-messages/cross-host-grants" : "/api/bot-messages/grants"); } finally { owner.close(); }
   }
   const sourceBot = options["source-bot"];
   if (!process.env.TAROBOT_INSTANCE && !process.env.TAROBOT_ACTIVE_INSTANCE && !sourceBot && !["allow", "revoke"].includes(command)) throw new Error("operator_requires_source_bot");
