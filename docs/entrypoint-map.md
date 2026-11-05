@@ -4530,7 +4530,12 @@ Expanded and phone layouts remain separate.
 Phone/expanded positioning uses untransformed layout offsets so returning to a
 conversation cannot retain the navigation animation's temporary horizontal
 offset. See [phone return alignment](client/workbench-phone-return-2026-10-31.md).
-ADHD shares this entry through `ConversationPane.expandForWorkbench`: opening
+ADHD hides the per-pane Workbench and screen shortcuts in both overview and
+expanded layouts. Ordinary conversation shortcuts and the independent ADHD
+browser dock remain available. This is presentation-only; Host/CLI contracts
+are unchanged. `workbench-adhd` covers mode switching and retained drafts.
+Existing content-link and file-library actions still use
+`ConversationPane.expandForWorkbench`: opening
 sets the owning card expanded, overview hides its workbench while retaining the
 controller, native page and draft. A narrow expanded card uses its reading area
 without changing persisted layout or resizing the native window. Instance-scoped
@@ -4707,7 +4712,7 @@ Explicit Design tasks may use `design.open` (`workbench.design.open.v1`, tool
 schema v10). The lightweight `use-workbench-design-opener.ts` /
 `workbench-design-opener.ts` endpoint belongs to the sending App conversation; it
 loads no editor during ordinary chat. ADHD panes never register an automatic
-opener; they keep manual Workbench opening and existing content operations.
+opener; explicit content-link/file-library opening and existing content operations remain available.
 Electron additionally requires native visible/not-minimized state from
 `desktop_window_read` and `window-state` events: Page Visibility alone stays
 visible for hidden windows with background throttling disabled. Regressions:

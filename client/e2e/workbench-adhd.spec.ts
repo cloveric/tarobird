@@ -1,4 +1,5 @@
 import { workbenchContentTargets } from "./fixtures/workbench-targets.js";
+import { widgetBlock } from "../../src/client-protocol/widget.js";
 import { test, expect, type Page } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -19,7 +20,7 @@ async function fixture(page: Page, adhd = true) {
   await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','工作台助手','fixture')");
   const a = await hub.store.createConversation('owner', ['alpha'], '资料浏览', 'chat_a');
   const b = await hub.store.createConversation('owner', ['alpha'], '第二项工作', 'chat_b');
-  for (const conversation of [a, b]) await hub.store.publishBotMessage('alpha', { conversationId: conversation.id, status: 'complete', blocks: [{ type: 'text', text: `这是${conversation.title}的历史` }] });
+  for (const conversation of [a, b]) await hub.store.publishBotMessage('alpha', { conversationId: conversation.id, status: 'complete', blocks: [{ type: 'text', text: `这是${conversation.title}的历史` }, widgetBlock({ title: '示例图表', summary: 'Synthetic fixture', report: { version: 1, columns: ['项目', '数量'], rows: [['A', 2]], chart: { kind: 'bar', category: 0, values: [1] } } })] });
   await page.goto(hub.url); await preparePairing(page, hub);
   await page.getByRole('button', { name: '配对此设备', exact: true }).click();
   await hub.auth.approve(await page.getByLabel('配对码', { exact: true }).innerText(), 'local-owner');
@@ -48,9 +49,7 @@ async function fixture(page: Page, adhd = true) {
       },
     } });
   });
-  // Install the native boundary before mounting ADHD panes. Injecting it later
-  // adds the screen button during the first pointer focus and moves the target
-  // between mouse-down and mouse-up (a browser fixture race, not native behavior).
+  // Install the native boundary before mounting ADHD panes and their browser dock.
   if (adhd) {
     await page.getByRole('button', { name: '打开 ADHD 模式', exact: true }).click();
     for (const conversation of [a,b]) await page.getByRole('checkbox', { name: `加入面板：测试主机 · ${conversation.title}`, exact: true }).check();
@@ -60,14 +59,43 @@ async function fixture(page: Page, adhd = true) {
   const actor = (conversationId: string) => ({ userId:'owner', conversationId, validate:async () => undefined });
   return {hub, a, b, broker, actor, close:async () => { await page.close(); await hub.close(); await rm(root,{recursive:true,force:true}); }};
 }
+async function openChartFromMessage(page: Page, id: string) {
+  await card(page,id).getByRole('button',{name:'在工作台打开',exact:true}).click();
+}
 async function openBrowser(page: Page, id: string) {
-  await card(page,id).getByRole('button',{name:'工作台',exact:true}).click();
+  await openChartFromMessage(page,id);
   await expect(card(page,id)).toHaveClass(/is-expanded/);
-  await workbench(page).getByRole('button',{name:'网页',exact:true}).click();
+  await expect(workbench(page).getByRole('tab',{name:'示例图表',exact:true})).toBeVisible();
+  await workbench(page).getByRole('button',{name:'新建内容',exact:true}).click();
+  await workbench(page).getByRole('button',{name:'新建网页',exact:true}).click();
   await expect(workbench(page).getByRole('textbox',{name:'网址或搜索',exact:true})).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).browserFixture.layouts.at(-1)?.views.length)).toBe(1);
 }
 async function nativeViews(page: Page) { return page.evaluate(() => (window as any).browserFixture.layouts.at(-1)?.views.map((view:any) => view.tab) ?? []); }
+
+test('ADHD hides workbench and screen shortcuts in overview and expanded panes, ordinary chat retains both', async ({page}) => {
+  const f = await fixture(page);
+  try {
+    const shortcuts = page.locator('.adhd-card .workbench-trigger, .adhd-card .screen-trigger');
+    await expect(shortcuts).toHaveCount(0);
+    await expect(page.locator('.adhd-toolbar .adhd-browser-entry')).toBeVisible();
+    await card(page, f.a.id).locator('.composer textarea').fill('Keep the pane draft');
+    await card(page, f.a.id).getByRole('button', {name:'放大此面板', exact:true}).click();
+    await expect(card(page, f.a.id)).toHaveClass(/is-expanded/);
+    await expect(shortcuts).toHaveCount(0);
+    await card(page, f.a.id).getByRole('button', {name:'在单对话中打开', exact:true}).click();
+    const header = page.locator('.host-workspace:not([hidden]) .conversation-header');
+    await expect(header.getByRole('button', {name:'工作台', exact:true})).toBeVisible();
+    await expect(header.getByRole('button', {name:'查看屏幕', exact:true})).toBeVisible();
+    await expect(page.locator('.host-workspace:not([hidden]) .composer textarea')).toHaveValue('Keep the pane draft');
+    await header.getByRole('button', {name:'工作台', exact:true}).click();
+    await expect(workbench(page)).toBeVisible();
+    await workbench(page).getByRole('button', {name:'返回聊天', exact:true}).click();
+    await page.getByRole('button', {name:'打开 ADHD 模式', exact:true}).click();
+    await expect(card(page, f.a.id).locator('.composer textarea')).toHaveValue('Keep the pane draft');
+    await expect(shortcuts).toHaveCount(0);
+  } finally { await f.close(); }
+});
 
 test('switching conversations while workbench initializes keeps B closed and restores A', async ({page}) => {
   const f = await fixture(page, false);
@@ -141,7 +169,7 @@ test('an initialization failure while an ADHD pane is hidden stays with that pan
         return invoke(command, args);
       };
     }, f.a.id);
-    await card(page,f.a.id).getByRole('button',{name:'工作台',exact:true}).click();
+    await openChartFromMessage(page,f.a.id);
     await expect.poll(() => page.evaluate(() => !!(window as any).browserFixture.releaseHiddenFailure)).toBe(true);
     await card(page,f.a.id).getByRole('button',{name:'回到面板总览',exact:true}).click();
     await card(page,f.b.id).getByRole('button',{name:'放大此面板',exact:true}).click();
@@ -151,16 +179,15 @@ test('an initialization failure while an ADHD pane is hidden stays with that pan
     await expect(card(page,f.b.id).getByText('Hidden A initialization failed',{exact:true})).toHaveCount(0);
     await card(page,f.b.id).getByRole('button',{name:'回到面板总览',exact:true}).click();
     await card(page,f.a.id).getByRole('button',{name:'放大此面板',exact:true}).click();
-    await expect(card(page,f.a.id).getByText('Hidden A initialization failed',{exact:true})).toBeVisible();
-    const trigger = card(page,f.a.id).getByRole('button',{name:'工作台',exact:true});
-    await trigger.click(); await trigger.click();
+    await expect(card(page,f.a.id).locator('.error-banner')).toHaveText('Hidden A initialization failed');
+    await openChartFromMessage(page,f.a.id);
     await expect(workbench(page)).toBeVisible();
   } finally { await f.close(); }
 });
 
 test('failed initialization releases the native listener and a fresh attempt opens normally', async ({page}) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  const f = await fixture(page);
+  const f = await fixture(page, false);
   try {
     await page.evaluate(() => {
       const bridge = (window as any).tarobotDesktop, invoke = bridge.invoke; let fail = true;
@@ -170,13 +197,13 @@ test('failed initialization releases the native listener and a fresh attempt ope
         return result;
       };
     });
-    const trigger = card(page, f.a.id).getByRole('button',{name:'工作台',exact:true});
+    const trigger = page.getByRole('button',{name:'工作台',exact:true});
     await trigger.click();
     await expect(page.getByText('fixture_native_list_failed', {exact:true})).toBeVisible();
     expect(await page.evaluate(() => (window as any).browserFixture.listeners.size)).toBe(0);
     await trigger.click(); await trigger.click();
     await expect(workbench(page)).toBeVisible();
-    expect(await page.evaluate(() => (window as any).browserFixture.listeners.size)).toBe(1);
+    await expect.poll(() => page.evaluate(() => (window as any).browserFixture.listeners.size)).toBe(1);
     expect(errors).toEqual([]);
   } finally { await f.close(); }
 });
@@ -193,7 +220,7 @@ test('leaving an initializing ADHD pane cannot attach late listeners or restore 
         return result;
       };
     });
-    await card(page,f.a.id).getByRole('button',{name:'工作台',exact:true}).click();
+    await openChartFromMessage(page,f.a.id);
     await expect.poll(() => page.evaluate(() => typeof (window as any).browserFixture.release)).toBe('function');
     await card(page,f.a.id).getByRole('button',{name:'在单对话中打开',exact:true}).click();
     await expect(page.locator('.adhd-shell')).toHaveCount(0);
@@ -291,7 +318,7 @@ test('ADHD browser expands the owning card, preserves drafts and isolates hidden
     const ids=await page.locator('.workbench, .workbench [id]').evaluateAll(nodes=>nodes.map(node=>node.id)); expect(new Set(ids).size).toBe(ids.length);
     await expect.poll(async () => (await workbenchContentTargets(f.broker, f.actor(f.b.id)))[0]?.visible).toBe(true);
     await card(page,f.b.id).getByRole('button',{name:'回到面板总览',exact:true}).click();
-    await card(page,f.a.id).getByRole('button',{name:'工作台',exact:true}).click();
+    await card(page,f.a.id).getByRole('button',{name:'放大此面板',exact:true}).click();
     await expect.poll(() => nativeViews(page)).toEqual([aTab]);
     await expect(workbench(page).getByRole('textbox',{name:'网址或搜索',exact:true})).toHaveValue('https://example.com/keyboard');
     await expect(card(page,f.a.id).locator('.composer textarea')).toHaveValue('资料浏览草稿');
@@ -343,7 +370,7 @@ test('narrow ADHD browser keeps composer reachable and recovers after mode chang
     await expect(page.locator('.host-workspace:not([hidden]) .composer textarea')).toHaveValue('切换后保留的草稿');
     await page.getByRole('button',{name:'工作台',exact:true}).click();
     await expect.poll(()=>nativeViews(page)).toEqual([tab]);
-    await expect(workbench(page).getByRole('tab')).toHaveCount(1);
+    await expect(workbench(page).getByRole('tab')).toHaveText(['示例图表', '资料网页']);
   } finally {await f.close();}
 });
 

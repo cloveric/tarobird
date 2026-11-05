@@ -15,6 +15,7 @@ for (const phone of [false, true]) test(`settings and workbench entries reopen t
   const directory = await mkdtemp(path.join(os.tmpdir(), "workbench-library-navigation-"));
   const hub = await HubServer.start({ stateDir: directory, clientDir: path.resolve("dist") });
   try {
+    await hub.profile.update({ name: "测试主机", revision: (await hub.profile.read()).revision });
     await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('library_bot','文件管理验收','fixture')");
     const a = await hub.store.createConversation("owner", ["library_bot"], "资料整理 A", "library_a");
     const b = await hub.store.createConversation("owner", ["library_bot"], "方案讨论 B", "library_b");
@@ -79,9 +80,8 @@ for (const phone of [false, true]) test(`settings and workbench entries reopen t
       const bPane = page.locator(`.adhd-card[data-pane-conversation="${b.id}"]`);
       await page.getByRole("checkbox", { name: /加入面板：.* · 方案讨论 B/ }).check();
       await expect(bPane.locator(".composer textarea")).toHaveValue("Keep this unsent draft in B");
-      await bPane.getByRole("button", { name: "工作台", exact: true }).click();
-      await bPane.getByRole("button", { name: "全部标签和已关闭内容", exact: true }).click();
-      await bPane.getByRole("button", { name: "管理所有工作台文件", exact: true }).click();
+      await openSettings(page);
+      await page.getByRole("navigation", { name: "设置分类" }).getByRole("button", { name: /^工作台文件/ }).click();
       await page.locator(".workbench-library").filter({ visible: true }).getByRole("button", { name: "打开：Alpha.md", exact: true }).click();
       const aPane = page.locator(`.adhd-card[data-pane-conversation="${a.id}"]`);
       await expect(aPane).toHaveClass(/is-expanded/);
@@ -94,13 +94,10 @@ for (const phone of [false, true]) test(`settings and workbench entries reopen t
       await aPane.getByRole("button", { name: "移除此面板", exact: true }).click();
       for (const item of capacityChats) await page.getByRole("checkbox", { name: new RegExp(`加入面板：.* · ${item.title}$`) }).check();
       await expect(page.locator(".adhd-card")).toHaveCount(12);
-      await bPane.getByRole("button", { name: "工作台", exact: true }).click();
-      await bPane.getByRole("button", { name: "全部标签和已关闭内容", exact: true }).click();
-      await bPane.getByRole("button", { name: "管理所有工作台文件", exact: true }).click();
+      await openSettings(page);
+      await page.getByRole("navigation", { name: "设置分类" }).getByRole("button", { name: /^工作台文件/ }).click();
       await page.locator(".workbench-library").filter({ visible: true }).getByRole("button", { name: "打开：Alpha.md", exact: true }).click();
       await expect(page.getByText("最多同时打开 12 个对话。请先移除一个面板。", { exact: true })).toBeVisible();
-      await bPane.getByRole("complementary", { name: "工作台", exact: true }).getByRole("button", { name: "返回聊天", exact: true }).click();
-      await page.locator(".adhd-toolbar").getByRole("button", { name: "总览", exact: true }).click();
       await page.locator(`.adhd-card[data-pane-conversation="${capacityChats[0]!.id}"]`).getByRole("button", { name: "移除此面板", exact: true }).click();
       await page.getByRole("checkbox", { name: /加入面板：.* · 资料整理 A/ }).check();
       await expect(aPane).toBeVisible(); await expect(aPane).not.toHaveClass(/is-expanded/);
