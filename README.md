@@ -225,8 +225,6 @@ Install and sign in to any one engine on the computer that runs your Bots to get
   </tr>
 </table>
 
-This new repository has no Release yet. Future installers for macOS (Apple silicon), Windows and Android will be published on [Releases](https://github.com/cloveric/tarobird/releases), with English release notes. Existing installers remain in the [private historical archive](https://github.com/cloveric/tarobot/releases); iOS remains available to invited testers through TestFlight. This repository is private, so downloads require an authorized GitHub account. The computer that runs Bots needs at least one installed and signed-in [supported engine](#supported-engines).
-
 ### 01 · Install the host
 
 1. Install the desktop App. On macOS, drag **TaroBot.app** (the retained bundle name; the interface displays TaroBird) into Applications; the App is notarized by Apple. On Windows, run the installer. The installer is not yet code-signed, so if SmartScreen appears, choose **More info → Run anyway**.

@@ -225,8 +225,6 @@ Agent Bus 流程和群组成员仍限定在同一主机内；跨主机接力使�
   </tr>
 </table>
 
-新仓库暂未发布 Release。后续 macOS（Apple 芯片）、Windows 与 Android 安装包将发布在 [Releases](https://github.com/cloveric/tarobird/releases)，发版说明统一使用英文。已有安装包保留在[私有历史档案](https://github.com/cloveric/tarobot/releases)；iOS 继续通过 TestFlight 向受邀用户开放。本仓库为私有仓库，下载需使用具备访问权限的 GitHub 账号。运行 Bot 的电脑需预先安装并登录至少一种[支持的引擎](#支持的引擎)。
-
 ### 01 · 安装主机
 
 1. 安装桌面版。macOS 将 **TaroBot.app**（保留兼容包名，界面显示 TaroBird）拖入「应用程序」（已通过 Apple 公证）。Windows 运行安装程序；安装包暂未进行代码签名，若出现 SmartScreen 提示，请点击「更多信息 → 仍要运行」。
