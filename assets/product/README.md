@@ -465,3 +465,29 @@ are unchanged; no CLI command or installer release is required.
 Both language captures and compositions were inspected. The capture assertions
 passed, GitHub's Markdown API rendered both updated READMEs, all 14 local artwork
 links per README resolved, and the four raw-image hashes matched the manifest.
+
+
+## Bot network illustration — 2026-11-05
+
+`bot-network-en.png` and `bot-network-zh.png` illustrate same-host Bot
+collaboration, cross-host task/file/reply handoffs and another computer joining
+with its own Bots. They appear in the existing Bot network section after Groups,
+not in the opening hero or animation. Existing section order is unchanged.
+
+These are authored diagrams, not App screenshots, live network captures or
+real-model acceptance. Host A, Host B and Bot roles are fictional; there are no
+addresses, pairing codes, account names, chat records or device identifiers.
+Joining and communication authorization are separate, and each host retains its
+Bots, conversations and files. Agent Bus and group membership remain host-local.
+
+Reproduce with `node scripts/render-readme-bot-network.mjs` after installing the
+client's Playwright dependencies and Chromium. The script uses the existing
+licensed Instrument Sans font plus the macOS PingFang SC fallback for Chinese;
+PNG output freezes the reviewed glyphs for other platforms. It renders only
+inline SVG and local fonts, and calls no Host, model or network service.
+An optional first argument selects an existing output directory. Both images
+are 2240 × 1560 pixels. Exact reviewed hashes are recorded in
+`.privacy-reviewed-media.json` at the repository root.
+
+Documentation only: App, Host and CLI behavior and versions are unchanged;
+no release or installation is performed.

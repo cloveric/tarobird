@@ -97,23 +97,10 @@ TaroBird 是一款自托管的 AI 智能体工作空间。它把电脑或服务�
 <h3 align="center">Bot 互相通信 · 跨电脑一起完成任务</h3>
 <p align="center">让一个 Bot 向另一个 Bot 求助、传递文件，再带回结果。<br>更多电脑可以带着自己的 Bot，加入同一个私有网络。</p>
 
-```mermaid
-flowchart TB
-    subgraph Network["你的私有网络"]
-        direction TB
-        subgraph Mac["Mac"]
-            direction TB
-            Research["研究 Bot"]
-            Writer["写作 Bot"]
-            Research <-->|"同机任务与回复"| Writer
-        end
-        subgraph PC["Windows 电脑"]
-            Reviewer["审阅 Bot"]
-        end
-        Writer <-->|"跨主机任务、文件与回复"| Reviewer
-    end
-```
-<p align="center"><sub>协作关系示意 · 每次委托均需具备相应授权 · Bot 在各自所属主机上执行</sub></p>
+<p align="center">
+  <a href="assets/product/bot-network-zh.png"><img src="assets/product/bot-network-zh.png" width="100%" alt="Bot 协作示意：Mac 上的研究与写作 Bot 同机协作，向 Windows 审阅 Bot 传递任务和文件、带回结果；另一台电脑带着自己的 Bot 加入私有网络。"></a>
+</p>
+<p align="center"><sub>协作关系示意 · 每次委托均需具备相应授权 · Bot 在各自所属主机上执行 · <a href="assets/product/bot-network-zh.png">点击查看大图</a></sub></p>
 
 - **Bot 之间互相协作。** 在同一台主机上，让研究 Bot 把资料交给写作 Bot，或让编程 Bot 找审阅 Bot 复核。默认使用独立的协作对话，保留任务和回复记录。
 - **其他主机带着 Bot 加入。** 在要加入的电脑上连接已有主机，再到 **设置 → 网络与连接 → 我的网络** 确认加入。已授权的电脑和手机就能访问它的 Bot；Bot、对话和文件仍保存在原来的主机上。

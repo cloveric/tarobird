@@ -3290,6 +3290,20 @@
       "reviewer": "codex",
       "method": "visual-review",
       "note": "Visual review of exact design illustration sheets and metadata; no private conversations, accounts or device identifiers."
+    },
+    {
+      "path": "assets/product/bot-network-en.png",
+      "sha256": "7c70ebcc10ba793d6a8324c05764f0369ff96e3f16ec3037574cdbfe7a63345b",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Authored diagram visually inspected in both languages; OCR and PNG chunk inspection checked. Fictional roles and generic host labels only; no private device, account, chat, address or pairing data. Reproduction bytes match."
+    },
+    {
+      "path": "assets/product/bot-network-zh.png",
+      "sha256": "3df265756155e31485b965af84a00dd5e862ce9933b8785326a9f939a1f184ab",
+      "reviewer": "codex",
+      "method": "visual-review",
+      "note": "Authored diagram visually inspected in both languages; OCR and PNG chunk inspection checked. Fictional roles and generic host labels only; no private device, account, chat, address or pairing data. Reproduction bytes match."
     }
   ]
 }

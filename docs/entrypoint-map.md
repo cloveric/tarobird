@@ -1376,6 +1376,8 @@ and the existing network/run/delete suites listed in that audit.
   source icon checker. Browser/asset checks do not imply an installed release.
   [Fox brand change and verification](client/fox-brand-2026-10-25.md);
   [phoenix icon change](client/phoenix-brand-2026-11-04.md).
+  `render-readme-bot-network.mjs` generates the English/Chinese Bot network
+  illustrations using fictional roles; provenance is in `assets/product/README.md`.
   The [homepage capture record](../assets/product/README.md#homepage-structure-and-motion-refresh-2026-11-04)
   covers the restored section order, bilingual conversation-first desktop/phone
   recordings, later browser/canvas demonstrations, distinct Bot portraits and

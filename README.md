@@ -97,23 +97,10 @@ TaroBird is a self-hosted workspace for AI agents. It brings command-line agents
 <h3 align="center">Bot-to-Bot communication · Work together across computers</h3>
 <p align="center">Let one Bot ask another for help, send a file and bring back the result.<br>Connect more computers to your private network, each with its own Bots.</p>
 
-```mermaid
-flowchart TB
-    subgraph Network["Your private network"]
-        direction TB
-        subgraph Mac["Mac"]
-            direction TB
-            Research["Research Bot"]
-            Writer["Writing Bot"]
-            Research <-->|"Same-host tasks and replies"| Writer
-        end
-        subgraph PC["Windows PC"]
-            Reviewer["Review Bot"]
-        end
-        Writer <-->|"Cross-host tasks, files and replies"| Reviewer
-    end
-```
-<p align="center"><sub>Illustrative workflow · Each handoff requires permission · Bots execute on their own hosts</sub></p>
+<p align="center">
+  <a href="assets/product/bot-network-en.png"><img src="assets/product/bot-network-en.png" width="100%" alt="Bot collaboration: research and writing Bots share one Mac; tasks and files go to a Windows review Bot and feedback returns; another computer joins the private network with its own Bots."></a>
+</p>
+<p align="center"><sub>Illustrative workflow · Each handoff requires permission · Bots execute on their own hosts · <a href="assets/product/bot-network-en.png">Full-size diagram</a></sub></p>
 
 - **Bots can talk to one another.** On the same host, ask a research Bot to hand its findings to a writing Bot, or a coding Bot to request a review. Tasks and replies stay in dedicated collaboration conversations by default.
 - **Bring another host's Bots into the network.** On the joining computer, connect to an existing host and confirm joining under **Settings → Network & connections → My network**. Its Bots become accessible from authorized desktop and phone clients; Bots, conversations and files remain on their owning host.
