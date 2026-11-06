@@ -1,11 +1,11 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { HOST_ROUTES_PATH, hostRoutesViewSchema, type HostRoutesView } from "../../src/client-protocol/host-routes.js";
+import type { Route } from "../../src/client-protocol/routes.js";
 import type { HubConnection } from "./connection.js";
 import { t } from "./i18n.js";
 
-/** Read-only host-side listener status. This is not a claim that the phone's
- * VPN, tailnet policy, or the end-to-end path is working. */
-export function HostRoutesStatus({ connection }: { connection: HubConnection }) {
+/** Owner-only read of the host's own LAN/Tailscale listener view. */
+export function useHostRoutesView(connection: HubConnection): HostRoutesView | undefined {
   const [view, setView] = useState<HostRoutesView>();
   const state = useSyncExternalStore(notify => connection.subscribe(notify), () => connection.state), key = connection.identity.hubPublicKey;
   const available = state.hostRoutesAvailable && state.user?.role === "owner" && state.status === "online";
@@ -19,7 +19,25 @@ export function HostRoutesStatus({ connection }: { connection: HubConnection }) 
     }).catch(() => undefined);
     return () => controller.abort();
   }, [connection, available, key]);
-  if (!available || !view) return null;
+  return available ? view : undefined;
+}
+
+/** The host's entry addresses for other devices, one row per enabled mode.
+ * Loopback is never published, so these never duplicate 主机直连. */
+export function hostEntries(view: HostRoutesView): { mode: "lan" | "tailscale"; route: Route; listening: boolean }[] {
+  const seen = new Set<string>(), entries: { mode: "lan" | "tailscale"; route: Route; listening: boolean }[] = [];
+  for (const [mode, name] of [["lan", "Direct"], ["tailscale", "Tailscale"]] as const) {
+    if (!view.local[mode].enabled) continue;
+    for (const { route } of view.routes) if (route.name === name && !seen.has(route.url)) { seen.add(route.url); entries.push({ mode, route, listening: view.local[mode].listening }); }
+  }
+  return entries;
+}
+
+/** Read-only host-side listener status. This is not a claim that the phone's
+ * VPN, tailnet policy, or the end-to-end path is working. */
+export function HostRoutesStatus({ connection, view }: { connection: HubConnection; view?: HostRoutesView }) {
+  const state = useSyncExternalStore(notify => connection.subscribe(notify), () => connection.state);
+  if (!view) return null;
   const status = (mode: HostRoutesView["local"]["lan"]) => !mode.enabled ? t("未开启") : mode.listening ? t("已开启，正在监听") : t("已开启，当前未监听");
   // Only the synchronizer knows the saved base and manual route provenance.
   // Keep this explicitly historical; listener reads do not run a fresh merge.
