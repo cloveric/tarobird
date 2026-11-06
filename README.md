@@ -333,6 +333,8 @@ One Bot can hold many independent conversations that share its persona, model an
 
 ## Acknowledgements
 
+Thank you to the [LINUX DO](https://linux.do/) community for supporting TaroBird.
+
 Workbench builds on [Excalidraw](https://github.com/excalidraw/excalidraw) for whiteboards,
 [Vditor](https://github.com/Vanessa219/vditor) for Markdown notes, and
 [Jim Liu's baoyu-design](https://github.com/JimLiu/baoyu-design) for the canvas and slide editors and their adapted authoring skills.

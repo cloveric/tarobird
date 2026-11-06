@@ -333,6 +333,8 @@ flowchart TB
 
 ## 致谢
 
+感谢 [LINUX DO](https://linux.do/) 社区对 TaroBird 的支持。
+
 工作台使用 [Excalidraw](https://github.com/excalidraw/excalidraw) 提供白板、
 [Vditor](https://github.com/Vanessa219/vditor) 提供 Markdown 笔记，并集成
 [宝玉 Jim Liu 的 baoyu-design](https://github.com/JimLiu/baoyu-design) 提供画布、幻灯片编辑器及相应适配技能。
