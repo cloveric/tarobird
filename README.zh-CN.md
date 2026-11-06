@@ -19,8 +19,9 @@
 </p>
 
 <p align="center">
-  <img src="assets/product/demo-zh.gif" width="100%" alt="总览演示：从桌面与手机的对话列表开始，切换按对话和按 Bot，继续同一段对话；再展示 ADHD、多 Bot 协作、工作台网页浏览、画布编辑、白板与笔记、侧边分屏、屏幕控制和幕僚长">
+  <a href="https://youtu.be/XNAlf3GkNX0"><img src="assets/product/demo-zh.gif" width="100%" alt="点击在 YouTube 观看 TaroBird 演示视频：桌面与手机的对话、按对话和按 Bot、ADHD、多 Bot 协作、工作台网页浏览、画布编辑、白板与笔记、侧边分屏、屏幕控制和幕僚长"></a>
 </p>
+<p align="center"><a href="https://youtu.be/XNAlf3GkNX0"><b>▶ 在 YouTube 观看 TaroBird 演示视频</b></a></p>
 <p align="center"><sub>由真实界面录制拼接，使用演示数据；远程屏幕与 Agent Bus 运行状态为模拟，未运行模型 · <a href="assets/product/README.md#demo-animation">录制说明</a></sub></p>
 
 TaroBird 是一款自托管的 AI 智能体工作空间。它把电脑或服务器上的 Codex、Claude Code 等命令行智能体，接入一个统一的对话界面：在桌面或手机上下达任务、回答提问、跟进执行过程、接收交付文件。Bot、对话与文件始终保存在你自己的主机上。

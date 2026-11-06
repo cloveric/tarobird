@@ -19,8 +19,9 @@
 </p>
 
 <p align="center">
-  <img src="assets/product/demo-en.gif" width="100%" alt="Overview: start with conversations on desktop and phone, switch between Chats and Bots, and continue the same conversation; then explore ADHD, Agent Bus, web browsing, canvas editing, whiteboard and notes, the side panel, screen control and Chancellor">
+  <a href="https://youtu.be/XNAlf3GkNX0"><img src="assets/product/demo-en.gif" width="100%" alt="Watch the TaroBird overview video on YouTube: conversations on desktop and phone, Chats and Bots, ADHD, Agent Bus, web browsing, canvas editing, whiteboard and notes, the side panel, screen control and Chancellor"></a>
 </p>
+<p align="center"><a href="https://youtu.be/XNAlf3GkNX0"><b>▶ Watch the TaroBird video on YouTube</b></a></p>
 <p align="center"><sub>Assembled from real-interface recordings with demonstration data; the remote screen and Agent Bus run status are simulated, and no model ran · <a href="assets/product/README.md#demo-animation">How it was recorded</a></sub></p>
 
 TaroBird is a self-hosted workspace for AI agents. It brings command-line agents such as Codex and Claude Code, running on your computers or servers, into a single conversation interface: assign tasks, answer questions, follow each run and receive deliverables from desktop or phone. Bots, conversations and files stay on your own hosts.
