@@ -4,13 +4,6 @@ For the current 0.2.1-rc.2 compatibility findings, shared-adapter corrections an
 real verification boundaries, see the [2026-10-17 audit](client/deepseek-0.2.1-rc.2-2026-10-17.md).
 The versioned historical matrices below are not a blanket compatibility claim.
 
-Host setup (2026-11-06): the desktop 「将这台电脑设为主机」 card asks users to
-update installed CLIs to their latest versions and states that DeepSeek (dsh)
-needs **0.2.1-rc.5 or later**. The owner chose that floor because it was the
-most recent version with full TaroBird verification at the time
-([persona acceptance](client/persona-agents-2026-11-04.md)). It is advice only:
-no runtime version check enforces it.
-
 This document is the release contract for TaroCub's `deepseek` engine. It
 describes behavior verified against **DeepSeek Harness 0.1.5-rc.1**, not a
 prompt-level approximation of another engine.
