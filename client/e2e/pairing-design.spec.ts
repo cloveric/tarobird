@@ -25,6 +25,7 @@ for (const locale of ["zh", "en"]) test(`first-run choices and phone scanner fit
     await page.goto(`${base}?lang=${locale}`);
     const host = page.getByRole("button", { name: locale === "zh" ? "将这台电脑设为主机" : "Use this computer as a host", exact: true });
     await expect(host).toBeVisible();
+    await expect(host.locator(".host-role-versions")).toHaveText(locale === "zh" ? "已安装的 CLI 请先升级到最新版本；DeepSeek（dsh）需 0.2.1-rc.5 及以上。" : "Update installed CLIs to their latest versions first; DeepSeek (dsh) needs 0.2.1-rc.5 or later.");
     expect((await page.locator(".desktop-welcome").boundingBox())!.width).toBeGreaterThan(500);
     await fits();
     for (const width of [320, 390]) {
