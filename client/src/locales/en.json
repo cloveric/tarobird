@@ -5038,7 +5038,7 @@
   "进行中的工单不受影响；之后派出的工单使用新设置。": "Tickets in progress are unaffected; tickets assigned later use the new settings.",
   "上面的引擎、模型和推理强度是它自己思考用的；派出去的每张工单可以各自选择。": "The engine, model and effort above are for its own thinking; each ticket it assigns can use its own.",
   "在列表里显示工单对话": "Show ticket conversations in lists",
-  "你只说目标，它会拆分任务，并调用这台主机上已安装的 CLI 去做。只能在创建时选择。": "Tell it the goal; it splits the work and runs it with the CLIs installed on this host. Can only be chosen at creation.",
+  "你只说目标，它会拆分任务，并调用这台主机上已安装的 CLI 去做。只能在创建时选择。刚开始建议先建普通 Bot，这里不勾选。": "Tell it the goal; it splits the work and runs it with the CLIs installed on this host. Can only be chosen at creation. When you are just starting, create an ordinary Bot and leave this unchecked.",
   "不需要另外建 Bot；过程不占对话列表，只在需要你决定或验收时提醒你。": "No other Bots needed; the work stays out of your conversation list, and it only reaches out when you need to decide or review.",
   "跟它说要做什么，它会拆成工单交给本机的 CLI 去做，并在这里汇报结果。": "Tell it what you need. It splits the work into tickets for the CLIs on this host and reports back here.",
   "可以使用的 CLI": "CLIs it may use",

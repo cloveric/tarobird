@@ -95,7 +95,7 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
       <h3 id={`${cliHelp}-role`} className="new-bot-heading">{state.dispatchAvailable && options?.permissions ? t("角色与权限") : state.dispatchAvailable ? t("角色") : t("权限")}</h3>
       {state.dispatchAvailable && <div className="new-bot-role" data-checked={dispatcher || undefined}>
         <div className="dispatcher-role-row"><label className="collaboration-check"><input type="checkbox" aria-describedby={`${cliHelp}-dispatcher`} checked={dispatcher} onChange={(e) => setDispatcher(e.target.checked)}/>{t("作为幕僚长")}</label><DispatcherRoutingHelp/></div>
-        <p id={`${cliHelp}-dispatcher`} className="new-bot-hint">{t("你只说目标，它会拆分任务，并调用这台主机上已安装的 CLI 去做。只能在创建时选择。")}</p>
+        <p id={`${cliHelp}-dispatcher`} className="new-bot-hint">{t("你只说目标，它会拆分任务，并调用这台主机上已安装的 CLI 去做。只能在创建时选择。刚开始建议先建普通 Bot，这里不勾选。")}</p>
         {dispatcher && <div className="new-bot-role-details"><p className="new-bot-hint">{t("不需要另外建 Bot；过程不占对话列表，只在需要你决定或验收时提醒你。")}</p><p className="new-bot-hint">{t("上面的引擎、模型和推理强度是它自己思考用的；派出去的每张工单可以各自选择。")}</p><details><summary>{t("幕僚长设置")}</summary><DispatcherSettingsFields value={dispatch} change={setDispatch} engines={targets} loading={!catalog}/></details></div>}
       </div>}
       {options?.permissions && <PermissionSelect value={permission} choices={options.permissions.choices} defaultChoice={options.permissions.defaultChoice} change={setPermission}/>}

@@ -37,6 +37,7 @@ test("create a dispatcher Bot from New Bot; it gets a star and a single conversa
     const dialog = page.getByRole("dialog", { name: "新建 Bot", exact: true });
     await dialog.getByLabel("Bot 名称", { exact: true }).fill("调度员");
     await expect(dialog.getByText("只能在创建时选择", { exact: false })).toBeVisible();
+    await expect(dialog.getByRole("checkbox", { name: "作为幕僚长", exact: true })).toHaveAccessibleDescription(/刚开始建议先建普通 Bot，这里不勾选。/);
     await expect(dialog.getByText("幕僚长设置", { exact: true })).toHaveCount(0);
     await dialog.getByRole("checkbox", { name: "作为幕僚长", exact: true }).check();
     await expect(dialog.getByText("上面的引擎、模型和推理强度是它自己思考用的；派出去的每张工单可以各自选择。", { exact: true })).toBeVisible();
