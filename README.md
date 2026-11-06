@@ -291,6 +291,9 @@ flowchart TB
 | **Remote access with Tailscale** | Away from home, with Tailscale on both devices | Both devices in the same Tailscale network; no VPS of your own required |
 | **VPS relay** | Away from home, with no VPN on the phone | A cloud server; we recommend letting an AI deploy it |
 
+> [!TIP]
+> **Let your own agent set up the VPS relay.** Give Codex, Claude Code or another agent the [ready-to-use setup instructions](docs/client/remote-access.en.md#ask-an-agent-to-configure-it), and ask it to follow the project documentation to deploy and verify the relay. The agent needs terminal access on your host computer and authorized SSH access to your VPS.
+
 With every option above, Bots run on your computer, and chats, files and sign-ins stay there, so keep the computer on and online. **The VPS relay only forwards connections; it does not run your Bots.** To keep Bots working while the computer is off, see [running a full host on a VPS](docs/client/host-deployment.md).
 
 **Option 1 · Tailscale**

@@ -291,6 +291,9 @@ flowchart TB
 | **Tailscale 异地连接** | 外出使用，且两端均可安装 Tailscale | 电脑与手机加入同一 Tailscale 网络，无需自建 VPS |
 | **VPS 中转** | 外出使用，手机无需安装 VPN | 一台云服务器，推荐交由 AI 部署 |
 
+> [!TIP]
+> **可以让你自己的 Agent 帮忙配置 VPS 中转。** 将[可直接复制的部署说明](docs/client/remote-access.md#方式一让有终端和-ssh-能力的-agent-配置)交给 Codex、Claude Code 等 Agent，让它按项目文档完成部署与连通验证。Agent 需要运行主机上的终端权限，以及你授权的 VPS SSH 访问权限。
+
 采用上述任一种方式，Bot 都运行在你的电脑上，聊天记录、文件与登录信息也保存在电脑上，因此电脑需保持开机联网。**这里的 VPS 只做中转，不运行 Bot。** 如需在电脑关机后继续运行 Bot，请参阅[在 VPS 上运行完整主机](docs/client/host-deployment.md)。
 
 **方式一 · Tailscale**
