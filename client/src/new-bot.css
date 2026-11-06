@@ -40,6 +40,8 @@
 /* Align secondary copy with the label text (16px box + 8px gap). */
 .bot-setup .new-bot-role>:not(.dispatcher-role-row){margin-left:24px}
 .bot-setup .new-bot-role-details>*{margin-top:8px}
+/* Owner advice under 作为幕僚长: own line, bold, in the user's accent mark (readable in both modes). */
+.bot-setup .new-bot-role-advice{display:block;margin-top:2px;font-weight:600;color:color-mix(in srgb,var(--mono-mark,var(--accent,var(--blue))) 85%,var(--text))}
 .bot-setup .new-bot-role summary{margin-top:0;min-height:32px;width:fit-content;font-size:13px}
 
 /* PermissionSelect keeps its own note and default line; tighten them under the field. */
