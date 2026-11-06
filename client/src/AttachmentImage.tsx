@@ -8,7 +8,8 @@ import { imageExportFilename } from "./image-export.js";
 import { RuntimeHostActiveContext } from "./RuntimeHost.js";
 import { useAttachment } from "./use-attachment.js";
 import { t, useLocale } from "./i18n.js";
-import { ImageOff, SquarePen } from "lucide-react";
+import { Copy, Download, ImageOff, SquarePen } from "lucide-react";
+import { canCopyImage, copyImage } from "./image-clipboard.js";
 import type { HubConnection } from "./connection.js";
 import { imageDimensions, imageReservation, rememberImageDimensions, subscribeImageDimensions } from "./image-dimensions.js";
 
@@ -55,6 +56,20 @@ export function AttachmentImage({ connection, id, title }: { connection: HubConn
     } catch (cause) { show(cause instanceof Error ? cause.message : t("保存失败，请检查剩余空间和文件权限后重试。"), true); }
     finally { if (attempt === operation.current) { running.current = false; setSaving(false); } }
   };
+  // Same clipboard path and wording as the full-size viewer's 复制图片. The
+  // write must start inside the menu click so WebKit keeps user activation.
+  const copyAttempt = useRef(0), [copyBusy, setCopyBusy] = useState(false);
+  useLayoutEffect(() => { ++copyAttempt.current; setCopyBusy(false); }, [connection, id]);
+  const copy = () => {
+    setMenu(undefined);
+    if (!blob || !active || copyBusy || running.current) return;
+    const attempt = ++copyAttempt.current;
+    const show = (text: string, error = false) => { if (attempt === copyAttempt.current && !running.current) setFeedback({ id, text, error }); };
+    setCopyBusy(true); show(t("正在复制图片…"));
+    void copyImage(blob).then(() => show(t("图片已复制")), cause => show(t(cause instanceof Error && cause.message === "image_copy_too_large"
+      ? "图片过大，无法复制，请另存为。" : "无法复制图片，请重试或另存为。"), true))
+      .finally(() => { if (attempt === copyAttempt.current) setCopyBusy(false); });
+  };
   const [large, setLarge] = useState(false);
   useMessageReader(active && (large || saving));
   const [dimensions, setDimensions] = useState<{ url: string; width: number; height: number }>();
@@ -71,10 +86,10 @@ export function AttachmentImage({ connection, id, title }: { connection: HubConn
   useLayoutEffect(() => { if (!active) setLarge(false); }, [active]);
   return <figure className="attachment-image" data-long={long || undefined} style={known ? { "--image-ratio": known.width / known.height } as CSSProperties : undefined}>
     {decodeFailed ? <div className="image-load-state" role="alert"><ImageOff size={20} aria-hidden="true"/><span>{t("此设备无法预览该文件，请另存为后打开。")}</span>{blob && <button disabled={saving} onClick={() => { void save("save", { id, title }, blob); }}>{attachmentSaveLabel()}</button>}</div> : url || known && !error ? <button ref={opener} className="image-thumbnail" disabled={!url} data-message-hold onContextMenuCapture={event => {
-      if (!workbench || !blob || !active || !desktopAction()) return;
+      if (!blob || !active || !desktopAction()) return;
       event.preventDefault(); event.stopPropagation(); setMenu({x:event.clientX,y:event.clientY});
     }} onKeyDownCapture={event => {
-      if ((event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) && workbench && blob && active && desktopAction()) {
+      if ((event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) && blob && active && desktopAction()) {
         event.preventDefault(); event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); setMenu({x:rect.left,y:rect.bottom});
       }
     }} aria-label={title ?? t("查看图片")} title={title ?? t("查看图片")} onClick={() => { if (!url) return; setSelected(id); setLarge(true); }}>
@@ -93,7 +108,9 @@ export function AttachmentImage({ connection, id, title }: { connection: HubConn
     </div>}
     {title && <figcaption title={title}>{title}</figcaption>}
     {menu && active && desktopAction() && <DesktopMenu id={menuId} label={t("图片操作")} open close={() => setMenu(undefined)} trigger={opener} placement="down-start" point={menu} className="image-preview-menu">
-      <button type="button" role="menuitem" disabled={saving || !blob} onClick={() => { void addToWhiteboard(); }}><SquarePen size={16}/>{t("放到白板")}</button>
+      <button type="button" role="menuitem" disabled={!blob || saving || copyBusy || !canCopyImage()} onClick={copy}><Copy size={16}/>{t("复制图片")}</button>
+      <button type="button" role="menuitem" disabled={!blob || saving} onClick={() => { setMenu(undefined); if (blob) void save("save", { id, title }, blob); }}><Download size={16}/>{attachmentSaveLabel()}</button>
+      {workbench && <><hr/><button type="button" role="menuitem" disabled={saving || !blob} onClick={() => { void addToWhiteboard(); }}><SquarePen size={16}/>{t("放到白板")}</button></>}
     </DesktopMenu>}
     {!large && feedback?.id === id && <small role={feedback.error ? "alert" : "status"}>{feedback.text}</small>}
     {large && active && <ImagePreview connection={connection} original={{ id, url, blob, error, retry }} images={images} selected={selected} select={setSelected} close={close} saving={saving} feedback={feedback} save={(action, image, blob) => { void save(action, image, blob); }}/>}
