@@ -543,3 +543,22 @@ a presentation fix that keeps underlying content from showing or receiving click
 notice. Authorization and Host behavior are unchanged; CLI changes are not
 applicable to this display fix. No installer, version change or release is
 performed.
+
+## Homepage embedded video (2026-11-06)
+
+The English and Chinese homepages use the same 57-second product video in a
+GitHub-native player. The original animated overviews remain linked beneath it.
+This changes documentation only, with no App, Host or CLI behavior change.
+
+- Source selected by the owner: [TaroBird on YouTube](https://www.youtube.com/watch?v=R0WvfGiIFiw).
+- Reviewed source file: [tarobird-overview.mp4](tarobird-overview.mp4), H.264/AAC,
+  1920 × 1080, 56.912 seconds, 8,453,796 bytes.
+- SHA-256: `66d9f0e310afd92b9138987f533d40effd43d44c2fd3927ee5f96af0739e7092`.
+- The GitHub-native player uses the same reviewed bytes.
+
+Original container metadata was removed without re-encoding the video or audio.
+Review covered the contact sheet, 57 one-second OCR samples, the full-resolution
+frame containing the synthetic demo workspace, and media metadata. Local audio
+recognition found no speech. The media review is bound to this file and digest in
+`.privacy-reviewed-media.json`; the recording is product demonstration material,
+not proof of model execution or physical-device acceptance.

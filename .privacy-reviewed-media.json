@@ -3339,6 +3339,13 @@
       "reviewer": "codex",
       "method": "visual-review",
       "note": "Actual settings UI using disposable Hosts and fictional names; no model execution, real accounts, addresses or private identifiers."
+    },
+    {
+      "path": "assets/product/tarobird-overview.mp4",
+      "sha256": "66d9f0e310afd92b9138987f533d40effd43d44c2fd3927ee5f96af0739e7092",
+      "reviewer": "codex",
+      "method": "unpacked-review",
+      "note": "Reviewed the product-video contact sheet, 57 one-second OCR samples, H.264/AAC streams and metadata. Flagged workspace text is the synthetic demo account; local ASR found no speech. Original media metadata removed."
     }
   ]
 }
