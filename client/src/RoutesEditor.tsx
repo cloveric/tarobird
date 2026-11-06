@@ -5,7 +5,7 @@ import { orderedRoutes } from "../../src/client-protocol/routes.js";
 import { DeploymentGuide } from "./DeploymentGuide.js";
 import { multipathConfiguration } from "./connection-routes.js";
 import { DirectRouteFields, RelaySetupNote, VpsRouteFields, routeTitle } from "./RouteFields.js";
-import { HostRoutesStatus } from "./HostRoutesStatus.js";
+import { HostRoutesStatus, hostEntries, useHostRoutesView } from "./HostRoutesStatus.js";
 import { RepairHostRoute } from "./RepairHostRoute.js";
 import { SettingsGroupHeading } from "./SettingsParts.js";
 import { Pencil } from "lucide-react";
@@ -38,6 +38,10 @@ export function RoutesEditor({ connection, dirtyChange, busyChange, localHost = 
   };
   const changed = () => { setStatus(""); setError(""); };
   const online = state.status === "online", title = (route: Route) => routeTitle(route, connection.identity.routes, connection.identity.deployment);
+  const hostView = useHostRoutesView(connection);
+  // On the host itself the saved list is only loopback; also list the LAN and
+  // Tailscale entries other devices use, with the host's own listener state.
+  const entries = localHost && hostView ? hostEntries(hostView) : [];
   // Same labels as the editor's per-route status, from the client's own probes.
   const routeState = (route: Route): { label: string; tone: string } | undefined => {
     if (online && state.route?.url === route.url) return { label: t("当前使用"), tone: "current" };
@@ -62,8 +66,8 @@ export function RoutesEditor({ connection, dirtyChange, busyChange, localHost = 
         { label: t("自动选择"), description: t("同时检查多条线路，结合近期稳定性和响应速度选择；消息只通过当前线路发送。") },
         { label: t("稳定切换"), description: t("更快的线路持续稳定后，在空闲时切换；发送消息、保存设置或传输文件时不会主动切换。") },
       ]}/></details>}
-      <HostRoutesStatus connection={connection}/>
-      <ol className="saved-routes">{orderedRoutes(connection.identity.routes).map((route, index) => { const routeStatus = routeState(route); return <li key={route.url}><span className="saved-route-index" aria-hidden="true">{index + 1}</span><div><strong>{title(route)}</strong><span>{route.url}</span></div>{routeStatus && <small className="route-state" data-tone={routeStatus.tone}>{routeStatus.label}</small>}</li>; })}</ol>
+      <HostRoutesStatus connection={connection} view={hostView}/>
+      <ol className="saved-routes">{orderedRoutes(connection.identity.routes).map((route, index) => { const routeStatus = routeState(route); return <li key={route.url}><span className="saved-route-index" aria-hidden="true">{index + 1}</span><div><strong>{title(route)}</strong><span>{route.url}</span></div>{routeStatus && <small className="route-state" data-tone={routeStatus.tone}>{routeStatus.label}</small>}</li>; })}{entries.map((entry, index) => <li key={`host-entry-${entry.route.url}`} data-host-entry={entry.mode}><span className="saved-route-index" aria-hidden="true">{connection.identity.routes.length + index + 1}</span><div><strong>{entry.mode === "lan" ? t("局域网") : "Tailscale"}</strong><span>{entry.route.url}</span></div><small className="route-state" data-tone={entry.listening ? "current" : "warn"}>{entry.listening ? t("已就绪") : t("等待网络连接")}</small></li>)}</ol>
       {identityPending ? <p role="status">{t("正在确认本机身份，暂不修改连接线路。")}{retryIdentity && <button type="button" onClick={retryIdentity}>{t("重试")}</button>}</p> : localHost ? <>{configureLocal && <button type="button" className="secondary" disabled={localBusy} onClick={configureLocal}>{t("局域网与 Tailscale")}</button>}</> : <button className="secondary" disabled={repairBusy} onClick={() => { reset(); setEditing(true); setStatus(""); }}>{t("编辑线路")}</button>}
       {!localHost && <RelaySetupNote/>}
     </> :
