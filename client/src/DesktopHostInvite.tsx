@@ -13,6 +13,7 @@ export function DesktopHostInvite({ hubKey, connection, purpose = "pairing", dis
     {(!compact || !routes.length) && <><fieldset className="pairing-network-choice" disabled={busy || publishingRoute || disabled}><legend>{t("选择连接方式")}</legend>
       <div>{(["network", "tailscale"] as const).map(value => <button key={value} type="button" aria-pressed={method === value} onClick={() => chooseMethod(value)}>{value === "network" ? t("同一 Wi-Fi") : t("Tailscale 异地连接")}</button>)}</div>
     </fieldset>
+    {purpose === "pairing" && <p className="muted">{t("建议首次配对时，新设备和主机连在同一局域网（同一 Wi-Fi）下。")}</p>}
     {method === "network" ? <p>{purpose === "network" ? t("仅适用于这些电脑和手机处于同一局域网。人在外面时，请使用 Tailscale 或为本机配置独立的 VPS 中转线路。") : t("让新手机、平板或电脑连接同一 Wi-Fi 或局域网，点击下方按钮生成二维码。")}</p> : <>
       <ol className="tailscale-instructions"><li>{t("各设备安装并连接 Tailscale，加入同一个 Tailscale 网络。")}</li><li>{purpose === "pairing" ? t("点击下方按钮，自动检测这台电脑的 Tailscale 地址并生成连接码。") : t("点击下方按钮，检测并共享这台电脑的 Tailscale 地址。")}</li>{purpose === "pairing" && <li>{t("手机打开 TaroBird 扫码，再回到电脑确认手机显示的配对码。")}</li>}</ol>
       <p className="muted">{t("无需另租 VPS。电脑需保持开机联网，两端 Tailscale 需保持连接；网络访问规则须允许手机访问主机。")}</p>

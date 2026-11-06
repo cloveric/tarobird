@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, Wifi } from "lucide-react";
 import { t, useLocale } from "./i18n.js";
 import taroBotMark from "./brand/tarobot.png";
 
@@ -23,6 +23,7 @@ export function PairingIntro({ companion = false }: { companion?: boolean }) {
       <li><span className="pairing-step-index" aria-hidden="true">2</span><div><strong>{t("用已配对手机或电脑分享连接信息")}</strong><p>{t("打开「设备与网络 → 添加设备」，直接显示连接二维码，也可以复制连接信息。")}</p></div></li>
       <li><span className="pairing-step-index" aria-hidden="true">3</span><div><strong>{t("用已配对设备确认")}</strong><p>{t("在已配对手机或电脑上核对 8 位配对码。主机保持在线即可，无需人在主机旁。")}</p></div></li>
     </ol>
+    <p className="pairing-network-tip"><Wifi size={14} aria-hidden="true"/><span>{t("建议首次配对时，新设备和主机连在同一局域网（同一 Wi-Fi）下。")}</span></p>
     <p className="pairing-security"><ShieldCheck size={14} aria-hidden="true"/><span>{t("每台设备持有独立密钥；扫码配对会校验 Hub 身份，撤销授权会立即断开该设备。")}</span></p>
   </section>;
 }

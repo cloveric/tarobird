@@ -36,6 +36,9 @@ for (const locale of ["zh", "en"]) test(`first-run choices and phone scanner fit
       expect(scanRect.y + scanRect.height).toBeLessThanOrEqual(844);
       expect(scanRect.height).toBeGreaterThanOrEqual(44);
       await expect(page.getByRole("textbox")).toHaveCount(0);
+      // Unlike the security note, the first-pairing LAN advice stays visible on phones.
+      await expect(page.locator(".pairing-network-tip")).toBeVisible();
+      await expect(page.locator(".pairing-network-tip")).toHaveText(locale === "zh" ? "建议首次配对时，新设备和主机连在同一局域网（同一 Wi-Fi）下。" : /For the first pairing/);
       await fits();
       await scan.click();
       const sheet = page.getByRole("dialog"); await expect(sheet).toBeVisible();

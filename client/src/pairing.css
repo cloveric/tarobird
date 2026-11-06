@@ -53,6 +53,9 @@
 .pairing-steps p { margin:6px 0 0; font-size:13px; line-height:1.7; color:var(--grey); }
 .pairing-security { display:flex; gap:8px; margin:28px 0 0; padding-top:20px; border-top:1px solid var(--border); font-size:12px; line-height:1.7; color:var(--muted); }
 .pairing-security svg { flex-shrink:0; margin-top:3px; }
+/* First-pairing advice stays visible on phones, unlike the security note. */
+.pairing-network-tip { display:flex; gap:8px; margin:24px 0 0; font-size:13px; line-height:1.7; color:var(--grey); }
+.pairing-network-tip svg { flex-shrink:0; margin-top:4px; }
 .pairing-card.desktop-welcome { width:min(580px,100%); padding:40px; }
 .desktop-welcome .pairing-heading { margin-bottom:30px; }
 .desktop-welcome h1 { font-size:32px; }
