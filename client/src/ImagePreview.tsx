@@ -6,7 +6,7 @@ import type { GalleryImage } from "./image-gallery.js";
 
 /** One selected authenticated original, scoped by the owning message. */
 export function ImagePreview({ connection, original, images, selected, select, close, saving, feedback, save }: {
-  connection: HubConnection; original: { id: string; url?: string; blob?: Blob; error?: string; retry: () => void }; images: readonly GalleryImage[]; selected: string;
+  connection: HubConnection; original: { id: string; url?: string; blob?: Blob; error?: string; deleted?: boolean; retry: () => void }; images: readonly GalleryImage[]; selected: string;
   select: (id: string) => void; close: () => void; saving: boolean;
   feedback?: { id: string; text: string; error?: boolean };
   save: (action: "save" | "share", image: GalleryImage, blob: Blob) => void;

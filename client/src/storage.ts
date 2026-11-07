@@ -723,6 +723,11 @@ export class ClientCache {
     const blob = stored instanceof Blob ? stored : stored ? new Blob([stored.bytes], { type: stored.type }) : undefined;
     if (blob) await tx.objectStore("attachmentMeta").put({ size: blob.size, accessed: Date.now() }, id); await tx.done; return blob;
   }
+  async forgetAttachments(ids: readonly string[]): Promise<void> {
+    const tx = await this.write(["attachmentData", "attachmentMeta"]);
+    for (const id of ids) { await tx.objectStore("attachmentData").delete(id); await tx.objectStore("attachmentMeta").delete(id); }
+    await tx.done;
+  }
   downloadCheckpoints(identity: Identity): PersistentDownloadCheckpoints {
     return new PersistentDownloadCheckpoints(() => this.write(["downloadMeta", "downloadChunks"]), identity);
   }

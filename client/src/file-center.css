@@ -25,3 +25,33 @@
 .file-facts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:20px 0;font-size:12px}.file-facts>div{min-width:0}.file-facts dt{color:var(--grey);font-size:11px;margin-bottom:5px}.file-facts dd{margin:0;overflow-wrap:anywhere}.file-location{display:block;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface);padding:10px;font-size:11px;border-radius:6px;line-height:1.7}.file-detail-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .file-details ul.file-types,.file-details ul.file-largest{list-style:none;padding:0;margin:0}.file-types li,.file-largest li{display:flex;justify-content:space-between;gap:14px;border-bottom:1px solid var(--border);padding:7px 0}.file-largest span{overflow-wrap:anywhere;min-width:0}.file-largest b{font-weight:400;white-space:nowrap}.file-details form{border-top:1px solid var(--border);margin-top:20px}.file-details form>p{color:var(--grey)}.file-details form>label{display:flex;flex-direction:column;gap:7px;margin:14px 0;font-size:12px}.file-details form>label.file-important{flex-direction:row;align-items:center;gap:7px}.file-details select,.file-details textarea{width:100%;font-size:12px}.file-details form>small{display:block;text-align:right;color:var(--grey)}.file-details>p{margin-top:12px}
 @media(max-width:700px){.modal-scrim.file-center-scrim{padding:0}.file-center{width:100%;height:100dvh;max-height:100dvh;border-radius:0;border:0;padding-top:var(--app-safe-top);padding-bottom:var(--app-safe-bottom)}.file-center-header{padding:18px 16px 12px}.file-center-summary{gap:16px;flex-wrap:wrap;padding:13px 16px}.file-center-summary strong{font-size:18px}.file-center-summary .file-action{margin-left:0!important}.file-center-notices{padding:8px 16px}.file-center-browser{padding:12px}.file-center.has-selection .file-center-browser{display:none}.file-details{width:100%;min-width:0;max-width:none;border:0;padding:16px}.file-center.has-selection .file-center-summary,.file-center.has-selection .file-center-notices{display:none}.file-center.has-selection .file-center-header p{display:none}.file-unit{padding:14px 10px}.file-action{min-height:40px}}
+/* File Center › 工作区文件 | 附件管理: same segmented look as the sidebar switch. */
+.file-center-tabs{display:flex;gap:2px;margin:0 24px 12px;padding:3px;background:var(--surface-alt,var(--surface));border-radius:var(--radius);align-self:flex-start}
+.file-center-tabs>button{min-height:30px;padding:4px 14px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-size:13px;white-space:nowrap}
+.file-center-tabs>button[aria-selected=true]{background:var(--raised,var(--bg));color:var(--text);box-shadow:var(--elev-1)}
+.file-center-tabs>button:hover:not(:disabled){color:var(--text)}
+.attachment-details>header h3{font-size:16px;margin:4px 0 0;overflow-wrap:anywhere}.attachment-details>header p{font-size:12px;color:var(--grey);margin:0}
+.attachment-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:16px 0 8px}
+.attachment-toolbar select{min-height:32px;font-size:12px;padding:5px 28px 5px 8px;max-width:60%}
+.attachment-browser .file-filter-count{flex:none;margin:0 2px 8px}
+/* Destructive actions read like 删除 Bot: red outline, red ink. */
+.attachment-details button.danger{min-height:34px;font-size:12px;gap:6px;color:var(--red);border:1px solid color-mix(in srgb,var(--red) 55%,var(--border));background:transparent}
+.attachment-details button.danger:hover:not(:disabled){background:var(--red-soft,color-mix(in srgb,var(--red) 8%,var(--bg)))}
+.attachment-details button.danger:disabled{opacity:.45}
+.attachment-list{list-style:none;padding:0;margin:0}
+.attachment-list>li{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding:8px 0}
+.attachment-list>li>label{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer}
+.attachment-list>li>label>input{flex:none}
+.attachment-list>li>label>span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.attachment-list strong{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment-list small{font-size:11px;color:var(--grey);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attachment-list>li[data-pending]>label{cursor:default;opacity:.7}
+.attachment-item-actions{display:flex;align-items:center;gap:4px;flex:none}
+.attachment-selection{position:sticky;bottom:0;display:flex;justify-content:flex-end;padding:12px 0 2px;background:var(--bg)}
+.attachment-confirm{position:sticky;bottom:0;margin-top:12px;padding:12px 14px;border:1px solid var(--red);border-radius:10px;background:var(--bg)}
+/* Sticky over a scrolling list: paint the gap above it so rows do not peek through. */
+.attachment-confirm::before{content:"";position:absolute;left:-2px;right:-2px;bottom:100%;height:28px;background:linear-gradient(transparent,var(--bg) 55%);pointer-events:none}
+.attachment-confirm p{margin:0 0 6px;font-size:13px}.attachment-confirm p.muted{font-size:12px;color:var(--grey)}
+.attachment-confirm>div{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.image-load-state.is-deleted{color:var(--grey)}
+@media(max-width:700px){.file-center-tabs{margin:0 16px 10px}.file-center.has-selection .file-center-tabs{display:none}}

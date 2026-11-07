@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { chmod, copyFile, link, mkdir, open, rename, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { CHUNK_BYTES, MAX_FILE_BYTES, fileSizeSchema, uploadSchema, type Upload, type ClientFrame } from "../client-protocol/index.js";
 import { HubError, HubStore, newId, type AttachmentRow } from "./store.js";
+import { withFileMutex } from "../state/file-mutex.js";
+
+/** Attachment ID of a blob, upload chunk or temporary file in the store. */
+export function attachmentFileId(file: string): string | undefined { return /^(att_[A-Za-z0-9_-]+)\.(?:blob|[0-9]+\.chunk)(?:\.tmp)?$/.exec(file)?.[1]; }
 
 export class HubAttachments {
   private tails = new Map<string, Promise<unknown>>();
@@ -106,16 +110,38 @@ export class HubAttachments {
   }
   async download(actor: { userId: string } | { botId: string }, id: string): Promise<{ row: AttachmentRow; path: string }> {
     const row = await this.store.db.serial(async () => {
-      const found = await this.store.db.get<AttachmentRow>("SELECT * FROM attachments a WHERE id=? AND complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)", [id]);
-      if (!found) throw new HubError("attachment_not_found", 404);
+      // Owner deletion (附件管理) retires the attachment but keeps its message
+      // references; a recall or GC retirement has none and stays not-found.
+      const found = await this.store.db.get<AttachmentRow & { retired: number; referenced: number }>(`SELECT a.*,
+        EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id) AS retired,
+        EXISTS(SELECT 1 FROM message_attachments m WHERE m.attachment_id=a.id) AS referenced
+        FROM attachments a WHERE id=? AND complete=1`, [id]);
+      if (!found || found.retired && !found.referenced) throw new HubError("attachment_not_found", 404);
       if ("userId" in actor) await this.store.requireMember(actor.userId, found.conversation_id);
       else await this.store.requireBot(actor.botId, found.conversation_id);
-      return found;
+      // Only after authorization does a member learn the owner deleted it.
+      if (found.retired) throw new HubError("attachment_deleted", 410);
+      const { retired: _retired, referenced: _referenced, ...row } = found;
+      return row;
     });
     // Never accept a path from HTTP, from a bot, or even from stored metadata.
     const file = path.join(this.directory, `${row.id}.blob`);
     await this.requireBlob(file, row.size);
     return { row, path: file };
+  }
+  /** Remove the blob and upload chunks of retired attachments now, under the
+   * same maintenance lock as GC and export. The rows stay as tombstones so
+   * messages can say 附件已删除; daily GC sweeps anything a failure left. */
+  async purge(ids: readonly string[]): Promise<void> {
+    if (!ids.length) return;
+    const wanted = new Set(ids);
+    await withFileMutex(path.join(path.dirname(this.directory), "maintenance"), async () => {
+      const retired = new Set((await this.store.db.serial(() => this.store.db.all<{ attachment_id: string }>(
+        `SELECT attachment_id FROM retired_attachments WHERE attachment_id IN (${ids.map(() => "?").join(",")})`, [...ids]))).map(row => row.attachment_id));
+      const files = await readdir(this.directory).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return [] as string[]; throw error; });
+      for (const file of files) { const id = attachmentFileId(file); if (id && wanted.has(id) && retired.has(id)) await rm(path.join(this.directory, file), { force: true }); }
+      await this.store.db.transaction(async () => { for (const id of retired) await this.store.db.run("DELETE FROM upload_chunks WHERE attachment_id=?", [id]); });
+    });
   }
   async forward(userId: string, input: Extract<ClientFrame, { type: "message.forward" }>, validate?: () => Promise<unknown>) {
     const created: string[] = [];

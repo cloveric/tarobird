@@ -19,7 +19,7 @@ export function AttachmentImage({ connection, id, title }: { connection: HubConn
   useLocale();
   const active = useContext(RuntimeHostActiveContext);
   const workbench = useContext(WorkbenchContext);
-  const { url, blob, error, retry } = useAttachment(connection, id);
+  const { url, blob, error, deleted, retry } = useAttachment(connection, id);
   const gallery = useContext(ImageGalleryContext);
   const images = gallery.some(image => image.id === id) ? gallery : [{ id, title }];
   const menuId = useId();
@@ -86,7 +86,7 @@ export function AttachmentImage({ connection, id, title }: { connection: HubConn
       }} onError={() => { if (url) setFailedUrl(url); }}/>
       {!url && <span className="image-thumbnail-loading" role="status">{t("加载图片…")}</span>}
       {long && <span className="long-image-label">{t("长图 · 点击查看")}</span>}
-    </button> : <div className="image-load-state" role={error ? "alert" : "status"}>
+    </button> : deleted ? <div className="image-load-state is-deleted" role="status"><ImageOff size={20} aria-hidden="true"/><span>{t("附件已删除")}</span></div> : <div className="image-load-state" role={error ? "alert" : "status"}>
       {error && <ImageOff size={20} aria-hidden="true"/>}
       <span>{error ? t("图片加载失败") : t("加载图片…")}</span>
       {error && <button type="button" aria-label={t("重新加载图片")} onClick={retry}>{t("重试")}</button>}
@@ -96,6 +96,6 @@ export function AttachmentImage({ connection, id, title }: { connection: HubConn
       <button type="button" role="menuitem" disabled={saving || !blob} onClick={() => { void addToWhiteboard(); }}><SquarePen size={16}/>{t("放到白板")}</button>
     </DesktopMenu>}
     {!large && feedback?.id === id && <small role={feedback.error ? "alert" : "status"}>{feedback.text}</small>}
-    {large && active && <ImagePreview connection={connection} original={{ id, url, blob, error, retry }} images={images} selected={selected} select={setSelected} close={close} saving={saving} feedback={feedback} save={(action, image, blob) => { void save(action, image, blob); }}/>}
+    {large && active && <ImagePreview connection={connection} original={{ id, url, blob, error, deleted, retry }} images={images} selected={selected} select={setSelected} close={close} saving={saving} feedback={feedback} save={(action, image, blob) => { void save(action, image, blob); }}/>}
   </figure>;
 }

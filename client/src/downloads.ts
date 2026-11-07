@@ -83,7 +83,7 @@ async function assembleAttachment(connection: DownloadConnection, id: string, op
       try {
         const end = Math.min(offset + CHUNK_BYTES, total ?? Infinity) - 1;
         const chunk = await connection.readAttachment(id, { Range: `bytes=${offset}-${end}`, ...(etag ? { "If-Range": etag } : {}) }, async (response) => {
-          if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; throw new HubHttpError(response.status, body.error ?? t("附件下载失败")); }
+          if (!response.ok) { const body = await response.json().catch(() => ({})) as { error?: string }; const failure = new HubHttpError(response.status, body.error ?? t("附件下载失败")); if (failure.code === "attachment_deleted") failure.message = t("附件已删除"); throw failure; }
           const nextTag = response.headers.get("ETag") ?? undefined;
           const nextMime = response.headers.get("Content-Type") ?? "application/octet-stream";
           let length: number | undefined, size: number | undefined;

@@ -12,13 +12,14 @@ import { canCopyImage, copyImage } from "./image-clipboard.js";
 
 export type ImageViewerProps = {
   imageKey: string; name: string; url?: string; blob?: Blob; error?: string; retry?: () => void;
+  /** The owner deleted the host copy: say so and offer no retry. */ deleted?: boolean;
   index?: number; count?: number; change?: (offset: number) => void;
   close: () => void; saving?: boolean; save: (action: "save" | "share") => void;
   feedback?: ReactNode; feedbackKey?: string;
 };
 
 /** Shared by authenticated message images and already-local draft/file originals. */
-export function ImageViewer({ imageKey, name, url, blob, error, retry, index = 0, count = 1, change, close, saving = false, save, feedback, feedbackKey }: ImageViewerProps) {
+export function ImageViewer({ imageKey, name, url, blob, error, retry, deleted = false, index = 0, count = 1, change, close, saving = false, save, feedback, feedbackKey }: ImageViewerProps) {
   useLocale();
   const panel = useRef<HTMLDialogElement>(null), dismiss = useRef<HTMLButtonElement>(null), reader = useRef<HTMLDivElement>(null), canvas = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLSpanElement>(null);
@@ -128,8 +129,8 @@ export function ImageViewer({ imageKey, name, url, blob, error, retry, index = 0
           onLoad={event => { if (currentSource.current === sourceKey && event.currentTarget.naturalWidth) setNatural({ key: sourceKey, width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight }); }}/>}</div>
       {!loaded && <div className="image-preview-loading" role={failure ? "alert" : "status"}>
         {!failure && <span className="image-preview-spinner" aria-hidden="true"/>}
-        <span>{error ? t("图片加载失败") : failure ? t("此设备无法预览该文件，请另存为后打开。") : t("加载图片…")}</span>
-        {error && retry && <button type="button" aria-label={t("重新加载图片")} onPointerDown={event => event.stopPropagation()} onClick={retry}>{t("重试")}</button>}
+        <span>{deleted ? t("附件已删除") : error ? t("图片加载失败") : failure ? t("此设备无法预览该文件，请另存为后打开。") : t("加载图片…")}</span>
+        {error && retry && !deleted && <button type="button" aria-label={t("重新加载图片")} onPointerDown={event => event.stopPropagation()} onClick={retry}>{t("重试")}</button>}
       </div>}
     </div>
     <p id={details} className="image-preview-assistive">{t("触屏轻点图片或空白处隐藏／显示工具栏；鼠标点击图片外空白处关闭。双击图片放大或还原，放大后可拖动。点击关闭按钮、使用系统返回或按 Esc 关闭。")}</p>
