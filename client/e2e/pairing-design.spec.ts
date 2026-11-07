@@ -25,6 +25,7 @@ for (const locale of ["zh", "en"]) test(`first-run choices and phone scanner fit
     await page.goto(`${base}?lang=${locale}`);
     const host = page.getByRole("button", { name: locale === "zh" ? "将这台电脑设为主机" : "Use this computer as a host", exact: true });
     await expect(host).toBeVisible();
+    await expect(host.locator(".host-role-copy small")).toContainText(locale === "zh" ? "升级到最新版本" : "update it to the latest version");
     expect((await page.locator(".desktop-welcome").boundingBox())!.width).toBeGreaterThan(500);
     await fits();
     for (const width of [320, 390]) {
