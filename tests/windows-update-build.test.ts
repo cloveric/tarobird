@@ -31,6 +31,11 @@ describe('Windows updater build mode', () => {
     expect(JSON.stringify(plan)).not.toContain(signing.TAURI_SIGNING_PRIVATE_KEY);
   });
 
+  it('marks the public release repository so updates need no GitHub sign-in, unless a fork opts out', () => {
+    expect(windowsBuildPlan({ signedUpdates: true }, signing).updateConfig.plugins['github-updates'].public).toBe(true);
+    expect(windowsBuildPlan({ signedUpdates: true }, { ...signing, TAROBOT_GITHUB_PRIVATE: 'true' }).updateConfig.plugins['github-updates']).not.toHaveProperty('public');
+  });
+
   it.each(Object.keys(signing))('fails before building when signed mode lacks %s', name => {
     const env = { ...signing, [name]: '' };
     expect(() => windowsBuildPlan({ signedUpdates: true }, env)).toThrow();

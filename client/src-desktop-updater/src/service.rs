@@ -54,6 +54,9 @@ pub struct UpdateInfo {
     pub authenticated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login: Option<String>,
+    /// Public release repository: no GitHub sign-in is offered or needed.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub public: bool,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,8 +129,9 @@ struct DeviceFlow {
     authorized: bool,
 }
 enum Source {
-    /// Authenticated GitHub asset with the size GitHub declared for it.
-    Github { token: Zeroizing<String>, size: u64 },
+    /// GitHub asset with the size GitHub declared for it; no token when the
+    /// release repository is public.
+    Github { token: Option<Zeroizing<String>>, size: u64 },
     Public,
 }
 struct Offer {
@@ -312,10 +316,16 @@ impl Service {
             provider: "default",
             authenticated: false,
             login: None,
+            public: false,
         };
         if matches!(self.settings.provider, Provider::Github(_)) {
             result.provider = "github";
             if let Ok(config) = self.github() {
+                if self.settings.public_repository {
+                    // No keychain read: a public repository never uses the credential.
+                    result.public = true;
+                    return Ok(result);
+                }
                 let _guard = self.inner.lock().await;
                 if let Some(credential) = self.credential(config).await? {
                     result.authenticated = true;
@@ -496,19 +506,27 @@ impl Service {
                 return Err("github_update_busy".into());
             }
             inner.offer = None;
-            (
-                inner.generation.current(),
-                inner.checks.advance(),
-                self.credential(config).await?.ok_or("github_update_login_required")?,
-            )
+            let token = if self.settings.public_repository {
+                None
+            } else {
+                Some(Zeroizing::new(self.credential(config).await?.ok_or("github_update_login_required")?.token.clone()))
+            };
+            (inner.generation.current(), inner.checks.advance(), token)
         };
+        let headers = |asset: bool| match &credential {
+            Some(token) => net::headers(token, asset),
+            None => Ok(net::public_headers(asset)),
+        };
+        // Anonymously, 401/403/404 mean rate limiting or an unreachable
+        // repository, not an account to sign in with.
+        let anonymous = |error: String| if self.settings.public_repository && matches!(error.as_str(), "github_update_repo_unavailable" | "github_update_login_required") { "github_update_network".to_owned() } else { error };
         let releases = transport::github(false)?
             .get(format!("https://api.github.com/repos/{}/releases?per_page=100", config.repository))
-            .headers(net::headers(&credential.token, false)?)
+            .headers(headers(false)?)
             .send()
             .await
             .map_err(|_| "github_update_network")?;
-        let releases = net::bounded_json(releases, net::MAX_API_BYTES).await?;
+        let releases = net::bounded_json(releases, net::MAX_API_BYTES).await.map_err(anonymous)?;
         let Some(release) =
             policy::select_release(&releases, &config.repository, policy::UpdatePlatform::current()?)?
         else {
@@ -516,11 +534,11 @@ impl Service {
         };
         let manifest = transport::github(true)?
             .get(&release.manifest_url)
-            .headers(net::headers(&credential.token, true)?)
+            .headers(headers(true)?)
             .send()
             .await
             .map_err(|_| "github_update_network")?;
-        let manifest = net::bounded_json(manifest, MAX_MANIFEST_BYTES).await?;
+        let manifest = net::bounded_json(manifest, MAX_MANIFEST_BYTES).await.map_err(anonymous)?;
         let update = manifest::parse(&manifest, &manifest::targets())?;
         // The plugin decides "no update" before the release/manifest binding.
         if !manifest::newer(&update.version, &self.args.app_version) {
@@ -537,7 +555,7 @@ impl Service {
         Ok(Some(self.offer(
             &mut inner,
             update,
-            Source::Github { token: Zeroizing::new(credential.token.clone()), size },
+            Source::Github { token: credential, size },
         )))
     }
 
@@ -648,7 +666,10 @@ impl Service {
         let limit = size.unwrap_or(MAX_INSTALLER_BYTES).min(MAX_INSTALLER_BYTES);
         let mut request = transport::download(github)?.get(&offer.url);
         if let Source::Github { token, .. } = &offer.source {
-            request = request.headers(net::headers(token, true)?);
+            request = request.headers(match token {
+                Some(token) => net::headers(token, true)?,
+                None => net::public_headers(true),
+            });
         }
         let mut response = cancel
             .guard(request.send())

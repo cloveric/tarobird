@@ -12,6 +12,8 @@ export function windowsBuildPlan({ arch = 'x64', signedUpdates = false } = {}, e
   if (!env.TAURI_SIGNING_PRIVATE_KEY?.trim()) throw new Error('TAURI_SIGNING_PRIVATE_KEY is required for signed update artifacts');
   const updateConfig = releaseConfig(`https://api.github.com/repos/${repository}/releases`, env.TAROBOT_UPDATE_PUBLIC_KEY ?? env.TAROCUB_UPDATE_PUBLIC_KEY ?? '');
   updateConfig.plugins.updater.windows = { installMode: 'passive' };
-  updateConfig.plugins['github-updates'] = { repository, clientId };
+  // The release repository is public: clients check and download without a
+  // GitHub sign-in. A private fork sets TAROBOT_GITHUB_PRIVATE=true to keep it.
+  updateConfig.plugins['github-updates'] = { repository, clientId, ...(env.TAROBOT_GITHUB_PRIVATE === 'true' ? {} : { public: true }) };
   return { target, args, updateConfig };
 }

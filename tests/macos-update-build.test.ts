@@ -12,6 +12,11 @@ describe('macOS updater build', () => {
     expect(plan.updateConfig).toMatchObject({ bundle: { createUpdaterArtifacts: true, macOS: { signingIdentity: '-' } }, plugins: { updater: { pubkey, requireSignedVersion: true, allowDowngrades: false }, 'github-updates': { repository: signing.TAROBOT_GITHUB_REPOSITORY, clientId: signing.TAROBOT_GITHUB_CLIENT_ID } } });
     expect(JSON.stringify(plan)).not.toContain(signing.TAURI_SIGNING_PRIVATE_KEY);
   });
+
+  it('marks the public release repository so updates need no GitHub sign-in, unless a fork opts out', () => {
+    expect(macosBuildPlan({}, signing).updateConfig.plugins['github-updates'].public).toBe(true);
+    expect(macosBuildPlan({}, { ...signing, TAROBOT_GITHUB_PRIVATE: 'true' }).updateConfig.plugins['github-updates']).not.toHaveProperty('public');
+  });
   it.each(Object.keys(signing))('fails before building without %s', name => {
     expect(() => macosBuildPlan({}, { ...signing, [name]: '' })).toThrow();
   });

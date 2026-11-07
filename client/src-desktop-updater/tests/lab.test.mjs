@@ -42,7 +42,7 @@ after(async () => {
   if (root && !process.env.TAROBOT_UPDATER_LAB_KEEP) rmSync(root, { recursive: true, force: true });
 });
 
-function scenario(name, { github = true, hostMode = 'ok', vault, endpoints, spawn = true } = {}) {
+function scenario(name, { github = true, publicRepo = false, hostMode = 'ok', vault, endpoints, spawn = true } = {}) {
   const dir = path.join(root, 'cases', name);
   const applications = path.join(dir, 'Applications');
   mkdirSync(applications, { recursive: true });
@@ -55,7 +55,7 @@ function scenario(name, { github = true, hostMode = 'ok', vault, endpoints, spaw
   const config = path.join(dir, 'update-config.json');
   writeFileSync(config, JSON.stringify({
     updater: { pubkey: key.pubkey, requireSignedVersion: true, allowDowngrades: false, endpoints: endpoints ?? [`${API}/releases`] },
-    ...(github ? { 'github-updates': { repository: REPO, clientId: 'Iv1.labclient' } } : {}),
+    ...(github ? { 'github-updates': { repository: REPO, clientId: 'Iv1.labclient', ...(publicRepo ? { public: true } : {}) } } : {}),
   }));
   const vaultFile = path.join(dir, 'vault.json');
   if (vault) writeFileSync(vaultFile, JSON.stringify(vault));
@@ -125,6 +125,26 @@ async function login(updater) {
 
 const stored = { token: TOKEN, login: 'lab-user' };
 const until = async (predicate, ms = 15000) => { const end = Date.now() + ms; while (!predicate()) { if (Date.now() > end) throw new Error('timed out'); await delay(25); } };
+
+test('github public repository: no sign-in, signed check and install without any credential', async () => {
+  const s = scenario('github-public-install', { publicRepo: true });
+  assert.deepEqual(await s.updater.call('info'), { configured: true, version: '1.2.3', provider: 'github', authenticated: false, public: true });
+  await publish();
+  const before = net.requests.length;
+  const offer = await s.updater.call('check');
+  assert.equal(offer.version, '1.2.4');
+  assert.equal(await s.updater.call('install', { offerId: offer.offerId }), null);
+  assert.deepEqual(s.offerEvents(offer.offerId).filter(event => event.event !== 'Progress').map(event => event.event), ['Started', 'WaitingForHost', 'Installing', 'RestartingHost', 'Finished']);
+  assert.equal(plistValue(s.app, 'CFBundleShortVersionString'), '1.2.4');
+  execFileSync('codesign', ['--verify', '--deep', '--strict', s.app]);
+  const traffic = net.requests.slice(before);
+  assert.ok(traffic.some(request => request.path.endsWith('/releases')) && traffic.some(request => request.path.endsWith('/assets/12')));
+  assert.ok(traffic.every(request => request.authorization === null), 'a public repository is read without a credential');
+  assert.ok(!traffic.some(request => request.host === 'github.com'), 'no device login');
+  assert.ok(!existsSync(s.vaultFile), 'the credential store is never written');
+  assert.equal(s.updater.stderr(), '', 'stderr carries nothing');
+  assert.deepEqual(await s.updater.end(), { code: 0, signal: null });
+});
 
 test('github: device login, signed check, download, Host drain, replace and read-back', async () => {
   githubLogin();
