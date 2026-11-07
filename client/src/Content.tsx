@@ -60,7 +60,7 @@ export function GoogleExport({ connection, messageId }: { connection: HubConnect
 
 function Audio({ connection, id }: { connection: HubConnection; id: string }) {
   useLocale(); const active = useContext(RuntimeHostActiveContext);
-  const { url, blob, error, retry } = useAttachment(connection, id);
+  const { url, blob, error, deleted, retry } = useAttachment(connection, id);
   const phone = useSyncExternalStore(subscribePhone, snapshotPhone), platform = nativePlatform();
   const customControls = platform === "macos" || platform === "windows" || platform === "web" && !phone;
   const media = useRef<HTMLAudioElement>(null), epoch = useRef(0), savingRef = useRef(false);
@@ -84,7 +84,7 @@ function Audio({ connection, id }: { connection: HubConnection; id: string }) {
   };
   return <div className="attachment-audio">{failed ? <div role="alert"><span>{t("此设备无法预览该文件，请另存为后打开。")}</span><button disabled={saving} onClick={() => { void save(); }}>{attachmentSaveLabel()}</button></div>
     : url ? <><audio ref={media} controls={!customControls} className={customControls ? "inline-audio-source" : undefined} aria-hidden={customControls || undefined} tabIndex={customControls ? -1 : undefined} src={url} onPlay={event => { if (active) setPlaying(true); else event.currentTarget.pause(); }} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onError={() => { setPlaying(false); setFailedUrl(url); }}/>{customControls && <InlineAudioControls key={url} media={media} playing={playing} active={active}/>}</>
-    : <span role={error ? "alert" : "status"}>{error ? t("音频加载失败") : t("加载音频…")}{error && <button onClick={retry}>{t("重试")}</button>}</span>}{feedback && <small role="status">{feedback}</small>}</div>;
+    : <span role={error && !deleted ? "alert" : "status"}>{deleted ? t("附件已删除") : error ? t("音频加载失败") : t("加载音频…")}{error && !deleted && <button onClick={retry}>{t("重试")}</button>}</span>}{feedback && <small role="status">{feedback}</small>}</div>;
 }
 /** One file action step at a time. Only the download step can be cancelled; a
  * user's cancel is a neutral result; only a completed native write/export reads "saved". */

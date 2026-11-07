@@ -5,6 +5,7 @@ import { chmod, copyFile, lstat, mkdir, readdir, rename, rm } from "node:fs/prom
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { HubStore } from "./store.js";
+import { attachmentFileId } from "./attachments.js";
 import { HubDatabase } from "./database.js";
 import { withFileMutex } from "../state/file-mutex.js";
 import { LOW_TRUST_AUDIT_KINDS } from "./audit.js";
@@ -142,7 +143,7 @@ export class HubMaintenance {
     });
     const directory = path.join(this.directory, "attachments");
     const files = await readdir(directory).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
-    const fileId = (file: string) => /^(att_[A-Za-z0-9_-]+)\.(?:blob|[0-9]+\.chunk)(?:\.tmp)?$/.exec(file)?.[1];
+    const fileId = attachmentFileId;
     let removed = 0;
     for (const id of ids) {
       try {
@@ -154,6 +155,10 @@ export class HubMaintenance {
         removed++;
       } catch (error) { await this.store.audit("attachment.gc_retry", "system", { id, code: (error as NodeJS.ErrnoException).code ?? "file_cleanup_failed" }); }
     }
+    // Owner-deleted attachments keep their row (messages show 附件已删除) but
+    // never their bytes: finish any purge that failed or was interrupted.
+    const deleted = new Set((await this.store.db.serial(() => this.store.db.all<{ attachment_id: string }>("SELECT attachment_id FROM retired_attachments"))).map(row => row.attachment_id));
+    for (const file of files) { const id = fileId(file); if (id && deleted.has(id)) await rm(path.join(directory, file), { force: true }).catch(() => undefined); }
     // A crash after complete=1 but before unlinking upload chunks must not
     // retain a second copy forever. Only exact complete attachment IDs qualify;
     // incomplete/resumable uploads and final blobs are deliberately excluded.

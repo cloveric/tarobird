@@ -36,6 +36,8 @@ import { AGENT_BUS_WORKER_CAPABILITY } from "../client-protocol/agent-bus.js";
 import { BOT_TRANSFER_BYTES } from "./bot-message-transport.js";
 import { botLocalRequestSchema, TargetResolutionError } from "../client-protocol/bot-messages.js";
 import { HubPromptQueue, supportsPromptQueueEngine } from "./prompt-queue.js";
+import { ATTACHMENT_ADMIN_DELETE_PATH, ATTACHMENT_ADMIN_LIST_PATH, ATTACHMENT_ADMIN_SUMMARY_PATH, attachmentAdminDeleteSchema, attachmentAdminListQuerySchema } from "../client-protocol/attachment-admin.js";
+import { attachmentAdminList, attachmentAdminSummary, retireAttachments } from "./attachment-admin.js";
 import { PROMPT_QUEUE_CAPABILITY, PROMPT_QUEUE_PULL_CAPABILITY, promptQueueMutationSchema } from "../client-protocol/prompt-queue.js";
 import { RunJournal } from "./run-journal.js";
 import { HubRunChanges } from "./run-changes.js";
@@ -1868,6 +1870,22 @@ export class HubServer {
           const bytes = await this.avatars.image(userId, target, Number(avatarRoute[3]), session);
           await validate();
           res.writeHead(200, { "Content-Type": "image/png", "Content-Length": bytes.length, "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store", "Content-Security-Policy": "default-src 'none'; sandbox" }); res.end(bytes); return;
+        }
+        throw new HubError("not_found", 404);
+      }
+      if (route.startsWith("/api/attachment-admin/")) {
+        await requireOwner();
+        if (route === ATTACHMENT_ADMIN_SUMMARY_PATH && req.method === "GET") { await reply(200, await attachmentAdminSummary(this.store, userId)); return; }
+        if (route === ATTACHMENT_ADMIN_LIST_PATH && req.method === "GET") {
+          await reply(200, await attachmentAdminList(this.store, userId, attachmentAdminListQuerySchema.parse(Object.fromEntries(url.searchParams)))); return;
+        }
+        if (route === ATTACHMENT_ADMIN_DELETE_PATH && req.method === "POST") {
+          const input = attachmentAdminDeleteSchema.parse(await this.jsonBody(req)); await validate();
+          const result = await retireAttachments(this.store, userId, input);
+          // Retirement is committed; a failed unlink is retried by daily GC.
+          try { await this.attachments.purge(result.ids); }
+          catch (error) { await this.store.audit("attachment.purge_retry", session.deviceId, { count: result.ids.length, code: (error as NodeJS.ErrnoException).code ?? "purge_failed" }); }
+          await reply(200, result); return;
         }
         throw new HubError("not_found", 404);
       }
