@@ -47,11 +47,16 @@ pub fn client_builder(asset: bool, tls: rustls::ClientConfig) -> ClientBuilder {
         })
 }
 pub fn headers(token: &str, asset: bool) -> Result<HeaderMap, String> {
-    let mut headers = HeaderMap::new();
+    let mut headers = public_headers(asset);
     let mut bearer = HeaderValue::from_str(&format!("Bearer {token}"))
         .map_err(|_| "github_update_login_required")?;
     bearer.set_sensitive(true);
     headers.insert(AUTHORIZATION, bearer);
+    Ok(headers)
+}
+/// The same GitHub API headers without a credential, for a public repository.
+pub fn public_headers(asset: bool) -> HeaderMap {
+    let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
         HeaderValue::from_static(if asset {
@@ -64,7 +69,7 @@ pub fn headers(token: &str, asset: bool) -> Result<HeaderMap, String> {
         "X-GitHub-Api-Version",
         HeaderValue::from_static("2022-11-28"),
     );
-    Ok(headers)
+    headers
 }
 pub async fn bounded_json(mut response: Response, limit: usize) -> Result<Value, String> {
     match response.status().as_u16() {

@@ -14,6 +14,8 @@ export function macosBuildPlan({ arch = 'arm64', signedUpdates = true } = {}, en
   // Private distributions still need a sealed bundle. Ad-hoc sealing does not
   // replace Developer ID or notarization; deployments can supply that identity.
   updateConfig.bundle.macOS = { signingIdentity: env.APPLE_SIGNING_IDENTITY || '-' };
-  updateConfig.plugins['github-updates'] = { repository, clientId };
+  // The release repository is public: clients check and download without a
+  // GitHub sign-in. A private fork sets TAROBOT_GITHUB_PRIVATE=true to keep it.
+  updateConfig.plugins['github-updates'] = { repository, clientId, ...(env.TAROBOT_GITHUB_PRIVATE === 'true' ? {} : { public: true }) };
   return { target, args, updateConfig };
 }

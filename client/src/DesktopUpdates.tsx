@@ -61,7 +61,7 @@ export function DesktopUpdates() {
   };
   return <section className="desktop-updates"><h3>{t("应用更新")}</h3><p>TaroBird {state.version ?? ""}</p>
     {state.phase === "disabled" ? <p className="muted">{t("此开发版本尚未配置签名更新源。")}</p> : <>
-      {state.provider === "github" && <>
+      {state.provider === "github" && !state.public && <>
         {state.authenticated ? <><p>{t("已登录 GitHub：{0}", state.login ?? "GitHub")}</p><button disabled={busy || updateBlocked} onClick={() => { void logout(); }}>{t("退出 GitHub 登录")}</button></> : <>
           <p className="muted">{t("登录 GitHub 后可检查和安装私有更新。")}</p>
           {!signingIn && <button disabled={busy || updateBlocked} onClick={() => { setAccountError(undefined); void login.start(); }}>{t("登录 GitHub")}</button>}
@@ -76,7 +76,7 @@ export function DesktopUpdates() {
           {loginState.error && <p className="error-text" role="alert">{updateErrorMessage(loginState.error)}</p>}
         </>}
       </>}
-      {!(state.provider === "github" && !state.authenticated) && <button disabled={busy || updateBlocked} onClick={() => { void updater.check(); }}>{state.phase === "checking" ? t("检查中…") : t("检查更新")}</button>}
+      {!(state.provider === "github" && !state.authenticated && !state.public) && <button disabled={busy || updateBlocked} onClick={() => { void updater.check(); }}>{state.phase === "checking" ? t("检查中…") : t("检查更新")}</button>}
       {state.phase === "current" && <p>{t("已是最新版本")}</p>}
       {state.nextVersion && <p>{t("新版本 {0}", state.nextVersion)}</p>}
       {state.notes && <pre className="update-notes">{state.notes}</pre>}

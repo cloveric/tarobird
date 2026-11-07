@@ -13,7 +13,7 @@ test.beforeAll(async () => {
     f.mount(); f.stop=startDesktopUpdateChecks();
   </script></body></html>`;
   server = await createServer({ plugins: [{ name: "private-update-fixture", configureServer(vite) {
-    vite.middlewares.use(async (req, res, next) => { if (req.url !== "/__updates") return next(); res.setHeader("Content-Type", "text/html"); res.end(await vite.transformIndexHtml("/__updates", html)); });
+    vite.middlewares.use(async (req, res, next) => { if (req.url?.split("?")[0] !== "/__updates") return next(); res.setHeader("Content-Type", "text/html"); res.end(await vite.transformIndexHtml("/__updates", html)); });
   } }], server: { host: "127.0.0.1", port: 0, strictPort: false } });
   await server.listen();
 });
@@ -21,10 +21,10 @@ test.afterAll(async () => { await server?.close(); });
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const browser = window as any; browser.isTauri = true;
-    const f = browser.updateFixture = { calls: [] as { command: string; args: unknown }[], authenticated: false, authorize: false, holdStart: false, holdInstall: false, failPoll: "", installed: 0, restarts: 0, dialogs: 0 };
+    const f = browser.updateFixture = { calls: [] as { command: string; args: unknown }[], public: new URL(location.href).searchParams.has("public"), authenticated: false, authorize: false, holdStart: false, holdInstall: false, failPoll: "", installed: 0, restarts: 0, dialogs: 0 };
     browser.__TAURI_INTERNALS__ = { transformCallback: () => 1, unregisterCallback: () => undefined, invoke: async (command: string, args: any) => {
       f.calls.push({ command, args: command === "github_update_install" ? { offerId: args.offerId } : args });
-      if (command === "github_update_info") return { configured: true, version: "1.0.0", provider: "github", authenticated: f.authenticated, login: f.authenticated ? "octocat" : undefined };
+      if (command === "github_update_info") return f.public ? { configured: true, version: "1.0.0", provider: "github", authenticated: false, public: true } : { configured: true, version: "1.0.0", provider: "github", authenticated: f.authenticated, login: f.authenticated ? "octocat" : undefined };
       if (command === "github_update_login_start") { const flow = { flowId: "flow-1", userCode: "ABCD-EFGH", verificationUri: "https://github.com/login/device", expiresIn: 600, interval: 5 }; return f.holdStart ? new Promise(resolve => { f.releaseStart = () => resolve(flow); }) : flow; }
       if (command === "github_update_login_poll") { if (f.failPoll) throw f.failPoll; if (!f.authorize) return { status: "pending", interval: 5 }; f.authenticated = true; return { status: "authorized" }; }
       if (command === "github_update_logout") { f.authenticated = false; return; }
@@ -43,6 +43,20 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto(server.resolvedUrls!.local[0] + "__updates");
   await expect(page.getByRole("heading", { name: "应用更新" })).toBeVisible();
+});
+for (const english of [false, true]) test(`public repository updates need no GitHub sign-in (${english ? "English" : "Chinese"})`, async ({ page }, info) => {
+  await page.goto(server.resolvedUrls!.local[0] + "__updates?public");
+  if (english) await page.evaluate(() => (window as any).updateFixture.locale("en"));
+  await expect(page.getByRole("heading", { name: english ? "App updates" : "应用更新", exact: true })).toBeVisible();
+  await expect(page.getByText(english ? "New version 1.1.0" : "新版本 1.1.0", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: english ? "Download and install" : "下载并安装", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: english ? "Check for updates" : "检查更新", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /GitHub/ })).toHaveCount(0);
+  await expect(page.getByText(/GitHub/)).toHaveCount(0);
+  const calls = await page.evaluate(() => (window as any).updateFixture.calls.map((call: any) => call.command));
+  expect(calls).toContain("github_update_check");
+  expect(calls.filter((command: string) => command.startsWith("github_update_login") || command === "github_update_logout")).toEqual([]);
+  await page.screenshot({ path: info.outputPath(`public-updates-${english ? "en" : "zh"}.png`) });
 });
 test("private update UI signs in with a device code, requires install confirmation and signs out", async ({ page }) => {
   await page.clock.install();
