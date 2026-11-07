@@ -10,7 +10,8 @@ import type { ConnectedHost } from "./host-connections.js";
 import type { HostDirectory, WorkspaceProps } from "./HostApp.js";
 import type { HostRegistry } from "./host-registry.js";
 import type { Preferences, SidebarLayout } from "./storage.js";
-import { addAdhdPane, ADHD_PANEL_LIMIT, adhdColumns, adhdPaneKey, emptyAdhdBoard, moveAdhdPane, type AdhdBoardState, type AdhdPaneRef } from "./adhd-board-state.js";
+import { addAdhdPane, ADHD_FOLD_SETTLE_MS, ADHD_PANEL_LIMIT, ADHD_PHONE_CARD_MIN, ADHD_PHONE_COLUMNS, adhdColumns, adhdPaneKey, adhdPhoneBoard, emptyAdhdBoard, moveAdhdPane, type AdhdBoardState, type AdhdPaneRef } from "./adhd-board-state.js";
+import { nativePlatform } from "./native.js";
 import { useAdhdPaneDrag } from "./adhd-pane-drag.js";
 import { CreationDialog } from "./CreationDialog.js";
 import { Sidebar } from "./Sidebar.js";
@@ -32,11 +33,11 @@ export type AdhdSidebarOptions = {
   select: (pane: AdhdPaneRef) => void;
 };
 export type AdhdHost = ConnectedHost & { directory?: HostDirectory; blocked?: boolean; local?: boolean };
-type Props = { navigationRejected?: (serial: number) => void; busNavigation?: AgentBusNavigation; compact: boolean; activeHostId: string; navigation?: { hostId: string; conversationId: string; messageId?: string; serial: number }; hosts: AdhdHost[]; registry: HostRegistry; preferences: Preferences; updatePreferences: (value: Preferences) => void; Workspace: ComponentType<WorkspaceProps>; sidebarControls: ReactNode; tools: AdhdToolActions; renderConversations: (options: AdhdSidebarOptions) => ReactNode; exit: (layout?: SidebarLayout, focused?: AdhdPaneRef) => void; open: (hostId: string, conversationId: string) => void };
+type Props = { navigationRejected?: (serial: number) => void; busNavigation?: AgentBusNavigation; compact: boolean; agentBus: boolean; activeHostId: string; navigation?: { hostId: string; conversationId: string; messageId?: string; serial: number }; hosts: AdhdHost[]; registry: HostRegistry; preferences: Preferences; updatePreferences: (value: Preferences) => void; Workspace: ComponentType<WorkspaceProps>; sidebarControls: ReactNode; tools: AdhdToolActions; renderConversations: (options: AdhdSidebarOptions) => ReactNode; exit: (layout?: SidebarLayout, focused?: AdhdPaneRef) => void; open: (hostId: string, conversationId: string) => void };
 
 /** Layout is device-local; each mounted pane reuses the owning host connection
  * and the ordinary conversation UI. No extra transports or message semantics. */
-export function AdhdBoard({ navigationRejected, busNavigation, compact, activeHostId, navigation, hosts, registry, preferences, updatePreferences, Workspace, sidebarControls, tools, renderConversations, exit, open }: Props) {
+export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus, activeHostId, navigation, hosts, registry, preferences, updatePreferences, Workspace, sidebarControls, tools, renderConversations, exit, open }: Props) {
   useLocale();
   const [board, setBoard] = useState<AdhdBoardState>(emptyAdhdBoard), current = useRef(board); current.current = board;
   const [ready, setReady] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -49,6 +50,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, activeHo
   const browserToggle = useRef<HTMLButtonElement>(null), shellRoot = useRef<HTMLDivElement>(null);
   const [browserOpened, setBrowserOpened] = useState(false), [browserOpen, setBrowserOpen] = useState(false);
   const browserSupported = isElectron();
+  const phoneBoard = adhdPhoneBoard(nativePlatform(), navigator.userAgent);
   const browserLayout = useSideWindowExpansion(shellRoot, browserOpen && !compact);
   const closeBrowser = () => { setBrowserOpen(false); browserToggle.current?.focus({ preventScroll: true }); };
   // Both top-level tools use the right edge. Keep their contents, show one dock.
@@ -213,6 +215,21 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, activeHo
     const checkbox = [...document.querySelectorAll<HTMLInputElement>("[data-pane-toggle]")].find(node => node.dataset.paneToggle === key);
     (checkbox ?? grid.current?.querySelector<HTMLElement>(".adhd-card:not([hidden]) .adhd-grip") ?? search.current)?.focus({ preventScroll: true });
   });
+  // Folding an unfolded iPhone shut gives the board up for 按对话 and opens the
+  // focused panel's conversation. Unmounting interrupts uploads and recording
+  // (by design, without a prompt) and flushes drafts; unfolding again before the
+  // settle ends keeps the board.
+  const folding = phoneBoard && compact;
+  const focusedRef = useRef(focused); focusedRef.current = focused;
+  const exitRef = useRef(exit); exitRef.current = exit;
+  useEffect(() => {
+    if (!folding) return;
+    const timer = setTimeout(() => {
+      const panes = current.current.panes;
+      exitRef.current("conversations", panes.find(pane => adhdPaneKey(pane) === focusedRef.current) ?? panes[0]);
+    }, ADHD_FOLD_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [folding]);
   const leave = (layout?: SidebarLayout) => {
     // Capture the selected conversation before draft/Bus guards defer the exit.
     // Moving focus while a save is pending must not retarget that click.
@@ -292,7 +309,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, activeHo
     };
     window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
   }, [compact, expanded]);
-  const count = board.panes.length, columns = adhdColumns(width, count, board.columns);
+  const count = board.panes.length, columns = phoneBoard ? adhdColumns(width, count, board.columns, ADHD_PHONE_CARD_MIN, ADHD_PHONE_COLUMNS) : adhdColumns(width, count, board.columns);
   const searchText = query.trim().toLocaleLowerCase();
   const selected = new Set(board.panes.map(adhdPaneKey));
   const focusedPane = board.panes.find(pane => adhdPaneKey(pane) === focused);
@@ -304,7 +321,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, activeHo
   if (selectedBusHost) retainedBusHost.current = selectedBusHost;
   const busHost = selectedBusHost ?? (retainedBusHost.current && retainedBusHost.current.host.registrationId === busSelection?.registrationId ? { ...retainedBusHost.current, blocked: true } : undefined);
   const toolHost = toolHosts.find(host => host.host.id === focusedPane?.hostId && host.host.registrationId === focusedPane.registrationId) ?? toolHosts.find(host => host.host.id === activeHostId) ?? toolHosts[0];
-  return <><div ref={shellRoot} className={`adhd-shell${browserOpen ? " has-browser-dock" : ""}`} data-side-window={browserLayout} data-adhd-mode="true" hidden={compact} inert={compact}>
+  return <><div ref={shellRoot} className={`adhd-shell${browserOpen ? " has-browser-dock" : ""}`} data-side-window={browserLayout} data-adhd-mode="true" data-adhd-device={phoneBoard ? "phone" : undefined} hidden={compact} inert={compact}>
 
     <Sidebar shown active={!compact}><div className="brand"><BrandName/><span className="adhd-selection-count">{t("已选 {0}", count)}</span></div>
       {sidebarControls}
@@ -333,7 +350,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, activeHo
     </Sidebar>
     <main className="adhd-workbench" aria-label={t("ADHD 多对话面板")}>
       <header className="adhd-toolbar"><div className="adhd-mode-title"><PanelsTopLeft size={18}/><h1>ADHD</h1><span>{t("{0} 个对话", count)}</span>{busyPanes[0] && <button className="adhd-busy-link" title={blockedTip} onClick={() => add(busyPanes[0]!, undefined, true)}>{t("查看进行中的操作（{0}）", busyPanes.length)}</button>}</div><span className="screen-reader-only" role="status" aria-live="off">{saving ? t("正在保存布局…") : ""}</span>
-        <div className="adhd-toolbar-actions"><button ref={busToggle} className="agent-bus-entry" aria-label={t("打开 Agent Bus")} aria-expanded={busOpen} disabled={!toolHost} onClick={() => { if (busSelection) setBusOpen(!busOpen); else if (toolHost) selectBus(toolHost); }}><Network size={15}/>Agent Bus</button>{browserSupported && <button ref={browserToggle} className="adhd-browser-entry icon-button" aria-label={t("浏览器")} title={t("浏览器")} aria-expanded={browserOpen} aria-controls={browserOpened ? "adhd-personal-browser" : undefined} onClick={() => { if (browserOpen) closeBrowser(); else { setBusOpen(false); setBrowserOpened(true); setBrowserOpen(true); } }}><Globe size={17}/></button>}<label className="adhd-display-control"><span>{t("每行")}</span><select aria-label={t("ADHD 每行窗口数")} disabled={!ready || !!expanded} value={board.columns} onChange={event => persist({ ...current.current, columns: Number(event.target.value) as AdhdBoardState["columns"] })}>{([0, 2, 3, 4, 5, 6] as const).map(value => <option key={value} value={value}>{value ? t("{0} 列", value) : t("自动")}</option>)}</select></label>
+        <div className="adhd-toolbar-actions">{agentBus && <button ref={busToggle} className="agent-bus-entry" aria-label={t("打开 Agent Bus")} aria-expanded={busOpen} disabled={!toolHost} onClick={() => { if (busSelection) setBusOpen(!busOpen); else if (toolHost) selectBus(toolHost); }}><Network size={15}/>Agent Bus</button>}{browserSupported && <button ref={browserToggle} className="adhd-browser-entry icon-button" aria-label={t("浏览器")} title={t("浏览器")} aria-expanded={browserOpen} aria-controls={browserOpened ? "adhd-personal-browser" : undefined} onClick={() => { if (browserOpen) closeBrowser(); else { setBusOpen(false); setBrowserOpened(true); setBrowserOpen(true); } }}><Globe size={17}/></button>}<label className="adhd-display-control"><span>{t("每行")}</span><select aria-label={t("ADHD 每行窗口数")} disabled={!ready || !!expanded} value={phoneBoard ? Math.min(board.columns, ADHD_PHONE_COLUMNS) : board.columns} onChange={event => persist({ ...current.current, columns: Number(event.target.value) as AdhdBoardState["columns"] })}>{(phoneBoard ? [0, 2] as const : [0, 2, 3, 4, 5, 6] as const).map(value => <option key={value} value={value}>{value ? t("{0} 列", value) : t("自动")}</option>)}</select></label>
         <label className="adhd-display-control" title={t("仅调整 ADHD 对话窗口，普通聊天字号不变。")}><span>{t("字号")}</span><select aria-label={t("ADHD 窗口字号")} disabled={!ready} value={board.fontSize} onChange={event => persist({ ...current.current, fontSize: Number(event.target.value) })}>{[11,12,13,14,15,16].map(value => <option key={value} value={value}>{value} px</option>)}</select></label>
         {expanded && <button className="adhd-overview" onClick={() => setExpanded("")}><Minimize2 size={15}/>{t("总览")}</button>}<button className="adhd-exit" disabled={locked || saving || !!pendingLeave} title={locked ? blockedTip : undefined} onClick={() => leave()}><ArrowLeft size={15}/>{t("返回聊天")}</button></div>
       </header>
@@ -367,7 +384,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, activeHo
         }
         setBusSelection(undefined); setBusWorkspace(undefined); setBusRun(undefined); setBusOpen(false);
       }}/>}</div>
-  </div>{busLeave && <AgentBusDraftDialog kind="leave" close={() => setBusLeave(undefined)} discard={() => { const run = busLeave.run; setBusLeave(undefined); run(); }}/>}{compact && <div className="adhd-compact"><PanelsTopLeft size={26}/><h1>{t("拉宽窗口，继续多对话")}</h1><p>{t("面板和正在上传的文件会保留，也可以回到单对话。")}</p><button disabled={locked || saving || !!pendingLeave} title={locked ? blockedTip : undefined} onClick={() => leave()}>{t("返回聊天")}</button></div>}{leaving && <CreationDialog title={t("有草稿尚未保存")} close={() => setLeaving(undefined)} closeLabel={t("关闭")} showHost={false} className="adhd-leave-dialog"><p>{t("关闭后，未保存的文字或附件修改将丢失。已保存的内容和正在运行的任务会保留。")}</p><footer><button className="primary" onClick={() => setLeaving(undefined)}>{t("继续编辑")}</button><button disabled={locked || saving || Object.values(draftSaving).some(Boolean)} className="text-danger" onClick={() => { const run = leaving.run; setLeaving(undefined); run(); }}>{t("放弃未保存的修改")}</button></footer></CreationDialog>}</>;
+  </div>{busLeave && <AgentBusDraftDialog kind="leave" close={() => setBusLeave(undefined)} discard={() => { const run = busLeave.run; setBusLeave(undefined); run(); }}/>}{folding && <div className="adhd-folding" role="status"><span className="adhd-folding-mark" aria-hidden="true"><i/><i/></span><span>{t("回到单对话")}</span></div>}{compact && !phoneBoard && <div className="adhd-compact"><PanelsTopLeft size={26}/><h1>{t("拉宽窗口，继续多对话")}</h1><p>{t("面板和正在上传的文件会保留，也可以回到单对话。")}</p><button disabled={locked || saving || !!pendingLeave} title={locked ? blockedTip : undefined} onClick={() => leave()}>{t("返回聊天")}</button></div>}{leaving && <CreationDialog title={t("有草稿尚未保存")} close={() => setLeaving(undefined)} closeLabel={t("关闭")} showHost={false} className="adhd-leave-dialog"><p>{t("关闭后，未保存的文字或附件修改将丢失。已保存的内容和正在运行的任务会保留。")}</p><footer><button className="primary" onClick={() => setLeaving(undefined)}>{t("继续编辑")}</button><button disabled={locked || saving || Object.values(draftSaving).some(Boolean)} className="text-danger" onClick={() => { const run = leaving.run; setLeaving(undefined); run(); }}>{t("放弃未保存的修改")}</button></footer></CreationDialog>}</>;
 }
 
 type CardProps = { busStatus?: string; pane: AdhdPaneRef; host?: AdhdHost; title: string; opening: boolean; index: number; count: number; focused: boolean; restoreFocus: number; reveal: number; expanded: boolean; hidden: boolean; suspended: boolean; usable: boolean; busy: boolean; Workspace: Props["Workspace"]; preferences: Preferences; updatePreferences: Props["updatePreferences"]; focus: () => void; expand: () => void; expandForWorkbench: () => void; remove: () => void; move: (index: number) => void; busyChanged: (key: string, value: boolean, dirty: boolean, saving: boolean) => void; replace: (id: string) => void; focusRequest?: { serial: number; messageId?: string }; focusHandled: (key: string, serial: number) => void; microphoneBusy: boolean; claimMicrophone: (key: string) => boolean; releaseMicrophone: (key: string) => void; navigate: (id: string, messageId?: string, createdTitle?: string) => void; open: () => void };

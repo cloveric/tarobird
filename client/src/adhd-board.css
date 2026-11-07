@@ -95,6 +95,21 @@
 .adhd-exit,.adhd-overview{min-height:28px;padding:4px 8px}
 .adhd-grid{gap:10px;padding:10px 12px;grid-template-columns:repeat(var(--adhd-columns),minmax(300px,1fr));grid-auto-rows:max(320px,calc((100% - (var(--adhd-rows) - 1)*10px)/var(--adhd-rows)));font-size:var(--font-size)}
 .adhd-grid.has-expanded{grid-template-columns:minmax(300px,1fr);grid-auto-rows:100%}
+/* Unfolded iPhone: two tall panes beside the full picker. Titles take the room
+   of the Bot name and model mark; avatars and message authors still say who. */
+.adhd-shell[data-adhd-device=phone] .adhd-grid{grid-template-columns:repeat(var(--adhd-columns),minmax(260px,1fr))}
+.adhd-shell[data-adhd-device=phone] .adhd-grid.has-expanded{grid-template-columns:minmax(260px,1fr)}
+.adhd-shell[data-adhd-device=phone] :is(.inbox-row-bot,.adhd-card .header-bot-name){display:none}
+/* Folding shut: two panels slide into one while the fold settles. */
+.adhd-folding{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--bg);color:var(--muted);font-size:13px;animation:adhd-folding-in .16s ease-out both}
+.adhd-folding-mark{position:relative;width:64px;height:44px}
+.adhd-folding-mark i{position:absolute;top:0;bottom:0;width:30px;border:2px solid var(--accent,var(--blue));border-radius:7px;background:var(--surface,var(--bg))}
+.adhd-folding-mark i:first-child{left:0;animation:adhd-fold-left .42s cubic-bezier(.3,.7,.2,1) both}
+.adhd-folding-mark i:last-child{right:0;animation:adhd-fold-right .42s cubic-bezier(.3,.7,.2,1) both}
+@keyframes adhd-folding-in{from{opacity:0}}
+@keyframes adhd-fold-left{to{left:17px}}
+@keyframes adhd-fold-right{to{right:17px;opacity:0}}
+@media (prefers-reduced-motion:reduce){.adhd-folding,.adhd-folding-mark i{animation:none}}
 /* Clip the nested opaque conversation to the frame's inner curve. Otherwise
    its square background washes out the antialiased border at the corners. */
 .adhd-card{--adhd-card-radius:10px;border-radius:var(--adhd-card-radius);box-shadow:0 2px 8px #00000003}
