@@ -853,6 +853,9 @@ and the existing network/run/delete suites listed in that audit.
   above modal images. Tests: browser `image-context-menu`, `image-viewer`,
   `native-context-menu`, `message-context-menu`.
   [Copy behavior and verification limits](client/image-context-menu-2026-10-23.md).
+  Message thumbnails (`AttachmentImage.tsx`) offer the same 复制图片 and save
+  actions on desktop right-click, plus 放到白板 when a Workbench is available;
+  regression `image-whiteboard-menu`.
   Tap behavior changes are client presentation only, with no Host/CLI or protocol
   change. Regressions: `image-viewer`, `image-gallery`,
   `image-viewer-opus-regressions-20261023`, `image-context-menu`.
