@@ -123,6 +123,57 @@ describe("prepareDeepSeekHarnessHome", () => {
     expect(await readFile(path.join(sharedHome, "settings.yaml"), "utf8")).toBe("theme: light\n");
   });
 
+  it("starts without a shared settings.yaml and still links credentials (current dsh never writes it)", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-no-settings-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "secret: fixture\n", "utf8");
+    await writeFile(path.join(sharedHome, "settings.yaml.imported"), "theme: dark\n", "utf8");
+
+    const prepared = await prepareDeepSeekHarnessHome({ sharedHome, stateDir });
+
+    expect(await readlink(path.join(prepared.home, "profiles"))).toBe(path.join(sharedHome, "profiles"));
+    expect(await readlink(path.join(prepared.home, ".credentials.yaml"))).toBe(path.join(sharedHome, ".credentials.yaml"));
+    await expect(lstat(path.join(prepared.home, "settings.yaml"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(path.join(sharedHome, "settings.yaml"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    // A private copy from a generation when the shared file existed is not kept.
+    await writeFile(path.join(prepared.home, "settings.yaml"), "model: stale\n", "utf8");
+    await prepareDeepSeekHarnessHome({ sharedHome, stateDir });
+    await expect(lstat(path.join(prepared.home, "settings.yaml"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("starts without a shared settings.yaml on Windows, copying credentials", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-no-settings-win-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    const stateDir = path.join(root, "instance");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await writeFile(path.join(sharedHome, ".credentials.yaml"), "secret: fixture\n", "utf8");
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+    try {
+      const prepared = await prepareDeepSeekHarnessHome({ sharedHome, stateDir });
+      const credentials = path.join(prepared.home, ".credentials.yaml");
+      expect((await lstat(credentials)).isSymbolicLink()).toBe(false);
+      expect(await readFile(credentials, "utf8")).toBe("secret: fixture\n");
+      await expect(lstat(path.join(prepared.home, "settings.yaml"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  });
+
+  it("still requires the shared credentials", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-no-credentials-"));
+    roots.push(root);
+    const sharedHome = path.join(root, "shared");
+    await mkdir(path.join(sharedHome, "profiles", "web"), { recursive: true });
+    await expect(prepareDeepSeekHarnessHome({ sharedHome, stateDir: path.join(root, "instance") }))
+      .rejects.toThrow(`DeepSeek Harness shared file is missing: ${path.join(sharedHome, ".credentials.yaml")}`);
+  });
+
   it("migrates the old shared settings symlink without writing through it", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "deepseek-harness-settings-migration-"));
     roots.push(root);
