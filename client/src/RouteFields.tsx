@@ -46,6 +46,6 @@ export function VpsRouteFields({ routes, change, current, health = [], disabled 
       <label>{t("名称（可选）")}<input aria-label={t("中转线路 {0} 名称", index + 1)} value={route.label ?? ""} maxLength={40} placeholder={title} onChange={(e) => update(index, { label: e.target.value || undefined })}/></label>
       <label>{index === 0 ? t("中转地址") : t("备用中转 {0} 地址", index)}<input type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={route.url} maxLength={2048} placeholder={index === 0 ? "https://primary.example.com" : "https://backup.example.com"} onChange={(e) => update(index, { url: e.target.value })}/></label>
     </div>; })}
-    <button type="button" disabled={routes.length >= MAX_VPS_ROUTES} onClick={() => change([...routes, { name: "VPS", url: "" }])}><Plus size={16}/>{routes.length ? t("添加备用中转") : t("添加中转")}</button>
+    <button type="button" className="secondary" disabled={routes.length >= MAX_VPS_ROUTES} onClick={() => change([...routes, { name: "VPS", url: "" }])}><Plus size={16}/>{routes.length ? t("添加备用 VPS 地址") : t("添加 VPS 中转地址")}</button>
   </fieldset>;
 }

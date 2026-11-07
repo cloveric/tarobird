@@ -39,7 +39,7 @@ test(`fails over from a blackholed loopback Direct route in under 3s, replays on
       await new Promise<void>((resolve) => { release = resolve; input.abortSignal?.addEventListener("abort", resolve, { once: true }); });
       await input.onEngineEvent?.({ type: "assistant_text", text: "切换后的最终内容。", delta: true }); return { text: "正在持续输出路线测试内容。切换后的最终内容。" };
     } } });
-    await page.goto(hub.url); await page.getByLabel("Hub 地址", { exact: true }).fill(primary); await page.getByText("连接选项与备用中转（可选）", { exact: true }).click(); await page.getByRole("button", { name: "添加中转", exact: true }).click(); await page.getByLabel("中转地址", { exact: false }).fill(hub.url);
+    await page.goto(hub.url); await page.getByLabel("Hub 地址", { exact: true }).fill(primary); await page.getByText("连接选项与备用中转（可选）", { exact: true }).click(); await page.getByRole("button", { name: "添加 VPS 中转地址", exact: true }).click(); await page.getByLabel("中转地址", { exact: false }).fill(hub.url);
     await preparePairing(page, hub, [{ name: "Direct", url: primary }, { name: "VPS", url: hub.url }]); await page.getByRole("button", { name: "配对此设备", exact: true }).click(); const code = await page.getByLabel("配对码", { exact: true }).innerText(); await hub.auth.approve(code, "local-owner"); await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
     // Begin the timed failure only after the intended baseline is authenticated.
     await expect(page.locator(".connection-pill.online")).toContainText("主机直连", { timeout: 15_000 });
