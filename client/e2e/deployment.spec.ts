@@ -72,7 +72,7 @@ test("direct and relay-only addresses share one host without deployment choices,
     await phone.getByLabel("主机的直连地址（可选）", { exact: true }).fill("");
     await expect(phone.getByLabel("主机的直连地址（可选）", { exact: true })).toHaveValue(""); await phone.getByRole("button", { name: "保存线路", exact: true }).click();
     await expect(phone.getByText("至少填写一条线路。", { exact: true })).toBeVisible();
-    await phone.getByRole("button", { name: "添加中转", exact: true }).click(); await phone.getByLabel("中转地址", { exact: true }).fill(relayUrl); await phone.getByLabel("中转线路 1 名称", { exact: true }).fill("独立中转");
+    await phone.getByRole("button", { name: "添加 VPS 中转地址", exact: true }).click(); await phone.getByLabel("中转地址", { exact: true }).fill(relayUrl); await phone.getByLabel("中转线路 1 名称", { exact: true }).fill("独立中转");
     await phone.getByRole("button", { name: "保存线路", exact: true }).click(); await expect(phone.locator(".connection-pill")).toContainText("独立中转");
     await phone.reload(); await expect(phone.locator(".connection-pill.online")).toContainText("独立中转"); await enterMobileChat(phone, "云端工作区");
     await phone.getByRole("textbox", { name: "消息", exact: true }).fill("手机经过中转，桌面直接访问云端主机"); await phone.getByRole("button", { name: "发送消息", exact: true }).click();

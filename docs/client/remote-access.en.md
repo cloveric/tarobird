@@ -73,7 +73,7 @@ still uses **Me → Settings → Connection** and the local-computer deployment 
    immediately above **My network**.
 2. Keep the existing direct route, or leave it blank to use relays only. There is
    no deployment-mode selector.
-3. Choose **Add relay**, enter the deployed HTTPS address such as
+3. Choose **Add VPS relay address**, enter the deployed HTTPS address such as
    `https://192.0.2.10:8443`, and choose **Save routes**. The address here is only
    an example; use the one returned by your deployment.
 4. Wait for **Connected** and the VPS route name. Turn off Wi-Fi to check cellular

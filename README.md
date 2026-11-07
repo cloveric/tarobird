@@ -308,7 +308,7 @@ Keep Tailscale connected on both devices, and make sure your Tailscale access ru
 
 1. On the computer, open an AI agent that can use a terminal and SSH, such as Codex or Claude Code. Give it the complete [setup prompt](docs/client/remote-access.en.md#ask-an-agent-to-configure-it) together with the VPS SSH alias and the **path** to your private key (never the key itself). It deploys the relay, issues certificates with automatic renewal, verifies the connection end to end and returns an HTTPS address. To deploy it yourself, follow the [manual guide](docs/client/vps-relay-manual.md).
 2. On the computer, open **Settings → Network & connections → Connection status & routes**. Under **VPS relays for this host**, click **Add VPS relay**, enter the address and click **Verify and save relays**.
-3. If an already paired phone does not receive the new route automatically, open **Me → Connection status & routes → Edit routes → Add relay**, enter the same address and tap **Save routes**. A new phone can scan the computer's QR code with **VPS relay** selected.
+3. If an already paired phone does not receive the new route automatically, open **Me → Connection status & routes → Edit routes → Add VPS relay address**, enter the same address and tap **Save routes**. A new phone can scan the computer's QR code with **VPS relay** selected.
 4. Turn off the phone's Wi-Fi and confirm that it connects over cellular data.
 
 ### Add more computers

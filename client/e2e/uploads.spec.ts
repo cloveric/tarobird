@@ -22,8 +22,8 @@ async function paired(page: Page, hub: HubServer, primary = hub.url, fallback = 
   await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','文件验收',?)", [hashSecret(randomBytes(32).toString("base64url"))]);
   const conversation = await hub.store.createConversation("owner", ["alpha"], "文件验收", "fixture");
   await page.goto(hub.url); await page.getByLabel("Hub 地址", { exact: true }).fill(vpsOnly ? "" : primary);
-  if (vpsOnly || primary !== hub.url) { await page.getByText("连接选项与备用中转（可选）", { exact: true }).click(); await page.getByRole("button", { name: "添加中转", exact: true }).click(); }
-  if (vpsOnly) { await page.getByLabel("中转地址", { exact: true }).fill(primary); await page.getByRole("button", { name: "添加备用中转", exact: true }).click(); await page.getByLabel("备用中转 1 地址", { exact: true }).fill(fallback); }
+  if (vpsOnly || primary !== hub.url) { await page.getByText("连接选项与备用中转（可选）", { exact: true }).click(); await page.getByRole("button", { name: "添加 VPS 中转地址", exact: true }).click(); }
+  if (vpsOnly) { await page.getByLabel("中转地址", { exact: true }).fill(primary); await page.getByRole("button", { name: "添加备用 VPS 地址", exact: true }).click(); await page.getByLabel("备用中转 1 地址", { exact: true }).fill(fallback); }
   else if (primary !== hub.url) await page.getByLabel("中转地址", { exact: false }).fill(fallback);
   await preparePairing(page, hub, vpsOnly ? [{ name: "VPS", url: primary }, { name: "VPS", url: fallback }] : [{ name: "Direct", url: primary }, ...(primary !== hub.url ? [{ name: "VPS" as const, url: fallback }] : [])]); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
   await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
