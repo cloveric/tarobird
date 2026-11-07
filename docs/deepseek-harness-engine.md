@@ -106,7 +106,8 @@ TaroCub instance
 `DSH_EXECUTABLE` overrides the executable; otherwise TaroCub uses `dsh` from
 `PATH`. `DSH_HOME` points at the user's authenticated Harness home (default
 `~/.dsh`). TaroCub creates `<stateDir>/dsh-home` with mode `0700`, links the
-shared credentials and profiles, copies mutable `settings.yaml`, and installs
+shared credentials and profiles, copies mutable `settings.yaml` when the shared
+home has one (current dsh no longer writes it), and installs
 the bridge `AGENTS.md` plus permission presets. Before Search MCP registration,
 it validates the installed plugin marker, declared entrypoint, and the bounded
 package-local Harness patch that registers `mcp-cctb-search` through
