@@ -30,6 +30,19 @@
     padding-left: max(12px, var(--app-safe-left));
   }
 
+  /* The sidebar footer sits at the bottom edge (only the absolutely placed
+     resize handle may follow it): its own background
+     covers the home-indicator inset, so the sidebar must not leave a band of
+     its own colour below it. The footer's controls stay above the inset. */
+  :root .sidebar:has(> .sidebar-footer) {
+    padding-bottom: 0;
+  }
+
+  :root:root .sidebar > .sidebar-footer.sidebar-footer {
+    height: calc(56px + var(--app-safe-bottom));
+    padding-bottom: var(--app-safe-bottom);
+  }
+
   :root .pairing-page {
     padding-left: max(24px, var(--app-safe-left));
     padding-right: max(24px, var(--app-safe-right));
