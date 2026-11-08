@@ -14,13 +14,13 @@ async function insets(page: Page) {
 const footer = (page: Page) => page.locator(".host-workspace:not([hidden]) .sidebar > .sidebar-footer");
 const geometry = (page: Page) => page.evaluate(() => {
   const sidebar = document.querySelector(".host-workspace:not([hidden]) .sidebar") as HTMLElement, foot = sidebar.querySelector(":scope > .sidebar-footer") as HTMLElement;
-  const box = foot.getBoundingClientRect(), controls = [...foot.querySelectorAll("button")].map(button => button.getBoundingClientRect().bottom);
-  return { inner: innerHeight, top: box.top, bottom: box.bottom, height: box.height, footerPad: parseFloat(getComputedStyle(foot).paddingBottom), sidebarPad: parseFloat(getComputedStyle(sidebar).paddingBottom), controls: Math.max(...controls) };
+  const box = foot.getBoundingClientRect();
+  return { inner: innerHeight, top: box.top, bottom: box.bottom, height: box.height, footerPad: parseFloat(getComputedStyle(foot).paddingBottom), sidebarPad: parseFloat(getComputedStyle(sidebar).paddingBottom) };
 });
 
 test.describe("touch layout with a home indicator", () => {
   test.use({ viewport: { width: 910, height: 640 }, hasTouch: true });
-  test("the sidebar footer reaches the bottom edge and keeps its controls above the inset", async ({ page }, info) => {
+  test("the 56px sidebar footer sits flush with the bottom edge, as on the desktop", async ({ page }, info) => {
     await insets(page);
     const f = await imageViewerFixture(page);
     try {
@@ -29,11 +29,12 @@ test.describe("touch layout with a home indicator", () => {
       const g = await geometry(page);
       expect(g.bottom).toBe(g.inner);
       expect(g.sidebarPad).toBe(0);
-      expect(g.footerPad).toBe(34);
-      expect(g.height).toBe(56 + 34);
-      expect(g.controls).toBeLessThanOrEqual(g.inner - 34);
+      expect(g.footerPad).toBe(0);
+      expect(g.height).toBe(56);
+      // The home indicator is centred; the footer's controls stay in the left sidebar, clear of it.
+      expect(await footer(page).evaluate(node => node.getBoundingClientRect().right)).toBeLessThan(910 / 2 - 70);
       await page.mouse.move(0, 0); await page.screenshot({ path: info.outputPath("touch-footer.png") });
-      // No inset (e.g. Android native insets): the footer is the ordinary 56px row.
+      // No inset (e.g. Android native insets): unchanged.
       await page.evaluate(() => document.documentElement.style.setProperty("--fixture-safe-bottom", "0px"));
       await expect.poll(async () => (await geometry(page)).height).toBe(56);
       expect((await geometry(page)).bottom).toBe((await geometry(page)).inner);
