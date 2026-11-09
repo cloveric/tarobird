@@ -94,8 +94,10 @@ The console needs a Feishu login. Browser precedence is:
    Codex, Kimi, DeepSeek, and Antigravity.
 3. Work in the operator's signed-in main Chrome. If its tool is unavailable, the agent may
    open or bring the main Chrome forward (for example `open -a "Google Chrome"`) and retry,
-   must ask before quitting or relaunching it, and otherwise reports the limitation. It never
-   reads main-Chrome cookies, passwords or keychain data.
+   must ask before quitting or relaunching it, and otherwise reports the limitation. It does
+   not read main-Chrome cookies, passwords or keychain data unless the operator explicitly
+   asks for that in the conversation. If a task needs them it asks first, and if such a read
+   is refused or fails (for example at a keychain prompt) it says what was needed and why.
 4. Another Chrome (another profile, a profile copy, a headless or managed browser, or a
    CDP/debug port such as 9222/9223) lacks the operator's sign-ins. Use one only when the
    operator names that port or browser, not merely because a skill happens to mention it.

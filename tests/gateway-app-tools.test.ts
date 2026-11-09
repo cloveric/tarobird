@@ -77,7 +77,11 @@ describe("App platform contract", () => {
       expect(browser).toContain("unless the user named that port or browser");
       expect(browser).toContain('open -a "Google Chrome"');
       expect(browser).toContain("ask before quitting or relaunching it");
-      expect(browser).toContain("Never read its cookies, passwords or keychain");
+      // Cookies, passwords and keychain stay closed unless the user asks; a needed
+      // or failed read is reported, not silently skipped.
+      expect(browser).toContain("cookies, passwords or keychain unless the user explicitly asks for it in this conversation");
+      expect(browser).toContain("if a task needs them, ask first");
+      expect(browser).toContain("tell the user what was needed and why it failed");
       expect(browser).not.toContain("No shell/AppleScript");
     }
     expect(larkAgentInstructions()).toBe("");
