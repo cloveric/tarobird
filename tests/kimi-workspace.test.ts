@@ -125,7 +125,7 @@ describe("syncKimiWorkspaceInstructions", () => {
 
     const updated = await readFile(path.join(agentDir, "agent.md"), "utf8");
     expect(updated).toContain("Login: the selected skill's declared browser/profile wins");
-    expect(updated).toContain("CDP/9222/9223 unless legacy CDP was requested");
+    expect(updated).toContain("CDP/9222/9223) unless the user named that port or browser");
     expect(updated).not.toContain("9222/9223 only for a named skill");
   });
 

@@ -92,12 +92,13 @@ The console needs a Feishu login. Browser precedence is:
    engine session actually exposes a main-Chrome/Computer Use tool. Claude Chrome is one
    such route when enabled. TaroCub itself does not make that capability universal across
    Codex, Kimi, DeepSeek, and Antigravity.
-3. If no main-Chrome tool is exposed, report the limitation. Do not improvise through
-   shell/AppleScript, read main-Chrome cookies or keychain data, relaunch Chrome, or silently
-   switch to another browser.
-4. Legacy CDP/debug-port workflows are compatibility fallbacks only. Use one only when the
-   operator explicitly requests that path; never attach to ports 9222/9223 or copy the main
-   Chrome profile merely because a skill happens to mention them.
+3. Work in the operator's signed-in main Chrome. If its tool is unavailable, the agent may
+   open or bring the main Chrome forward (for example `open -a "Google Chrome"`) and retry,
+   must ask before quitting or relaunching it, and otherwise reports the limitation. It never
+   reads main-Chrome cookies, passwords or keychain data.
+4. Another Chrome (another profile, a profile copy, a headless or managed browser, or a
+   CDP/debug port such as 9222/9223) lacks the operator's sign-ins. Use one only when the
+   operator names that port or browser, not merely because a skill happens to mention it.
 
 Public-URL retrieval is independent of signed-in browser control: use `web_extract` or the
 available browser first, fall back to Scrapling for blocked/dynamic pages, otherwise use web
