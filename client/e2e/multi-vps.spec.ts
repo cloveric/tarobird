@@ -30,9 +30,9 @@ async function proxy(hub: HubServer) {
 async function pair(page: Page, hub: HubServer, routes: { url: string; label: string }[]) {
   await page.goto(hub.url); await page.getByLabel("Hub 地址", { exact: true }).fill("");
   await page.getByText("连接选项与备用中转（可选）", { exact: true }).click();
-  await page.getByRole("button", { name: "添加中转", exact: true }).click();
+  await page.getByRole("button", { name: "添加 VPS 中转地址", exact: true }).click();
   for (const [i, route] of routes.entries()) {
-    if (i) await page.getByRole("button", { name: "添加备用中转", exact: true }).click();
+    if (i) await page.getByRole("button", { name: "添加备用 VPS 地址", exact: true }).click();
     await page.getByLabel(i ? `备用中转 ${i} 地址` : "中转地址", { exact: true }).fill(route.url); await page.getByLabel(`中转线路 ${i + 1} 名称`, { exact: true }).fill(route.label);
   }
   await preparePairing(page, hub, routes.map(route => ({ name: "VPS", ...route }))); await page.getByRole("button", { name: "配对此设备", exact: true }).click(); await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
@@ -86,7 +86,7 @@ test("pairs using a backup, persists route edits and refuses a different Hub on 
     primary.mode("blackhole"); await pair(page, hub, [{ url: primary.url, label: "主 VPS" }, { url: backup.url, label: "备用 VPS" }]);
     await expect(page.locator(".connection-pill")).toContainText("备用 VPS");
     await openSettings(page, "connection");
-    await page.getByRole("button", { name: "添加备用中转", exact: true }).click(); await page.getByLabel("备用中转 2 地址", { exact: true }).fill(other.url); await page.getByLabel("中转线路 3 名称", { exact: true }).fill("错误 Hub");
+    await page.getByRole("button", { name: "添加备用 VPS 地址", exact: true }).click(); await page.getByLabel("备用中转 2 地址", { exact: true }).fill(other.url); await page.getByLabel("中转线路 3 名称", { exact: true }).fill("错误 Hub");
     await page.getByRole("button", { name: "上移中转 3", exact: true }).click(); await page.getByRole("button", { name: "上移中转 2", exact: true }).click();
     // A prior background sweep can still be waiting on the blackholed route;
     // allow it to drain and the next sweep to inspect the newly saved route.

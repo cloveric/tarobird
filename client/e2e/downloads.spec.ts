@@ -16,9 +16,9 @@ import { downloadProxy } from "./fixtures/download-proxy.js";
 async function pair(page: Page, hub: HubServer, primary: string, backup: string) {
   await page.goto(hub.url); await page.getByLabel("Hub 地址", { exact: true }).fill("");
   await page.getByText("连接选项与备用中转（可选）", { exact: true }).click();
-  await page.getByRole("button", { name: "添加中转", exact: true }).click();
+  await page.getByRole("button", { name: "添加 VPS 中转地址", exact: true }).click();
   await page.getByLabel("中转地址", { exact: true }).fill(primary);
-  await page.getByRole("button", { name: "添加备用中转", exact: true }).click(); await page.getByLabel("备用中转 1 地址", { exact: true }).fill(backup);
+  await page.getByRole("button", { name: "添加备用 VPS 地址", exact: true }).click(); await page.getByLabel("备用中转 1 地址", { exact: true }).fill(backup);
   await preparePairing(page, hub, [{ name: "VPS", url: primary }, { name: "VPS", url: backup }]); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
   await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
   await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" }); await showDisconnectedBots(page); await waitForClientOnline(page);
