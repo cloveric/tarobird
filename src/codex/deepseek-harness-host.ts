@@ -515,7 +515,10 @@ export async function prepareDeepSeekHarnessHome(
   await mkdir(home, { recursive: true, mode: 0o700 });
   await chmod(home, 0o700).catch(() => {});
   await linkRequired(path.join(sharedHome, "profiles"), path.join(home, "profiles"), "dir");
-  await copyRequiredFile(path.join(sharedHome, "settings.yaml"), path.join(home, "settings.yaml"));
+  // Current dsh no longer writes settings.yaml: it imports a leftover one at
+  // startup and renames it to settings.yaml.imported. A fresh install, or a
+  // shared home the desktop dsh has migrated, has none; credentials still link.
+  await copyOptionalFile(path.join(sharedHome, "settings.yaml"), path.join(home, "settings.yaml"));
   await linkRequired(
     path.join(sharedHome, ".credentials.yaml"),
     path.join(home, ".credentials.yaml"),
@@ -723,6 +726,17 @@ async function copyRequiredFile(source: string, target: string): Promise<void> {
   // the instance home instead of allowing it through to the desktop dsh home.
   await removeIfExists(target);
   await writeFileAtomically(target, contents, 0o600);
+}
+
+/** Mirror an optional shared file into the private home; when the shared file
+ * is absent, drop any stale private copy so each generation starts from it. */
+async function copyOptionalFile(source: string, target: string): Promise<void> {
+  const contents = await readFile(source, "utf8").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  await removeIfExists(target);
+  if (contents !== undefined) await writeFileAtomically(target, contents, 0o600);
 }
 
 async function linkRequired(source: string, target: string, type: "dir" | "file"): Promise<void> {
