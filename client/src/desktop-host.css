@@ -7,6 +7,11 @@
 .pairing-network-choice button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .tailscale-instructions { padding-left: 22px; line-height: 1.65; }
 .tailscale-instructions li + li { margin-top: 6px; }
+.desktop-host-lead { font-weight: 550; }
+.desktop-host-notes { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.desktop-host-notes > p { margin: 0 0 4px; }
+.desktop-host-notes > ul { margin: 0; padding-left: 18px; }
+.desktop-host-notes li + li { margin-top: 4px; }
 .desktop-host-name { display: grid; gap: 8px; min-width: 0; margin: 0 0 22px; }
 .desktop-host-name label { font-size: 14px; font-weight: 600; }
 .desktop-host-name input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 10px 12px; }
