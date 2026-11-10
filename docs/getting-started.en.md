@@ -138,10 +138,13 @@ npm run build --prefix client
 For browser integration tests, install their browsers first:
 
 ```sh
-npx --prefix client playwright install chromium webkit
+npx --prefix client playwright install chromium
 npm run test:e2e --prefix client
-npm run test:webkit --prefix client
 ```
+
+Use Chromium on a personal Mac and disposable macOS CI for WebKit to avoid
+login-keychain prompts. On Linux, install WebKit separately and run
+`npm run test:webkit --prefix client`. See [browser test isolation](client/playwright-keychain-isolation.md).
 
 The browser suites use disposable test data. Tests prefixed `live-` are opt-in
 engine acceptance checks; do not enable them just to view the interface.

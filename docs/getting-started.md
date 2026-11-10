@@ -81,10 +81,13 @@ npm run android:open --prefix client
 npm run build
 npm test
 npm run build --prefix client
-npx --prefix client playwright install chromium webkit
+npx --prefix client playwright install chromium
 npm run test:e2e --prefix client
-npm run test:webkit --prefix client
 ```
+
+个人 Mac 上只运行 Chromium；WebKit 使用一次性 macOS CI，避免测试浏览器
+反复请求登录钥匙串权限。Linux 上可另装 WebKit 后运行 `npm run test:webkit --prefix client`。
+详见[浏览器测试隔离](client/playwright-keychain-isolation.md)。
 
 - [日常使用](client/user-guide.md)：群组、话题、引用、附件、语音与设置。
 - [主机运维](client/operations.md)：服务管理、备份、恢复与文件限制。

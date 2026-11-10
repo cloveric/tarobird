@@ -14,14 +14,18 @@ const require = createRequire(import.meta.url);
 const ts = createRequire(new URL("../../package.json", import.meta.url))("typescript-api");
 
 test("macOS WebKit fails closed, including ordinary CI and false opt-ins", () => {
-  for (const env of [{}, { CI: "1" }, { TAROBIRD_TEST_DISPOSABLE_MAC: "0" }, { TAROBIRD_TEST_DISPOSABLE_MAC: "true" }]) {
+  for (const env of [{}, { CI: "1" }, { TAROBIRD_TEST_DISPOSABLE_MAC: "0" }, { TAROBIRD_TEST_DISPOSABLE_MAC: "true" },
+    { TAROBIRD_TEST_DISPOSABLE_MAC: "1" },
+    { TAROBIRD_TEST_DISPOSABLE_MAC: "1", GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: "self-hosted" },
+    { GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: "github-hosted" },
+  ]) {
     assert.throws(() => assertWebKitTestEnvironment("webkit", { platform: "darwin", env }), /before launching the browser/);
   }
 });
 
-test("only the explicit disposable Mac opt-in permits macOS WebKit", () => {
+test("only the explicit opt-in on a GitHub-hosted Mac permits WebKit", () => {
   assert.doesNotThrow(() => assertWebKitTestEnvironment("webkit", {
-    platform: "darwin", env: { TAROBIRD_TEST_DISPOSABLE_MAC: "1" },
+    platform: "darwin", env: { TAROBIRD_TEST_DISPOSABLE_MAC: "1", GITHUB_ACTIONS: "true", RUNNER_ENVIRONMENT: "github-hosted" },
   }));
 });
 
@@ -31,17 +35,41 @@ test("Chromium, Firefox and non-Mac WebKit keep their existing behavior", () => 
   }
 });
 
-test("specs leave browser selection to the guarded project configuration", async () => {
-  const files = await readdir(path.join(client, "e2e"), { recursive: true });
-  for (const file of files.filter(file => file.endsWith(".ts"))) {
-    const source = ts.createSourceFile(file, await readFile(path.join(client, "e2e", file), "utf8"), ts.ScriptTarget.Latest, true);
+function checkBrowserSelection(text, file) {
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
     const visit = node => {
-      if (ts.isPropertyAssignment(node) && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))) {
-        assert.ok(!["browserName", "defaultBrowserType"].includes(node.name.text), `${file}: browser overrides bypass the project keychain guard`);
+      const call = node.parent?.parent;
+      const fixtureOptions = call && ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression) && ["use", "extend"].includes(call.expression.name.text);
+      if (ts.isPropertyAssignment(node) || (ts.isShorthandPropertyAssignment(node) && fixtureOptions)) {
+        const name = ts.isComputedPropertyName(node.name) ? node.name.expression : node.name;
+        if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
+          assert.ok(!["browserName", "defaultBrowserType"].includes(name.text), `${file}: browser override bypasses the project keychain guard`);
+        }
+      }
+      if (ts.isImportDeclaration(node) && /^(?:@playwright\/test|playwright(?:-core)?)$/.test(node.moduleSpecifier.text)) {
+        const bindings = node.importClause?.namedBindings;
+        if (bindings && ts.isNamedImports(bindings)) for (const binding of bindings.elements) {
+          assert.ok(!["webkit", "devices"].includes((binding.propertyName ?? binding.name).text), `${file}: select WebKit/devices in project config`);
+        }
       }
       ts.forEachChild(node, visit);
     };
     visit(source);
+}
+
+test("browser-selection regression catches shorthand, device and direct WebKit imports", () => {
+  for (const source of ["test.use({browserName})", "test.use({['browserName']: 'webkit'})",
+    "import { devices as phones } from '@playwright/test'; test.use({...phones['iPhone 15']})",
+    "import { webkit as browser } from 'playwright'; browser.launch()",
+  ]) assert.throws(() => checkBrowserSelection(source, "fixture.ts"));
+});
+
+test("specs and browser scripts leave browser selection to guarded configuration", async () => {
+  for (const directory of [path.join(client, "e2e"), path.join(client, "scripts"), path.join(client, "visual-baseline"), path.join(client, "../assets/product")]) {
+    const files = await readdir(directory, { recursive: true });
+    for (const file of files.filter(file => /\.(?:ts|m?js)$/.test(file))) {
+      checkBrowserSelection(await readFile(path.join(directory, file), "utf8"), path.join(directory, file));
+    }
   }
 });
 

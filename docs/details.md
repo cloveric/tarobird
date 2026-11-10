@@ -339,7 +339,7 @@ Do not use production state for development. Other devices cannot reach the host
 | :--- | :--- |
 | Host regression | `npm test`; build with `npm run build` |
 | Client validation | `npm run build --prefix client` (translations, TypeScript, production assets) |
-| Browser regression | In `client/`, run `npx playwright install chromium webkit`, then `npm run test:e2e` / `npm run test:webkit` |
+| Browser regression | In `client/`, run `npx playwright install chromium`, then `npm run test:e2e`; run macOS WebKit only on [isolated CI](client/playwright-keychain-isolation.md) |
 | Desktop development | `npm run desktop:dev --prefix client`; Rust and platform build tools required |
 | Android/iOS project sync | `npm run mobile:sync --prefix client`, then `android:open` / `ios:open`; Android SDK/JDK or Xcode required |
 | Standalone distribution | `npm run pack:standalone`; use the [release checklist](release-checklist.md) for launcher/native toolchains, dependencies and packaging |

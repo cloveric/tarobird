@@ -339,7 +339,7 @@ node dist/src/index.js hub devices approve '<屏幕上的配对码>' --state-dir
 | :--- | :--- |
 | 主机回归 | `npm test`；用 `npm run build` 构建 |
 | 客户端检查 | `npm run build --prefix client`，包含翻译、TypeScript 和生产资源构建 |
-| 浏览器回归 | 在 `client/` 中先运行 `npx playwright install chromium webkit`，再运行 `npm run test:e2e` / `npm run test:webkit` |
+| 浏览器回归 | 在 `client/` 中先运行 `npx playwright install chromium`，再运行 `npm run test:e2e`；macOS WebKit 仅在[隔离 CI](client/playwright-keychain-isolation.md)运行 |
 | 桌面开发 | `npm run desktop:dev --prefix client`，需要 Rust 和平台构建工具 |
 | Android/iOS 工程同步 | `npm run mobile:sync --prefix client`，再执行 `android:open` / `ios:open`；需要 Android SDK/JDK 或 Xcode |
 | 独立分发包 | `npm run pack:standalone`；启动器、原生工具链、依赖和打包前提见[发布清单](release-checklist.md) |

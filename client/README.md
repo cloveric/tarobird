@@ -20,8 +20,11 @@ React 客户端共用于浏览器、Tauri 桌面壳和 Capacitor 手机壳。开
 ```sh
 npm run build --prefix client
 TMPDIR=/tmp/t npm run test:e2e --prefix client
-TMPDIR=/tmp/t npm run test:webkit --prefix client
 npm run mobile:sync --prefix client
 ```
+
+个人 Mac 上运行 Chromium；macOS WebKit 套件由一次性 CI 运行，避免反复弹出
+登录钥匙串授权。Linux 可安装 WebKit 后另跑 `npm run test:webkit --prefix client`。
+见[测试隔离说明](../docs/client/playwright-keychain-isolation.md)。
 
 系统分享入口的原生文件位于 `android/app/src/main/java/com/tarobot/client/ShareInboxPlugin.java` 和 `ios/App/ShareExtension/`。iOS 主程序与扩展须配置同一个 App Group：`group.com.tarobot.client`。新标识需要在开发者后台注册并关联 App Group、生成签名描述文件；模拟器编译不等于共享容器或真机验收，详见 [迁移与发布门槛](../docs/client/native-app-identity-2026-10-28.md)。

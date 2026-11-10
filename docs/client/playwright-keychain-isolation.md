@@ -7,6 +7,11 @@ Starting new workers after timeouts can therefore produce repeated system
 permission dialogs. This is a test-browser issue, separate from the installed
 App's native device identity and its keychain permissions.
 
+An existing entry can trust an older WebKit binary's ad-hoc signature. After a
+browser upgrade, the replacement signature may no longer match that ACL.
+Approving a request after its test process has exited may not retain access for
+the next process, so repeatedly clicking Allow is not a reliable test fix.
+
 The [upstream report](https://github.com/microsoft/playwright/issues/20850)
 describes this dialog and stalled tests. Its closure did not establish a fix.
 The checked Playwright WebKit launcher does not expose Chromium's
@@ -16,8 +21,10 @@ The checked Playwright WebKit launcher does not expose Chromium's
 
 `client/playwright.config.ts` installs `playwright-keychain-guard.mjs` as global
 setup. On macOS, a resolved WebKit project fails **before any worker starts**
-unless `TAROBIRD_TEST_DISPOSABLE_MAC=1` explicitly declares a disposable test
-machine. The WebKit config and CLI `--browser=webkit` / `--browser=all` use the
+unless `TAROBIRD_TEST_DISPOSABLE_MAC=1` is set on a GitHub-hosted runner
+(`GITHUB_ACTIONS=true`, `RUNNER_ENVIRONMENT=github-hosted`, as defined in
+[GitHub's runner variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)).
+The WebKit config and CLI `--browser=webkit` / `--browser=all` use the
 same guard. A mixed config is conservatively blocked if it contains WebKit,
 even when the invocation selects another project. Use the Chromium base config
 for local work. Listing tests does not launch browsers and remains available.
@@ -27,11 +34,13 @@ for local work. Listing tests does not launch browsers and remains available.
   `.github/workflows/client.yml`. Those jobs set the opt-in explicitly. Linux
   WebKit remains available, but does not substitute for macOS media coverage.
 - Never set the opt-in on the owner's everyday desktop, infer it from `CI=1`,
-  or add it to a shell profile to bypass the guard. It is a runner declaration,
-  not a mechanism that isolates an existing keychain.
+  or fabricate runner variables to bypass the guard. These checks prevent
+  accidental local opt-ins; they do not isolate a keychain or attest the machine.
 - Specs select viewport and touch behavior, but leave browser choice to the
   project config. The phone slide journey now runs with the selected engine;
   it no longer silently starts WebKit in a Chromium suite.
+  The base config explicitly selects Chromium, so spreading a phone descriptor
+  cannot switch it through `defaultBrowserType` either.
 - Standalone browser probes must apply `assertWebKitTestEnvironment` before
   launching WebKit too. Do not launch an ad-hoc unguarded WebKit script on the
   owner's Mac. Test selection and this restriction also apply to agents.

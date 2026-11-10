@@ -10,9 +10,12 @@ From `client/`, run:
 
 ```sh
 TMPDIR=/tmp/t npm run test:e2e -- card-layout.spec.ts
-# Requires: npx playwright install webkit
-TMPDIR=/tmp/t npm run test:webkit
 ```
+
+Run WebKit visual coverage on disposable macOS CI, not a personal Mac. On Linux,
+install WebKit and run `npm run test:webkit` separately. Follow
+[browser test isolation](../../docs/client/playwright-keychain-isolation.md);
+temporary test data alone does not isolate the macOS login keychain.
 
 The test invokes the real card constructors through `tests/gateway-cards.test.ts`
 and exports 33 schema-validated, credential-free cases into the ignored

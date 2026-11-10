@@ -4,12 +4,13 @@ export function assertWebKitTestEnvironment(browserName, {
   platform = process.platform, env = process.env,
 } = {}) {
   if (platform !== "darwin" || browserName !== "webkit") return;
-  if (env.TAROBIRD_TEST_DISPOSABLE_MAC === "1") return;
+  if (env.TAROBIRD_TEST_DISPOSABLE_MAC === "1" &&
+      env.GITHUB_ACTIONS === "true" && env.RUNNER_ENVIRONMENT === "github-hosted") return;
   throw new Error(
     "WebKit tests are blocked on a personal Mac before launching the browser: " +
     "persisting CryptoKeys may open repeated Playwright WebCrypto Master Key prompts. " +
-    "Run Chromium locally or use a disposable macOS test runner. " +
-    "Only on that isolated runner, set TAROBIRD_TEST_DISPOSABLE_MAC=1. " +
+    "Run Chromium locally or use the hosted macOS test workflow. " +
+    "Only on that GitHub-hosted runner, set TAROBIRD_TEST_DISPOSABLE_MAC=1. " +
     "Do not grant, delete or reset the owner's keychain to run tests. " +
     "See docs/client/playwright-keychain-isolation.md.",
   );
