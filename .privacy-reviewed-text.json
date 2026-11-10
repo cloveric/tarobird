@@ -534,18 +534,6 @@
       ]
     },
     {
-      "path": "client/vendor/baoyu-design/editor/share-ui.js",
-      "sha256": "7b6b6acd9d66b83c8d37979afa97c744816384a46dc9b192e6131d2f0a84b11f",
-      "reviewer": "codex",
-      "note": "Reviewed the exact upstream 2.9.2 bytes: the unchanged numeric match is SVG path geometry, not a deployment address; other findings remain subject to scanning.",
-      "findings": [
-        {
-          "kind": "non-example-public-ip",
-          "fingerprint": "1adbaf224a504e9f1c749b36a2c615d6bb9405697abd12d38367f56c0a52f4ae"
-        }
-      ]
-    },
-    {
       "path": "client/vendor/baoyu-design/editor/third-party-licenses.txt",
       "sha256": "08463d65ff3633611f07edf6c54696b852b5eec716a55a812c30d4c79b7759f6",
       "reviewer": "codex",
@@ -578,26 +566,6 @@
       ]
     },
     {
-      "path": "client/vendor/baoyu-slides/editor/node/compiler.cjs",
-      "sha256": "eff68ce17fdd83c1b331442e2457157cf9a2b9d1642644b2f7d9c693ca24288c",
-      "reviewer": "codex",
-      "note": "Reviewed unchanged upstream graphics path syntax and compiler/browser version tables; numeric data is not a deployment address.",
-      "findings": [
-        {
-          "kind": "non-example-public-ip",
-          "fingerprint": "488004dac5c665ebbca5636a4cb1db57a04c3f8df7a577e7936c0ed70a39a23c"
-        },
-        {
-          "kind": "non-example-public-ip",
-          "fingerprint": "28f7d84f78d8594f09a8d3b893634edefb9c89efc878e163bf7ef01dab0a31c5"
-        },
-        {
-          "kind": "non-example-public-ip",
-          "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
-        }
-      ]
-    },
-    {
       "path": "client/vendor/baoyu-slides/editor/node/third-party-licenses.txt",
       "sha256": "4bd79f56dc6660adf38a69bbffce120b65d2b5d8dc962d3950fb753a1419acef",
       "reviewer": "codex",
@@ -606,18 +574,6 @@
         {
           "kind": "personal-email",
           "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
-        }
-      ]
-    },
-    {
-      "path": "client/vendor/baoyu-slides/editor/share-ui.js",
-      "sha256": "7b6b6acd9d66b83c8d37979afa97c744816384a46dc9b192e6131d2f0a84b11f",
-      "reviewer": "codex",
-      "note": "Reviewed the exact upstream 2.9.2 bytes: the unchanged numeric match is SVG path geometry, not a deployment address; other findings remain subject to scanning.",
-      "findings": [
-        {
-          "kind": "non-example-public-ip",
-          "fingerprint": "1adbaf224a504e9f1c749b36a2c615d6bb9405697abd12d38367f56c0a52f4ae"
         }
       ]
     },
@@ -1198,6 +1154,70 @@
         {
           "kind": "personal-home-path",
           "fingerprint": "bd2f50cdb07ee625d3fea02ab6b9962b829ac4a4a09f2dbd6015601e796fa100"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-design/editor/share-ui.js",
+      "sha256": "9e2fd43dd7d0b490d6ab4f93bd6b8c6f594f0bc304dd42006ba26e578c8bd095",
+      "reviewer": "codex",
+      "note": "Reviewed exact upstream 2.12.2 bytes: compact SVG path coordinates and codec profile numbers, not network addresses or owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "1adbaf224a504e9f1c749b36a2c615d6bb9405697abd12d38367f56c0a52f4ae"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/share-ui.js",
+      "sha256": "9e2fd43dd7d0b490d6ab4f93bd6b8c6f594f0bc304dd42006ba26e578c8bd095",
+      "reviewer": "codex",
+      "note": "Reviewed exact upstream 2.12.2 bytes: compact SVG path coordinates and codec profile numbers, not network addresses or owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "1adbaf224a504e9f1c749b36a2c615d6bb9405697abd12d38367f56c0a52f4ae"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/assets/index-BIvbGgb1.js",
+      "sha256": "df826d0651a9bc7d3422c205b1bcf9b8935c7bda9a885feb938b52b7a1fb2b44",
+      "reviewer": "codex",
+      "note": "Reviewed exact upstream 2.12.2 bytes: compact SVG path coordinates and codec profile numbers, not network addresses or owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "488004dac5c665ebbca5636a4cb1db57a04c3f8df7a577e7936c0ed70a39a23c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "28f7d84f78d8594f09a8d3b893634edefb9c89efc878e163bf7ef01dab0a31c5"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/node/compiler.cjs",
+      "sha256": "e78327ca935c09c958a0b482c1ce90fa771a35f45ebc97256cc8b5fe4fd22da4",
+      "reviewer": "codex",
+      "note": "Reviewed exact upstream 2.12.2 bytes: compact SVG path coordinates and codec profile numbers, not network addresses or owner data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "488004dac5c665ebbca5636a4cb1db57a04c3f8df7a577e7936c0ed70a39a23c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "28f7d84f78d8594f09a8d3b893634edefb9c89efc878e163bf7ef01dab0a31c5"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
         }
       ]
     }

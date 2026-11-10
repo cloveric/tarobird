@@ -14,11 +14,23 @@ paths = ['^client/vendor/baoyu-slides/editor/assets/index-S9woRl4b\.js$', '^clie
 regexTarget = "match"
 regexes = ['\Aaria-keyshortcuts":te\.shortcut===void \z']
 [[allowlists]]
+description = "Reviewed Design 2.12.2 shortcut comparison, not a credential"
+condition = "AND"
+paths = ['^client/vendor/baoyu-design/editor/assets/index-B0Ur8XcL\.js$']
+regexTarget = "match"
+regexes = ['\Aaria-keyshortcuts":pe\.shortcut===void \z']
+[[allowlists]]
+description = "Reviewed Slides 2.12.2 shortcut comparison, not a credential"
+condition = "AND"
+paths = ['^client/vendor/baoyu-slides/editor/assets/index-BIvbGgb1\.js$']
+regexTarget = "match"
+regexes = ['\Aaria-keyshortcuts":Ie\.shortcut===void \z']
+[[allowlists]]
 description = "Exact non-credential strings in the Design scanner regression itself"
 condition = "AND"
 paths = ['^scripts/privacy-guards\.node-test\.mjs$']
 regexTarget = "match"
-regexes = ['\Aaria-keyshortcuts":J\.shortcut===void \z', '\AapiKey="J\.shortcut===void"\z', '\Aaria-keyshortcuts":te\.shortcut===void \z', '\AapiKey="te\.shortcut===void"\z']
+regexes = ['\Aaria-keyshortcuts":J\.shortcut===void \z', '\AapiKey="J\.shortcut===void"\z', '\Aaria-keyshortcuts":te\.shortcut===void \z', '\AapiKey="te\.shortcut===void"\z', '\Aaria-keyshortcuts":pe\.shortcut===void \z', '\AapiKey="pe\.shortcut===void"\z', '\Aaria-keyshortcuts":Ie\.shortcut===void \z', '\AapiKey="Ie\.shortcut===void"\z']
 [[allowlists]]
 description = "Reviewed upstream Slides compiler keyboard modifier constant, not a credential"
 condition = "AND"

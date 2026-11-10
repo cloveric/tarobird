@@ -1,7 +1,7 @@
 # baoyu-design canvas editor
 
 Source: https://github.com/JimLiu/baoyu-design
-Pinned commit: `3ba4ecbcc9c3a468739f5515b30ac4f151563539` (2.9.2).
+Pinned commit: `807fe38ac8f0a82afcfba0d38ef3ef5c32e69c93` (2.12.2).
 Component: `skills/claude-design/scripts/editor` and its artifact format references.
 Mixed licensing: the maintainer's original work is MIT; the reconstructed editor, references and Anthropicons are outside that grant. Retain LICENSE, NOTICE.md and editor/third-party-licenses.txt. See upstream NOTICE.md for the stated scope; availability here does not expand its grant.
 
@@ -11,8 +11,9 @@ build time: show the framed toolbar, bind the synthetic local file service,
 omit unimplemented upstream comment/chat capabilities, settle active editing
 before the upstream save handshake, map local assets in
 initial/live previews, and retain full blob URLs for runtime/Babel resources. A mismatch fails the build.
-The adapter is separate TaroBot code. The upstream server, model integration,
-slides/dashboard/design-system editors and host-writing skill are not installed.
+The adapter is separate TaroBird code. The upstream server, model integration,
+dashboard/design-system editors and host-writing skill are not installed. PPT
+uses the separately pinned editor in `client/vendor/baoyu-slides`.
 
 The trusted loader only redirects to an opaque data document; project HTML never
 runs in the App origin. A per-tab MessagePort provides bounded files and CAS

@@ -11,8 +11,8 @@ describe("browser Design sandbox resources", () => {
   }, 30_000);
   it.each(["canvas", "slides"] as const)("%s labels chat acceptance without claiming the Bot is working", format => {
     const html = buildDesignSandbox(format);
-    expect(html.includes('working:T,footnote:T==="queued"?"Waiting for the agent":"Working…"')).toBe(false);
-    expect(html.includes('footnote:T==="queued"?"Draft ready":"Sent to Bot"')).toBe(true);
+    expect(html).not.toContain('Waiting for the agent');
+    expect(html).toMatch(/footnote:[A-Za-z]+==="queued"\?"Draft ready":"Sent to Bot"/);
   }, 30_000);
   it("keeps the PPTX Node compiler out of the iframe while retaining its browser decoder", () => {
     const html = buildDesignSandbox("slides");

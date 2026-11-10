@@ -1,14 +1,14 @@
 {
   "repository": "https://github.com/JimLiu/baoyu-design",
-  "commit": "3ba4ecbcc9c3a468739f5515b30ac4f151563539",
-  "version": "2.9.2",
+  "commit": "807fe38ac8f0a82afcfba0d38ef3ef5c32e69c93",
+  "version": "2.12.2",
   "component": "claude-design",
   "adapted": true,
   "upstreamFiles": {
-    "SKILL.md": "2b2a88ddf696cbf2128a6bdca3fc24520f2fbe8c979d7db2a910b846e595aacf",
+    "SKILL.md": "86c149e92e0982937ee774352761c8d5d29999ae2252e7b4ef8cecf4114e28ba",
     "artifact-type/reference/brand-colors.md": "f451f1e68b640f2bbe4d15420339ddcb7a84595cb7d12e888caa1a6bd5bd4b3a",
     "artifact-type/reference/brand-typography.md": "d3aa7f635e355d674680a54fe305d4efc66463c25ec04e0a1243f8937a9ece20",
-    "artifact-type/reference/craft.md": "73b64cfb2ffb7f0bded39bbd0a71c9795fe887764eb9d18edfa913f31f0ba538",
+    "artifact-type/reference/craft.md": "d6fc81adee30d8cd3abe2e700488a29a884b1932bf790db52a1143edd6726fd3",
     "artifact-type/reference/design-system-components.md": "be6d36c90371cd28dccc509d4e1cf7bd65f1b8253de8cd4d084123303dcebdb7",
     "artifact-type/reference/diagrams.md": "c5747e7ab8d8bd04e7ac484f10be02728b9f8f2df1c024024d1d218be9bb20a7",
     "artifact-type/reference/format.md": "b509b31cc2db41a7ddc247f67b164c0f6f755e3f07d909ad3baf20a27718b771",
@@ -19,7 +19,7 @@
     "artifact-type/reference/print.md": "f2b00538b800f8c3d1456baa916c72db1f2ab82c0ea886b0a3ef8c7a7d3e7c07",
     "artifact-type/reference/questions.md": "34139a6b25e7b6048b8c98afbb7892116c9c3dc7369f22b5cf9c88d06cab108e",
     "artifact-type/reference/view-state.md": "2b40c2de9bda3130f15d5c4fb5ec8529224d2eea8bf7df6426205dd52bbcb87c",
-    "scripts/artifact.mjs": "a18d8299ffe7f169713cedbface89d0a14d848e1d48eb1c2b04bce6beb8b07d6",
-    "scripts/server.mjs": "c0cbd578e645c12d2dc170b80003a5a9313e8e40353fc254982ceab2af3447bd"
+    "scripts/artifact.mjs": "83d9aa62ae4094a0945c8bbd14944536ba0fa7e486f27c5555f1238ee7711eed",
+    "scripts/server.mjs": "ea3855368c76ff8de52ee8381ea26f1cbe578b46fb9772144098b32661361b2a"
   }
 }

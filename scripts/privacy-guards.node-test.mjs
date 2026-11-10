@@ -13,6 +13,8 @@ for (const [editor, asset, symbol] of [
   ['baoyu-slides', 'index-S9woRl4b.js', 'te'],
   ['baoyu-design', 'index-CYLuwRoc.js', 'J'],
   ['baoyu-slides', 'index-7OEzB54c.js', 'te'],
+  ['baoyu-design', 'index-B0Ur8XcL.js', 'pe'],
+  ['baoyu-slides', 'index-BIvbGgb1.js', 'Ie'],
 ]) test(`${editor}/${asset} shortcut expression exception requires exact JavaScript syntax and exact asset path`, () => {
   const root = mkdtempSync(join(tmpdir(), 'privacy-design-'));
   const source = fileURLToPath(new URL('../', import.meta.url));
@@ -202,7 +204,10 @@ test('public upstream worker key exception is limited to exact bytes and path', 
   const root = mkdtempSync(join(tmpdir(), 'privacy-worker-'));
   const source = fileURLToPath(new URL('../', import.meta.url));
   const file = 'client/vendor/baoyu-design/editor/artifact-type/fast-edit-worker.js';
-  const publicKey = readFileSync(join(source, file), 'utf8').match(/-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA )?PRIVATE KEY-----/)[0];
+  // Upstream 2.12.2 removed the public Happy DOM fixture from the worker.
+  // Keep testing the historical exception against its immutable known digest;
+  // old reachable revisions still need the same narrow scan boundary.
+  const publicKey = readFileSync(join(source, '.gitleaks.toml'), 'utf8').match(/-----BEGIN (?:RSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA )?PRIVATE KEY-----/)[0];
   assert.equal(createHash('sha256').update(publicKey).digest('hex'), '7f7f8c83ded111336dca167452776b8b6c35e4223882103df5edeb55875a2d41');
   try {
     copyFileSync(join(source, '.gitleaks.toml'), join(root, '.gitleaks.toml'));

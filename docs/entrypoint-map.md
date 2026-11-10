@@ -4791,6 +4791,10 @@ authorized Design/PPT release scope, CLI parity and fresh upstream inventory.
 
 ### Baoyu Design / Baoyu PPT skills (2026-11-03)
 
+[The 2026-11-10 upstream refresh](client/workbench-upstream-2026-11-10.md) pins
+both editors and adapted skills to 2.12.2, keeps offline authoring and native PPT
+routing, and records editor/browser acceptance separately from installed Apps.
+
 `skills/baoyu-design` and `skills/baoyu-ppt` are TaroBot adapters, with pinned
 upstream authoring references, not upstream's local-server workflow. Use them
 for explicit Baoyu requests or an unambiguous continuation of the selected Baoyu

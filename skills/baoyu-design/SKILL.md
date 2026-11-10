@@ -45,6 +45,11 @@ Artifact calls, server commands, host paths and uploads mentioned there do not
 exist in this adapter. Do not install or run upstream `artifact.mjs` for this task.
 No CDN, network, arbitrary Host files, or model-powered image generation is exposed
 inside the editor. Prefer inline CSS/SVG and system fonts; user UI handles imports.
+Choose typography for the brief and language, and preserve the faces of existing
+work. Upstream's neutral Latin pairing is Inter with Space Grotesk headings, but
+only use those faces when available locally or already in the project. Otherwise
+use suitable system fallbacks; Chinese and other scripts need matching glyphs.
+The upstream Google Fonts link recipe does not enable network fonts in this App.
 
 Publish changed files and canvas index atomically through `design.publish`, with
 its full target, actual `expectedRevision` and a fresh request ID for each new action.
@@ -53,6 +58,11 @@ identical request ID and arguments. Only `applied` + `saved:true` means persiste
 Read back relevant content; `editorReloadRequested` alone is not rendering proof.
 Inspect the visible canvas when available before claiming the result looks right.
 Exports are explicit user actions. Do not substitute a local path for the saved App project.
+When asked to bring a canvas into Figma, point to Export → HTML for Figma only
+if that control is present in the running editor. The exported page contains
+rendered artboards without frames; the user can open it in Chrome and capture it
+with Figma's extension. Do not promise this option in an older installed App or
+claim that directly capturing the embedded canvas imports its artboard contents.
 
 `UPSTREAM.json` pins the original skill and authoring references to the bundled
 editor version. During upgrades review their changes against this adapter's API

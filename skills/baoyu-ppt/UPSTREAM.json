@@ -1,16 +1,16 @@
 {
   "repository": "https://github.com/JimLiu/baoyu-design",
-  "commit": "3ba4ecbcc9c3a468739f5515b30ac4f151563539",
-  "version": "2.9.2",
+  "commit": "807fe38ac8f0a82afcfba0d38ef3ef5c32e69c93",
+  "version": "2.12.2",
   "component": "claude-slides",
   "adapted": true,
   "upstreamFiles": {
-    "SKILL.md": "d83f249d332ba180bef2ecba89abd82ec3a8e1bfe74b848ca2daceb60cb8de3a",
-    "artifact-type/reference/craft.md": "49c67a742f35985216586de4cb1fe6c295b2616a1b42ab55ec9332870c715b8b",
+    "SKILL.md": "3916564c8b13be36951026dc5535cd4f19f595765483fb7f6d719eeacd6013ca",
+    "artifact-type/reference/craft.md": "adc599855fedd200c9d9155d55f94721ce20bfff019e49dbf810c68edd10b5cf",
     "artifact-type/reference/deck-files.md": "b10bccc76c0420f994d8ebd6ce25b0da288825ae40afd63be96f5799220efba5",
     "artifact-type/reference/diagram-recipes.md": "9ff69058b0ef21c12cf4f89c1a5c434335cc3208b8742200e663686e425cc3ae",
     "artifact-type/reference/diagrams.md": "b9ecc6d915bb76df18e8d57617a99b867225445504b74966632985236d8d5164",
-    "artifact-type/reference/fonts.md": "43aebf54206513e64d7bad93ba0ddaec69cb5c6b3fe1a7a53ce255173024ae59",
+    "artifact-type/reference/fonts.md": "af1c667f22c5953fd8db746c37001b2afb0345e98a31648897800813bc6f047d",
     "artifact-type/reference/format.md": "32c7498c320dea867c35cf27020923b1a0073a2759c8f4013c6de3b602b4045c",
     "artifact-type/reference/google-fonts-families.json": "82a204043c9adf9d3134fa1850513921b4269a3358671a2d6d8831f447b2ed4c",
     "artifact-type/reference/google-fonts-notices.json": "b764de9e3b7a62974d60604d0a051a014a9a8e070001835a0964782473b6af64",
@@ -21,7 +21,7 @@
     "artifact-type/reference/questions.md": "70ba904f7bcb4084398cc74d22af1e2bb8cfd931163974f95266992a7a8ce3b7",
     "artifact-type/reference/styles.md": "9bee74605ed03ea28f3c41c3d1fb65c9e959e1a78cc3bedc2773800cc55194c2",
     "artifact-type/reference/view-state.md": "b81f6ddd448ca8fb052bafa7c2f646347d7ef5267bca428a18648623db1cac95",
-    "scripts/artifact.mjs": "7e0eae8975a340c7458f25f8c61896d7f4102589d9c85c6441eb1e929bf6b4a1",
-    "scripts/server.mjs": "047e35cf6df743158b0b9cb68c26a3ef2c0de0de02259c8de37f591f4f3d74fc"
+    "scripts/artifact.mjs": "96130c4926bc0486aca23c675a8f8ef85fe7105d06fa8b83297ea0aae5cc85d4",
+    "scripts/server.mjs": "4b091837b75043386397a93f0612cfaaad82a6b397b8ed1fbe01ed210a1cb3c4"
   }
 }

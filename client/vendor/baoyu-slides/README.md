@@ -1,14 +1,15 @@
 # Baoyu Slides vendor
 
-Pristine Slides editor and authoring references from JimLiu/baoyu-design 2.9.2,
-commit `3ba4ecbcc9c3a468739f5515b30ac4f151563539`, aligned with the canvas editor.
+Pristine Slides editor and authoring references from JimLiu/baoyu-design 2.12.2,
+commit `807fe38ac8f0a82afcfba0d38ef3ef5c32e69c93`, aligned with the canvas editor.
 `UPSTREAM.json` records every included byte. `skills/baoyu-ppt/UPSTREAM.json`
 records upstream skill/helper provenance. The adapted entry loaded by Bots is
 `skills/baoyu-ppt/SKILL.md`.
 
 `client/design-assets.ts` verifies hashes and applies bounded, fail-closed patches
-when emitting `slides-sandbox.html`. It selects the file-backed deck mode, removes
-unimplemented chat/comments/room/merge integration, flushes live text before saves,
+when emitting `slides-sandbox.html`. It selects the file-backed deck mode, keeps
+comments on the tab-owned bridge, omits standalone chat/merge and batch dispatch,
+flushes live text before saves,
 resolves local image/font resources and connects user exports to the parent save
 flow. No upstream server, external network, filesystem, account or share service
 is installed. The editor runs under the existing opaque-origin Design loader.

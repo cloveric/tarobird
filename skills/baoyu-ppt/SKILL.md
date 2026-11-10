@@ -54,6 +54,11 @@ Artifact tools, local filesystem writes, `artifact.mjs`, servers or upstream upl
 Our editor is offline and isolated: use system fonts, inline supported shapes/SVG,
 and assets already uploaded through its UI. Do not promise unavailable network
 fonts or programmatic binary uploads. Start from the real starter, not a guessed schema.
+Keep the typography of existing decks. For new work choose faces for the brief
+and language; upstream's neutral Latin pairing is Inter with Space Grotesk
+headings, only when those fonts are available locally or in the project. Use
+system fallbacks otherwise. Space Grotesk does not provide Chinese glyphs;
+choose a matching script-capable face. Do not copy upstream's external font links.
 
 Use 1920×1080 slide coordinates, inline supported CSS and one idea per slide.
 Unsupported markup/styles are removed by the editor. Avoid invented statistics;
