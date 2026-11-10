@@ -59,6 +59,7 @@ import { PassiveAttachments, type AttachmentLease } from "./passive-attachments.
 import type { StopReceipt } from "./run-stop.js";
 
 import { memoryAttachment, sweepTemporaryDownloads, type AttachmentSource } from "./download-buffer.js";
+import { DISK_CACHE_MIN_BYTES, diskCacheKey, readCachedAttachment, storeCachedAttachment } from "./attachment-disk-cache.js";
 
 export type Bot = { id: string; name: string; engine: string; model: string; effort: string; online: number; managed?: number; deletedAt?: number; defaultAvatar?: string; role?: string };
 // `role` is open-ended so a newer Host role cannot reject the whole directory; only "dispatcher" has meaning here.
@@ -1317,10 +1318,17 @@ export class HubConnection {
     const cached = await this.cache.attachment(id).catch(() => undefined);
     if (options.signal?.aborted) throw new Error(t("下载已取消。"));
     if (cached) { options.progress?.(1); return memoryAttachment(cached); }
+    // Larger files (videos, mostly) are kept on disk instead: opening or saving
+    // one again must not download it again.
+    const diskKey = diskCacheKey(this.identity, id), onDisk = await readCachedAttachment(diskKey);
+    if (onDisk && options.signal?.aborted) { await onDisk.dispose(); throw new Error(t("下载已取消。")); }
+    if (onDisk) { options.progress?.(1); return onDisk; }
     const { downloadAttachmentSource } = await import("./downloads.js");
     const preferDisk = nativePlatform() !== "web" || await (await import("./browser-download.js")).supportsBrowserDownload();
     const source = await downloadAttachmentSource(this, id, options, preferDisk);
     if (!this.closed) await this.cache.saveAttachment(id, source.blob).catch(() => undefined);
+    // Copied in the background; the copy holds its own lease on the download.
+    if (!this.closed && source.blob.size > DISK_CACHE_MIN_BYTES) void storeCachedAttachment(diskKey, source.retain());
     return source;
   }
   get downloadCheckpoints() { return this.cache.downloadCheckpoints(this.identity); }

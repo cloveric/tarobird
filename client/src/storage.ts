@@ -1,4 +1,5 @@
 import { createDesignBackup, type DesignBackupContent } from "./workbench-design-backup.js";
+import { clearAttachmentDiskCache } from "./attachment-disk-cache.js";
 import type { DesignPersistSidecar } from "./workbench-design-session.js";
 import { designDocumentSchema, encodeDesignFile, decodeDesignFile, type DesignFile, type DesignDocument } from "./workbench-design.js";
 import { clearNoteRecoveries } from "./workbench-note-recovery.js";
@@ -658,7 +659,7 @@ export class ClientCache {
       await tx.objectStore("downloadMeta").clear(); await tx.objectStore("downloadChunks").clear();
     }
     await tx.done;
-    if (current && draftOwner(current) === draftOwner(identity)) this.diffReviewsChanged();
+    if (current && draftOwner(current) === draftOwner(identity)) { this.diffReviewsChanged(); await clearAttachmentDiskCache(); }
   }
   async saveIdentity(identity: Identity): Promise<void> {
     const previous = await this.identity();
@@ -714,6 +715,8 @@ export class ClientCache {
     if (preferences) await tx.objectStore("settings").put(preferences, "preferences");
     if (generation) await tx.objectStore("settings").put(generation, "cacheGeneration");
     await tx.done;
+    // Large downloads live on disk, outside these stores; drop them with the rest.
+    await clearAttachmentDiskCache();
     if (identity) { clearNoteRecoveries(identity.deviceId); this.clearSelectionHint(this.selectionHintKey(identity, generation as string | undefined)); }
     this.draftsChanged();
     this.diffReviewsChanged();

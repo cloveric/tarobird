@@ -16,7 +16,7 @@ export interface AttachmentSource {
   retain(): AttachmentSource;
   dispose(): Promise<void>;
 }
-function leasedSource(blob: Blob, storage: AttachmentSource["storage"], dispose: () => Promise<void>, browserLock?: string): AttachmentSource {
+export function leasedSource(blob: Blob, storage: AttachmentSource["storage"], dispose: () => Promise<void>, browserLock?: string): AttachmentSource {
   let references = 0;
   const lease = (): AttachmentSource => {
     references++; let released = false;
