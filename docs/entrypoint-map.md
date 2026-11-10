@@ -692,7 +692,9 @@ and the existing network/run/delete suites listed in that audit.
   suites, browser `updates*`, and the isolated `macos-update-audit` binary.
   `client/scripts/macos-signing.mjs` is the Developer ID signing/verification
   step (Node-only library-validation exception, foreign-addon load check). Tests:
-  `macos-signing`.
+  `macos-signing`. `client/scripts/macos-macho-linkedit.mjs` strips Mac Rust
+  binaries with Apple strip and gates every bundled Mach-O string table's
+  alignment (#15). Tests: Electron `macho-linkedit`, `build-plan`.
   `scripts/verify-macos-recovery.mjs` runs packaged old/new Mac hosts against
   external synthetic state, including corruption and quarantined-state recovery.
   [Mac recovery laboratory](client/macos-recovery-lab-2026-10-16.md) records

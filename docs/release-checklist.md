@@ -126,7 +126,12 @@ extraction. A held release keeps its `OWNER-HOLD.json` at the task root.
    remove Chromium's JIT rights. `electron-macos-artifacts.mjs` verifies every
    executable, loads a foreign native addon in bundled Node, notarizes/staples,
    creates the DMG and updater archive, mounts/extracts the final artifacts and
-   signs/verifies the archive's version. Only Host Node receives
+   signs/verifies the archive's version. Mac Rust binaries link unstripped and
+   their packaged copies are stripped with Apple `strip -x` before identity
+   normalization and signing; each verified App copy rejects a Mach-O whose
+   LC_SYMTAB string table is not pointer-aligned (#15), except the one exact
+   third-party path/offset listed in `macos-macho-linkedit.mjs` and its receipt.
+   Only Host Node receives
    `disable-library-validation`; Electron main and renderer helpers receive JIT
    rights without that exception. Publish the `.app.tar.gz`, its signature and
    `macos-tarobot-latest.json` together. A DMG-only upload does not update the

@@ -14,6 +14,7 @@ import { preparationEnvironment } from '../../scripts/build-environment.mjs';
 import { releaseArtifactNames } from '../../scripts/release-artifact-names.mjs';
 import { releaseConfig } from './desktop-release.mjs';
 import { normalizeMacAddonIdentity } from './macos-addon-identity.mjs';
+import { MAC_RUST_STRIP, stripMacBinary } from './macos-macho-linkedit.mjs';
 const client = fileURLToPath(new URL('..', import.meta.url)), repository = path.dirname(client);
 
 async function run(command, args, cwd, env) {
@@ -37,7 +38,25 @@ export function electronBuildPlan(options, env = process.env) {
   if (production && platform === 'darwin' && (!env.APPLE_SIGNING_IDENTITY || env.APPLE_SIGNING_IDENTITY === '-' || !env.TAROBOT_APPLE_TEAM_ID || !env.TAROBOT_NOTARY_PROFILE)) throw new Error('Production Mac builds require Developer ID, Team ID and a notarytool keychain profile');
   for (const name of ['out', 'cache', 'targetDir']) if (!options[name] || !path.isAbsolute(options[name])) throw new Error(`An absolute --${name} path below .noindex is required`);
   if (production && !options.sourceCommit) throw new Error('--sourceCommit is required for production');
-  return { platform, arch, target, production, updateConfig, updateProvider: updateConfig['github-updates'] ? 'github' : updateConfig.updater ? 'default' : 'none' };
+  // #15: rustc's Apple strip can leave LC_SYMTAB's string table only 4-byte
+  // aligned, which some macOS dyld versions refuse to load. Mac crates link
+  // unstripped; their packaged copies are stripped with Apple's strip instead.
+  const cargoEnv = platform === 'darwin' ? { CARGO_PROFILE_RELEASE_STRIP: 'false' } : { CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: '-C target-feature=+crt-static' };
+  return { platform, arch, target, production, updateConfig, updateProvider: updateConfig['github-updates'] ? 'github' : updateConfig.updater ? 'default' : 'none',
+    cargoEnv, strip: platform === 'darwin' ? MAC_RUST_STRIP : null };
+}
+export const DESKTOP_RUST_CRATES = Object.freeze([
+  ['core', 'src-desktop-core', ['--bin', 'tarobot-desktop-core']],
+  ['native', 'src-desktop-native', ['--lib']],
+  ['updater', 'src-desktop-updater', ['--bins']],
+  ['exporter', 'src-tauri', ['--features', 'desktop-migration-exporter', '--bin', 'tarobot-migration-exporter']],
+]);
+export function rustBuildCommand(plan, [kind, directory, args], { targetDir, buildEnv, version, hostPlatform = process.platform }) {
+  const target = path.join(targetDir, `${kind}.noindex`);
+  return { kind, target, cwd: path.join(client, directory), command: 'cargo',
+    args: [...(plan.platform === 'win32' && hostPlatform !== 'win32' ? ['xwin'] : []), 'build', '--release', '--locked', '--target', plan.target, ...args],
+    env: { ...buildEnv, CARGO_TARGET_DIR: target, ...plan.cargoEnv,
+      ...(kind === 'exporter' ? { TAURI_CONFIG: JSON.stringify({ version, build: { windows: { staticVCRuntime: false } }, bundle: { resources: null } }) } : {}) } };
 }
 export async function buildElectronDesktop(options, env = process.env) {
   const plan = electronBuildPlan(options, env);
@@ -51,31 +70,28 @@ export async function buildElectronDesktop(options, env = process.env) {
   await run(process.execPath, ['scripts/prepare-desktop-host.mjs', '--platform', plan.platform, '--arch', plan.arch], repository, buildEnv);
   await run(process.execPath, ['scripts/build-migration-exporter.mjs'], client, buildEnv);
   const pkg = JSON.parse(await readFile(path.join(client, 'package.json')));
-  const crates = [
-    ['core', 'src-desktop-core', ['--bin', 'tarobot-desktop-core']],
-    ['native', 'src-desktop-native', ['--lib']],
-    ['updater', 'src-desktop-updater', ['--bins']],
-    ['exporter', 'src-tauri', ['--features', 'desktop-migration-exporter', '--bin', 'tarobot-migration-exporter']],
-  ];
   const binaries = {};
-  for (const [kind, directory, args] of crates) {
-    const target = path.join(targetDir, `${kind}.noindex`); await mkdir(target, { recursive: true });
-    await run('cargo', [...(plan.platform === 'win32' && process.platform !== 'win32' ? ['xwin'] : []), 'build', '--release', '--locked', '--target', plan.target, ...args], path.join(client, directory), {
-      ...buildEnv, CARGO_TARGET_DIR: target,
-      ...(plan.platform === 'win32' ? { CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: '-C target-feature=+crt-static' } : {}),
-      ...(kind === 'exporter' ? { TAURI_CONFIG: JSON.stringify({ version: pkg.version, build: { windows: { staticVCRuntime: false } }, bundle: { resources: null } }) } : {}),
-    });
-    binaries[kind] = path.join(target, plan.target, 'release');
+  for (const crate of DESKTOP_RUST_CRATES) {
+    const command = rustBuildCommand(plan, crate, { targetDir, buildEnv, version: pkg.version });
+    await mkdir(command.target, { recursive: true });
+    await run(command.command, command.args, command.cwd, command.env);
+    binaries[command.kind] = path.join(command.target, plan.target, 'release');
   }
   const suffix = plan.platform === 'win32' ? '.exe' : '';
   const addon = path.join(out, 'tarobot-desktop-native.node');
   await cp(path.join(binaries.native, plan.platform === 'win32' ? 'tarobot_desktop_native.dll' : 'libtarobot_desktop_native.dylib'), addon);
+  let helper = path.join(binaries.core, `tarobot-desktop-core${suffix}`), updater = path.join(binaries.updater, `tarobot-desktop-updater${suffix}`);
+  let exporter = path.join(binaries.exporter, `tarobot-migration-exporter${suffix}`);
+  if (plan.strip) {
+    // Strip the exact copies that are packaged, before identity and signing.
+    [helper, updater, exporter] = await Promise.all([helper, updater, exporter].map(async file => { const copy = path.join(out, path.basename(file)); await cp(file, copy); return copy; }));
+    for (const file of [addon, helper, updater, exporter]) stripMacBinary(file, plan.strip);
+  }
   if (plan.platform === 'darwin') normalizeMacAddonIdentity(addon);
   const updateConfig = path.join(out, 'update-config.json'); await writeFile(updateConfig, JSON.stringify(plan.updateConfig));
   const packaged = await packageDesktop({ ...options, platform: plan.platform, arch: plan.arch, production: plan.production,
     out: path.join(out, 'package.noindex'), cache, identity: env.APPLE_SIGNING_IDENTITY, keychain: env.TAROBOT_SIGNING_KEYCHAIN,
-    helper: path.join(binaries.core, `tarobot-desktop-core${suffix}`), addon,
-    updater: path.join(binaries.updater, `tarobot-desktop-updater${suffix}`), exporter: path.join(binaries.exporter, `tarobot-migration-exporter${suffix}`),
+    helper, addon, updater, exporter,
     host: path.join(client, 'src-tauri/host'), updateConfig });
   let artifacts;
   if (options.packageOnly) artifacts = { packageOnly: true };

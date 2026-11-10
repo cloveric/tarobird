@@ -13,6 +13,7 @@ import { ELECTRON_RIGHTS, electronSignable, electronSigningRole } from './electr
 import { inspectSignature, verifyForeignAddon } from './macos-signing.mjs';
 import { verifyDesktopUpdateArtifact } from './desktop-update-manifest.mjs';
 import { notarizeElectron } from './electron-notarization.mjs';
+import { verifyMachOStringTables } from './macos-macho-linkedit.mjs';
 const client = fileURLToPath(new URL('..', import.meta.url));
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 180000, ...options });
@@ -34,6 +35,8 @@ export async function verifyElectronMac(app, { team, production = false, scratch
     }
   };
   await walk(app);
+  // #15: dyld on some macOS releases refuses a misaligned LINKEDIT string pool.
+  const stringTables = await verifyMachOStringTables(app);
   const records = targets.map(file => ({ path: path.relative(app, file), role: electronSigningRole(app, file), ...inspectSignature(file) }));
   for (const record of records) {
     const actual = Object.entries(record.entitlements).filter(([, value]) => value === true).map(([key]) => key).sort();
@@ -41,7 +44,7 @@ export async function verifyElectronMac(app, { team, production = false, scratch
     if (production && (record.adhoc || !record.runtime || !record.timestamp || !team || record.team !== team)) throw new Error(`Incomplete Developer ID signature: ${record.path}`);
   }
   const foreign = scratch ? verifyForeignAddon(path.join(app, 'Contents/Resources/host/node'), await isolatedRoot(scratch)) : undefined;
-  return { app, production, records, foreign };
+  return { app, production, records, foreign, stringTables };
 }
 
 export async function macosArtifacts({ app, out, version, production = false, team, notaryProfile, publicKey, env = process.env }) {
