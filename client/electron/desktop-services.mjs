@@ -9,6 +9,7 @@ import { DesktopUpdates, UPDATE_COMMANDS } from './updater.mjs';
 import { BROWSER_COMMANDS, BROWSER_EVENT, WorkbenchBrowser } from './browser.mjs';
 import { prepareDesignQuit, cancelDesignQuit } from './design-quit.mjs';
 import { windowsUnreadBadge } from './windows-unread-badge.mjs';
+import { readClipboardImage } from './clipboard-image.mjs';
 
 const empty = z.object({}).strict();
 const point = z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) }).strict();
@@ -77,6 +78,7 @@ export class DesktopServices {
   emit(name, payload) { if (!this.window.isDestroyed()) this.window.webContents.send(DESKTOP_EVENT, { name, payload }); }
   async request(command, input, active) {
     if (!active()) throw new Error('native_document_retired');
+    if (command === 'desktop_clipboard_image') return readClipboardImage(this.window, this.electron.clipboard, input, active);
     if (UPDATE_COMMANDS.includes(command)) {
       if (this.migration && !this.migration.ready && ['github_update_install', 'restart_client'].includes(command)) throw new Error('migration_not_complete');
       if (!this.updates) throw new Error('github_update_configuration');

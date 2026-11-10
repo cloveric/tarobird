@@ -3082,6 +3082,12 @@ and the existing network/run/delete suites listed in that audit.
   Combined text/image/file drafts, local thumbnail lifecycle, mixed clipboard
   text insertion and atomic message enqueue after all uploads complete.
   Tests: `gateway-service`, browser `attachment-composer`, `uploads`, `share`.
+  `composer-paste.ts` / `composer-clipboard-image.ts` also accept inline HTML
+  raster images and focused Electron clipboard images when no event file is
+  available. `electron/clipboard-image.mjs` bounds and scopes native reads;
+  clipboard URLs and private formats are not opened. Tests: browser
+  `composer-paste`, Electron `clipboard-image`; see
+  [clipboard intake and Windows acceptance limits](client/clipboard-image-paste-2026-11-10.md).
 - `src/hub/config.ts`, `src/hub/attachments.ts`, `client/src/files.ts`
   Hub-owned `maxFileBytes`, authenticated limit negotiation, shared upload checks,
   and native share-inbox policy caching. Tests: `hub-upload-limits`, `hub-server`,

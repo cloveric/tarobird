@@ -54,10 +54,10 @@ class SideSession {
   setDraft = (draft: string) => this.patch({ draft });
   setError = (error: string) => this.patch({ error });
   addFiles = (files: File[]) => {
-    if (this.upload || !files.length) return;
+    if (this.upload || !files.length) return false;
     const all = [...this.snapshot.files, ...files], error = this.validateFiles(all);
-    if (error) { this.setError(error); return; }
-    this.patch({ files: all, error: "" });
+    if (error) { this.setError(error); return false; }
+    this.patch({ files: all, error: "" }); return true;
   };
   // A finishing encoder may outlive the view during ordinary navigation, but
   // explicit Close/restart invalidates its receipt even if the same chat reopens.

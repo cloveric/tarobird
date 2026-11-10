@@ -920,9 +920,9 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   };
   const addFiles = (chosen: File[]) => {
     // Steering only sends text: newly recorded audio belongs to the next draft.
-    if (!chosen.length) return;
-    if (uploadController.current) { setError(t("正在发送，请完成后再添加附件。")); return; }
-    setFiles((old) => [...old, ...chosen]); setAttachmentDropError(""); focusComposer();
+    if (!chosen.length) return false;
+    if (uploadController.current) { setError(t("正在发送，请完成后再添加附件。")); return false; }
+    setFiles((old) => [...old, ...chosen]); setAttachmentDropError(""); focusComposer(); return true;
   };
   const removeFile = (index: number) => {
     // The stored list can change while a focus read is pending. Replay against
@@ -958,7 +958,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     changeDraft(`${text}${text ? "\n\n" : ""}${instruction}`);
     focusComposer();
   };
-  const pasteFiles = useComposerPaste({ scope: `${selected}:${visible}`, input: composer, disabled: connection.isReadOnly || groupSending || uploadProgress !== undefined, add: addFiles, change: changeDraft });
+  const pasteFiles = useComposerPaste({ scope: `${selected}:${visible}`, input: composer, disabled: connection.isReadOnly || groupSending || uploadProgress !== undefined, add: addFiles, change: changeDraft, fail: setAttachmentDropError });
   const [sideRecording, setSideRecording] = useState(false);
   const attachments = useAttachmentPicker({ scope: selected, hostActive: visible, active: chatVisible && !searchResults && !!selected && !current?.archived && !group?.archived, phone, disabled: connection.isReadOnly || groupSending || uploadProgress !== undefined, add: addFiles, fail: setError, settle: focusComposer });
   // A completed encoder may return after a host/chat/layout round trip. Only

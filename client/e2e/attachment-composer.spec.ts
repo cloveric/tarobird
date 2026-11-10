@@ -311,6 +311,34 @@ test("desktop and phone compose text, pictures and documents together and synchr
   } finally { await desktopContext.close(); await phoneContext.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+test("HTML-only clipboard image becomes one attachment and uploads its exact bytes", async ({ page }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "attachment-html-paste-")), hub = await HubServer.start({ stateDir: root, clientDir: process.env.TAROBOT_E2E_CLIENT_DIR ?? path.resolve("dist") });
+  try {
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','助手','fixture')");
+    const conversation = await hub.store.createConversation("owner", ["alpha"], "图文一起讨论", "html-paste"); await pair(page, hub);
+    const composer = page.getByRole("textbox", { name: "消息", exact: true }); await composer.focus();
+    await composer.evaluate(node => {
+      const data = new DataTransfer(); data.setData("text/html", '<img src="data:image/png;base64,bm90LWFuLWltYWdl">');
+      node.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    });
+    await expect(page.getByRole("alert")).toContainText("未能粘贴图片");
+    await composer.evaluate((node, encoded) => {
+      const data = new DataTransfer(); data.setData("text/plain", "[图片]"); data.setData("text/html", `<img src="data:image/png;base64,${encoded}">`);
+      node.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }));
+    }, png.toString('base64'));
+    await expect(composer).toHaveValue("");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "待发送的附件", exact: true }).getByRole("listitem")).toHaveCount(1);
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect(page.getByRole("region", { name: "待发送的附件", exact: true })).toHaveCount(0);
+    const messages = (await hub.store.snapshot("owner", conversation.id)).messages;
+    expect(messages).toHaveLength(1); expect(messages[0]!.blocks).toHaveLength(1);
+    const block = messages[0]!.blocks[0]!; expect(block.type).toBe("image");
+    if (block.type !== "image") throw Error("Expected image");
+    expect(await readFile((await hub.attachments.download({ userId: "owner" }, block.attachmentId)).path)).toEqual(png);
+  } finally { await page.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test("mixed clipboard image and text preserve the caption at the caret, and a failed upload keeps the complete draft", async ({ page }) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "attachment-paste-")), hub = await HubServer.start({ stateDir: root, clientDir: process.env.TAROBOT_E2E_CLIENT_DIR ?? path.resolve("dist") });
   try {

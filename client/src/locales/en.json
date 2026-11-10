@@ -1,4 +1,5 @@
 {
+  "未能粘贴图片，请重新复制，或将图片保存后拖入。": "Could not paste the image. Copy it again, or save it and drag the file here.",
   "网页登录数据": "Website sign-in data",
   "网页登录数据未能完全清除。旧连接已停止，请重试清理。": "Website data could not be fully cleared. The old connection has stopped; retry cleanup.",
   "此设备上属于该主机的工作台网页登录状态和网站缓存也会清除。其他主机的网站数据保留。": "Workbench website logins and caches for this host on this device will also be cleared. Other hosts’ website data is kept.",

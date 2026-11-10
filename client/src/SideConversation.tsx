@@ -28,8 +28,11 @@ export function SideConversation({ side, online, visible, appearance, mainRecord
   const uploadBusy = side.uploadProgress !== undefined;
   const attachmentDisabled = !online || !canAttach || uploadBusy || side.ended;
   const focusInput = () => requestAnimationFrame(() => input.current?.focus({ preventScroll: true }));
-  const addFiles = (files: File[]) => { side.addFiles(files); focusInput(); };
-  const pasteFiles = useComposerPaste({ scope: `${side.scope}:${visible}`, input, disabled: attachmentDisabled, add: addFiles, change: side.setDraft, reject: () => side.setError(t("当前无法添加侧边附件，请等待连接或上传完成。")) });
+  const addFiles = (files: File[]) => {
+    if (!side.addFiles(files)) return false;
+    focusInput(); return true;
+  };
+  const pasteFiles = useComposerPaste({ scope: `${side.scope}:${side.view?.id ?? ""}:${visible}`, input, disabled: attachmentDisabled, add: addFiles, change: side.setDraft, fail: side.setError, reject: () => side.setError(t("当前无法添加侧边附件，请等待连接或上传完成。")) });
   const capture = side.captureTarget();
   const voice = useVoiceRecorder(`${side.scope}:${side.view?.id ?? ""}`, file => { if (capture.add(file)) focusInput(); }, capture.fail);
   const canRecord = side.capability?.attachments?.audio === true;
