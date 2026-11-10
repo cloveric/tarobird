@@ -1455,6 +1455,39 @@ describe("ClaudeStreamAdapter", () => {
     } finally { await adapter.destroy(); }
   });
 
+  it("ends a prompt Claude folded into a running task-notification turn on that turn's result", async () => {
+    // Real Claude Code 2.1.321 order: the previous turn's result arrives, the
+    // next prompt is written, but the CLI has already dequeued a queued
+    // notification. It folds the prompt into that notification turn, and the
+    // turn's one result names the prompt while still carrying origin
+    // task-notification. Without this, the prompt waited for the 30-minute
+    // inactivity stop and was reported as failed after its work was delivered.
+    const { children, spawnFn } = createSpawnHarness();
+    const events: EngineStreamEvent[] = [];
+    const adapter = new ClaudeStreamAdapter("claude", { spawnFn });
+    try {
+      const first = adapter.sendUserMessage("fold-session", { text: "Render the film in the background", files: [], onEngineEvent: e => { events.push(e); } });
+      await waitFor(() => children[0]?.stdin.lines.length === 1);
+      const send = (frame: object) => children[0].stdout.emitData(JSON.stringify({ session_id: "fold-session", ...frame }) + "\n");
+      const uuidOf = (line: string) => (JSON.parse(line) as { uuid: string }).uuid;
+      const u1 = uuidOf(children[0].stdin.lines[0]!);
+      send({ type: "assistant", message: { content: [{ type: "tool_use", name: "Monitor", id: "render-watch", input: {} }] } });
+      send({ type: "system", subtype: "task_started", task_id: "render-1", tool_use_id: "render-watch", summary: "Render progress" });
+      send({ type: "result", result: "Rendering; I will report progress.", user_message_uuid: u1, user_message_uuids: [u1] });
+      await first;
+      const second = adapter.sendUserMessage("fold-session", { text: "Make the badge bigger", files: [], onEngineEvent: e => { events.push(e); } });
+      void second.catch(() => undefined);
+      await waitFor(() => children[0].stdin.lines.length === 2);
+      const u2 = uuidOf(children[0].stdin.lines[1]!);
+      send({ type: "user", origin: { kind: "task-notification" }, message: { content: '<task-notification><task-id>render-1</task-id><summary>Monitor event: "render progress"</summary><event>2 of 4 chunks</event></task-notification>' } });
+      send({ type: "assistant", message: { content: [{ type: "text", text: "Badge enlarged and sent." }] } });
+      send({ type: "result", result: "Badge enlarged and sent.", origin: { kind: "task-notification" }, user_message_uuid: u2, user_message_uuids: [u2] });
+      await expect(second).resolves.toMatchObject({ text: "Badge enlarged and sent." });
+      // The notification that opened the turn is still reported, once.
+      expect(events.filter(e => e.type === "task_notification")).toHaveLength(1);
+    } finally { await adapter.destroy(); }
+  });
+
   it("delivers meaningful Monitor progress without completing the task or its foreground turn", async () => {
     vi.useFakeTimers();
     const { children, spawnFn } = createSpawnHarness();
