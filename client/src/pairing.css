@@ -96,6 +96,12 @@
 .pairing-phone-welcome>.wordmark .wordmark-icon { width:128px; height:128px; border-radius:0; }
 .pairing-phone-welcome>h1 { text-align:center; margin-bottom:16px; }
 
+/* Where the QR code comes from: the step new users miss, kept above the import buttons. */
+.pairing-qr-source { display:flex; align-items:flex-start; gap:12px; margin:0 0 16px; padding:12px 14px; border-radius:12px; background:var(--accent-soft,var(--surface)); color:var(--text); }
+.pairing-qr-source>svg { flex-shrink:0; margin-top:1px; color:var(--accent,var(--blue)); }
+.pairing-qr-source>div { min-width:0; }
+.pairing-qr-source strong { display:block; font-size:14px; font-weight:600; line-height:1.45; overflow-wrap:anywhere; }
+.pairing-qr-source p { margin:4px 0 0; font-size:13px; line-height:1.5; color:var(--muted); overflow-wrap:anywhere; }
 .pairing-import-actions { display:flex; flex-wrap:wrap; gap:8px; }
 .pairing-import-actions>button { flex:1 1 10em; min-width:0; white-space:normal; overflow-wrap:anywhere; }
 .pairing-import-actions>button:first-child { flex-basis:100%; }

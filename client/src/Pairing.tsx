@@ -3,7 +3,7 @@ import { pairingClockOffset, pairingRemaining } from "./pairing-time.js";
 import { defaultDeviceName } from "./device-presentation.js";
 import { rememberRouteTrust } from "./route-trust.js";
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
-import { ArrowLeft, ChevronLeft, ClipboardPaste, ImagePlus, LoaderCircle, Monitor, QrCode, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ClipboardPaste, ImagePlus, LoaderCircle, Monitor, QrCode, ShieldCheck, Smartphone } from "lucide-react";
 import type { PairingProps } from "./HostApp.js";
 import { BrandMark, PairingIntro } from "./BrandScenes.js";
 import { connectionConfiguration } from "./connection-routes.js";
@@ -172,7 +172,11 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
       </details>}
       {pendingConnection && <details className="pairing-options"><summary>{t("无法连接？更新主机地址")}</summary><Suspense fallback={null}><RepairHostRoute connection={pendingConnection} online={status.status === "online"} busyChange={setBusy}/></Suspense>{manage && <button type="button" disabled={busy} onClick={manage}>{t("设备与网络")}</button>}</details>}
     </section> : <>
-      <p className="muted">{t("二维码在哪里？在已连接的手机或电脑打开「设备与网络 → 添加设备」。也可以复制那里的连接信息，在此粘贴。")}</p>
+      {/* New users look for the QR code here; say where it comes from in the eye line, not only in the side guide. */}
+      <div className="pairing-qr-source" role="note"><Smartphone size={20} aria-hidden="true"/><div>
+        <strong>{t("先在已连接的手机或电脑上打开「设备与网络 → 添加设备」")}</strong>
+        <p>{t("那里会显示连接二维码，用下方「扫描连接二维码」扫它；也可以复制那里的连接信息，点「粘贴连接信息」。")}</p>
+      </div></div>
       <form onSubmit={(e) => { void pair(e); }}>
         <div className="pairing-import-actions">
         <button type="button" className="primary full" disabled={busy} onClick={() => { setInputMode("text"); setScan(true); }}><ClipboardPaste size={18}/>{t("粘贴连接信息")}</button>
