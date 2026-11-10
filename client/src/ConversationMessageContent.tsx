@@ -6,14 +6,16 @@ import { MessageReference } from "./MessageReference.js";
 import { BotReplySource } from "./BotReplySource.js";
 import { GroupDiscussionInput } from "./GroupDiscussionInput.js";
 import { MessageContent } from "./Content.js";
+import { BotMessageDisclosure } from "./BotMessageDisclosure.js";
 import { useLocale } from "./i18n.js";
 
 /** Construct references inside the memo boundary. An inline React element or
  * backgroundSource object from Workspace otherwise defeats MessageContent's
  * memo on every unrelated stream event and every virtual-scroll render. */
-export const ConversationMessageContent = memo(function ConversationMessageContent({ message, original, referenceAuthor, referenceAvailable, scheduledName, connection, locate }: {
+export const ConversationMessageContent = memo(function ConversationMessageContent({ message, original, referenceAuthor, referenceAvailable, scheduledName, connection, locate, focusRequest }: {
   message: Message; original?: Message; referenceAuthor?: string; referenceAvailable: boolean; scheduledName: string;
   connection: HubConnection; locate: (conversationId: string, messageId: string) => void;
+  focusRequest?: { messageId?: string };
 }) {
   useLocale();
   const scheduled = message.groupDiscussion?.role === "input";
@@ -24,7 +26,7 @@ export const ConversationMessageContent = memo(function ConversationMessageConte
     ? <MessageReference connection={connection} message={message} original={original} author={referenceAuthor} available={referenceAvailable}
       open={() => locate(message.forwardedFrom?.conversationId ?? message.conversationId, message.forwardedFrom?.messageId ?? message.replyTo!)}/>
     : undefined;
-  return <>
+  const content = <>
     {!inline && reference}
     {message.authorType === "bot" && message.replyTo && original?.groupDiscussion?.role !== "input" && !message.forwardedFrom && !bound
       && <BotReplySource message={message} original={original} open={openReply}/>}
@@ -32,4 +34,10 @@ export const ConversationMessageContent = memo(function ConversationMessageConte
       : <MessageContent message={message} connection={connection} reference={inline ? reference : undefined}
         backgroundSource={bound && message.replyTo ? { original, open: openReply } : undefined}/>}
   </>;
+  // Queue cancellation and unsupported-worker errors are appended to the input
+  // itself. They must remain visible even when its original report is long.
+  const attention = message.blocks.some(block => block.type === "card" && (block.extra?.botMessageError || block.extra?.promptQueue));
+  return message.authorType === "user" && message.botSource && message.status !== "deleted" && !attention
+    ? <BotMessageDisclosure message={message} connection={connection} focusRequest={focusRequest}>{content}</BotMessageDisclosure>
+    : content;
 });

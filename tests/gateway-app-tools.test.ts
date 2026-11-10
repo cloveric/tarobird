@@ -24,6 +24,11 @@ describe("App platform contract", () => {
     }
     const guide = botCollaborationInstructions();
     expect(guide).toContain("even while the recipient is working");
+    expect(guide).toContain("normal reply in the collaboration conversation");
+    expect(guide).toContain("acknowledgements need no acknowledgement");
+    expect(guide).toContain("bot_message_collaboration_archived");
+    expect(guide).toContain("New information or failures arising after the reply");
+    expect(guide).not.toContain("tasks, reports and follow-ups");
     expect(guide).toContain("pending/unknown outcome is not a rejection");
     expect(guide).toContain("accepted means admission, not task completion");
     expect(appAgentInstructions({ context: "discussion" })).toContain("do not delegate");

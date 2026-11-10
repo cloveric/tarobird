@@ -112,6 +112,7 @@ export const HOST_CLI_HELP = `TaroBird — 同一台主机，桌面与命令行�
   messages send --to HOST/BOT[/CONVERSATION] --text-file FILE [--file FILE]... [--new-conversation NAME] [--request-id ID] [--context-message ID] [--source-bot LOCAL_BOT_ID]
   messages wait --to HOST_ID/BOT_ID/CONVERSATION_ID --message ID [--timeout SECONDS] [--out DIRECTORY] [--source-bot LOCAL_BOT_ID]
     默认等待 120 秒；timeout/pending 只结束本次查询，不会中断任务或自动恢复。用同一消息 ID 继续查询，勿重复发送。
+    首次立即查询，后续间隔 1.5、3、6 秒，最长 6 秒；完成状态可能有最多一个轮询间隔的延迟。
   messages allow|revoke --from SOURCE_HOST/SOURCE_BOT_ID --bot TARGET_BOT
   attachments list [--conversation ID [--sort size|time] [--offset N]]
     主人专用：不带 --conversation 时按对话汇总附件占用；带上则列出该对话的附件，每页 100 项

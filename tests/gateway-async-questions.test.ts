@@ -189,6 +189,10 @@ it("keeps a signed Bot task queued and never treats its text as an async questio
   expect(instructions).toContain('"hostId":"hub_fixture"');
   expect(instructions).toContain('"botId":"other_bot"');
   expect(instructions).toContain('"hops":1');
+  expect(instructions).toContain("Reply in this conversation");
+  expect(instructions).toContain("Do not also send results or progress");
+  expect(instructions).toContain("Interrupted turns are reported as failed");
+  expect(engine.mock.calls[0]![0].turnInstructions).not.toContain("Reply in this conversation");
 });
 
 it("keeps owner attachment attribution with batching configured when a Bot task arrives", async () => {

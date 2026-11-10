@@ -1,0 +1,8 @@
+.bot-message-disclosure { min-width: 0; width: 100%; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.bot-message-disclosure-toggle { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 32px; padding: 0; border: 0; background: transparent; color: var(--muted); text-align: start; cursor: pointer; }
+.bot-message-disclosure-toggle strong { font-size: 12px; font-weight: 600; }
+.bot-message-disclosure-toggle span { margin-inline-start: auto; font-size: 12px; }
+.bot-message-disclosure-toggle svg { flex-shrink: 0; }
+.bot-message-disclosure-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 5px 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; white-space: normal; }
+.bot-message-disclosure > div:not([hidden]) { margin-top: 10px; }
+@media (pointer: coarse) { .bot-message-disclosure-toggle { min-height: 44px; } }

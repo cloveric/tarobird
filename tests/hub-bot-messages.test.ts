@@ -106,6 +106,93 @@ it("never enumerates or resolves another user's private conversations through a 
   await expect(send(privateChat.id)).rejects.toThrow("target_not_found");
 });
 
+it("keeps accepted results and files readable by exact ID after the owner archives the collaboration chat, without accepting new input there", async () => {
+  const chat = await target(), bytes = Buffer.from("Archived reply"), sha256 = createHash("sha256").update(bytes).digest("hex");
+  const upload = await call(input("upload", { name: "reply.txt", mime: "text/plain", size: bytes.length, sha256 }, chat.conversationId));
+  await call(input("chunk", { uploadId: upload.id, index: 0, bytes: bytes.toString("base64") }, chat.conversationId));
+  await call(input("complete", { uploadId: upload.id }, chat.conversationId));
+  const request = { ...input("send", { text: "Long task", attachments: [upload.id] }, chat.conversationId), requestId: "archived_request" };
+  const receipt = await call(request);
+  await b.store.publishBotMessage("target", { conversationId: chat.conversationId, replyTo: receipt.messageId, blocks: [{ type: "text", text: "Answer" }, { type: "file", attachmentId: upload.id, name: "reply.txt", mime: "text/plain", size: bytes.length }] });
+  await b.store.acknowledgeDelivery("target", receipt.messageId);
+  await b.store.updateConversation("owner", chat.conversationId, { archived: true });
+  const conversations = await b.store.db.all("SELECT * FROM conversations ORDER BY id");
+  // Exact-ID readback of an accepted request survives archiving.
+  expect(await call(input("resolve", {}, chat.conversationId))).toMatchObject({ conversationId: chat.conversationId });
+  expect(await call(input("wait", { messageId: receipt.messageId }, chat.conversationId))).toMatchObject({ status: "completed", text: expect.stringContaining("Answer"), files: [{ id: upload.id, sha256 }] });
+  const file = await call(input("download", { messageId: receipt.messageId, attachmentId: upload.id, offset: 0 }, chat.conversationId));
+  expect(Buffer.from(file.bytes, "base64")).toEqual(bytes);
+  // Reconciling the same request returns its original receipt and never queues it again.
+  expect(await call(request)).toMatchObject({ messageId: receipt.messageId, duplicate: true });
+  // New input and uploads are refused explicitly; names and the list still skip the archived chat.
+  await expect(send(chat.conversationId, "New task")).rejects.toThrow("conversation_archived");
+  await expect(call(input("upload", { name: "new.txt", mime: "text/plain", size: bytes.length, sha256 }, chat.conversationId))).rejects.toThrow("conversation_archived");
+  await expect(call(input("resolve", {}, chat.conversationName))).rejects.toThrow("target_not_found");
+  expect((await call(input("list"))).conversations.some((c: any) => c.id === chat.conversationId)).toBe(false);
+  // The owner's archived default chat is neither rotated nor unarchived.
+  await expect(target()).rejects.toThrow("bot_message_collaboration_archived");
+  expect(await b.store.db.all("SELECT * FROM conversations ORDER BY id")).toEqual(conversations);
+  expect(await b.store.db.all("SELECT message_id,status FROM deliveries")).toEqual([{ message_id: receipt.messageId, status: "accepted" }]);
+});
+
+it("replays an archived per-request chat for reconciliation only", async () => {
+  const resolve = { ...input("resolve", { newConversation: "Per task" }), requestId: "per_task" };
+  const chat = await call(resolve);
+  const request = { ...input("send", { text: "Task", attachments: [] }, chat.conversationId), requestId: "per_task" };
+  const receipt = await call(request);
+  await b.store.updateConversation("owner", chat.conversationId, { archived: true });
+  expect(await call(resolve)).toMatchObject({ conversationId: chat.conversationId });
+  expect(await call(request)).toMatchObject({ messageId: receipt.messageId, duplicate: true });
+  await expect(send(chat.conversationId)).rejects.toThrow("conversation_archived");
+  expect(await b.store.db.all("SELECT message_id FROM deliveries")).toEqual([{ message_id: receipt.messageId }]);
+  expect(await b.store.db.get("SELECT archived FROM conversations WHERE id=?", [chat.conversationId])).toEqual({ archived: 1 });
+});
+
+it("resolves an archived exact ID before another active conversation with that name", async () => {
+  const chat = await target();
+  const receipt = await send(chat.conversationId);
+  await b.store.acknowledgeDelivery("target", receipt.messageId);
+  await b.store.updateConversation("owner", chat.conversationId, { archived: true });
+  const collision = await b.store.createConversation("owner", ["target"], chat.conversationId, "name-collision");
+  expect(collision.id).not.toBe(chat.conversationId);
+  expect(await call(input("resolve", {}, chat.conversationId))).toMatchObject({ conversationId: chat.conversationId });
+  expect(await call(input("wait", { messageId: receipt.messageId }, chat.conversationId))).toMatchObject({ status: "completed" });
+  await expect(send(chat.conversationId, "Must not reach the name collision")).rejects.toThrow("conversation_archived");
+  expect(await b.store.db.all("SELECT id FROM messages WHERE conversation_id=?", [collision.id])).toHaveLength(0);
+});
+
+it("refuses upload admission when the owner archives the resolved chat during preparation", async () => {
+  const chat = await target(), create = b.attachments.create.bind(b.attachments);
+  vi.spyOn(b.attachments, "create").mockImplementationOnce(async (...args) => {
+    await b.store.updateConversation("owner", chat.conversationId, { archived: true });
+    return create(...args);
+  });
+  await expect(call(input("upload", { name: "late.txt", mime: "text/plain", size: 1, sha256: createHash("sha256").update("x").digest("hex") }, chat.conversationId))).rejects.toThrow("conversation_archived");
+  expect(await b.store.db.all("SELECT id FROM attachments WHERE conversation_id=?", [chat.conversationId])).toHaveLength(0);
+});
+
+it("keeps cancellation, revocation and other users' privacy authoritative for archived chats", async () => {
+  const chat = await target(), request = { ...input("send", { text: "Cancel me", attachments: [] }, chat.conversationId), requestId: "cancelled_request" };
+  const receipt = await call(request);
+  await b.store.db.run("UPDATE deliveries SET status='cancelled' WHERE message_id=? AND dispatched=0", [receipt.messageId]);
+  await b.store.updateConversation("owner", chat.conversationId, { archived: true });
+  // An owner cancellation is final: the same request ID replays the cancelled receipt.
+  expect(await call(request)).toMatchObject({ messageId: receipt.messageId, duplicate: true });
+  expect(await b.store.db.all("SELECT status FROM deliveries")).toEqual([{ status: "cancelled" }]);
+  expect(await call(input("wait", { messageId: receipt.messageId }, chat.conversationId))).toMatchObject({ status: "cancelled" });
+  // Another user's archived private chat stays unreachable by exact ID.
+  await b.store.db.run("INSERT INTO users VALUES('member','Member','member')");
+  await b.store.db.run("INSERT INTO bot_grants VALUES('member','target')");
+  const privateChat = await b.store.createConversation("member", ["target"], "Private member chat", "member-chat");
+  await b.store.db.run("UPDATE conversations SET archived=1 WHERE id=?", [privateChat.id]);
+  await expect(call(input("resolve", {}, privateChat.id))).rejects.toThrow("target_not_found");
+  await expect(call(input("wait", { messageId: receipt.messageId }, privateChat.id))).rejects.toThrow("target_not_found");
+  // Revocation still precedes archived readback.
+  await b.botMessages.grant({ sourceHost: "Mac", sourceBot: "source", targetBot: "target", revoke: true }, guard);
+  await expect(call(input("wait", { messageId: receipt.messageId }, chat.conversationId))).rejects.toThrow("authorized_or_revoked");
+  await expect(call(input("resolve", {}, chat.conversationId))).rejects.toThrow("authorized_or_revoked");
+});
+
 it("bounds new collaboration conversation creation without blocking idempotent replay", async () => {
   const request = input("resolve", { newConversation: "New chat" });
   const first = await call(request);
@@ -349,6 +436,104 @@ it("rejects ungranted callers, tampered/expired passports and removed network ho
   await expect(b.botMessages.receive({ passport, signature: b.auth.signBotPassport(passport) }, "POST", passport.path, body)).rejects.toThrow("signature_invalid");
   const row = await b.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key='private-network:v1'"); const state = JSON.parse(row!.value); state.revokedHosts.push(`${state.membership.manifest.id}:${a.auth.publicKey}`); await b.store.db.run("UPDATE meta SET value=? WHERE key='private-network:v1'", [JSON.stringify(state)]);
   await expect(call(input("list"))).rejects.toThrow("peer_revoked");
+});
+
+it("rechecks the source turn before admitting a local send after an awaited handoff", async () => {
+  await a.botMessages.grant({ sourceHost: "Mac", sourceBot: "source", targetBot: "target" }, guard);
+  const destination: any = await a.botMessages.local({ ...input("resolve"), host: "Mac" }, "source", guard, true);
+  const origin = await a.store.createConversation("owner", ["source"], "Origin", "source-admission");
+  const context = await a.store.sendMessage("owner", { conversationId: origin.id, clientMsgId: "active", text: "Delegate", attachments: [] });
+  await a.store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=?", [context.message.id]);
+  const original = a.store.sendMessage.bind(a.store);
+  vi.spyOn(a.store, "sendMessage").mockImplementationOnce(async (...args) => {
+    // The source was active at API entry, but finishes before target admission.
+    await a.store.acknowledgeDelivery("source", context.message.id);
+    return original(...args);
+  });
+  await expect(a.botMessages.local({ ...input("send", { text: "Late report", attachments: [] }, destination.conversationId), host: "Mac", contextMessage: context.message.id }, "source", guard)).rejects.toThrow("bot_message_context_not_active");
+  expect(await a.store.pendingForBot("target")).toHaveLength(0);
+  expect(await a.store.db.all("SELECT id FROM messages WHERE conversation_id=?", [destination.conversationId])).toHaveLength(0);
+});
+
+it("rechecks the source turn at the final outbound boundary without exchanging or retrying", async () => {
+  const destination = await target();
+  const origin = await a.store.createConversation("owner", ["source"], "Origin", "outbound-admission");
+  const context = await a.store.sendMessage("owner", { conversationId: origin.id, clientMsgId: "active", text: "Delegate", attachments: [] });
+  await a.store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=?", [context.message.id]);
+  let prepared = false;
+  const sign = a.auth.signBotPassport.bind(a.auth);
+  vi.spyOn(a.auth, "signBotPassport").mockImplementation(passport => { prepared = true; return sign(passport); });
+  const exchange = vi.spyOn(source, "exchange");
+  const finishAfterPreparation = async () => {
+    if (prepared) await a.store.db.run("UPDATE deliveries SET status='accepted' WHERE message_id=?", [context.message.id]);
+  };
+  await expect(source.local({ ...input("send", { text: "Late report", attachments: [] }, destination.conversationId), contextMessage: context.message.id }, "source", finishAfterPreparation)).rejects.toThrow("bot_message_context_not_active");
+  expect(exchange).not.toHaveBeenCalled();
+  expect(await b.store.pendingForBot("target")).toHaveLength(0);
+});
+
+it.each([false, true])("preserves an accepted send receipt when the source ends after admission (remote=%s)", async remote => {
+  await a.botMessages.grant({ sourceHost: "Mac", sourceBot: "source", targetBot: "target" }, guard);
+  const endpoint = remote ? source : a.botMessages, receiver = remote ? b : a;
+  const host = remote ? "Windows" : "Mac";
+  const destination: any = await endpoint.local({ ...input("resolve"), host }, "source", guard, true);
+  const origin = await a.store.createConversation("owner", ["source"], "Origin", "accepted-admission");
+  const context = await a.store.sendMessage("owner", { conversationId: origin.id, clientMsgId: "active", text: "Delegate", attachments: [] });
+  await a.store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=?", [context.message.id]);
+  const receive = receiver.botMessages.receive.bind(receiver.botMessages);
+  vi.spyOn(receiver.botMessages, "receive").mockImplementationOnce(async (...args) => {
+    const result = await receive(...args);
+    await a.store.acknowledgeDelivery("source", context.message.id);
+    return result;
+  });
+  const receipt: any = await endpoint.local({ ...input("send", { text: "Accepted task", attachments: [] }, destination.conversationId), host, contextMessage: context.message.id }, "source", guard);
+  expect(receipt).toMatchObject({ status: "queued", duplicate: false });
+  expect(await receiver.store.pendingForBot("target")).toHaveLength(1);
+  // Result reads need no live source turn; finishing the caller cannot hide it.
+  await receiver.store.publishBotMessage("target", { conversationId: destination.conversationId, replyTo: receipt.messageId, blocks: [{ type: "text", text: "Done" }] });
+  await receiver.store.acknowledgeDelivery("target", receipt.messageId);
+  expect(await endpoint.local({ ...input("wait", { messageId: receipt.messageId }, destination.conversationId), host }, "source", guard)).toMatchObject({ status: "completed" });
+});
+
+it("does not create a local collaboration conversation after the source ends during resolve", async () => {
+  await a.botMessages.grant({ sourceHost: "Mac", sourceBot: "source", targetBot: "target" }, guard);
+  const origin = await a.store.createConversation("owner", ["source"], "Origin", "resolve-admission");
+  const context = await a.store.sendMessage("owner", { conversationId: origin.id, clientMsgId: "active", text: "Delegate", attachments: [] });
+  await a.store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=?", [context.message.id]);
+  const create = a.store.createConversation.bind(a.store);
+  vi.spyOn(a.store, "createConversation").mockImplementationOnce(async (...args) => {
+    await a.store.acknowledgeDelivery("source", context.message.id);
+    return create(...args);
+  });
+  await expect(a.botMessages.local({ ...input("resolve"), host: "Mac", contextMessage: context.message.id }, "source", guard)).rejects.toThrow("bot_message_context_not_active");
+  expect(await a.store.db.all("SELECT id FROM conversations WHERE client_action_id LIKE 'bm_%'")).toHaveLength(0);
+});
+
+it.each(["chunk", "complete"] as const)("preserves an accepted %s receipt if the source ends or the chat archives after the write", async operation => {
+  await a.botMessages.grant({ sourceHost: "Mac", sourceBot: "source", targetBot: "target" }, guard);
+  const destination: any = await a.botMessages.local({ ...input("resolve"), host: "Mac" }, "source", guard, true);
+  const origin = await a.store.createConversation("owner", ["source"], "Origin", "upload-receipt");
+  const context = await a.store.sendMessage("owner", { conversationId: origin.id, clientMsgId: "active", text: "Delegate", attachments: [] });
+  await a.store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=?", [context.message.id]);
+  const op = (kind: BotLocalRequest["operation"], data: Record<string, unknown>) => a.botMessages.local({ ...input(kind, data, destination.conversationId), host: "Mac", contextMessage: context.message.id }, "source", guard) as Promise<any>;
+  const bytes = Buffer.from("Receipt");
+  const upload = await op("upload", { name: "receipt.txt", mime: "text/plain", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+  const chunk = { uploadId: upload.id, index: 0, bytes: bytes.toString("base64") };
+  const finish = async () => { await a.store.acknowledgeDelivery("source", context.message.id); await a.store.updateConversation("owner", destination.conversationId, { archived: true }); };
+  if (operation === "complete") {
+    await op("chunk", chunk);
+    const original = a.attachments.complete.bind(a.attachments);
+    vi.spyOn(a.attachments, "complete").mockImplementationOnce(async (...args) => { const result = await original(...args); await finish(); return result; });
+    expect(await op("complete", { uploadId: upload.id })).toMatchObject({ id: upload.id });
+    expect(await a.store.db.get("SELECT complete FROM attachments WHERE id=?", [upload.id])).toEqual({ complete: 1 });
+  } else {
+    const original = a.attachments.putChunk.bind(a.attachments);
+    vi.spyOn(a.attachments, "putChunk").mockImplementationOnce(async (...args) => { await original(...args); await finish(); });
+    expect(await op("chunk", chunk)).toMatchObject({ ok: true });
+    expect(await a.store.db.all("SELECT chunk_index FROM upload_chunks WHERE attachment_id=?", [upload.id])).toEqual([{ chunk_index: 0 }]);
+  }
+  await expect(op("send", { text: "Late task", attachments: [upload.id] })).rejects.toThrow("bot_message_context_not_active");
+  expect(await a.store.pendingForBot("target")).toHaveLength(0);
 });
 
 it("derives hops from the active source message, rejects missing context, and persists rate limits", async () => {

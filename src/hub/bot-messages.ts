@@ -235,6 +235,16 @@ export class BotMessages {
     let requestId = "invalid";
     try {
       const input = botLocalRequestSchema.parse(raw); requestId = input.requestId;
+      const contextBound = input.contextMessage && ["resolve", "send", "upload", "chunk", "complete"].includes(input.operation);
+      const context = async () => {
+        const row = await this.store.db.get<{ bot_source_json: string | null }>("SELECT m.bot_source_json FROM messages m JOIN deliveries d ON d.message_id=m.id WHERE m.id=? AND d.bot_id=? AND d.status='pending' AND d.dispatched=1", [input.contextMessage!, sourceBot]);
+        if (!row) throw new HubError("bot_message_context_not_active", 403);
+        if (await this.store.db.get("SELECT 1 FROM group_discussion_turns WHERE input_message_id=?", [input.contextMessage!])) throw new HubError("group_discussion_bot_messages_blocked", 403);
+        return row;
+      };
+      // Recheck at admission, after awaited preparation. A valid turn at API
+      // entry is not authority to start a new send after that turn has ended.
+      const admit = async () => { await guard(); if (contextBound) await context(); };
       const hosts = await this.hosts(guard), own = hosts.find(h => h.publicKey === this.auth.publicKey)!;
       const host = resolveBotTarget(input.host, hosts, "host");
       const source = await this.store.db.serial(async () => {
@@ -242,13 +252,11 @@ export class BotMessages {
         const bot = await this.store.db.get<{ name: string }>("SELECT name FROM bots WHERE id=? AND deleted_at IS NULL", [sourceBot]);
         if (!bot || input.sourceBot && input.sourceBot !== sourceBot) throw new HubError("bot_message_source_invalid", 403);
         let hops = 1;
-        if (input.contextMessage && ["resolve", "send", "upload", "chunk", "complete"].includes(input.operation)) {
-          const row = await this.store.db.get<{ bot_source_json: string | null }>("SELECT m.bot_source_json FROM messages m JOIN deliveries d ON d.message_id=m.id WHERE m.id=? AND d.bot_id=? AND d.status='pending' AND d.dispatched=1", [input.contextMessage, sourceBot]);
-          if (!row) throw new HubError("bot_message_context_not_active", 403);
+        if (contextBound) {
+          const row = await context();
           // A group discussion turn speaks only in its own group. It never
           // delegates or messages other Bots (which could also leak a sealed
           // independent answer), whatever the Hub-side grants allow.
-          if (await this.store.db.get("SELECT 1 FROM group_discussion_turns WHERE input_message_id=?", [input.contextMessage])) throw new HubError("group_discussion_bot_messages_blocked", 403);
           hops = row.bot_source_json ? botSourceSchema.parse(JSON.parse(row.bot_source_json)).hops + 1 : 1;
         } else if (!operator && (["send", "upload", "chunk", "complete"].includes(input.operation) || input.operation === "resolve" && !input.conversation)) throw new HubError("bot_message_context_required", 403);
         if (hops > 3 && (input.operation !== "resolve" || !input.conversation)) throw new HubError("bot_message_hop_limit", 429);
@@ -267,7 +275,7 @@ export class BotMessages {
       // A lost reply is uncertain. Only an explicit caller rerun can transmit
       // again; the same request number cannot change target or content.
       if (input.operation === "send") await this.store.db.transaction(async () => {
-        await guard(); await this.network.requireMessagePeerInTransaction(host.publicKey);
+        await admit(); await this.network.requireMessagePeerInTransaction(host.publicKey);
         const key = memoKey("outgoing", sourceBot, input.requestId);
         const content = hashSecret(networkCanonical({ target: host.publicKey, bot: input.bot, conversation: input.conversation, data }));
         const old = await this.memo<{ content: string }>(key);
@@ -275,8 +283,11 @@ export class BotMessages {
         await this.put(key, { content, state: "unconfirmed", at: Date.now() });
       });
       const signed = { passport, signature: this.auth.signBotPassport(passport) };
-      await this.store.db.serial(guard);
-      let result = host.publicKey === this.auth.publicKey ? await this.receive(signed, passport.method, passport.path, body) : await this.exchange(host as NetworkHost, signed, body);
+      await this.store.db.serial(admit);
+      // Local delivery can recheck the source in the same target transaction.
+      // Remote delivery checks before exchange; a sent request is uncertain,
+      // not automatically cancelled or retransmitted when its source ends.
+      let result = host.publicKey === this.auth.publicKey ? await this.receive(signed, passport.method, passport.path, body, admit) : await this.exchange(host as NetworkHost, signed, body);
       if (input.operation === "resolve") {
         const parsed = botMessageTargetSchema.safeParse(result);
         if (!parsed.success) throw new HubError("bot_message_reply_invalid", 502);
@@ -318,7 +329,7 @@ export class BotMessages {
       await this.store.db.serial(() => this.allowed(passport, bot.id));
       return { signed, bot };
   }
-  async receive(raw: unknown, method: string, path: string, body: Buffer): Promise<unknown> {
+  async receive(raw: unknown, method: string, path: string, body: Buffer, localAdmission?: Guard): Promise<unknown> {
     let p: BotPassport | undefined;
     try {
       const { signed, bot } = await this.authorizePassport(raw, method, path);
@@ -334,31 +345,51 @@ export class BotMessages {
           JOIN conversation_members u ON u.conversation_id=c.id AND u.member_type='user' AND u.member_id='owner'
           LEFT JOIN messages m ON m.conversation_id=c.id WHERE c.archived=0 GROUP BY c.id ORDER BY lastActivityAt DESC,c.id`, [bot.id]);
       });
+      // Archiving removes a chat from the list and name resolution. Its exact ID
+      // still reaches results of requests accepted there; the store refuses new input.
+      const exactConversation = (id: string) => this.store.db.serial(async () => {
+        await guard(); return this.store.db.get<{ id: string; name: string; archived: number }>(`SELECT c.id,c.title AS name,c.archived FROM conversations c
+          JOIN conversation_members b ON b.conversation_id=c.id AND b.member_type='bot' AND b.member_id=?
+          JOIN conversation_members u ON u.conversation_id=c.id AND u.member_type='user' AND u.member_id='owner' WHERE c.id=?`, [bot.id, id]);
+      });
       const profile = await this.network.view(guard);
       const base = { hostId: messageHostId(this.auth.publicKey), hostName: profile.host.name, botId: bot.id, botName: bot.name };
       if (path === "/api/bot-messages/conversations" && method === "POST") { const result = { ...base, conversations: await conversations() }; await validate(); return result; }
       let conversation;
-      if (p.conversation) conversation = resolveBotTarget(p.conversation, await conversations(), "conversation");
-      else if (path === "/api/bot-messages/resolve" && method === "POST") {
+      if (p.conversation) {
+        const requested = p.conversation;
+        // IDs precede names, even when an active chat is named after an archived
+        // ID. Exact-ID polling also avoids enumerating/aggregating every chat.
+        const row = await exactConversation(requested);
+        if (row?.archived && path.startsWith("/api/uploads")) throw new HubError("conversation_archived", 409);
+        conversation = row ?? resolveBotTarget(requested, await conversations(), "conversation");
+      } else if (path === "/api/bot-messages/resolve" && method === "POST") {
         const name = z.string().min(1).max(256).optional().parse(data.newConversation);
         const key = memoKey(name ? "new-conversation" : "collaboration", p.sourceKey, p.source.botId, bot.id, name ? p.source.requestId : "default");
         const actionId = `bm_${hashSecret(key)}`;
         const c = await this.store.createConversation("owner", [bot.id], name ?? `来自 ${p.source.botName} 的协作`.slice(0, 256), actionId, {}, async () => {
-          await guard();
+          await guard(); await localAdmission?.();
           if (await this.store.db.get("SELECT 1 FROM conversations WHERE owner_id='owner' AND client_action_id=?", [actionId])) return;
           const rateKey = memoKey("conversation-rate", passport.sourceKey, passport.source.botId);
           const times = (await this.memo<number[]>(rateKey) ?? []).filter(t => t > Date.now() - 60_000);
           if (times.length >= 10) throw new HubError("bot_message_rate_limit", 429);
           await this.put(rateKey, [...times, Date.now()]);
         });
-        this.conversationCreated("owner", c);
+        // Never rotate or unarchive the owner's archived default chat. A
+        // per-request chat replays only so its own request can be reconciled.
+        if (c.archived && !name) throw new HubError("bot_message_collaboration_archived", 409);
+        if (!c.archived) this.conversationCreated("owner", c);
         conversation = { id: c.id, name: c.title };
       } else throw new HubError("bot_message_conversation_required", 400);
       const target: BotMessageTarget = { ...base, conversationId: conversation.id, conversationName: conversation.name };
-      const scope = async () => { await guard(); await this.store.requireMember("owner", target.conversationId); await this.store.requireBot(bot.id, target.conversationId); };
+      const scope = async (admitting = true) => {
+        await guard(); if (admitting) await localAdmission?.(); await this.store.requireMember("owner", target.conversationId); await this.store.requireBot(bot.id, target.conversationId);
+        // The owner may archive between resolution and upload admission.
+        if (admitting && path.startsWith("/api/uploads") && await this.store.db.get("SELECT 1 FROM conversations WHERE id=? AND archived=1", [target.conversationId])) throw new HubError("conversation_archived", 409);
+      };
       if (path === "/api/bot-messages/resolve" && method === "POST") { await validate(); return target; }
-      const attachmentGuard = async (id: string) => {
-        await scope();
+      const attachmentGuard = async (id: string, admitting = true) => {
+        await scope(admitting);
         if (!await this.memo(memoKey("upload", p!.sourceKey, p!.source.botId, bot.id, target.conversationId, id))) throw new HubError("bot_message_upload_forbidden", 403);
       };
       if (path === "/api/uploads" && method === "POST") {
@@ -380,8 +411,11 @@ export class BotMessages {
       const upload = /^\/api\/uploads\/([\w-]+)\/(complete|\d+)$/.exec(path);
       if (upload) {
         const check = () => this.store.db.serial(() => attachmentGuard(upload[1]!));
-        if (upload[2] === "complete" && method === "POST") { const result = await this.attachments.complete("owner", upload[1]!, check); await check(); return { id: result.id }; }
-        if (method === "PUT" && upload[2] !== "complete") { await this.attachments.putChunk("owner", upload[1]!, Number(upload[2]), body, check); await check(); return { ok: true }; }
+        // Admission belongs before the write. Preserve a successful receipt if
+        // the source ends or owner archives afterward; authorization still holds.
+        const receipt = () => this.store.db.serial(() => attachmentGuard(upload[1]!, false));
+        if (upload[2] === "complete" && method === "POST") { const result = await this.attachments.complete("owner", upload[1]!, check); await receipt(); return { id: result.id }; }
+        if (method === "PUT" && upload[2] !== "complete") { await this.attachments.putChunk("owner", upload[1]!, Number(upload[2]), body, check); await receipt(); return { ok: true }; }
       }
       if (path === "/api/bot-messages/send" && method === "POST") {
         const input = z.object({ text: textSchema, attachments: z.array(idSchema).max(50).default([]) }).strict().parse(data);

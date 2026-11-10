@@ -547,6 +547,14 @@ and the existing network/run/delete suites listed in that audit.
   Wait remains pending while recorded replies bound to that input have active
   foreground/background run phases; optional `activeReplies` does not change the
   queue, acknowledgement or idempotency contracts.
+  Collaboration replies stay in the delegated conversation and are read with
+  `messages wait`; normal reports do not need a second `send` or reciprocal ack.
+  CLI waits back off to six seconds without resending. Local write admission
+  rechecks the source turn inside the target transaction; remote sends recheck
+  immediately before exchange. `BotMessageDisclosure.tsx` folds only Bot-origin
+  input presentation, leaving source/preview visible and reply/queue behavior
+  unchanged. Tests also include `host-cli-bot-message-wait`, `gateway-dispatch`
+  and browser `bot-message-source`. [Scope and checks](client/collaboration-stability-2026-11-10.md).
 
 
 - Local direct-message grant UI: `client/src/BotMessageGrants.tsx` in Settings

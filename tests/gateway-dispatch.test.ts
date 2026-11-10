@@ -54,6 +54,7 @@ it("runs a ticket on the worker with its own settings and wakes the dispatcher w
   const work = calls.get("coder")![0]!;
   expect(work.text).toContain("Summarize the notes");
   expect(work.turnInstructions).toContain("Cross-Bot request for THIS turn");
+  expect(work.turnInstructions).not.toContain("Reply in this conversation");
   expect(work.turnInstructions).not.toContain("Dispatcher role");
   expect(work.appPlatformTools?.executionInstructions).toContain("Worker assistance (host-owned)");
   expect(work.engineOverride).toEqual({ model: "gpt-6-luna", effort: "low" });

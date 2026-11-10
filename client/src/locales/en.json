@@ -5183,5 +5183,8 @@
   "附件总占用": "Attachment space",
   "附件数": "Attachments",
   "附件排序": "Sort attachments",
-  "附件管理": "Attachments"
+  "附件管理": "Attachments",
+  "协作消息": "Collaboration message",
+  "展开协作消息": "Expand collaboration message",
+  "收起协作消息": "Collapse collaboration message"
 }

@@ -169,12 +169,16 @@ export async function runBotMessagesCommand(directory: string, command: string, 
     const messageId = idSchema.parse(required(options.message, "message")), timeout = Number(options.timeout ?? "120");
     if (!Number.isFinite(timeout) || timeout < 0 || timeout > 3600) throw new Error("timeout_must_be_0_to_3600_seconds");
     const deadline = Date.now() + timeout * 1000;
-    let result;
+    let result, interval = 1500;
     for (;;) {
       result = await call("wait", { messageId });
       if (result.status !== "pending") break;
       if (Date.now() >= deadline) return { ...result, status: "timeout", deliveryStatus: "pending" };
-      await delay(Math.min(1500, deadline - Date.now()), undefined, { signal });
+      // Keep short tasks responsive without signing/auditing a request every
+      // 1.5 seconds throughout a long task. Completion adds at most 6s of
+      // polling delay; the deadline, abort and no-retransmission rules remain.
+      await delay(Math.min(interval, deadline - Date.now()), undefined, { signal });
+      interval = Math.min(interval * 2, 6000);
     }
     const output = path.resolve(options.out ?? path.join("output", "bot-replies", target.hostId, target.botId, messageId));
     const files = [];

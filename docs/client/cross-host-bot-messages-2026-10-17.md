@@ -34,6 +34,8 @@ tarobot messages wait --to "hub_HEX/BOT_ID/CONVERSATION_ID" \
 
 没有第三段且没有 `--new-conversation` 时，目标 Hub 为 `(来源主机公钥, 来源 Bot ID, 目标 Bot ID)` 持久化一个独立对话，名称为“来自 来源Bot 的协作”。不使用最近打开的用户对话。改名不会改变绑定。send 回显 `hostId/hostName/botId/botName/conversationId/conversationName/messageId/requestId/duplicate/status`。
 
+归档后，已接受任务仍可用返回的精确对话 ID 和消息 ID 执行 `wait`、读取回复附件；名称查找和列表继续隐藏归档对话。新消息与上传被拒绝，默认协作对话归档时返回 `bot_message_collaboration_archived`，不会自动另建或取消归档。需要新任务时明确使用 `--new-conversation`，或请所有者恢复原对话。`wait` 首次立即查询，后续间隔为 1.5、3、6 秒，最长 6 秒；超时后继续使用原消息 ID 查询。
+
 MVP 单次回复读取最多 200 条关联消息，超过时返回 `truncated: true`；不把截断结果当作完整记录。过大响应会明确报错，不自动重发。
 
 wait 必须带目标对话及 messageId；它只读取该来源请求对应的目标 Bot 回复（相同对话、Bot 与 `replyTo`），不读取其他历史。交付未确认，或交付已确认但关联回复仍在运行时返回 `pending`；后者附带可选 `activeReplies`。判断包括 `pending/streaming` 消息，以及外壳虽为 `complete`、但 `nativeRun/scopedRun` 仍处于活动阶段的后台过程卡。
@@ -83,6 +85,8 @@ tarobot messages revoke --from "Mac mini/SOURCE_BOT_ID" --bot "审阅助手" --j
 ## Bot 使用约束
 
 运行时说明位于 `src/gateway/agent-instructions.ts`，适用于共享 Gateway 的引擎。只在用户要求跨 Bot 委托或回复协作请求时使用。默认协作对话；明确指定用户对话才可向该对话发任务。重名时先 list 再使用 ID。遇到未授权、撤销、深度或频率限制时停止，不复制密钥、绕过权限或通过另一身份继续。
+
+受委托 Bot 在协作对话正常回复结果，调用方用 `messages wait` 或约定文件读取；不再默认另发一份相同报告回主人对话，也不对确认回执再次确认。明确要求的主动回报和实质新发现仍可发送到约定对话。迟到报告先核对哪些内容已经处理，不能仅凭时间或文字相似就丢弃。参见[稳定性与效率修订](collaboration-stability-2026-11-10.md)。
 
 本功能不改 Agent Bus。`/ask`、`/fan`、`/chain`、`/verify` 的本机范围保持不变，也不能把这些字符串当作远程控制命令发送。发送给 Bot 的文字是新任务，不是 UI 问题卡片、审批或引导操作。
 
