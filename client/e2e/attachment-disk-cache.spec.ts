@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createServer } from "./fixtures/vite.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
-import { enterMobileChat, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
+import { enterMobileChat, openWorkspacePage, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
 import { HubServer } from "../../src/hub/server.js";
 import { hashSecret } from "../../src/hub/auth.js";
 import type * as BufferModule from "../src/download-buffer.js";
@@ -95,5 +95,87 @@ test("a video above 16 MiB is downloaded from the Hub once; saving it again read
     })).toBe(true);
     expect(await save()).toBe(sha256);
     expect(downloads.length).toBe(first);
+  } finally { await context.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("deleting attachments removes their disk copies; one still in use is never read again and goes when released", async ({ browser }) => {
+  const profile = await mkdtemp(path.join(os.tmpdir(), "attachment-disk-cache-forget-"));
+  const context = await browser.browserType().launchPersistentContext(profile, { headless: true });
+  const server = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await server.listen();
+  try {
+    const page = await context.newPage();
+    await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/download-buffer.html"); await page.waitForFunction(() => !!window.bufferFixture);
+    const result = await page.evaluate(async ([a, b]) => {
+      const f = window.bufferFixture, wait = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms));
+      const bytes = (fill: number) => new Uint8Array(17 * 1024 ** 2).fill(fill);
+      const store = (id: string, data: Uint8Array) => f.storeCachedAttachment(id, f.memoryAttachment(new Blob([data], { type: "video/mp4" })));
+      const present = async (id: string) => { const source = await f.readCachedAttachment(id); await source?.dispose(); return !!source; };
+      const entries = async () => {
+        const names: string[] = [];
+        try { for await (const name of (await (await navigator.storage.getDirectory()).getDirectoryHandle("tarocub-attachment-cache-v1")).keys()) names.push(name); } catch { /* none */ }
+        return names.sort();
+      };
+      await store(a, bytes(1)); await store(b, bytes(2)); await wait();
+      const before = await entries();
+      await f.forgetCachedAttachments([a, undefined]);
+      const idle = { a: await present(a), b: await present(b), entries: await entries() };
+      const held = (await f.readCachedAttachment(b))!;
+      await f.forgetCachedAttachments([b]);
+      const whileHeld = { b: await present(b), heldStillReadable: (await held.blob.arrayBuffer()).byteLength, entries: await entries() };
+      await held.dispose();
+      for (let n = 0; n < 50 && (await entries()).length; n++) await wait();
+      return { before, idle, whileHeld, released: await entries() };
+    }, [key("a"), key("b")]);
+    expect(result).toEqual({
+      before: [key("a"), key("b")],
+      idle: { a: false, b: true, entries: [key("b")] },
+      whileHeld: { b: false, heldStillReadable: 17 * MiB, entries: [key("b")] },
+      released: [],
+    });
+  } finally { await context.close(); await server.close(); await rm(profile, { recursive: true, force: true }); }
+});
+
+test("a video the owner deletes in File Center leaves this device's disk cache, so a reload cannot open it", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const root = await mkdtemp(path.join(os.tmpdir(), "attachment-disk-cache-delete-"));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const cacheEntries = () => page.evaluate(async () => {
+    let count = 0;
+    try { for await (const _ of (await (await navigator.storage.getDirectory()).getDirectoryHandle("tarocub-attachment-cache-v1")).keys()) count++; } catch { /* none */ }
+    return count;
+  });
+  try {
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('files','文件助手',?)", [hashSecret("fixture")]);
+    const conversation = await hub.store.createConversation("owner", ["files"], "视频删除", "fixture");
+    const bytes = Buffer.alloc(20 * MiB); for (let offset = 0; offset < bytes.length; offset += 4096) bytes.writeUInt32LE(offset, offset);
+    const sha256 = createHash("sha256").update(bytes).digest("hex"), name = "clip-delete.mp4";
+    const attachmentId = await hub.attachments.importForBot("files", { conversationId: conversation.id, name, size: bytes.length, mime: "video/mp4", sha256 }, bytes);
+    await hub.store.publishBotMessage("files", { conversationId: conversation.id, blocks: [{ type: "file", attachmentId, name, size: bytes.length, mime: "video/mp4" }], status: "complete" });
+    await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" }); await showDisconnectedBots(page); await waitForClientOnline(page); await enterMobileChat(page, conversation.title);
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => undefined));
+    await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+    const downloaded = page.waitForEvent("download"); await page.getByRole("button", { name: `另存为 ${name}`, exact: true }).click();
+    expect(await (await downloaded).failure()).toBeNull();
+    await expect.poll(cacheEntries).toBe(1);
+    await page.goto(hub.url); await waitForClientOnline(page);
+    await openWorkspacePage(page, "文件中心");
+    const center = page.getByRole("dialog", { name: "文件中心", exact: true });
+    await center.getByRole("tab", { name: "附件管理", exact: true }).click();
+    await center.getByRole("button", { name: /视频删除/ }).click();
+    const details = center.getByRole("complementary", { name: "对话附件", exact: true });
+    await details.getByRole("checkbox", { name: `选择附件 ${name}`, exact: true }).check();
+    await details.getByRole("button", { name: "删除所选（1）", exact: true }).click();
+    await details.getByRole("alertdialog", { name: "确认删除附件", exact: true }).getByRole("button", { name: "确认删除", exact: true }).click();
+    await expect(center.locator(".file-center-notices")).toContainText("已删除 1 个附件");
+    await expect.poll(cacheEntries).toBe(0);
+    // A fresh load has no memory of the deletion: it must ask the Hub (410), not its disk copy.
+    await page.goto(hub.url); await waitForClientOnline(page); await enterMobileChat(page, conversation.title);
+    const refused = page.waitForResponse(response => new URL(response.url()).pathname.startsWith(`/api/attachments/${attachmentId}`) && response.status() === 410);
+    await page.getByRole("button", { name: `另存为 ${name}`, exact: true }).click();
+    await refused;
   } finally { await context.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
 });

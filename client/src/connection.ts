@@ -59,7 +59,7 @@ import { PassiveAttachments, type AttachmentLease } from "./passive-attachments.
 import type { StopReceipt } from "./run-stop.js";
 
 import { memoryAttachment, sweepTemporaryDownloads, type AttachmentSource } from "./download-buffer.js";
-import { DISK_CACHE_MIN_BYTES, diskCacheKey, readCachedAttachment, storeCachedAttachment } from "./attachment-disk-cache.js";
+import { DISK_CACHE_MIN_BYTES, diskCacheKey, forgetCachedAttachments, readCachedAttachment, storeCachedAttachment } from "./attachment-disk-cache.js";
 
 export type Bot = { id: string; name: string; engine: string; model: string; effort: string; online: number; managed?: number; deletedAt?: number; defaultAvatar?: string; role?: string };
 // `role` is open-ended so a newer Host role cannot reject the whole directory; only "dispatcher" has meaning here.
@@ -1316,6 +1316,8 @@ export class HubConnection {
     for (const id of ids) this.deletedAttachments.add(id);
     this.update({ attachmentDeletions: (this.state.attachmentDeletions ?? 0) + 1 });
     await this.cache.forgetAttachments(ids).catch(() => undefined);
+    // Videos above 16 MiB are cached on disk, outside IndexedDB.
+    await forgetCachedAttachments(ids.map(id => diskCacheKey(this.identity, id))).catch(() => undefined);
   }
   attachmentDeleted(id: string): boolean { return this.deletedAttachments.has(id); }
   private async downloadBlob(id: string, options: DownloadOptions): Promise<Blob> {
@@ -1331,7 +1333,8 @@ export class HubConnection {
     if (cached) { options.progress?.(1); return memoryAttachment(cached); }
     // Larger files (videos, mostly) are kept on disk instead: opening or saving
     // one again must not download it again.
-    const diskKey = diskCacheKey(this.identity, id), onDisk = await readCachedAttachment(diskKey);
+    // An attachment this device deleted is never served from its own copy.
+    const diskKey = diskCacheKey(this.identity, id), onDisk = this.deletedAttachments.has(id) ? undefined : await readCachedAttachment(diskKey);
     if (onDisk && options.signal?.aborted) { await onDisk.dispose(); throw new Error(t("下载已取消。")); }
     if (onDisk) { options.progress?.(1); return onDisk; }
     const { downloadAttachmentSource } = await import("./downloads.js");

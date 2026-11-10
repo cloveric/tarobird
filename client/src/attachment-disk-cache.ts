@@ -22,8 +22,12 @@ export function diskCacheKey(identity: { hubPublicKey?: string; deviceId?: strin
 const supported = () => !!globalThis.navigator?.storage?.getDirectory && !!globalThis.navigator?.locks;
 const cacheRoot = async (create: boolean) => (await navigator.storage.getDirectory()).getDirectoryHandle(ROOT, { create });
 
+/** Written into an entry that was deleted while in use; it is never read again. */
+const DELETED = "deleted";
+
 async function readMeta(directory: FileSystemDirectoryHandle): Promise<Meta | undefined> {
   try {
+    if (await directory.getFileHandle(DELETED).then(() => true, () => false)) return;
     const value: unknown = JSON.parse(await (await (await directory.getFileHandle("meta")).getFile()).text());
     const meta = value as Partial<Meta>;
     return typeof meta.size === "number" && typeof meta.type === "string" && typeof meta.accessed === "number" ? meta as Meta : undefined;
@@ -49,6 +53,8 @@ export async function readCachedAttachment(key: string | undefined): Promise<Att
   let release: (() => void) | undefined;
   try {
     const directory = await (await cacheRoot(false)).getDirectoryHandle(key);
+    // Deleted while in use: its removal may be queued behind that lease.
+    if (await directory.getFileHandle(DELETED).then(() => true, () => false)) return;
     release = await holdShared(lockName(key));
     const meta = await readMeta(directory); if (!meta) { release(); return; }
     const file = await (await directory.getFileHandle("data")).getFile();
@@ -106,6 +112,29 @@ export async function storeCachedAttachment(key: string | undefined, source: Att
     });
   } catch { /* Caching is optional; the download itself already succeeded. */ }
   finally { await source.dispose(); }
+}
+
+/** Remove these entries (the owner deleted the attachments on the Hub). One
+ * still being previewed, saved or streamed is marked deleted at once, so no
+ * later read returns it, and removed when its last lease ends; an eviction
+ * pass removes it as incomplete if the page closes first. */
+export async function forgetCachedAttachments(keys: readonly (string | undefined)[]): Promise<void> {
+  if (!supported()) return;
+  const root = await cacheRoot(false).catch(() => undefined);
+  if (!root) return;
+  for (const key of keys) {
+    if (!key || !validKey(key)) continue;
+    const removed = await navigator.locks.request(lockName(key), { ifAvailable: true }, async (lock) => {
+      if (!lock) return false;
+      await root.removeEntry(key, { recursive: true }).catch(() => undefined);
+      return true;
+    }).catch(() => false);
+    if (removed) continue;
+    const directory = await root.getDirectoryHandle(key).catch(() => undefined);
+    if (!directory) continue;
+    await directory.getFileHandle(DELETED, { create: true }).catch(() => undefined);
+    void navigator.locks.request(lockName(key), async () => { await root.removeEntry(key, { recursive: true }).catch(() => undefined); }).catch(() => undefined);
+  }
 }
 
 /** Forget every cached file (identity change or revocation). If a copy is
