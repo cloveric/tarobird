@@ -220,7 +220,7 @@ impl Drop for WorkDir {
 /// One install per App across processes. Electron main may start a fresh
 /// updater after losing contact with one that is still replacing the bundle;
 /// the OS releases this lock when the owning process exits.
-struct InstallLock(#[allow(dead_code)] std::fs::File);
+struct InstallLock(std::fs::File);
 impl InstallLock {
     fn acquire(root: &std::path::Path) -> Result<Self, String> {
         std::fs::create_dir_all(root).map_err(|_| "github_update_install")?;
@@ -236,6 +236,15 @@ impl InstallLock {
             Err(std::fs::TryLockError::WouldBlock) => Err("github_update_busy".into()),
             Err(_) => Err("github_update_install".into()),
         }
+    }
+}
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        // Closing our descriptor alone can leave the lock held by a concurrent
+        // fork until its CLOEXEC descriptors close. End the installation lock
+        // with this guard, rather than with the last inherited descriptor.
+        let _ = self.0.unlock();
     }
 }
 
@@ -1107,6 +1116,21 @@ mod tests {
         assert_eq!(InstallLock::acquire(&root).err().unwrap(), "github_update_busy");
         drop(first);
         drop(InstallLock::acquire(&root).unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn releasing_install_guard_unlocks_even_with_an_inherited_descriptor() {
+        let root = std::env::temp_dir().join(format!("tarobot-updater-inherited-lock-{}", uuid::Uuid::new_v4()));
+        let first = InstallLock::acquire(&root).unwrap();
+        // A fork in a concurrent thread temporarily inherits this open-file
+        // description until exec closes CLOEXEC descriptors.
+        let inherited = first.0.try_clone().unwrap();
+        drop(first);
+        let second = InstallLock::acquire(&root);
+        drop(inherited);
+        drop(second.expect("the installation guard owns the lock lifetime"));
         std::fs::remove_dir_all(root).unwrap();
     }
 
