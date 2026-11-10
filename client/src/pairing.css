@@ -51,6 +51,10 @@
 .pairing-step-index { display:grid; place-items:center; flex-shrink:0; width:24px; height:24px; border:1px solid var(--border-strong,var(--border)); border-radius:50%; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
 .pairing-steps strong { display:block; font-size:14px; font-weight:550; line-height:24px; }
 .pairing-steps p { margin:6px 0 0; font-size:13px; line-height:1.7; color:var(--grey); }
+/* Step 2 says where the QR code comes from; it matches the callout beside the buttons. */
+.pairing-steps li.pairing-step-key { margin:-12px -14px; padding:12px 14px; border-radius:12px; background:var(--accent-soft,var(--surface)); }
+.pairing-step-key .pairing-step-index { border-color:var(--accent,var(--text)); background:var(--accent,var(--text)); color:var(--bg); }
+.pairing-step-key p { color:var(--text); }
 .pairing-security { display:flex; gap:8px; margin:28px 0 0; padding-top:20px; border-top:1px solid var(--border); font-size:12px; line-height:1.7; color:var(--muted); }
 .pairing-security svg { flex-shrink:0; margin-top:3px; }
 .pairing-card.desktop-welcome { width:min(580px,100%); padding:40px; }
