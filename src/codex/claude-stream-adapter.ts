@@ -1935,9 +1935,15 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     }
 
     const namedPending = worker.pendingTurn?.nativeStarted && this.resultNamesTurn(parsed, worker.pendingTurn);
+    // A prompt written as the CLI dequeued a queued notification is folded into
+    // that notification turn: its one result names the prompt but still carries
+    // origin task-notification. It ends the review and the prompt's turn alike;
+    // otherwise the prompt waits for the inactivity stop after its work is done.
+    const foldedPending = !namedPending && !!worker.pendingTurn && worker.pendingTurn.promptWritten && !worker.pendingTurn.nativeAdmission
+      && this.resultNamesTurn(parsed, worker.pendingTurn);
     if (!namedPending && (isTaskNotificationResult(parsed) || (parsed.type === "result" && worker.taskNotificationTurnActive))) {
       this.finishReview(worker, parsed);
-      return;
+      if (!foldedPending) return;
     }
 
     // Only arm task-notification suppression when NO real turn is in flight.
