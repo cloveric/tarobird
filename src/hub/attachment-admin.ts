@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ATTACHMENT_ADMIN_PAGE_SIZE, type AttachmentAdminDelete, type AttachmentAdminDeleteResult, type AttachmentAdminList, type AttachmentAdminListQuery, type AttachmentAdminSummary } from "../client-protocol/attachment-admin.js";
 import type { HubStore } from "./store.js";
 import { HubError } from "./errors.js";
@@ -13,14 +14,18 @@ const MANAGED = `a.complete=1
 const PENDING = `EXISTS(SELECT 1 FROM message_attachments m JOIN deliveries d ON d.message_id=m.message_id
   WHERE m.attachment_id=a.id AND d.status='pending')`;
 
+// IDs are immutable; include the exact set, since count and bytes can stay the
+// same when another device removes an old file and a new equal-size file arrives.
+const attachmentRevision = (ids: string[]) => createHash("sha256").update(ids.sort().join("\0")).digest("hex");
+
 export function attachmentAdminSummary(store: HubStore, userId: string): Promise<AttachmentAdminSummary> {
   return store.db.serial(async () => {
     await store.requireOwner(userId);
-    const conversations = await store.db.all<{ conversationId: string; title: string; count: number; bytes: number }>(
-      `SELECT a.conversation_id AS conversationId, c.title AS title, COUNT(*) AS count, SUM(a.size) AS bytes
+    const conversations = await store.db.all<{ conversationId: string; title: string; count: number; bytes: number; attachmentIds: string }>(
+      `SELECT a.conversation_id AS conversationId, c.title AS title, COUNT(*) AS count, SUM(a.size) AS bytes, GROUP_CONCAT(a.id) AS attachmentIds
        FROM attachments a JOIN conversations c ON c.id=a.conversation_id WHERE ${MANAGED}
        GROUP BY a.conversation_id ORDER BY bytes DESC, c.title`);
-    return { count: conversations.reduce((sum, row) => sum + row.count, 0), bytes: conversations.reduce((sum, row) => sum + row.bytes, 0), conversations };
+    return { count: conversations.reduce((sum, row) => sum + row.count, 0), bytes: conversations.reduce((sum, row) => sum + row.bytes, 0), conversations: conversations.map(({ attachmentIds, ...row }) => ({ ...row, revision: attachmentRevision(attachmentIds.split(",")) })) };
   });
 }
 
@@ -46,13 +51,15 @@ export function attachmentAdminList(store: HubStore, userId: string, query: Atta
 export async function retireAttachments(store: HubStore, userId: string, input: AttachmentAdminDelete): Promise<AttachmentAdminDeleteResult> {
   return store.db.transaction(async () => {
     await store.requireOwner(userId);
+    const uniqueIds = [...new Set(input.ids)];
     const scope = input.conversationId !== undefined ? { sql: "a.conversation_id=?", params: [input.conversationId] }
-      : { sql: `a.id IN (${input.ids!.map(() => "?").join(",")})`, params: [...new Set(input.ids)] };
+      : { sql: `a.id IN (${uniqueIds.map(() => "?").join(",")})`, params: uniqueIds };
     const rows = await store.db.all<{ id: string; size: number; pending: number }>(
       `SELECT a.id AS id, a.size AS size, ${PENDING} AS pending FROM attachments a WHERE ${scope.sql} AND ${MANAGED}`, scope.params);
     // "Delete all" removes what the owner confirmed, never an attachment that
     // arrived (or a set that changed) while the confirmation was open.
-    if (input.expected && (rows.length !== input.expected.count || rows.reduce((sum, row) => sum + row.size, 0) !== input.expected.bytes)) {
+    if (input.expected && (rows.length !== input.expected.count || rows.reduce((sum, row) => sum + row.size, 0) !== input.expected.bytes
+      || (input.expected.revision !== undefined && attachmentRevision(rows.map(row => row.id)) !== input.expected.revision))) {
       throw new HubError("attachment_set_changed", 409);
     }
     const removable = rows.filter(row => !row.pending), pending = rows.filter(row => row.pending).map(row => row.id);

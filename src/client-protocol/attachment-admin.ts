@@ -16,7 +16,7 @@ export const ATTACHMENT_ADMIN_DELETE_LIMIT = 500;
 
 const bytes = z.number().int().nonnegative().safe();
 export const attachmentAdminConversationSchema = z.object({
-  conversationId: idSchema, title: z.string(), count: z.number().int().nonnegative(), bytes,
+  conversationId: idSchema, title: z.string(), count: z.number().int().nonnegative(), bytes, revision: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
 export const attachmentAdminSummarySchema = z.object({
   count: z.number().int().nonnegative(), bytes, conversations: z.array(attachmentAdminConversationSchema).max(10_000),
@@ -50,7 +50,7 @@ export const attachmentAdminDeleteSchema = z.object({
   /** With `conversationId`: the count and size the confirmation showed. If the
    * conversation's attachments changed since, nothing is deleted
    * (409 `attachment_set_changed`). */
-  expected: z.object({ count: z.number().int().nonnegative(), bytes }).strict().optional(),
+  expected: z.object({ count: z.number().int().nonnegative(), bytes, revision: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict().optional(),
 }).strict().refine(value => (value.ids === undefined) !== (value.conversationId === undefined), { message: "ids_or_conversation" })
   .refine(value => value.expected === undefined || value.conversationId !== undefined, { message: "expected_requires_conversation" });
 export type AttachmentAdminDelete = z.infer<typeof attachmentAdminDeleteSchema>;

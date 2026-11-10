@@ -6,7 +6,7 @@ import { bytes } from "./file-size.js";
 import { HubHttpError } from "./http-error.js";
 import { t, useLocale } from "./i18n.js";
 
-type Pending = { ids?: string[]; conversationId?: string; count: number; size: number; expected?: { count: number; bytes: number } };
+type Pending = { ids?: string[]; conversationId?: string; count: number; size: number; expected?: { count: number; bytes: number; revision: string } };
 const kind = (mime: string, name: string) => /\.([A-Za-z0-9]{1,8})$/.exec(name)?.[1]?.toUpperCase() ?? mime.split("/")[1]?.toUpperCase() ?? mime;
 const failure = (error: unknown) => error instanceof HubHttpError && error.code === "owner_required" ? t("仅主机主人可以管理附件。")
   : error instanceof HubHttpError && error.code === "attachment_set_changed" ? t("这个对话的附件刚有变化，没有删除。已重新读取，请再确认一次。") : t("操作未完成，请检查连接后重试。");
@@ -73,7 +73,7 @@ export function AttachmentManager({ connection, selected, select, locate, busyCh
       <header><button className="file-action" disabled={busy} onClick={() => select("")}><ArrowLeft size={16}/>{t("返回对话列表")}</button>
         <h3>{conversation?.title || t("未命名对话")}</h3>{conversation && <p>{t("{0} 个附件 · 共 {1}", conversation.count, bytes(conversation.bytes))}</p>}</header>
       <div className="attachment-toolbar"><select aria-label={t("附件排序")} value={sort} disabled={busy} onChange={event => setSort(event.target.value === "time" ? "time" : "size")}><option value="size">{t("占用从大到小")}</option><option value="time">{t("最近上传")}</option></select>
-        <button type="button" className="danger" disabled={busy || !conversation} onClick={() => conversation && setConfirm({ conversationId: selected, count: conversation.count, size: conversation.bytes, expected: { count: conversation.count, bytes: conversation.bytes } })}><Trash2 size={15}/>{t("删除全部附件")}</button></div>
+        <button type="button" className="danger" disabled={busy || !conversation} onClick={() => conversation && setConfirm({ conversationId: selected, count: conversation.count, size: conversation.bytes, expected: { count: conversation.count, bytes: conversation.bytes, revision: conversation.revision } })}><Trash2 size={15}/>{t("删除全部附件")}</button></div>
       <ul className="attachment-list">{items.map(item => <li key={item.id} data-pending={item.pending || undefined}>
         <label><input type="checkbox" disabled={busy || item.pending} checked={checked.has(item.id)} onChange={() => toggle(item.id)} aria-label={t("选择附件 {0}", item.name)}/>
           <span><strong title={item.name}>{item.name}</strong><small>{kind(item.mime, item.name)} · {bytes(item.size)} · {when(item.createdAt)}</small></span></label>

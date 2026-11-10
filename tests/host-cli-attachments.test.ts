@@ -27,7 +27,7 @@ it("lists and deletes attachments through the owner API, freeing the blob", asyn
     await writeFile(path.join(hub.attachments.directory, `${id}.blob`), Buffer.alloc(size));
     await hub.store.publishBotMessage("alpha", { conversationId: chat.id, blocks: [{ type: "file", attachmentId: id, name: `${size}.pdf`, size, mime: "application/pdf" }] });
   }
-  expect(await runAttachmentsCommand(root, "list", {})).toEqual({ count: 2, bytes: 2100, conversations: [{ conversationId: chat.id, title: "PPT 素材", count: 2, bytes: 2100 }] });
+  expect(await runAttachmentsCommand(root, "list", {})).toEqual({ count: 2, bytes: 2100, conversations: [{ conversationId: chat.id, title: "PPT 素材", count: 2, bytes: 2100, revision: expect.stringMatching(/^[a-f0-9]{64}$/) }] });
   const page: any = await runAttachmentsCommand(root, "list", { conversation: chat.id, sort: "size" });
   expect(page.items.map((item: { id: string }) => item.id)).toEqual(["att_cli_2000", "att_cli_100"]);
   await expect(runAttachmentsCommand(root, "delete", { ids: "att_cli_2000" })).rejects.toThrow("--yes");

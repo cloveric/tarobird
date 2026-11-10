@@ -42,7 +42,7 @@ describe("owner attachment management", () => {
     await upload(decks, 999, "draft.pptx"); // unsent upload: left to GC, not listed
     const summary = await attachmentAdminSummary(store, "owner");
     expect(summary).toEqual({ count: 3, bytes: 360, conversations: [
-      { conversationId: decks, title: "PPT 素材", count: 2, bytes: 310 }, { conversationId: notes, title: "笔记", count: 1, bytes: 50 }] });
+      { conversationId: decks, title: "PPT 素材", count: 2, bytes: 310, revision: expect.stringMatching(/^[a-f0-9]{64}$/) }, { conversationId: notes, title: "笔记", count: 1, bytes: 50, revision: expect.stringMatching(/^[a-f0-9]{64}$/) }] });
     const bySize = await attachmentAdminList(store, "owner", attachmentAdminListQuerySchema.parse({ conversationId: decks }));
     expect(bySize.total).toBe(2);
     expect(bySize.items.map(item => [item.id, item.name, item.size, item.pending])).toEqual([[large, "大.pptx", 300, false], [small, "小.pptx", 10, false]]);
@@ -70,7 +70,7 @@ describe("owner attachment management", () => {
     await expect(attachments.download({ userId: "owner" }, gone)).rejects.toMatchObject({ code: "attachment_deleted", status: 410 });
     await expect(attachments.download({ userId: "member" }, gone)).rejects.toMatchObject({ code: "conversation_forbidden" });
     expect((await attachments.download({ userId: "owner" }, keep)).row.id).toBe(keep);
-    expect((await attachmentAdminSummary(store, "owner")).conversations).toEqual([{ conversationId: decks, title: "PPT 素材", count: 1, bytes: 10 }]);
+    expect((await attachmentAdminSummary(store, "owner")).conversations).toEqual([{ conversationId: decks, title: "PPT 素材", count: 1, bytes: 10, revision: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
     const files = await conversationFiles(store, "owner", conversationFilesQuerySchema.parse({ conversationId: decks }));
     expect(files.items.map(item => item.attachmentId)).toEqual([keep]);
     expect(await remove({ ids: [gone] })).toEqual({ deleted: 0, freedBytes: 0, ids: [], pending: [] });
@@ -102,6 +102,16 @@ describe("owner attachment management", () => {
     expect(result).toMatchObject({ deleted: 3, freedBytes: 120 });
     expect(new Set(result.ids)).toEqual(new Set([first, second, late]));
     expect(() => attachmentAdminDeleteSchema.parse({ ids: [first], expected: { count: 1, bytes: 20 } })).toThrow();
+  });
+
+  it("refuses replacing a confirmed attachment with a new one of the same size", async () => {
+    const old = await share(decks, 20);
+    const shown = (await attachmentAdminSummary(store, "owner")).conversations[0]!;
+    await remove({ ids: [old] });
+    const replacement = await share(decks, 20);
+    const expected = { count: shown.count, bytes: shown.bytes, ...("revision" in shown ? { revision: shown.revision } : {}) };
+    await expect(remove({ conversationId: decks, expected })).rejects.toMatchObject({ code: "attachment_set_changed", status: 409 });
+    await expect(attachments.download({ userId: "owner" }, replacement)).resolves.toMatchObject({ row: { id: replacement } });
   });
 
   it("daily GC removes bytes left by an interrupted purge but keeps the tombstone row", async () => {
