@@ -41,6 +41,14 @@ An unanswered probe replaces the socket without penalizing the route solely for
 iOS suspension. This is a detection deadline, not a guarantee that authentication
 and catch-up finish within five seconds.
 
+Traffic buffered by the native bridge before suspension may arrive only after
+the wake and therefore cancel this probe. A link that remains silently broken
+after that buffered traffic still uses the ordinary fifteen-second heartbeat
+window. Focus notifications also use the existing resume path; weak networks
+that take more than five seconds to answer can incur an extra authenticated
+reconnect, without a route penalty. System overlays and cellular wake-up latency
+remain part of the physical-device checks, rather than a five-second guarantee.
+
 An actual hidden transition cancels the earlier probe, allowing a fresh window
 on the next foreground. This avoids premature replacement during rapid App
 switching; repeated visible wake signals still cannot renew the deadline.
