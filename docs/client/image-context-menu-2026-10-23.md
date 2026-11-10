@@ -35,4 +35,3 @@
 - CLI 不适用：仅客户端交互，未改变 Host、附件协议或下载权限。
 
 验证（Chromium）：`image-whiteboard-menu` 4 项、`image-context-menu` 5 项通过。新增用例在不打开查看器的情况下从缩略图复制，读回剪贴板为 1200 × 1200 原尺寸，另存为下载与原文件逐字节一致；手机 UA 下不出现菜单。WebKit 与原生 App 未在本次运行。
-
