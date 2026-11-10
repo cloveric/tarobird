@@ -107,6 +107,9 @@ pub struct Settings {
     pub provider: Provider,
     /// Present only when the updater policy itself is acceptable.
     pub pubkey: Option<String>,
+    /// `github-updates.public`: the release repository is public, so checks
+    /// and downloads need no GitHub sign-in. The pinned key still gates installs.
+    pub public_repository: bool,
 }
 
 fn updater_policy(updater: Option<&Value>) -> Option<String> {
@@ -155,8 +158,13 @@ impl Settings {
     pub fn from_value(value: &Value) -> Self {
         let updater = value.get("updater");
         let pubkey = updater_policy(updater);
+        let public = value.get("github-updates").and_then(|github| github.get("public"));
         let provider = match value.get("github-updates") {
-            Some(github) => Provider::Github(policy::github_config(Some(github), updater)),
+            // Anything but a boolean `public` is a malformed configuration.
+            Some(github) => Provider::Github(policy::github_config(Some(github), updater).and_then(|config| match public {
+                None | Some(Value::Bool(_)) => Ok(config),
+                Some(_) => Err("github_update_configuration".into()),
+            })),
             None => Provider::Default(
                 pubkey
                     .as_ref()
@@ -164,7 +172,7 @@ impl Settings {
                     .map(|endpoints| PublicConfig { endpoints }),
             ),
         };
-        Self { provider, pubkey }
+        Self { provider, pubkey, public_repository: public == Some(&Value::Bool(true)) }
     }
     pub fn load(path: &std::path::Path) -> Result<Self, &'static str> {
         let info = std::fs::symlink_metadata(path).map_err(|_| "invalid_update_config")?;
@@ -202,6 +210,23 @@ mod tests {
         "--host-state-dir", "/data/com.tarobot.client",
         "--work-dir", "/data/desktop-updates.noindex",
     ];
+
+    #[test]
+    fn github_public_flag_is_a_boolean_and_defaults_to_signed_in() {
+        let updater = json!({"pubkey":"key","requireSignedVersion":true,"allowDowngrades":false});
+        let settings = |public: Option<Value>| {
+            let mut github = json!({"repository":"owner/app","clientId":"Ov23.example"});
+            if let Some(public) = public { github["public"] = public; }
+            Settings::from_value(&json!({"updater": updater, "github-updates": github}))
+        };
+        let private = settings(None);
+        assert!(private.configured() && !private.public_repository);
+        let public = settings(Some(json!(true)));
+        assert!(public.configured() && public.public_repository);
+        assert!(!settings(Some(json!(false))).public_repository);
+        let malformed = settings(Some(json!("yes")));
+        assert!(!malformed.configured() && !malformed.public_repository);
+    }
 
     #[test]
     fn requires_every_fixed_argument_once() {

@@ -1,8 +1,8 @@
 export type UpdateEvent = { event: "Started"; data: { contentLength?: number } } | { event: "Progress"; data: { chunkLength: number } } | { event: "Finished" | "WaitingForHost" | "Installing" | "RestartingHost" };
 export interface UpdateOffer { version: string; body?: string; close(): Promise<void>; downloadAndInstall(progress: (event: UpdateEvent) => void, options: { timeout: number }): Promise<void> }
-export interface UpdateInfo { configured: boolean; version: string; provider?: "github" | "default"; authenticated?: boolean; login?: string }
+export interface UpdateInfo { configured: boolean; version: string; provider?: "github" | "default"; authenticated?: boolean; login?: string; /** Public release repository: no sign-in. */ public?: boolean }
 export interface UpdateBackend { info(): Promise<UpdateInfo>; check(): Promise<UpdateOffer | null>; restart(): Promise<void> }
-export interface UpdateState { phase: "initial" | "disabled" | "login-required" | "checking" | "current" | "available" | "installing" | "installed" | "restart-required" | "recovery-required" | "error"; version?: string; provider?: "github" | "default"; authenticated?: boolean; login?: string; nextVersion?: string; notes?: string; installStage?: "downloading" | "waiting" | "replacing" | "restarting"; bytes?: number; total?: number; error?: string }
+export interface UpdateState { phase: "initial" | "disabled" | "login-required" | "checking" | "current" | "available" | "installing" | "installed" | "restart-required" | "recovery-required" | "error"; version?: string; provider?: "github" | "default"; authenticated?: boolean; login?: string; public?: boolean; nextVersion?: string; notes?: string; installStage?: "downloading" | "waiting" | "replacing" | "restarting"; bytes?: number; total?: number; error?: string }
 const privateErrors = new Set(["design_not_saved", "github_update_login_required", "github_update_denied", "github_update_expired", "github_update_network", "github_update_configuration", "github_update_repo_unavailable", "github_update_signature", "github_update_invalid_offer", "github_update_cancelled", "github_update_browser", "github_update_response", "github_update_manifest", "github_update_keychain", "github_update_install", "github_update_busy", "github_update_bounds", "github_update_failed", "github_update_host", "github_update_permissions", "github_update_recovery", "github_update_installed_host_failed"]);
 /** Native private-update failures are stable codes; never render native response detail. */
 export function githubUpdateError(error: unknown): string {
@@ -31,9 +31,9 @@ export class UpdateController {
     try {
       const info = await this.backend.info();
       await this.offer?.close(); this.offer = null;
-      this.set({ phase: "checking", version: info.version, provider: info.provider, authenticated: info.authenticated, login: info.login });
+      this.set({ phase: "checking", version: info.version, provider: info.provider, authenticated: info.authenticated, login: info.login, public: info.public });
       if (!info.configured) { this.set({ ...this.state, phase: "disabled" }); return; }
-      if (info.provider === "github" && !info.authenticated) { this.set({ ...this.state, phase: "login-required" }); return; }
+      if (info.provider === "github" && !info.authenticated && !info.public) { this.set({ ...this.state, phase: "login-required" }); return; }
       this.offer = await this.backend.check();
       this.set({ ...this.state, phase: this.offer ? "available" : "current", nextVersion: this.offer?.version, notes: this.offer?.body });
     } catch (error) { this.fail(error); }

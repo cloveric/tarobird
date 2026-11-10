@@ -20,6 +20,13 @@ test("private builds require GitHub login before querying a feed and retain acco
   authenticated = false; await update.check();
   expect(update.state.phase).toBe("login-required"); expect(update.state.login).toBeUndefined(); expect(checks).toBe(1);
 });
+test("a public release repository checks without GitHub login", async () => {
+  let checks = 0;
+  const update = new UpdateController({ info: async () => ({ configured: true, version: "1.0.0", provider: "github" as const, authenticated: false, public: true }), check: async () => { checks++; return null; }, restart: async () => undefined });
+  await update.check();
+  expect(update.state).toMatchObject({ phase: "current", provider: "github", public: true, authenticated: false });
+  expect(checks).toBe(1);
+});
 test("expired private authorization returns to login and never exposes arbitrary native error detail", async () => {
   let error = "github_update_login_required";
   const update = new UpdateController({ info: async () => ({ configured: true, version: "1.0.0", provider: "github" as const, authenticated: true, login: "octocat" }), check: async () => { throw error; }, restart: async () => undefined });

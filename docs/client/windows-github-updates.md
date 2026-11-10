@@ -131,3 +131,23 @@ normal release checklist and include the prerequisite Windows startup fixes.
 
 References: [GitHub OAuth device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow),
 [Tauri updater](https://v2.tauri.app/plugin/updater/).
+
+## Public repository: no GitHub sign-in (2026-11-07)
+
+`cloveric/tarobird` is public, so signed builds now write
+`"public": true` into `plugins.github-updates` (a private fork sets
+`TAROBOT_GITHUB_PRIVATE=true` to keep the sign-in flow). With that flag the
+native updater:
+
+- reports `public: true` from `info` without reading the OS credential store;
+- lists releases, reads the manifest and downloads the installer without an
+  `Authorization` header (anonymous 401/403/404, e.g. rate limiting, surface as
+  a network error rather than an account problem);
+- still selects only non-draft, non-prerelease `<platform>-tarobot-v*` releases
+  that carry the platform manifest, and still verifies the pinned update key
+  before anything is replaced.
+
+Settings → Application updates then shows only Check for updates / Download and
+install; the GitHub account controls are hidden. Installed builds without the
+flag (1.2.1 and earlier) keep their existing flow: sign in once, or install the
+next release manually, to reach a build that no longer asks.
