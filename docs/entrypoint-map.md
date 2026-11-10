@@ -3775,6 +3775,13 @@ New iOS binaries advertise `tarobotKeyboardInsets.supported()` from
 `client/ios/App/App/KeyboardInsets.swift`. `UIKeyboardLayoutGuide` is converted
 into the current WebView's coordinates and reports overlap through the existing
 `tarobot-keyboard` channel; old binaries retain the Capacitor event fallback.
+The guide follows undocked presentations, while the overlap predicate still
+rejects floating or partial-width keyboards. `ios-keyboard-dismiss.ts` adds a
+short touch tap in chat history to dismiss native iOS text input; scrolling,
+selection, long presses and interactive controls retain their behavior.
+Regression: browser `ios-keyboard-dismiss`; pure Swift geometry is not an
+installed-device keyboard receipt. These are App presentation changes; the
+headless CLI has no keyboard or viewport.
 `ios-adaptive.css` handles iOS-only asymmetric sheets, touch controls above the
 phone breakpoint and keyboard avoidance with a fine pointer. `AttachmentPicker`
 retains camera/photo/file choices on expanded iOS windows. Browser `iphone-duo`,

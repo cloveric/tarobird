@@ -276,6 +276,13 @@ test('ADHD browser expands the owning card, preserves drafts and isolates hidden
     await workbench(page).getByRole('button',{name:'打开网址',exact:true}).click();
     await expect.poll(()=>page.evaluate(()=>(window as any).browserFixture.calls.findLast((call:any)=>call.command==='workbench_browser'&&call.args.action==='navigate')?.args.url)).toBe('https://example.com/first');
     await workbench(page).getByRole('textbox',{name:'网址或搜索',exact:true}).fill('https://example.com/keyboard');
+    // The first navigation can redirect while the still-focused address field
+    // is already editing the next URL. Native state must not erase that edit.
+    await page.evaluate(tabId => {
+      const f = (window as any).browserFixture, tab = { ...f.tabs.get(tabId), url: 'https://example.com/first/redirected', navigation: 2 };
+      f.tabs.set(tabId, tab); f.listeners.forEach((receive: (event: any) => void) => receive({ ...tab, kind: 'state' }));
+    }, aTab);
+    await expect(workbench(page).getByRole('textbox',{name:'网址或搜索',exact:true})).toHaveValue('https://example.com/keyboard');
     // Exercise keyboard Go independently of macOS/WebKit's button Tab policy.
     await workbench(page).getByRole('button',{name:'打开网址',exact:true}).focus(); await page.keyboard.press('Enter');
     await expect.poll(()=>page.evaluate(()=>(window as any).browserFixture.calls.findLast((call:any)=>call.command==='workbench_browser'&&call.args.action==='navigate')?.args.url)).toBe('https://example.com/keyboard');

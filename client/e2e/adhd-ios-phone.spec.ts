@@ -91,14 +91,21 @@ test("folding shut opens the focused panel's conversation in 按对话; unfoldin
     await expect(page.locator(".adhd-folding")).toHaveCount(0);
     await page.waitForTimeout(800);
     await expect(page.locator(".adhd-card")).toHaveCount(2);
-    // An in-flight upload in a panel does not hold the board open.
-    await page.route("**/api/uploads**", () => {});
+    // Folding must retain the mounted upload until it can safely leave.
+    let uploadRoute: import("@playwright/test").Route | undefined;
+    await page.route("**/api/uploads**", route => { uploadRoute = route; });
     await first.locator("input[type=file]").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.alloc(256 * 1024, 97) });
     await first.getByRole("textbox").fill("附件");
     await first.getByRole("textbox").press("Enter");
     await expect(first.getByRole("textbox")).toBeDisabled(); // uploading
     await page.setViewportSize({ width: 466, height: 678 });
-    await expect(page.locator("[data-adhd-mode]")).toHaveCount(0, { timeout: 5000 });
+    await expect(page.locator(".adhd-compact")).toBeVisible();
+    await page.waitForTimeout(800);
+    await expect(page.locator(".adhd-card")).toHaveCount(2);
+    await page.unroute("**/api/uploads**");
+    await expect.poll(() => !!uploadRoute).toBe(true);
+    await uploadRoute!.continue();
+    await expect(page.locator("[data-adhd-mode]")).toHaveCount(0, { timeout: 10000 });
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: /重构重试逻辑/ })).toBeVisible();
     expect(await layout(page)).toBe("conversations");

@@ -76,10 +76,12 @@ final class TaroBotKeyboardInsets: NSObject, WKScriptMessageHandler {
             window.webkit.messageHandlers.tarobotKeyboardReady.postMessage(null);
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
-        // A floating/undocked keyboard must not remove a full-height band from
-        // a chat window. UIKit tracks the docked overlap in this view/scene.
+        // Track every keyboard in this scene; overlap() reserves a band only
+        // for full-width bottom occlusion. Floating/split keyboards still
+        // return zero, while a full-width keyboard is not lost solely because
+        // UIKit classified its current presentation as undocked.
         let guide = view.keyboardLayoutGuide
-        guide.followsUndockedKeyboard = false
+        guide.followsUndockedKeyboard = true
         let probe = KeyboardInsetProbe()
         probe.translatesAutoresizingMaskIntoConstraints = false
         probe.isUserInteractionEnabled = false

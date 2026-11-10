@@ -2141,7 +2141,12 @@ test("ADHD separates gray chrome from white chats and marks focus with the selec
     for (const palette of ["mono", "white-violet", "white-orange"]) for (const theme of ["light", "dark", "system"]) {
       await page.emulateMedia({ colorScheme: 'dark' });
       await page.evaluate(({ palette, theme }) => { document.documentElement.dataset.palette = palette; document.documentElement.dataset.theme = theme; }, { palette, theme });
-      await expect.poll(() => pane(page, first.id).evaluate(el => el.getAnimations().length)).toBe(0);
+      // The resting card has its own border transition after a palette/focus
+      // change. Flush styles and await both cards before sampling final colors.
+      await expect.poll(() => Promise.all([first, second].map(item => pane(page, item.id).evaluate(el => {
+        getComputedStyle(el).borderTopColor;
+        return el.getAnimations().length;
+      })))).toEqual([0, 0]);
       const focused = await edge(pane(page, first.id)), resting = await edge(pane(page, second.id));
       const bubble = await edge(pane(page, first.id).locator('.message.bot .rich-card'));
       expect(resting.border).toBe(bubble.border);

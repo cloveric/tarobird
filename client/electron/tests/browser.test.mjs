@@ -704,7 +704,7 @@ test('a typed result is ok only when the text really reached the target; focus t
   assert.deepEqual([grown.status, grown.evidence.method], ['ok', 'ime']);
 });
 
-test('Host reset clears only that Host: pages close without prompts, new work is fenced, partitions are cleared without creating new ones', async () => {
+test('Host reset clears only that Host: pages close without prompts, new work is fenced, partitions are cleared without creating new ones', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'tarobot-browser-reset-')), partitions = path.join(root, 'Partitions'), registry = path.join(root, 'registry.json');
   await mkdir(partitions);
   const name = value => partitionFor(value).slice('persist:'.length);
@@ -721,7 +721,9 @@ test('Host reset clears only that Host: pages close without prompts, new work is
   await other({ action: 'open', tab: 'b1', url: 'https://b.example', requestId: 'b1' });
   const [a1, b1] = f.children.map(view => view.webContents);
   a1.unload = 'prevent'; a1.closeDelay = 30;                              // would normally ask before leaving
-  await new Promise(resolve => setTimeout(resolve, 20));                  // registry write for the new partitions
+  // File IO is queued across windows. Observe the completed atomic write,
+  // rather than assuming a busy CI runner flushes it within 20 ms.
+  await t.waitFor(async () => assert.equal(JSON.parse(await readFile(registry, 'utf8')).partitions[name(hostA)], hash), { timeout: 2_000 });
   assert.deepEqual(JSON.parse(await readFile(registry, 'utf8')).partitions[name(hostA)], hash);
   const resetting = f.browser.request('workbench_browser_reset', { host: hostA.host, scopes: [hostA, notesOnly] }, () => true);
   const fenced = await mine({ action: 'open', tab: 'a3', url: 'https://a.example/3', requestId: 'a3' });

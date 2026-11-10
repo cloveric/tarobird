@@ -216,20 +216,23 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
     (checkbox ?? grid.current?.querySelector<HTMLElement>(".adhd-card:not([hidden]) .adhd-grip") ?? search.current)?.focus({ preventScroll: true });
   });
   // Folding an unfolded iPhone shut gives the board up for 按对话 and opens the
-  // focused panel's conversation. Unmounting interrupts uploads and recording
-  // (by design, without a prompt) and flushes drafts; unfolding again before the
-  // settle ends keeps the board.
+  // focused panel's conversation only after uploads/recording and draft writes
+  // settle. A physical resize must not discard unsaved work. Unfolding again
+  // before the settle ends keeps the board.
   const folding = phoneBoard && compact;
+  const foldBlocked = locked || saving || !!pendingLeave || Object.values(draftSaving).some(Boolean) || Object.values(unsaved).some(Boolean);
+  const foldReady = useRef(false); foldReady.current = folding && !foldBlocked;
   const focusedRef = useRef(focused); focusedRef.current = focused;
   const exitRef = useRef(exit); exitRef.current = exit;
   useEffect(() => {
-    if (!folding) return;
+    if (!folding || foldBlocked) return;
     const timer = setTimeout(() => {
+      if (!foldReady.current) return;
       const panes = current.current.panes;
       exitRef.current("conversations", panes.find(pane => adhdPaneKey(pane) === focusedRef.current) ?? panes[0]);
     }, ADHD_FOLD_SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [folding]);
+  }, [folding, foldBlocked]);
   const leave = (layout?: SidebarLayout) => {
     // Capture the selected conversation before draft/Bus guards defer the exit.
     // Moving focus while a save is pending must not retarget that click.
@@ -384,7 +387,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
         }
         setBusSelection(undefined); setBusWorkspace(undefined); setBusRun(undefined); setBusOpen(false);
       }}/>}</div>
-  </div>{busLeave && <AgentBusDraftDialog kind="leave" close={() => setBusLeave(undefined)} discard={() => { const run = busLeave.run; setBusLeave(undefined); run(); }}/>}{folding && <div className="adhd-folding" role="status"><span className="adhd-folding-mark" aria-hidden="true"><i/><i/></span><span>{t("回到单对话")}</span></div>}{compact && !phoneBoard && <div className="adhd-compact"><PanelsTopLeft size={26}/><h1>{t("拉宽窗口，继续多对话")}</h1><p>{t("面板和正在上传的文件会保留，也可以回到单对话。")}</p><button disabled={locked || saving || !!pendingLeave} title={locked ? blockedTip : undefined} onClick={() => leave()}>{t("返回聊天")}</button></div>}{leaving && <CreationDialog title={t("有草稿尚未保存")} close={() => setLeaving(undefined)} closeLabel={t("关闭")} showHost={false} className="adhd-leave-dialog"><p>{t("关闭后，未保存的文字或附件修改将丢失。已保存的内容和正在运行的任务会保留。")}</p><footer><button className="primary" onClick={() => setLeaving(undefined)}>{t("继续编辑")}</button><button disabled={locked || saving || Object.values(draftSaving).some(Boolean)} className="text-danger" onClick={() => { const run = leaving.run; setLeaving(undefined); run(); }}>{t("放弃未保存的修改")}</button></footer></CreationDialog>}</>;
+  </div>{busLeave && <AgentBusDraftDialog kind="leave" close={() => setBusLeave(undefined)} discard={() => { const run = busLeave.run; setBusLeave(undefined); run(); }}/>}{folding && !foldBlocked && <div className="adhd-folding" role="status"><span className="adhd-folding-mark" aria-hidden="true"><i/><i/></span><span>{t("回到单对话")}</span></div>}{compact && (!phoneBoard || foldBlocked) && <div className="adhd-compact"><PanelsTopLeft size={26}/><h1>{t("拉宽窗口，继续多对话")}</h1><p>{t("面板和正在上传的文件会保留，也可以回到单对话。")}</p><button disabled={locked || saving || !!pendingLeave} title={locked ? blockedTip : undefined} onClick={() => leave()}>{t("返回聊天")}</button></div>}{leaving && <CreationDialog title={t("有草稿尚未保存")} close={() => setLeaving(undefined)} closeLabel={t("关闭")} showHost={false} className="adhd-leave-dialog"><p>{t("关闭后，未保存的文字或附件修改将丢失。已保存的内容和正在运行的任务会保留。")}</p><footer><button className="primary" onClick={() => setLeaving(undefined)}>{t("继续编辑")}</button><button disabled={locked || saving || Object.values(draftSaving).some(Boolean)} className="text-danger" onClick={() => { const run = leaving.run; setLeaving(undefined); run(); }}>{t("放弃未保存的修改")}</button></footer></CreationDialog>}</>;
 }
 
 type CardProps = { busStatus?: string; pane: AdhdPaneRef; host?: AdhdHost; title: string; opening: boolean; index: number; count: number; focused: boolean; restoreFocus: number; reveal: number; expanded: boolean; hidden: boolean; suspended: boolean; usable: boolean; busy: boolean; Workspace: Props["Workspace"]; preferences: Preferences; updatePreferences: Props["updatePreferences"]; focus: () => void; expand: () => void; expandForWorkbench: () => void; remove: () => void; move: (index: number) => void; busyChanged: (key: string, value: boolean, dirty: boolean, saving: boolean) => void; replace: (id: string) => void; focusRequest?: { serial: number; messageId?: string }; focusHandled: (key: string, serial: number) => void; microphoneBusy: boolean; claimMicrophone: (key: string) => boolean; releaseMicrophone: (key: string) => void; navigate: (id: string, messageId?: string, createdTitle?: string) => void; open: () => void };

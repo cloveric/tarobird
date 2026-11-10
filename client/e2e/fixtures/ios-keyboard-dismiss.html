@@ -1,0 +1,11 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body>
+<textarea aria-label="Draft">Keep this draft</textarea>
+<main class="message-scroll" style="padding:40px;min-height:300px">
+  <p id="history">Tap this message to dismiss the keyboard.</p>
+  <button id="action">Message action</button>
+  <label><input type="radio" name="answer">Question choice</label>
+</main>
+<script type="module">
+import { installIosKeyboardDismiss } from '../../src/ios-keyboard-dismiss.ts';
+window.disposeDismiss = installIosKeyboardDismiss(document);
+</script></body></html>
