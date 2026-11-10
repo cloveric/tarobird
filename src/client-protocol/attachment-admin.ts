@@ -47,7 +47,12 @@ export type AttachmentAdminList = z.infer<typeof attachmentAdminListSchema>;
 export const attachmentAdminDeleteSchema = z.object({
   ids: z.array(idSchema).min(1).max(ATTACHMENT_ADMIN_DELETE_LIMIT).optional(),
   conversationId: idSchema.optional(),
-}).strict().refine(value => (value.ids === undefined) !== (value.conversationId === undefined), { message: "ids_or_conversation" });
+  /** With `conversationId`: the count and size the confirmation showed. If the
+   * conversation's attachments changed since, nothing is deleted
+   * (409 `attachment_set_changed`). */
+  expected: z.object({ count: z.number().int().nonnegative(), bytes }).strict().optional(),
+}).strict().refine(value => (value.ids === undefined) !== (value.conversationId === undefined), { message: "ids_or_conversation" })
+  .refine(value => value.expected === undefined || value.conversationId !== undefined, { message: "expected_requires_conversation" });
 export type AttachmentAdminDelete = z.infer<typeof attachmentAdminDeleteSchema>;
 export const attachmentAdminDeleteResultSchema = z.object({
   deleted: z.number().int().nonnegative(), freedBytes: bytes,

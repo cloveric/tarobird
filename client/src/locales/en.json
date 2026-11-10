@@ -5155,6 +5155,7 @@
   "{0} 个附件 · 共 {1}": "{0} attachment(s) · {1} total",
   "{0} 个附件所在的消息 Bot 还没处理完，稍后再删。": "{0} attachment(s) are in messages a Bot hasn't finished. Delete them later.",
   "仅主机主人可以管理附件。": "Only the host owner can manage attachments.",
+  "这个对话的附件刚有变化，没有删除。已重新读取，请再确认一次。": "This conversation's attachments just changed, so nothing was deleted. The list was reloaded; confirm again.",
   "删除 {0} 个附件，释放 {1}？": "Delete {0} attachment(s) and free {1}?",
   "删除全部附件": "Delete all",
   "删除后无法恢复；只删除主机上的这份，消息里会显示「附件已删除」。": "This can't be undone. Only the host copy is deleted; messages will show \"Attachment deleted\".",

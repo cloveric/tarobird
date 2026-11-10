@@ -89,6 +89,21 @@ describe("owner attachment management", () => {
     expect(await remove({ ids: [queued] })).toMatchObject({ deleted: 1, ids: [queued], pending: [] });
   });
 
+  it("deletes all of a conversation only while it still holds what the confirmation showed", async () => {
+    const first = await share(decks, 20), second = await share(decks, 30);
+    const shown = (await attachmentAdminSummary(store, "owner")).conversations.find(item => item.conversationId === decks)!;
+    expect(shown).toMatchObject({ count: 2, bytes: 50 });
+    const late = await share(decks, 70); // arrives while the confirmation is open
+    await expect(remove({ conversationId: decks, expected: { count: shown.count, bytes: shown.bytes } })).rejects.toMatchObject({ code: "attachment_set_changed", status: 409 });
+    expect(await store.db.get("SELECT 1 FROM retired_attachments")).toBeUndefined();
+    expect(await exists(path.join(attachments.directory, `${late}.blob`))).toBe(true);
+    const again = (await attachmentAdminSummary(store, "owner")).conversations.find(item => item.conversationId === decks)!;
+    const result = await remove({ conversationId: decks, expected: { count: again.count, bytes: again.bytes } });
+    expect(result).toMatchObject({ deleted: 3, freedBytes: 120 });
+    expect(new Set(result.ids)).toEqual(new Set([first, second, late]));
+    expect(() => attachmentAdminDeleteSchema.parse({ ids: [first], expected: { count: 1, bytes: 20 } })).toThrow();
+  });
+
   it("daily GC removes bytes left by an interrupted purge but keeps the tombstone row", async () => {
     const id = await share(notes, 40);
     await remove({ ids: [id] }); // purge never ran

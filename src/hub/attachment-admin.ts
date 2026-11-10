@@ -1,5 +1,6 @@
 import { ATTACHMENT_ADMIN_PAGE_SIZE, type AttachmentAdminDelete, type AttachmentAdminDeleteResult, type AttachmentAdminList, type AttachmentAdminListQuery, type AttachmentAdminSummary } from "../client-protocol/attachment-admin.js";
 import type { HubStore } from "./store.js";
+import { HubError } from "./errors.js";
 
 /** Attachments that occupy host disk and appear in messages: complete, not yet
  * retired, and still referenced. Unreferenced uploads (drafts) are left to GC. */
@@ -49,6 +50,11 @@ export async function retireAttachments(store: HubStore, userId: string, input: 
       : { sql: `a.id IN (${input.ids!.map(() => "?").join(",")})`, params: [...new Set(input.ids)] };
     const rows = await store.db.all<{ id: string; size: number; pending: number }>(
       `SELECT a.id AS id, a.size AS size, ${PENDING} AS pending FROM attachments a WHERE ${scope.sql} AND ${MANAGED}`, scope.params);
+    // "Delete all" removes what the owner confirmed, never an attachment that
+    // arrived (or a set that changed) while the confirmation was open.
+    if (input.expected && (rows.length !== input.expected.count || rows.reduce((sum, row) => sum + row.size, 0) !== input.expected.bytes)) {
+      throw new HubError("attachment_set_changed", 409);
+    }
     const removable = rows.filter(row => !row.pending), pending = rows.filter(row => row.pending).map(row => row.id);
     for (const row of removable) await store.db.run("INSERT OR IGNORE INTO retired_attachments(attachment_id) VALUES(?)", [row.id]);
     const freedBytes = removable.reduce((sum, row) => sum + row.size, 0);
