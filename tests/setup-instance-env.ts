@@ -8,3 +8,6 @@ for (const name of ["TAROBOT_MESSAGE_ID", "TAROBOT_HOST_DIR", "TAROBOT_STATE_DIR
 }
 // Never reuse the developer's model, endpoint or restart command in a fixture.
 for (const name of Object.keys(process.env)) if (name.startsWith("ASR_")) delete process.env[name];
+// Never let the developer's installed Claude Code or Codex shape a model list;
+// discovery tests opt in with fixture executables.
+process.env.TAROBOT_MODEL_DISCOVERY = "0";
