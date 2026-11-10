@@ -380,6 +380,40 @@ for (const surface of ['side', 'workbench']) test(`${surface} keeps chat width d
   await expect.poll(async()=>(await panel.boundingBox())!.width).toBeCloseTo(580,0);
 });
 
+for (const empty of ['undefined', 'null'] as const) test(`invalid ${empty} native mode response releases resize without a retry loop`, async ({page}) => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await nativeFixture(page);
+  await page.evaluate(empty => {
+    const native = (window as any).sideNative;
+    native.modeReads = 0; native.invalid = false; native.state.maximized = true;
+    (window as any).tarobotDesktop = {version:1,engine:'electron',platform:'darwin',openSocket:async()=>{},on:()=>()=>{},invoke:async (command:string,args:any) => {
+      if (command === 'desktop_window_read') {
+        if (native.invalid) {
+          native.modeReads++; if (native.modeReads > 2) throw Error('probe_retry_limit');
+          return empty === 'null' ? null : undefined;
+        }
+        return {...native.state,outerWidth:native.state.width,outerHeight:700,scale:1,resizable:true,work:{x:0,y:0,width:2000,height:1000}};
+      }
+      if (command === 'desktop_window_size') native.state.width = args.width;
+      if (command === 'desktop_window_position') Object.assign(native.state,{x:args.x,y:args.y});
+    }};
+  }, empty);
+  await page.getByRole('button', {name:'侧边对话',exact:true}).click();
+  const shell = page.locator('.app-shell'); await expect(shell).toHaveAttribute('data-side-window','split');
+  // Bound the old implementation's loop so a negative run cannot freeze the
+  // runner. The fixed implementation must consume only the first invalid reply.
+  await page.evaluate(() => { const native = (window as any).sideNative; native.invalid = true; native.state.width = 1580; });
+  const chosen = await page.evaluate(() => document.documentElement.style.getPropertyValue('--side-panel-width'));
+  await page.setViewportSize({width:1580,height:700});
+  await expect.poll(() => page.evaluate(() => (window as any).sideNative.modeReads)).toBeGreaterThan(0);
+  await expect(shell).not.toHaveAttribute('data-side-window-resizing');
+  expect(await page.evaluate(() => (window as any).sideNative.modeReads)).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--side-panel-width'))).toBe(chosen);
+  expect(errors).toEqual([]);
+  await page.getByRole('button', {name:'关闭侧边',exact:true}).click();
+  await expect(page.locator('.conversation-side-panel')).toHaveCount(0);
+});
+
 for (const closeEarly of [false,true]) test(`resize hold is released after ${closeEarly ? 'closing before readback' : 'an unanswered mode read'}`, async ({page}) => {
   await nativeFixture(page);
   await page.evaluate(()=>(window as any).sideNative.release());

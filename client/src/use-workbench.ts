@@ -68,6 +68,7 @@ export function useWorkbench(connection: HubConnection, conversationId: string, 
     let registered: string | undefined, last = "", sessionEpoch = -1, timer: ReturnType<typeof setTimeout> | undefined, disposed = false;
     const available = () => !disposed && !connection.isClosed && !connection.isReadOnly && connection.state.status === "online" && connection.state.workbenchAvailable;
     const publishNow = () => {
+      clearTimeout(timer); timer = undefined;
       if (!available()) { last = ""; return; }
       const registration = controller.getRegistration(); if (!registration) return;
       const key = JSON.stringify([connection.sessionEpoch, registration]); if (key === last) return;
@@ -75,14 +76,15 @@ export function useWorkbench(connection: HubConnection, conversationId: string, 
       void connection.send({ v: 1, type: "workbench.register", registration }).catch(() => { if (last === key) last = ""; });
     };
     const publish = () => {
-      clearTimeout(timer);
       // Invalidate synchronously: a local reconnect can complete within the
       // content debounce. Host registrations belong to the old WS peer.
-      if (!available()) { last = ""; return; }
+      if (!available()) { clearTimeout(timer); timer = undefined; last = ""; return; }
       if (sessionEpoch !== connection.sessionEpoch) {
         sessionEpoch = connection.sessionEpoch; publishNow(); return;
       }
-      timer = setTimeout(publishNow, 80);
+      // Coalesce from the first change. Streaming chat notifications must not
+      // keep postponing a new tab/revision indefinitely; read the latest state.
+      if (timer === undefined) timer = setTimeout(publishNow, 80);
     };
     const stopController = controller.subscribe(publish), stopConnection = connection.subscribe(publish);
     const stopCommands = connection.subscribeWorkbench(frame => {

@@ -45,6 +45,7 @@ export class WorkbenchController {
   private noteLoading = new Map<string, Promise<MarkdownSession>>();
   private noteUsers = new Map<string, number>();
   private boardControllers = new Map<string, BoardController>();
+  private boardLoading = new Map<string, Promise<void>>();
   private boardUsers = new Map<string, number>();
   // The revision actually stored for each loaded board. A board whose document
   // differs (an earlier save failed) is a retained unsaved edit: never pruned,
@@ -108,11 +109,13 @@ export class WorkbenchController {
       }
       this.check();
       const boards = new Map<string, BoardDocument>();
-      for (const tab of layout.tabs) if (tab.kind === "whiteboard" && layout.visible.includes(tab.id)) {
-        const board = await this.connection.cache.readWorkbenchBoard(this.scope, tab.id);
-        this.check();
-        if (board) { boards.set(tab.id, board); this.savedBoards.set(tab.id, board.revision); }
-      }
+      // A split has at most four visible panes. Start those independent reads
+      // together, then publish in layout order after the ownership check.
+      const visibleBoards = new Set(layout.visible);
+      const loadedBoards = await Promise.all(layout.tabs.filter(tab => tab.kind === "whiteboard" && visibleBoards.has(tab.id))
+        .map(async tab => ({ id: tab.id, board: await this.connection.cache.readWorkbenchBoard(this.scope, tab.id) })));
+      this.check();
+      for (const { id, board } of loadedBoards) if (board) { boards.set(id, board); this.savedBoards.set(id, board.revision); }
       let browser = false, windowId = this.snapshot.windowId;
       const browserEvents: BrowserEvent[] = [], nativeTabs: Record<string, unknown>[] = [];
       if (this.browser.supported) {
@@ -260,7 +263,7 @@ export class WorkbenchController {
     if (this.disposed) return;
     const hide = (list: string[]) => {
       const boards = new Map(this.snapshot.boards), notes = new Map(this.snapshot.notes);
-      for (const id of list) { boards.delete(id); notes.delete(id); this.savedBoards.delete(id); }
+      for (const id of list) { boards.delete(id); notes.delete(id); this.savedBoards.delete(id); this.boardLoading.delete(id); }
       if (!this.disposed) this.publish({ boards, notes });
     };
     hide(ids);
@@ -383,7 +386,7 @@ export class WorkbenchController {
     const board = await this.connection.cache.readWorkbenchBoard(this.scope, id); if (!board) throw new Error("whiteboard_not_found");
     this.check(); const old = this.snapshot.layout, layout = changeWorkbench(old, { type: "delete", id });
     await this.connection.cache.deleteWorkbenchBoardAndLayout(this.scope, id, board.revision, old.revision, layout);
-    this.boardControllers.delete(id); this.savedBoards.delete(id); const boards = new Map(this.snapshot.boards); boards.delete(id); this.publish({ boards, layout });
+    this.boardLoading.delete(id); this.boardControllers.delete(id); this.savedBoards.delete(id); const boards = new Map(this.snapshot.boards); boards.delete(id); this.publish({ boards, layout });
   }
   /** Runs `work` only if no editor anywhere holds `name`; never waits. */
   private async withExclusiveEditorLock(name: string, work: () => Promise<void>): Promise<boolean> {
@@ -631,10 +634,22 @@ export class WorkbenchController {
     }
     return this.boardControllers.get(id)!;
   }
-  private async ensureBoard(id: string): Promise<void> {
-    if (this.snapshot.boards.has(id)) return;
-    const board = await this.connection.cache.readWorkbenchBoard(this.scope, id);
-    this.check(); if (!board) throw new Error("whiteboard_not_found"); this.savedBoards.set(id, board.revision); this.boardDocument(board);
+  private ensureBoard(id: string): Promise<void> {
+    if (this.snapshot.boards.has(id)) return Promise.resolve();
+    const loading = this.boardLoading.get(id); if (loading) return loading;
+    let promise!: Promise<void>;
+    promise = (async () => {
+      const board = await this.connection.cache.readWorkbenchBoard(this.scope, id);
+      this.check();
+      // Deletion invalidates the read, even if the same ID is reopened while
+      // the old IndexedDB request is still settling. Never resurrect its bytes.
+      if (this.boardLoading.get(id) !== promise) return;
+      if (!board) throw new Error("whiteboard_not_found");
+      this.adoptStoredBoard(board);
+    })();
+    this.boardLoading.set(id, promise);
+    void promise.finally(() => { if (this.boardLoading.get(id) === promise) this.boardLoading.delete(id); }).catch(() => undefined);
+    return promise;
   }
   private pruneBoards(): void {
     const keep = new Set([...this.snapshot.layout.visible, ...this.boardUsers.keys()]);

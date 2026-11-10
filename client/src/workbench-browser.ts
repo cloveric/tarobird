@@ -49,9 +49,27 @@ let layoutSequence = 0, layoutFrame = 0, nativeSurfaceLimit = MAX_BROWSER_SURFAC
 let lastLayout: string | undefined;
 const surfaces = new Map<string, { node: HTMLElement; visible: () => boolean }>();
 let mutationObserver: MutationObserver | undefined, resizeObserver: ResizeObserver | undefined;
+// Elements that may cover native pages. Chat streaming must not rescan the
+// whole document every frame: rebuild the candidates only after a DOM change
+// that can add one. Their visibility is still checked on every layout frame.
+const OVERLAY_MARKERS = '[aria-modal="true"], [role="menu"], .desktop-menu, [data-workbench-overlay], .agent-bus-dock';
+const OVERLAYS = `dialog, ${OVERLAY_MARKERS}`;
+let overlays: Set<HTMLElement> | undefined;
+function domChanged(records: MutationRecord[]): void {
+  if (overlays) for (const record of records) {
+    const target = record.target as HTMLElement;
+    if (record.type === "attributes" ? target instanceof Element && target.matches(OVERLAYS) !== overlays.has(target)
+      : [...record.addedNodes].some(node => node instanceof Element && (node.matches(OVERLAYS) || !!node.querySelector(OVERLAYS)))) { overlays = undefined; break; }
+  }
+  scheduleBrowserLayout();
+}
 function obscured(): boolean {
-  return [...document.querySelectorAll<HTMLElement>('dialog:modal, [aria-modal="true"], [role="menu"], .desktop-menu, [data-workbench-overlay], .agent-bus-dock')]
-    .some(node => {
+  overlays ??= new Set(document.querySelectorAll<HTMLElement>(OVERLAYS));
+  return [...overlays].some(node => {
+      if (!node.isConnected) { overlays?.delete(node); return false; }
+      // A non-modal dialog may still explicitly identify itself as an
+      // overlay. Preserve the same selector semantics as the uncached path.
+      if (!node.matches(`dialog:modal, ${OVERLAY_MARKERS}`)) return false;
       const style = getComputedStyle(node);
       // The Bus is a sibling column on wide windows, an overlay on narrow
       // ADHD layouts. Native pages must yield only to its overlay form.
@@ -74,7 +92,8 @@ export function scheduleBrowserLayout(): void {
       && !value.node.closest(".workbench, .adhd-browser-dock")?.getAnimations().some(animation => animation.playState === "running")).sort(([a, x], [b, y]) => Number(!!y.node.closest(".adhd-browser-dock")) - Number(!!x.node.closest(".adhd-browser-dock")) || a.localeCompare(b)).map(([tab, { node }]) => {
       const { x, y, width, height } = node.getBoundingClientRect(); return { tab, x, y, width, height };
     }).filter(view => view.width > 0 && view.height > 0).slice(0, nativeSurfaceLimit);
-    const layout = { views, hidden: document.hidden || obscured() }, key = JSON.stringify([window.devicePixelRatio, layout]);
+    // Without a page to show, overlays cannot change the native result.
+    const layout = { views, hidden: document.hidden || views.length > 0 && obscured() }, key = JSON.stringify([window.devicePixelRatio, layout]);
     if (key === lastLayout) return;
     lastLayout = key; const seq = ++layoutSequence;
     // Chat streaming and editor DOM updates often leave native geometry alone.
@@ -87,8 +106,9 @@ export function registerBrowserSurface(tab: string, node: HTMLElement, visible: 
   surfaces.set(tab, { node, visible });
   resizeObserver ??= new ResizeObserver(scheduleBrowserLayout); resizeObserver.observe(node);
   if (!mutationObserver) {
-    mutationObserver = new MutationObserver(scheduleBrowserLayout);
-    mutationObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open", "hidden", "class", "style", "aria-modal"] });
+    overlays = undefined;
+    mutationObserver = new MutationObserver(domChanged);
+    mutationObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["open", "hidden", "class", "style", "aria-modal", "role", "data-workbench-overlay"] });
     window.addEventListener("resize", scheduleBrowserLayout); document.addEventListener("scroll", scheduleBrowserLayout, true);
     document.addEventListener("visibilitychange", scheduleBrowserLayout);
     document.addEventListener("transitionend", overlayTransition, true);
@@ -98,7 +118,7 @@ export function registerBrowserSurface(tab: string, node: HTMLElement, visible: 
   return () => {
     if (surfaces.get(tab)?.node === node) surfaces.delete(tab); resizeObserver?.unobserve(node); scheduleBrowserLayout();
     if (!surfaces.size) {
-      mutationObserver?.disconnect(); mutationObserver = undefined; resizeObserver?.disconnect(); resizeObserver = undefined;
+      mutationObserver?.disconnect(); mutationObserver = undefined; overlays = undefined; resizeObserver?.disconnect(); resizeObserver = undefined;
       window.removeEventListener("resize", scheduleBrowserLayout); document.removeEventListener("scroll", scheduleBrowserLayout, true);
       document.removeEventListener("visibilitychange", scheduleBrowserLayout);
       document.removeEventListener("transitionend", overlayTransition, true);

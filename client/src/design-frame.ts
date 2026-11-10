@@ -26,6 +26,8 @@ class DesignFrame {
   private port?: MessagePort;
   private placeholder?: HTMLElement;
   private ready = false;
+  private revealReady = false;
+  private revealed = false;
   private quitPrepared = false;
   private quitLock = false;
   private quitEpoch = 0;
@@ -145,6 +147,13 @@ class DesignFrame {
   private message = (event: MessageEvent) => {
     if (event.source !== this.iframe?.contentWindow || event.origin !== "null") return;
     const frame = this.iframe, value = event.data;
+    // Canvas waits for its host's reveal acknowledgement before displaying
+    // the artboard. Without it, every open waits for the upstream fallback.
+    // Readiness is not visibility: menus, backgrounding and a retired surface
+    // must still prevent this frame from being revealed.
+    if (value?.__frame_reveal_ready === true && (this.session.document.format ?? "canvas") === "canvas") {
+      this.revealReady = true; this.layout(); return;
+    }
     if (value?.type === "tarobot-design-bootstrap") {
       void loadRuntime(this.session.document.format).then(html => { if (this.iframe === frame) frame?.contentWindow?.postMessage({ type: "tarobot-design-html", html }, "*"); }); return;
     }
@@ -214,6 +223,10 @@ class DesignFrame {
         const surface = element.closest(".workbench") ?? element;
         const zIndex = Math.max(11, (Number.parseInt(getComputedStyle(surface).zIndex, 10) || 0) + 1);
         Object.assign(this.iframe.style, { zIndex: String(zIndex), left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+        if (this.revealReady && !this.revealed && !this.iframe.inert && this.iframe.contentWindow) {
+          this.revealed = true;
+          this.iframe.contentWindow.postMessage({ __frame_revealed: true }, "*");
+        }
       }
     });
   };
@@ -242,7 +255,7 @@ class DesignFrame {
   async retire() { this.placeholder = undefined; this.layout(); await this.flush(); this.destroy(); }
   private destroy() {
     this.exportPrompt?.cancel(); this.exportPrompt = undefined; this.exportBusy = false;
-    this.generation++; this.ready = false; this.quitEpoch++; this.quitLock = this.quitPrepared = false; clearTimeout(this.readyTimer); this.port?.close(); this.port = undefined;
+    this.generation++; this.ready = this.revealReady = this.revealed = false; this.quitEpoch++; this.quitLock = this.quitPrepared = false; clearTimeout(this.readyTimer); this.port?.close(); this.port = undefined;
     this.unsubscribe?.(); this.unsubscribe=undefined; this.unsubscribeEvents?.(); this.unsubscribeEvents=undefined;
     this.iframe?.remove(); this.iframe = undefined; this.unbind?.(); this.unbind = undefined;
     this.mutation?.disconnect(); this.observer?.disconnect(); cancelAnimationFrame(this.raf); this.raf = 0;

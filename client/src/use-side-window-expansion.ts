@@ -158,9 +158,11 @@ export function useSideWindowExpansion(root: RefObject<HTMLElement | null>, visi
         const restricted = frame.maximized || frame.fullscreen;
         if (restricted || modeRestricted) trackingWidth = undefined;
         modeRestricted = restricted; resizing = false; clearResizeHold(); measure();
-      }, () => {
+      }).catch(() => {
         if (!active || version !== resizeVersion) return;
         // A missing native answer cannot prove a deliberate user resize.
+        // Also handle unusable replies: an exception in the fulfilled handler
+        // must clear resizing before finally considers a newer resize event.
         trackingWidth = undefined; resizing = false; clearResizeHold(); measure();
       }).finally(() => { clearTimeout(modeTimeout); readingMode = false; if (active && resizing) resized(); });
     };

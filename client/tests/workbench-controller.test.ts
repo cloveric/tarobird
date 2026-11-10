@@ -45,6 +45,90 @@ async function fixture(layout: WorkbenchLayout = { ...emptyWorkbench(), tabs: [{
 }
 
 describe("workbench App command fencing", () => {
+  it("starts the bounded visible-board reads together before opening a saved split", async () => {
+    const f = await fixture(emptyWorkbench()); f.controller.dispose();
+    const ids = ["one", "two", "three", "four"];
+    vi.spyOn(f.cache, "readWorkbench").mockResolvedValue({ ...emptyWorkbench(), tabs: ids.map(id => ({ id, kind: "whiteboard" as const, title: id })), active: ids[0], visible: ids });
+    const reads = new Map(ids.map(id => [id, gate<BoardDocument>()]));
+    f.cache.readWorkbenchBoard.mockImplementation((_scope, id) => reads.get(id)!.promise);
+    const controller = new WorkbenchController({ connection: f.connection, conversationId: "conversation" }); owners.push(controller);
+    const opening = controller.initialize();
+    try {
+      await vi.waitFor(() => expect(f.cache.readWorkbenchBoard).toHaveBeenCalledTimes(4));
+      expect(controller.getSnapshot().ready).toBe(false);
+    } finally { for (const [id, read] of reads) read.resolve(emptyBoard(id)); await opening; }
+    expect([...controller.getSnapshot().boards.keys()]).toEqual(ids);
+    expect(controller.getSnapshot().ready).toBe(true);
+  });
+
+  it("coalesces overlapping board reads and keeps a newer local edit", async () => {
+    const f = await fixture(emptyWorkbench()); f.controller.dispose();
+    const layout = { ...emptyWorkbench(), tabs: [{ id: "board", kind: "whiteboard" as const, title: "Board" }], active: "board", visible: ["board"] };
+    vi.spyOn(f.cache, "readWorkbench").mockResolvedValue(layout);
+    f.cache.readWorkbenchBoard.mockResolvedValue(emptyBoard("board"));
+    const controller = new WorkbenchController({ connection: f.connection, conversationId: "conversation" }); owners.push(controller);
+    await controller.initialize(); controller.setVisible(false);
+    await vi.waitFor(() => expect(controller.getSnapshot().boards.size).toBe(0));
+    const read = gate<BoardDocument>(); f.cache.readWorkbenchBoard.mockClear().mockReturnValue(read.promise);
+    // Reopen, close and reopen before IndexedDB returns. Both entrants need
+    // the same read, while a restored newer editor must not be overwritten.
+    for (let index = 0; index < 20; index++) { controller.setVisible(true); controller.setVisible(false); }
+    controller.setVisible(true);
+    const newer = { ...emptyBoard("board"), revision: 2 };
+    controller.boardDocument(newer);
+    read.resolve(emptyBoard("board"));
+    await read.promise; await Promise.resolve();
+    expect(controller.getSnapshot().boards.get("board")?.revision).toBe(2);
+    expect(f.cache.readWorkbenchBoard).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not restore deleted board bytes from an invalidated read", async () => {
+    const f = await fixture(emptyWorkbench()); f.controller.dispose();
+    const layout = { ...emptyWorkbench(), tabs: [{ id: "board", kind: "whiteboard" as const, title: "Board" }], active: "board", visible: ["board"] };
+    const stored = vi.spyOn(f.cache, "readWorkbench").mockResolvedValue(layout);
+    let deleted!: (ids: string[]) => void;
+    Object.assign(f.cache, { subscribeWorkbenchChanges: (_scope: string, listener: (ids: string[]) => void) => { deleted = listener; return () => {}; } });
+    f.cache.readWorkbenchBoard.mockResolvedValue(emptyBoard("board"));
+    const controller = new WorkbenchController({ connection: f.connection, conversationId: "conversation" }); owners.push(controller);
+    await controller.initialize(); controller.setVisible(false);
+    await vi.waitFor(() => expect(controller.getSnapshot().boards.size).toBe(0));
+    const read = gate<BoardDocument>(); f.cache.readWorkbenchBoard.mockReturnValueOnce(read.promise);
+    controller.setVisible(true);
+    stored.mockResolvedValue({ ...emptyWorkbench(), revision: 1 }); deleted(["board"]);
+    await vi.waitFor(() => expect(controller.getSnapshot().layout.tabs).toEqual([]));
+    read.resolve({ ...emptyBoard("board"), revision: 5 }); await read.promise; await Promise.resolve();
+    expect(controller.getSnapshot().boards.size).toBe(0);
+    expect(controller.boardSavedRevision("board")).toBeUndefined();
+    // A new load with the same ID is independent of the cancelled flight.
+    f.cache.readWorkbenchBoard.mockResolvedValue(emptyBoard("board"));
+    vi.spyOn(f.cache, "saveWorkbench").mockResolvedValue(undefined);
+    await controller.change({ type: "open", tab: layout.tabs[0] });
+    expect(controller.getSnapshot().boards.get("board")?.revision).toBe(0);
+  });
+
+  it("discards a board load after its controller is disposed", async () => {
+    const f = await fixture(emptyWorkbench());
+    const read = gate<BoardDocument>(); f.cache.readWorkbenchBoard.mockReturnValue(read.promise);
+    const opening = f.controller.change({ type: "open", tab: { id: "board", kind: "whiteboard", title: "Board" } });
+    await vi.waitFor(() => expect(f.cache.readWorkbenchBoard).toHaveBeenCalledTimes(1));
+    f.controller.dispose(); const refusal = expect(opening).rejects.toThrow("workbench_scope_unavailable");
+    read.resolve(emptyBoard("board")); await refusal;
+    expect(f.controller.getSnapshot().boards.size).toBe(0);
+  });
+
+  it("allows a new board read after a failed read, without crossing owners", async () => {
+    const f = await fixture(emptyWorkbench()); f.controller.dispose();
+    vi.spyOn(f.cache, "readWorkbench").mockResolvedValue({ ...emptyWorkbench(), tabs: [{ id: "board", kind: "whiteboard", title: "Board" }], active: "board", visible: ["board"] });
+    f.cache.readWorkbenchBoard.mockResolvedValue(emptyBoard("board"));
+    const controller = new WorkbenchController({ connection: f.connection, conversationId: "conversation" }); owners.push(controller);
+    await controller.initialize(); controller.setVisible(false);
+    await vi.waitFor(() => expect(controller.getSnapshot().boards.size).toBe(0));
+    f.cache.readWorkbenchBoard.mockRejectedValueOnce(Error("read_failed")); controller.setVisible(true);
+    await vi.waitFor(() => expect(controller.getSnapshot().error).toBe("read_failed"));
+    controller.setVisible(false); controller.setVisible(true);
+    await vi.waitFor(() => expect(controller.getSnapshot().boards.has("board")).toBe(true));
+  });
+
   it("adopts the first layout when two same-conversation controllers initialize together", async () => {
     const f = await fixture(emptyWorkbench()); f.controller.dispose();
     let stored: WorkbenchLayout | undefined, writes = 0;

@@ -45,3 +45,40 @@ test("registration follows authenticated session identity even if online state i
   await page.waitForTimeout(120);
   expect(await page.evaluate(() => (window as any).workbenchRegistrationFixture.sent.filter((frame: any) => frame.type === "workbench.register").length)).toBe(3);
 });
+
+test("busy chat notifications do not postpone a changed workbench registration", async ({ page }) => {
+  await page.goto(url); await expect(page.locator("output")).toHaveText("true");
+  await expect.poll(() => page.evaluate(() => (window as any).workbenchRegistrationFixture.sent.length)).toBe(1);
+  await page.clock.install();
+  await page.evaluate(() => {
+    const f = (window as any).workbenchRegistrationFixture;
+    f.connection.state.workbenchDesignAvailable = true;
+    f.emit();
+    f.noise = setInterval(() => f.emit(), 10);
+  });
+  await page.clock.runFor(250);
+  const registered = await page.evaluate(() => (window as any).workbenchRegistrationFixture.sent.filter((frame: any) => frame.type === "workbench.register"));
+  expect(registered).toHaveLength(2);
+  expect(registered[1].registration.capabilities).toContain("design.v1");
+  await page.evaluate(() => {
+    const f = (window as any).workbenchRegistrationFixture;
+    clearInterval(f.noise); f.connection.state.workbenchMarkdownAvailable = true; f.emit();
+  });
+  await page.clock.runFor(80);
+  expect(await page.evaluate(() => (window as any).workbenchRegistrationFixture.sent.at(-1).registration.capabilities)).toContain("markdown.v1");
+  // A pending old-session window is cancelled on offline/epoch replacement.
+  await page.evaluate(() => {
+    const f = (window as any).workbenchRegistrationFixture;
+    f.connection.state.workbenchSlidesAvailable = true; f.emit();
+    f.connection.state.status = "offline"; f.emit();
+  });
+  await page.clock.runFor(160);
+  expect(await page.evaluate(() => (window as any).workbenchRegistrationFixture.sent.length)).toBe(3);
+  await page.evaluate(() => {
+    const f = (window as any).workbenchRegistrationFixture;
+    f.connection.sessionEpoch++; f.connection.state.status = "online"; f.emit();
+  });
+  await page.clock.runFor(160);
+  const final = await page.evaluate(() => (window as any).workbenchRegistrationFixture.sent);
+  expect(final).toHaveLength(4); expect(final[3].registration.capabilities).toContain("design.slides.v1");
+});

@@ -153,7 +153,8 @@ test("bilingual PPT manual typing, close/reopen and imported backup preserve con
 
 
 for (const language of ["zh", "en"] as const) test(`canvas and PPT user entrypoints preserve edits through menus and tab switches (${language})`, async ({page},info) => {
- test.setTimeout(120000);const f=await fixture(page);
+ test.setTimeout(120000);
+ const f=await fixture(page);
  try {
   if(language==="en") {await openSettings(page,"general");await page.locator("#language").selectOption("en");await closeSettings(page,true);}
   const wb=page.getByRole("complementary",{name:language==="en"?"Workbench":"工作台",exact:true});
@@ -164,6 +165,9 @@ for (const language of ["zh", "en"] as const) test(`canvas and PPT user entrypoi
   const editor=page.frameLocator(".workbench-design-frame:visible");
   const heading=editor.frameLocator("iframe").locator("h1");
   await expect(heading).toHaveText(designName,{timeout:45000});times.canvasOpenMs=Date.now()-phase;
+  // Guard the upstream handshake itself, not a flaky wall-clock deadline.
+  const revealCount = () => page.frames().find(frame => frame.parentFrame() === page.mainFrame())!.evaluate(() => performance.getEntriesByName("design:revealed").length);
+  expect(await revealCount()).toBe(1);
   const edited=`${language} 手工修改 Canvas café 🌿`;
   await heading.dblclick();await page.keyboard.press("Meta+A");await page.keyboard.insertText(edited);await page.keyboard.press("Escape");
   await page.keyboard.press("Meta+z");await expect(heading).toHaveText(designName);await page.keyboard.press("Meta+Shift+z");await expect(heading).toHaveText(edited);
@@ -171,6 +175,7 @@ for (const language of ["zh", "en"] as const) test(`canvas and PPT user entrypoi
   phase=Date.now();await newButton.click();await wb.getByRole("menu").getByRole("button",{name:"PPT",exact:true}).click();
   await expect(editor.getByText("PPT",{exact:true}).first()).toBeVisible({timeout:45000});times.pptOpenMs=Date.now()-phase;
   phase=Date.now();await wb.getByRole("tab",{name:designName,exact:true}).click();await expect(heading).toHaveText(edited,{timeout:45000});times.canvasReturnMs=Date.now()-phase;
+  expect(await revealCount()).toBe(1);
   await wb.getByRole("tab",{name:"PPT",exact:true}).click();await expect(editor.getByText("PPT",{exact:true}).first()).toBeVisible({timeout:45000});
   await expect(page.locator(".workbench-design-frame:visible")).toHaveCount(1);
   console.log("HUMAN_ENTRY_TIMING",JSON.stringify({language,...times}));

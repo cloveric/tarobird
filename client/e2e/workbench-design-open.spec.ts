@@ -169,7 +169,7 @@ test("retiring an optional Design opener during message capture never fails ordi
   } finally { release(); await f.close(); }
 });
 
-test("ADHD never auto-opens Design, retires old requests and keeps manual Design usable", async ({ page }) => {
+test("ADHD retires Design requests and hides optional shortcuts until returning to chat", async ({ page }) => {
   test.setTimeout(90000);
   const f = await fixture(page);
   try {
@@ -201,18 +201,10 @@ test("ADHD never auto-opens Design, retires old requests and keeps manual Design
     await expect(other).toBeVisible();
     await expect(panel(page)).toHaveCount(0);
 
-    // Manual opening is separate, and an expanded ADHD card remains manual-only.
-    await card.getByRole("button", { name: "工作台", exact: true }).click();
-    await expect(card).toHaveClass(/is-expanded/);
-    await panel(page).getByRole("button", { name: "新建内容", exact: true }).click();
-    await panel(page).getByRole("menu").getByRole("button", { name: "画布", exact: true }).click();
-    await expect(panel(page).getByRole("tab", { name: "画布", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect.poll(async () => (await f.windows()).some(window => window.visible && window.tabs.some(tab => tab.kind === "design"))).toBe(true);
-    expect(await f.opener()).toBeUndefined();
-    const window = (await f.windows()).find(window => window.visible && window.tabs.some(tab => tab.kind === "design"))!;
-    const target = { deviceId: window.deviceId, windowId: window.windowId, tabId: window.tabs.find(tab => tab.kind === "design")!.id };
-    const read = await f.broker.request(f.actor(), { requestId: "manual-adhd-design-read", operation: "design.read", target, payload: { path: "project/Main.dc.html" } });
-    expect(read).toMatchObject({ status: "success", result: { content: expect.stringContaining("设计") } });
+    // ADHD deliberately omits these shortcuts. Content/library entrypoints
+    // are covered by workbench-adhd; return to ordinary chat for Design here.
+    await expect(card.getByRole("button", { name: "工作台", exact: true })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "屏幕控制", exact: true })).toHaveCount(0);
 
     await card.getByRole("button", { name: "在单对话中打开", exact: true }).click();
     await expect(page.locator(".adhd-shell")).toHaveCount(0);

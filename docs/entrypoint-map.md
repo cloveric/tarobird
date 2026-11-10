@@ -4797,6 +4797,13 @@ and broadcasts committed deletion IDs to other windows. Regressions:
 [1.0.128 preflight](client/release-1.0.128-preflight-2026-11-03.md) records the
 authorized Design/PPT release scope, CLI parity and fresh upstream inventory.
 
+[The responsiveness audit](client/workbench-efficiency-2026-11-10.md) documents
+the canvas reveal handshake, bounded registration coalescing, shared whiteboard
+reads and native browser overlay tracking. Cover `workbench-controller`,
+`workbench-registration`, `workbench-design-frame-reveal` and
+`workbench-browser-layout`; actual editor entrypoints also assert the upstream
+reveal mark. These scheduling changes retain save and scope fences.
+
 ### Baoyu Design / Baoyu PPT skills (2026-11-03)
 
 [The 2026-11-10 upstream refresh](client/workbench-upstream-2026-11-10.md) pins
