@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { access } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { imageViewerFixture } from "./fixtures/image-viewer.js";
 import { openWorkspacePage, waitForClientOnline } from "./fixtures/mobile.js";
@@ -62,6 +63,32 @@ test("owner deletes chosen and then all attachments of a conversation; messages 
     await expect(center.locator(".file-center-notices")).toContainText("已删除 3 个附件");
     await expect(center.getByText("暂无占用空间的附件。", { exact: true })).toBeVisible();
     expect(await blob(f.hub.attachments.directory, first)).toBe(false);
+  } finally { await page.close(); await f.close(); }
+});
+
+test("deleting the last page returns to the remaining attachments", async ({ page }) => {
+  const f = await imageViewerFixture(page);
+  try {
+    const bytes = Buffer.from("x"), sha256 = createHash("sha256").update(bytes).digest("hex");
+    // Four original images plus 97 tiny files: the second page has one item.
+    for (let index = 0; index < 97; index++) {
+      const id = await f.hub.attachments.importForBot("photo", { conversationId: f.chat.id, name: `page-${index}.txt`, mime: "text/plain", size: bytes.length, sha256 }, bytes);
+      await f.hub.store.db.run("INSERT INTO message_attachments(message_id,attachment_id) VALUES(?,?)", [f.batch.id, id]);
+    }
+    await openWorkspacePage(page, "文件中心");
+    const center = page.getByRole("dialog", { name: "文件中心", exact: true });
+    await center.getByRole("tab", { name: "附件管理", exact: true }).click();
+    await center.getByRole("button", { name: /图片手势/ }).click();
+    const details = center.getByRole("complementary", { name: "对话附件", exact: true });
+    await expect(details.locator(".attachment-list > li")).toHaveCount(100);
+    await details.getByRole("button", { name: "下一页", exact: true }).click();
+    await expect(details.locator(".attachment-list > li")).toHaveCount(1);
+    await details.getByRole("checkbox").check();
+    await details.getByRole("button", { name: "删除所选（1）", exact: true }).click();
+    await details.getByRole("button", { name: "确认删除", exact: true }).click();
+    await expect(center.locator(".file-center-notices")).toContainText("已删除 1 个附件");
+    await expect(details.locator(".attachment-list > li")).toHaveCount(100);
+    await expect(details.getByText("这个对话已没有可删除的附件。", { exact: true })).toHaveCount(0);
   } finally { await page.close(); await f.close(); }
 });
 

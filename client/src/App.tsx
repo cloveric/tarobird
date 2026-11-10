@@ -488,7 +488,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const sideVisible = rightMode === "side" && side.shown && !!sideEligible && !phone && !details && searchResults === undefined;
   const toggleSide = useCallback(() => {
     if (sideVisible) { void side.close(); sideTrigger.current?.focus(); }
-    else { setRightMode("side"); setDetails(false); closeSearch(); if (!side.shown) void side.open(); }
+    else { setRightMode("side"); setDetails(false); closeSearch(); void side.open(); }
   }, [sideVisible, side.shown, side.close, side.open, closeSearch, setRightMode]);
   useEffect(() => {
     if (!sideCanOpen) return;

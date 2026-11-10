@@ -402,15 +402,20 @@ export class HubStore {
       await this.db.run("DELETE FROM messages_fts WHERE rowid=?", [rowid]);
       if (body !== undefined) await this.db.run("INSERT INTO messages_fts(rowid,message_id,conversation_id,body) VALUES(?,?,?,?)", [rowid, m.id, m.conversationId, body]);
     }
-    await this.db.run("DELETE FROM message_attachments WHERE message_id=?", [m.id]);
     const ids = new Set<string>();
     if (m.linkPreview?.imageAttachmentId) ids.add(m.linkPreview.imageAttachmentId);
     const walk = (elements: import("../client-protocol/index.js").CardElement[]): void => { for (const element of elements) { if (element.attachmentId) ids.add(element.attachmentId); walk(element.children ?? []); } };
     for (const block of m.blocks) { if ("attachmentId" in block) ids.add(block.attachmentId); if (block.type === "card") walk(block.elements); }
     for (const id of ids) {
-      if (!await this.db.get("SELECT 1 FROM attachments a WHERE id=? AND conversation_id=? AND complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)", [id, m.conversationId])) throw new HubError("attachment_not_found", 404);
-      await this.db.run("INSERT INTO message_attachments VALUES(?,?)", [m.id, id]);
+      // Owner deletion keeps historical references as tombstones. Updates may
+      // retain those exact references, but cannot introduce a retired file into
+      // another message or re-add one removed by an earlier update.
+      if (!await this.db.get(`SELECT 1 FROM attachments a WHERE id=? AND conversation_id=? AND complete=1
+        AND (NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)
+          OR EXISTS(SELECT 1 FROM message_attachments m WHERE m.message_id=? AND m.attachment_id=a.id))`, [id, m.conversationId, m.id])) throw new HubError("attachment_not_found", 404);
     }
+    await this.db.run("DELETE FROM message_attachments WHERE message_id=?", [m.id]);
+    for (const id of ids) await this.db.run("INSERT INTO message_attachments VALUES(?,?)", [m.id, id]);
     for (const { attachment_id: id } of recalled) await this.db.run("INSERT OR IGNORE INTO retired_attachments SELECT ? WHERE NOT EXISTS(SELECT 1 FROM message_attachments WHERE attachment_id=?)", [id, id]);
   }
   private decodeMessage(row: MessageRow): Message {
@@ -722,7 +727,8 @@ export class HubStore {
       const attachmentIds = new Set(messageAttachmentIds(original.blocks));
       if (original.linkPreview?.imageAttachmentId) attachmentIds.add(original.linkPreview.imageAttachmentId);
       for (const sourceId of attachmentIds) {
-        const file = await this.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id=? AND conversation_id=? AND complete=1", [sourceId, source.id]);
+        // Retirement revokes reuse immediately, even if physical purge must retry.
+        const file = await this.db.get<AttachmentRow>("SELECT * FROM attachments a WHERE id=? AND conversation_id=? AND complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)", [sourceId, source.id]);
         if (!file) throw new HubError("attachment_not_found", 404);
         const id = newId("att"); await copy(file, id);
         await this.db.run("INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,1,?)", [id, conv.id, userId, file.sha256, file.size, file.mime, file.name, `${id}.blob`, Date.now()]);

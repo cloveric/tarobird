@@ -8,7 +8,9 @@ export type DiscoveredModel = { id: string; label?: string; efforts: string[] };
 export type DiscoveredModels = { models: DiscoveredModel[]; defaultLabel?: string };
 type DiscoveryEngine = "claude" | "codex";
 
-const TIMEOUT_MS = 15_000;
+// One deadline for initialization and every model/list page. Settings reads
+// and writes must still have time to finish within Hub's ten-second Bot RPC.
+const TIMEOUT_MS = 4_000;
 const OUTPUT_LIMIT = 1024 * 1024;
 const SUCCESS_TTL_MS = 300_000;
 const FAILURE_TTL_MS = 30_000;

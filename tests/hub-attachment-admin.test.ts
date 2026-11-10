@@ -123,4 +123,60 @@ describe("owner attachment management", () => {
     expect(await store.db.get("SELECT 1 FROM attachments WHERE id=?", [id])).toBeTruthy();
     await mkdir(path.join(directory, "unused"), { recursive: true });
   });
+
+  it("refuses forwarding a retired attachment while an interrupted purge has left its bytes", async () => {
+    const id = await upload(decks, 40);
+    const file = { type: "file" as const, attachmentId: id, name: "deck.pptx", size: 40, mime: "application/vnd.ms-powerpoint" };
+    const original = await store.publishBotMessage("alpha", { conversationId: decks, blocks: [file] });
+    const forward = (conversationId: string, clientMsgId: string) => attachments.forward("owner", { v: 1, type: "message.forward", conversationId, clientMsgId, sourceMessageId: original.id });
+    const normal = await forward(notes, "before-retirement");
+    const copied = normal.message.blocks.find(block => block.type === "file")!;
+    expect(copied.attachmentId).not.toBe(id);
+    await remove({ ids: [id] }); // The HTTP handler commits retirement even if purge fails.
+    expect(await exists(path.join(attachments.directory, `${id}.blob`))).toBe(true);
+    await store.publishBotMessage("alpha", { id: original.id, conversationId: decks, blocks: [{ type: "text", text: "Updated tombstone" }, file] });
+    await expect(attachments.download({ userId: "owner" }, id)).rejects.toMatchObject({ code: "attachment_deleted" });
+    const before = await store.db.get("SELECT COUNT(*) AS count FROM attachments");
+    for (const conversationId of [decks, notes]) {
+      await expect(forward(conversationId, `after-retirement-${conversationId}`)).rejects.toMatchObject({ code: "attachment_not_found" });
+    }
+    expect(await store.db.get("SELECT COUNT(*) AS count FROM attachments")).toEqual(before);
+    expect(await store.db.get("SELECT 1 FROM messages WHERE client_msg_id LIKE 'after-retirement-%'")).toBeUndefined();
+    // Copies made before retirement keep their independent lifetime.
+    await expect(attachments.download({ userId: "owner" }, copied.attachmentId)).resolves.toMatchObject({ row: { id: copied.attachmentId } });
+  });
+
+  it("updates existing messages after attachment deletion without allowing new retired references", async () => {
+    const id = await upload(decks, 40);
+    const file = { type: "file" as const, attachmentId: id, name: "deck.pptx", size: 40, mime: "application/vnd.ms-powerpoint" };
+    const original = await store.publishBotMessage("alpha", { conversationId: decks, blocks: [file] });
+    await remove({ ids: [id] }); await attachments.purge([id]);
+    const updated = await store.publishBotMessage("alpha", { id: original.id, conversationId: decks, blocks: [{ type: "text", text: "Updated answer" }, file] });
+    expect(updated.blocks).toHaveLength(2);
+    expect(await store.db.get("SELECT 1 FROM message_attachments WHERE message_id=? AND attachment_id=?", [original.id, id])).toBeTruthy();
+    await expect(attachments.download({ userId: "owner" }, id)).rejects.toMatchObject({ code: "attachment_deleted" });
+    for (const conversationId of [decks, notes]) {
+      await expect(store.publishBotMessage("alpha", { conversationId, blocks: [file] })).rejects.toMatchObject({ code: "attachment_not_found" });
+    }
+    await store.publishBotMessage("alpha", { id: original.id, conversationId: decks, blocks: [{ type: "text", text: "File removed" }] });
+    await expect(store.publishBotMessage("alpha", { id: original.id, conversationId: decks, blocks: [file] })).rejects.toMatchObject({ code: "attachment_not_found" });
+    expect((await store.messageForUser("owner", original.id)).blocks).toEqual([{ type: "text", text: "File removed" }]);
+  });
+
+  it("can delete a Bot whose interactive history references a deleted attachment", async () => {
+    await store.db.run("INSERT INTO managed_bots(bot_id,owner_id,request_id,specification_json) VALUES('alpha','owner','managed','{}')");
+    const id = await upload(decks, 40);
+    const original = await store.publishBotMessage("alpha", { conversationId: decks, blocks: [
+      { type: "file", attachmentId: id, name: "deck.pptx", size: 40, mime: "application/vnd.ms-powerpoint" },
+      { type: "card", elements: [{ type: "button", text: "Choose", actionId: "choose" }] },
+    ] });
+    await remove({ ids: [id] }); await attachments.purge([id]);
+    await store.deleteBot("owner", "alpha", "Alpha");
+    expect(await store.db.get("SELECT deleted_at FROM bots WHERE id='alpha'")).toMatchObject({ deleted_at: expect.any(Number) });
+    const saved = await store.messageForUser("owner", original.id);
+    expect(saved.blocks[0]).toEqual(original.blocks[0]);
+    expect(saved.blocks[1]).toMatchObject({ type: "card", elements: [{ type: "button", text: "Choose", disabled: true }] });
+    expect(JSON.stringify(saved.blocks[1])).not.toContain("actionId");
+    await expect(attachments.download({ userId: "owner" }, id)).rejects.toMatchObject({ code: "attachment_deleted" });
+  });
 });

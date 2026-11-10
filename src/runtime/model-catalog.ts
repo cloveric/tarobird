@@ -7,7 +7,7 @@ import type { ModelSettings } from "../client-protocol/model.js";
 import { discoverCliModels } from "./cli-model-discovery.js";
 
 export function modelEffortChoices(engine: InstanceEngine, model: string, discovered: ModelSettings["choices"] = []): ModelSettings["customEfforts"] {
-  if (engine === "kimi") {
+  if (engine === "kimi" || engine === "claude" || engine === "codex") {
     const known = discovered.find(choice => choice.id === model);
     if (known) return known.efforts;
   }

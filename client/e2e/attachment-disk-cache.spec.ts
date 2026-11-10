@@ -61,6 +61,64 @@ test("large downloads stay on disk, are read back exactly, and evict least recen
   } finally { await context.close(); await server.close(); await rm(profile, { recursive: true, force: true }); }
 });
 
+test("concurrent large downloads share one disk-cache budget", async ({ browser }) => {
+  const profile = await mkdtemp(path.join(os.tmpdir(), "attachment-cache-budget-"));
+  const context = await browser.browserType().launchPersistentContext(profile, { headless: true });
+  const server = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await server.listen();
+  try {
+    const pages = await Promise.all([context.newPage(), context.newPage()]);
+    await Promise.all(pages.map(async page => {
+      await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/download-buffer.html");
+      await page.waitForFunction(() => !!window.bufferFixture);
+    }));
+    const budget = 24 * MiB, keys = [key("a"), key("b")];
+    await Promise.all(pages.map((page, index) => page.evaluate(async ({ id, budget }) => {
+      const f = window.bufferFixture;
+      await f.storeCachedAttachment(id, f.memoryAttachment(new Blob([new Uint8Array(17 * 1024 ** 2)])), budget);
+    }, { id: keys[index]!, budget })));
+    const cached = await pages[0]!.evaluate(async keys => {
+      let count = 0, bytes = 0;
+      for (const id of keys) {
+        const source = await window.bufferFixture.readCachedAttachment(id);
+        if (source) { count++; bytes += source.blob.size; await source.dispose(); }
+      }
+      return { count, bytes };
+    }, keys);
+    expect(cached.count).toBeGreaterThan(0);
+    expect(cached.bytes).toBeLessThanOrEqual(budget);
+  } finally { await context.close(); await server.close(); await rm(profile, { recursive: true, force: true }); }
+});
+
+test("an already cached attachment does not wait for an unrelated disk copy", async ({ browser }) => {
+  const profile = await mkdtemp(path.join(os.tmpdir(), "attachment-cache-hit-"));
+  const context = await browser.browserType().launchPersistentContext(profile, { headless: true });
+  const server = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await server.listen();
+  const page = await context.newPage();
+  try {
+    await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/download-buffer.html");
+    await page.waitForFunction(() => !!window.bufferFixture);
+    await page.evaluate(async ({ cached, writing }) => {
+      const f = window.bufferFixture, blob = new Blob([new Uint8Array(17 * 1024 ** 2)]);
+      await f.storeCachedAttachment(cached, f.memoryAttachment(blob));
+      let entered!: () => void, release!: () => void;
+      const started = new Promise<void>(resolve => { entered = resolve; });
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const slow = new Blob([blob]);
+      slow.stream = () => new ReadableStream({ async start(controller) { entered(); await gate; controller.enqueue(new Uint8Array(await blob.arrayBuffer())); controller.close(); } });
+      const pending = f.storeCachedAttachment(writing, f.memoryAttachment(slow));
+      (window as any).budgetProbe = { done: false, release, pending };
+      await started;
+      // The unrelated writer now holds the budget lock. A duplicate of an
+      // already complete entry should release its key without waiting for it.
+      void f.storeCachedAttachment(cached, f.memoryAttachment(blob)).then(() => { (window as any).budgetProbe.done = true; });
+    }, { cached: key("c"), writing: key("d") });
+    await expect.poll(() => page.evaluate(() => (window as any).budgetProbe.done)).toBe(true);
+  } finally {
+    await page.evaluate(async () => { const probe = (window as any).budgetProbe; if (probe) { probe.release(); await probe.pending; } }).catch(() => undefined);
+    await context.close(); await server.close(); await rm(profile, { recursive: true, force: true });
+  }
+});
+
 test("a video above 16 MiB is downloaded from the Hub once; saving it again reads the disk cache", async ({ browser }) => {
   test.setTimeout(120_000);
   const root = await mkdtemp(path.join(os.tmpdir(), "attachment-disk-cache-hub-"));

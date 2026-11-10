@@ -31,3 +31,29 @@ test("an enabled but non-listening Tailscale entry says it is waiting; a disable
   await expect(page.locator('[data-host-entry="lan"]')).toContainText("LAN");
   await expect(page.locator('[data-host-entry="lan"] .route-state')).toHaveText("Ready");
 });
+
+test("retained addresses are not called ready while replacement or listener selection is unresolved", async ({ page }) => {
+  const lan = page.locator('[data-host-entry="lan"] .route-state');
+  const tailscale = page.locator('[data-host-entry="tailscale"] .route-state');
+  // HostRoutes.view retains the old address while another address is already
+  // listening. A mode-wide listening flag does not verify this displayed URL.
+  await page.evaluate(() => (window as any).hostEntriesFixture.setNotices(["replacement_pending"]));
+  await expect(lan).toHaveText("地址需确认");
+  await expect(tailscale).toHaveText("地址需确认");
+  await expect(lan).toHaveAttribute("data-tone", "warn");
+  await expect(page.locator('[data-host-entry="lan"]')).toContainText("https://192.168.1.20:8788");
+  // Specific-mode warnings must not downgrade the other, healthy entry.
+  for (const notice of ["lan_selection_required", "lan_not_listening"]) {
+    await page.evaluate(value => (window as any).hostEntriesFixture.setNotices([value]), notice);
+    await expect(lan).toHaveText("地址需确认");
+    await expect(tailscale).toHaveText("已就绪");
+  }
+  await page.evaluate(() => (window as any).hostEntriesFixture.setNotices(["tailscale_not_listening"]));
+  await expect(lan).toHaveText("已就绪");
+  await expect(tailscale).toHaveText("地址需确认");
+  await page.evaluate(() => (window as any).hostEntriesFixture.setLocale("en"));
+  await expect(tailscale).toHaveText("Address needs confirmation");
+  await expect(lan).toHaveText("Ready");
+  await page.evaluate(() => (window as any).hostEntriesFixture.setNotices([]));
+  await expect(tailscale).toHaveText("Ready");
+});

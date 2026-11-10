@@ -465,7 +465,9 @@ No side transcript enters the Hub journal or client cache. Shared budget, usage,
 audit and turn-pool helpers still apply. Phone, tablet, ADHD, group and read-only
 views have no entry point. See [behavior and acceptance](client/side-conversations-2026-10-22.md).
 Side panels retain per-conversation memory state and a low-frequency lease while
-viewing another chat. Attachment admission is Hub-owned; `core/side-attachments.ts`
+viewing another chat. Explicitly revealing an existing side panel requests input
+focus without recreating its context or clearing its draft; passive return from
+search keeps the search trigger's focus. Attachment admission is Hub-owned; `core/side-attachments.ts`
 verifies private copies and native adapters deliver files according to their
 capabilities. The CLI uses the same path with repeatable `side ask --file`.
 [Composer input parity](client/composer-input-parity-2026-10-23.md) records the
@@ -2699,8 +2701,19 @@ and the existing network/run/delete suites listed in that audit.
   stay so messages render 附件已删除 (`attachment_deleted`, 410). Attachments in
   a message a Bot has not finished (`deliveries.status='pending'`) are refused.
   Daily GC sweeps bytes an interrupted purge left. CLI: `tarobot attachments`.
+  Message updates may retain their existing deleted-file references, allowing
+  card retirement/Bot deletion to settle; they cannot add a retired file to a
+  new message or reintroduce a reference removed by an earlier update. Downloads
+  and new forwards remain blocked even when physical purge must retry. Existing
+  forwarded copies retain their independent lifetime. File Center clamps an
+  emptied page to the last remaining page.
+  Client small-attachment cache writes recheck deletion/cancellation inside the
+  IndexedDB write transaction; late downloads cannot restore a deleted cache
+  entry. Large-attachment disk copies serialize their capacity checks across
+  windows while preserving shared preview leases and per-entry locking.
   [Behaviour and limits](client/attachment-manager-2026-11-07.md). Tests:
-  `hub-attachment-admin`, `host-cli-attachments`; browser `attachment-manager`.
+  `hub-attachment-admin`, `hub-bot-delete`, `host-cli-attachments`; browser
+  `attachment-manager`, `attachment-cache-deletion`, `attachment-disk-cache`.
 - `src/runtime/bot-capabilities.ts`, `src/client-protocol/capabilities.ts`, `client/src/CapabilitiesPanel.tsx`
   Owner-only Skills/MCP metadata inventory, bound to the selected host and Bot.
   Its host disclosure shows the current runtime host name (profile/network fallback),
@@ -3385,7 +3398,11 @@ retired; see [scope and regression mapping](adapter-retirement-2026-10-21.md).
   and leave sessions/active turns intact. `runtime/model-catalog.ts` shares
   creation choices and per-engine compatibility, including host-discovered AGY.
   `tarobot bots model ID [--model M --revision REV --effort E]` uses the same API.
-  Regressions: `model-settings`, `host-cli-model`, `effort-settings`,
+  CLI discovery has one four-second deadline across initialization and all
+  catalog pages, leaving time for settings reads/writes within the Hub's
+  ten-second Bot RPC. Model and effort entry points use the same discovered
+  effort restrictions, including cold-cache writes and models without effort.
+  Regressions: `model-settings`, `model-discovery-settings`, `host-cli-model`, `effort-settings`,
   `hub-bot-manager`; browser `model-settings`, `effort`, `settings-lifecycle`.
   [Behavior and verification](client/model-settings-2026-10-16.md).
   [Desktop composer shortcuts](client/desktop-composer-model-controls-2026-10-22.md)
@@ -4074,7 +4091,13 @@ bounded health racing, EWMA, hysteresis, mutation/transfer guards and single
 business-socket handoff. `storage.ts` `saveIdentityRoutes` owns transactional
 identity-route CAS. `HostRoutesStatus.tsx` reports owner-only listener state and
 capacity; `pairing-link.ts` `connectionPairingPayload` projects client-local
-multipath lists into legacy QR v1. Further regressions:
+multipath lists into legacy QR v1. The local `RoutesEditor` address list treats
+listener state as mode-wide: retained addresses with a selection/listener warning
+say "Address needs confirmation" instead of "Ready". A pending replacement has
+no mode field, so it leaves both modes unconfirmed until the notice clears;
+mode-specific warnings affect only that mode. Browser `host-entries` covers these
+states in both languages. This is App presentation only; Host/CLI protocols and
+route selection are unchanged. Further regressions:
 `tailscale-review-regressions`, `client-multipath-routes`,
 `connection-route-updates`, `route-performance`, `connection-switchback`;
 Chromium `multipath-routes`, `host-route-sync`, `network-manager`, `routes`,

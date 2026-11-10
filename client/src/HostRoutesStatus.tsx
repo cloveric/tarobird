@@ -24,11 +24,18 @@ export function useHostRoutesView(connection: HubConnection): HostRoutesView | u
 
 /** The host's entry addresses for other devices, one row per enabled mode.
  * Loopback is never published, so these never duplicate 主机直连. */
-export function hostEntries(view: HostRoutesView): { mode: "lan" | "tailscale"; route: Route; listening: boolean }[] {
-  const seen = new Set<string>(), entries: { mode: "lan" | "tailscale"; route: Route; listening: boolean }[] = [];
+export function hostEntries(view: HostRoutesView): { mode: "lan" | "tailscale"; route: Route; listening: boolean; confirmationRequired: boolean }[] {
+  const seen = new Set<string>(), entries: { mode: "lan" | "tailscale"; route: Route; listening: boolean; confirmationRequired: boolean }[] = [];
   for (const [mode, name] of [["lan", "Direct"], ["tailscale", "Tailscale"]] as const) {
     if (!view.local[mode].enabled) continue;
-    for (const { route } of view.routes) if (route.name === name && !seen.has(route.url)) { seen.add(route.url); entries.push({ mode, route, listening: view.local[mode].listening }); }
+    // A listening mode may still retain an old address while the host waits
+    // for replacement/selection. The replacement notice has no mode field;
+    // until it clears, neither address has individual readiness evidence.
+    const listening = view.local[mode].listening;
+    const confirmationRequired = listening && (view.notices.includes("replacement_pending") || (mode === "lan"
+      ? view.notices.includes("lan_selection_required") || view.notices.includes("lan_not_listening")
+      : view.notices.includes("tailscale_not_listening")));
+    for (const { route } of view.routes) if (route.name === name && !seen.has(route.url)) { seen.add(route.url); entries.push({ mode, route, listening, confirmationRequired }); }
   }
   return entries;
 }

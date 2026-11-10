@@ -734,12 +734,16 @@ export class ClientCache {
   downloadCheckpoints(identity: Identity): PersistentDownloadCheckpoints {
     return new PersistentDownloadCheckpoints(() => this.write(["downloadMeta", "downloadChunks"]), identity);
   }
-  async saveAttachment(id: string, blob: Blob): Promise<void> {
-    if (blob.size > 16 * 1024 * 1024) return;
+  async saveAttachment(id: string, blob: Blob, wanted: () => boolean = () => true): Promise<void> {
+    if (blob.size > 16 * 1024 * 1024 || !wanted()) return;
     // Some WebKit stores abort when cloning Blob objects. Persist portable bytes;
     // keep reading legacy Blob records, with the same bounded cache budget.
     const data = { bytes: await blob.arrayBuffer(), type: blob.type };
     const tx = await this.write(["attachmentData", "attachmentMeta"]); const meta = tx.objectStore("attachmentMeta"); const complete = tx.done; void complete.catch(() => undefined);
+    // Deletion can finish while bytes are being materialized or this writer
+    // waits for IndexedDB. Check under the write transaction; a later deletion
+    // queues behind it and removes the committed copy instead.
+    if (!wanted()) { await complete; return; }
     const keys = await meta.getAllKeys(); const values = await meta.getAll(); const existing = await meta.get(id); let bytes = values.reduce((sum, value) => sum + value.size, 0) + blob.size - (existing?.size ?? 0);
     for (const entry of keys.map((key, i) => ({ key, ...values[i]! })).sort((a, b) => a.accessed - b.accessed)) {
       if (bytes <= 128 * 1024 * 1024) break; if (entry.key === id) continue;

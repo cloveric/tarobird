@@ -4194,6 +4194,7 @@
   "状态不可用": "Status unavailable",
   "本机已就绪": "Ready on this host",
   "等待网络连接": "Waiting for network",
+  "地址需确认": "Address needs confirmation",
   "已配对设备会通过已保存的可用线路自动重连，无需再次配对。": "Paired devices reconnect automatically using their saved routes. No need to pair again.",
   "本机连接方式": "Host connection methods",
   "外出也能连接。各设备需连接同一个 Tailscale 网络，并允许相互访问。": "Connect while away. Devices must be on the same Tailscale network with access allowed between them.",

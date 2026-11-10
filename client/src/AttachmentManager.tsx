@@ -29,7 +29,15 @@ export function AttachmentManager({ connection, selected, select, locate, busyCh
   const loadList = async () => {
     if (!selected) { setList(undefined); return; }
     const n = ++listRequest.current, query = new URLSearchParams({ conversationId: selected, sort, offset: String(offset) });
-    try { const value = attachmentAdminListSchema.parse(await connection.http(`${ATTACHMENT_ADMIN_LIST_PATH}?${query}`)); if (alive.current && n === listRequest.current) setList({ ...value, conversationId: selected }); }
+    try {
+      const value = attachmentAdminListSchema.parse(await connection.http(`${ATTACHMENT_ADMIN_LIST_PATH}?${query}`));
+      if (!alive.current || n !== listRequest.current) return;
+      const lastOffset = Math.max(0, (Math.ceil(value.total / ATTACHMENT_ADMIN_PAGE_SIZE) - 1) * ATTACHMENT_ADMIN_PAGE_SIZE);
+      // Deletion (including on another device) can remove the current page.
+      // Reload the last remaining page instead of stranding its attachments.
+      if (offset > lastOffset) { setList(undefined); setOffset(lastOffset); return; }
+      setList({ ...value, conversationId: selected });
+    }
     catch (e) { if (alive.current && n === listRequest.current) setError(failure(e)); }
   };
   useEffect(() => { void loadSummary(); }, [connection]);

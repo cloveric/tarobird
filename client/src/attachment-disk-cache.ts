@@ -96,23 +96,32 @@ export async function storeCachedAttachment(key: string | undefined, source: Att
   try {
     const blob = source.blob;
     if (!key || !supported() || !validKey(key) || blob.size <= DISK_CACHE_MIN_BYTES || blob.size > budget) return;
+    // Different attachments/windows must reserve capacity against the same
+    // committed cache. Per-entry locks alone let simultaneous copies each see
+    // free space and exceed the budget together. Acquire the entry first so a
+    // preview holding that entry never blocks unrelated cache writers.
     await navigator.locks.request(lockName(key), async () => {
       if (!wanted()) return;
       const root = await cacheRoot(true);
       const existing = await root.getDirectoryHandle(key).catch(() => undefined);
+      // A duplicate download must release a complete entry immediately; holding
+      // its key while waiting for an unrelated copy would delay cache readers.
       if (existing && (await readMeta(existing))?.size === blob.size) return;
-      if (!await makeRoom(root, blob.size, key, budget)) return;
-      const directory = await root.getDirectoryHandle(key, { create: true });
-      try {
-        await directory.removeEntry("meta").catch(() => undefined);
-        const handle = await directory.getFileHandle("data", { create: true });
-        if (typeof handle.createWritable !== "function") throw new DOMException("Unsupported storage", "NotSupportedError");
-        await blob.stream().pipeTo(await handle.createWritable());
-        if ((await handle.getFile()).size !== blob.size) throw new Error("attachment_cache_size_mismatch");
-        if (!wanted()) throw new Error("attachment_cache_unwanted");
-        // The meta file marks the entry complete; readers ignore it until then.
-        await writeMeta(directory, { size: blob.size, type: blob.type, accessed: Date.now() });
-      } catch (error) { await root.removeEntry(key, { recursive: true }).catch(() => undefined); throw error; }
+      await navigator.locks.request(`${ROOT}:budget`, async () => {
+        if (!wanted()) return;
+        if (!await makeRoom(root, blob.size, key, budget)) return;
+        const directory = await root.getDirectoryHandle(key, { create: true });
+        try {
+          await directory.removeEntry("meta").catch(() => undefined);
+          const handle = await directory.getFileHandle("data", { create: true });
+          if (typeof handle.createWritable !== "function") throw new DOMException("Unsupported storage", "NotSupportedError");
+          await blob.stream().pipeTo(await handle.createWritable());
+          if ((await handle.getFile()).size !== blob.size) throw new Error("attachment_cache_size_mismatch");
+          if (!wanted()) throw new Error("attachment_cache_unwanted");
+          // The meta file marks the entry complete; readers ignore it until then.
+          await writeMeta(directory, { size: blob.size, type: blob.type, accessed: Date.now() });
+        } catch (error) { await root.removeEntry(key, { recursive: true }).catch(() => undefined); throw error; }
+      });
     });
   } catch { /* Caching is optional; the download itself already succeeded. */ }
   finally { await source.dispose(); }

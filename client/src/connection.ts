@@ -1352,7 +1352,7 @@ export class HubConnection {
     if (this.closed) throw new Error(t("当前离线，附件尚未缓存"));
     const { downloadAttachment } = await import("./downloads.js");
     const blob = await downloadAttachment(this, id, options);
-    if (!this.closed && !options.signal?.aborted) await this.cache.saveAttachment(id, blob).catch(() => undefined);
+    await this.cache.saveAttachment(id, blob, () => !this.closed && !options.signal?.aborted && !this.deletedAttachments.has(id)).catch(() => undefined);
     return blob;
   }
   async file(id: string, options: DownloadOptions = {}): Promise<AttachmentSource> {
@@ -1368,7 +1368,7 @@ export class HubConnection {
     const { downloadAttachmentSource } = await import("./downloads.js");
     const preferDisk = nativePlatform() !== "web" || await (await import("./browser-download.js")).supportsBrowserDownload();
     const source = await downloadAttachmentSource(this, id, options, preferDisk);
-    if (!this.closed) await this.cache.saveAttachment(id, source.blob).catch(() => undefined);
+    await this.cache.saveAttachment(id, source.blob, () => !this.closed && !options.signal?.aborted && !this.deletedAttachments.has(id)).catch(() => undefined);
     // Copied in the background; the copy holds its own lease on the download.
     if (!this.closed && source.blob.size > DISK_CACHE_MIN_BYTES) void storeCachedAttachment(diskKey, source.retain(), undefined, () => !this.closed && !this.deletedAttachments.has(id));
     return source;
