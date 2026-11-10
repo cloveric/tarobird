@@ -11,6 +11,7 @@ import { assertWindowsRuntimeAdmission } from "./windows-state-admission.js";
 import { planDirectoryRecovery, verifyDirectoryRecovery } from "./directory-recovery.js";
 import { runBotMessagesCommand } from "./bot-messages.js";
 import { allowedEnginesOption, runTicketsCommand } from "./tickets.js";
+import { runAttachmentsCommand } from "./attachments.js";
 import { runMessagesCommand } from "./messages.js";
 import { parseArgs } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -112,6 +113,10 @@ export const HOST_CLI_HELP = `TaroBird — 同一台主机，桌面与命令行�
   messages wait --to HOST_ID/BOT_ID/CONVERSATION_ID --message ID [--timeout SECONDS] [--out DIRECTORY] [--source-bot LOCAL_BOT_ID]
     默认等待 120 秒；timeout/pending 只结束本次查询，不会中断任务或自动恢复。用同一消息 ID 继续查询，勿重复发送。
   messages allow|revoke --from SOURCE_HOST/SOURCE_BOT_ID --bot TARGET_BOT
+  attachments list [--conversation ID [--sort size|time] [--offset N]]
+    主人专用：不带 --conversation 时按对话汇总附件占用；带上则列出该对话的附件，每页 100 项
+  attachments delete (--ids ID,ID | --conversation ID) --yes
+    删除主机上的附件文件并立即释放空间；消息保留原文，附件处显示「附件已删除」。Bot 尚未处理完的消息里的附件会被拒绝
   tickets list [--bot DISPATCHER] [--open] | show TICKET | targets | engines
   tickets capabilities --engine ENGINE [--match TEXT] [--offset N] [--bot DISPATCHER]
     按需读取用户级技能/MCP元数据，每页40项；不创建执行者、不验证运行权限或质量。
@@ -282,7 +287,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     token: { type: "string" }, target: { type: "string" }, task: { type: "string" }, bot: { type: "string" }, message: { type: "string" }, before: { type: "string" }, through: { type: "string" }, last: { type: "boolean" },
     path: { type: "string" }, operation: { type: "string" }, preview: { type: "boolean" },
     host: { type: "string" }, to: { type: "string" }, "source-bot": { type: "string" }, "cross-host": { type: "boolean" }, "context-message": { type: "string" }, file: { type: "string", multiple: true }, "new-conversation": { type: "string" }, timeout: { type: "string" },
-    "reply-to": { type: "string" }, ids: { type: "string" }, text: { type: "string" }, "text-file": { type: "string" }, run: { type: "string" },
+    "reply-to": { type: "string" }, ids: { type: "string" }, conversation: { type: "string" }, sort: { type: "string" }, text: { type: "string" }, "text-file": { type: "string" }, run: { type: "string" },
     coordinator: { type: "string" }, members: { type: "string" },
     participants: { type: "string" }, supersedes: { type: "string" }, then: { type: "string" }, "if-running": { type: "boolean" },
   } });
@@ -296,7 +301,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
   if (command === "network" && !v.help && !["local", "status", "inspect", "recover", "create", "offer", "routes", "propose", "admit", "join", "leave", "remove"].includes(sub ?? "")) throw new Error("未知 network 命令。请执行 tarobot network --help。");
   if (v.help || !command || command === "help") { console.log(HOST_CLI_HELP); return; }
   if (extra.length) throw new Error("多余的位置参数。请执行 tarobot --help。");
-  const commands = ["screens", "workbench", "init", "run", "start", "stop", "restart", "status", "logs", "doctor", "enroll", "name", "drain", "drain-cancel", "service", "bots", "queue", "side", "tasks", "steer", "changes", "bus", "groups", "messages", "tickets", "widgets", "folders", "conversations", "devices", "pair", "network", "update", "backups", "backup", "restore", "directory", "integrations"];
+  const commands = ["attachments", "screens", "workbench", "init", "run", "start", "stop", "restart", "status", "logs", "doctor", "enroll", "name", "drain", "drain-cancel", "service", "bots", "queue", "side", "tasks", "steer", "changes", "bus", "groups", "messages", "tickets", "widgets", "folders", "conversations", "devices", "pair", "network", "update", "backups", "backup", "restore", "directory", "integrations"];
   if (!commands.includes(command)) throw new Error(`未知命令：${command}。请执行 tarobot --help。`);
   const allowed: Record<string, string[]> = {
     screens: ["from", "yes", "permission", "request-id"],
@@ -312,6 +317,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     messages: ["ids", "before", "through", "yes", "to", "source-bot", "text-file", "file", "new-conversation", "message", "timeout", "out", "request-id", "from", "bot", "context-message", "cross-host"],
     queue: ["bot", "message", "before", "last", "text", "text-file", "revision", "request-id"],
     tasks: ["bot", "task", "token", "yes", "request-id"],
+    attachments: ["conversation", "ids", "sort", "offset", "yes"],
     steer: ["bot", "target", "text", "request-id", "mode", "message"],
     side: ["bot", "text", "text-file", "file", "timeout", "request-id"],
     changes: ["bot", "path", "preview", "message", "operation"],
@@ -648,6 +654,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
       "new-conversation": v["new-conversation"], message: v.message, timeout: v.timeout, out: v.out, "request-id": v["request-id"], from: v.from, "cross-host": v["cross-host"],
     }, abort.signal)); return;
   }
+  if (command === "attachments") { await output(await runAttachmentsCommand(directory, sub, { conversation: v.conversation, ids: v.ids, sort: v.sort, offset: v.offset, yes: v.yes })); return; }
   if (command === "tickets") {
     await output(await runTicketsCommand(directory, sub, argument, {
       bot: v.bot, match: v.match, offset: v.offset, assist: v.assist, engine: v.engine, title: v.title, text: v.text, "text-file": v["text-file"], model: v.model, effort: v.effort, force: v.force, status: v.status, note: v.note, open: v.open,

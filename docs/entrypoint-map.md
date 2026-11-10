@@ -515,6 +515,7 @@ Regression additions include `host-cli-day-audit`, `host-cli-package`,
 and the existing network/run/delete suites listed in that audit.
 
 - `bin/tarobot.mjs` → `src/index.ts` → `src/host-cli/cli.ts`; `tarobot host` is an alias.
+- `attachments.ts`: owner `tarobot attachments list [--conversation ID [--sort size|time] [--offset N]]` and `attachments delete (--ids ID,ID | --conversation ID) --yes`, the same Hub API as File Center › 附件管理.
 - `environment.ts` shares engine search paths across detached service startup, foreground Hub workers and installed-service manifests; `host-engine-path` covers minimal GUI PATH and named CLI overrides.
 - `paths.ts` and `setup.ts` select the same desktop host identity; a legacy Hub is never silently merged.
 - `service-manager.ts` owns launchd/systemd/Task Scheduler, desired state and exact runtime selection. `update.ts` freezes Node with JavaScript, stages schema-compatible revisions and takes offline snapshots.
@@ -2639,6 +2640,16 @@ and the existing network/run/delete suites listed in that audit.
   units; App labels then belong to the Hub. Tests: `hub-file-center`,
   `ui-file-inventory`, `ui-config-api`, `hub-state-backup`; browser `file-center`
   covers two-device conflicts, saving/unsaved-draft guards and both themes.
+- `src/hub/attachment-admin.ts`, `src/client-protocol/attachment-admin.ts`, `client/src/AttachmentManager.tsx`
+  File Center › 附件管理 (`attachments.admin.v1`, owner only): per-conversation
+  attachment space, list by size/time, and real deletion. Deletion retires the
+  attachment (`retired_attachments`) and `HubAttachments.purge` removes the blob
+  and chunks at once under the maintenance lock; the row and message reference
+  stay so messages render 附件已删除 (`attachment_deleted`, 410). Attachments in
+  a message a Bot has not finished (`deliveries.status='pending'`) are refused.
+  Daily GC sweeps bytes an interrupted purge left. CLI: `tarobot attachments`.
+  [Behaviour and limits](client/attachment-manager-2026-11-07.md). Tests:
+  `hub-attachment-admin`, `host-cli-attachments`; browser `attachment-manager`.
 - `src/runtime/bot-capabilities.ts`, `src/client-protocol/capabilities.ts`, `client/src/CapabilitiesPanel.tsx`
   Owner-only Skills/MCP metadata inventory, bound to the selected host and Bot.
   Its host disclosure shows the current runtime host name (profile/network fallback),
