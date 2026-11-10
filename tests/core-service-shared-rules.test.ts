@@ -189,7 +189,7 @@ describe("shared archive workflow rules", () => {
       expect((error as FileWorkflowPreparationError).workflowRecordId).toBe(records[0]!.uploadId);
       // Same user-facing category the retired transport rendered.
       expect(classifyFailure(error)).toBe("file-workflow");
-      expect(renderCoreUserFacingError(error, "prepare", "en")).toBe("Error: file processing failed. Try a smaller or different file.");
+      expect(renderCoreUserFacingError(error, "prepare", "en")).toContain("This ZIP could not be read completely");
     } finally {
       await removeTempRoot(root);
     }
@@ -221,7 +221,7 @@ describe("shared archive workflow rules", () => {
         expect.objectContaining({
           kind: "archive",
           status: "failed",
-          summary: expect.stringMatching(/escapes target directory/i),
+          summary: expect.stringMatching(/Archive extraction failed: path/i),
         }),
       );
     } finally {

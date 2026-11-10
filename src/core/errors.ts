@@ -1,3 +1,4 @@
+import { archiveReadErrorMessage } from "../runtime/zip-archive.js";
 import { classifyFailure, extractQuotaResetHint, renderEngineSettingsError, renderEngineBusyError, renderMalformedToolInputError } from "../runtime/error-classification.js";
 import { EngineCancellationUnconfirmedError, EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineStopTooLateError } from "../codex/adapter.js";
 import { formatCoreFileSize, isCoreAttachmentTooLargeError } from "./files.js";
@@ -55,6 +56,8 @@ export function renderCoreUserFacingError(
   phase: "prepare" | "engine" | "tool",
   locale: Locale = "zh",
 ): string {
+  const archiveError = archiveReadErrorMessage(error, locale);
+  if (archiveError) return archiveError;
   if (error instanceof EngineRecoveryBudgetError) return error.message;
   if (error instanceof EngineRecoveryUnconfirmedError) {
     const cause = error.retryReason ? (locale === "en" ? {

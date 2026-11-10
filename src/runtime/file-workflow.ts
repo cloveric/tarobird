@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import AdmZip from "adm-zip";
+import { extractZipArchive } from "./zip-archive.js";
 
 import type { CommandAttachment } from "./command-message.js";
 import {
@@ -68,7 +68,6 @@ const MAX_TREE_LINES = 40;
 const ARCHIVE_CONTINUE_HINT = 'Reply "继续分析" or press Continue Analysis to continue this archive. Bare /continue resumes the latest waiting archive.';
 const TARGETED_ARCHIVE_RETRY_HINT = 'Retry this specific archive from its original summary: press Continue Analysis again there or reply "继续分析" to that summary.';
 const MAX_ARCHIVE_SUMMARY_DELIVERY_CHARS = 3900;
-const MAX_TOTAL_ARCHIVE_BYTES = 500 * 1024 * 1024;
 const MAX_ACTIVE_WORKFLOWS_PER_CHAT = 3;
 
 function isActiveWorkflowStatus(status: FileWorkflowRecord["status"]): boolean {
@@ -207,44 +206,6 @@ function isContinueAnalysisCommand(text: string): {
   };
 }
 
-async function extractArchiveToDirectory(archivePath: string, targetDir: string): Promise<void> {
-  const zip = new AdmZip(archivePath);
-  const targetRoot = path.resolve(targetDir);
-  await mkdir(targetRoot, { recursive: true });
-
-  const entries = zip.getEntries();
-  let totalBytes = 0;
-  for (const entry of entries) {
-    if (!entry.isDirectory) {
-      totalBytes += entry.header.size;
-      if (totalBytes > MAX_TOTAL_ARCHIVE_BYTES) {
-        throw new Error(`Archive exceeds maximum extraction size of ${MAX_TOTAL_ARCHIVE_BYTES / (1024 * 1024)}MB`);
-      }
-    }
-  }
-
-  for (const entry of entries) {
-    const normalizedEntryPath = path.normalize(entry.entryName).replace(/^([/\\])+/, "");
-    if (!normalizedEntryPath || normalizedEntryPath === ".") {
-      continue;
-    }
-
-    const destinationPath = path.resolve(targetRoot, normalizedEntryPath);
-    const relativeDestination = path.relative(targetRoot, destinationPath);
-    if (relativeDestination === "" || relativeDestination.startsWith("..") || path.isAbsolute(relativeDestination)) {
-      throw new Error(`Archive entry escapes target directory: ${entry.entryName}`);
-    }
-
-    if (entry.isDirectory) {
-      await mkdir(destinationPath, { recursive: true });
-      continue;
-    }
-
-    await mkdir(path.dirname(destinationPath), { recursive: true });
-    await writeFile(destinationPath, entry.getData());
-  }
-}
-
 async function collectTreeLines(rootDir: string, maxLines = MAX_TREE_LINES): Promise<string[]> {
   const lines: string[] = [];
 
@@ -275,7 +236,7 @@ async function collectTreeLines(rootDir: string, maxLines = MAX_TREE_LINES): Pro
 }
 
 async function summarizeArchive(archivePath: string, extractedRoot: string): Promise<{ summary: string; topExtensions: Array<[string, number]>; data: ArchiveSummaryData }> {
-  await extractArchiveToDirectory(archivePath, extractedRoot);
+  await extractZipArchive(archivePath, extractedRoot);
 
   let fileCount = 0;
   const extensionCounts = new Map<string, number>();
@@ -421,6 +382,7 @@ export async function prepareAttachmentWorkflow(input: {
         archive: data,
       };
     } catch (error) {
+      await rm(extractedRoot, { recursive: true, force: true }).catch(() => undefined);
       try {
         await store.update(uploadId, (current) => {
           current.status = "failed";

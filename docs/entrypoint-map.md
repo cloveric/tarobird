@@ -393,6 +393,15 @@ transport compatibility, and remaining native/security design boundaries.
   delivery and ASR. SDK clients and transport lookup are not defaults.
 - `src/gateway/`: App channel, protocol, tools and explicit platform policy.
 - Retired `src/lark/`, `src/telegram/`, legacy CLI and SDK packages have been removed.
+- ZIP input: `runtime/zip-archive.ts` preserves raw entry names until it can
+  apply UTF-8 flags or CRC-verified Unicode Path metadata. Legacy names use
+  UTF-8, Chinese GB18030, then CP437 fallback. Decoded path collisions, unsafe
+  paths, symlinks, encryption and extraction limits fail with specific bilingual
+  messages. `runtime/file-workflow.ts` removes partial extraction but retains
+  the original upload and failed workflow record. This shared Host preparation
+  applies to App and headless entry points; it does not execute archive files.
+  Regressions: `file-workflow-zip`, `core-service-shared-rules`,
+  `file-workflow-pdf`, `file-workflow-store`.
 - Shared reply/attachment types and formatting live in `src/runtime`; injected artifact delivery lives in `src/core/shared/artifact-delivery.ts`.
 - [Retirement scope, test mapping and validation](adapter-retirement-2026-10-21.md) supersede historical adapter references later in this map. Old routing/card/state identifiers are still current schema, not an active transport.
 - `scripts/check-standalone-graph.mjs`: checks all host and dynamically loaded
