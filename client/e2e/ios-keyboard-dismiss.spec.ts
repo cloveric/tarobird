@@ -30,6 +30,27 @@ test('folding between touch down and up cancels the expanded keyboard gesture', 
   await expect(input).toBeFocused();
 });
 
+test('unfolding mid-gesture and a height-only shrink retain the draft focus', async ({ page }) => {
+  const input = page.getByRole('textbox', { name: 'Draft' });
+  for (const [from, to] of [[{ width: 430, height: 932 }, { width: 951, height: 669 }], [{ width: 951, height: 669 }, { width: 951, height: 440 }]]) {
+    await page.setViewportSize(from!); await input.focus();
+    await page.locator('#history').dispatchEvent('pointerdown', { pointerType: 'touch', pointerId: 1 });
+    await page.setViewportSize(to!);
+    await page.locator('#history').dispatchEvent('pointerup', { pointerType: 'touch', pointerId: 1 });
+    await expect(input).toBeFocused(); await expect(input).toHaveValue('Keep this draft');
+  }
+});
+
+test.describe('iPad keeps its pre-Duo keyboard interaction', () => {
+  test.use({ userAgent: 'Mozilla/5.0 (iPad; CPU OS 18_7 like Mac OS X)' });
+  test('touching a message does not install the expanded-phone dismissal', async ({ page }) => {
+    const input = page.getByRole('textbox', { name: 'Draft' }); await input.focus();
+    await page.locator('#history').dispatchEvent('pointerdown', { pointerType: 'touch', pointerId: 1 });
+    await page.locator('#history').dispatchEvent('pointerup', { pointerType: 'touch', pointerId: 1 });
+    await expect(input).toBeFocused();
+  });
+});
+
 test('an iOS chat tap dismisses focus without losing the draft, even with no keyboard report', async ({ page }) => {
   const input = page.getByRole('textbox', { name: 'Draft' });
   await input.focus(); await page.locator('#history').tap();

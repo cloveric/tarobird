@@ -37,3 +37,16 @@ probe, with no application code loaded, also stalled while storing an
 Ed25519 CryptoKey in IndexedDB. Do not count those full journeys as passed or
 as physical iPhone acceptance. Pure Swift geometry checks passed; UIKit and
 physical-device acceptance remain separate. No release was published.
+
+The isolation also restores the pre-follow-up iPad tap and native-guide
+behavior, and safe-area clearance in short, wide iPad windows. This is relative
+to the newly merged Duo follow-up, not a claim that iPad source is unchanged.
+Previously released shared iOS touch styles remain intact; this change scopes
+the new keyboard, ADHD and spacing overrides instead of restyling phones.
+
+Before releasing the native changes, verify Duo inner-screen keyboard display
+keeps the full layout-window height, typing does not exit ADHD, and changing
+the guide policy during a fold refreshes its geometry. Narrow inner-screen
+Split View intentionally does not receive the expanded-only workaround; check
+its keyboard and Send visibility on a Simulator or device. Geometry/browser
+tests cannot settle these UIKit runtime conditions.
