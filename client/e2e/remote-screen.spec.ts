@@ -414,3 +414,46 @@ test("an ended legacy stream restores quality negotiation for the next connectio
  await page.getByLabel('画面清晰度',{exact:true}).selectOption('smooth');await page.getByRole('button',{name:'连接屏幕',exact:true}).click();
  await expect(page.getByRole('button',{name:'开始控制',exact:true})).toBeEnabled();expect(await page.evaluate(()=>(window as any).screenFixture.requests.at(-1).quality)).toBe('smooth');
 });
+
+test("a pointer burst sends its latest position before drag release, preserving both button edges", async ({page}) => {
+ await page.getByRole("button", {name:"开始控制",exact:true}).click();
+ await expect(page.getByRole("button", {name:"停止控制",exact:true})).toBeVisible();
+ const target=page.locator("canvas");await target.hover();await page.waitForTimeout(50);
+ await target.evaluate(el=>{
+  (window as any).screenFixture.commands.length=0;
+  const rect=el.getBoundingClientRect(), x=rect.left+rect.width*.2, y=rect.top+rect.height*.5;
+  el.dispatchEvent(new PointerEvent("pointerdown",{pointerId:1,clientX:x,clientY:y,button:0,bubbles:true,cancelable:true}));
+  for(let i=0;i<3;i++)el.dispatchEvent(new PointerEvent("pointermove",{pointerId:1,clientX:rect.left+rect.width*(.2+.6*i/2),clientY:y,buttons:1,bubbles:true}));
+  el.dispatchEvent(new PointerEvent("pointerup",{pointerId:1,clientX:rect.left+rect.width*.8,clientY:y,button:0,bubbles:true,cancelable:true}));
+ });
+ await expect.poll(()=>page.evaluate(()=>(window as any).screenFixture.commands.filter((c:any)=>c.type==="input").length)).toBe(4);
+ const events=await page.evaluate(()=>(window as any).screenFixture.commands.filter((c:any)=>c.type==="input").map((c:any)=>c.event));
+ expect(events.map((e:any)=>[e.kind,e.down])).toEqual([["button",true],["move",undefined],["move",undefined],["button",false]]);
+ expect(events[2].x).toBeCloseTo(.8,3);expect(events[2].y).toBeCloseTo(.5,3);
+});
+
+test("a pointer burst cannot escape after focus moves back to the chat", async ({page}) => {
+ await page.getByRole("button", {name:"开始控制",exact:true}).click();
+ await expect(page.getByRole("button", {name:"停止控制",exact:true})).toBeVisible();
+ const target=page.locator("canvas");await target.hover();await page.waitForTimeout(50);
+ await target.evaluate(el=>{
+  (window as any).screenFixture.commands.length=0;
+  const rect=el.getBoundingClientRect();
+  for(let i=0;i<3;i++)el.dispatchEvent(new PointerEvent("pointermove",{clientX:rect.left+rect.width*.8,clientY:rect.top+rect.height*.5,bubbles:true}));
+  (document.querySelector('[aria-label="本地聊天草稿"]') as HTMLTextAreaElement).focus();
+ });
+ await expect(page.getByRole("button", {name:"开始控制",exact:true})).toBeVisible();await page.waitForTimeout(50);
+ expect(await page.evaluate(()=>(window as any).screenFixture.commands.filter((c:any)=>c.type==="input"))).toHaveLength(1);
+});
+
+test("stopping a short pointer burst still delivers the final hover position", async ({page}) => {
+ await page.getByRole("button", {name:"开始控制",exact:true}).click();
+ await expect(page.getByRole("button", {name:"停止控制",exact:true})).toBeVisible();
+ const target=page.locator("canvas");await target.hover();await page.waitForTimeout(50);
+ await target.evaluate(el=>{
+  (window as any).screenFixture.commands.length=0;const rect=el.getBoundingClientRect();
+  for(const x of [.2,.5,.8])el.dispatchEvent(new PointerEvent("pointermove",{clientX:rect.left+rect.width*x,clientY:rect.top+rect.height*.5,bubbles:true}));
+ });
+ await expect.poll(()=>page.evaluate(()=>(window as any).screenFixture.commands.filter((c:any)=>c.type==="input").at(-1)?.event.x)).toBeCloseTo(.8,3);
+ expect(await page.evaluate(()=>(window as any).screenFixture.commands.filter((c:any)=>c.type==="input").length)).toBe(2);
+});

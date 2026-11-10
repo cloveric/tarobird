@@ -335,3 +335,22 @@ it("failed credit delivery ends the stream instead of silently exhausting its en
   expect(media.closed).toEqual(["screen_service_offline"]);
   expect((await screen.status(local.session)).sessions).toHaveLength(0);
 });
+
+it.each([1, 16])("retains the control budget for movement spaced %i ms apart", async spacing => {
+  await configure(); const { epoch, sink } = service(); const { join: j } = await join(); liveFrame(epoch, j); const lease = control(epoch, j, sink);
+  const expiresAt = clock + 2000;
+  let rejected = "", sent = 0;
+  for (let elapsed = spacing; elapsed <= 1000; elapsed += spacing) {
+    clock += spacing;
+    try { screen.viewerCommand(j.session.id, { ...key(j, lease, sent + 1), expiresAt, event: { kind: "move", x: elapsed / 1000, y: .5 } }); sent++; }
+    catch (error) { rejected = (error as Error).message; break; }
+  }
+  if (spacing === 1) {
+    expect(rejected).toBe("screen_input_rate_limited");
+    expect(sent).toBeLessThan(210);
+    expect((await screen.status(remote.session)).sessions).toHaveLength(0);
+  } else {
+    expect(rejected).toBe(""); expect(sent).toBe(62);
+    expect((await screen.status(remote.session)).sessions[0]?.state).toBe("controlling");
+  }
+});

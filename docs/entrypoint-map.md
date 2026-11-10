@@ -141,6 +141,9 @@ production App permission policy with a synthetic viewing fixture.
 The [fullscreen close repair](client/remote-screen-fullscreen-close-2026-11-04.md)
 waits for both macOS transitions and HTML exit before removing the viewer; close
 failures remain retryable and old close callbacks cannot remove a new Host view.
+The [responsiveness review](client/remote-screen-efficiency-2026-11-10.md) preserves
+the final pointer position within the existing 32 ms movement budget, with
+lease/stream-scoped cancellation and measurements only on sent movements.
 Isolated Electron copy/decoder verification is `electron/tests/screen-viewer.smoke.mjs`;
 it captures no desktop and posts no native input.
 

@@ -22,7 +22,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   const lifecycle=lifecycles.current.get(connection)??{opening:Promise.resolve(),retiring:Promise.resolve(),sessions:new Set<string>()};
   lifecycles.current.set(connection,lifecycle);
   const retire=()=>{const task=lifecycle.retiring.catch(()=>undefined).then(async()=>{for(const id of lifecycle.sessions){await connection.screenStop(id);lifecycle.sessions.delete(id);}});lifecycle.retiring=task;return task;};
-  const [modifierMode, setModifierMode] = useState<ScreenModifierMode>("command"), lastMove = useRef(0), lastClick = useRef<{button:number;x:number;y:number;at:number;count:1|2|3}|undefined>(undefined);
+  const [modifierMode, setModifierMode] = useState<ScreenModifierMode>("command"), lastClick = useRef<{button:number;x:number;y:number;at:number;count:1|2|3}|undefined>(undefined);
   const visibleNow=useRef(visible);visibleNow.current=visible;
   const panel=useRef<HTMLElement>(null),canvas=useRef<HTMLCanvasElement>(null),viewer=useRef<RemoteScreenViewer>(undefined),attempt=useRef(0);
   const [status,setStatus]=useState<ScreenStatus>(),[display,setDisplay]=useState(""),[error,setError]=useState(""),[statusError,setStatusError]=useState(""),[state,setState]=useState<ViewerState>({state:"closed",controlling:false,pending:false,fresh:false});
@@ -126,7 +126,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
         onBlur={()=>viewer.current?.release()} onContextMenu={e=>{if(state.controlling)e.preventDefault();}}
         onPointerDown={e=>{if(!state.controlling)return;e.preventDefault();e.currentTarget.focus();e.currentTarget.setPointerCapture(e.pointerId);if(e.button>=0&&e.button<=2){const at=performance.now(),last=lastClick.current;const count=last&&last.button===e.button&&at-last.at<=450&&Math.hypot(e.clientX-last.x,e.clientY-last.y)<=4&&last.count<3?(last.count+1) as 2|3:1;lastClick.current={button:e.button,x:e.clientX,y:e.clientY,at,count};viewer.current?.input({kind:"button",...point(e),button:e.button as 0|1|2,down:true,clicks:count});}}}
         onPointerUp={e=>{if(!state.controlling)return;e.preventDefault();if(e.button<=2)viewer.current?.input({kind:"button",...point(e),button:e.button as 0|1|2,down:false,clicks:lastClick.current?.button===e.button?lastClick.current.count:1});if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);}}
-        onPointerMove={e=>{const now=performance.now();if(state.controlling&&now-lastMove.current>=32){lastMove.current=now;viewer.current?.input({kind:"move",...point(e)});}}} onPointerCancel={()=>viewer.current?.release()}
+        onPointerMove={e=>{if(state.controlling)viewer.current?.pointerMove(e);}} onPointerCancel={()=>viewer.current?.release()}
         onKeyDown={e=>{if(!state.controlling)return;if(e.code==="Escape"&&e.ctrlKey&&e.altKey&&e.shiftKey){e.preventDefault();viewer.current?.release();return;}if(e.nativeEvent.isComposing||!screenKeyCodeSchema.safeParse(e.code).success)return;e.preventDefault();viewer.current?.input({kind:"key",code:screenControllerCode(e.code,windows?"windows":"mac",modifierMode),down:true});}}
         onKeyUp={e=>{if(!state.controlling||e.nativeEvent.isComposing||!screenKeyCodeSchema.safeParse(e.code).success)return;e.preventDefault();viewer.current?.input({kind:"key",code:screenControllerCode(e.code,windows?"windows":"mac",modifierMode),down:false});}}
       />
