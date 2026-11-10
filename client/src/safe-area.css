@@ -30,6 +30,24 @@
     padding-left: max(12px, var(--app-safe-left));
   }
 
+  /* A sidebar ending in its footer (only the absolutely placed resize handle
+     may follow it) keeps that 56px bar flush with the bottom edge, as on the
+     desktop. In this layout the sidebar sits at the left while the home
+     indicator is centred, so reserving the inset only left a band below it. */
+  :root .sidebar:has(> .sidebar-footer) {
+    padding-bottom: 0;
+  }
+
+  /* In the touch desktop layout the composer spans the centred home indicator,
+     so it keeps clear of it, but with the desktop's 20px rather than the whole
+     inset. Without an inset (desktop pointers never reach here; Android's
+     native insets are 0) the value stays max(8px, 0) as before. */
+  @media (min-width: 761px) {
+    :root .composer-wrap {
+      padding-bottom: max(8px, min(var(--app-safe-bottom), max(20px, calc(var(--app-safe-bottom) - 14px))));
+    }
+  }
+
   :root .pairing-page {
     padding-left: max(24px, var(--app-safe-left));
     padding-right: max(24px, var(--app-safe-right));
