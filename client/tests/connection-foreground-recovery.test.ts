@@ -1,20 +1,92 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ClientCache, Identity } from "../src/storage.js";
 
-const io = vi.hoisted(() => ({ socket: vi.fn() }));
+const io = vi.hoisted(() => ({ socket: vi.fn(), platform: "android" }));
 vi.mock("../src/storage.js", () => ({ cache: {}, ClientCache: class {}, defaultPreferences: {} }));
 vi.mock("../src/identity.js", () => ({ randomNonce: () => "nonce", signChallenge: async () => "signature", verifyHub: async () => {} }));
 vi.mock("../src/transport.js", () => ({ hubSocket: io.socket, hubFetch: vi.fn(), usesPinnedTransport: () => true }));
-vi.mock("../src/native.js", () => ({ nativePlatform: () => "android" }));
+vi.mock("../src/native.js", () => ({ nativePlatform: () => io.platform }));
 vi.mock("../src/share-inbox.js", () => ({ syncShareUploadLimit: async () => {} }));
 import { HubConnection } from "../src/connection.js";
 
 beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers();
+  io.platform = "android";
   vi.stubGlobal("window", new EventTarget());
   vi.stubGlobal("document", Object.assign(new EventTarget(), { hidden: false, visibilityState: "visible", hasFocus: () => true }));
 });
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+it("iOS foreground retires a silent open socket after one bounded probe, even with duplicate wakes", async () => {
+  io.platform = "ios";
+  const { connection } = await connected();
+  connection.resume(); await vi.advanceTimersByTimeAsync(4000); connection.resume();
+  await vi.advanceTimersByTimeAsync(1001);
+  expect(io.socket).toHaveBeenCalledTimes(2);
+  expect(Reflect.get(connection, "failedRoutes").size).toBe(0);
+  expect(connection.state.status).toBe("connecting");
+  connection.resume(); await vi.advanceTimersByTimeAsync(1000);
+  expect(io.socket).toHaveBeenCalledTimes(2);
+  connection.close();
+});
+
+it.each(["ios", "android"])("%s keeps a connection that answers the foreground probe", async platform => {
+  io.platform = platform;
+  const { connection, receive } = await connected();
+  connection.resume(); await vi.advanceTimersByTimeAsync(4000);
+  await receive({ type: "pong" }); await vi.advanceTimersByTimeAsync(6000);
+  expect(io.socket).toHaveBeenCalledTimes(1); expect(connection.state.status).toBe("online");
+  connection.close();
+});
+
+it("Android retains its steady-state liveness window after a foreground wake", async () => {
+  const { connection } = await connected();
+  connection.resume(); await vi.advanceTimersByTimeAsync(6000);
+  expect(io.socket).toHaveBeenCalledTimes(1); connection.close();
+});
+
+it("a late iOS foreground timer leaves a busy WebView to the existing heartbeat", async () => {
+  io.platform = "ios";
+  const { connection, ws } = await connected();
+  const timers = vi.spyOn(globalThis, "setTimeout"); connection.resume();
+  const callback = timers.mock.calls.find(([, delay]) => delay === 5000)![0] as () => void;
+  const now = vi.spyOn(performance, "now").mockReturnValue(performance.now() + 9000);
+  callback(); expect(ws.close).not.toHaveBeenCalled(); expect(io.socket).toHaveBeenCalledTimes(1);
+  now.mockRestore(); timers.mockRestore(); connection.close();
+});
+
+it("iOS foreground probe cannot reconnect a closed owner or abandon a replacement socket", async () => {
+  io.platform = "ios";
+  const { connection } = await connected();
+  connection.resume(); await Reflect.get(connection, "connect").call(connection);
+  await vi.advanceTimersByTimeAsync(5001);
+  expect(io.socket).toHaveBeenCalledTimes(2); expect(connection.state.status).toBe("connecting");
+  connection.close(); await vi.advanceTimersByTimeAsync(20_000);
+  expect(io.socket).toHaveBeenCalledTimes(2);
+});
+
+it("iOS does not retire a socket from a foreground probe while hidden, and can probe on return", async () => {
+  io.platform = "ios";
+  const { connection } = await connected();
+  connection.resume(); Reflect.set(document, "hidden", true); Reflect.set(document, "visibilityState", "hidden");
+  await vi.advanceTimersByTimeAsync(5001); expect(io.socket).toHaveBeenCalledTimes(1);
+  Reflect.set(document, "hidden", false); Reflect.set(document, "visibilityState", "visible");
+  connection.resume(); await vi.advanceTimersByTimeAsync(5001);
+  expect(io.socket).toHaveBeenCalledTimes(2); connection.close();
+});
+
+it("a second iOS foreground gets its own probe after a real background transition", async () => {
+  io.platform = "ios";
+  const { connection, presence, receive } = await connected();
+  connection.resume(); await vi.advanceTimersByTimeAsync(1000);
+  Reflect.set(document, "hidden", true); Reflect.set(document, "visibilityState", "hidden");
+  presence(new Event("visibilitychange")); await vi.advanceTimersByTimeAsync(3000);
+  Reflect.set(document, "hidden", false); Reflect.set(document, "visibilityState", "visible");
+  presence(new Event("visibilitychange")); await vi.advanceTimersByTimeAsync(2000);
+  expect(io.socket).toHaveBeenCalledTimes(1);
+  await receive({ type: "pong" }); await vi.advanceTimersByTimeAsync(4000);
+  expect(io.socket).toHaveBeenCalledTimes(1); connection.close();
+});
 
 async function connected() {
   const socket = () => ({ readyState: 1, onopen: undefined as undefined | (() => void),
@@ -29,6 +101,7 @@ async function connected() {
   };
   const connection = new HubConnection(identity, cache as unknown as ClientCache);
   Reflect.set(connection, "selectRoute", async () => ({ route: { name: "VPS", url: "https://hub.example" }, latency: 100 }));
+  const presence = Reflect.get(connection, "presence") as (event: Event) => void;
   Reflect.set(connection, "presence", () => {});
   Reflect.set(connection, "refreshNotificationPreferences", async () => {});
   await Reflect.get(connection, "connect").call(connection);
@@ -40,10 +113,11 @@ async function connected() {
   await receive({ type: "ready", sessionToken: "token", expiresAt: Date.now() + 900_000,
     user: { id: "owner", name: "Owner", role: "owner" }, bots: [], conversations: [] });
   expect(connection.state.status).toBe("online");
-  return { connection, cache, ws, send, receive };
+  return { connection, cache, ws, send, receive, presence };
 }
 
-it.each([false, true])("foreground resume (force=%s) drains already received frames before replacing a closed socket", async force => {
+it.each([["ios", false], ["ios", true], ["android", false], ["android", true]] as const)("%s foreground resume (force=%s) drains already received frames before replacing a closed socket", async (platform, force) => {
+  io.platform = platform;
   const { connection, cache, ws, send } = await connected();
   let release!: () => void;
   cache.apply.mockImplementationOnce(() => new Promise<undefined>(resolve => { release = () => resolve(undefined); }));
@@ -59,6 +133,24 @@ it.each([false, true])("foreground resume (force=%s) drains already received fra
   release(); await vi.advanceTimersByTimeAsync(0);
   expect.soft(cache.apply.mock.calls.map(([event]) => (event as { seq: number }).seq)).toEqual([1, 2]);
   expect(io.socket).toHaveBeenCalledTimes(2);
+  connection.close();
+});
+
+it.each([false, true])("iOS probe distinguishes fresh native traffic from a queued old pong (fresh=%s)", async fresh => {
+  io.platform = "ios";
+  const { connection, cache, send } = await connected();
+  let release!: () => void;
+  cache.apply.mockImplementationOnce(() => new Promise<undefined>(resolve => { release = () => resolve(undefined); }));
+  send({ type: "event", conversationId: "chat", seq: 1, kind: "message.created", at: Date.now(),
+    payload: { id: "pending", conversationId: "chat", authorId: "bot", authorType: "bot", blocks: [], status: "complete", version: 1, createdAt: Date.now() } });
+  await vi.advanceTimersByTimeAsync(0);
+  send({ type: "pong" });
+  connection.resume(); await vi.advanceTimersByTimeAsync(4000);
+  if (fresh) send({ type: "pong" });
+  await vi.advanceTimersByTimeAsync(1001);
+  expect(io.socket).toHaveBeenCalledTimes(fresh ? 1 : 2);
+  release(); await vi.advanceTimersByTimeAsync(0);
+  expect(io.socket).toHaveBeenCalledTimes(fresh ? 1 : 2);
   connection.close();
 });
 

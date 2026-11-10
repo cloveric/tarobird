@@ -26,6 +26,20 @@ extension HubTLSChecks {
     static func allocate(_ manager: HubTransport, _ document: String, _ kind: String = "http") async throws -> String {
         try await call(manager, "allocate", ["kind": kind, "document": document])["value"] as! String
     }
+    static func outcome(_ work: () async throws -> Void) async -> String {
+        do { try await work(); return "ok" } catch { return (error as? HubNetworkError)?.code ?? String(describing: error) }
+    }
+    /// Stops this whole process, including its dispatch timers, with SIGSTOP and
+    /// resumes it with SIGCONT from an external shell; the Hub fixture keeps
+    /// running. This models App suspension on a Mac, not iOS process policy.
+    static func suspendProcess(_ seconds: Int) throws -> [String: Double] {
+        let began = Date(), uptime = DispatchTime.now().uptimeNanoseconds, pid = getpid()
+        let shell = Process(); shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+        shell.arguments = ["-c", "kill -STOP \(pid); sleep \(seconds); kill -CONT \(pid)"]
+        try shell.run(); shell.waitUntilExit()
+        guard shell.terminationStatus == 0 else { throw HubNetworkError("process_suspension_failed") }
+        return ["wallSeconds": Date().timeIntervalSince(began), "dispatchSeconds": Double(DispatchTime.now().uptimeNanoseconds - uptime) / 1e9]
+    }
     static func managerChecks(_ peer: Fixture, _ ca: SecCertificate, token: String) async throws {
         let events = EventLog(), manager = HubTransport(anchors: [ca], events: { events.add($0) })
         defer { manager.reset(destroy: true); manager.queue.sync {} }
@@ -173,6 +187,57 @@ extension HubTLSChecks {
         try check(events.get(byteLimited, kind: "message").count == 2, "managerByteAcknowledgmentResumesOneMessage")
         _ = try await call(manager, "cancel", ["id": byteLimited])
 
+        // Suspended WebKit JavaScript cannot acknowledge, and iOS then suspends
+        // the App process with its dispatch timers. After foreground, the first
+        // acknowledgement must resume the healthy socket rather than meet an
+        // overdue native cancellation. Credit and byte bounds stay unchanged.
+        func creditBlocked() async throws -> String {
+            let id = try await socket()
+            _ = try await call(manager, "socketSend", ["id": id, "text": "$audit:burst"])
+            _ = try await events.wait(id, kind: "message", count: 8)
+            try await Task.sleep(nanoseconds: 150_000_000)
+            guard events.get(id, kind: "message").count == 8 else { throw HubNetworkError("managerCreditBlockNotReached") }
+            return id
+        }
+        let suspended = try await creditBlocked()
+        results["creditProcessSuspension"] = try suspendProcess(11)
+        let resumedAck = await outcome { _ = try await call(manager, "socketAck", ["id": suspended, "sequence": 8]) }
+        results["creditAckAfterProcessSuspension"] = resumedAck
+        try check(resumedAck == "ok", "managerCreditAckAfterProcessSuspension")
+        let resumed = try await events.wait(suspended, kind: "message", count: 9)
+        try check(resumed.last?["sequence"] as? Int == 9 && events.get(suspended, kind: "close").isEmpty, "managerCreditSurvivesProcessSuspension")
+        _ = try await call(manager, "socketAck", ["id": suspended, "sequence": 9])
+        _ = try await call(manager, "socketSend", ["id": suspended, "text": "after-resume"])
+        let roundTrip = try await events.wait(suspended, kind: "message", count: 10)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let delivered = events.get(suspended, kind: "message")
+        try check(roundTrip.last?["data"] as? String == "after-resume" && delivered.count == 10
+                  && delivered.map { $0["sequence"] as? Int } == (1...10).map { $0 }
+                  && delivered.prefix(9).map { $0["data"] as? String } == (0..<9).map { "receipt-\($0)" }, "managerResumedSocketRoundTripInOrderWithoutDuplicates")
+        _ = try await call(manager, "cancel", ["id": suspended])
+
+        // Without process suspension, slow JavaScript alone must not cancel the
+        // slot either; 31 s also crosses the session's 30 s request timeout.
+        let slow = try await creditBlocked()
+        try await Task.sleep(nanoseconds: 31_000_000_000)
+        try check(events.get(slow, kind: "close").isEmpty, "managerSlowAcknowledgmentKeepsSocket")
+        _ = try await call(manager, "socketAck", ["id": slow, "sequence": 8])
+        let slowResumed = try await events.wait(slow, kind: "message", count: 9)
+        try check(slowResumed.last?["sequence"] as? Int == 9, "managerSlowAcknowledgmentResumesStream")
+        let slowCancelledAt = ProcessInfo.processInfo.systemUptime
+        _ = try await call(manager, "cancel", ["id": slow])
+        _ = try await events.wait(slow, kind: "close")
+        try check(ProcessInfo.processInfo.systemUptime - slowCancelledAt < 1, "managerCancelEndsCreditWait")
+        let blockedClose = try await creditBlocked()
+        _ = try await call(manager, "socketClose", ["id": blockedClose, "code": 1000, "reason": "done"])
+        let blockedClosed = try await events.wait(blockedClose, kind: "close")
+        try check(blockedClosed.count == 1 && blockedClosed[0]["clean"] as? Bool == false, "managerLocalCloseEndsCreditWait")
+        let blockedPeer = try await creditBlocked()
+        try check(try peer.command("ws-close-all") == "ok", "managerPeerClosedWhileCreditBlocked")
+        _ = try await call(manager, "socketAck", ["id": blockedPeer, "sequence": 8])
+        let peerAfterCredit = try await events.wait(blockedPeer, kind: "close")
+        try check(peerAfterCredit.count == 1 && events.get(blockedPeer, kind: "message").count == 9, "managerPeerCloseAfterCreditKeepsOrder")
+
         try await rejects("managerProxyCannotReceiveCredentials") {
             _ = try await open("/api/stolen", base: peer.peers["proxy"]!, headers: [["Authorization", "Bearer isolated-audit"]])
         }
@@ -186,8 +251,12 @@ extension HubTLSChecks {
         _ = try await read(recovered); _ = try await read(recovered)
         try check(true, "managerAsyncHttpFreshProofRecovers")
 
+        let blockedRetired = try await creditBlocked()
         let old = document, stale = try await allocate(manager, document), staleSocket = try await socket()
         document = try await call(manager, "document")["value"] as! String
+        let retiredClose = try await events.wait(blockedRetired, kind: "close")
+        try check(retiredClose.count == 1 && retiredClose[0]["code"] as? Int == 1006, "managerDocumentRetirementEndsCreditWait")
+        try await rejects("managerRetiredCreditCannotAcknowledge") { _ = try await call(manager, "socketAck", ["id": blockedRetired, "sequence": 8]) }
         try await rejects("managerStaleDocumentRejected") { _ = try await allocate(manager, old) }
         try await rejects("managerLateOpenRejected") { _ = try await call(manager, "httpOpen", ["id": stale, "input": input("/health")]) }
         try await rejects("managerOldSocketCannotSend") { _ = try await call(manager, "socketSend", ["id": staleSocket, "text": "late"]) }

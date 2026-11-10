@@ -160,7 +160,12 @@ export class HubConnection {
   beginFileTransfer(): () => void { this.fileTransfers++; let released = false; return () => { if (!released) { released = true; this.fileTransfers--; this.lastTraffic = Date.now(); } }; }
   private readonly presence = (event?: Event) => {
     void this.send({ v: 1, type: "presence", foreground: document.visibilityState === "visible" && document.hasFocus() }).catch(() => undefined);
-    if (document.hidden) this.preferred = undefined;
+    if (document.hidden) {
+      this.preferred = undefined;
+      // A new foreground after a real background transition gets a fresh probe;
+      // an earlier wake's timer must not consume that opportunity to answer.
+      if (nativePlatform() === "ios") { this.clearForegroundProbe(); this.awaitingForegroundProbe = false; }
+    }
     else if (event?.type === "visibilitychange" || event?.type === "focus") this.resume();
   };
   onCommands?: (values: Json, botId?: string, query?: string) => void;
@@ -306,6 +311,8 @@ export class HubConnection {
   }
   private readonly networkOnline = () => this.resume();
   private awaitingForegroundProbe = false;
+  private foregroundProbe?: ReturnType<typeof setTimeout>;
+  private clearForegroundProbe(): void { clearTimeout(this.foregroundProbe); this.foregroundProbe = undefined; }
   resume(force = false): void {
     // Background timers may be suspended. Expire the display grace on wake-up
     // even when an existing handshake is still in progress.
@@ -327,7 +334,25 @@ export class HubConnection {
       // retires a stale socket if this fresh liveness probe goes unanswered.
       // Grant one wake-up grace period, not a new lease for every duplicate
       // foreground/online signal. Only incoming traffic proves this link alive.
-      if (!this.awaitingForegroundProbe) { this.lastPong = performance.now(); this.awaitingForegroundProbe = true; }
+      if (!this.awaitingForegroundProbe) {
+        this.lastPong = performance.now(); this.awaitingForegroundProbe = true;
+        if (nativePlatform() === "ios") {
+          const ws = this.ws, generation = this.generation, started = performance.now();
+          const probe = setTimeout(() => {
+            if (this.foregroundProbe !== probe) return;
+            this.foregroundProbe = undefined;
+            if (this.closed || generation !== this.generation || this.ws !== ws || !this.awaitingForegroundProbe) return;
+            if (document.hidden || document.visibilityState !== "visible") { this.awaitingForegroundProbe = false; return; }
+            // A suspended/busy WebView can deliver a late timer before queued
+            // native frames. Leave that case to the existing steady heartbeat.
+            if (performance.now() - started > 8000) return;
+            // Refresh this socket without marking its route unhealthy solely
+            // because iOS suspended the client. Authentication still runs anew.
+            this.abandon(ws, generation, false);
+          }, 5000);
+          this.foregroundProbe = probe;
+        }
+      }
       this.ws.send('{"v":1,"type":"ping"}');
       void this.pollPreferredRoute(this.generation, true); return;
     }
@@ -411,6 +436,7 @@ export class HubConnection {
   private async connect(): Promise<void> {
     if (this.closed) return;
     if (this.cache.isClosed) { this.cacheUnavailable(); return; }
+    this.clearForegroundProbe();
     const handoff = this.routeHandoff?.generation === this.generation ? this.routeHandoff : undefined; this.routeHandoff = undefined;
     const generation = ++this.generation; this.update({ status: "connecting", syncProgress: undefined }); this.syncing = true; this.inflight = undefined;
     this.independentSync = false; this.pendingSync.clear();
@@ -470,6 +496,7 @@ export class HubConnection {
         // catch-up queue must not be mistaken for a blackholed transport.
         this.lastPong = performance.now();
         this.awaitingForegroundProbe = false;
+        this.clearForegroundProbe();
         pendingFrames++;
         chain = chain.then(async () => {
         if (generation !== this.generation) return;
@@ -717,6 +744,7 @@ export class HubConnection {
   }
   private offline(scheduleReconnect = true, preserveHttp = false): void {
     this.awaitingForegroundProbe = false;
+    this.clearForegroundProbe();
     if (this.reconnect) clearTimeout(this.reconnect); this.reconnect = undefined;
     if (this.outboxRetry) clearTimeout(this.outboxRetry);
     if (!preserveHttp) { this.httpEpoch.abort(); this.httpEpoch = new AbortController(); }
@@ -1352,5 +1380,5 @@ export class HubConnection {
     this.close(true); this.update({ error: t("此设备已被吊销，请重新配对") });
     await this.cache.markIdentityRevoked(this.identity).catch(() => console.warn("device_revocation_cache_failed"));
   }
-  close(preserveDeparture = false): void { this.probeAbort?.abort(); if (!preserveDeparture) this.departureRequest?.abort(); this.inflightEntry = undefined; window.removeEventListener("online", this.networkOnline); document.removeEventListener("visibilitychange", this.presence); window.removeEventListener("focus", this.presence); window.removeEventListener("blur", this.presence); this.started = false; this.starting = undefined; ++this.lifecycle; this.closed = true; this.passiveAttachments.cancelAll(new Error(t("连接已关闭，下载已停止。"))); if (this.outboxRetry) clearTimeout(this.outboxRetry); this.httpEpoch.abort(); this.update({ status: "offline", syncProgress: undefined, routeSync: undefined }); ++this.generation; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.ws?.close(); }
+  close(preserveDeparture = false): void { this.clearForegroundProbe(); this.probeAbort?.abort(); if (!preserveDeparture) this.departureRequest?.abort(); this.inflightEntry = undefined; window.removeEventListener("online", this.networkOnline); document.removeEventListener("visibilitychange", this.presence); window.removeEventListener("focus", this.presence); window.removeEventListener("blur", this.presence); this.started = false; this.starting = undefined; ++this.lifecycle; this.closed = true; this.passiveAttachments.cancelAll(new Error(t("连接已关闭，下载已停止。"))); if (this.outboxRetry) clearTimeout(this.outboxRetry); this.httpEpoch.abort(); this.update({ status: "offline", syncProgress: undefined, routeSync: undefined }); ++this.generation; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.ws?.close(); }
 }

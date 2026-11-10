@@ -1926,6 +1926,12 @@ and the existing network/run/delete suites listed in that audit.
   keeps bounded receive backpressure while JavaScript is suspended. Regression:
   `client/tests/connection-foreground-recovery.test.ts` and the native JVM audit;
   [investigation and device limits](client/android-foreground-recovery-2026-10-29.md).
+  iOS uses the same bounded receive-credit wait without a ten-second JavaScript
+  receipt cancellation. An iOS-only five-second foreground probe detects silent
+  open sockets without changing steady heartbeats or interrupting handshakes.
+  Tests: the Foundation transport audit, connection foreground regressions and
+  browser `connection-notice`, `native-events`, `native-transport`;
+  [reproduction and device limits](client/ios-foreground-recovery-2026-11-10.md).
   `MobileHome.tsx` exposes connection recovery and explains
   filtered direct chats even when groups remain. Browser `inbox-recovery`,
   `handshake`, `routes`, `offline-recipients`, `sidebar-layout`, `mobile-im` and

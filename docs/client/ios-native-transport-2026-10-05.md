@@ -33,7 +33,10 @@ iOS 源码已将 Hub HTTP、文件和 WebSocket 接入原生 URLSession/Security
   和受控响应行为，不能声称整个 App 或所有 Foundation 内部缓冲只有 256 KiB。
 - WebSocket 原生 `maximumMessageSize` 为 1 MiB，整个传输器的待完成发送最多
   16 MiB。每个连接最多交付 8 个或总共 1 MiB 未确认消息；另容纳一个已接收但
-  等待字节额度的消息，收到确认后继续，停滞有期限。它们是准入和应用队列限制，
+  等待字节额度的消息，收到确认后继续。2026-11-10 起等待确认不再另设 10 秒
+  取消：App 挂起后该计时在回前台时已过期，会在页面确认前误关健康连接。等待由
+  确认、本地关闭、取消、页面作废、销毁和 20 分钟连接期限结束，见
+  [iPhone 前台恢复](ios-foreground-recovery-2026-11-10.md)。它们是准入和应用队列限制，
   不是整个 WebKit/JSON/系统网络栈的总内存上限。
 - `HubTransportPlugin.swift` 在主线程管理监听器和页面代际；利用 Capacitor
   `reset()` 实际调用的 `removeAllListeners(nil)`，在页面导航与 WebKit 进程终止

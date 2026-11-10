@@ -29,6 +29,7 @@ test("phone notice stays compact, preserves cached reading and clears on real re
     await hub.close();
     const notice = page.locator(".phone-connection-notice");
     await expect(notice).toBeVisible(); await expect(notice).toContainText("正在重连…");
+    await expect(notice.getByRole("status")).toHaveText(`正在连接「${name}」`);
     await expect(page.locator(".offline-banner,.error-banner")).toHaveCount(0);
     expect((await notice.boundingBox())!.height).toBeLessThanOrEqual(46);
     expect(await notice.evaluate(n => n.scrollWidth <= n.clientWidth)).toBe(true);
@@ -36,6 +37,7 @@ test("phone notice stays compact, preserves cached reading and clears on real re
     await notice.locator("summary").focus(); await page.keyboard.press("Enter");
     await expect(notice.locator("div")).toContainText(name);
     await expect(notice.locator("div")).toContainText("已缓存的消息仍可阅读");
+    await expect(notice.locator("div")).toContainText("手机断开连接不会取消已提交给主机的任务");
     await expect(page.getByText("这条已缓存的正文应一直可读。", { exact: true })).toBeVisible();
     await expect(input).toHaveValue("保留草稿");
     hub = await HubServer.start({ stateDir: root, port, clientDir });

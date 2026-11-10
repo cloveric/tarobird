@@ -146,7 +146,6 @@ final class HubTransport: @unchecked Sendable {
                 while let item = slot.receipts.first, item.sequence <= sequence {
                     slot.unacknowledgedBytes -= item.bytes; slot.receipts.removeFirst()
                 }
-                slot.creditDeadline?.cancel(); slot.creditDeadline = nil
             }
             receive(slot)
             reply(.success([:]))
@@ -157,7 +156,7 @@ final class HubTransport: @unchecked Sendable {
             guard let slot = slots[try Self.text(args, "id")], slot.kind == "socket", owns(slot) else { reply(.success(["value": false])); return }
             guard slot.open, let task = slot.task as? URLSessionWebSocketTask else { finish(slot, HubNetworkError("native_request_cancelled")); reply(.success(["value": false])); return }
             if !slot.closing {
-                slot.closing = true; slot.creditDeadline?.cancel(); slot.creditDeadline = nil
+                slot.closing = true
                 resume(slot); task.cancel(with: closeCode, reason: Data(reason.utf8))
                 let timeout = DispatchWorkItem { [weak self, weak slot] in
                     if let self = self, let slot = slot, self.owns(slot) { self.finish(slot, HubNetworkError("native_close_timeout")) }
@@ -301,15 +300,15 @@ final class HubTransport: @unchecked Sendable {
         slot.sent += 1; let bytes = text.utf8.count; slot.unacknowledgedBytes += bytes
         slot.receipts.append((slot.sent, bytes)); emit(slot, ["kind": "message", "data": text, "sequence": slot.sent])
     }
-    private func waitForCredit(_ slot: HubSlot) {
-        pause(slot)
-        if slot.creditDeadline == nil {
-            let timeout = DispatchWorkItem { [weak self, weak slot] in
-                if let self = self, let slot = slot, self.owns(slot) { self.finish(slot, HubNetworkError("native_socket_receipt_timeout")) }
-            }
-            slot.creditDeadline = timeout; queue.asyncAfter(deadline: .now() + 10, execute: timeout)
-        }
-    }
+    // Credit waits have no separate timer. iOS suspends WebKit JavaScript and
+    // then this process; an uptime deadline is already overdue on foreground
+    // and would cancel a healthy socket before its first acknowledgement.
+    // The task stays suspended with no receive outstanding; this transport
+    // holds at most eight events / 1 MiB plus one pending message (Foundation's
+    // own socket buffering is outside that bound). Acknowledgement, local close,
+    // cancellation, document retirement, destruction and the slot deadline
+    // remain the exits.
+    private func waitForCredit(_ slot: HubSlot) { pause(slot) }
     fileprivate func socketClosed(_ slot: HubSlot, code: Int, reason: Data?) {
         guard owns(slot) else { return }
         finish(slot, nil, close: ["kind": "close", "code": code, "reason": reason.flatMap { String(data: $0, encoding: .utf8) } ?? "", "clean": !slot.closing])
@@ -325,7 +324,7 @@ final class HubTransport: @unchecked Sendable {
         slots.removeValue(forKey: slot.id)
         outgoingBytes -= slot.outgoingBytes; bodyBytes -= slot.bodyBytes
         slot.outgoingBytes = 0; slot.bodyBytes = 0; slot.pendingText = nil; slot.receipts.removeAll()
-        slot.deadline?.cancel(); slot.creditDeadline?.cancel(); slot.closeDeadline?.cancel()
+        slot.deadline?.cancel(); slot.closeDeadline?.cancel()
         slot.openingTask?.cancel(); slot.readingTask?.cancel(); slot.task?.cancel(); slot.handler = nil; slot.stream = nil; slot.connection = nil
         let failure = error ?? HubNetworkError("native_request_cancelled")
         let open = slot.openReply, read = slot.readReply, sends = Array(slot.sends.values)
@@ -346,7 +345,7 @@ fileprivate final class HubSlot: @unchecked Sendable {
     var started = false, head = false, open = false, closing = false, paused = false, receiving = false
     var route: String?, task: URLSessionTask?, handler: HubTaskHandler?
     var connection: HubTLSSession?
-    var deadline: DispatchWorkItem?, creditDeadline: DispatchWorkItem?, closeDeadline: DispatchWorkItem?
+    var deadline: DispatchWorkItem?, closeDeadline: DispatchWorkItem?
     var openReply: HubTransport.Reply?, readReply: HubTransport.Reply?
     var stream: HubHTTPStream?, openingTask: Task<Void, Never>?, readingTask: Task<Void, Never>?
     var sent = 0, acknowledged = 0, outgoingBytes = 0, bodyBytes = 0, unacknowledgedBytes = 0

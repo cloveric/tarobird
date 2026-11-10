@@ -128,7 +128,12 @@ private final class SocketProbe: HubTaskHandler, @unchecked Sendable {
             try check(health["publicKey"] as? String == key, "realHubProofAndHttp")
             let privateKey = Curve25519.Signing.PrivateKey()
             let deviceKey = (HubTLS.spkiPrefix + privateKey.publicKey.rawRepresentation).base64EncodedString()
-            let pairBody: [String: Any] = ["deviceId": "ios-core-test", "name": "Isolated Foundation", "platform": "ios", "publicKey": deviceKey]
+            // Current Hubs admit unpaired devices only with the fixture's
+            // owner-issued invitation and an idempotency request ID.
+            let requestId = Data(SHA256.hash(data: HubTLS.spkiPrefix + privateKey.publicKey.rawRepresentation)).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+            let pairBody: [String: Any] = ["deviceId": "ios-core-test", "name": "Isolated Foundation", "platform": "ios", "publicKey": deviceKey,
+                                           "invite": peer.peers["invite"]!, "requestId": requestId]
             let paired = try JSONSerialization.jsonObject(with: await http(real, "/api/pair", body: JSONSerialization.data(withJSONObject: pairBody))) as! [String: Any]
             try check(try peer.command("approve:" + (paired["code"] as! String)) == "ok", "realOwnerPairing")
             let probe = SocketProbe(), ws = try await socket(real, probe: probe), nonce = String(repeating: "a", count: 43)

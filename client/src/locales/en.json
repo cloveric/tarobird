@@ -4804,6 +4804,7 @@
   "请先更新主机，再重新检查。消息仍会正常同步。": "Update the Host, then check again. Messages still sync normally.",
   "请让主机管理员在 APNs 配置中允许此 App 的标识，再重新检查。消息仍会正常同步。": "Ask the Host administrator to allow this App's identifier in the APNs configuration, then check again. Messages still sync normally.",
   "与「{0}」已断开": "Disconnected from “{0}”",
+  "手机断开连接不会取消已提交给主机的任务。": "Disconnecting this phone does not cancel tasks already submitted to the host.",
   "正在重连…": "Reconnecting…",
   "查看详情": "View details",
   "恢复失败，编辑中的内容仍保留，请重试。": "Recovery failed. Your edits are preserved. Please try again.",
