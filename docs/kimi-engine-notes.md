@@ -4,6 +4,45 @@ This document records the protocol evidence used to add Kimi Code CLI as a
 TaroCub engine. It is intentionally evidence-first: behavior is marked as
 verified only when it was observed against the locally installed binary.
 
+## Kimi 2.5.2 compatibility re-probe (2026-11-10)
+
+The current checkout uses ACP TypeScript SDK 2.4.0. The installed Kimi Code
+CLI 2.5.2 was exercised in isolated workspaces, with native login referenced
+from an isolated engine home. No production Bot or Host was restarted.
+The older sections below are historical evidence, not the current version.
+
+- Real `kimi acp` initialization returned protocol version 1, `loadSession`,
+  image/embedded-context input, HTTP/SSE MCP, and session list/resume/close/
+  delete/fork capabilities. Audio input was not advertised.
+- The advertised modes are `default`, `plan`, `auto`, and `yolo`. All four
+  `session/set_mode` calls succeeded. The adapter keeps its existing mapping:
+  normal approval uses `default`; `full-auto` uses `yolo`; acknowledged
+  never-ask uses `auto`; the read-only side session uses `plan`. Accepting a
+  mode change does not by itself prove every native command restriction.
+- A native session was closed, loaded, forked to a distinct ID, and both
+  generated sessions were deleted. Runtime model/thinking options were read
+  from the CLI; thinking advertises `low`, `high`, and `max`. Account-specific
+  model labels are not hardcoded as a compatibility requirement.
+- A real turn stored a marker; a fresh adapter process loaded that session and
+  returned the marker exactly. A detached native Bash task emitted an
+  authenticated `TaskStarted` Hook and matching `Notification/task.completed`;
+  TaroBird emitted the corresponding start and terminal `task_notification`.
+  Kimi uses that terminal notification, not Claude's `background_task_finished`
+  event. The harmless probe command printed its expected output.
+- The opt-in real-model test in `client/e2e/live-tools.spec.ts` passed on
+  2.5.2: desktop and phone-browser clients pair to the same isolated Hub;
+  native questions round-trip; a required single/multiple-choice form is
+  answered; a subsequent prompt queues behind it; stopping a pending question
+  clears it and a new turn succeeds. Project MCP read/write approval, denial
+  preventing a write, and exact downloaded bytes also passed.
+- Free-text "Other" answers remain out of scope. No claim of physical iOS or
+  Windows acceptance is made by these browser checks.
+
+The adapter's 0.39.1 minimum for a particular protocol feature remains a
+historical compatibility floor, not a claim that only 0.x is supported. There
+was already a live 2.1.1 audit; this re-probe updates that evidence without
+inventing a new CLI generation or replacing the persistent ACP transport.
+
 ## Initial Probe Baseline
 
 - Probe date: 2026-08-02

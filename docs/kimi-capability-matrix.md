@@ -5,15 +5,16 @@ with the existing Codex and Claude engines and labels every Kimi row as either
 aligned or an explicit gap. Initial protocol discovery used Kimi Code CLI
 0.31.1; background-task hooks were re-probed with 0.32.0; the full
 ACP/MCP/tool/hook path was re-probed on 0.33.0; and terminal delegation plus the
-initial stdio MCP compatibility boundary were re-probed on 0.37.2. The current
-compatibility baseline is 2.1.1 with ACP TypeScript SDK 1.4.0. New/list/load, a
-resumed turn, Hook background lifecycle, Search MCP, full form elicitation,
-cancellation and worker reuse, and external symlinked Skills were re-verified
-on 2.1.1. The public ACP server surface and Hook input payloads remain
-unchanged. Kimi 2.1.1 also rolls back 2.1.0's post-trust realpath restrictions,
-so TaroCub's shared Skills link remains supported, and restores filesystem
-watchers to on by default. The 0.41 permission and detached-question semantics
-remain in force. Remaining gaps must still be re-probed before removal.
+initial stdio MCP compatibility boundary were re-probed on 0.37.2. The latest targeted
+compatibility re-probe is Kimi Code 2.5.2 with ACP TypeScript SDK 2.4.0
+(2026-11-10). Real initialization, mode selection, close/load/fork/delete,
+cross-process memory after resume, native background Hook completion,
+and the App's questions, choice forms, queue, stop/recovery, project MCP
+approval/denial and byte-exact downloads passed. This does not silently
+re-certify every historical row below: prior 2.1.1 checks of external
+symlinked Skills and Search MCP retain their stated version. Free-text
+answers remain an explicit gap. See the current evidence and boundaries in
+[Kimi Engine Protocol Notes](./kimi-engine-notes.md#kimi-252-compatibility-re-probe-2026-11-10).
 
 | Capability | Codex | Claude Code | Kimi Code alignment |
 |---|---|---|---|
