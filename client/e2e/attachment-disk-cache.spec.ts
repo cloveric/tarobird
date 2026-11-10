@@ -98,14 +98,14 @@ test("a video above 16 MiB is downloaded from the Hub once; saving it again read
   } finally { await context.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
 });
 
-test("deleting attachments removes their disk copies; one still in use is never read again and goes when released", async ({ browser }) => {
+test("deleting attachments removes their disk copies; one in use is never read again and goes when released; one being written never lands", async ({ browser }) => {
   const profile = await mkdtemp(path.join(os.tmpdir(), "attachment-disk-cache-forget-"));
   const context = await browser.browserType().launchPersistentContext(profile, { headless: true });
   const server = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await server.listen();
   try {
     const page = await context.newPage();
     await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/download-buffer.html"); await page.waitForFunction(() => !!window.bufferFixture);
-    const result = await page.evaluate(async ([a, b]) => {
+    const result = await page.evaluate(async ([a, b, c, d]) => {
       const f = window.bufferFixture, wait = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms));
       const bytes = (fill: number) => new Uint8Array(17 * 1024 ** 2).fill(fill);
       const store = (id: string, data: Uint8Array) => f.storeCachedAttachment(id, f.memoryAttachment(new Blob([data], { type: "video/mp4" })));
@@ -124,13 +124,22 @@ test("deleting attachments removes their disk copies; one still in use is never 
       const whileHeld = { b: await present(b), heldStillReadable: (await held.blob.arrayBuffer()).byteLength, entries: await entries() };
       await held.dispose();
       for (let n = 0; n < 50 && (await entries()).length; n++) await wait();
-      return { before, idle, whileHeld, released: await entries() };
-    }, [key("a"), key("b")]);
+      const released = await entries();
+      // Deleted while its copy is still being written: by this window (it is
+      // asked again under the lock) or by another one (the removal waits).
+      let wanted = true;
+      const ownCopy = f.storeCachedAttachment(c, f.memoryAttachment(new Blob([bytes(3)], { type: "video/mp4" })), undefined, () => wanted);
+      wanted = false; await f.forgetCachedAttachments([c]); await ownCopy;
+      const otherWindow = store(d, bytes(4)); await f.forgetCachedAttachments([d]); await otherWindow;
+      for (let n = 0; n < 50 && (await entries()).length; n++) await wait();
+      return { before, idle, whileHeld, released, writing: { c: await present(c), d: await present(d), entries: await entries() } };
+    }, [key("a"), key("b"), key("c"), key("d")]);
     expect(result).toEqual({
       before: [key("a"), key("b")],
       idle: { a: false, b: true, entries: [key("b")] },
       whileHeld: { b: false, heldStillReadable: 17 * MiB, entries: [key("b")] },
       released: [],
+      writing: { c: false, d: false, entries: [] },
     });
   } finally { await context.close(); await server.close(); await rm(profile, { recursive: true, force: true }); }
 });

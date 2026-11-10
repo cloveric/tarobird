@@ -1342,7 +1342,7 @@ export class HubConnection {
     const source = await downloadAttachmentSource(this, id, options, preferDisk);
     if (!this.closed) await this.cache.saveAttachment(id, source.blob).catch(() => undefined);
     // Copied in the background; the copy holds its own lease on the download.
-    if (!this.closed && source.blob.size > DISK_CACHE_MIN_BYTES) void storeCachedAttachment(diskKey, source.retain());
+    if (!this.closed && source.blob.size > DISK_CACHE_MIN_BYTES) void storeCachedAttachment(diskKey, source.retain(), undefined, () => !this.closed && !this.deletedAttachments.has(id));
     return source;
   }
   get downloadCheckpoints() { return this.cache.downloadCheckpoints(this.identity); }

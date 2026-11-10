@@ -89,12 +89,15 @@ async function makeRoom(root: FileSystemDirectoryHandle, incoming: number, keep:
 }
 
 /** Copy a finished download into the cache, disk to disk. Best effort: any
- * failure leaves no entry. Always disposes the lease it was given. */
-export async function storeCachedAttachment(key: string | undefined, source: AttachmentSource, budget = DISK_CACHE_BUDGET_BYTES): Promise<void> {
+ * failure leaves no entry. Always disposes the lease it was given. `wanted` is
+ * asked again under the entry's lock, before writing and before the entry is
+ * marked complete: a copy whose attachment was deleted meanwhile never lands. */
+export async function storeCachedAttachment(key: string | undefined, source: AttachmentSource, budget = DISK_CACHE_BUDGET_BYTES, wanted: () => boolean = () => true): Promise<void> {
   try {
     const blob = source.blob;
     if (!key || !supported() || !validKey(key) || blob.size <= DISK_CACHE_MIN_BYTES || blob.size > budget) return;
     await navigator.locks.request(lockName(key), async () => {
+      if (!wanted()) return;
       const root = await cacheRoot(true);
       const existing = await root.getDirectoryHandle(key).catch(() => undefined);
       if (existing && (await readMeta(existing))?.size === blob.size) return;
@@ -106,6 +109,7 @@ export async function storeCachedAttachment(key: string | undefined, source: Att
         if (typeof handle.createWritable !== "function") throw new DOMException("Unsupported storage", "NotSupportedError");
         await blob.stream().pipeTo(await handle.createWritable());
         if ((await handle.getFile()).size !== blob.size) throw new Error("attachment_cache_size_mismatch");
+        if (!wanted()) throw new Error("attachment_cache_unwanted");
         // The meta file marks the entry complete; readers ignore it until then.
         await writeMeta(directory, { size: blob.size, type: blob.type, accessed: Date.now() });
       } catch (error) { await root.removeEntry(key, { recursive: true }).catch(() => undefined); throw error; }
@@ -130,9 +134,10 @@ export async function forgetCachedAttachments(keys: readonly (string | undefined
       return true;
     }).catch(() => false);
     if (removed) continue;
+    // In use, or still being written (perhaps by another window): mark what is
+    // there and remove the entry as soon as that lock is released.
     const directory = await root.getDirectoryHandle(key).catch(() => undefined);
-    if (!directory) continue;
-    await directory.getFileHandle(DELETED, { create: true }).catch(() => undefined);
+    if (directory) await directory.getFileHandle(DELETED, { create: true }).catch(() => undefined);
     void navigator.locks.request(lockName(key), async () => { await root.removeEntry(key, { recursive: true }).catch(() => undefined); }).catch(() => undefined);
   }
 }
