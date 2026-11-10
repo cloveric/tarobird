@@ -106,35 +106,53 @@ describe("ClaudeSessionUsage durability", () => {
     expect(await cost(new ClaudeSessionUsage(file), 0.009)).toBe(0); // the restart sees the stored high water
   });
 
-  it("a stalled transaction gives up without moving the baseline past an unreleased cost", async () => {
+  // The I/O budget runs on the test's clock, never the machine's: real file
+  // I/O proceeds, but only an explicit advance can expire a budget, so a
+  // loaded runner cannot fail the transactions that must succeed (CI on #32
+  // saw the setup cost come back undefined under a 50 ms wall-clock budget).
+  const withTestClock = async (body: () => Promise<void>) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try { await body(); } finally { vi.useRealTimers(); }
+  };
+  const gate = () => { let open!: () => void; const opened = new Promise<void>((resolve) => { open = resolve; }); return { open, opened }; };
+
+  it("a stalled transaction gives up without moving the baseline past an unreleased cost", () => withTestClock(async () => {
     const usage = new ClaudeSessionUsage(file, 50);
     expect(await cost(usage, 0.004, { freshLedger: true })).toBe(0.004);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    let releaseRead!: () => void;
-    const read = JsonStore.prototype.read;
+    const reading = gate(), release = gate(), read = JsonStore.prototype.read;
     vi.spyOn(JsonStore.prototype, "read").mockImplementationOnce(async function (this: JsonStore<unknown>, fallback) {
-      await new Promise<void>((resolve) => { releaseRead = resolve; });
+      reading.open();
+      await release.opened;
       return await read.call(this, fallback);
     });
-    expect(await cost(usage, 0.006)).toBeUndefined();
-    releaseRead();
+    const stalled = cost(usage, 0.006);
+    await reading.opened; // it holds the lock and waits inside its re-read
+    await vi.advanceTimersByTimeAsync(50); // the caller's budget expires first
+    expect(await stalled).toBeUndefined();
+    release.open();
     await usage.flush();
     expect(await cost(new ClaudeSessionUsage(file), 0.009)).toBe(0.005);
-  });
+  }));
 
-  it("a write that lands after the caller gave up can only drop that cost, never charge it twice", async () => {
+  it("a write that lands after the caller gave up can only drop that cost, never charge it twice", () => withTestClock(async () => {
     const usage = new ClaudeSessionUsage(file, 50);
     expect(await cost(usage, 0.004, { freshLedger: true })).toBe(0.004);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const write = JsonStore.prototype.write;
+    const writing = gate(), land = gate(), write = JsonStore.prototype.write;
     vi.spyOn(JsonStore.prototype, "write").mockImplementationOnce(async function (this: JsonStore<unknown>, value) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      writing.open();
+      await land.opened;
       await write.call(this, value);
     });
-    expect(await cost(usage, 0.006)).toBeUndefined();
+    const late = cost(usage, 0.006);
+    await writing.opened; // the new baseline is already being written
+    await vi.advanceTimersByTimeAsync(50); // the caller gives up before it lands
+    expect(await late).toBeUndefined();
+    land.open();
     await usage.flush();
     expect(await cost(usage, 0.009)).toBe(0.003);
-  });
+  }));
 
   it("two adapters on the same ledger never lose each other's baselines", async () => {
     const first = new ClaudeSessionUsage(file), second = new ClaudeSessionUsage(file);
