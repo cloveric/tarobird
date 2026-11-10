@@ -5,7 +5,7 @@ import type { ClientCache, ConversationDraft, Identity } from "./storage.js";
 import type { WorkbenchDraft } from "./workbench-draft.js";
 
 type Draft = ConversationDraft;
-type Entry = { draft: Draft; revision?: string; ready: boolean; loading?: Promise<void>; tail: Promise<void>; pending: number; error?: string; edits: ((draft: Draft) => Draft)[] };
+type Entry = { draft: Draft; revision?: string; ready: boolean; loading?: Promise<void>; tail: Promise<void>; pending: number; error?: string; edits: ((draft: Draft) => Draft)[]; replayBase?: Draft };
 const empty = (): Draft => ({ files: [], previewStyle: "card" });
 
 /** The cache belongs to one pairing. Delayed setters keep their conversation;
@@ -33,11 +33,15 @@ export function useConversationDrafts(conversationId: string, cache: ClientCache
   };
   const load = (id: string, value: Entry) => {
     if (!id || value.ready || value.loading) return;
-    const baseline = value.draft, revision = value.revision;
+    // A failed read may already have visible queued edits. Retrying must replay
+    // them on the pre-edit baseline, not append them to themselves a second time.
+    const baseline = value.replayBase ?? value.draft, revision = value.revision;
+    value.replayBase = baseline;
     value.loading = cache.conversationDraft(id, identity).then(saved => {
       // An unchanged revision retains File/reference identity for in-flight
       // receipt comparisons. Edits made during this read replay exactly once.
       value.revision = saved.revision; value.draft = value.edits.reduce((draft, edit) => edit(draft), saved.revision === revision ? baseline : saved.draft);
+      value.replayBase = undefined;
       value.ready = true; value.error = undefined;
       if (value.edits.length) { value.edits = []; persist(id, value); }
     }).catch(error => { value.error = error instanceof Error ? error.message : "draft_read_failed"; })
@@ -70,6 +74,7 @@ export function useConversationDrafts(conversationId: string, cache: ClientCache
     if (!conversationId) return;
     const value = entry(conversationId), next = edit(value.draft);
     if (next === value.draft) return;
+    if (!value.ready) value.replayBase ??= value.draft;
     value.draft = next;
     if (value.ready) persist(conversationId, value); else { value.edits.push(edit); load(conversationId, value); }
     notify();

@@ -1768,6 +1768,11 @@ and the existing network/run/delete suites listed in that audit.
   Tests: `attachment-drop-feedback` (Chromium disk-backed drag pipeline),
   `attachment-composer`, `side-conversation`, `qr-scanner`, `attachment-safety`
   (Chromium/WebKit). [Verification and native limits](client/attachment-drag-drop-2026-10-28.md).
+  Focus-driven local draft revalidation accepts file appends while Send still
+  waits for readiness; failed-read recovery replays against the pre-edit base.
+  Drop notices clear independently of send/network errors. Regressions:
+  `attachment-drop-feedback`, `persistent-drafts`, `attachment-composer`,
+  `voice-draft-lifecycle`. See [focus and first-drop recovery](client/attachment-focus-drop-2026-11-10.md).
   Desktop attachment menu: `AttachmentPicker.tsx` adds a native-only screenshot
   choice; `desktop-screenshot.ts` turns bounded PNG IPC results into ordinary
   draft files. `screenshot.rs` restricts capture to the focused main window,

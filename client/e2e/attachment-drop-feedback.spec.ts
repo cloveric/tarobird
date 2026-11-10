@@ -56,6 +56,7 @@ async function setup() {
   const notes = Buffer.from("拖入附件的原始字节 · drop bytes\n");
   await mkdir(path.join(finder, "资料夹"), { recursive: true }); await writeFile(path.join(finder, "资料夹", "inner.txt"), "inside");
   await writeFile(path.join(finder, "notes.txt"), notes); await writeFile(path.join(finder, "pixel.png"), png); await writeFile(path.join(finder, "empty.bin"), "");
+  await writeFile(path.join(finder, "说明.md"), "third file bytes");
   await hub.profile.update({ name: "测试主机", revision: (await hub.profile.read()).revision });
   await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','项目助手','fixture')");
   const first = await hub.store.createConversation("owner", ["alpha"], "图文一起讨论", "drop-first");
@@ -72,6 +73,55 @@ const feedback = (page: Page) => page.locator(".attachment-drop-feedback");
 const tray = (scope: Locator) => scope.getByRole("region", { name: "待发送的附件", exact: true });
 const pane = (page: Page, id: string) => page.locator(`.adhd-card[data-pane-conversation="${id}"]`);
 const messages = async (hub: HubServer, id: string) => (await hub.store.snapshot("owner", id)).messages;
+// Hold only the completion of one real draft read. The IDB transaction still
+// finishes normally; this models a slow local refresh after returning from the
+// file manager without delaying network traffic or adding a production hook.
+async function holdFocusDraftRead(page: Page, conversationId: string) {
+  await page.evaluate(id => {
+    const original = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function(key) {
+      const request = original.call(this, key);
+      if (this.name !== "conversationDrafts" || key !== id) return request;
+      IDBObjectStore.prototype.get = original;
+      const add = request.addEventListener.bind(request);
+      request.addEventListener = ((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+        add(type, type === "success" ? event => {
+          (window as any).releaseFocusDraftRead = () => {
+            delete (window as any).releaseFocusDraftRead;
+            if (typeof listener === "function") listener.call(request, event); else listener.handleEvent(event);
+          };
+        } : listener, options);
+      }) as typeof request.addEventListener;
+      return request;
+    };
+    window.dispatchEvent(new Event("focus"));
+  }, conversationId);
+  await expect.poll(() => page.evaluate(() => typeof (window as any).releaseFocusDraftRead)).toBe("function");
+}
+async function replaceDraftFromOtherWindow(page: Page, conversationId: string) {
+  return page.evaluate(async id => {
+    for (const { name } of await indexedDB.databases()) {
+      if (!name) continue;
+      const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open(name); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      try {
+        if (!db.objectStoreNames.contains("conversationDrafts")) continue;
+        const changed = await new Promise<boolean>((resolve, reject) => {
+          const tx = db.transaction("conversationDrafts", "readwrite"), store = tx.objectStore("conversationDrafts"), request = store.get(id);
+          let found = false;
+          tx.oncomplete = () => resolve(found); tx.onerror = () => reject(tx.error);
+          request.onsuccess = () => {
+            const row = request.result;
+            if (!row?.files.length) return;
+            found = true;
+            store.put({ ...row, revision: crypto.randomUUID(), files: ["foreign.txt", "foreign-second.txt"].map(name => ({ ...row.files[0], name })) }, id);
+          };
+        });
+        if (changed) return true;
+      } finally { db.close(); }
+    }
+    return false;
+  }, conversationId);
+}
 // A disabled target names its reason and never offers to accept the files.
 async function refused(page: Page, scope: Locator, reason: string) {
   await expect(feedback(page)).toContainText(reason); await expect(feedback(page)).not.toContainText("松开以添加附件");
@@ -120,6 +170,92 @@ test("a mixed drop keeps every real file, including zero bytes, and explains the
     const folderOnly = { files: [env.file("资料夹")] };
     await drag.hover(main.locator(".message-scroll"), folderOnly); await drag.drop(main.locator(".message-scroll"), folderOnly);
     await expect(page.getByRole("alert").filter({ hasText: "暂不支持拖入文件夹" })).toBeVisible();
+    expect(await messages(env.hub, env.first.id)).toHaveLength(0);
+  } finally { await page.close(); await env.close(); }
+});
+
+test("first multi-file drop during focus refresh is accepted once and still waits for the draft before Send", async ({ page }) => {
+  const env = await setup();
+  try {
+    await pair(page, env.hub); await selectConversation(page, env.first.title);
+    const main = workspace(page).locator(".conversation-main"), drag = await osDrag(page);
+    await main.getByRole("textbox", { name: "消息", exact: true }).fill("retain this text");
+    const send = main.getByRole("button", { name: "发送消息", exact: true });
+    await expect(send).toBeEnabled();
+    await holdFocusDraftRead(page, env.first.id);
+    await expect(send).toBeDisabled();
+    const data = { files: [env.file("notes.txt"), env.file("pixel.png"), env.file("说明.md")] };
+    await drag.hover(main.locator(".message-scroll"), data);
+    await expect(feedback(page)).toContainText("松开以添加附件");
+    await drag.drop(main.locator(".message-scroll"), data);
+    await expect(tray(main).locator(".attachment-draft-file")).toHaveCount(3);
+    await expect(send).toBeDisabled();
+    expect(await messages(env.hub, env.first.id)).toHaveLength(0);
+    await page.evaluate(() => (window as any).releaseFocusDraftRead());
+    await expect(send).toBeEnabled();
+    await expect(tray(main).locator(".attachment-draft-file")).toHaveCount(3);
+    await expect(main.getByRole("alert").filter({ hasText: "当前对话暂时无法添加附件" })).toHaveCount(0);
+    await send.click();
+    await expect(tray(main)).toHaveCount(0);
+    await expect.poll(async () => (await messages(env.hub, env.first.id)).length).toBe(1);
+    const [message] = await messages(env.hub, env.first.id);
+    const uploaded = message!.blocks.flatMap(block => "attachmentId" in block ? [block] : []);
+    expect(uploaded).toHaveLength(3);
+    const bytes = await Promise.all(uploaded.map(async block => (await readFile((await env.hub.attachments.download({ userId: "owner" }, block.attachmentId)).path)).toString("base64")));
+    expect(bytes.sort()).toEqual([png, env.notes, Buffer.from("third file bytes")].map(value => value.toString("base64")).sort());
+  } finally { await page.close(); await env.close(); }
+});
+
+test("successful file intake clears its earlier drop rejection", async ({ page }) => {
+  const env = await setup();
+  try {
+    await pair(page, env.hub); await selectConversation(page, env.first.title);
+    const main = workspace(page).locator(".conversation-main"), drag = await osDrag(page), target = main.locator(".message-scroll");
+    const folder = { files: [env.file("资料夹")] };
+    await drag.hover(target, folder); await drag.drop(target, folder);
+    const warning = page.getByRole("alert").filter({ hasText: "暂不支持拖入文件夹" });
+    await expect(warning).toBeVisible();
+    const files = { files: [env.file("notes.txt"), env.file("empty.bin")] };
+    await drag.hover(target, files); await drag.drop(target, files);
+    await expect(tray(main).locator(".attachment-draft-file")).toHaveCount(2);
+    await expect(warning).toHaveCount(0);
+    // A separate validation error must not disappear just because another
+    // attachment was accepted; the zero-byte file still needs attention.
+    await main.getByRole("button", { name: "发送消息", exact: true }).click();
+    const sendWarning = page.getByRole("alert").filter({ hasText: "文件不能为空" });
+    await expect(sendWarning).toBeVisible();
+    const image = { files: [env.file("pixel.png")] };
+    await drag.hover(target, image); await drag.drop(target, image);
+    await expect(tray(main).locator(".attachment-draft-file")).toHaveCount(3);
+    await expect(sendWarning).toBeVisible();
+    expect(await messages(env.hub, env.first.id)).toHaveLength(0);
+  } finally { await page.close(); await env.close(); }
+});
+
+test("removing a newly dropped file during refresh never removes another window's file", async ({ page }) => {
+  const env = await setup();
+  try {
+    await pair(page, env.hub); await selectConversation(page, env.first.title);
+    const main = workspace(page).locator(".conversation-main"), drag = await osDrag(page), target = main.locator(".message-scroll");
+    const initial = { files: [env.file("notes.txt")] };
+    await drag.hover(target, initial); await drag.drop(target, initial);
+    await expect(tray(main)).toContainText("notes.txt");
+    // The persisted list differs from the optimistic view before focus reload.
+    await expect.poll(() => replaceDraftFromOtherWindow(page, env.first.id)).toBe(true);
+    await holdFocusDraftRead(page, env.first.id);
+    const additions = { files: [env.file("说明.md"), env.file("pixel.png")] };
+    await drag.hover(target, additions); await drag.drop(target, additions);
+    await tray(main).getByRole("button", { name: "移除 说明.md", exact: true }).click();
+    await expect(tray(main).getByText("说明.md", { exact: true })).toHaveCount(0);
+    await page.evaluate(() => (window as any).releaseFocusDraftRead());
+    await expect(tray(main)).toContainText("foreign.txt");
+    await expect(tray(main)).toContainText("foreign-second.txt");
+    await expect(tray(main)).toContainText("pixel.png");
+    await expect(tray(main).locator(".attachment-draft-file")).toHaveCount(3);
+    await expect(tray(main).getByText("说明.md", { exact: true })).toHaveCount(0);
+    await page.reload(); await waitForClientOnline(page); await selectConversation(page, env.first.title);
+    await expect(tray(main)).toContainText("foreign-second.txt");
+    await expect(tray(main).getByText("说明.md", { exact: true })).toHaveCount(0);
     expect(await messages(env.hub, env.first.id)).toHaveLength(0);
   } finally { await page.close(); await env.close(); }
 });

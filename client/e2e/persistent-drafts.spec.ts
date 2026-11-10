@@ -144,7 +144,8 @@ test('a failed initial read does not overwrite disk; edits replay after explicit
   await expect(page.locator('#state')).toContainText('read_failed');
   await page.evaluate(() => { const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture; f.draft.setFiles(files => [...files, new File(['new'], 'added.txt')]); });
   await expect(page.locator('#state')).toContainText('restored.txt'); await expect(page.locator('#state')).toContainText('added.txt'); await settled(page);
-  await page.reload(); await page.evaluate(() => (window as unknown as { draftsFixture: Fixture }).draftsFixture.select('two'));
+  await page.reload(); await expect(page.locator('#state')).toContainText('"ready":true');
+  await page.evaluate(() => (window as unknown as { draftsFixture: Fixture }).draftsFixture.select('two'));
   await expect(page.locator('#state')).toContainText('restored.txt'); await expect(page.locator('#state')).toContainText('added.txt');
 });
 
@@ -223,6 +224,78 @@ test('focus refreshes clean drafts but never replaces a failed local edit', asyn
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await expect(page.locator('#state')).toContainText('unsaved.txt'); await expect(page.locator('#state')).toContainText('quota');
   } finally { await other.close(); }
+});
+
+test('files added during focus revalidation merge with the latest disk draft once and keep their original conversation', async ({ page }) => {
+  await page.evaluate(() => { const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture; f.draft.setFiles([new File(['sent'], 'already-sent.txt')]); });
+  await settled(page);
+  await page.evaluate(async () => {
+    const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture;
+    // Another window has sent and cleared the old file before focus returns.
+    const disk = await f.cache.conversationDraft('one', f.identity);
+    await f.cache.saveConversationDraft('one', { files: [], previewStyle: 'card' }, f.identity, disk.revision);
+    const read = f.cache.conversationDraft.bind(f.cache);
+    f.cache.conversationDraft = async (...args) => {
+      if (args[0] === 'one') { await new Promise<void>(resolve => { (window as any).releaseDraftRead = resolve; }); }
+      return read(...args);
+    };
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(page.locator('#state')).toContainText('"ready":false');
+  await page.evaluate(() => {
+    const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture;
+    f.draft.setFiles(files => [...files, new File(['中文 bytes'], '中文.txt'), new File([new Uint8Array([0, 255, 9])], 'binary.bin')]);
+    window.dispatchEvent(new Event('focus')); // Does not start another read.
+    f.select('two');
+  });
+  await expect(page.locator('#state')).toContainText('"id":"two"');
+  await expect(page.locator('#state')).toContainText('"ready":true');
+  await page.evaluate(() => (window as any).releaseDraftRead());
+  // The selected conversation is now two; wait for one's background write,
+  // rather than relying on the selected draft's idle saving indicator.
+  await expect.poll(() => page.evaluate(async () => {
+    const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture, cache = new f.ClientCache('persistent-drafts');
+    try { return (await cache.conversationDraft('one', f.identity)).draft.files.map(file => file.name); } finally { cache.close(); }
+  })).toEqual(['中文.txt', 'binary.bin']);
+  const disk = await page.evaluate(async () => {
+    const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture;
+    const cache = new f.ClientCache('persistent-drafts');
+    try {
+      const one = await cache.conversationDraft('one', f.identity), two = await cache.conversationDraft('two', f.identity);
+      return { one: await Promise.all(one.draft.files.map(async file => ({ name: file.name, bytes: Array.from(new Uint8Array(await file.arrayBuffer())) }))), two: two.draft.files.length };
+    } finally { cache.close(); }
+  });
+  expect(disk).toEqual({ one: [{ name: '中文.txt', bytes: Array.from(Buffer.from('中文 bytes')) }, { name: 'binary.bin', bytes: [0, 255, 9] }], two: 0 });
+});
+
+test('files queued during a failed focus read stay visible without overwriting disk and recover once', async ({ page }) => {
+  await page.evaluate(() => { const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture; f.draft.setFiles([new File(['saved'], 'saved.txt')]); });
+  await settled(page);
+  await page.evaluate(() => {
+    const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture, read = f.cache.conversationDraft.bind(f.cache);
+    f.cache.conversationDraft = async (...args) => {
+      f.cache.conversationDraft = read;
+      await new Promise<void>((_, reject) => { (window as any).failDraftRead = () => reject(new Error('read_failed')); });
+      return read(...args);
+    };
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(page.locator('#state')).toContainText('"ready":false');
+  await page.evaluate(() => {
+    const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture;
+    f.draft.setFiles(files => [...files, new File(['new'], 'added.txt')]);
+    (window as any).failDraftRead();
+  });
+  await expect(page.locator('#state')).toContainText('read_failed');
+  await expect(page.locator('#state')).toContainText('added.txt');
+  const disk = await page.evaluate(async () => { const f = (window as unknown as { draftsFixture: Fixture }).draftsFixture; return (await f.cache.conversationDraft('one', f.identity)).draft.files.map(file => file.name); });
+  expect(disk).toEqual(['saved.txt']);
+  await page.evaluate(() => (window as unknown as { draftsFixture: Fixture }).draftsFixture.draft.retry());
+  await expect(page.locator('#state')).toContainText('"ready":true'); await settled(page);
+  await page.reload();
+  await expect(page.locator('#state')).toContainText('"ready":true');
+  const files = await page.evaluate(() => (window as unknown as { draftsFixture: Fixture }).draftsFixture.draft.files.map(file => file.name));
+  expect(files).toEqual(['saved.txt', 'added.txt']);
 });
 
 test('a thousand empty CAS tombstones permit new drafts while a thousand active drafts enforce the limit', async ({ page }) => {
