@@ -1911,6 +1911,14 @@ export class ClaudeStreamAdapter implements CodexAdapter {
         worker.pendingTaskNotification = reviewEntry;
         return;
       }
+      const own = this.activePendingTurn(worker);
+      if (own?.promptWritten && worker.nativeTurnOpen && worker.control.commandState(own.nativeCommand) === "started") {
+        // Delivered inside the prompt's own running turn (Claude started its
+        // command and has not completed it): the rest of this turn still
+        // answers the prompt. Keep only the ownership metadata, as above.
+        worker.pendingTaskNotification = reviewEntry;
+        return;
+      }
       this.ensureReviewScope(worker, reviewEntry);
       worker.pendingTaskNotification = reviewEntry;
       worker.taskNotificationTurnActive = true;
@@ -1937,13 +1945,19 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     const namedPending = worker.pendingTurn?.nativeStarted && this.resultNamesTurn(parsed, worker.pendingTurn);
     // A prompt written as the CLI dequeued a queued notification is folded into
     // that notification turn: its one result names the prompt but still carries
-    // origin task-notification. It ends the review and the prompt's turn alike;
-    // otherwise the prompt waits for the inactivity stop after its work is done.
+    // origin task-notification. That result is the prompt's own terminal frame.
+    // The review closes as adopted (its earlier text stays its own) and the
+    // prompt settles below on this result; its answer is never delivered again
+    // as a background notification.
     const foldedPending = !namedPending && !!worker.pendingTurn && worker.pendingTurn.promptWritten && !worker.pendingTurn.nativeAdmission
       && this.resultNamesTurn(parsed, worker.pendingTurn);
     if (!namedPending && (isTaskNotificationResult(parsed) || (parsed.type === "result" && worker.taskNotificationTurnActive))) {
-      this.finishReview(worker, parsed);
-      if (!foldedPending) return;
+      if (!foldedPending) {
+        this.finishReview(worker, parsed);
+        return;
+      }
+      worker.pendingTurn!.absorbedReview = true;
+      this.finishReview(worker, { type: "review_adopted" }, true);
     }
 
     // Only arm task-notification suppression when NO real turn is in flight.
@@ -3988,6 +4002,15 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     }
     if (live?.nativeAdmission && live.nativeCommand === uuid && (state === "started" || state === "completed")) {
       this.startReviewInput(worker, live);
+      return;
+    }
+    if (live && !live.nativeAdmission && live.promptWritten && live.nativeCommand === uuid && state === "started"
+      && worker.taskNotificationTurnActive && worker.nativeTurnOpen) {
+      // Claude took this written prompt into the review turn it is running
+      // instead of opening a turn of its own. From here on that turn's
+      // output, tools and result belong to the prompt; the review keeps what
+      // it said before.
+      this.adoptReviewForTurn(worker, live);
       return;
     }
     if (live?.steers?.has(uuid)) {

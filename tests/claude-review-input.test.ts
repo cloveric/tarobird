@@ -293,3 +293,102 @@ describe("ordinary input during a Claude background review", () => {
     f.child.life(uuid, "started"); f.child.result("Done", uuid, true); await turn;
   });
 });
+
+// Isolated Claude Code 2.1.321 probes (#13, #31): a prompt written while Claude
+// is on a background-task turn gets no turn of its own. Claude takes it at that
+// turn's next request (`started`, then `requesting` naming it; no `system/init`
+// names it), reports `completed`, and ends with one result that names the prompt
+// but keeps origin task-notification. A background task that ends inside a
+// prompt's own turn produces no user frame there; older CLIs announced one.
+describe("ordinary prompt that Claude takes into a background-task turn", () => {
+  async function launched() {
+    vi.spyOn(processTree, "killProcessTree").mockImplementation(() => Promise.resolve());
+    const child = new Child();
+    const adapter = new ClaudeStreamAdapter("claude", { spawnFn: () => child, taskNotificationStartGraceMs: 10_000, turnInactivityTimeoutMs: null }); adapters.push(adapter);
+    const old: EngineStreamEvent[] = [], current: EngineStreamEvent[] = [];
+    const first = adapter.sendUserMessage(SESSION, { text: "Start background", files: [], inputOwnerKey: OWNER, onEngineEvent: e => { old.push(e); } });
+    await until(() => child.prompts.length === 1); child.init(); const p = child.prompts[0].uuid as string;
+    child.life(p, "queued"); child.life(p, "started");
+    child.frame({ type: "assistant", message: { content: [{ type: "tool_use", id: "launch", name: "Bash", input: { command: "work", run_in_background: true } }] } });
+    child.frame({ type: "system", subtype: "task_started", task_id: "task-bg", tool_use_id: "launch", task_type: "local_bash" });
+    child.result("LAUNCHED", p); child.life(p, "completed"); await first;
+    // Nothing on stdout announces the notification Claude has already queued,
+    // so the next prompt is written at once.
+    const send = async (text: string) => {
+      let settled = false;
+      const turn = adapter.sendUserMessage(SESSION, { text, files: [], inputOwnerKey: OWNER, onEngineEvent: e => { current.push(e); } });
+      void turn.then(() => { settled = true; }, () => { settled = true; });
+      await until(() => child.prompts.length === 2);
+      return { turn, uuid: child.prompts[1].uuid as string, settled: () => settled };
+    };
+    return { child, old, current, first: p, send };
+  }
+  const notification = '<task-notification><task-id>task-bg</task-id><tool-use-id>launch</tool-use-id><status>completed</status><summary>Background test</summary></task-notification>';
+  /** A separate background-task message the user would see, carrying `text`. */
+  const shownApart = (events: EngineStreamEvent[], text: string) => events.some(e => e.type === "task_notification" && !e.settlesCurrentTurn && !e.suppressUserDelivery && e.text.includes(text));
+  const streamed = (events: EngineStreamEvent[]) => events.filter(e => e.type === "assistant_text").map(e => "text" in e ? e.text : "").join("");
+
+  it("ends the prompt on the result that names it, and shows its answer once", async () => {
+    const f = await launched();
+    const s = await f.send("Make the badge bigger");
+    f.child.life(s.uuid, "queued");
+    f.child.init(); // the background-task turn: it names no prompt
+    f.child.frame({ type: "system", subtype: "status", status: "requesting" });
+    f.child.reply("Render finished.");
+    f.child.frame({ type: "assistant", message: { content: [{ type: "tool_use", id: "deliver", name: "Bash", input: { command: "deliver" } }] } });
+    f.child.frame({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "deliver", content: "ok" }] } });
+    f.child.life(s.uuid, "started"); modelStarts(f.child, s.uuid);
+    f.child.reply("Badge enlarged and sent.", s.uuid);
+    f.child.life(s.uuid, "completed"); f.child.result("Badge enlarged and sent.", s.uuid, true);
+    await until(s.settled);
+    await expect(s.turn).resolves.toMatchObject({ text: "Badge enlarged and sent." });
+    expect(shownApart([...f.old, ...f.current], "Badge enlarged and sent.")).toBe(false);
+  });
+
+  it("never ends a waiting prompt on a background-task result that does not name it", async () => {
+    const f = await launched();
+    const s = await f.send("Next question");
+    f.child.life(s.uuid, "queued");
+    f.child.init(); f.child.reply("Background report.");
+    f.child.result("Background report.", undefined, true);
+    f.child.result("Stale report.", f.first, true); // names an earlier, finished command
+    for (let n = 0; n < 20; n++) await tick();
+    expect(s.settled()).toBe(false);
+    f.child.life(s.uuid, "started"); f.child.init(); modelStarts(f.child, s.uuid);
+    f.child.reply("Own answer.", s.uuid); f.child.result("Own answer.", s.uuid); f.child.life(s.uuid, "completed");
+    await expect(s.turn).resolves.toMatchObject({ text: "Own answer." });
+  });
+
+  it("keeps a notification delivered inside the prompt's own turn in that turn", async () => {
+    const f = await launched();
+    const s = await f.send("Run the long check");
+    f.child.life(s.uuid, "queued"); f.child.life(s.uuid, "started"); f.child.init(); modelStarts(f.child, s.uuid);
+    f.child.frame({ type: "assistant", user_message_uuid: s.uuid, user_message_uuids: [s.uuid], message: { model: "claude-sonnet-5-5", content: [{ type: "tool_use", id: "check", name: "Bash", input: { command: "check" } }] } });
+    f.child.frame({ type: "user", origin: { kind: "task-notification" }, message: { content: notification } });
+    f.child.frame({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "check", content: "ok" }] } });
+    f.child.reply("Check passed; the background test finished too.");
+    f.child.result("Check passed; the background test finished too.", s.uuid); f.child.life(s.uuid, "completed");
+    await until(s.settled);
+    await expect(s.turn).resolves.toMatchObject({ text: "Check passed; the background test finished too." });
+    expect(streamed(f.current)).toContain("Check passed");
+    expect(shownApart([...f.old, ...f.current], "Check passed")).toBe(false);
+  });
+
+  it("hands a running review to the prompt Claude takes into it, keeping the review's own text apart", async () => {
+    const f = await launched();
+    const s = await f.send("Make the badge bigger");
+    f.child.life(s.uuid, "queued");
+    f.child.frame({ type: "user", origin: { kind: "task-notification" }, message: { content: notification } });
+    f.child.reply("Review before the prompt.");
+    f.child.frame({ type: "assistant", message: { content: [{ type: "tool_use", id: "inspect", name: "Bash", input: { command: "inspect" } }] } });
+    f.child.frame({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "inspect", content: "ok" }] } });
+    f.child.life(s.uuid, "started"); modelStarts(f.child, s.uuid);
+    f.child.reply("Badge enlarged.", s.uuid);
+    f.child.life(s.uuid, "completed"); f.child.result("Badge enlarged.", s.uuid, true);
+    await until(s.settled);
+    await expect(s.turn).resolves.toMatchObject({ text: "Badge enlarged." });
+    expect(shownApart(f.old, "Review before the prompt.")).toBe(true);
+    expect(JSON.stringify(f.old)).not.toContain("Badge enlarged.");
+    expect(JSON.stringify(f.current)).not.toContain("Review before the prompt.");
+  });
+});
