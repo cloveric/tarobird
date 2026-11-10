@@ -20,6 +20,9 @@ Removing an attachment captures the selected File identity, rather than
 replaying its old list index against a newly loaded list from another window.
 An intervening refresh cannot remove a different file or restore the removed
 new attachment.
+If another window has replaced an existing File with a new stored object, an
+old removal leaves that new object intact. The user can remove it again after
+refresh; a stale action must not guess which foreign file to delete.
 
 Drop rejections have their own dismissible notice. Successful file intake
 clears only that notice, leaving independent upload, send, connection and local
