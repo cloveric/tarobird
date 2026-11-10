@@ -53,7 +53,8 @@
 .pairing-steps p { margin:6px 0 0; font-size:13px; line-height:1.7; color:var(--grey); }
 /* Step 2 says where the QR code comes from; it matches the callout beside the buttons. */
 .pairing-steps li.pairing-step-key { margin:-12px -14px; padding:12px 14px; border-radius:12px; background:var(--accent-soft,var(--surface)); }
-.pairing-step-key .pairing-step-index { border-color:var(--accent,var(--text)); background:var(--accent,var(--text)); color:var(--bg); }
+/* The approved warm neutral of setup actions (porcelain-details.css), not black. */
+.pairing-step-key .pairing-step-index { border-color:#dbd5ce; background:#e7e2dc; color:#514c45; font-weight:600; }
 .pairing-step-key p { color:var(--text); }
 .pairing-security { display:flex; gap:8px; margin:28px 0 0; padding-top:20px; border-top:1px solid var(--border); font-size:12px; line-height:1.7; color:var(--muted); }
 .pairing-security svg { flex-shrink:0; margin-top:3px; }
