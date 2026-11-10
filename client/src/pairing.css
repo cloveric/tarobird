@@ -51,10 +51,12 @@
 .pairing-step-index { display:grid; place-items:center; flex-shrink:0; width:24px; height:24px; border:1px solid var(--border-strong,var(--border)); border-radius:50%; color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
 .pairing-steps strong { display:block; font-size:14px; font-weight:550; line-height:24px; }
 .pairing-steps p { margin:6px 0 0; font-size:13px; line-height:1.7; color:var(--grey); }
-/* Step 2 says where the QR code comes from; it matches the callout beside the buttons. */
-.pairing-steps li.pairing-step-key { margin:-12px -14px; padding:12px 14px; border-radius:12px; background:var(--accent-soft,var(--surface)); }
-/* The approved warm neutral of setup actions (porcelain-details.css), not black. */
-.pairing-step-key .pairing-step-index { border-color:#dbd5ce; background:#e7e2dc; color:#514c45; font-weight:600; }
+/* Step 2 says where the QR code comes from: a warm box and a deep warm-grey
+   mark (not black) set it apart from steps 1 and 3. */
+.pairing-steps li.pairing-step-key { --step-key-bg:#f3efea; --step-key-line:#e4ddd5; --step-key-mark:#8c8379; margin:-12px -14px; padding:12px 14px; border-radius:12px; background:var(--step-key-bg); box-shadow:inset 0 0 0 1px var(--step-key-line); }
+:root[data-theme=dark] .pairing-steps li.pairing-step-key { --step-key-bg:#2b2825; --step-key-line:#3d3833; }
+@media (prefers-color-scheme:dark) { :root[data-theme=system] .pairing-steps li.pairing-step-key { --step-key-bg:#2b2825; --step-key-line:#3d3833; } }
+.pairing-step-key .pairing-step-index { border-color:var(--step-key-mark); background:var(--step-key-mark); color:#fff; font-weight:600; }
 .pairing-step-key p { color:var(--text); }
 .pairing-security { display:flex; gap:8px; margin:28px 0 0; padding-top:20px; border-top:1px solid var(--border); font-size:12px; line-height:1.7; color:var(--muted); }
 .pairing-security svg { flex-shrink:0; margin-top:3px; }
