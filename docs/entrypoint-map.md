@@ -55,6 +55,14 @@ the scoped Design/PPT fullscreen repair and its separate installed acceptance.
 
 This file is the source of truth for codebase navigation when modifying this repository.
 
+[WebKit test isolation](client/playwright-keychain-isolation.md) prevents the
+macOS test browser from repeatedly prompting for the owner's login keychain.
+`client/playwright.config.ts` uses a pre-worker environment guard inherited by
+the WebKit config and CLI browser selection; disposable macOS CI retains real
+WebKit coverage. Specs do not override the selected engine. Production identity,
+App/Host/CLI behavior and native keychain security are unchanged. Regressions:
+`client/scripts/playwright-keychain-guard.test.mjs` (no browser launch).
+
 [1.0.128 release verification](releases/1.0.128-verification.md) records the
 Design/PPT release, source-bound App/CLI artifacts, retained initial failures and
 the separate publication, local installation and skill-invocation gates.

@@ -91,6 +91,8 @@ jobs:
           BROWSER_CONFIG: ${{ matrix.config }}
           BROWSER_SHARD: ${{ matrix.shard }}
           BROWSER_TESTS: ${{ inputs.browser_tests }}
+          # Hosted macOS jobs are disposable; never set this on a personal Mac.
+          TAROBIRD_TEST_DISPOSABLE_MAC: ${{ matrix.engine == 'webkit' && '1' || '' }}
           TAROCUB_RENDER_PROFILE: ${{ inputs.browser_profile && matrix.engine == 'chromium' && '1' || '' }}
       - uses: actions/upload-artifact@v4
         if: always()

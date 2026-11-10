@@ -10,7 +10,9 @@ import type { WorkbenchRequest } from "../../src/client-protocol/workbench.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
 import { selectConversation, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
 
-test.use({ serviceWorkers: "block", browserName: "webkit", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true });
+// Use the selected project engine; the WebKit configuration covers this journey
+// on an isolated runner, without silently launching WebKit in Chromium runs.
+test.use({ serviceWorkers: "block", viewport: { width: 430, height: 932 }, isMobile: true, hasTouch: true });
 async function fixture(page: Page) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "workbench-design-"));
   const hub = await HubServer.start({ stateDir: directory, clientDir: fileURLToPath(new URL("../dist", import.meta.url)) });
@@ -26,7 +28,7 @@ async function fixture(page: Page) {
 }
 const panel = (page: Page) => page.getByRole("complementary", { name: "工作台", exact: true });
 
-test('Baoyu PPT keeps a nine-slide deck ordered across edits and reopen on a phone-sized WebKit viewport',async({page},info)=>{
+test('Baoyu PPT keeps a nine-slide deck ordered across edits and reopen on a phone-sized viewport',async({page},info)=>{
   test.setTimeout(90000);const f=await fixture(page);
   try {
     const created=await f.command({requestId:'nine-slides',operation:'design.create',payload:{title:'Baoyu PPT 多页验收',format:'slides'}});

@@ -34,6 +34,8 @@ jobs:
       - uses: ./.github/actions/setup-host-cross
       - run: npm ci
       - run: npm ci --prefix client
+      - name: Browser test keychain isolation guards (no browser launched)
+        run: node --test client/scripts/playwright-keychain-guard.test.mjs
       - name: Electron bridge and packaging regressions
         run: |
           node client/scripts/windows-electron-installer.mjs setup-nsis
