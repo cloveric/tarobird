@@ -38,8 +38,13 @@ export async function publishDesktopUpdate(options, dependencies = {}) {
   }
   const tag = `${channel.prefix}${version}`;
   const api = async endpoint => JSON.parse(await run(['api', endpoint, '--method', 'GET']));
-  const repo = await api(`repos/${repository}`);
-  if (repo.private !== true || repo.full_name?.toLowerCase() !== repository.toLowerCase() || repo.archived) throw new Error('Desktop updates must stay in the configured private repository');
+  // Visibility is not a publication condition: the configured repository may be
+  // public or private. Before the first write and again before publishing, the
+  // response must name exactly that repository (case-insensitively, like GitHub)
+  // and report it as not archived. Renamed, transferred or archived is refused.
+  const configuredRepository = repo => typeof repo?.full_name === 'string'
+    && repo.full_name.toLowerCase() === repository.toLowerCase() && repo.archived === false;
+  if (!configuredRepository(await api(`repos/${repository}`))) throw new Error('Desktop updates must use the configured, non-archived repository');
   let releaseId;
   const releaseInfo = async (draft = true) => {
     const release = await api(`repos/${repository}/releases/${releaseId}`);
@@ -97,8 +102,7 @@ export async function publishDesktopUpdate(options, dependencies = {}) {
     const files = [bundle.installerFile, bundle.signatureFile, bundle.manifestFile, bundle.checksumFile, ...extraArtifacts];
     for (const file of files) await uploadedAsset(complete, file);
     await verifyExistingTag();
-    const finalRepo = await api(`repos/${repository}`);
-    if (finalRepo.private !== true || finalRepo.full_name?.toLowerCase() !== repository.toLowerCase()) throw new Error('Update repository privacy changed before publication');
+    if (!configuredRepository(await api(`repos/${repository}`))) throw new Error('Update repository changed or was archived before publication');
     // Release creation/upload failures leave a draft. Only a complete verified
     // set becomes discoverable; other platform "latest" pointers are untouched.
     const publicationFile = path.join(directory, 'publish.json');

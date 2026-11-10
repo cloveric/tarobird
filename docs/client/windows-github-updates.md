@@ -72,10 +72,13 @@ npm run desktop:windows --prefix client -- --arch x64 --signed-updates
 ```
 
 The publication helper verifies the installer/signature with the pinned key and
-its signed version before any upload. It checks repository privacy, creates a
+its signed version before any upload. It checks that GitHub reports exactly the
+configured repository (name compared case-insensitively) and that it is not
+archived; public and private visibility are both accepted. It then creates a
 draft `windows-tarobot-v<version>` release targeting the built source commit, then binds
 every upload/read/publish to that release's returned numeric ID. Pending draft
-tags are not used as release identities.
+tags are not used as release identities. The repository check repeats just before
+publication, so a rename, transfer or archive in between leaves only the draft.
 
 The installer is uploaded first so its private GitHub asset API ID is known.
 `windows-tarobot-latest.json` advertises that authenticated API URL and the literal Tauri

@@ -10,15 +10,18 @@ import { publishMacosUpdate } from '../client/scripts/publish-macos-update.mjs';
 
 const temporary: string[] = [];
 afterEach(async () => { for (const directory of temporary.splice(0)) await rm(directory, { recursive: true, force: true }); });
-async function fixture(platform: string, change: { publicRepo?: boolean; badDigest?: boolean; wrongTagCommit?: boolean; failCreate?: boolean; wrongAssetRepo?: boolean; publicationLost?: boolean; extraArtifact?: boolean } = {}) {
+type RepositoryState = { full_name?: unknown; private?: boolean; archived?: unknown };
+async function fixture(platform: string, change: { publicRepo?: boolean; repository?: RepositoryState; laterRepository?: RepositoryState; badDigest?: boolean; wrongTagCommit?: boolean; failCreate?: boolean; wrongAssetRepo?: boolean; publicationLost?: boolean; extraArtifact?: boolean } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'tarobot-update-publish-')); temporary.push(directory);
   const installer = path.join(directory, platform === 'macos' ? 'TaroBot.app.tar.gz' : 'TaroBot_1.2.3_x64-setup.exe');
   await writeFile(installer, 'MZ disposable signed-payload fixture'); await writeFile(installer + '.sig', 'signature fixture');
   const extraArtifacts = change.extraArtifact ? [path.join(directory, 'tarobot-0.1.1.tgz')] : [];
   for (const file of extraArtifacts) await writeFile(file, 'matching CLI fixture');
   const calls: string[][] = [], commit = 'a'.repeat(40), repository = 'example/private-repo', version = '1.2.3', tag = `${platform}-tarobot-v1.2.3`;
-  let published = false;
+  let published = false, repositoryReads = 0;
   let bundle: Record<string, string> | undefined;
+  // The first read is the pre-write check; later reads are the final re-check.
+  const repositoryState = () => ({ full_name: repository, private: !change.publicRepo, archived: false, ...change.repository, ...(repositoryReads++ > 0 ? change.laterRepository : {}) });
   const digest = async (file: string) => 'sha256:' + createHash('sha256').update(await readFile(file)).digest('hex');
   const asset = async (file: string, id: number) => ({ id, name: path.basename(file), size: (await readFile(file)).length, digest: change.badDigest && id === 101 ? 'sha256:' + '0'.repeat(64) : await digest(file), url: `https://api.github.com/repos/${change.wrongAssetRepo ? 'other/repo' : repository}/releases/assets/${id}` });
   const dependencies = {
@@ -34,7 +37,7 @@ async function fixture(platform: string, change: { publicRepo?: boolean; badDige
     },
     run: async (args: string[]) => {
       calls.push(args);
-      if (args[0] === 'api' && args[1] === `repos/${repository}`) return JSON.stringify({ full_name: repository, private: !change.publicRepo });
+      if (args[0] === 'api' && args[1] === `repos/${repository}`) return JSON.stringify(repositoryState());
       if (args[0] === 'api' && args[1] === `repos/${repository}/git/matching-refs/tags/${tag}`) return JSON.stringify(change.wrongTagCommit ? [{ ref: `refs/tags/${tag}`, object: { type: 'commit', sha: 'b'.repeat(40) } }] : []);
       // A separate draft may share this pending tag. Publication must never
       // re-resolve it; only the ID returned by the create request is ours.
@@ -59,7 +62,15 @@ async function fixture(platform: string, change: { publicRepo?: boolean; badDige
   return { options: { installer, version, repository, commit, platform, extraArtifacts, outputDir: path.join(directory, 'bundle'), publicKey: 'public fixture key', notes: 'Desktop release notes' }, dependencies, calls, directory };
 }
 
-describe.each(['windows', 'macos'])('private %s update publication', platform => {
+const visibilities = [{ visibility: 'public', publicRepo: true }, { visibility: 'private', publicRepo: false }];
+const unusableRepositories: { problem: string; state: RepositoryState }[] = [
+  { problem: 'archived', state: { archived: true } },
+  { problem: 'renamed or transferred', state: { full_name: 'example/renamed-repo' } },
+  { problem: 'missing its archived state', state: { archived: undefined } },
+];
+const repositoryCases = visibilities.flatMap(visibility => unusableRepositories.map(repository => ({ ...visibility, ...repository })));
+
+describe.each(['windows', 'macos'])('%s update publication', platform => {
   it('stages and verifies all private assets before publishing without changing the generic latest release', async () => {
     const value = await fixture(platform);
     await publishDesktopUpdate(value.options, value.dependencies);
@@ -74,6 +85,35 @@ describe.each(['windows', 'macos'])('private %s update publication', platform =>
     expect(value.calls.flat()).not.toContain('--clobber');
   });
 
+  it.each(visibilities)('publishes the complete updater set, including the platform manifest, to a $visibility configured repository', async ({ publicRepo }) => {
+    const value = await fixture(platform, { publicRepo });
+    await publishDesktopUpdate(value.options, value.dependencies);
+    const uploads = value.calls.filter(args => args.includes('POST')).slice(1).map(args => decodeURIComponent(args[1]!.split('?name=')[1]!));
+    const installer = path.basename(value.options.installer);
+    expect(uploads).toEqual([installer, `${installer}.sig`, `${platform}-tarobot-latest.json`, 'SHA256SUMS']);
+    expect(value.calls.filter(args => args.includes('PATCH'))).toHaveLength(1);
+  });
+
+  it('accepts the repository name GitHub reports in a different letter case', async () => {
+    const value = await fixture(platform, { publicRepo: true, repository: { full_name: 'Example/Private-Repo' } });
+    await publishDesktopUpdate(value.options, value.dependencies);
+    expect(value.calls.filter(args => args.includes('PATCH'))).toHaveLength(1);
+  });
+
+  it.each(repositoryCases)('refuses a $visibility repository that is $problem before any GitHub write', async ({ publicRepo, state }) => {
+    const value = await fixture(platform, { publicRepo, repository: state });
+    await expect(publishDesktopUpdate(value.options, value.dependencies)).rejects.toThrow('Desktop updates must use the configured, non-archived repository');
+    expect(value.calls.some(args => args.includes('POST') || args.includes('PATCH'))).toBe(false);
+  });
+
+  it.each(repositoryCases)('leaves the draft unpublished when a $visibility repository is $problem at the final re-check', async ({ publicRepo, state }) => {
+    const value = await fixture(platform, { publicRepo, laterRepository: state });
+    await expect(publishDesktopUpdate(value.options, value.dependencies)).rejects.toThrow('Update repository changed or was archived before publication');
+    // The draft and its four verified assets exist; only publication is refused.
+    expect(value.calls.filter(args => args.includes('POST'))).toHaveLength(5);
+    expect(value.calls.some(args => args.includes('PATCH'))).toBe(false);
+  });
+
   it('verifies installer signatures before making any GitHub request', async () => {
     const value = await fixture(platform); value.dependencies.verifyArtifact = async () => { throw new Error('invalid signature'); };
     await expect(publishDesktopUpdate(value.options, value.dependencies)).rejects.toThrow();
@@ -81,13 +121,12 @@ describe.each(['windows', 'macos'])('private %s update publication', platform =>
   });
 
   it.each([
-    { publicRepo: true }, { badDigest: true }, { wrongTagCommit: true }, { failCreate: true }, { wrongAssetRepo: true },
+    { badDigest: true }, { wrongTagCommit: true }, { failCreate: true }, { wrongAssetRepo: true },
   ])('does not publish or overwrite an invalid release: %o', async change => {
     const value = await fixture(platform, change);
     await expect(publishDesktopUpdate(value.options, value.dependencies)).rejects.toThrow();
     expect(value.calls.some(args => args.includes('PATCH'))).toBe(false);
     expect(value.calls.flat()).not.toContain('--clobber');
-    if (change.publicRepo) expect(value.calls.some(args => args.includes('POST'))).toBe(false);
   });
 
   it('rejects an unbound source commit before remote writes', async () => {

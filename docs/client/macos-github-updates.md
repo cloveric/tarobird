@@ -82,7 +82,8 @@ notarization do not replace an OS permission grant or Keychain authorization.
 
 `.github/workflows/macos-updates.yml` builds and verifies the Mac package.
 Publication is opt-in and verifies signature, signed version, source commit,
-private repository, numeric release/asset IDs, SHA-256 and complete asset set
+configured non-archived repository (public or private; rechecked immediately
+before publication), numeric release/asset IDs, SHA-256 and complete asset set
 before making the draft visible. It reads the published assets back and leaves
 other platform channels unchanged. The generic release's latest pointer is not
 changed. `publish-macos-update.mjs` accepts `--notes-file` for release notes and
