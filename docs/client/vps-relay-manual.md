@@ -33,8 +33,14 @@ chmod 700 "$TARO_RELAY_DIR"
 For the macOS app installed in Applications, the usual values are:
 
 - Hub: `$HOME/Library/Application Support/com.tarocub.client/host`
-- Package: `/Applications/TaroBot.app/Contents/Resources/host`
-- Node: `/Applications/TaroBot.app/Contents/Resources/host/node`
+- Package: `/Applications/TaroBird.app/Contents/Resources/host`
+- Node: `/Applications/TaroBird.app/Contents/Resources/host/node`
+
+These are fresh-install defaults. Existing installations can retain another
+bundle name or location; use the verified running App's actual path. Do not
+launch a retained old copy to obtain its runtime. Before retiring a duplicate,
+check login items and relay/certificate services that reference its bundled
+Node. Updating the App does not migrate those independently configured services.
 
 Source installations use the **actual** `--state-dir` used to start that Hub.
 The CLI default is `$HOME/.cctb/hub`, which is not the desktop app's directory.

@@ -58,6 +58,47 @@ the same identity beside it. Renaming the outer bundle does not rename user data
 Bot workspaces or credentials. Relaunch the retained App location and verify its
 version and Host connection. New installations use `TaroBird.app` directly.
 
+### Installed-copy and login-item check
+
+After an authorized Mac installation, run the read-only check against the exact
+App being accepted:
+
+```sh
+python3 scripts/check-macos-installation.py --app /Applications/TaroBird.app
+```
+
+It checks immediate App children in the selected App's directory, `/Applications`
+and `~/Applications`; add `--root /another/install/folder` for other known
+locations. It reports other bundles with the same identity even if renamed,
+an enabled `TaroBot.plist` pointing elsewhere, and LaunchAgent references to
+duplicate bundles. Aliases of the same physical bundle are not duplicates. A
+single updated App retaining the old filename is valid. Findings return a
+nonzero exit code; they are not automatically repaired or waived. Output can
+contain private local paths and must remain outside Git.
+
+Check the running process, Dock/default application and loaded login job
+separately: this tool reads files only. A new package's correct icon does not
+prove an old copy cannot still launch. An old Electron package can also emit
+the already-fixed pre-ready shortcut error when another instance is running.
+Repair an existing enabled login entry to the verified current executable;
+preserve the user's enabled/disabled choice. Do not launch the old App as a
+test, clear global icon caches, or delete it while a service uses its Node.
+Retained dependencies and untested next-login behavior remain explicit
+acceptance limitations. No Host/CLI runtime or App identity changes are needed.
+
+The primary production Mac instance also attempts a bounded login-item repair
+after Electron is ready. It only retargets an enabled, single-command managed
+entry for an existing older bundle with the same identity, and only when the
+current App is directly installed in `/Applications` or `~/Applications`.
+Versions are compared numerically. Other plist fields are preserved; unknown,
+same/newer, missing, disabled and foreign configurations remain untouched.
+Repair and the user's setting writes are serialized so disabling wins over an
+earlier repair. Failure is logged without opening a dialog or delaying startup.
+This only updates the file for a subsequent login; it never invokes launchctl,
+starts another App or retires the old copy. Custom installation locations still
+need explicit review. This is desktop login behavior; headless Host/CLI, Windows
+and mobile startup are unaffected.
+
 ## Verification boundary
 
 Focused tests cover the renamed archive root, preserved bytes/permissions,

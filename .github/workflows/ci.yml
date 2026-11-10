@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - name: Installed Mac audit regressions (isolated files only)
+        run: python3 -m unittest discover -s scripts -p test_macos_installation.py
       - uses: actions/setup-node@v4
         with:
           node-version: 24

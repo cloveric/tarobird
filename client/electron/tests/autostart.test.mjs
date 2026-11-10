@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { DesktopAutostart } from '../autostart.mjs';
 
 const mac = process.platform === 'darwin';
@@ -58,7 +60,8 @@ test('Mac: enabling writes the canonical executable; a stale agent is repairable
   await f.autostart.set(true);
   assert.match(await readFile(f.agent, 'utf8'), new RegExp(`<string>${f.executable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</string>`));
   assert.equal(await f.autostart.get(), true);
-  // The App moved: the old agent no longer starts it. Report off, allow repair.
+  // A missing old location is not this App's enabled entry. An existing older
+  // product copy is repaired separately after installed primary-instance startup.
   await writeFile(f.agent, tauriAgent('/Applications/Old Location/TaroBot.app/Contents/MacOS/tarocub-client'));
   assert.equal(await f.autostart.get(), false);
   await f.autostart.set(true);
@@ -66,6 +69,94 @@ test('Mac: enabling writes the canonical executable; a stale agent is repairable
   await writeFile(f.agent, tauriAgent('/elsewhere/tarocub-client'));
   await f.autostart.set(false);
   await assert.rejects(readFile(f.agent), { code: 'ENOENT' });
+});
+
+async function repairFixture(t, options = {}) {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'tarobird-login-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'home'), installed = path.join(root, 'Applications');
+  const makeBundle = async (where, version, id = 'com.tarobot.client') => {
+    await mkdir(path.join(where, 'Contents/MacOS'), { recursive: true });
+    await writeFile(path.join(where, 'Contents/MacOS/tarocub-client'), 'not an executable');
+    await writeFile(path.join(where, 'Contents/Info.plist'), JSON.stringify({ CFBundleIdentifier: id,
+      CFBundleExecutable: 'tarocub-client', CFBundleShortVersionString: version }));
+    return path.join(where, 'Contents/MacOS/tarocub-client');
+  };
+  const current = await makeBundle(path.join(options.temporary ? root : installed, 'TaroBird.app'), options.current ?? '1.2.1');
+  const previous = await makeBundle(path.join(installed, 'TaroBot.app'), options.previous ?? '1.1.0', options.identity);
+  const file = path.join(home, 'Library/LaunchAgents/TaroBot.plist');
+  await mkdir(path.dirname(file), { recursive: true });
+  const value = { Label: 'TaroBot', RunAtLoad: true, ProgramArguments: [previous],
+    AssociatedBundleIdentifiers: [], ProcessType: 'Interactive', EnvironmentVariables: { TEST_OPTION: 'retain-me' }, ...options.agent };
+  await writeFile(file, JSON.stringify(value));
+  const autostart = new DesktopAutostart({ ...app, getVersion: () => options.current ?? '1.2.1' }, {
+    home, production: options.production ?? true, platform: options.platform ?? 'darwin', executable: current, installationRoots: [installed] });
+  const read = async () => JSON.parse((await promisify(execFile)('/usr/bin/plutil', ['-convert', 'json', '-o', '-', file])).stdout);
+  return { root, file, previous, current, value, autostart, read };
+}
+
+test('Mac: installed newer primary repairs only the old executable and preserves enabled preference', { skip: !mac }, async t => {
+  const f = await repairFixture(t);
+  assert.equal(await f.autostart.get(), false, 'baseline old entry does not start the current App');
+  const repair = f.autostart.repairLegacy();
+  assert.equal(await f.autostart.get(), true, 'settings wait for an in-flight repair');
+  assert.equal(await repair, true);
+  assert.deepEqual(await f.read(), { ...f.value, ProgramArguments: [f.current] });
+  assert.equal(await f.autostart.get(), true);
+  assert.equal(await f.autostart.repairLegacy(), false, 'idempotent');
+});
+
+for (const [name, options] of [
+  ['equal version', { previous: '1.2.1' }], ['newer version', { previous: '1.10.0' }],
+  ['ambiguous version', { previous: '1.1.0-beta' }], ['foreign product', { identity: 'example.other' }],
+  ['user disabled', { agent: { RunAtLoad: false } }], ['launchd disabled flag', { agent: { Disabled: true } }],
+  ['custom command', { agent: { Program: '/other/program' } }],
+  ['arguments', { agent: { ProgramArguments: ['/old/program', '--custom'] } }],
+  ['temporary app', { temporary: true }], ['development build', { production: false }], ['Windows', { platform: 'win32' }],
+]) test(`Mac login repair leaves ${name} unchanged`, { skip: !mac }, async t => {
+  const f = await repairFixture(t, options), before = await readFile(f.file);
+  assert.equal(await f.autostart.repairLegacy(), false);
+  assert.deepEqual(await readFile(f.file), before);
+});
+
+test('Mac: login repair compares version segments numerically', { skip: !mac }, async t => {
+  const f = await repairFixture(t, { current: '1.10.0', previous: '1.9.9' });
+  assert.equal(await f.autostart.repairLegacy(), true);
+});
+
+test('Mac: repairing an XML login item preserves native 64-bit fields exactly', { skip: !mac }, async t => {
+  const f = await repairFixture(t), run = promisify(execFile);
+  await run('/usr/bin/plutil', ['-convert', 'xml1', f.file]);
+  await run('/usr/bin/plutil', ['-insert', 'CustomLargeInteger', '-integer', '9007199254740993', f.file]);
+  assert.equal(await f.autostart.repairLegacy(), true);
+  const value = (await run('/usr/bin/plutil', ['-extract', 'CustomLargeInteger', 'raw', '-o', '-', f.file])).stdout.trim();
+  assert.equal(value, '9007199254740993');
+});
+
+test('Mac: removed old bundle and foreign or linked login items are never rewritten', { skip: !mac }, async t => {
+  const f = await repairFixture(t), before = await readFile(f.file);
+  await unlink(f.previous);
+  assert.equal(await f.autostart.repairLegacy(), false);
+  assert.deepEqual(await readFile(f.file), before);
+  await writeFile(f.file, JSON.stringify({ ...f.value, Label: 'Other' }));
+  await assert.rejects(f.autostart.repairLegacy(), /autostart_configuration_conflict/);
+  await rm(f.file);
+  const target = path.join(f.root, 'target.plist'); await writeFile(target, before); await symlink(target, f.file);
+  await assert.rejects(f.autostart.repairLegacy(), /autostart_configuration_conflict/);
+  assert.deepEqual(await readFile(target), before);
+});
+
+test('Mac: disabling during login repair wins and failed repair does not poison later settings', { skip: !mac }, async t => {
+  const f = await repairFixture(t);
+  const repair = f.autostart.repairLegacy(), disable = f.autostart.set(false);
+  assert.equal(await repair, true); await disable;
+  await assert.rejects(readFile(f.file), { code: 'ENOENT' });
+  assert.equal(await f.autostart.repairLegacy(), false);
+  await writeFile(f.file, JSON.stringify({ ...f.value, Label: 'Other' }));
+  await assert.rejects(f.autostart.repairLegacy(), /autostart_configuration_conflict/);
+  await writeFile(f.file, JSON.stringify(f.value));
+  await f.autostart.set(false);
+  await assert.rejects(readFile(f.file), { code: 'ENOENT' });
 });
 
 test('Mac: a foreign label or a link at the agent path is never read through or replaced', { skip: !mac && 'plutil is macOS-only' }, async t => {

@@ -25,6 +25,13 @@ TaroBird distribution names and separate platform acceptance scopes.
 [Installer branding](client/artifact-branding-2026-11-05.md) defines TaroBird
 artifact and App names, fresh Windows installation paths and the retained
 existing-install/data boundaries.
+The ready primary Mac instance repairs only an enabled older same-product login
+entry to its installed executable; writes preserve other fields and serialize
+with the user's setting changes. No login job is started or stopped. Regressions:
+Electron `autostart`, `lifecycle`; see the installer branding guide above.
+`scripts/check-macos-installation.py` adds read-only installed-copy/login-item
+checks and duplicate runtime-dependency reporting; package-icon validation
+alone does not cover a second installed App. Tests: `test_macos_installation.py`.
 
 [1.1.1 preflight](client/release-1.1.1-preflight.md) records the current runtime/toolchain updates, compiler API compatibility, narrow iOS title repair and separate release acceptance boundaries.
 

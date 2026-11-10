@@ -30,8 +30,12 @@ chmod 700 "$TARO_RELAY_DIR"
 macOS App 安装在 Applications 时，通常使用：
 
 - `TARO_HUB_DIR`：`$HOME/Library/Application Support/com.tarocub.client/host`
-- `TARO_PACKAGE_DIR`：`/Applications/TaroBot.app/Contents/Resources/host`
-- `TARO_NODE`：`/Applications/TaroBot.app/Contents/Resources/host/node`
+- `TARO_PACKAGE_DIR`：`/Applications/TaroBird.app/Contents/Resources/host`
+- `TARO_NODE`：`/Applications/TaroBird.app/Contents/Resources/host/node`
+
+以上是新安装的默认值。已有安装可能保留其他名称或位置，应使用已核验的运行中
+App 的实际路径，不要为获取运行时而启动旧副本。清理重复安装前，先核对登录项、
+中转和证书服务是否引用其内置 Node；App 更新不会迁移这些独立配置的服务。
 
 源码主机要使用启动时实际传入的 `--state-dir`。CLI 默认 `$HOME/.cctb/hub`，与桌面
 App 的目录不同。先记录主机状态和公钥，按[备份说明](operations.md#backup-and-export)

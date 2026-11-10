@@ -49,7 +49,7 @@ const installerExit = addon.notificationInstallerCommand();
 if (installerExit !== undefined && installerExit !== null) app.exit(installerExit);
 else {
   const owners = new Map();
-  let paths, migration, updater, reader, screenService, screenIndicator;
+  let paths, migration, updater, reader, screenService, screenIndicator, autostart;
   const helper = path.join(process.resourcesPath, 'native', process.platform === 'win32' ? 'tarobot-desktop-core.exe' : 'tarobot-desktop-core');
   const lifecycle = installDesktopLifecycle(electron, { addon, production, updating: () => updater?.installing === true || [...owners.values()].some(owner => owner.services?.updates?.preparing),
     prepareQuit: async () => { for (const owner of owners.values()) if (await owner.services?.prepareQuit?.() === false) return false; await screenService?.prepareQuit(); return true; },
@@ -61,7 +61,7 @@ else {
       nativeConfig: { ...paths, executable: helper,
         keyringService: production ? 'com.tarobot.client.device' : `com.tarobot.client.device.dev-${createHash('sha256').update(paths.profile).digest('hex').slice(0, 20)}` },
       partition: 'persist:desktop-v1', owners, addon, screenService, migration, updater, production, quitting: () => lifecycle.quitting,
-      restart: () => lifecycle.restart(), autostart: new DesktopAutostart(app, { production, addon }),
+      restart: () => lifecycle.restart(), autostart: (autostart ??= new DesktopAutostart(app, { production, addon })),
     }),
   });
   const prepare = async () => {
@@ -112,7 +112,11 @@ else {
   try { prepared = await prepare(); } catch (error) { void failStartup(error); }
   // screenService.start() never rejects: its failure stays visible in
   // screen_service_status and screen_service_retry starts it again.
-  if (prepared) void app.whenReady().then(() => lifecycle.start()).then(() => screenService.start()).catch(error => {
+  if (prepared) void app.whenReady().then(() => {
+    autostart ??= new DesktopAutostart(app, { production, addon });
+    void autostart.repairLegacy().catch(() => console.warn('TaroBird desktop: autostart_repair_failed'));
+    return lifecycle.start();
+  }).then(() => screenService.start()).catch(error => {
     // Cmd+Q while the first document loads cancels navigation. It is a normal
     // quit, not a startup failure that should open a new blocking dialog.
     if (!lifecycle.quitting) void failStartup(error);

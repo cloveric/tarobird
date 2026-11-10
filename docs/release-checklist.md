@@ -163,6 +163,13 @@ extraction. A held release keeps its `OWNER-HOLD.json` at the task root.
    extraction alone do not satisfy these Windows gates.
 
 7. Check the final installers, not just the source icons: `python3 scripts/verify-release-icons.py --mac-app /Volumes/TaroBird/TaroBird.app --windows-exe /private/output/windows-extracted/tarocub-client.exe --windows-icon-group 1 --apk /private/output/TaroBird.apk --aapt2 /path/to/android-sdk/build-tools/36.0.0/aapt2 --receipt /private/output/icons.json` (Python 3 + Pillow; Windows also requires pefile). Use the App mounted from the final DMG, the main EXE extracted from the final Windows installer, and the signed APK; flags can be used separately per platform. Electron selects Windows icon group `1`; legacy Tauri verification keeps the default `32512`. The check validates the selected master, sealed macOS icon/version, Windows transparent alpha and all six ICO frames in its actual app icon resource, Android launcher manifest and adaptive references, background, and all 15 PNG density variants after decoding. Recheck the downloaded GitHub asset digests after upload; merged source alone does not update an existing release.
+   For separately authorized Mac installation/activation, also run
+   `python3 scripts/check-macos-installation.py --app /Applications/TaroBird.app`
+   against the actual retained installation path. Resolve or explicitly report
+   duplicate bundles and stale login items before accepting the installation;
+   inspect runtime dependencies before retiring any old copy. Check the running
+   process, Dock/default application and loaded login job separately. See
+   [installed-copy checks](client/artifact-branding-2026-11-05.md#installed-copy-and-login-item-check).
 8. Commit only source changes and sanitized evidence. Create an accurate GitHub Release only when explicitly releasing.
 9. After publication and asset read-back, run `python3 scripts/cleanup-macos-artifacts.py --apply --keep-version APP_VERSION --receipt CLEANUP.json` (the Mac publisher invokes it automatically). Keep the newest `macos-ready` backup, skip six-hour/active-task/build/owner-hold/activation guards, and use `/usr/bin/trash` only. Record skipped paths, then run the Spotlight query in the artifact guide. Never touch installed Apps under `/Applications` (TaroBird or legacy TaroBot).
 
