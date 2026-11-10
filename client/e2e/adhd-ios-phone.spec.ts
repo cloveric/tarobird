@@ -17,10 +17,10 @@ test.use({ serviceWorkers: "block", userAgent: IPHONE });
 test.skip(({ browserName }) => browserName === "firefox", "The iPhone check is exercised once in Chromium/WebKit.");
 
 async function asIphone(page: Page) {
-  await page.route("**/assets/adhd-board-state-*.js", async route => {
+  await page.route("**/assets/{adhd-board-state,ios-window}-*.js", async route => {
     const response = await route.fetch(), body = await response.text();
-    const patched = body.replace("[`ios`,`android`].includes(", "[`web`,`ios`,`android`].includes(").replace("===`ios`&&/\\biPhone\\b/", "===`web`&&/\\biPhone\\b/");
-    if (patched === body || patched.includes("=`ios`&&")) throw new Error("board platform checks changed; update this fixture");
+    const patched = body.replace("[`ios`,`android`].includes(", "[`web`,`ios`,`android`].includes(").replaceAll("===`ios`", "===`web`");
+    if (patched === body) throw new Error("board platform checks changed; update this fixture");
     await route.fulfill({ response, body: patched });
   });
 }
@@ -54,6 +54,26 @@ const layout = (page: Page) => page.evaluate(() => new Promise<string | undefine
   const open = indexedDB.open("tarocub-hosts-v1"); open.onerror = () => reject(open.error);
   open.onsuccess = () => { const get = open.result.transaction("meta").objectStore("meta").get("preferences"); get.onsuccess = () => { open.result.close(); resolve(get.result ? JSON.parse(get.result).sidebarLayout : undefined); }; };
 }));
+
+test('ordinary iPhone rotation keeps ADHD hidden; expanding and reducing height updates the entry', async ({ page }, info) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { close } = await setup(page);
+  try {
+    const entry = page.getByRole('button', { name: '打开 ADHD 模式', exact: true });
+    for (const [width, height] of [[390, 844], [844, 390], [430, 932], [932, 430], [440, 956], [956, 440]]) {
+      await page.setViewportSize({ width: width!, height: height! });
+      await expect(entry).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (width === 390 || width === 932) await page.screenshot({ path: info.outputPath(`ordinary-phone-${width}-${height}.png`) });
+    }
+    await page.setViewportSize({ width: 956, height: 669 });
+    await expect(entry).toBeVisible();
+    await openBoard(page, ['重构重试逻辑']);
+    await page.setViewportSize({ width: 956, height: 440 });
+    await expect(page.locator('[data-adhd-mode]')).toHaveCount(0);
+    await expect(entry).toHaveCount(0);
+  } finally { await close(); }
+});
 
 for (const width of [880, 1000]) test(`unfolded iPhone at ${width}px: two tall panes beside the full list, at most two columns, no Bot name or model mark`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: Math.round(width / 1.455) });

@@ -203,6 +203,13 @@ Verify touch controls and native pickers in both compact and expanded iOS
 layouts. Simulator/browser evidence must stay distinct from physical-device
 acceptance. See [adaptive iPhone coverage](docs/client/iphone-duo-2026-10-25.md).
 
+Duo-specific adjustments must preserve ordinary iPhone behavior in both
+portrait and landscape. An iPhone user agent or a wide window alone does not
+identify an expanded display. Scope expanded-only layout and keyboard changes
+to the current unoccluded window geometry, and withdraw them on folding or
+window resizing. Cover ordinary phones, cover displays and expanded windows
+separately in regressions; keep shared iOS changes intentional and explicit.
+
 ## Product naming
 
 New shared App/CLI code, prompts, environment variables and workspace artifacts

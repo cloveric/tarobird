@@ -34,15 +34,16 @@
      may follow it) keeps that 56px bar flush with the bottom edge, as on the
      desktop. In this layout the sidebar sits at the left while the home
      indicator is centred, so reserving the inset only left a band below it. */
-  :root .sidebar:has(> .sidebar-footer) {
-    padding-bottom: 0;
-  }
-
   /* In the touch desktop layout the composer spans the centred home indicator,
      so it keeps clear of it, but with the desktop's 20px rather than the whole
      inset. Without an inset (desktop pointers never reach here; Android's
      native insets are 0) the value stays max(8px, 0) as before. */
-  @media (min-width: 761px) {
+  /* A regular iPhone in landscape is also wide. Keep its existing inset,
+     and the cover screen's inset, unless the window has expanded height. */
+  @media (min-width: 761px) and (min-height: 600px) {
+    :root .sidebar:has(> .sidebar-footer) {
+      padding-bottom: 0;
+    }
     :root .composer-wrap {
       padding-bottom: max(8px, min(var(--app-safe-bottom), max(20px, calc(var(--app-safe-bottom) - 14px))));
     }

@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { addAdhdPane, adhdBoardSchema, adhdBoardSupported, adhdColumns, adhdPaneKey, adhdPhoneBoard, adhdSupported, emptyAdhdBoard, moveAdhdPane } from "../client/src/adhd-board-state.js";
 const pane = (hostId = "host-a", registrationId = "registration-a", conversationId = "same-chat") => ({ hostId, registrationId, conversationId });
 describe("desktop ADHD board identity and storage", () => {
+  it("does not offer the expanded board on ordinary iPhones in either orientation", () => {
+    for (const [width, height] of [[320, 568], [375, 667], [390, 844], [430, 932], [440, 956], [466, 678]]) {
+      for (const [w, h] of [[width, height], [height, width]]) {
+        expect(adhdBoardSupported("ios", w!, h!, "iPhone")).toBe(false);
+      }
+    }
+    expect(adhdBoardSupported("ios", 880, 605, "iPhone")).toBe(true);
+    expect(adhdBoardSupported("ios", 1000, 687, "iPhone")).toBe(true);
+    expect(adhdBoardSupported("ios", 900, 500, "iPad")).toBe(true);
+  });
   it("starts empty, deduplicates exact identities and isolates hosts and re-pairing", () => {
     const initial = emptyAdhdBoard(), a = addAdhdPane(initial, pane());
     expect(initial.panes).toEqual([]); expect(addAdhdPane(a, pane())).toBe(a);
@@ -28,7 +38,7 @@ describe("desktop ADHD board identity and storage", () => {
     for (const platform of ["macos", "windows", "web", "android", "ios"]) for (const width of [700, 760, 761, 1200, 2500]) {
       const before = !["ios", "android"].includes(platform) && width > 760;
       expect(adhdSupported(platform, width)).toBe(before); // Agent Bus and diff viewers keep this
-      expect(adhdBoardSupported(platform, width)).toBe(platform === "ios" ? width > 760 : before);
+      expect(adhdBoardSupported(platform, width, 900, "iPad")).toBe(platform === "ios" ? width > 760 : before);
     }
     const ua = {
       iphone: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",

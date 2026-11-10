@@ -10,6 +10,17 @@ enum KeyboardInsetsTests {
             checks += 1
         }
         let phone = CGRect(x: 0, y: 0, width: 390, height: 844)
+        for (width, height) in [(320.0, 568.0), (390, 844), (440, 956), (466, 678)] {
+            for bounds in [CGRect(x: 0, y: 0, width: width, height: height), CGRect(x: 0, y: 0, width: height, height: width)] {
+                precondition(!KeyboardInsetGeometry.tracksExpandedPhone(isPhone: true, bounds: bounds))
+                checks += 1
+            }
+        }
+        for bounds in [CGRect(x: 0, y: 0, width: 880, height: 605), CGRect(x: 0, y: 0, width: 687, height: 1000)] {
+            precondition(KeyboardInsetGeometry.tracksExpandedPhone(isPhone: true, bounds: bounds))
+            precondition(!KeyboardInsetGeometry.tracksExpandedPhone(isPhone: false, bounds: bounds))
+            checks += 2
+        }
         equal(KeyboardInsetGeometry.overlap(bounds: phone, guide: CGRect(x: 0, y: 810, width: 390, height: 34), restingBottom: 810), 0, "home indicator is not a keyboard")
         equal(KeyboardInsetGeometry.overlap(bounds: phone, guide: CGRect(x: 0, y: 544, width: 390, height: 300), restingBottom: 810), 300, "docked keyboard includes home indicator")
         equal(KeyboardInsetGeometry.overlap(bounds: phone, guide: CGRect(x: 0, y: 0, width: 0, height: 0), restingBottom: 810), 0, "initial empty guide")

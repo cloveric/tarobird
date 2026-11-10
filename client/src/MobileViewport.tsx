@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { hasWindowKeyboardInsets, installAppViewport, nativeKeyboardMotion } from './viewport.js';
 import { installIosKeyboardDismiss } from './ios-keyboard-dismiss.js';
+import { expandedIphoneWindow } from './ios-window.js';
 
 export function MobileViewport() {
   useEffect(() => {
@@ -10,7 +11,8 @@ export function MobileViewport() {
     // to Capacitor Keyboard. Android reports through NativeInsets,
     // whose height excludes the navigation bar the Activity already reserves.
     const platform = Capacitor.getPlatform();
-    const dismiss = platform === 'ios' ? installIosKeyboardDismiss(document) : undefined;
+    const dismiss = platform === 'ios' ? installIosKeyboardDismiss(document,
+      () => expandedIphoneWindow(platform, navigator.userAgent, innerWidth, innerHeight)) : undefined;
     const viewport = installAppViewport(window, document, platform === 'ios' || platform === 'android' ? nativeKeyboardMotion[platform] : false);
     if (platform === 'ios' && !hasWindowKeyboardInsets(window)) void import('@capacitor/keyboard')
       .then(({ Keyboard }) => viewport.attachKeyboard(Keyboard))

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { expandedIphoneWindow } from "./ios-window.js";
 
 export const ADHD_PANEL_LIMIT = 12;
 export const adhdPaneSchema = z.object({
@@ -49,8 +50,9 @@ export function adhdSupported(platform: string, width: number) {
 /** The ADHD board itself also opens on native iOS once the window is
  * desktop-wide (iPad, an unfolded iPhone). Android stays out, and the diff
  * viewers and Agent Bus keep `adhdSupported`. */
-export function adhdBoardSupported(platform: string, width: number) {
-  return platform !== "android" && width > 760;
+export function adhdBoardSupported(platform: string, width: number, height: number, userAgent: string) {
+  return platform !== "android" && width > 760
+    && (!adhdPhoneBoard(platform, userAgent) || expandedIphoneWindow(platform, userAgent, width, height));
 }
 /** An unfolded iPhone: two tall panes beside the full picker. */
 export const ADHD_PHONE_CARD_MIN = 260, ADHD_PHONE_COLUMNS = 2;

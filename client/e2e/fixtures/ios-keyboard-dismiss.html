@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body>
 <textarea aria-label="Draft">Keep this draft</textarea>
 <main class="message-scroll" style="padding:40px;min-height:300px">
   <p id="history">Tap this message to dismiss the keyboard.</p>
@@ -7,5 +7,7 @@
 </main>
 <script type="module">
 import { installIosKeyboardDismiss } from '../../src/ios-keyboard-dismiss.ts';
-window.disposeDismiss = installIosKeyboardDismiss(document);
+import { expandedIphoneWindow } from '../../src/ios-window.ts';
+window.disposeDismiss = installIosKeyboardDismiss(document,
+  () => expandedIphoneWindow('ios', navigator.userAgent, innerWidth, innerHeight));
 </script></body></html>

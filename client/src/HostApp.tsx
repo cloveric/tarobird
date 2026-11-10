@@ -153,13 +153,13 @@ export function HostApp(props: HostAppProps) {
 function HostAppSession({ Workspace, Pairing }: HostAppProps) {
   useLocale();
   const [registry] = useState(() => new HostRegistry());
-  const subscribeBoardWidth = useCallback((notify: () => void) => {
-    const media = matchMedia("(min-width:761px)"); media.addEventListener("change", notify);
-    return () => media.removeEventListener("change", notify);
+  const subscribeBoardWindow = useCallback((notify: () => void) => {
+    window.addEventListener("resize", notify);
+    return () => window.removeEventListener("resize", notify);
   }, []);
   // Agent Bus stays desktop-only; the ADHD board also opens on a wide iPad or unfolded iPhone.
-  const desktopBoard = useSyncExternalStore(subscribeBoardWidth, () => adhdSupported(nativePlatform(), innerWidth));
-  const adhdBoard = useSyncExternalStore(subscribeBoardWidth, () => adhdBoardSupported(nativePlatform(), innerWidth));
+  const desktopBoard = useSyncExternalStore(subscribeBoardWindow, () => adhdSupported(nativePlatform(), innerWidth));
+  const adhdBoard = useSyncExternalStore(subscribeBoardWindow, () => adhdBoardSupported(nativePlatform(), innerWidth, innerHeight, navigator.userAgent));
   const [adhd, setAdhd] = useState(false);
   const [busNavigation, setBusNavigation] = useState<AgentBusNavigation>();
   const adhdRef = useRef(adhd); adhdRef.current = adhd;

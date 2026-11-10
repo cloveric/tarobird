@@ -4,6 +4,13 @@ import CoreGraphics
 /// All rectangles are in the WebView's own coordinates. The keyboard guide's
 /// resting frame includes the home indicator; it is not keyboard occlusion.
 enum KeyboardInsetGeometry {
+    /// Keep the pre-existing keyboard policy on ordinary/cover iPhones and
+    /// iPads. Use scene bounds so folding and Split View withdraw the override.
+    static func tracksExpandedPhone(isPhone: Bool, bounds: CGRect) -> Bool {
+        isPhone && bounds.width.isFinite && bounds.height.isFinite
+            && min(bounds.width, bounds.height) >= 600
+    }
+
     static func isBackEdge(_ x: CGFloat, safeLeft: CGFloat) -> Bool {
         x.isFinite && safeLeft.isFinite && x >= safeLeft && x <= safeLeft + 24
     }
@@ -76,12 +83,10 @@ final class TaroBotKeyboardInsets: NSObject, WKScriptMessageHandler {
             window.webkit.messageHandlers.tarobotKeyboardReady.postMessage(null);
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
-        // Track every keyboard in this scene; overlap() reserves a band only
-        // for full-width bottom occlusion. Floating/split keyboards still
-        // return zero, while a full-width keyboard is not lost solely because
-        // UIKit classified its current presentation as undocked.
+        // Only expanded phone windows need the undocked-guide workaround.
+        // overlap() still excludes floating/partial-width keyboard occlusion.
         let guide = view.keyboardLayoutGuide
-        guide.followsUndockedKeyboard = true
+        updateKeyboardGuide()
         let probe = KeyboardInsetProbe()
         probe.translatesAutoresizingMaskIntoConstraints = false
         probe.isUserInteractionEnabled = false
@@ -104,7 +109,17 @@ final class TaroBotKeyboardInsets: NSObject, WKScriptMessageHandler {
 
     deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 
+    private func updateKeyboardGuide() {
+        guard let view, let webView else { return }
+        let follows = KeyboardInsetGeometry.tracksExpandedPhone(
+            isPhone: view.traitCollection.userInterfaceIdiom == .phone, bounds: webView.bounds)
+        if view.keyboardLayoutGuide.followsUndockedKeyboard != follows {
+            view.keyboardLayoutGuide.followsUndockedKeyboard = follows
+        }
+    }
+
     func layoutChanged() {
+        updateKeyboardGuide()
         guard !layoutPending else { return }
         layoutPending = true
         // UIKit can lay out the guide immediately before delivering the

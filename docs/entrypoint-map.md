@@ -1,5 +1,8 @@
 # Entrypoint Map
 
+[Duo scope](client/iphone-duo-scope-2026-11-10.md) keeps expanded-window keyboard,
+ADHD and spacing changes out of ordinary iPhone portrait and landscape layouts.
+
 [Repository migration](repository-migration.md) defines the clean private
 `cloveric/tarobird` snapshot, archived legacy repository, retained installed-client
 update URLs and first-release prerequisites. The migration publishes no Release;
@@ -3797,10 +3800,11 @@ New iOS binaries advertise `tarobotKeyboardInsets.supported()` from
 `client/ios/App/App/KeyboardInsets.swift`. `UIKeyboardLayoutGuide` is converted
 into the current WebView's coordinates and reports overlap through the existing
 `tarobot-keyboard` channel; old binaries retain the Capacitor event fallback.
-The guide follows undocked presentations, while the overlap predicate still
-rejects floating or partial-width keyboards. `ios-keyboard-dismiss.ts` adds a
-short touch tap in chat history to dismiss native iOS text input; scrolling,
-selection, long presses and interactive controls retain their behavior.
+Only expanded iPhone windows enable the undocked-guide workaround; the overlap
+predicate still rejects floating or partial-width keyboards. In those windows,
+`ios-keyboard-dismiss.ts` adds a short touch tap in chat history to dismiss text
+input. Ordinary/folded iPhones and iPads retain their previous keyboard behavior;
+scrolling, selection, long presses and interactive controls remain unchanged.
 Regression: browser `ios-keyboard-dismiss`; pure Swift geometry is not an
 installed-device keyboard receipt. These are App presentation changes; the
 headless CLI has no keyboard or viewport.
