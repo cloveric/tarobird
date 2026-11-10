@@ -69,8 +69,9 @@ and does not change how a Bot executes work.
   asks the user to remove a panel. No arbitrary existing panel is replaced.
 - If a desktop window becomes too narrow, keep the board mounted and show a
   widen-window/return-to-chat screen. Uploads keep running. Restoring width
-  restores the board. Native Android/iOS never expose the entry, including on
-  wide tablets. Desktop browser windows and Mac/Windows clients share this UI.
+  restores the board. Native Android never exposes the entry. Native iOS does
+  once the window is desktop-wide (iPad, an unfolded iPhone); see
+  [adhd-ios-2026-11-07.md](adhd-ios-2026-11-07.md). Desktop browser windows and Mac/Windows clients share this UI.
 - The board's selected conversations, order and layout are device-local.
   Entering the mode is deliberate each session; starting the App opens its
   ordinary chat view. There are no edges, conversation relationships or

@@ -35,14 +35,27 @@ export function moveAdhdPane(board: AdhdBoardState, key: string, destination: nu
   const panes = [...board.panes], [pane] = panes.splice(index, 1); panes.splice(destination, 0, pane!);
   return { ...board, panes };
 }
-export function adhdColumns(width: number, count: number, requested: number) {
+export function adhdColumns(width: number, count: number, requested: number, minimum = 300, maximum = 6) {
   // Explicit choices are honored with horizontal scrolling at the card minimum.
   // Auto fills the available width instead of imposing a three-column ceiling.
-  const capacity = Math.min(6, Math.max(1, Math.floor((width + 10) / 310)));
-  if (requested) return Math.max(1, Math.min(count || 1, 6, requested));
+  const capacity = Math.min(maximum, Math.max(1, Math.floor((width + 10) / (minimum + 10))));
+  if (requested) return Math.max(1, Math.min(count || 1, maximum, requested));
   // Distribute the last row: seven panes become 4 + 3 rather than 6 + 1.
   return Math.max(1, Math.ceil(count / Math.max(1, Math.ceil(count / capacity))));
 }
 export function adhdSupported(platform: string, width: number) {
   return !["ios", "android"].includes(platform) && width > 760;
+}
+/** The ADHD board itself also opens on native iOS once the window is
+ * desktop-wide (iPad, an unfolded iPhone). Android stays out, and the diff
+ * viewers and Agent Bus keep `adhdSupported`. */
+export function adhdBoardSupported(platform: string, width: number) {
+  return platform !== "android" && width > 760;
+}
+/** An unfolded iPhone: two tall panes beside the full picker. */
+export const ADHD_PHONE_CARD_MIN = 260, ADHD_PHONE_COLUMNS = 2;
+/** Folding shut must hold this long before the board gives way, so a transient size during the fold does not exit. */
+export const ADHD_FOLD_SETTLE_MS = 450;
+export function adhdPhoneBoard(platform: string, userAgent: string) {
+  return platform === "ios" && /\biPhone\b/.test(userAgent);
 }

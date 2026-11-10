@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAdhdPane, adhdBoardSchema, adhdColumns, adhdPaneKey, adhdSupported, emptyAdhdBoard, moveAdhdPane } from "../client/src/adhd-board-state.js";
+import { addAdhdPane, adhdBoardSchema, adhdBoardSupported, adhdColumns, adhdPaneKey, adhdPhoneBoard, adhdSupported, emptyAdhdBoard, moveAdhdPane } from "../client/src/adhd-board-state.js";
 const pane = (hostId = "host-a", registrationId = "registration-a", conversationId = "same-chat") => ({ hostId, registrationId, conversationId });
 describe("desktop ADHD board identity and storage", () => {
   it("starts empty, deduplicates exact identities and isolates hosts and re-pairing", () => {
@@ -23,6 +23,27 @@ describe("desktop ADHD board identity and storage", () => {
     const moved = moveAdhdPane(state, adhdPaneKey(pane("a")), 2);
     expect(moved.panes.map(item => item.hostId)).toEqual(["b", "c", "a"]);
     expect(moveAdhdPane(state, "missing", 1)).toBe(state); expect(moveAdhdPane(state, adhdPaneKey(pane("a")), -1)).toBe(state);
+  });
+  it("opens the board on wide iOS only; desktop and Android answers are unchanged", () => {
+    for (const platform of ["macos", "windows", "web", "android", "ios"]) for (const width of [700, 760, 761, 1200, 2500]) {
+      const before = !["ios", "android"].includes(platform) && width > 760;
+      expect(adhdSupported(platform, width)).toBe(before); // Agent Bus and diff viewers keep this
+      expect(adhdBoardSupported(platform, width)).toBe(platform === "ios" ? width > 760 : before);
+    }
+    const ua = {
+      iphone: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+      ipad: "Mozilla/5.0 (iPad; CPU OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+      mac: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
+      android: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36",
+    };
+    expect(adhdPhoneBoard("ios", ua.iphone)).toBe(true);
+    for (const value of [ua.ipad, ua.mac]) expect(adhdPhoneBoard("ios", value)).toBe(false);
+    for (const platform of ["macos", "windows", "web", "android"]) for (const value of Object.values(ua)) expect(adhdPhoneBoard(platform, value)).toBe(false);
+  });
+  it("fits two tall iPhone panes and never more, while desktop columns keep their 300px rule", () => {
+    expect(adhdColumns(584, 2, 0)).toBe(1); expect(adhdColumns(584, 2, 0, 260, 2)).toBe(2);
+    expect(adhdColumns(1200, 6, 0, 260, 2)).toBe(2); expect(adhdColumns(1200, 6, 6, 260, 2)).toBe(2); expect(adhdColumns(1200, 1, 0, 260, 2)).toBe(1);
+    expect(adhdColumns(1200, 6, 0)).toBe(3); expect(adhdColumns(1200, 6, 6)).toBe(6);
   });
   it("keeps cards readable and never exposes mode on a native phone/tablet", () => {
     expect(adhdColumns(1000, 6, 0)).toBe(3); expect(adhdColumns(650, 6, 4)).toBe(4);
