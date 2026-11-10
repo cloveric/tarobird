@@ -72,7 +72,17 @@ describe("App platform contract", () => {
       expect(withChannelProfile("gateway", () => larkAgentInstructions({ engine }))).toBe(app);
       expect(appTurnInstructions("你好", { engine })).toBeUndefined();
       expect(appTurnInstructions("帮我建立 Google Docs", { engine })).toContain("tarobot gdocs create");
-      expect(appTurnInstructions("浏览器登录", { engine })).toContain("No shell");
+      const browser = appTurnInstructions("浏览器登录", { engine }) ?? "";
+      // Work in the signed-in main Chrome; another Chrome only on the user's word.
+      expect(browser).toContain("unless the user named that port or browser");
+      expect(browser).toContain('open -a "Google Chrome"');
+      expect(browser).toContain("ask before quitting or relaunching it");
+      // Cookies, passwords and keychain stay closed unless the user asks; a needed
+      // or failed read is reported, not silently skipped.
+      expect(browser).toContain("cookies, passwords or keychain unless the user explicitly asks for it in this conversation");
+      expect(browser).toContain("if a task needs them, ask first");
+      expect(browser).toContain("tell the user what was needed and why it failed");
+      expect(browser).not.toContain("No shell/AppleScript");
     }
     expect(larkAgentInstructions()).toBe("");
     expect(appAgentInstructions({ nativeDelivery: true })).toContain("app_send_file");

@@ -621,7 +621,7 @@ describe("DeepSeekHarnessAdapter", () => {
     expect(text).toContain("<private_bridge_instructions>");
     expect(text).toContain("You are replying in TaroBird App");
     expect(text).toContain("Login: the selected skill's declared browser/profile wins");
-    expect(text).toContain("CDP/9222/9223 unless legacy CDP was requested");
+    expect(text).toContain("CDP/9222/9223) unless the user named that port or browser");
     expect(text).toContain("blocked/dynamic pages use an available browser or Scrapling");
     expect(text).toContain("`mcp__cctb_search__web_extract`");
     expect(text).toContain("`mcp__cctb_search__web_search`");
