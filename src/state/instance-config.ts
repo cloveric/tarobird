@@ -36,7 +36,7 @@ export type InstanceEngine = "codex" | "claude" | "antigravity" | "kimi" | "deep
 
 export const CLAUDE_MODEL_CHOICES = [
   "claude-opus-5-5[1m]",
-  "fable",
+  "claude-fable-5-2",
   "opus",
   "sonnet",
   "haiku",
