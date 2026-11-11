@@ -22,10 +22,13 @@
 
 /* Ordinary phone windows: one queue/mode row, with independent 44px targets.
    Keep task/dock layouts and expanded native windows on their existing path.
-   The queue component stays mounted; only its presentation changes. */
+   The queue component stays mounted; only its presentation changes.
+   Both capsules are 36px visuals centred in their 44px targets and drawn by
+   pseudo-elements; 4px below the targets gives the pills the same 8px rhythm
+   as the field's own margins. Text starts on the placeholder's axis. */
 @media(max-width:599px) {
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) {
-    display:flex; flex-wrap:wrap; align-items:center; gap:0 8px;
+    display:flex; flex-wrap:wrap; align-items:center; gap:0 8px; padding-bottom:4px;
   }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) > .prompt-queue {
     flex:1 1 115px; height:auto; min-height:44px; margin:0; min-width:0; max-width:100%;
@@ -33,37 +36,73 @@
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) > .prompt-queue[data-state] { flex-basis:max-content; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue[data-state=paused] .prompt-queue-next { flex:none; overflow:visible; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger {
-    height:auto; min-height:44px; width:100%; gap:5px; padding:4px 8px; border:0; border-radius:999px; background:var(--surface);
+    position:relative; isolation:isolate; height:auto; min-height:44px; width:100%; gap:6px; padding:7px 8px 7px 13px;
+    border:0; border-radius:999px; background:transparent; color:var(--text); font-size:13px; line-height:1.4; outline-offset:-3px;
   }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger::before {
+    content:""; position:absolute; z-index:-1; inset:4px 0; pointer-events:none; border:1px solid transparent; border-radius:999px; background:var(--surface);
+    transition:background-color var(--t-fast) var(--ease);
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger:active:not(:disabled)::before { background:var(--surface-alt); transition-duration:0s; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger > svg { color:var(--muted); }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger > svg:first-child { width:16px; height:16px; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger > small { font-size:.923em; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger > small:not(.prompt-queue-next) { flex:none; white-space:nowrap; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-total { display:none; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-preview-full { display:none; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-preview-compact { display:inline; }
-  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-compact-total { display:inline-flex; align-items:center; gap:5px; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-compact-total { display:inline-flex; align-items:center; gap:6px; }
+  /* A preview narrower than a few characters is withdrawn rather than cut
+     mid-glyph: it wraps below a zero-width first item and is clipped there. */
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue:not([data-state=paused]) .prompt-queue-next { display:flex; flex-wrap:wrap; height:1.4em; line-height:1.4; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue:not([data-state=paused]) .prompt-queue-next::before { content:""; flex:none; width:0; height:100%; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue:not([data-state=paused]) .prompt-queue-preview-compact { display:block; flex:1 0 3.5em; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  /* The count is the row's one solid mark: theme accent fill, never plain black. */
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-count {
-    display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; padding:0 5px; border-radius:999px; font-size:11px; font-variant-numeric:tabular-nums;
-    background:var(--primary-bg); color:var(--on-primary);
+    display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; min-width:1.74em; min-height:1.74em; padding:0 .5em; border-radius:999px;
+    font-size:.885em; font-weight:650; line-height:1; font-variant-numeric:tabular-nums;
+    background:var(--primary-bg); color:var(--on-primary); box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 14%,transparent);
   }
   :root[data-platform]:is([data-platform=ios],[data-platform=android])[data-palette=mono] .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-count { background:var(--mono-summary-bg,#737373); color:var(--mono-summary-ink,#fff); }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) > .claude-send-choice { flex:0 1 auto; max-width:100%; margin:0 0 0 auto; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .send-choice-help { display:none; }
+  /* Without a queue entry the same slot explains the selected mode, as quiet
+     text on the queue label's axis rather than a second filled control. */
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)):not(:has(> .prompt-queue)) > .send-choice-summary {
-    display:flex; flex:1 1 115px; align-items:center; min-width:0; min-height:44px; padding:4px; border:0; background:transparent; color:var(--muted); font-size:12px; text-align:left;
+    display:flex; flex:1 1 115px; align-items:center; justify-content:flex-start; min-width:0; min-height:44px; padding:4px 6px 4px 13px;
+    border:0; border-radius:999px; background:transparent; color:var(--muted); font-size:12.5px; font-weight:400; text-align:left; outline-offset:-3px;
   }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)):not(:has(> .prompt-queue)) > .send-choice-summary:active:not(:disabled) { color:var(--grey); }
   .send-choice-summary > span { min-width:0; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; line-height:1.4; }
-  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice fieldset { --choice-inset:0px; padding:0 3px; }
+  /* Send mode: a recessed capsule with one raised thumb. The selected label is
+     the darker, heavier one; the accent tints its ink and the thumb's edge. */
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice fieldset {
+    --choice-inset:4px; --choice-thumb:var(--raised); --choice-thumb-shadow:0 1px 1px #0000000a,0 2px 6px #00000014; padding:0 2px;
+  }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice fieldset::before { border-color:transparent; border-radius:999px; background:var(--surface); }
-  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio] { padding-inline:9px; }
-  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio]::before { border-radius:999px; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio] {
+    min-width:48px; padding:7px 13px; color:var(--muted); font-size:13px; transition:color var(--t-fast) var(--ease);
+  }
+  /* Each choice owns a thumb that grows from the shared edge, so a change
+     reads as one thumb crossing over without measuring either label. */
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio]::before {
+    inset:calc(var(--choice-inset) + 2px) 0; border-color:color-mix(in srgb,var(--choice-mark) 26%,var(--border)); border-radius:999px; background:var(--choice-thumb); box-shadow:var(--choice-thumb-shadow);
+    opacity:0; transform:scaleX(.7); transition:opacity var(--t-fast) var(--ease),transform var(--t-med) var(--ease-out);
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [data-mode=current]::before { transform-origin:100% 50%; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [data-mode=next]::before { transform-origin:0 50%; }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true] {
-    color:color-mix(in srgb,var(--choice-mark) 60%,var(--text));
+    color:color-mix(in srgb,var(--choice-mark) 24%,var(--text)); font-weight:600;
   }
   :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true]::before {
-    background:var(--raised); border-color:color-mix(in srgb,var(--choice-mark) 28%,var(--border)); box-shadow:0 1px 3px #00000014;
+    opacity:1; transform:none;
   }
-  :root[data-theme=dark]:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true]::before { background:var(--surface-alt); }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio]:focus-visible:not([aria-checked=true])::before {
+    border-color:transparent; background:transparent; box-shadow:none; opacity:1; transform:none;
+  }
+  :root[data-theme=dark]:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice fieldset { --choice-thumb:color-mix(in srgb,var(--text) 9%,var(--surface-alt)); --choice-thumb-shadow:inset 0 1px 0 #ffffff0d,0 1px 2px #00000059; }
   @media(prefers-color-scheme:dark) {
-    :root[data-theme=system]:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true]::before { background:var(--surface-alt); }
+    :root[data-theme=system]:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice fieldset { --choice-thumb:color-mix(in srgb,var(--text) 9%,var(--surface-alt)); --choice-thumb-shadow:inset 0 1px 0 #ffffff0d,0 1px 2px #00000059; }
   }
   :root:is([data-platform=ios],[data-platform=android]) .composer-wrap:has(> .composer-accessories.is-phone > .claude-send-choice) .composer-toolbar .icon-button.composer-stop.is-live {
     background-color:var(--mono-control-bg,var(--primary-bg)); color:var(--mono-control-ink,var(--on-primary));
@@ -73,6 +112,18 @@
   @container composer-tools (max-width:360px) {
     /* The preview yields first; keep the count, label and chevron legible. */
     :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger > svg:first-child { display:none; }
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger { gap:5px; }
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio] { padding-inline:10px; }
+  }
+  @media(hover:hover) {
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger:hover:not(:disabled)::before { background:var(--surface-alt); }
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio]:hover:not(:disabled):not([aria-checked=true]) { color:var(--grey); }
+  }
+  @media(prefers-reduced-motion:reduce) {
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger::before,
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio],
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio]::before { transition:none; }
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio]::before { transform:none; }
   }
   @media(forced-colors:active) {
     :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone .claude-send-choice [role=radio][aria-checked=true]::before { border-color:Highlight; }

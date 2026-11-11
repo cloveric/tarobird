@@ -44,8 +44,9 @@ attachments, touch focus, task controls and desktop/ADHD behavior. The existing
 Duo fold/rotate/split case protects the expanded-window boundary.
 
 Browser platform hints and injected insets do not establish native keyboard or
-physical-device acceptance. FABLE5 supplied design/source guidance only; runtime
-checks are recorded separately by the implementer.
+physical-device acceptance. For the initial implementation, FABLE5 supplied
+design/source guidance only; runtime checks were recorded separately by the
+implementer. The later visual refinement is described below.
 
 Validation results: all 32 existing Codex/Claude send-choice cases and both new
 phone-row cases passed in Chromium. After the final wrapping/status refinements,
@@ -53,3 +54,35 @@ both phone-row cases passed again, together with the Duo fold/rotate/split case
 and all three queue pause/resume cases (desktop, phone and ADHD). Client
 translations, TypeScript and production build, standalone Host build and version
 consistency checks passed. Full-page phone previews were visually inspected.
+
+## Visual refinement
+
+After reviewing the first full-page previews, the owner asked FABLE5 to directly
+refine the selected design. The phone-only CSS now separates the 44 px touch
+target from the lighter 36 px visible capsule, increases the hierarchy of the
+queue label and selected mode, and aligns the empty-state explanation with the
+input text. The selected mode has a raised thumb with a restrained theme-accent
+edge and ink; count and stop colors continue to use the existing theme tokens.
+The capsules keep an 8 px visual gap above the typing field. A preview with less
+than a few characters of room withdraws instead of showing a clipped glyph;
+counts, offline labels and paused-state text remain available. Dark themes give
+the selected thumb a distinct raised surface. The transition honors reduced
+motion.
+
+This refinement changes presentation only. Component identity, keyboard/touch
+handlers, queue semantics and native dependencies remain unchanged.
+
+The implementer independently ran 35 existing focused Chromium cases on the
+first styling pass. After the final spacing, preview and dark-theme refinements,
+the client build and six affected phone/Duo cases passed again on the final CSS:
+iOS/Android queued rows, both narrow-phone help/focus cases, Chinese/English
+resizing and Duo fold/rotate/split. Full-page previews were inspected. These are
+browser layout and deterministic-engine checks; physical iPhone/Android and
+installed-App acceptance remain pending. No release or installation occurred.
+
+FABLE5's additional scratch-directory run hit two keyboard-fixture timeouts
+before the App loaded: both traces showed HTTP 404 while waiting for the Host
+address field. Those Vite fixtures require the client directory as their working
+directory. The implementer reran both touch/pointer keyboard cases there on the
+unchanged final CSS; both passed. The failed setup attempts remain separate from
+this retake and are not counted as successful keyboard verification.
