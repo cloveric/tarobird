@@ -19,7 +19,6 @@ jobs:
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       TAROBOT_WINDOWS_ACCEPTANCE: disposable
-      CARGO_TARGET_DIR: ${{ runner.temp }}/windows-native-tests.noindex
       CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
     steps:
@@ -58,6 +57,7 @@ jobs:
       - name: Native updater and real released-App upgrade
         shell: pwsh
         env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/windows-native-tests.noindex
           CANDIDATE_VERSION: ${{ inputs.version }}
         run: |
           node client/scripts/windows-acceptance.mjs --confirm-disposable-windows `
