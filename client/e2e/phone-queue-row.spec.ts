@@ -57,7 +57,14 @@ for (const platform of ['ios', 'android']) test(`${platform}: queued count and s
       }
       for (const width of [320, 360, 390, 440]) {
         await page.setViewportSize({ width, height: 844 });
-        const a = (await queue.boundingBox())!, b = (await choice.boundingBox())!;
+        await queue.waitFor({ state: 'visible' });
+        await choice.waitFor({ state: 'visible' });
+        // Read both controls in one animation frame: navigation slides their
+        // shared ancestor, so separate protocol reads can invent an overlap.
+        const [a, b] = await page.evaluate(() => ['.prompt-queue-trigger', '.claude-send-choice'].map(selector => {
+          const rect = document.querySelector(selector)!.getBoundingClientRect();
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        }));
         expect(Math.abs(a.y - b.y)).toBeLessThan(2);
         expect(a.x + a.width).toBeLessThanOrEqual(b.x);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
