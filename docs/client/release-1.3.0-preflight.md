@@ -39,6 +39,18 @@ canvas/PPT editors, SKILL entrypoints and references compared with the reviewed
 to the standalone artifact script, which this App does not install. Provenance
 and reviewed helper hashes advance together; native PPT selection stays default.
 
+Android direct/runtime dependencies also advance: OkHttp 5.5.1, SLF4J 2.0.20,
+Firebase Messaging 26.0.1, Activity 1.13.0, AppCompat 1.8.0, Core 1.19.1,
+Fragment 1.9.1, WebKit 1.18.0 and Cordova Android 15.1.0. Build tooling advances
+to Android Gradle Plugin 9.5.1, Google Services 4.5.0 and checksum-pinned Gradle
+9.9.1. AGP 9.5 requires Gradle 9.6 or newer; the existing JDK 21 and SDK 37
+remain compatible. Firebase 26 requires minSdk 24, which was already the App
+minimum; minSdk 24, compileSdk 37 and targetSdk 36 remain unchanged. A fresh
+Android release assembly, JVM unit tests, release Lint and isolated real-Hub
+JVM transport audit pass after these changes. This is native-core/build evidence,
+not physical Android acceptance. Sources: [AGP release notes](https://developer.android.com/build/releases/agp-9-5-0-release-notes)
+and [Firebase Messaging changelog](https://github.com/firebase/firebase-android-sdk/blob/main/firebase-messaging/CHANGELOG.md).
+
 ## Publication checks
 
 Run fresh source, client, Electron, native, packaged CLI and signed-artifact

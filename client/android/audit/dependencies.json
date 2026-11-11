@@ -1,8 +1,8 @@
 [
   {
-    "artifact": "com.squareup.okhttp3:okhttp-jvm:5.5.0",
-    "sha256": "234194a04aac54858df0a750d243af7b2e39df5e4eb86e9912043ad33a9f9a52",
-    "source": "https://repo.maven.apache.org/maven2/com/squareup/okhttp3/okhttp-jvm/5.5.0/okhttp-jvm-5.5.0.jar"
+    "artifact": "com.squareup.okhttp3:okhttp-jvm:5.5.1",
+    "sha256": "4039527bd1f2e40b66e20b0e52c689cf56074b938ea02678141495f5160f1047",
+    "source": "https://repo.maven.apache.org/maven2/com/squareup/okhttp3/okhttp-jvm/5.5.1/okhttp-jvm-5.5.1.jar"
   },
   {
     "artifact": "com.squareup.okio:okio-jvm:3.18.1",
@@ -35,13 +35,13 @@
     "sha256": "eae29213e4f16515639c28957200f011b3967fffcada1962cf0255d24919c22f"
   },
   {
-    "artifact": "org.slf4j:slf4j-api:2.0.16",
-    "source": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/2.0.16/slf4j-api-2.0.16.jar",
-    "sha256": "a12578dde1ba00bd9b816d388a0b879928d00bab3c83c240f7013bf4196c579a"
+    "artifact": "org.slf4j:slf4j-api:2.0.20",
+    "source": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/2.0.20/slf4j-api-2.0.20.jar",
+    "sha256": "7e1446499b359675d8aabe6af2de86b85e72ae8a2a932c0b40d0e5ba57097439"
   },
   {
-    "artifact": "org.slf4j:slf4j-nop:2.0.16",
-    "source": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-nop/2.0.16/slf4j-nop-2.0.16.jar",
-    "sha256": "deca6c04ed35515a0a911fa44c0e836bee92c0c59d2e8fa9bab8ffbc464a9ba7"
+    "artifact": "org.slf4j:slf4j-nop:2.0.20",
+    "source": "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-nop/2.0.20/slf4j-nop-2.0.20.jar",
+    "sha256": "6522080396fb339e99bae40d329a06d18d3190dc864020ac4ca943519d0fd85b"
   }
 ]
