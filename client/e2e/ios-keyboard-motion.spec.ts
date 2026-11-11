@@ -46,6 +46,8 @@ test('iOS keyboard motion keeps the tail, reading position and draft through ope
       report(height);
       if (reverse) setTimeout(() => report(0), 90);
       const start = performance.now(), frames: Array<{ height: number; distance: number; top: number }> = [];
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      const duration = getComputedStyle(shell).transitionDuration;
       const sample = () => {
         const tail = sc.querySelector('[data-index="39"]');
         frames.push({ height: shell.getBoundingClientRect().height,
@@ -58,16 +60,17 @@ test('iOS keyboard motion keeps the tail, reading position and draft through ope
         await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
       }
       observer.disconnect(); sample();
-      return frames;
+      return { frames, duration };
     }, { height, reverse });
     for (const height of [350, 0]) {
-      const frames = await motion(height);
+      const { frames, duration } = await motion(height);
       await info.attach(`motion-${height}.json`, { body: JSON.stringify(frames), contentType: 'application/json' });
+      expect(duration).toBe(height ? '0.25s' : '0.383s');
       expect(new Set(frames.map(f => Math.round(f.height))).size).toBeGreaterThan(4);
       expect(Math.max(...frames.map(f => Math.abs(f.distance)))).toBeLessThan(4);
       await expect.poll(async () => Math.abs(await distance())).toBeLessThan(3);
     }
-    const reversal = await motion(350, true);
+    const { frames: reversal } = await motion(350, true);
     expect(Math.min(...reversal.map(f => f.height))).toBeLessThan(920);
     expect(Math.max(...reversal.map(f => Math.abs(f.distance)))).toBeLessThan(4);
     expect(reversal.at(-1)!.height).toBeCloseTo(932, 0);
@@ -87,9 +90,31 @@ test('iOS keyboard motion keeps the tail, reading position and draft through ope
     });
     const before = await scroll.evaluate(e => e.scrollTop);
     for (const height of [350, 0]) {
-      const frames = await motion(height);
+      const { frames } = await motion(height);
       expect(Math.max(...frames.map(f => Math.abs(f.top - before)))).toBeLessThan(3);
     }
+    // A real back action while the keyboard is open must keep the draft and
+    // let the inbox/tab bar land sooner, without synthesizing an inset report.
+    await motion(350);
+    await page.getByRole('button', { name: '打开会话列表', exact: true }).click();
+    await expect(page.locator('.app-shell')).toHaveClass(/mobile-home-open/);
+    expect(await page.locator('html').getAttribute('data-keyboard-open')).toBe('true');
+    const back = await motion(0);
+    expect(back.duration).toBe('0.25s');
+    await expect(page.getByRole('navigation', { name: '主导航', exact: true })).toBeVisible();
+    const tabBottom = await page.locator('.mh-tabbar').evaluate(e => e.getBoundingClientRect().bottom);
+    expect(tabBottom).toBeCloseTo(932, 0);
+    await selectConversation(page, chat.title);
+    await input.focus();
+    const late = await page.evaluate(async () => {
+      window.dispatchEvent(new CustomEvent('tarobot-keyboard', { detail: { height: 350, at: Date.now() - 300, duration: 383 } }));
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const shell = document.querySelector('.app-shell')!;
+      return { height: shell.getBoundingClientRect().height, transitions: shell.getAnimations().filter(a => a.playState === 'running').length };
+    });
+    // The report is newer than the OS duration but older than the chat cap.
+    // It must land directly, rather than replaying the shorter page motion.
+    expect(late.height).toBeCloseTo(582, 0); expect(late.transitions).toBe(0);
     await expect(input).toHaveValue('保留草稿');
     expect(await page.evaluate(() => scrollY)).toBe(0);
   } finally { await page.close(); await hub.close(); await vite.close(); await rm(root, { recursive: true, force: true }); }

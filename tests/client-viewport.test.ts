@@ -178,6 +178,35 @@ describe('window-relative iOS keyboard reports', () => {
     expect(v.attributes.has('data-keyboard-motion')).toBe(false);
     c.dispose();
   });
+  it('caps the native iOS chat motion while keeping the general OS timing and latency', () => {
+    vi.useFakeTimers(); vi.setSystemTime(10_000);
+    const v = fakeViewport(932);
+    Object.assign(v.win, { tarobotKeyboardInsets: { supported: () => true } });
+    const c = installAppViewport(v.win, v.doc, nativeKeyboardMotion.ios);
+    v.keyboard(350, 9_980, 383); v.flush();
+    expect(v.properties.get('--ios-chat-keyboard-motion')).toBe('250ms cubic-bezier(.2,.35,.45,1) -20ms');
+    expect(v.properties.get('--keyboard-motion')).toBe('383ms cubic-bezier(.2,.35,.45,1) -20ms');
+    // A short native animation is never extended by the cap, including hide.
+    v.keyboard(0, 10_000, 180); v.flush();
+    expect(v.properties.get('--ios-chat-keyboard-motion')).toBe('180ms cubic-bezier(.2,.35,.45,1) 0ms');
+    // Corrections and display changes keep the existing immediate path.
+    v.keyboard(280, 10_000, 0); v.flush();
+    expect(v.attributes.has('data-keyboard-motion')).toBe(false);
+    v.keyboard(300, 9_700, 383); v.flush();
+    expect(v.properties.get('--ios-chat-keyboard-motion')).toBe('250ms cubic-bezier(.2,.35,.45,1) -300ms');
+    v.resize(600); v.flush();
+    expect(v.attributes.has('data-keyboard-motion')).toBe(false);
+    c.dispose();
+    expect(v.properties.has('--ios-chat-keyboard-motion')).toBe(false);
+  });
+  it('leaves Android and old iOS without a chat motion override', () => {
+    for (const timing of [nativeKeyboardMotion.android, nativeKeyboardMotion.ios]) {
+      const v = fakeViewport(932), c = installAppViewport(v.win, v.doc, timing);
+      v.keyboard(350, Date.now(), 383); v.flush();
+      expect(v.properties.has('--ios-chat-keyboard-motion')).toBe(false);
+      c.dispose();
+    }
+  });
   it('requires explicit new-shell capability and leaves old or malformed shells on fallback', () => {
     for (const capability of [undefined, {}, { supported: () => false }, { supported: () => { throw Error('missing'); } }]) {
       expect(hasWindowKeyboardInsets({ tarobotKeyboardInsets: capability } as unknown as Window)).toBe(false);

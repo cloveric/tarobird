@@ -70,7 +70,7 @@ export function installAppViewport(win: Window, doc: Document, nativeOverlay: Ke
   let motionKeyboard = 0, motionSentAt: number | undefined, reportedDuration: number | undefined, motionTimer: ReturnType<typeof setTimeout> | undefined;
   let width = win.innerWidth, height = win.innerHeight;
   const handles: Array<{ remove(): Promise<void> }> = [];
-  const previous = { height: root.style.getPropertyValue('--app-height'), top: root.style.getPropertyValue('--app-top'), motion: root.style.getPropertyValue('--keyboard-motion'), keyboard: root.getAttribute('data-keyboard-open'), resize: root.getAttribute('data-keyboard-resize') };
+  const previous = { height: root.style.getPropertyValue('--app-height'), top: root.style.getPropertyValue('--app-top'), motion: root.style.getPropertyValue('--keyboard-motion'), chatMotion: root.style.getPropertyValue('--ios-chat-keyboard-motion'), keyboard: root.getAttribute('data-keyboard-open'), resize: root.getAttribute('data-keyboard-resize') };
   if (motion) root.setAttribute('data-keyboard-resize', 'overlay');
   const set = (name: string, value: string) => { if (root.style.getPropertyValue(name) !== value) { if (value) root.style.setProperty(name, value); else root.style.removeProperty(name); } };
   const settle = () => { clearTimeout(motionTimer); motionTimer = undefined; root.removeAttribute('data-keyboard-motion'); };
@@ -96,6 +96,10 @@ export function installAppViewport(win: Window, doc: Document, nativeOverlay: Ke
       else {
         // The native event can arrive frames after the OS animation started.
         set('--keyboard-motion', `${duration}ms ${windowInsets ? iosWindowKeyboardEasing : motion.easing} ${-Math.round(lag)}ms`);
+        // The chat can settle sooner than UIKit's long spring tail. This is a
+        // separate value: forms/sheets and all other native paths retain the
+        // original OS timing, including zero-duration and stale corrections.
+        if (windowInsets) set('--ios-chat-keyboard-motion', `${Math.min(duration, 250)}ms ${iosWindowKeyboardEasing} ${-Math.round(lag)}ms`);
         root.setAttribute('data-keyboard-motion', '');
         clearTimeout(motionTimer);
         motionTimer = setTimeout(settle, duration - lag + 100);
@@ -176,7 +180,7 @@ export function installAppViewport(win: Window, doc: Document, nativeOverlay: Ke
       win.removeEventListener('resize', schedule); visual?.removeEventListener('resize', schedule); visual?.removeEventListener('scroll', schedule); coarse.removeEventListener('change', schedule);
       if (motion) { win.removeEventListener('tarobot-keyboard', insetEvent); doc.removeEventListener('focusin', focusIn); }
       for (const handle of handles) void handle.remove().catch(() => undefined);
-      set('--app-height', previous.height); set('--app-top', previous.top); set('--keyboard-motion', previous.motion);
+      set('--app-height', previous.height); set('--app-top', previous.top); set('--keyboard-motion', previous.motion); set('--ios-chat-keyboard-motion', previous.chatMotion);
       root.removeAttribute('data-keyboard-motion');
       if (previous.keyboard === null) root.removeAttribute('data-keyboard-open'); else root.setAttribute('data-keyboard-open', previous.keyboard);
       if (previous.resize === null) root.removeAttribute('data-keyboard-resize'); else root.setAttribute('data-keyboard-resize', previous.resize);

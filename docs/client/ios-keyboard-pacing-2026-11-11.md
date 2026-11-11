@@ -44,3 +44,7 @@ owner-App update is performed by this change.
 
 This is a client presentation change. Host APIs, data, permissions, dependencies
 and the headless CLI are unaffected; no CLI command is needed.
+
+The [2026-11-12 chat follow-up](ios-chat-keyboard-speed-2026-11-12.md) adds a
+separate duration cap to two phone-chat transitions. The general motion and
+other surfaces described above retain their existing OS duration.

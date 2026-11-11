@@ -3879,6 +3879,13 @@ the shell and input sheets through the shared motion setting; browser-only
 viewport changes keep their own path. See [keyboard motion and acceptance
 limits](client/keyboard-motion-2026-10-23.md) and [fast mobile navigation](client/mobile-motion-2026-10-23.md).
 Plugin registration is not physical-device acceptance.
+The [iOS chat timing adjustment](client/ios-chat-keyboard-speed-2026-11-12.md)
+uses a separate capped page transition only for a focused phone composer opening
+the keyboard and inbox height restoration after a native hide report. General
+foreground form/sheet motion, Android and old iOS shells retain their timing. Tests:
+`client-viewport`, browser `ios-keyboard-motion`, `keyboard` and
+`ios-keyboard-dismiss`; native component evidence is distinct from full-App
+physical acceptance.
 New iOS binaries advertise `tarobotKeyboardInsets.supported()` from
 `client/ios/App/App/KeyboardInsets.swift`. `UIKeyboardLayoutGuide` is converted
 into the current WebView's coordinates and reports overlap through the existing

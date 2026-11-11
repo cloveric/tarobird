@@ -20,6 +20,18 @@
   :root[data-platform=ios] .conversation-header .chat-identity > .profile-avatar { display: none; }
 }
 @media (max-width: 760px) {
+  /* Only native iOS chat opening and inbox height restoration use the shorter page
+     motion. Keyboard geometry and the general sheet/form timing stay native.
+     Older shells have no override and keep the existing fallback. */
+  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion][data-keyboard-open=true] .app-shell.mobile-chat-open:has(> .conversation-main > .composer-wrap :focus) {
+    transition: height var(--ios-chat-keyboard-motion, var(--keyboard-motion, .25s ease-out));
+  }
+  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion][data-keyboard-open=true] .app-shell.mobile-chat-open > .conversation-main > .composer-wrap:focus-within {
+    transition: padding-bottom var(--ios-chat-keyboard-motion, var(--keyboard-motion, .25s ease-out));
+  }
+  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion][data-keyboard-open=false] .app-shell.mobile-home-open {
+    transition: height var(--ios-chat-keyboard-motion, var(--keyboard-motion, .25s ease-out));
+  }
   /* Give the icon/label groups breathing room below the separator without
      borrowing space from the bottom home-indicator inset. */
   :root[data-platform=ios] .mobile-home .mh-tabbar { padding-top: 6px; }
