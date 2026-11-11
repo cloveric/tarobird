@@ -59,11 +59,11 @@ is not approval to reduce validation.
   installed-device acceptance remain separate, including unavailable Windows
   native tests; do not claim a missing test passed.
 - Publish only affected platform channels. Unaffected mobile channels may keep
-  their previous release; never relabel or replace their old packages. Source
+  their previous release unless the owner includes a corrected rebuild. Source
   version fields stay synchronized. Desktop releases include the matching
   standalone CLI and check its clean install/upgrade and bundled-Host match.
 - Keep explicit release authorization, English notes, source/upload privacy
-  hooks, immutable released assets and the guarded cleanup requirements.
+  hooks, verified replacement records and the guarded cleanup requirements.
 
 The full profile below remains the default for feature releases and changes
 outside the recorded patch scope.
@@ -397,7 +397,9 @@ node scripts/release-artifact-names.mjs --kind cli --version VERSION --source /p
 The helper refuses overwrites and verifies byte identity. The npm package name
 and native identities remain compatible. Release review must reject old-brand
 installer filenames and inspect the actual DMG App/volume and Windows installer
-shortcuts/default directory. Existing published versions are not overwritten.
+shortcuts/default directory. Corrected same-version replacements follow
+[versioning](versioning.md): increment mobile upload counters, verify all new
+bytes and update source bindings, checksums and signatures together.
 
 Android clients through 1.1.1 only discover the old APK filename. The first
 TaroBird-only APK release requires a manual download for those existing users;

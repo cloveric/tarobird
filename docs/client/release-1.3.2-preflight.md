@@ -1,4 +1,8 @@
-# TaroBird 1.3.2 corrected scoped rebuild
+# TaroBird 1.3.2 plan — cancelled before publication
+
+The owner subsequently selected a corrected 1.3.1 release and Android asset
+replacement. No 1.3.2 package was published. See the current
+[1.3.1 plan](release-1.3.1-preflight.md); the text below is historical planning.
 
 The owner authorized a unified macOS, Windows, Android and iOS 1.3.2 release on
 2026-11-11 after a build-provenance error was identified during 1.3.1 packaging.

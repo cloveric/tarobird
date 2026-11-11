@@ -1,11 +1,21 @@
 # TaroBird 1.3.1 mobile scoped patch
 
-This initial plan was superseded by the owner-authorized
-[1.3.2 corrected rebuild](release-1.3.2-preflight.md). Android 1.3.1 was published
-and iOS 1.3.1 (1) was uploaded before a reused build dependency directory was
-found to differ from its lockfile. Those artifacts are not overwritten; desktop
-1.3.1 candidates were withheld. The native UI checks below do not establish
-lockfile-consistent build provenance.
+The owner expanded this initial mobile plan to a corrected four-platform 1.3.1
+rebuild on 2026-11-11, superseding the briefly prepared 1.3.2 plan. The existing
+Android 1.3.1 package will be replaced with verified rebuilt bytes, versionCode
+2026110408; iOS will use 1.3.1 (2). macOS, Windows and Host/CLI also use 1.3.1.
+The owner explicitly removed the prohibition on same-version asset replacement.
+
+The initial mobile build reused a dependency directory with versions differing
+from the frozen lockfiles. Native UI checks passed but did not validate build
+provenance. Corrected builds use a fresh npm ci tree, verified against the exact
+root/client lockfiles. No dependency resolutions are upgraded. All packages are
+rebuilt, signed, scanned and read back. Preserve the owner's installed Mac for
+their in-app upgrade test. Retain original hashes privately and disclose the
+Android replacement and same-version manual-update limitation in release notes.
+
+The remainder records the initial mobile scope; the corrected counters and
+expanded platform scope above take precedence.
 
 The owner authorized an iOS/Android-only small release on 2026-11-11.
 The published baseline is `7765ef35a9b27edffa3556524bf06897cda456d8` (1.3.0);

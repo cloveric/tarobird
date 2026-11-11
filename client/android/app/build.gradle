@@ -13,7 +13,7 @@ android {
         // Increase the code for each installable build so Android can update
         // the existing app without discarding its paired hosts and local data.
         versionCode providers.gradleProperty('tarobotVersionCode').orElse('2026110408').get().toInteger()
-        versionName providers.gradleProperty('tarobotVersionName').orElse('1.3.2').get()
+        versionName providers.gradleProperty('tarobotVersionName').orElse('1.3.1').get()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Public OAuth application identity only. User credentials stay in AndroidKeyStore.
         def updateRepository = providers.gradleProperty('tarobotUpdateRepository').orElse(providers.environmentVariable('TAROBOT_GITHUB_REPOSITORY')).getOrElse('')

@@ -12,8 +12,8 @@ This change does not publish a release or install an App.
 | Incompatible public CLI, persisted-data or protocol contract requiring migration | MAJOR | 1.4.3 → 2.0.0 |
 
 Choose the largest applicable increment for a release. Commits, PRs and build
-retries do not each get a new product version. Do not reset to 1.0.0 on rename,
-reuse a published version for new bytes, or use dates as semantic versions.
+retries do not each get a new product version. Do not reset to 1.0.0 on rename
+or use dates as semantic versions.
 
 ## One version across distributions
 
@@ -41,11 +41,18 @@ the previous store build and remain ≤ 2100000000; its retained initial value
 continues the old counter and is no longer interpreted as a date.
 
 After any upload, record product version, platform counter, source SHA, channel,
-artifact digest, signing/readback results and acceptance scope. Never replace
-a released asset with different bytes under the same version. If a published
-GitHub binary needs a fix, increment PATCH. Store-only re-uploads require a new
-build counter and a recorded reason; they cannot silently diverge from the
-corresponding source/product version.
+artifact digest, signing/readback results and acceptance scope. A corrected
+GitHub package may replace an asset under the same product version. Rebuild and
+verify the replacement; update the corresponding signatures, checksums, update
+manifests and source binding together, retain the previous hashes in private
+release evidence, and describe the replacement in the release notes. State that
+clients already on the same version may require a manual download. Android
+rebuilds increase versionCode; TestFlight re-uploads increase the build number.
+Store upload counters are never reused for different bytes.
+
+On 2026-11-11 the owner removed the previous same-version asset replacement
+prohibition and requested a corrected 1.3.1 release, including replacement of
+the Android package. This supersedes the briefly prepared 1.3.2 plan.
 
 Internal non-distributed helper crate package versions (currently 0.1.0),
 database schema numbers, tool-schema versions, capability versions and upstream

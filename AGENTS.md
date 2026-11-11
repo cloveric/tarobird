@@ -16,7 +16,9 @@ The migration publishes no Release and installs no App. Releases stay empty
 until the owner explicitly requests publication. The first release here contains
 only the then-current version; do not import the old release catalog. Write all
 future GitHub Release titles and notes in **English**. Continue semantic
-versioning; migration does not reset or reuse a released version.
+versioning; migration does not reset the product version. Corrected same-version
+package replacements follow the verification, counter and disclosure rules in
+[versioning](docs/versioning.md).
 
 Before the first new release, build with `TAROBOT_GITHUB_REPOSITORY=cloveric/tarobird`
 and verify updater OAuth access and downloaded signatures for this repository.
