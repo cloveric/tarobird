@@ -60,7 +60,9 @@ for (const platform of ['web', 'android', 'ios']) test(`${platform} keeps its ow
       const navBox = (await navigation.boundingBox())!;
       expect(navBox.y + navBox.height).toBeCloseTo(844, 0);
       // Android reserves its inset in the native window, not again in CSS.
-      expect(navBox.height - tabHeight).toBeCloseTo(platform === 'android' ? 1 : 35, 0);
+      // iOS adds breathing room below the separator; its gesture inset is
+      // still reserved in full, separately from that top padding.
+      expect(navBox.height - tabHeight).toBeCloseTo(platform === 'android' ? 1 : platform === 'ios' ? 41 : 35, 0);
     }
     await page.reload(); await expect(mobileHome(page)).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
@@ -75,7 +77,7 @@ for (const platform of ['web', 'android', 'ios']) test(`${platform} keeps its ow
     if (platform === 'ios') {
       // Small/large phones and a short split window use their actual inset,
       // with no fixed safe-area subtraction to hide the bottom whitespace.
-      for (const [width, height, bottom] of [[320, 568, 0], [375, 812, 34], [393, 852, 34], [430, 932, 34], [466, 678, 34], [600, 400, 21]]) {
+      for (const [width, height, bottom] of [[320, 568, 0], [375, 812, 34], [393, 852, 34], [430, 932, 34], [440, 956, 34], [466, 678, 34], [600, 400, 21]]) {
         await page.setViewportSize({ width, height });
         await page.evaluate(inset => document.documentElement.style.setProperty('--safe-area-inset-bottom', `${inset}px`), bottom);
         const nav = mobileHome(page).locator('.mh-tabbar');
@@ -89,6 +91,8 @@ for (const platform of ['web', 'android', 'ios']) test(`${platform} keeps its ow
           const target = (await tab.boundingBox())!;
           expect(target.height).toBeGreaterThanOrEqual(44);
           expect(target.y + target.height).toBeCloseTo(height - bottom, 0);
+          const icon = (await tab.locator('.mh-tab-icon').boundingBox())!;
+          expect(icon.y - box.y).toBeGreaterThanOrEqual(9);
           expect(await tab.evaluate(node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight)).toBe(true);
         }
         await nav.getByRole('button', { name: '我的', exact: true }).click();

@@ -34,3 +34,25 @@ Browser platform hints and injected safe insets are layout evidence, not
 physical-device acceptance. The supplied real screenshot and test artifacts
 remain outside Git. Uploads use the new private `cloveric/tarobird` repository
 and its exact staged/outgoing privacy and Gitleaks gates.
+
+## Separator spacing follow-up (2026-11-11)
+
+The owner reported that the Message, Bot and Me icon/label groups sat too close
+to the top separator on iOS. The phone-width iOS navigation now reserves 6 px
+above its buttons, giving the groups more breathing room. The row keeps its
+existing density sizing, icons, labels and touch targets. The full bottom
+gesture inset remains separate; the navigation is 6 px taller and uses that
+much more space above its existing bottom edge. Android, browser and desktop
+geometry are unchanged. This remains presentation-only, with no Host/CLI,
+dependency or native-code change.
+
+Chromium layout checks cover all three platforms and density choices, seven
+iOS window sizes (320–600 px wide), 0/21/34 px bottom insets, tab switching,
+English labels and enlarged text. The iOS checks confirm the icon groups clear
+the separator while buttons stay above the full gesture inset and text remains
+inside its target. Navigation screenshots were visually inspected. Client
+translation/type/production and standalone Host builds passed.
+
+These are browser layout checks with injected platform/inset values, not
+physical iPhone acceptance. This follow-up does not publish a release or
+change an installed App.

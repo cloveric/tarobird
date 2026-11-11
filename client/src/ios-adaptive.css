@@ -20,6 +20,9 @@
   :root[data-platform=ios] .conversation-header .chat-identity > .profile-avatar { display: none; }
 }
 @media (max-width: 760px) {
+  /* Give the icon/label groups breathing room below the separator without
+     borrowing space from the bottom home-indicator inset. */
+  :root[data-platform=ios] .mobile-home .mh-tabbar { padding-top: 6px; }
   /* Keep the iPhone navigation stack compact while preserving the full gesture
      inset on its parent. Intrinsic icon/label spacing must fit the density row;
      min-height alone left Compact as tall as Standard. Let enlarged text grow. */
