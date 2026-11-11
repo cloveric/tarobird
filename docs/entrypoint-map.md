@@ -2145,9 +2145,17 @@ and the existing network/run/delete suites listed in that audit.
   locators and independent queue controls. Stop impact is shown on demand.
   On ordinary native phone windows below 600px without a task bar, the pending
   preview and selector now share one row; without a queue entry, explanatory
-  text opens the existing help. Larger text can wrap the controls. Task/dock,
-  expanded-window and desktop layouts retain their existing rows. Counts and
-  the phone stop control follow theme accents. See [phone send-mode row](client/phone-send-mode-row-2026-11-11.md).
+  text opens the existing help. Larger text can wrap the controls. Task/dock and
+  native expanded-window layouts retain their existing rows. Counts and the
+  phone stop control follow theme accents. See [phone send-mode row](client/phone-send-mode-row-2026-11-11.md).
+  Desktop/browser Codex direct chats have a separately scoped capsule row in
+  `codex-desktop-composer.css`, enabled by the presentation-only
+  `is-codex-direct` marker. It excludes native iOS/Android and conversation panes,
+  preserving background-progress layout and all existing send/queue handlers.
+  Simple Codex task entries can share the row. Browser
+  `desktop-codex-composer` covers long previews, Chinese/English, window and
+  Workbench constraints, help/queue access and draft retention. See
+  [desktop Codex presentation](client/desktop-codex-composer-2026-11-12.md).
   The typing field and touch targets keep their existing sizes. This is App
   presentation only; Host queue semantics and headless CLI are unchanged.
   A background-group locator and native task manager share the send-choice row

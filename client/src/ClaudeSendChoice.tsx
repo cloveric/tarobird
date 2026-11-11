@@ -3,6 +3,7 @@ import { Check, CircleHelp } from 'lucide-react';
 import { CreationDialog } from './CreationDialog.js';
 import { t, useLocale } from './i18n.js';
 import './claude-send-choice.css';
+import './codex-desktop-composer.css';
 
 /** Chooses a route only; the existing Send/Enter handler performs the write. */
 export function ClaudeSendChoice({ next, lockedToNext, disabled, change, compact, explicitSteering = false }: {

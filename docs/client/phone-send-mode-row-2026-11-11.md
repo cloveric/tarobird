@@ -7,6 +7,8 @@ than 600 CSS pixels now share one row when there is no native task/progress bar.
 The width boundary preserves expanded windows; narrow cover/split windows use
 the same phone layout. Desktop, web, ADHD and task/progress arrangements retain
 their existing layout.
+A later [desktop Codex refinement](desktop-codex-composer-2026-11-12.md) has its
+own scope and leaves these native phone rules unchanged.
 
 - With a queue entry, its count and shortened preview occupy the left side and
   the existing segmented selector occupies the right. The queue's actual DOM

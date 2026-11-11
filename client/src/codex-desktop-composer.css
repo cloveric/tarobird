@@ -1,0 +1,114 @@
+/* Desktop and browser Codex: the pending-queue entry and the send mode share
+   one row of light capsules above the field, following the accepted phone
+   row. Scope comes from the platform attribute and App's Codex class, never
+   from width; width only decides what yields. Native phones, Duo, ADHD
+   panes, Claude and other engines keep their rules above. An active
+   background-group bar keeps its existing two-row arrangement. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct {
+  --cx-target:32px; --cx-pill:28px; --cx-inset:calc((var(--cx-target) - var(--cx-pill)) / 2); --cx-font:12px; --cx-radius:999px;
+}
+/* The browser's own phone shell keeps full touch targets around 36px pills. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct.is-phone { --cx-target:44px; --cx-pill:36px; --cx-font:13px; }
+:root[data-palette=cli]:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct { --cx-radius:0px; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:has(> :is(.prompt-queue,.claude-send-choice)):not(:has(.conversation-task-bar.is-compact)) {
+  display:flex; flex-wrap:wrap; align-items:center; gap:0 8px; min-width:0; padding-bottom:calc(8px - var(--cx-inset));
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:has(> :is(.prompt-queue,.claude-send-choice)):not(:has(.conversation-task-bar.is-compact)) > .engine-tasks { display:contents; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:has(> :is(.prompt-queue,.claude-send-choice)):not(:has(.conversation-task-bar.is-compact)) .conversation-task-bar { flex:0 1 auto; min-width:0; margin:0; border:0; background:transparent; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:has(> :is(.prompt-queue,.claude-send-choice)):not(:has(.conversation-task-bar.is-compact)) .engine-tasks-trigger { min-width:0; min-height:var(--cx-target); padding:0 4px; gap:4px; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:has(> .claude-send-choice):has(.conversation-task-bar.is-compact) { padding-bottom:calc(8px - var(--cx-inset)); }
+/* The slot reserves the free width and reports it; the capsule inside hugs
+   its content, so a short entry never stretches into a bar. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:not(:has(.conversation-task-bar.is-compact)) > .prompt-queue {
+  container:codex-queue / inline-size; flex:1 1 0; min-width:min(100%,150px); height:var(--cx-target); margin:0;
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:not(:has(.conversation-task-bar.is-compact)) > .prompt-queue[data-state=offline] { min-width:min(100%,210px); }
+/* A fully paused queue is short status: reserve it and wrap the row first. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:not(:has(.conversation-task-bar.is-compact)) > .prompt-queue[data-state=paused] { min-width:min(100%,270px); }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct:not(:has(.conversation-task-bar.is-compact)) > .claude-send-choice { flex:none; max-width:100%; margin:0 0 0 auto; }
+/* The preview yields first and withdraws whole rather than leave a few
+   clipped glyphs; count, paused and offline status keep their room. */
+@container codex-queue (max-width:250px) {
+  :root:not([data-platform=ios],[data-platform=android]) .composer-accessories.is-codex-direct .prompt-queue:not([data-state=paused]) .prompt-queue-next { display:none; }
+}
+
+/* Queue entry: a recessed capsule drawn inside the full hit target. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger,
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger:hover:not(:disabled) {
+  position:relative; isolation:isolate; display:inline-flex; vertical-align:top; width:auto; max-width:min(100%,520px); height:var(--cx-target); min-height:var(--cx-target); gap:6px; padding:0 8px 0 11px;
+  border:0; border-radius:var(--cx-radius); background:transparent; color:var(--text); font-size:var(--cx-font); line-height:1.4; outline-offset:calc(-1px - var(--cx-inset));
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger::before {
+  content:""; position:absolute; z-index:-1; inset:var(--cx-inset) 0; pointer-events:none; border-radius:var(--cx-radius); background:var(--surface); transition:background-color var(--t-fast) var(--ease);
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger:active:not(:disabled)::before { background:var(--surface-alt); transition-duration:0s; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger > svg { color:var(--muted); }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger > small { font-size:.96em; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger > small:not(.prompt-queue-next),
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue[data-state=paused] .prompt-queue-next { flex:none; white-space:nowrap; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-total { display:none; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-compact-total { display:inline-flex; align-items:center; gap:6px; }
+/* The count is the row's one solid mark: theme accent, never plain black. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-count {
+  display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; min-width:1.74em; min-height:1.74em; padding:0 .5em; border-radius:var(--cx-radius);
+  font-size:.885em; font-weight:650; line-height:1; font-variant-numeric:tabular-nums;
+  background:var(--primary-bg); color:var(--on-primary); box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 14%,transparent);
+}
+:root[data-palette=mono]:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-count { background:var(--mono-summary-bg,#737373); color:var(--mono-summary-ink,#fff); }
+
+/* Send mode: a recessed capsule with one raised thumb. The selected label is
+   the darker, heavier one; the accent tints its ink and the thumb's edge. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice { gap:2px; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice fieldset {
+  --choice-inset:var(--cx-inset); --choice-thumb:var(--raised); --choice-thumb-shadow:0 1px 1px #0000000a,0 2px 6px #00000014; padding:0 2px;
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice fieldset::before { border-color:transparent; border-radius:var(--cx-radius); background:var(--surface); }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio] {
+  min-width:48px; min-height:var(--cx-target); padding:0 12px; color:var(--muted); font-size:var(--cx-font); transition:color var(--t-fast) var(--ease);
+}
+/* Each choice owns a thumb that grows from the shared edge, so a change
+   reads as one thumb crossing over without measuring either label. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio]::before {
+  inset:calc(var(--choice-inset) + 2px) 0; border-color:color-mix(in srgb,var(--choice-mark) 26%,var(--border)); border-radius:var(--cx-radius); background:var(--choice-thumb); box-shadow:var(--choice-thumb-shadow);
+  opacity:0; transform:scaleX(.7); transition:opacity var(--t-fast) var(--ease),transform var(--t-med) var(--ease-out);
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [data-mode=current]::before { transform-origin:100% 50%; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [data-mode=next]::before { transform-origin:0 50%; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio][aria-checked=true] { color:color-mix(in srgb,var(--choice-mark) 24%,var(--text)); font-weight:600; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio][aria-checked=true]::before { opacity:1; transform:none; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio]:focus-visible:not([aria-checked=true])::before { border-color:transparent; background:transparent; box-shadow:none; opacity:1; transform:none; }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice .send-choice-help { width:var(--cx-target); height:var(--cx-target); min-height:0; border-radius:var(--cx-radius); outline-offset:calc(-1px - var(--cx-inset)); }
+:root[data-theme=dark]:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice fieldset { --choice-thumb:color-mix(in srgb,var(--text) 9%,var(--surface-alt)); --choice-thumb-shadow:inset 0 1px 0 #ffffff0d,0 1px 2px #00000059; }
+@media(prefers-color-scheme:dark) {
+  :root[data-theme=system]:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice fieldset { --choice-thumb:color-mix(in srgb,var(--text) 9%,var(--surface-alt)); --choice-thumb-shadow:inset 0 1px 0 #ffffff0d,0 1px 2px #00000059; }
+}
+@media(hover:hover) {
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger:hover:not(:disabled)::before { background:var(--surface-alt); }
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio]:hover:not(:disabled):not([aria-checked=true]) { color:var(--grey); }
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice .send-choice-help:hover { background:var(--surface); color:var(--text); }
+}
+@media(prefers-reduced-motion:reduce) {
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .prompt-queue-trigger::before,
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio],
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio]::before { transition:none; }
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio]::before { transform:none; }
+}
+@media(forced-colors:active) {
+  :root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-accessories.is-codex-direct .claude-send-choice [role=radio][aria-checked=true]::before { border-color:Highlight; }
+}
+
+/* The live Stop carries the selected mode's accent instead of neutral grey.
+   A wide window shows Stop beside Send, so Send stays the one solid control
+   and Stop is tinted; in the phone shell Stop occupies the Send slot and
+   takes the solid control tokens, as on native phones. Monochrome without an
+   accent keeps the neutral surface. */
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-wrap:has(> .composer-accessories.is-codex-direct:not(.is-phone)) .composer-toolbar .icon-button.composer-stop.is-live {
+  background-color:color-mix(in srgb,var(--mono-mark,var(--accent)) 30%,var(--raised)); color:color-mix(in srgb,var(--mono-mark,var(--accent)) 50%,var(--text));
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-wrap:has(> .composer-accessories.is-codex-direct:not(.is-phone)) .composer-toolbar .icon-button.composer-stop.is-live:hover:not(:disabled) { background-color:color-mix(in srgb,var(--mono-mark,var(--accent)) 38%,var(--raised)); }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-wrap:has(> .composer-accessories.is-codex-direct:not(.is-phone)) .composer-toolbar .icon-button.composer-stop.is-live:active:not(:disabled) { background-color:color-mix(in srgb,var(--mono-mark,var(--accent)) 44%,var(--raised)); }
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-wrap:has(> .composer-accessories.is-codex-direct.is-phone) .composer-toolbar .icon-button.composer-stop.is-live {
+  background-color:var(--mono-control-bg,var(--primary-bg)); color:var(--mono-control-ink,var(--on-primary));
+}
+:root:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-wrap:has(> .composer-accessories.is-codex-direct.is-phone) .composer-toolbar .icon-button.composer-stop.is-live:is(:hover,:active):not(:disabled) { background-color:var(--mono-control-hover,var(--primary-hover)); }
+:root[data-palette=mono][data-mono-accent=none]:not([data-platform=ios],[data-platform=android]) .app-shell:not(.conversation-pane) .composer-wrap:has(> .composer-accessories.is-codex-direct) .composer-toolbar .icon-button.composer-stop.is-live { background-color:var(--surface); color:var(--grey); }
