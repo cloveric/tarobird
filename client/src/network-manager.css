@@ -212,7 +212,7 @@
 .network-invite-button .network-invite-copy { flex: 1; min-width: 0; display: grid; gap: 4px; }
 .network-invite-button > svg { flex: none; }
 .network-invite-button strong { font-size: var(--network-title-size); font-weight: 600; }
-.network-invite-button small { color: inherit; font-size: 12px; opacity: .9; font-weight: 400; word-break: keep-all; }
+.network-invite-button small { color: inherit; font-size: 12px; font-weight: 400; word-break: keep-all; }
 .network-device-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .network-device-shortcuts button { flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--raised); color: var(--grey); }
 .network-device-shortcuts button > svg { flex: none; color: var(--accent); }

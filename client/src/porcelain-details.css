@@ -506,7 +506,7 @@
 :root[data-palette=mono] :is(.pairing-page,.pairing-scanner,.pairing-wizard,.preferences-dialog,.network-manager,.bot-setup,.integration-recommendations,.routes-settings,.voice-settings,.local-asr-setup,.local-connection-settings,.desktop-host-invite,.local-relay-settings,.pairing-pending) button.primary:not(.danger,.text-danger){
   --mono-control-bg:#e7e2dc;
   --mono-control-hover:#dbd5ce;
-  --mono-control-ink:#514c45;
+  --mono-control-ink:#171717;
   --primary-bg:var(--mono-control-bg);
   --primary-hover:var(--mono-control-hover);
   --on-primary:var(--mono-control-ink);
