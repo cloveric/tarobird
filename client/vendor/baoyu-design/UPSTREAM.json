@@ -1,12 +1,12 @@
 {
   "repository": "https://github.com/JimLiu/baoyu-design",
-  "commit": "807fe38ac8f0a82afcfba0d38ef3ef5c32e69c93",
-  "version": "2.12.2",
+  "commit": "64a874988262e558c9b071eb55b4d02038ca33f8",
+  "version": "2.13.0",
   "component": "claude-design",
   "files": {
     "LICENSE": "9be8148aa0237d67a619feb0973383ba82a37460263ad828ad3d06560ac7f9b6",
     "NOTICE.md": "bdac7a03b8677dde90bde49d5d6cb1a1832caf14a3b71f19db0357080a5225d3",
-    "README.md": "43b04505b2eaca1bb7439496f5e601367b0803e3c15262ba6defc63d79aa3ab3",
+    "README.md": "0b89e0cc168b35d468e90485a053b9bd3c27119a7b2a315d6f17be7c12235574",
     "editor/artifact-type/babel.min.js": "2623a9e22809915ce789b4461154e277ddce520d5a4320c14d44332a5d0dcea0",
     "editor/artifact-type/dc-runtime.js": "429daefce5f0e0b90e96b99287d877ff610fdb5d744cfc33c350af79b33ce420",
     "editor/artifact-type/fast-edit-worker.js": "0c3d14f30aa839e5ef765bf46b122a5c26f5811761789a7061b7c3ba961de7bf",

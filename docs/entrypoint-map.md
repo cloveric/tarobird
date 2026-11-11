@@ -1,5 +1,10 @@
 # Entrypoint Map
 
+[1.3.0 preflight](client/release-1.3.0-preflight.md) records the full stable
+release scope, public desktop updates, dependency compatibility and disposable
+Windows upgrade acceptance. Publication and installed-device receipts remain
+separate.
+
 [Duo scope](client/iphone-duo-scope-2026-11-10.md) keeps expanded-window keyboard,
 ADHD and spacing changes out of ordinary iPhone portrait and landscape layouts.
 

@@ -17,7 +17,7 @@ napi = { version = "=3.16.1", optional = true, default-features = false, feature
 napi-derive = { version = "=3.7.0", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-uuid = { version = "1.29.0", features = ["v4"] }
+uuid = { version = "1.29.2", features = ["v4"] }
 tokio = { version = "1.54.1", features = ["sync", "rt", "time", "macros"] }
 base64 = "0.23.1"
 [target.'cfg(target_os = "macos")'.dependencies]

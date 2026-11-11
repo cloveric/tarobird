@@ -1,12 +1,12 @@
 {
   "repository": "https://github.com/JimLiu/baoyu-design",
-  "commit": "807fe38ac8f0a82afcfba0d38ef3ef5c32e69c93",
-  "version": "2.12.2",
+  "commit": "64a874988262e558c9b071eb55b4d02038ca33f8",
+  "version": "2.13.0",
   "component": "claude-slides",
   "files": {
     "LICENSE": "9be8148aa0237d67a619feb0973383ba82a37460263ad828ad3d06560ac7f9b6",
     "NOTICE.md": "bdac7a03b8677dde90bde49d5d6cb1a1832caf14a3b71f19db0357080a5225d3",
-    "README.md": "8ae3bd34bbb8ef973055512e488e3ed61562f76c908cfb512a2e96bafc653e8b",
+    "README.md": "75bdf36ce4f8874f53576dc849361ceec157faf350ca7944e808f53ae42c21ff",
     "editor/artifact-type/reference/google-fonts-families.json": "82a204043c9adf9d3134fa1850513921b4269a3358671a2d6d8831f447b2ed4c",
     "editor/artifact-type/reference/google-fonts-notices.json": "b764de9e3b7a62974d60604d0a051a014a9a8e070001835a0964782473b6af64",
     "editor/artifact-type/reference/google-fonts-reserved.json": "ce9fc8edddf7222dab49edbdae00b8f7f2bc9c99c8832648e61dd93a0140f9be",

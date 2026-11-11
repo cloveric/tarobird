@@ -1,0 +1,75 @@
+name: Windows release upgrade acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version of the reviewed draft release to verify
+        required: true
+        type: string
+      public_key:
+        description: Public Minisign verification key (never a private key)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  upgrade:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      TAROBOT_WINDOWS_ACCEPTANCE: disposable
+      CARGO_TARGET_DIR: ${{ runner.temp }}/windows-native-tests.noindex
+      CARGO_BUILD_TARGET: x86_64-pc-windows-msvc
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Download the source-bound candidate and released baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_VERSION: ${{ inputs.version }}
+          TAROBOT_UPDATE_PUBLIC_KEY: ${{ inputs.public_key }}
+        run: |
+          if ($env:CANDIDATE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version" }
+          $version = (Get-Content release-version.json -Raw | ConvertFrom-Json).version
+          if ($version -ne $env:CANDIDATE_VERSION) { throw "Candidate version differs from source" }
+          $tag = "windows-tarobot-v$version"
+          $release = gh release view $tag --repo $env:GITHUB_REPOSITORY --json targetCommitish,isDraft | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$release.isDraft -or $release.targetCommitish -ne $env:GITHUB_SHA) { throw "Expected a draft bound to this exact source commit" }
+          gh release download $tag --repo $env:GITHUB_REPOSITORY --dir test-results/candidate --pattern '*-setup.exe*'
+          if ($LASTEXITCODE -ne 0) { throw "Candidate download failed" }
+          gh release download windows-tarobot-v1.2.1 --repo $env:GITHUB_REPOSITORY --dir test-results/baseline --pattern '*-setup.exe*'
+          if ($LASTEXITCODE -ne 0) { throw "Baseline download failed" }
+          node client/scripts/windows-update-manifest.mjs --verify-only --installer "test-results/candidate/TaroBird_${version}_x64-setup.exe" --version $version
+          if ($LASTEXITCODE -ne 0) { throw "Candidate signature failed" }
+          node client/scripts/windows-update-manifest.mjs --verify-only --installer test-results/baseline/TaroBird_1.2.1_x64-setup.exe --version 1.2.1
+          if ($LASTEXITCODE -ne 0) { throw "Baseline signature failed" }
+          Get-ChildItem test-results/candidate/*-setup.exe | Get-FileHash -Algorithm SHA256 | ConvertTo-Json | Set-Content test-results/candidate-sha256.json
+      - run: npm ci
+      - run: npm run build
+      - name: Native updater and real released-App upgrade
+        shell: pwsh
+        env:
+          CANDIDATE_VERSION: ${{ inputs.version }}
+        run: |
+          node client/scripts/windows-acceptance.mjs --confirm-disposable-windows `
+            --installer test-results/baseline/TaroBird_1.2.1_x64-setup.exe --version 1.2.1 `
+            --next-installer "test-results/candidate/TaroBird_$($env:CANDIDATE_VERSION)_x64-setup.exe" --next-version $env:CANDIDATE_VERSION `
+            --report "$env:RUNNER_TEMP/windows-upgrade.noindex" --native-tests client/src-desktop-updater --scope install,update,native
+          if ($LASTEXITCODE -ne 0) { throw "Windows upgrade acceptance failed; publication remains blocked" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: TaroBird-windows-upgrade-evidence
+          path: |
+            test-results/candidate-sha256.json
+            ${{ runner.temp }}/windows-upgrade.noindex/windows-acceptance.*
+          if-no-files-found: warn

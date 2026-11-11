@@ -1,7 +1,7 @@
 import { sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { connect, sensitiveHeaders } from "node:http2";
-import webpush from "web-push";
+import * as webpush from "web-push";
 import { z } from "zod";
 import { apnsTopicSchema, pushSubscriptionSchema, type PushPayload, type PushSubscription } from "../../client-protocol/push.js";
 
