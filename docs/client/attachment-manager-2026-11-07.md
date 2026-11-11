@@ -65,3 +65,17 @@ requires `--yes` and reports `deleted`, `freedBytes`, the deleted `ids` and any
   reload shows 附件已删除 from the Hub; English at 1360, 820 and 390 px without
   overflow.
 - Browser and unit tests are not an installed App or physical phone run.
+
+### 2026-11-12: action area no longer covers attachments
+
+The sticky selection bar and delete confirmation used to paint over the bottom
+of the scrolling list. Attachment details now give those controls their own
+layout space, while the header, list and pagination scroll above them. Tall
+confirmations remain scrollable inside the available space.
+
+The browser regression first reproduced a 65 px overlap. It checks the list's
+scrollport stays above both action states, last-row selection, cancellation and
+pagination at 1360, 820 and 390 px. Existing deletion, message-location, English
+layout and workspace-file checks remain in the affected suites. Host/CLI APIs,
+authorization and deletion semantics are unchanged; no native or dependency
+change is required. This is browser evidence, not installed-App acceptance.

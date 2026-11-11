@@ -2730,6 +2730,11 @@ and the existing network/run/delete suites listed in that audit.
   and new forwards remain blocked even when physical purge must retry. Existing
   forwarded copies retain their independent lifetime. File Center clamps an
   emptied page to the last remaining page.
+  Attachment details reserve a separate action area below the scrolling content;
+  selection and delete confirmation cannot cover file rows or pagination.
+  Browser `attachment-manager` checks the scrollport boundary, last-row selection,
+  confirmation/cancel and pagination at desktop, narrow-window and phone sizes.
+  This layout correction does not change Host/CLI deletion or permission rules.
   Client small-attachment cache writes recheck deletion/cancellation inside the
   IndexedDB write transaction; late downloads cannot restore a deleted cache
   entry. Large-attachment disk copies serialize their capacity checks across

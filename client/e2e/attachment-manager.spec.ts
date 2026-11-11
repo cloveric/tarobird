@@ -115,3 +115,50 @@ for (const width of [1360, 820, 390]) test(`attachment management fits in Englis
     await page.screenshot({ path: info.outputPath(`attachments-en-${width}.png`) });
   } finally { await page.close(); await f.close(); }
 });
+
+for (const viewport of [{ width: 1360, height: 700 }, { width: 820, height: 620 }, { width: 390, height: 700 }]) test(`attachment actions do not cover scrolling rows at ${viewport.width}px`, async ({ page }, info) => {
+  await page.setViewportSize(viewport);
+  const f = await imageViewerFixture(page);
+  try {
+    const content = Buffer.from("layout fixture"), sha256 = createHash("sha256").update(content).digest("hex");
+    // A full page must scroll independently of both selection and confirmation.
+    for (let index = 0; index < 97; index++) {
+      const id = await f.hub.attachments.importForBot("photo", { conversationId: f.chat.id, name: `layout-${String(index).padStart(3, "0")}.txt`, mime: "text/plain", size: content.length, sha256 }, content);
+      await f.hub.store.db.run("INSERT INTO message_attachments(message_id,attachment_id) VALUES(?,?)", [f.batch.id, id]);
+    }
+    await openWorkspacePage(page, "文件中心");
+    const center = page.getByRole("dialog", { name: "文件中心", exact: true });
+    await center.getByRole("tab", { name: "附件管理", exact: true }).click();
+    await center.getByRole("button", { name: /图片手势/ }).click();
+    const details = center.getByRole("complementary", { name: "对话附件", exact: true });
+    await expect(details.locator(".attachment-list > li")).toHaveCount(100);
+    const footerOutsideList = async () => {
+      const bounds = await details.evaluate(root => {
+        const footer = root.querySelector(".attachment-selection, .attachment-confirm")!;
+        let scroller = root.querySelector(".attachment-list")!.parentElement!;
+        while (scroller !== root && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement!;
+        const content = scroller.getBoundingClientRect(), actions = footer.getBoundingClientRect();
+        return { contentBottom: content.bottom, contentHeight: content.height, actionsTop: actions.top };
+      });
+      expect(bounds.contentHeight).toBeGreaterThan(40);
+      expect(bounds.contentBottom).toBeLessThanOrEqual(bounds.actionsTop + 1);
+    };
+    await page.screenshot({ path: info.outputPath(`attachment-list-${viewport.width}.png`) });
+    await footerOutsideList();
+    const last = details.locator(".attachment-list input[type=checkbox]").last();
+    await last.check();
+    await details.getByRole("button", { name: "删除所选（1）", exact: true }).click();
+    const confirm = details.getByRole("alertdialog", { name: "确认删除附件", exact: true });
+    await expect(confirm).toBeInViewport({ ratio: 1 });
+    await footerOutsideList();
+    await page.screenshot({ path: info.outputPath(`attachment-confirm-layout-${viewport.width}.png`) });
+    await confirm.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(last).toBeChecked();
+    // Pagination and the final file remain reachable above the fixed actions.
+    await details.getByRole("button", { name: "下一页", exact: true }).click();
+    await expect(details.locator(".attachment-list > li")).toHaveCount(1);
+    await details.getByRole("checkbox").check();
+    await expect(details.getByRole("button", { name: "删除所选（1）", exact: true })).toBeEnabled();
+    await footerOutsideList();
+  } finally { await page.close(); await f.close(); }
+});

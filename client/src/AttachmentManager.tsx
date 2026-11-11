@@ -78,6 +78,7 @@ export function AttachmentManager({ connection, selected, select, locate, busyCh
       {summary && !summary.conversations.length && <p className="file-center-empty">{t("暂无占用空间的附件。")}</p>}
     </div>
     {selected && <aside className="file-details attachment-details" aria-label={t("对话附件")}>
+      <div className="attachment-scroll">
       <header><button className="file-action" disabled={busy} onClick={() => select("")}><ArrowLeft size={16}/>{t("返回对话列表")}</button>
         <h3>{conversation?.title || t("未命名对话")}</h3>{conversation && <p>{t("{0} 个附件 · 共 {1}", conversation.count, bytes(conversation.bytes))}</p>}</header>
       <div className="attachment-toolbar"><select aria-label={t("附件排序")} value={sort} disabled={busy} onChange={event => setSort(event.target.value === "time" ? "time" : "size")}><option value="size">{t("占用从大到小")}</option><option value="time">{t("最近上传")}</option></select>
@@ -90,6 +91,7 @@ export function AttachmentManager({ connection, selected, select, locate, busyCh
       </li>)}</ul>
       {list && list.conversationId === selected && !items.length && <p className="file-center-empty">{t("这个对话已没有可删除的附件。")}</p>}
       {pages > 1 && <nav className="file-pagination" aria-label={t("附件分页")}><button disabled={busy || page === 0} onClick={() => setOffset((page - 1) * ATTACHMENT_ADMIN_PAGE_SIZE)}>{t("上一页")}</button><span>{page + 1} / {pages}</span><button disabled={busy || page + 1 >= pages} onClick={() => setOffset((page + 1) * ATTACHMENT_ADMIN_PAGE_SIZE)}>{t("下一页")}</button></nav>}
+      </div>
       {confirm ? <div className="attachment-confirm" role="alertdialog" aria-label={t("确认删除附件")}>
         <p><strong>{t("删除 {0} 个附件，释放 {1}？", confirm.count, bytes(confirm.size))}</strong></p>
         <p className="muted">{t("删除后无法恢复；只删除主机上的这份，消息里会显示「附件已删除」。")}</p>

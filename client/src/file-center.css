@@ -30,7 +30,12 @@
 .file-center-tabs>button{min-height:30px;padding:4px 14px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--muted);font-size:13px;white-space:nowrap}
 .file-center-tabs>button[aria-selected=true]{background:var(--raised,var(--bg));color:var(--text);box-shadow:var(--elev-1)}
 .file-center-tabs>button:hover:not(:disabled){color:var(--text)}
-.attachment-details>header h3{font-size:16px;margin:4px 0 0;overflow-wrap:anywhere}.attachment-details>header p{font-size:12px;color:var(--grey);margin:0}
+/* Reserve the action area outside the scrollport, including when confirmation
+   expands. A sticky footer inside the list obscures rows and their controls. */
+.attachment-details{display:flex;flex-direction:column;overflow:hidden}
+.attachment-scroll{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+.attachment-scroll>header{display:flex;align-items:flex-start;flex-direction:column;gap:10px}
+.attachment-scroll>header h3{font-size:16px;margin:4px 0 0;overflow-wrap:anywhere}.attachment-scroll>header p{font-size:12px;color:var(--grey);margin:0}
 .attachment-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:16px 0 8px}
 .attachment-toolbar select{min-height:32px;font-size:12px;padding:5px 28px 5px 8px;max-width:60%}
 .attachment-browser .file-filter-count{flex:none;margin:0 2px 8px}
@@ -47,10 +52,8 @@
 .attachment-list small{font-size:11px;color:var(--grey);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .attachment-list>li[data-pending]>label{cursor:default;opacity:.7}
 .attachment-item-actions{display:flex;align-items:center;gap:4px;flex:none}
-.attachment-selection{position:sticky;bottom:0;display:flex;justify-content:flex-end;padding:12px 0 2px;background:var(--bg)}
-.attachment-confirm{position:sticky;bottom:0;margin-top:12px;padding:12px 14px;border:1px solid var(--red);border-radius:10px;background:var(--bg)}
-/* Sticky over a scrolling list: paint the gap above it so rows do not peek through. */
-.attachment-confirm::before{content:"";position:absolute;left:-2px;right:-2px;bottom:100%;height:28px;background:linear-gradient(transparent,var(--bg) 55%);pointer-events:none}
+.attachment-selection{flex:none;display:flex;justify-content:flex-end;padding:12px 0 2px;border-top:1px solid var(--border);background:var(--bg)}
+.attachment-confirm{flex:none;max-height:60%;overflow:auto;margin-top:12px;padding:12px 14px;border:1px solid var(--red);border-radius:10px;background:var(--bg)}
 .attachment-confirm p{margin:0 0 6px;font-size:13px}.attachment-confirm p.muted{font-size:12px;color:var(--grey)}
 .attachment-confirm>div{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
 .image-load-state.is-deleted{color:var(--grey)}
