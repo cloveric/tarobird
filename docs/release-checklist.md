@@ -38,10 +38,12 @@ is not approval to reduce validation.
 - Keep dependency and integrated-skill pins unchanged. Compare dependency
   resolution, vendor files and unaffected source blobs with the published
   baseline; record exact hashes and baseline receipt links. This profile does
-  not require a fresh whole-project upstream upgrade cycle or unrelated
-  model/editor/physical-device regression runs. Do not label inherited evidence
-  as a new run. Any dependency, protocol/schema, authorization, updater or
-  signing change requires its corresponding broader validation before release.
+  not require a fresh check/upgrade cycle for the explicitly listed integrated
+  products or unrelated model/editor/physical-device regression runs. Do not
+  label inherited evidence as a new run. Any dependency, protocol/schema, authorization, updater or
+  signing change requires its corresponding broader validation before release;
+  validation alone does not authorize an upgrade. The dependency-maintenance,
+  freeze and mobile-runtime rules below still apply to scoped patches.
 - Run failing-before/passing-after regressions for the fix, the affected existing
   suites, fresh builds and relevant real-runtime acceptance. Steps 1, 2 and 5
   below use this documented scope instead of unrelated full-suite/model runs.
@@ -65,12 +67,30 @@ outside the recorded patch scope.
 
 ## Full release upstream gate
 
-Before freezing a full release, complete the upstream integration update gate:
+This policy applies to future release work.
+The owner-authorized scoped-patch exception above remains; the dependency,
+freeze and validation rules below apply to both profiles.
 
-- Inventory all integrated open-source projects from package manifests,
-  vendored-source manifests and `LICENSING.md`, including Excalidraw, Vditor,
-  baoyu-design (canvas and slides), their bundled/adapted skills and future integrations; this is not a fixed three-project list.
-- Include skill entrypoints, authoring references and helper scripts in that inventory.
+Only the following **integrated products** are subject to the pre-release
+upstream check-and-upgrade gate:
+
+| Integrated product | Included integration resources |
+| --- | --- |
+| Excalidraw | Whiteboard integration and its bundled/adapted skill resources |
+| Vditor | Markdown editor integration and its bundled/adapted skill resources |
+| baoyu-design | Canvas and PPT integrations, including Baoyu Design/PPT skill files |
+
+This is a closed list. Add a future integration only when the owner explicitly
+names it for inclusion. Package manifests, vendor manifests and `LICENSING.md`
+help locate the listed products; they do not automatically enroll other projects.
+A listed product remains in this category even if distributed through npm.
+Other npm/Gradle/Cargo libraries, AndroidX, Firebase, OkHttp, frameworks and build
+tools are **ordinary dependencies**, not this release gate.
+
+Before freezing a full release, complete the following for the listed products:
+
+- Include the skill entrypoints, authoring references and helper scripts of the
+  integrated products in the list above.
   Review SKILL.md diffs even when package/editor versions have not changed. Keep
   skill/editor pins aligned; adapt upstream guidance to the App protocol rather
   than copying standalone server instructions. Verify skill resources in the
@@ -80,16 +100,128 @@ Before freezing a full release, complete the upstream integration update gate:
   commit actually bundled. Use the latest stable release; for commit-pinned
   projects without a release channel, check the latest upstream commit.
   Do not treat a prerelease as stable or a failed lookup as "no update".
-- If newer code exists, integrate it before publishing: review API/data-format
+- If newer code exists, integrate it before freezing: review API/data-format
   changes, preserve existing saved content, adapt the integration, refresh
   lockfiles/vendor hashes and copyright/license notices, and pass the affected
   desktop/mobile, Bot/CLI and build checks. A version-number edit or successful
   download alone is not an upgrade; verify the actual bundled runtime and its
-  relevant user flows. Then freeze the updated source and build release artifacts.
+  relevant user flows. Ask the owner before any major-version upgrade. If the
+  integration requires ordinary dependency changes, explain the minimal required
+  packages, compatibility reason and affected platforms, and ask the owner first;
+  an integration update does not authorize a general dependency refresh. Then
+  freeze the validated source and build release artifacts.
 - In release evidence, record each project's source URL, check date, current and
   upstream version/commit, upgrade result and validation. An unavailable upstream
   check, unresolved incompatibility or failed/missing required validation blocks
-  publication; report the blocker rather than silently shipping the old version.
+  publication of affected platforms; report the blocker rather than silently
+  shipping an unverified upgrade. Unaffected, validated platforms may proceed.
+
+### Ordinary dependency maintenance
+
+- Schedule ordinary dependency work at the beginning of a version cycle. Use
+  separate commits; do not mix it into release preparation or an integration's
+  unrelated changes.
+- An upgrade requires one of exactly three reasons: a security advisory that
+  affects released code, a defect fix the product needs, or a mandatory platform
+  or store requirement. Record the concrete reason and supporting source. A new
+  version being available is not a reason or a release blocker.
+- Keep framework-managed dependency versions at their framework-provided
+  defaults. In particular, change Capacitor's AndroidX and Cordova versions only
+  with the corresponding framework upgrade; do not override them independently.
+- Ask the owner before crossing a major version. This also applies to integrated
+  products and frameworks; neither a release request nor an upstream check is
+  advance permission for a major upgrade.
+
+### Pre-freeze security advisory review
+
+Before **every** source freeze, including owner-authorized scoped patches, check
+security advisories for dependencies actually shipped in the installers. Include
+bundled transitive libraries and runtimes; use the package/lock inventory to
+identify the shipped versions. Record the check date, advisory sources, installed
+versions and whether a finding affects released code. An unavailable check or
+unknown applicability must be reported as such, not recorded as "no advisory".
+
+This is **check only, not upgrade**. Report advisories affecting released code
+separately for the owner's decision. A finding does not authorize a dependency
+change or expansion of the release scope. Electron patch versions follow this
+same rule: check applicable security advisories; do not install a newer patch
+merely because it exists. Any subsequently authorized upgrade still follows the
+dependency-maintenance, freeze and affected-runtime validation rules.
+
+### Freeze and late discoveries
+
+- Complete upstream checking, upgrades and required validation before source
+  freeze. After freeze, do not change dependencies or integrations. Only fixes
+  that block the release are allowed: tell the owner about each proposed fix,
+  its reason and impact before making it, record the exact change, and rerun the
+  affected validation. If such a fix requires changing a frozen dependency or
+  integration, ask the owner to decide first.
+- If an outdated dependency is discovered after freeze, record its name,
+  current version, available new version, and security-advisory status in the
+  next-version backlog. Include the advisory/source link and whether it affects
+  released code when known; mark unknown status as unknown, not "no advisory".
+  Report a security concern separately for the owner's decision. Discovery is
+  not permission to expand this release or run a broad dependency upgrade.
+
+### Validation matched to the change
+
+- Record the changed components, affected platforms and runtime flows. If mobile
+  native dependencies change, install and launch the changed App on a physical
+  phone or an emulator/simulator and exercise the affected flows: connecting to
+  a Host, push notifications, keyboard layout and in-app updates. Record the
+  source/build, device or simulator, OS, steps and observed results.
+- Successful compilation, Lint and unit tests do not complete this acceptance.
+  A browser viewport test does not establish native App startup or behavior.
+  "Not applicable" requires a concrete platform/change reason; it is distinct
+  from "could not verify". If a simulator cannot exercise a required flow, that
+  flow remains unverified unless it is verified on a capable device.
+- If required validation cannot be performed, do not make the upgrade, or omit
+  that platform from the release. Other platforms that meet their own gates
+  proceed. Never publish an unverified upgrade. Any rollback/change after freeze
+  still follows the owner-decision rule above.
+
+### Scope and requirement citations
+
+Ask the owner when the rule's scope is unclear; do not interpret it more broadly.
+When citing the owner's requirement, give the exact original wording and its
+source file/section, not "according to your earlier requirements". The following
+verbatim policy is retained here as a citable source; operational guidance above
+must not expand it.
+
+### Owner policy text
+
+Verbatim owner instruction dated **2026-11-11**, recorded in
+`docs/release-checklist.md`:
+
+> 一、范围分两类
+> 1. 集成产品：Excalidraw、Vditor、baoyu-design 及其技能文件。以后新增的集成，要我点名加入清单才算。只有这一类适用“发布前检查上游并升级”。
+> 2. 普通依赖：npm、Gradle、Cargo 里的库，AndroidX、Firebase、OkHttp、构建工具等。这一类不是发布关卡。
+>
+> 二、普通依赖怎么升
+> 3. 放在版本周期开头单独做，单独提交，不和发布准备混在一起。
+> 4. 只有三种理由可以升：有影响已发布代码的安全公告，有我们需要的缺陷修复，平台或商店强制要求。“有新版本”不是理由。
+> 5. 跟着框架走的依赖，比如 Capacitor 配套的 AndroidX 和 Cordova 版本，保持框架自带的默认值，只随框架一起升。
+> 6. 跨大版本升级必须先问我。
+>
+> 三、冻结
+> 7. 上游检查在冻结前完成。冻结之后不再改依赖和集成，只允许修阻塞发布的问题，每一处都要告诉我。
+> 8. 冻结后才发现的旧依赖：列出清单，写明现版本、新版本、有无安全公告，记到下个版本。有安全问题的单独报给我决定。不得自行扩大本次发布范围。
+>
+> 四、验证
+> 9. 验证要对得上改动。改了手机原生依赖，就必须在实体手机或模拟器上启动应用，并走一遍受影响的流程：连接主机、推送、键盘布局、应用内更新。只通过编译、Lint 和单元测试不算验证完成。
+> 10. 做不了这种验证时，要么不升，要么该平台本次不发，其他平台照常发。不能带着未验证的升级发布。
+>
+> 五、沟通
+> 11. 规则的适用范围有疑问时先问我，不要往大了理解。
+> 12. 引用我的要求时，给出原文和所在文件，不要用“按你之前的要求”这种转述。
+>
+> 以上只对今后生效。这次 1.3.0 的 Android 升级是保留还是回退，等我单独通知，不要自行处理。
+
+Supplemental owner instruction dated **2026-11-11**:
+
+> 新增一条：每次冻结前，对随安装包发布的依赖做一次安全公告检查，只查不升。影响已发布代码的公告单独报给我决定。Electron 的补丁版本按这条处理。
+
+## Build and publication checks
 
 Before building, follow [unindexed artifact storage](macos-artifact-retention.md).
 Create a unique `.noindex` workspace and source its `build-env.sh`: Electron

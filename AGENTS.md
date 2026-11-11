@@ -160,19 +160,57 @@ For an explicitly owner-authorized scoped patch, follow the reduced validation
 profile in [the release checklist](docs/release-checklist.md#scoped-patch-releases).
 It may retain unchanged dependencies and baseline evidence for unaffected code;
 new artifact signatures, privacy scans and download readback are never inherited.
-For other releases, check upstream updates for all integrated open-source
-projects, including Excalidraw (whiteboard), Vditor (Markdown), baoyu-design
-(Baoyu Design and Baoyu PPT), and future integrations. Include upstream SKILL.md,
-references and helper scripts, not only editor/npm versions. Keep adapted skill
-routing and protocols aligned with the corresponding pinned editor, validate
-resource installation and test explicit Baoyu selection without intercepting
-ordinary PPT/design requests. If an update exists, upgrade the integration,
-resolve compatibility issues and pass the relevant regression/build checks
-before publishing. Record current/upstream versions or commits, check date,
-source links and validation in the release evidence; update lockfiles, vendored
-hashes and license notices as applicable. Follow the upstream update gate in
-`docs/release-checklist.md`; an unavailable check or an unverified upgrade blocks
-release and must be reported, not silently skipped.
+The [upstream gate](docs/release-checklist.md#full-release-upstream-gate) applies
+only to this explicit integrated-product list: Excalidraw, Vditor and baoyu-design
+(Baoyu Design and Baoyu PPT), including their skill files, references and helper
+scripts. New integrations join this list only when the owner names them for
+inclusion. A package manifest or license inventory does not expand this list.
+Complete the upstream checks, upgrades and affected validation before freezing;
+keep adapted skills aligned with the pinned editor and preserve ordinary native
+PPT routing. The existing owner-authorized scoped-patch exception above remains.
+
+Ordinary dependencies are not an upstream release gate: npm/Gradle/Cargo
+libraries, AndroidX, Firebase, OkHttp, frameworks and build tools are not subject
+to a blanket pre-release upgrade. Maintain them at the beginning of a version
+cycle, in separate commits, outside release preparation. Upgrade only for a
+security advisory affecting released code, a bug fix the product needs, or a
+mandatory platform/store requirement. A newer version alone is not a reason.
+Keep framework-managed dependencies, such as Capacitor's AndroidX and Cordova
+versions, at the framework defaults and update them only with that framework.
+Ask the owner before any major-version upgrade, including integrated products.
+If an integration upgrade requires ordinary dependency changes, explain the
+minimal necessary set and ask the owner before proceeding; do not expand scope.
+
+Before every source freeze, including scoped patches, check security advisories
+for dependencies actually shipped in the installers, including transitive
+libraries and runtimes. This is a check-only review, not permission to upgrade.
+Record the shipped versions, advisory sources, check date and applicability;
+report advisories affecting released code separately for the owner's decision.
+Electron patch versions follow this same rule; an available patch is not an
+automatic pre-release upgrade. See the [security review](docs/release-checklist.md#pre-freeze-security-advisory-review).
+
+After freeze, do not update dependencies or integrations. Only release-blocking
+fixes are allowed; tell the owner about each proposed fix and its impact before
+changing it. If a blocker requires changing a frozen dependency or integration,
+ask the owner to decide first. Dependencies discovered to be outdated after
+freeze go into the next-version backlog with current/new versions and security
+advisory status. Report security concerns separately for the owner's decision;
+do not independently widen the current release.
+
+Validation must match the change. Mobile native dependency changes require
+launching the App on a physical device or emulator/simulator and exercising the
+affected Host connection, push, keyboard-layout and in-app-update flows. Builds,
+Lint and unit tests alone are insufficient. Record genuine non-applicability
+with its reason separately from unavailable validation. If required runtime
+validation cannot be done, do not upgrade, or omit that platform from this
+release; other validated platforms proceed. Never ship an unverified upgrade.
+These dependency, freeze and validation rules also apply to scoped patches.
+
+If policy scope is unclear, ask the owner rather than interpreting it broadly.
+When citing an owner requirement, quote the exact text and name its source file;
+do not substitute "according to your earlier requirements". The verbatim policy
+is in [the checklist](docs/release-checklist.md#owner-policy-text).
+These rules apply prospectively.
 
 Stable App transport rules are host-owned in `src/gateway/agent-instructions.ts`.
 Per-Bot persona/preferences remain user-owned; do not write transport rules or
