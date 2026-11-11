@@ -30,7 +30,7 @@ export type KeyboardEvents = {
 export interface KeyboardMotion { duration: number; easing: string }
 /** Compatibility timing. New iOS shells report UIKit's duration per change;
  * older shells use 0.25 s with a private curve approximation. The
- * ease-out approximation stays until a device check of another curve. AOSP
+ * ease-out approximation remains for older shells. AOSP
  * synchronizes the IME with apps that register an insets-animation callback
  * (Capacitor Keyboard does) in 285 ms on PathInterpolator(0.2, 0, 0, 1). OEM
  * keyboards and ROMs may differ. */
@@ -38,6 +38,11 @@ export const nativeKeyboardMotion = {
   ios: { duration: 250, easing: 'ease-out' },
   android: { duration: 285, easing: 'cubic-bezier(.2,0,0,1)' },
 } as const satisfies Record<string, KeyboardMotion>;
+
+// New iOS shells supply the OS duration. Move through the middle a little
+// sooner while keeping that end time; do not shorten the system keyboard's
+// motion window or change Android / older iOS fallback timing.
+const iosWindowKeyboardEasing = 'cubic-bezier(.2,.35,.45,1)';
 
 /** Fields that bring up the soft keyboard and may need revealing above it. */
 const textField = 'input:not([type="button"]):not([type="checkbox"]):not([type="color"]):not([type="file"]):not([type="hidden"]):not([type="image"]):not([type="radio"]):not([type="range"]):not([type="reset"]):not([type="submit"]),textarea,select,[contenteditable="true"]';
@@ -90,7 +95,7 @@ export function installAppViewport(win: Window, doc: Document, nativeOverlay: Ke
       if (resized || !value || lag >= duration) settle();
       else {
         // The native event can arrive frames after the OS animation started.
-        set('--keyboard-motion', `${duration}ms ${motion.easing} ${-Math.round(lag)}ms`);
+        set('--keyboard-motion', `${duration}ms ${windowInsets ? iosWindowKeyboardEasing : motion.easing} ${-Math.round(lag)}ms`);
         root.setAttribute('data-keyboard-motion', '');
         clearTimeout(motionTimer);
         motionTimer = setTimeout(settle, duration - lag + 100);
