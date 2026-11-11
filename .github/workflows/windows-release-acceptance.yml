@@ -6,12 +6,16 @@ on:
         description: Version of the reviewed draft release to verify
         required: true
         type: string
+      source_commit:
+        description: Full source commit of the signed candidate
+        required: true
+        type: string
       public_key:
         description: Public Minisign verification key (never a private key)
         required: true
         type: string
 permissions:
-  contents: read
+  contents: write # GitHub requires write access to read an unpublished draft.
 jobs:
   upgrade:
     runs-on: windows-latest
@@ -23,6 +27,9 @@ jobs:
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -35,14 +42,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_VERSION: ${{ inputs.version }}
+          CANDIDATE_COMMIT: ${{ inputs.source_commit }}
           TAROBOT_UPDATE_PUBLIC_KEY: ${{ inputs.public_key }}
         run: |
           if ($env:CANDIDATE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid version" }
+          if ($env:CANDIDATE_COMMIT -notmatch '^[0-9a-f]{40}$') { throw "Expected a full source SHA" }
+          $sourceCommit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $sourceCommit -ne $env:CANDIDATE_COMMIT) { throw "Wrong source checkout" }
           $version = (Get-Content release-version.json -Raw | ConvertFrom-Json).version
           if ($version -ne $env:CANDIDATE_VERSION) { throw "Candidate version differs from source" }
           $tag = "windows-tarobot-v$version"
           $release = gh release view $tag --repo $env:GITHUB_REPOSITORY --json targetCommitish,isDraft | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or !$release.isDraft -or $release.targetCommitish -ne $env:GITHUB_SHA) { throw "Expected a draft bound to this exact source commit" }
+          if ($LASTEXITCODE -ne 0 -or !$release.isDraft -or $release.targetCommitish -ne $sourceCommit) { throw "Expected a draft bound to this exact source commit" }
           gh release download $tag --repo $env:GITHUB_REPOSITORY --dir test-results/candidate --pattern '*-setup.exe*'
           if ($LASTEXITCODE -ne 0) { throw "Candidate download failed" }
           gh release download windows-tarobot-v1.2.1 --repo $env:GITHUB_REPOSITORY --dir test-results/baseline --pattern '*-setup.exe*'
