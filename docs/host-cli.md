@@ -371,6 +371,22 @@ tarobot devices revoke DEVICE_ID --yes
 
 `tarobot network local [--json] [--tailscale]` 只读显示本机共享线路、额外的局域网/Tailscale 线路和监听状态。已配对的拥有者手机在线时会自动收到这些额外线路，无需重新扫码；成员设备不会自动更新。首个无歧义入口可立即提供给已授权客户端；后续地址变化需连续两次观察，并距前次变化至少 5 分钟。局域网替换还需同一网卡来源证明；多个候选且没有原选择时，不会自动选取，歧义会保留到用户明确选择。`--tailscale` 只运行 `tailscale status --json --peers=false`（3 秒超时），报告本机状态和地址归属，不列出其他设备，也不代表手机已连通。参见[线路同步与边界](client/tailscale-route-sync-2026-10-21.md)。
 
+### 审核 / 演示专用连接码
+
+上架审核或演示时，审核人员手里没有已配对设备，无法确认 8 位码。可以在专门准备的演示主机上开启审核访问：
+
+```sh
+tarobot devices review-access enable --days 14 --max-devices 5 --routes routes.json
+tarobot devices review-access status
+tarobot devices review-access disable
+```
+
+- 有效期内，用这个连接码发起申请的设备会**自动批准**，直接进入聊天；最多 30 天、20 台设备，到期或用满后自动失效。
+- 只能由本机已登记的 CLI 控制器开启、查看或关闭；网络和中转上的设备（包括拥有者手机）都不能调用。
+- 重新 `enable` 会生成新码并作废旧码。`disable` 只停止新设备加入；已经加入的设备用 `devices list` 核对后 `devices revoke` 移除。
+- 主机只保存连接码的哈希，重启后仍有效；连接码只在 `enable` 时显示一次（终端二维码、链接或 `--json` 的 `link`）。
+- 拿到这个码的人都能连进主机并使用其中的 Bot。只在没有个人数据、权限受限的演示主机上使用，不要提交到仓库或贴到公开位置；审核结束后关闭。
+
 跨网连接需要两端能访问同一 Tailscale 网络，或已经部署并配置好的 VPS 中转。`pair --routes routes.json` 只分享配置，不部署服务器。线路格式与 App 相同，例如 `[{"name":"Direct","url":"https://host.example:8788"}]`；自签证书还需可信 CA，VPS 线路需实际 relay 参数。不要把 `localhost` 当手机可访问地址。
 
 ## 大组网：电脑带着 Bot 加入

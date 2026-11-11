@@ -8,7 +8,7 @@ import { readWorkbenchTurnMetadata, type WorkbenchContextReceipt } from "./workb
 import type { WorkbenchContext } from "../client-protocol/workbench.js";
 import { WORKBENCH_CAPABILITY, WORKBENCH_MARKDOWN_CAPABILITY, workbenchRequestSchema, workbenchContextSchema, workbenchPublishedSource, workbenchOpenerOnly } from "../client-protocol/workbench.js";
 import { WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_DESIGN_COMMENTS_CAPABILITY, WORKBENCH_DESIGN_HISTORY_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY } from "../client-protocol/workbench-design.js";
-import { PAIRING_INVITES_PATH, PAIRING_INVITE_REVOKE_PATH } from "../client-protocol/pairing-invites.js";
+import { PAIRING_INVITES_PATH, PAIRING_INVITE_REVOKE_PATH, REVIEW_ACCESS_DISABLE_PATH, REVIEW_ACCESS_PATH } from "../client-protocol/pairing-invites.js";
 import { ConversationBatchOperations } from './conversation-batch.js';
 import { nativeInputControlRequestSchema } from "../client-protocol/steering.js";
 import { NATIVE_INPUT_CAPABILITY, NATIVE_REVIEW_INPUT_CAPABILITY, nativeInputControlResultSchema } from "../client-protocol/native-input.js";
@@ -2372,6 +2372,15 @@ export class HubServer {
       }
       if (route === PAIRING_INVITE_REVOKE_PATH && req.method === "POST") {
         await requireOwner(); await reply(200, await this.auth.revokePairingInvite(session, await this.jsonBody(req, 4096))); return;
+      }
+      // Review access admits devices without a confirmation step, so only an
+      // owner session on this machine (never a relayed or network caller) may
+      // turn it on, read it or turn it off.
+      if ((route === REVIEW_ACCESS_PATH && (req.method === "POST" || req.method === "GET")) || (route === REVIEW_ACCESS_DISABLE_PATH && req.method === "POST")) {
+        if (!isLoopback(source)) throw new HubError("local_controller_required", 403);
+        await requireOwner();
+        if (route === REVIEW_ACCESS_DISABLE_PATH) { await reply(200, await this.auth.disableReviewAccess()); return; }
+        await reply(req.method === "POST" ? 201 : 200, req.method === "POST" ? await this.auth.enableReviewAccess(await this.jsonBody(req, 4096)) : await this.auth.reviewAccessStatus()); return;
       }
       if (route === "/api/devices" && req.method === "GET") { await requireOwner(); await reply(200, await this.store.devices(userId)); return; }
       if (route === "/api/devices/pending" && req.method === "GET") {

@@ -1,4 +1,4 @@
-import { PAIRING_INVITES_CAPABILITY, PAIRING_INVITES_PATH, PAIRING_INVITE_REVOKE_PATH, pairingInviteCreateSchema, pairingInviteIssuedSchema, pairingInviteListSchema, pairingInviteRevokeSchema, pairingInviteStatusSchema } from "../client-protocol/pairing-invites.js";
+import { PAIRING_INVITES_CAPABILITY, PAIRING_INVITES_PATH, PAIRING_INVITE_REVOKE_PATH, REVIEW_ACCESS_CAPABILITY, REVIEW_ACCESS_DISABLE_PATH, REVIEW_ACCESS_PATH, reviewAccessEnableSchema, reviewAccessIssuedSchema, reviewAccessStatusSchema, pairingInviteCreateSchema, pairingInviteIssuedSchema, pairingInviteListSchema, pairingInviteRevokeSchema, pairingInviteStatusSchema } from "../client-protocol/pairing-invites.js";
 import { chromeSettingsSchema, chromePatchSchema, type ChromePatch } from "../client-protocol/chrome.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -52,6 +52,15 @@ export class HostManagement {
   async revokePairingInvite(id: string) {
     this.requirePairingInvites(); return pairingInviteStatusSchema.parse(await this.client.request(PAIRING_INVITE_REVOKE_PATH, "POST", pairingInviteRevokeSchema.parse({ id })));
   }
+  private requireReviewAccess(): void {
+    if (!this.client.supports(REVIEW_ACCESS_CAPABILITY)) throw new Error("请先更新此主机，才能使用审核访问。如果 CLI 已更新，请运行 tarobot restart 更新主机进程。");
+  }
+  async enableReviewAccess(days: number, maxDevices: number) {
+    this.requireReviewAccess();
+    return reviewAccessIssuedSchema.parse(await this.client.request(REVIEW_ACCESS_PATH, "POST", reviewAccessEnableSchema.parse({ days, maxDevices })));
+  }
+  async reviewAccessStatus() { this.requireReviewAccess(); return reviewAccessStatusSchema.parse(await this.client.request(REVIEW_ACCESS_PATH)); }
+  async disableReviewAccess() { this.requireReviewAccess(); return reviewAccessStatusSchema.parse(await this.client.request(REVIEW_ACCESS_DISABLE_PATH, "POST", {})); }
   pendingDevices(): Promise<{ deviceId: string; name: string; platform: string; publicKey: string; expiresAt: number }[]> { return this.client.request("/api/devices/pending"); }
   async approveDevice(code: string) {
     const proof = await this.client.deviceAction({ operation: "approve", target: code });

@@ -1,5 +1,5 @@
 import { botPassportProof, botChallengeProof, botReplyProof, type BotPassport } from "../client-protocol/bot-messages.js";
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomInt, sign, verify, type KeyObject } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, randomInt, sign, timingSafeEqual, verify, type KeyObject } from "node:crypto";
 import { isIP } from "node:net";
 import path from "node:path";
 import { z } from "zod";
@@ -14,11 +14,19 @@ import { HubError, HubStore, type Device } from "./store.js";
 import { deviceActionSchema, deviceActionStatementSchema, deviceActionProofText, type DeviceAction, type DeviceActionStatement, type DeviceActionProof } from "../client-protocol/device-actions.js";
 import { networkManifestProof, networkProposalProof, networkPeerProof, type NetworkManifest, type NetworkProposal, type NetworkPeerRequest } from "../client-protocol/private-network.js";
 import { desktopControllerChallengeSchema, desktopControllerProofSchema, desktopControllerProofText, localDesktopControllersInTransaction, type DesktopControllerChallenge } from "./local-controller.js";
-import { pairRequestSchema, pairingInviteCreateSchema, pairingInviteRevokeSchema, type PairResponse, type PairingInviteIssued, type PairingInviteList, type PairingInviteStatus } from "../client-protocol/pairing-invites.js";
+import { pairRequestSchema, pairingInviteCreateSchema, pairingInviteRevokeSchema, reviewAccessEnableSchema, type PairResponse, type PairingInviteIssued, type PairingInviteList, type PairingInviteStatus, type ReviewAccessIssued, type ReviewAccessStatus } from "../client-protocol/pairing-invites.js";
 import { PairingInviteRegistry, pairingFingerprint, type InviteRecord } from "./pairing-invites.js";
 
 const PAIRING_MS = 5 * 60_000;
 const INVITE_ERA_KEY = "pairing-invites:v1";
+/** Persisted App Review / demo access (see REVIEW_ACCESS_PATH). Only the
+ * token's hash is stored; `approved` lists the devices it has admitted. */
+const REVIEW_ACCESS_KEY = "review-access:v1";
+const reviewAccessRecordSchema = z.object({
+  tokenHash: z.string().regex(/^[0-9a-f]{64}$/), createdAt: z.number().int().nonnegative(), expiresAt: z.number().int().nonnegative(),
+  maxDevices: z.number().int().positive(), approved: z.array(z.string()),
+}).strict();
+type ReviewAccessRecord = z.infer<typeof reviewAccessRecordSchema>;
 const TOKEN_MS = 15 * 60_000;
 const CHALLENGE_MS = 30_000;
 const identitySchema = z.object({ publicKey: z.string(), privateKey: z.string() });
@@ -139,7 +147,7 @@ export class HubAuth {
    * not the token); anything else is refused. Retrieval never admits. Limits
    * are per invite, so missing or invalid tokens allocate nothing in the
    * shared per-source buckets. `source` is accepted for parity with `pair`. */
-  async pairInvited(raw: unknown, _source: string): Promise<PairResponse> {
+  async pairInvited(raw: unknown, source: string): Promise<PairResponse> {
     const input = pairRequestSchema.parse(raw);
     if (!input.requestId) throw new HubError(input.invite ? "pairing_request_id_required" : "pairing_invite_required", input.invite ? 400 : 403);
     const device = { deviceId: input.deviceId, name: input.name, platform: input.platform, publicKey: input.publicKey };
@@ -148,7 +156,11 @@ export class HubAuth {
     if (admitted) return this.invites.locked(admitted, () => this.retrieveAdmitted(admitted, fingerprint));
     if (!input.invite) throw new HubError("pairing_invite_required", 403);
     const record = this.invites.lookup(input.invite);
-    if (!record) throw new HubError("pairing_invite_invalid", 403);
+    if (!record) {
+      const reviewed = await this.pairWithReviewAccess(input.invite, device, source);
+      if (reviewed) return reviewed;
+      throw new HubError("pairing_invite_invalid", 403);
+    }
     return this.invites.locked(record, async () => {
       if (record.binding) return this.retrieveAdmitted(record, fingerprint);
       const refused = this.invites.admissionError(record);
@@ -185,6 +197,66 @@ export class HubAuth {
       if (!row || row.expires_at <= this.now() || this.invites.bindingExpired(record)) throw new HubError("pairing_invite_expired", 403);
       return { code: binding.code, expiresAt: row.expires_at, hubPublicKey: this.publicKey };
     });
+  }
+  private async reviewAccessRecord(): Promise<ReviewAccessRecord | undefined> {
+    const row = await this.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key=?", [REVIEW_ACCESS_KEY]);
+    if (!row) return;
+    const parsed = reviewAccessRecordSchema.safeParse(JSON.parse(row.value));
+    return parsed.success ? parsed.data : undefined;
+  }
+  private reviewAccessStatusOf(record: ReviewAccessRecord | undefined): ReviewAccessStatus {
+    const now = this.now();
+    if (!record) return { enabled: false, approvedDevices: 0, serverTime: now };
+    return { enabled: record.expiresAt > now && record.approved.length < record.maxDevices, createdAt: record.createdAt, expiresAt: record.expiresAt,
+      maxDevices: record.maxDevices, approvedDevices: record.approved.length, serverTime: now };
+  }
+  /** A device presenting the review token is paired and approved in one
+   * transaction, as the owner pre-authorised when enabling it. Returns
+   * undefined when the token is not the current review token, so the caller
+   * answers exactly as for any unknown invite. */
+  private async pairWithReviewAccess(invite: string, device: { deviceId: string; name: string; platform: string; publicKey: string }, source: string): Promise<PairResponse | undefined> {
+    const presented = Buffer.from(hashSecret(invite), "hex");
+    const matches = (record: ReviewAccessRecord | undefined) => !!record && timingSafeEqual(Buffer.from(record.tokenHash, "hex"), presented);
+    if (!matches(await this.reviewAccessRecord())) return;
+    this.rate(`review-access:${rateSource(source)}`, 10, isLoopback(source) ? "trusted" : "anonymous");
+    parsePublicKey(device.publicKey);
+    const code = randomInt(10_000_000, 100_000_000).toString();
+    const expiresAt = await this.store.db.transaction(async () => {
+      // Recheck inside the transaction: a disable or another admission may have committed.
+      const record = await this.reviewAccessRecord();
+      if (!record || !matches(record)) throw new HubError("pairing_invite_invalid", 403);
+      if (record.expiresAt <= this.now()) throw new HubError("pairing_invite_expired", 403);
+      if (record.approved.length >= record.maxDevices) throw new HubError("pairing_invites_full", 429);
+      if (!await this.store.db.get("SELECT 1 FROM users WHERE id='owner'")) throw new HubError("user_not_found", 404);
+      const requestExpiresAt = await this.insertPendingInTransaction(device, code);
+      await this.store.db.run("INSERT INTO devices(id,user_id,name,platform,public_key,created_at,last_seen) VALUES(?,?,?,?,?,?,?)", [device.deviceId, "owner", device.name, device.platform, device.publicKey, this.now(), this.now()]);
+      await this.store.db.run("UPDATE pairing_requests SET status='approved' WHERE code_hash=?", [hashSecret(code)]);
+      await this.writeNetworkDeviceMarker(device.deviceId, device.publicKey);
+      await this.store.db.run("UPDATE meta SET value=? WHERE key=?", [JSON.stringify({ ...record, approved: [...record.approved, device.deviceId] }), REVIEW_ACCESS_KEY]);
+      return requestExpiresAt;
+    });
+    await this.store.audit("pairing.review_access.approved", device.deviceId);
+    return { code, expiresAt, hubPublicKey: this.publicKey };
+  }
+  /** Local CLI only (the server checks owner and loopback). Replaces any
+   * earlier review token; already admitted devices stay paired. */
+  async enableReviewAccess(raw: unknown): Promise<ReviewAccessIssued> {
+    const input = reviewAccessEnableSchema.parse(raw);
+    const token = randomBytes(32).toString("base64url"), now = this.now();
+    const record: ReviewAccessRecord = { tokenHash: hashSecret(token), createdAt: now, expiresAt: now + input.days * 86_400_000, maxDevices: input.maxDevices, approved: [] };
+    await this.store.db.run("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [REVIEW_ACCESS_KEY, JSON.stringify(record)]);
+    await this.store.audit("pairing.review_access.enabled", "local-owner", { expiresAt: record.expiresAt, maxDevices: record.maxDevices });
+    return { invite: token, status: this.reviewAccessStatusOf(record) };
+  }
+  async reviewAccessStatus(): Promise<ReviewAccessStatus> {
+    return this.reviewAccessStatusOf(await this.reviewAccessRecord());
+  }
+  /** Stops new admissions. Devices it admitted stay paired; revoke them
+   * separately (`tarobot devices revoke`). */
+  async disableReviewAccess(): Promise<ReviewAccessStatus> {
+    await this.store.db.run("DELETE FROM meta WHERE key=?", [REVIEW_ACCESS_KEY]);
+    await this.store.audit("pairing.review_access.disabled", "local-owner");
+    return this.reviewAccessStatusOf(undefined);
   }
   /** Owner session only. Issuing never touches listeners, routes or keys. */
   async issuePairingInvite(session: AuthSession, raw: unknown): Promise<PairingInviteIssued> {

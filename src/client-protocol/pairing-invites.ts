@@ -95,3 +95,31 @@ export type PairResponse = z.infer<typeof pairResponseSchema>;
  * pairing_already_pending [409], invalid_device_key [400]. */
 export const PAIRING_INVITE_ERRORS = ["pairing_invite_required", "pairing_request_id_required", "pairing_invite_invalid", "pairing_invite_expired",
   "pairing_invite_used", "pairing_invites_full", "pairing_invite_not_found"] as const;
+
+/** App Review / demo access, managed only by the host's local CLI (an owner
+ * session over loopback; relayed and remote callers are refused). While it
+ * is enabled, a device presenting its token is paired and approved at once,
+ * up to `maxDevices`, until `expiresAt`. It persists across Hub restarts and
+ * is meant for an isolated demo host: anyone holding the token can pair. */
+export const REVIEW_ACCESS_CAPABILITY = "review-access.v1";
+export const REVIEW_ACCESS_PATH = "/api/devices/review-access";
+export const REVIEW_ACCESS_DISABLE_PATH = "/api/devices/review-access/disable";
+export const REVIEW_ACCESS_MAX_DAYS = 30;
+export const REVIEW_ACCESS_MAX_DEVICES = 20;
+export const reviewAccessEnableSchema = z.object({
+  days: z.number().int().min(1).max(REVIEW_ACCESS_MAX_DAYS),
+  maxDevices: z.number().int().min(1).max(REVIEW_ACCESS_MAX_DEVICES),
+}).strict();
+export type ReviewAccessEnable = z.infer<typeof reviewAccessEnableSchema>;
+export const reviewAccessStatusSchema = z.object({
+  enabled: z.boolean(),
+  createdAt: time.optional(),
+  expiresAt: time.optional(),
+  maxDevices: z.number().int().positive().optional(),
+  approvedDevices: z.number().int().nonnegative(),
+  serverTime: time,
+}).strict();
+export type ReviewAccessStatus = z.infer<typeof reviewAccessStatusSchema>;
+/** Enabling response; the only place the raw token ever appears. */
+export const reviewAccessIssuedSchema = z.object({ invite: pairingInviteTokenSchema, status: reviewAccessStatusSchema }).strict();
+export type ReviewAccessIssued = z.infer<typeof reviewAccessIssuedSchema>;

@@ -29,7 +29,8 @@ import { desktopHost } from "../hub/desktop.js";
 import { hubServiceCommand, inspectHubService } from "../hub/service.js";
 import { assertHostSupervisor, assertWindowsHostLauncher, enableManagedServiceOnLogin, installManagedService, managedServiceStatus, reassertManagedServiceIntent, refreshManagedServiceRuntime, uninstallManagedService } from "./service-manager.js";
 import { LocalHostClient, resetCliController } from "./client.js";
-import { withHostManagement } from "./management.js";
+import { withHostManagement, type HostManagement } from "./management.js";
+import { REVIEW_ACCESS_MAX_DAYS, REVIEW_ACCESS_MAX_DEVICES } from "../client-protocol/pairing-invites.js";
 import { runQueueCommand } from "./queue.js";
 import { runTasksCommand } from "./tasks.js";
 import { runSteeringCommand, steeringReceiptHint, steeringCommandFailure, steeringCommandNotice } from "./steering.js";
@@ -216,6 +217,10 @@ export const HOST_CLI_HELP = `TaroBird — 同一台主机，桌面与命令行�
   devices rename ID --name N           修改此主机上的设备名称
                                       本机桌面端共用主机名称，请用 name <名称>
                                       撤销已入网设备会同步全网，不会让主机退出组网
+  devices review-access enable --days N --max-devices N [--routes FILE] | status | disable
+    审核/演示专用连接码：有效期内扫码的设备自动批准，无需确认 8 位码；
+    最多 30 天、20 台设备，只能在主机本机开启。重新 enable 会作废旧码；
+    disable 只停止新设备加入，已加入的设备用 devices revoke 移除。
   pair [--lan | --tailscale | --routes FILE] [--address IP] [--out FILE] [--wait SECONDS]
     需运行新版主机并登记 CLI 控制器（tarobot enroll）；生成 5 分钟有效、仅限一台新设备的邀请。
   network status | create --name N | routes --from FILE --yes
@@ -275,6 +280,21 @@ async function packageDirectory(entry: string): Promise<string> {
   while (!await exists(path.join(current, "package.json"))) { const parent = path.dirname(current); if (parent === current) throw new Error("找不到完整主机安装包。"); current = parent; }
   return current;
 }
+async function reviewAccessCommand(management: HostManagement, action: string | undefined, v: { days?: string; "max-devices"?: string; routes?: string; json?: boolean }): Promise<void> {
+  if (action === "status") { await output(await management.reviewAccessStatus()); return; }
+  if (action === "disable") { await output(await management.disableReviewAccess()); return; }
+  if (action !== "enable") throw new Error("请使用 devices review-access enable|status|disable。");
+  const days = z.coerce.number().int().min(1).max(REVIEW_ACCESS_MAX_DAYS).parse(required(v.days, "缺少 --days（1–30）。"));
+  const maxDevices = z.coerce.number().int().min(1).max(REVIEW_ACCESS_MAX_DEVICES).parse(required(v["max-devices"], "缺少 --max-devices（1–20）。"));
+  const routes = v.routes ? routesSchema.parse(await readJson(v.routes)) : (await new HostNetwork(management.client).view()).host.routes;
+  if (!routes.length) throw new Error("尚无可分享线路。请用 --routes FILE 指定审核设备可达的线路。");
+  const issued = await management.enableReviewAccess(days, maxDevices);
+  const link = hostPairingLink(management.client.publicKey, routes, issued.invite);
+  if (v.json) { await output({ link, routes, ...issued.status }); return; }
+  console.log(`审核访问已开启：到 ${new Date(issued.status.expiresAt!).toISOString()} 前，最多 ${maxDevices} 台设备扫码后自动加入，无需确认配对码。
+这个连接码不会再次显示；请只交给审核人员，用完运行 tarobot devices review-access disable。\n${link}`);
+  try { console.log(await terminalPairingQr(link)); } catch { console.error("连接信息超出终端二维码容量；请在新设备选择「粘贴连接信息」并粘贴上面的链接。"); }
+}
 export async function runHostCli(argv: string[]): Promise<void> {
   const { values: v, positionals: p, tokens } = parseArgs({ args: argv, allowPositionals: true, strict: true, tokens: true, options: {
     "state-dir": { type: "string" }, name: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" },
@@ -282,7 +302,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     "request-id": { type: "string" }, "expected-name": { type: "string" }, yes: { type: "boolean" }, force: { type: "boolean" }, abandon: { type: "boolean" },
     wait: { type: "string" }, from: { type: "string" }, out: { type: "string" }, routes: { type: "string" },
     lan: { type: "boolean" }, tailscale: { type: "boolean" }, address: { type: "string" }, reset: { type: "boolean" },
-    role: { type: "string" }, "dispatch-mode": { type: "string" }, "max-concurrent": { type: "string" }, allow: { type: "string" }, assist: { type: "string" }, status: { type: "string" }, note: { type: "string" }, open: { type: "boolean" }, match: { type: "string" }, offset: { type: "string" },
+    role: { type: "string" }, "dispatch-mode": { type: "string" }, "max-concurrent": { type: "string" }, "max-devices": { type: "string" }, allow: { type: "string" }, assist: { type: "string" }, status: { type: "string" }, note: { type: "string" }, open: { type: "boolean" }, match: { type: "string" }, offset: { type: "string" },
     folder: { type: "string" }, "new-folder": { type: "string" }, unfiled: { type: "boolean" }, "dry-run": { type: "boolean" }, revision: { type: "string" }, receipt: { type: "string" },
     "html-file": { type: "string" }, "report-file": { type: "string" }, title: { type: "string" }, summary: { type: "string" },
     token: { type: "string" }, target: { type: "string" }, task: { type: "string" }, bot: { type: "string" }, message: { type: "string" }, before: { type: "string" }, through: { type: "string" }, last: { type: "boolean" },
@@ -311,7 +331,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     integrations: ["yes", "request-id", "mode", "enabled", "adapter", "threshold-seconds", "revision"], directory: ["from"], init: ["name"], stop: ["wait", "force"], restart: ["wait", "force"], enroll: ["reset", "yes"], name: ["name"], drain: ["wait"],
     service: ["yes"], bots: ["name", "engine", "model", "effort", "workspace", "permission", "request-id", "expected-name", "yes", "revision", "enabled", "role", "dispatch-mode", "max-concurrent", "allow", "from"],
     tickets: ["bot", "match", "offset", "assist", "engine", "title", "text", "text-file", "model", "effort", "force", "status", "note", "open", "request-id", "context-message", "dispatch-mode", "max-concurrent", "allow", "revision"],
-    devices: ["yes", "name"], pair: ["lan", "tailscale", "address", "routes", "out", "wait"], network: ["name", "from", "out", "yes", "tailscale"], update: ["from", "yes", "wait", "dry-run", "revision", "receipt"],
+    devices: ["yes", "name", "days", "max-devices", "routes"], pair: ["lan", "tailscale", "address", "routes", "out", "wait"], network: ["name", "from", "out", "yes", "tailscale"], update: ["from", "yes", "wait", "dry-run", "revision", "receipt"],
     folders: ["enabled", "revision", "unfiled"],
     conversations: ["host", "bot", "source-bot", "ids", "yes", "folder", "new-folder", "unfiled", "revision", "request-id"],
     widgets: ["html-file", "report-file", "title", "summary", "request-id", "enabled", "revision"],
@@ -330,6 +350,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
   if (command === "bus" && ["list", "create", "prepare"].includes(sub ?? "")) positionalLimit.bus = 2;
   if (command === "bots" && ["list", "catalog", "create"].includes(sub ?? "") || command === "devices" && ["list", "pending", "invites"].includes(sub ?? "") || command === "network" && sub !== "remove" || command === "update" && sub !== "apply") positionalLimit[command] = 2;
   if (p.length > (positionalLimit[command] ?? 1)) throw new Error("此命令不接受额外的位置参数。请执行 tarobot --help。");
+  if (command === "devices" && (v.days !== undefined || v["max-devices"] !== undefined || v.routes !== undefined) && !(sub === "review-access" && argument === "enable")) throw new Error("--days/--max-devices/--routes 仅支持 devices review-access enable。");
   if (v.force && !["stop", "restart", "tickets"].includes(command)) throw new Error("--force 仅支持 stop、restart 或 tickets dispatch。");
   if (v.reset && command !== "enroll") throw new Error("--reset 仅支持本机 CLI 控制器重新登记。");
   if (v["cross-host"] && !(command === "messages" && sub === "grants")) throw new Error("--cross-host 仅支持 messages grants。");
@@ -770,6 +791,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
       else if (sub === "rename") await output(await management.renameDevice(required(argument, "缺少设备 ID。"), required(v.name, "缺少 --name。")));
       else if (sub === "approve") await output(await management.approveDevice(required(argument, "缺少新设备显示的 8 位配对码。")));
       else if (sub === "revoke") { yes(); await output(await management.revokeDevice(required(argument, "缺少设备 ID。"))); }
+      else if (sub === "review-access") await reviewAccessCommand(management, argument, v);
       else throw new Error("未知 devices 命令。");
       return;
     }
