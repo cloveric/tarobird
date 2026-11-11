@@ -1,10 +1,12 @@
-# TaroBird 1.3.1 mobile scoped patch
+# TaroBird 1.3.1 corrected scoped patch
 
 The owner expanded this initial mobile plan to a corrected four-platform 1.3.1
 rebuild on 2026-11-11, superseding the briefly prepared 1.3.2 plan. The existing
 Android 1.3.1 package will be replaced with verified rebuilt bytes, versionCode
 2026110408; iOS will use 1.3.1 (2). macOS, Windows and Host/CLI also use 1.3.1.
 The owner explicitly removed the prohibition on same-version asset replacement.
+The [release verification record](../releases/1.3.1-verification.md) records the
+corrected package hashes, publication and platform acceptance boundaries.
 
 The initial mobile build reused a dependency directory with versions differing
 from the frozen lockfiles. Native UI checks passed but did not validate build
