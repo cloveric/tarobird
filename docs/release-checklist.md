@@ -49,6 +49,9 @@ is not approval to reduce validation.
   below use this documented scope instead of unrelated full-suite/model runs.
   Use clean frozen source and verified dependency locks; unchanged development
   dependency installs may be reused only with their exact lock provenance.
+  Compare the installed package tree with that lock before reuse; comparing
+  two lockfiles alone does not verify node_modules. If provenance is missing or
+  versions differ, run a clean npm ci in an isolated build environment.
 - Rebuild every artifact that will be published from the new source/version.
   Always perform fresh package-content checks, signatures/notarization, unpacked
   privacy scans, exact final-upload inventory checks and downloaded-byte readback.

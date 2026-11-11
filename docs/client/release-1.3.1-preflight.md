@@ -1,5 +1,12 @@
 # TaroBird 1.3.1 mobile scoped patch
 
+This initial plan was superseded by the owner-authorized
+[1.3.2 corrected rebuild](release-1.3.2-preflight.md). Android 1.3.1 was published
+and iOS 1.3.1 (1) was uploaded before a reused build dependency directory was
+found to differ from its lockfile. Those artifacts are not overwritten; desktop
+1.3.1 candidates were withheld. The native UI checks below do not establish
+lockfile-consistent build provenance.
+
 The owner authorized an iOS/Android-only small release on 2026-11-11.
 The published baseline is `7765ef35a9b27edffa3556524bf06897cda456d8` (1.3.0);
 the reviewed product revision is `79329747f057f819de4b104373c9e38a0ddd642a`.

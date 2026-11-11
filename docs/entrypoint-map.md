@@ -1,5 +1,8 @@
 # Entrypoint Map
 
+[1.3.2 corrected rebuild](client/release-1.3.2-preflight.md) records the unified
+patch scope and the installed-dependency provenance correction after 1.3.1.
+
 [1.3.0 preflight](client/release-1.3.0-preflight.md) records the full stable
 release scope, public desktop updates, dependency compatibility and disposable
 Windows upgrade acceptance. Publication and installed-device receipts remain
