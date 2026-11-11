@@ -322,7 +322,13 @@ or real-device acceptance. Keep all signing credentials/config outside Git.
 
 The new identity uses **separate updater channels**: `macos-tarobot-vX.Y.Z`
 with `macos-tarobot-latest.json`, `windows-tarobot-vX.Y.Z` with
-`windows-tarobot-latest.json`, and `android-tarobot-vX.Y.Z`. Never upload the new
+`windows-tarobot-latest.json`, and `android-tarobot-vX.Y.Z`. A canonical
+`vX.Y.Z` download page may collect these platforms, but it does not migrate
+installed updaters. Preserve the compatibility releases, asset IDs, signatures
+and manifests while they remain the installed clients' discovery path. Follow
+[the staged transition plan](versioning.md#existing-update-clients-remain-compatible);
+a future transition must verify both old-client discovery of the bridge build
+and that build's discovery of unified releases. Never upload the new
 ID to the legacy `macos-v`, `windows-v` or `android-v` tags or replace their
 assets. Old installed updaters cannot perform the identity transition; offer a
 one-time installer with explicit re-pairing instructions instead. Both versions

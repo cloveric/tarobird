@@ -69,6 +69,21 @@ as `macos-tarobot-v1.2.0`, `windows-tarobot-v1.2.0`,
 New distribution filenames come from `scripts/release-artifact-names.mjs` and
 use TaroBird. Compatibility update-manifest names retain their current spelling.
 
+A canonical `vX.Y.Z` Release page may collect all platform downloads and the
+TestFlight link. The repository homepage points to `/releases/latest`. This
+presentation does not replace the platform update channels: released clients
+through 1.3.1 only recognize their platform tag prefix. Keep their compatibility
+releases and original assets available until a separately tested updater
+transition is shipped. Do not interpret a unified download page as evidence
+that installed clients can discover its tag.
+
+For the next packaged transition (planned for 1.3.2), readers should accept both
+canonical and platform tags. Publish the transition build through the legacy
+channels too, so older clients can reach it before discovering later unified
+releases. This is a migration plan, not implemented or packaged behavior.
+On 2026-11-12 the owner authorized removing Release pages/assets older than
+1.3.1 while preserving the 1.3.1 compatibility channels and source tags.
+
 The owner has accepted the running Windows version and requested formal releases
 from 1.2.0 onward. Publish Windows with `prerelease: false`, like macOS and Android.
 Do not turn a missing test into a passing receipt: record new-installer, upgrade,

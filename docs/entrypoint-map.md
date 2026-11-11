@@ -2,6 +2,8 @@
 
 [1.3.1 corrected rebuild](client/release-1.3.1-preflight.md) records the unified
 patch scope, installed-dependency provenance correction and Android replacement.
+[The unified download page](releases/1.3.1-verification.md#november-12-unified-download-page)
+retains 1.3.1 platform update channels; the page itself does not migrate installed updaters.
 
 [1.3.0 preflight](client/release-1.3.0-preflight.md) records the full stable
 release scope, public desktop updates, dependency compatibility and disposable
