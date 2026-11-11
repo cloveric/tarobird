@@ -1,5 +1,4 @@
 import { preparePairing } from "./fixtures/pairing-invite.js";
-import { clickAppAction } from "./fixtures/desktop-actions.js";
 import { test, expect } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -43,16 +42,17 @@ for (const phone of [false, true]) for (const delayedMethod of ['GET', 'POST']) 
       const text = page.getByRole('textbox', { name: '消息', exact: true });
       await text.fill('开始原任务'); await page.getByRole('button', { name: '发送消息', exact: true }).click();
       await expect(page.getByText('等待引导中的任务', { exact: true })).toBeVisible();
+      await page.getByRole('radio', { name: /^(补充当前|补充)$/ }).check();
       let intercepted = false;
       const gate = new Promise<void>(resolve => { releaseReceipt = resolve; });
       await page.route(`**/api/conversations/${chat.id}/steer**`, async route => {
-        if (route.request().method() !== delayedMethod) return route.continue();
+        if (route.request().method() !== delayedMethod || route.request().url().includes('review=1')) return route.continue();
         const response = await route.fetch(); intercepted = true; await gate; await route.fulfill({ response });
       });
       await text.fill('仅把这条文字补充到当前任务');
-      await clickAppAction(page, '引导当前任务', page.getByRole('button', { name: '引导当前任务', exact: true }));
+      await page.getByRole('button', { name: '发送消息', exact: true }).click();
       await expect.poll(() => intercepted).toBe(true);
-      await expect(page.getByRole('button', { name: phone ? '发送消息' : '引导当前任务', exact: true })).toBeDisabled();
+      await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
       // The text-only request is already in flight. These attachments belong
       // to the next message and must survive its eventual success receipt.
       let originalAudio: number[] = [];

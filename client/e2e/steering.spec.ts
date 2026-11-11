@@ -84,7 +84,7 @@ test("explicit steering and ordinary queueing have distinct cross-device receipt
     phone.on("request", (request) => { if (request.method() === "POST" && request.url().endsWith("/steer")) { controlBody = request.postData()!; authorization = request.headers().authorization!; } });
     await phone.setViewportSize({width:320,height:400});
     await text(phone).fill("把范围缩小到移动端");
-    await expect(phone.getByRole("button", { name: "发送消息", exact: true })).toHaveAttribute("title", "发送消息，任务执行中会排队");
+    await expect(phone.getByRole("button", { name: "发送消息", exact: true })).toHaveAttribute("title", "等待当前任务结束后再处理");
     await expect(phone.getByRole("button",{name:"发送消息",exact:true})).toBeInViewport();
     await phone.getByRole("button", { name: "更多聊天操作", exact: true }).click();
     await expect(phone.getByRole("button",{name:"引导当前任务",exact:true})).toBeInViewport();

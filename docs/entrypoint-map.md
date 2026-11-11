@@ -2118,6 +2118,18 @@ and the existing network/run/delete suites listed in that audit.
   input versus durable next-turn delivery beside the composer; `ClaudeSendChoice`
   and `use-claude-send-choice` own only UI intent, with browser `claude-send-choice`
   covering scope, focus, queue controls and uncertain-native-send protection.
+  Codex reuses that selector with **queue as the default**. Its separate
+  `use-codex-send-choice` binds an explicit supplement to the selected task;
+  idle/new targets reset it even with a draft, while unknown status retains
+  intent and requires a fresh target-checked preflight. Rich/workbench input
+  stays queued. `steering-request` persists bound Codex retry identities separately
+  from native input, so switching to queue or reloading cannot duplicate an
+  uncertain supplement. Queue recovery checks an old ID only after authoritative
+  status proves its task ended; accepted old receipts never masquerade as a
+  supplement delivered to a newer task. Other engines/groups keep their explicit
+  input lifecycle. Browser `codex-send-choice` and unit
+  `client-steering-request` cover these boundaries. This is App routing and
+  presentation; existing Host steering/queue APIs and CLI commands are unchanged.
   [Compact phone accessories](client/phone-composer-tools-2026-10-24.md) share the
   native task entry and selector row while retaining background-progress
   locators and independent queue controls. Stop impact is shown on demand.
