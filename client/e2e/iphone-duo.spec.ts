@@ -49,7 +49,9 @@ test('Duo fold, rotate and split preserve current chat, rich draft and queue cho
       expect(box.x).toBeGreaterThanOrEqual(size.insets[3]!);
       expect(box.x+box.width).toBeLessThanOrEqual(size.width-size.insets[1]!+1);
       expect(box.y+box.height).toBeLessThanOrEqual(size.height-size.insets[2]!+1);
-      await page.locator('.send-choice-help').click();
+      // Narrow phone windows use the explanatory text as the help entry;
+      // expanded windows retain the original question-mark control.
+      await page.locator(size.width < 600 ? '.send-choice-summary' : '.send-choice-help').click();
       const dialog=page.getByRole('dialog',{name:'发送方式',exact:true});
       await expect(dialog).toBeVisible();
       const rect=(await dialog.boundingBox())!;

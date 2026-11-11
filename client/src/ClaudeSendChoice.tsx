@@ -10,6 +10,8 @@ export function ClaudeSendChoice({ next, lockedToNext, disabled, change, compact
 }) {
   useLocale();
   const helpTrigger = useRef<HTMLButtonElement>(null);
+  const summaryTrigger = useRef<HTMLButtonElement>(null);
+  const helpFromSummary = useRef(false);
   const [help, setHelp] = useState(false);
   const touch = useRef<{ id: number; x: number; y: number; moved: boolean } | undefined>(undefined);
   const suppressPointerClick = useRef(false);
@@ -49,20 +51,25 @@ export function ClaudeSendChoice({ next, lockedToNext, disabled, change, compact
     change(value);
     event.currentTarget.closest('fieldset')?.querySelector<HTMLButtonElement>(value ? '[data-mode="next"]' : '[data-mode="current"]')?.focus();
   };
-  return <div className="claude-send-choice">
+  const currentExplanation = lockedToNext ? explicitSteering ? t('这条消息将在当前任务结束后处理') : t('附件和引用将在当前任务结束后处理') : explicitSteering ? t('补充到当前任务，不改变待执行顺序') : t('由 CLI 适时读入，不主动打断当前任务');
+  const nextExplanation = t('等待当前任务结束后再处理');
+  const explanation = lockedToNext ? currentExplanation : next ? nextExplanation : currentExplanation;
+  return <>
+    <button ref={summaryTrigger} type="button" className="send-choice-summary" aria-label={t('说明发送方式')} aria-description={explanation} title={explanation} onClick={() => { helpFromSummary.current = true; setHelp(true); }}><span>{explanation}</span></button>
+    <div className="claude-send-choice">
     <fieldset disabled={disabled} role="radiogroup" aria-label={t('发送方式')}>
-      <button type="button" role="radio" data-mode="current" aria-checked={!next} tabIndex={next ? -1 : 0} disabled={lockedToNext} onPointerDown={keepComposer} onPointerMove={moveTouch} onPointerCancel={() => { touch.current = undefined; }} onPointerUp={event => finishTouch(event, false)} onKeyDown={arrow} onClick={event => click(event, false)} title={lockedToNext ? explicitSteering ? t('这条消息将在当前任务结束后处理') : t('附件和引用将在当前任务结束后处理') : explicitSteering ? t('补充到当前任务，不改变待执行顺序') : t('由 CLI 适时读入，不主动打断当前任务')}>
+      <button type="button" role="radio" data-mode="current" aria-checked={!next} tabIndex={next ? -1 : 0} disabled={lockedToNext} onPointerDown={keepComposer} onPointerMove={moveTouch} onPointerCancel={() => { touch.current = undefined; }} onPointerUp={event => finishTouch(event, false)} onKeyDown={arrow} onClick={event => click(event, false)} title={currentExplanation}>
         <Check size={13}/>{compact ? t('补充') : t('补充当前')}
       </button>
-      <button type="button" role="radio" data-mode="next" aria-checked={next} tabIndex={next ? 0 : -1} onPointerDown={keepComposer} onPointerMove={moveTouch} onPointerCancel={() => { touch.current = undefined; }} onPointerUp={event => finishTouch(event, true)} onKeyDown={arrow} onClick={event => click(event, true)} title={t('等待当前任务结束后再处理')}>
+      <button type="button" role="radio" data-mode="next" aria-checked={next} tabIndex={next ? 0 : -1} onPointerDown={keepComposer} onPointerMove={moveTouch} onPointerCancel={() => { touch.current = undefined; }} onPointerUp={event => finishTouch(event, true)} onKeyDown={arrow} onClick={event => click(event, true)} title={nextExplanation}>
         <Check size={13}/>{compact ? t('排队') : t('排到下一轮')}
       </button>
     </fieldset>
-    <button ref={helpTrigger} type="button" className="send-choice-help" aria-label={t('说明发送方式')} onClick={() => setHelp(true)}><CircleHelp size={16}/></button>
-    {help && <CreationDialog title={t('发送方式')} showHost={false} className="send-choice-explanation" returnFocus={helpTrigger} closeLabel={t('关闭发送方式说明')} close={() => setHelp(false)}>
+    <button ref={helpTrigger} type="button" className="send-choice-help" aria-label={t('说明发送方式')} onClick={() => { helpFromSummary.current = false; setHelp(true); }}><CircleHelp size={16}/></button>
+    {help && <CreationDialog title={t('发送方式')} showHost={false} className="send-choice-explanation" returnFocus={helpFromSummary.current ? summaryTrigger : helpTrigger} closeLabel={t('关闭发送方式说明')} close={() => setHelp(false)}>
       <dl><dt>{t('补充当前')}</dt><dd>{explicitSteering ? t('补充到当前任务，不改变待执行顺序') : t('由 CLI 适时读入，不主动打断当前任务。待处理时间可能很短，模型收到后无法撤回。')}</dd>
         <dt>{t('排到下一轮')}</dt><dd>{t('等待当前任务结束后再处理。在待执行列表中可以编辑、调整顺序或取消；开始处理后不能撤回。')}</dd></dl>
       <p>{t('这里只选择发送方式，点击发送按钮才会发送。同一任务内会记住选择，其他对话互不影响。')}</p>
     </CreationDialog>}
-  </div>;
+  </div></>;
 }

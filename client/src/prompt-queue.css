@@ -1,4 +1,5 @@
 .prompt-queue{flex:none;min-width:0;height:32px;margin:0 2px 4px}
+.prompt-queue-compact-total,.prompt-queue-preview-compact{display:none}
 .prompt-queue-trigger{display:flex;align-items:center;gap:6px;min-height:30px;height:30px;max-width:100%;padding:4px 8px;color:var(--grey);background:transparent;font-size:12px}
 .prompt-queue-trigger>span{font-weight:550;white-space:nowrap;flex:none}.prompt-queue-trigger>svg{flex:none}.prompt-queue-next{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}.prompt-queue-trigger>small{font-size:11px;color:var(--muted)}
 /* Keep the selected phone surface stable before and after sticky touch hover. */

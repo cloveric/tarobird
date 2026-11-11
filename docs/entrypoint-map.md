@@ -2138,9 +2138,12 @@ and the existing network/run/delete suites listed in that audit.
   [Compact phone accessories](client/phone-composer-tools-2026-10-24.md) share the
   native task entry and selector row while retaining background-progress
   locators and independent queue controls. Stop impact is shown on demand.
-  On phones, the pending-message preview keeps its own row above the task/send
-  controls with tighter vertical padding and no extra gutter. The typing field,
-  task/send targets and desktop layout keep their existing sizes. This is App
+  On ordinary native phone windows below 600px without a task bar, the pending
+  preview and selector now share one row; without a queue entry, explanatory
+  text opens the existing help. Larger text can wrap the controls. Task/dock,
+  expanded-window and desktop layouts retain their existing rows. Counts and
+  the phone stop control follow theme accents. See [phone send-mode row](client/phone-send-mode-row-2026-11-11.md).
+  The typing field and touch targets keep their existing sizes. This is App
   presentation only; Host queue semantics and headless CLI are unchanged.
   A background-group locator and native task manager share the send-choice row
   when their full content fits, without a full-width panel frame or an internal

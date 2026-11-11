@@ -1,4 +1,5 @@
 /* Outside the phone's single-line field: never trade typing width for controls. */
+.send-choice-summary{display:none}
 .claude-send-choice{display:flex;align-items:center;justify-content:flex-end;gap:3px;min-width:0;margin:0 0 4px;color:var(--muted)}
 .claude-send-choice fieldset{--choice-inset:0px;position:relative;isolation:isolate;display:flex;align-items:center;gap:0;min-width:0;margin:0;padding:0 3px;border:0}
 /* The track groups both choices. Its visual height is independent of the
@@ -17,6 +18,65 @@
 @media(hover:hover){
   .claude-send-choice [role=radio]:hover:not(:disabled):not([aria-checked=true])::before{background:var(--surface-alt)}
   .claude-send-choice [role=radio][aria-checked=true]:hover:not(:disabled)::before{background:var(--accent-soft-hover)}
+}
+
+/* Ordinary phone windows: one queue/mode row, with independent 44px targets.
+   Keep task/dock layouts and expanded native windows on their existing path.
+   The queue component stays mounted; only its presentation changes. */
+@media(max-width:599px) {
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) {
+    display:flex; flex-wrap:wrap; align-items:center; gap:0 8px;
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) > .prompt-queue {
+    flex:1 1 115px; height:auto; min-height:44px; margin:0; min-width:0; max-width:100%;
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) > .prompt-queue[data-state] { flex-basis:max-content; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue[data-state=paused] .prompt-queue-next { flex:none; overflow:visible; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger {
+    height:auto; min-height:44px; width:100%; gap:5px; padding:4px 8px; border:0; border-radius:999px; background:var(--surface);
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger > small:not(.prompt-queue-next) { flex:none; white-space:nowrap; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-total { display:none; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-preview-full { display:none; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-preview-compact { display:inline; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-compact-total { display:inline-flex; align-items:center; gap:5px; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-count {
+    display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; padding:0 5px; border-radius:999px; font-size:11px; font-variant-numeric:tabular-nums;
+    background:var(--primary-bg); color:var(--on-primary);
+  }
+  :root[data-platform]:is([data-platform=ios],[data-platform=android])[data-palette=mono] .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-count { background:var(--mono-summary-bg,#737373); color:var(--mono-summary-ink,#fff); }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) > .claude-send-choice { flex:0 1 auto; max-width:100%; margin:0 0 0 auto; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .send-choice-help { display:none; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)):not(:has(> .prompt-queue)) > .send-choice-summary {
+    display:flex; flex:1 1 115px; align-items:center; min-width:0; min-height:44px; padding:4px; border:0; background:transparent; color:var(--muted); font-size:12px; text-align:left;
+  }
+  .send-choice-summary > span { min-width:0; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; line-height:1.4; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice fieldset { --choice-inset:0px; padding:0 3px; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice fieldset::before { border-color:transparent; border-radius:999px; background:var(--surface); }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio] { padding-inline:9px; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio]::before { border-radius:999px; }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true] {
+    color:color-mix(in srgb,var(--choice-mark) 60%,var(--text));
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true]::before {
+    background:var(--raised); border-color:color-mix(in srgb,var(--choice-mark) 28%,var(--border)); box-shadow:0 1px 3px #00000014;
+  }
+  :root[data-theme=dark]:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true]::before { background:var(--surface-alt); }
+  @media(prefers-color-scheme:dark) {
+    :root[data-theme=system]:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:not(:has(.conversation-task-bar)) .claude-send-choice [role=radio][aria-checked=true]::before { background:var(--surface-alt); }
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-wrap:has(> .composer-accessories.is-phone > .claude-send-choice) .composer-toolbar .icon-button.composer-stop.is-live {
+    background-color:var(--mono-control-bg,var(--primary-bg)); color:var(--mono-control-ink,var(--on-primary));
+  }
+  :root:is([data-platform=ios],[data-platform=android]) .composer-wrap:has(> .composer-accessories.is-phone > .claude-send-choice) .composer-toolbar .icon-button.composer-stop.is-live:is(:hover,:active):not(:disabled) { background-color:var(--mono-control-hover,var(--primary-hover)); }
+  :root[data-palette=mono][data-mono-accent=none]:is([data-platform=ios],[data-platform=android]) .composer-wrap:has(> .composer-accessories.is-phone > .claude-send-choice) .composer-toolbar .icon-button.composer-stop.is-live { background-color:var(--surface); color:var(--grey); }
+  @container composer-tools (max-width:360px) {
+    /* The preview yields first; keep the count, label and chevron legible. */
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone:has(> .claude-send-choice):not(:has(.conversation-task-bar)) .prompt-queue-trigger > svg:first-child { display:none; }
+  }
+  @media(forced-colors:active) {
+    :root:is([data-platform=ios],[data-platform=android]) .composer-accessories.is-phone .claude-send-choice [role=radio][aria-checked=true]::before { border-color:Highlight; }
+  }
 }
 @media(forced-colors:active){
   .claude-send-choice fieldset::before{border-color:ButtonText}
