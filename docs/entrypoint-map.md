@@ -3738,6 +3738,12 @@ and `widget-cpu-isolation`, plus physical iPhone keyboard/gesture evidence.
 ## App platform contract and native tools
 
 - `src/gateway/agent-instructions.ts`: independent short App rules and on-demand capability procedures. Core instructions and platform policy are explicitly injected for the App channel.
+  Enabled Claude Chrome sessions refresh the browser guide before execution or
+  delegation, including keyword-free follow-ups. Recovery distinguishes a
+  running process from an open window and a verified browser connection;
+  legacy sessions receive the same bounded procedure without native tools.
+  Tests: `chrome-recovery-guidance`, `gateway-app-tools`, `search-routing`.
+  See [Chrome recovery scope](client/claude-chrome-recovery-2026-11-12.md).
 - `src/gateway/service.ts`: binds capability callbacks to the authenticated conversation and turn lifetime, adds task guidance, and reports native delivery receipts to the shared follow-up guard.
 - `src/gateway/app-tools.ts`: native file/capability execution, permission-aware path and credential preflight, cancellation, tool registration records and durable send receipts. `core/file-send-policy.ts` defaults effective full access to external paths, honors explicit zero and rechecks saved permissions for single, batch and legacy delivery. Tests: `gateway-file-policy`, `gateway-app-tools`, `gateway-service`; [behavior and evidence](client/full-access-file-delivery-2026-10-16.md). `app-delivery.ts` checks delivered byte versions before suppressing legacy directives; per-user-turn publication receipts/cache span engine errors and repair attempts. Upload-before-publish errors are definite failures; publish ambiguity remains uncertain.
 - `src/gateway/app-batch.ts`, `GatewayChannel.sendArtifactBatch`: native captioned mixed batches and one image gallery, complete preflight before uploads and one publication after all uploads. Per-member promises share receipts with single-file sends. `AppPlatformTools.forSession` selects exact known persisted tool versions; old two-tool threads retain their native contract and context. Tests: `gateway-app-tools`, `gateway-service`, `app-server-adapter`, opt-in `live-native-batch` (Chromium/WebKit). See [native batches](client/native-batch-delivery.md).
