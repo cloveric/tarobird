@@ -4122,6 +4122,11 @@ share that list; the selected QR remains a single direct route. Regressions:
 `desktop-lan-addresses`, `desktop-host`, `desktop-tailscale`, `hub-host-routes`,
 `host-cli-management`, `tailscale-review-regressions` and Chromium
 `tailscale-pairing`. See [scope and evidence](client/lan-interface-discovery-2026-11-12.md).
+Candidate health failures are independent, with an optional unavailable count;
+all-failed and explicitly selected CLI failures remain errors. Multiple or partially failed
+LAN candidates require an explicit UI choice before QR issuance/publication.
+Also cover `desktop-network-resilience`, `desktop-network-port` and the
+`device-invite` browser parent flow when changing this path.
 
 ### 2026-10-21 Host route refresh and self-route sync
 

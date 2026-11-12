@@ -1272,6 +1272,54 @@
           "fingerprint": "9b0632e21f383c31605a18b1f6a731b78208df822413c7c90eeb838d48c1e71b"
         }
       ]
+    },
+    {
+      "path": "client/e2e/fixtures/tailscale-pairing.tsx",
+      "sha256": "4b378a6b6f9e3e9e2e1b1663295d4dfb75469aed9ba555dc098585395983ece1",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged synthetic Tailscale address and isolated pairing fixtures; no owner deployment, account or device data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/tailscale-pairing.spec.ts",
+      "sha256": "9faf252041da8bac240e1660bdd51f357980d592d654179cc6121b323f18ddaf",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged synthetic Tailscale address and isolated pairing fixtures; no owner deployment, account or device data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/device-invite.tsx",
+      "sha256": "a0e53654a4e919cc29850d7ca5c697454c9039703704d15bab9e6e1baebcc73c",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged synthetic Tailscale address and isolated pairing fixtures; no owner deployment, account or device data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/device-invite.spec.ts",
+      "sha256": "9f3d915bf317e3357fbfeaefad492593c27fecfbb0877579e96c772902b70551",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged synthetic Tailscale address and isolated pairing fixtures; no owner deployment, account or device data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
     }
   ]
 }

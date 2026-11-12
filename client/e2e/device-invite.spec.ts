@@ -16,7 +16,7 @@ import { createServer } from "./fixtures/vite.js";
 // restart the host or change shared network routes.
 type Calls = { http: { host: string; path: string; method: string }[]; network: { host: string; operation: string }[]; ipc: string[]; busy: boolean };
 declare global { interface Window { inviteFixture: {
-  configure(ca: string): void; add(label: string, spec: HostSpec): void; show(label: string, localHost?: boolean): void;
+  configure(ca: string): void; preparation(addresses: string[], omitted?: number): void; add(label: string, spec: HostSpec): void; show(label: string, localHost?: boolean): void;
   decodeAll(): Promise<string[]>; release(label: string): void; update(label: string, patch: Record<string, unknown>): void;
   calls(): Calls; copied(): string;
 } } }
@@ -364,4 +364,51 @@ test("ten reconnects retain the same invitation without occupying more slots", a
   const log = await calls(page);
   expect(log.http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toHaveLength(1);
   expect(log.http.filter(call => call.path === PAIRING_INVITE_REVOKE_PATH)).toHaveLength(0);
+});
+
+
+test("first-time compact pairing waits for the chosen LAN address before advancing", async ({ page }) => {
+  await page.evaluate(() => window.inviteFixture.preparation(["192.168.50.2", "192.168.10.20"]));
+  await add(page, "L", { key: keyA, identityRoutes: [{ name: "Direct", url: "http://127.0.0.1:8787" }], view: { routes: [] } });
+  await show(page, "L", true);
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  const selector = page.getByRole("combobox", { name: /^选择电脑所在网络/ });
+  await expect(selector).toHaveValue("-1");
+  await expect(page.locator(".pair-qr")).toHaveCount(0);
+  expect((await calls(page)).network).toEqual([]);
+  expect((await calls(page)).http.filter(call => call.method === "POST")).toEqual([]);
+  await expect.poll(async () => (await calls(page)).busy).toBe(false);
+  await selector.selectOption({ label: "192.168.10.20" });
+  await expect(selector).toHaveCount(0);
+  expect(await scanned(page)).toMatchObject({ routes: [{ url: lan }] });
+  await expect.poll(async () => (await calls(page)).busy).toBe(false);
+});
+
+test("compact pairing retains partial-readiness information after advancing to its QR", async ({ page }) => {
+  await page.evaluate(() => window.inviteFixture.preparation(["192.168.10.20"], 2));
+  await add(page, "L", { key: keyA, identityRoutes: [{ name: "Direct", url: "http://127.0.0.1:8787" }], view: { routes: [] } });
+  await show(page, "L", true);
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption("0");
+  await expect(page.getByText("其他连接方式", { exact: true })).toBeVisible();
+  expect(await scanned(page)).toMatchObject({ routes: [{ url: lan }] });
+  await expect(page.getByText("2 个地址暂未就绪，已显示可用地址。", { exact: true })).toBeVisible();
+});
+
+
+test("a partial LAN warning does not follow a different relay QR", async ({ page }) => {
+  await page.evaluate(() => window.inviteFixture.preparation(["192.168.10.20"], 1));
+  await add(page, "L", { key: keyA, identityRoutes: [{ name: "Direct", url: "http://127.0.0.1:8787" }, { name: "VPS", url: relay }], view: { routes: [] } });
+  await show(page, "L", true);
+  await page.getByText("其他连接方式", { exact: true }).click();
+  await page.getByRole("button", { name: "设置其他连接方式", exact: true }).click();
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption("0");
+  const selector = page.getByRole("combobox", { name: /^新设备通过什么网络连接/ });
+  await expect(selector).toBeVisible();
+  const warning = page.getByText("1 个地址暂未就绪，已显示可用地址。", { exact: true });
+  await expect(warning).toBeVisible();
+  await selector.selectOption(relay);
+  await expect(warning).toHaveCount(0);
+  expect(await scanned(page)).toMatchObject({ routes: [{ name: "VPS", url: relay }] });
 });

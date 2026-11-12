@@ -21,7 +21,7 @@ export function DeviceInviteCode({ connection, localHost, busyChange }: { connec
   const [read, setRead] = useState<{ key: string; routes: Route[]; failed?: boolean; unavailable?: boolean; unavailableNames?: Route["name"][]; selectionRequired?: boolean }>();
   const [preparing, setPreparing] = useState(false);
   useEffect(() => { busyChange?.(preparing); return () => busyChange?.(false); }, [preparing, busyChange]);
-  const [prepared, setPrepared] = useState<{ key: string; route: Route }>();
+  const [prepared, setPrepared] = useState<{ key: string; route: Route; unavailableRouteCount?: number }>();
   const [retry, setRetry] = useState(0), [configure, setConfigure] = useState(false), [selected, setSelected] = useState("");
   useEffect(() => {
     setRead(previous => previous?.key === key && !previous.failed ? previous : undefined);
@@ -54,7 +54,7 @@ export function DeviceInviteCode({ connection, localHost, busyChange }: { connec
   const defaults = usable.length ? usable : choices;
   const chosen = choices.find(route => route.url === selected) ?? defaults.find(route => route.url === state.route?.url) ?? (localHost ? defaults.find(route => route.name === "Direct") : undefined) ?? defaults.find(route => route.name === "Tailscale") ?? defaults[0];
   const title = (route: Route) => route.name === "Tailscale" ? t("Tailscale") : route.name === "VPS" ? t("VPS 中转") : t("同一局域网");
-  if (configure) return <div className="device-invite"><button type="button" disabled={preparing} onClick={() => { setConfigure(false); setRetry(value => value + 1); }}>{t("返回连接二维码")}</button><DesktopHostInvite compact connection={connection} hubKey={key} busyChange={setPreparing} onReady={route => { setPrepared({ key, route }); setSelected(route.url); setConfigure(false); }}/></div>;
+  if (configure) return <div className="device-invite"><button type="button" disabled={preparing} onClick={() => { setConfigure(false); setRetry(value => value + 1); }}>{t("返回连接二维码")}</button><DesktopHostInvite compact connection={connection} hubKey={key} busyChange={setPreparing} onReady={(route, unavailableRouteCount) => { setPrepared({ key, route, unavailableRouteCount }); setSelected(route.url); setConfigure(false); }}/></div>;
   // The host's own report stays visible, next to the network choice it concerns.
   const unavailableWarning = !prepared && read?.key === key && read.unavailable && <p role="alert" className="settings-warning">{t("主机报告本地线路当前不可用。请检查网络后重新生成，或选择其他可用连接方式。")}</p>;
   return <section className="device-invite" aria-label={t("连接二维码")}>
@@ -67,8 +67,9 @@ export function DeviceInviteCode({ connection, localHost, busyChange }: { connec
     </> : <>
       {unavailableWarning}
       <p className="settings-note">{localHost ? t("首次设置：选择连接方式并生成二维码。") : t("此主机尚未提供可分享的连接地址。请在主机电脑打开「添加设备」，生成连接二维码。")}</p>
-      {localHost && <DesktopHostInvite compact connection={connection} hubKey={key} busyChange={setPreparing} onReady={route => { setPrepared({ key, route }); setSelected(route.url); setConfigure(false); }}/>}
+      {localHost && <DesktopHostInvite compact connection={connection} hubKey={key} busyChange={setPreparing} onReady={(route, unavailableRouteCount) => { setPrepared({ key, route, unavailableRouteCount }); setSelected(route.url); setConfigure(false); }}/>}
     </>}
+    {prepared?.key === key && chosen?.url === prepared.route.url && (prepared.unavailableRouteCount ?? 0) > 0 && <p role="status" className="settings-note">{t("{0} 个地址暂未就绪，已显示可用地址。", prepared.unavailableRouteCount)}</p>}
     {localHost && chosen && !loading && !failed && <details className="device-invite-options"><summary>{t("其他连接方式")}</summary><p>{t("已有线路不适用时，可在这里配置局域网或 Tailscale。")}</p><button type="button" onClick={() => setConfigure(true)}>{t("设置其他连接方式")}</button></details>}
   </section>;
 }

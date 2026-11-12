@@ -44,6 +44,7 @@ const log = { http: [] as { host: string; path: string; method: string }[], netw
 const hosts = new Map<string, Fake>();
 const root = createRoot(document.getElementById("root")!);
 let localKey = "", certificateAuthority = "", clipboard = "";
+let preparedAddresses = ["192.168.10.20"], unavailableRouteCount = 0;
 
 // `?platform=ios|android` stands in for a phone shell with a mocked Photos
 // plugin. Nothing is written to a real photo library.
@@ -64,7 +65,8 @@ mockIPC(async (command, args) => {
   if (command !== "desktop_host") throw Error("unexpected_command");
   const action = String((args as { action?: unknown } | undefined)?.action); log.ipc.push(action);
   if (action === "status") return { running: true, publicKey: localKey };
-  return { running: true, publicKey: localKey, routes: [{ name: action === "tailscale" ? "Tailscale" : "Direct", url: action === "tailscale" ? "https://100.101.102.103:8788" : "https://192.168.10.20:8788", certificateAuthority }] };
+  const addresses = action === "tailscale" ? ["100.101.102.103"] : preparedAddresses;
+  return { running: true, publicKey: localKey, ...(unavailableRouteCount ? { unavailableRouteCount } : {}), routes: addresses.map(address => ({ name: action === "tailscale" ? "Tailscale" : "Direct", url: `https://${address}:8788`, certificateAuthority })) };
 });
 
 function fake(label: string, spec: HostSpec): Fake {
@@ -128,6 +130,7 @@ async function decodeAll(): Promise<string[]> {
 
 Object.assign(window, { inviteFixture: {
   configure(ca: string) { certificateAuthority = ca; },
+  preparation(addresses: string[], omitted = 0) { preparedAddresses = addresses; unavailableRouteCount = omitted; },
   add(label: string, spec: HostSpec) { hosts.set(label, fake(label, spec)); },
   show, decodeAll, setLocale,
   photos: { mode(mode: typeof photos.mode) { photos.mode = mode; }, calls: () => structuredClone(photos.calls), release() { photos.waiting.splice(0).forEach(resolve => resolve()); } },

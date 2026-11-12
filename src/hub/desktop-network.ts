@@ -3,6 +3,10 @@ import https from "node:https";
 import { randomInt, X509Certificate } from "node:crypto";
 import { isLoopback } from "./network.js";
 
+/** Bind failures meaning that one address is not usable right now. The Host
+ * tolerates the same failures on an optional listener and retries it later;
+ * `EADDRINUSE` is different and selects another candidate port below. */
+const ADDRESS_UNAVAILABLE = new Set(["EADDRNOTAVAIL", "ENODEV", "ENETUNREACH", "EAFNOSUPPORT"]);
 export async function freeDesktopPort(addresses = ["127.0.0.1"]): Promise<number> {
   const randomCandidate = addresses.some(address => !isLoopback(address));
   // A port free on loopback may be occupied on Wi-Fi or a VPN. Hold every
@@ -15,11 +19,20 @@ export async function freeDesktopPort(addresses = ["127.0.0.1"]): Promise<number
       // binds it. Choose a candidate below the usual ephemeral ranges, then
       // still check every intended interface. Saved ports are never changed.
       let port = randomCandidate ? randomInt(20_000, 32_768) : 0;
+      // An interface can disappear between discovery and this probe. Skip only
+      // that address: its listener stays optional and is reported ready only by
+      // its own health check. The port must still be held on a real address.
+      let unavailable: unknown;
       for (const address of addresses) {
         const socket = net.createServer(); sockets.push(socket);
-        await new Promise<void>((resolve, reject) => { socket.once("error", reject); socket.listen(port, address, resolve); });
+        try { await new Promise<void>((resolve, reject) => { socket.once("error", reject); socket.listen(port, address, resolve); }); }
+        catch (error) {
+          if (!ADDRESS_UNAVAILABLE.has((error as NodeJS.ErrnoException).code ?? "")) throw error;
+          unavailable ??= error; continue;
+        }
         port = (socket.address() as net.AddressInfo).port;
       }
+      if (unavailable && !sockets.some(socket => socket.listening)) throw unavailable;
       return port;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;

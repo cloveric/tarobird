@@ -6,9 +6,10 @@ import { useDesktopHostAccess } from "./useDesktopHostAccess.js";
 import { t, useLocale } from "./i18n.js";
 import "./desktop-host.css";
 
-export function DesktopHostInvite({ hubKey, connection, purpose = "pairing", disabled = false, busyChange, compact = false, onReady }: { compact?: boolean; onReady?: (route: Route) => void; disabled?: boolean; busyChange?: (busy: boolean) => void; hubKey: string; connection?: HubConnection; purpose?: "pairing" | "network" }) {
+export function DesktopHostInvite({ hubKey, connection, purpose = "pairing", disabled = false, busyChange, compact = false, onReady }: { compact?: boolean; onReady?: (route: Route, unavailableRouteCount?: number) => void; disabled?: boolean; busyChange?: (busy: boolean) => void; hubKey: string; connection?: HubConnection; purpose?: "pairing" | "network" }) {
   useLocale();
-  const { method, chooseMethod, routes, selected, setSelected, publishedRoute, busy, publishingRoute, error, prepare } = useDesktopHostAccess({ hubKey, connection, purpose, disabled, busyChange, onReady });
+  const { method, chooseMethod, routes, selected, setSelected, publishedRoute, busy, publishingRoute, unavailableRouteCount, error, prepare } = useDesktopHostAccess({ hubKey, connection, purpose, disabled, busyChange, onReady });
+  const selectedRoute = routes[selected];
   return <section className="desktop-host-invite">
     {(!compact || !routes.length) && <><fieldset className="pairing-network-choice" disabled={busy || publishingRoute || disabled}><legend>{t("选择连接方式")}</legend>
       <div>{(["network", "tailscale"] as const).map(value => <button key={value} type="button" aria-pressed={method === value} onClick={() => chooseMethod(value)}>{value === "network" ? t("同一 Wi-Fi") : t("Tailscale 异地连接")}</button>)}</div>
@@ -31,13 +32,17 @@ export function DesktopHostInvite({ hubKey, connection, purpose = "pairing", dis
       return notes.length ? <div className="desktop-host-notes"><p>{t("点「{0}」后：", action)}</p><ul>{notes.map(note => <li key={note}>{note}</li>)}</ul></div> : null;
     })()}
     {!routes.length ? <button type="button" className="primary" disabled={busy || publishingRoute || disabled} onClick={() => void prepare()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Smartphone size={16}/>}{busy ? t("正在准备连接…") : purpose === "network" ? method === "tailscale" ? t("准备 Tailscale 线路") : t("准备局域网线路") : method === "tailscale" ? t("生成 Tailscale 二维码") : t("生成局域网二维码")}</button> : <>
-      {routes.length > 1 && <label>{method === "tailscale" ? t("选择 Tailscale 地址") : t("选择电脑所在网络")}<select disabled={busy || publishingRoute || disabled} value={selected} onChange={(e) => setSelected(Number(e.target.value))}>{routes.map((route, i) => <option key={route.url} value={i}>{new URL(route.url).hostname}</option>)}</select></label>}
-      {purpose === "pairing" && <ConnectionInviteCode connection={connection} payload={{ v: 1, kind: "connect", hubPublicKey: hubKey, routes: [routes[selected]!], deployment: "computer" }}/>}
-      {compact ? <details><summary>{t("连接地址")}</summary><input aria-label={t("连接地址")} readOnly value={routes[selected]!.url}/></details> : <label>{t("连接地址")}<input readOnly value={routes[selected]!.url} onFocus={event => event.currentTarget.select()}/></label>}
-      {purpose === "pairing" ? <p>{t("在新设备打开 TaroBird，扫描此二维码。再回到这里，输入新设备上的 8 位配对码确认。")}</p> : !error && <p role="status">{publishedRoute === routes[selected]!.url ? t("本机线路已共享，可以继续确认加入。") : t("正在等待本机重新连接并共享线路…")}</p>}
+      {(routes.length > 1 || !selectedRoute) && <label>{method === "tailscale" ? t("选择 Tailscale 地址") : t("选择电脑所在网络")}<select disabled={busy || publishingRoute || disabled} value={selected} onChange={(e) => setSelected(Number(e.target.value))}>{selected < 0 && <option value={-1} disabled>{t("请选择连接地址")}</option>}{routes.map((route, i) => <option key={route.url} value={i}>{new URL(route.url).hostname}</option>)}</select></label>}
+      {!selectedRoute && <p className="settings-note" role="status">{t("检测到多个地址，请选择与另一台设备在同一网络的地址。")}</p>}
+      {selectedRoute && <>
+      {purpose === "pairing" && <ConnectionInviteCode connection={connection} payload={{ v: 1, kind: "connect", hubPublicKey: hubKey, routes: [selectedRoute], deployment: "computer" }}/>}
+      {compact ? <details><summary>{t("连接地址")}</summary><input aria-label={t("连接地址")} readOnly value={selectedRoute.url}/></details> : <label>{t("连接地址")}<input readOnly value={selectedRoute.url} onFocus={event => event.currentTarget.select()}/></label>}
+      {purpose === "pairing" ? <p>{t("在新设备打开 TaroBird，扫描此二维码。再回到这里，输入新设备上的 8 位配对码确认。")}</p> : !error && <p role="status">{publishedRoute === selectedRoute.url ? t("本机线路已共享，可以继续确认加入。") : t("正在等待本机重新连接并共享线路…")}</p>}
+      </>}
       <button type="button" disabled={busy || publishingRoute || disabled} onClick={() => void prepare()}>{purpose === "network" ? t("重新准备线路") : t("网络变了？重新准备线路")}</button>
     </>}
     {!compact && purpose === "pairing" && (method === "tailscale" ? <p className="settings-note">{t("手机已经配对过？在手机「连接状态与线路」中点击「扫描二维码更新连接」，若尚未自动同步地址，可扫描这里的码添加线路，无需重新配对。")}</p> : <p className="muted">{t("局域网二维码不支持手机流量直连。外出使用请选择「Tailscale 异地连接」，或在「连接状态与线路」中配置 VPS 中转。")}</p>)}
+    {unavailableRouteCount > 0 && <p className="settings-note" role="status">{t("{0} 个地址暂未就绪，已显示可用地址。", unavailableRouteCount)}</p>}
     {error && <p className="error-text" role="alert">{error}</p>}
   </section>;
 }

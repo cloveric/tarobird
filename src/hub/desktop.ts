@@ -243,9 +243,14 @@ export async function desktopHost(action: string, directory: string, entrypoint:
       // Optional listeners may fail to bind without stopping the local Host.
       // Verify the real endpoint, including the close-to-bind race and old Hosts,
       // before returning an invite; never silently change a previously saved port.
-      try { await Promise.all(routes.map(route => verifyNetworkRoute(route.url, route.certificateAuthority, status.publicKey))); }
-      catch (cause) { throw new Error(command === "tailscale" ? "desktop_host_tailscale_not_listening" : "desktop_host_lan_not_listening", { cause }); }
-      return { available: true, ...status, routes };
+      // Candidates are checked independently: one absent interface must not hide
+      // the others, and a route that failed its own check is never returned. An
+      // explicit CLI address is the only candidate here, so it cannot fall back.
+      const checks = await Promise.allSettled(routes.map(route => verifyNetworkRoute(route.url, route.certificateAuthority, status.publicKey)));
+      const failed = checks.filter((check): check is PromiseRejectedResult => check.status === "rejected");
+      const verified = routes.filter((_, index) => checks[index]!.status === "fulfilled");
+      if (!verified.length) throw new Error(command === "tailscale" ? "desktop_host_tailscale_not_listening" : "desktop_host_lan_not_listening", { cause: failed[0]?.reason });
+      return { available: true, ...status, routes: verified, ...(failed.length ? { unavailableRouteCount: failed.length } : {}) };
     });
   }
   const { nativeProof, ...device } = pairingSchema.extend({ nativeProof: desktopControllerProofSchema.optional() }).parse(input);

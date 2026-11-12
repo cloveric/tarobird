@@ -25,7 +25,7 @@ const invites = inviteApiFixture();
 const inviteConnection = { identity: { deviceId: "tailscale-fixture", hubPublicKey: key },
   state: { status: "online", user: { role: "owner" }, pairingInvitesAvailable: true, networkAvailable: false },
   subscribe: () => () => {}, http: invites.http } as unknown as HubConnection;
-const state = { calls: [] as string[], lanAddresses: ["192.168.10.20"], fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
+const state = { calls: [] as string[], lanAddresses: ["192.168.10.20"], unavailableRouteCount: 0, networkStatus: "online" as "online" | "connecting", fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
 mockIPC(async (command, args) => {
   if (command !== "desktop_host") throw Error("unexpected_command");
   const action = String(args?.action); state.calls.push(action);
@@ -34,17 +34,20 @@ mockIPC(async (command, args) => {
   if (state.fail) throw Error("desktop_host_operation_failed");
   state.local[action === "tailscale" ? "tailscale" : "lan"] = { enabled: true, listening: true };
   const addresses = action === "tailscale" ? ["100.101.102.103"] : state.lanAddresses;
-  return { running: true, publicKey: key, routes: addresses.map(address => ({ name: action === "tailscale" ? "Tailscale" : "Direct", url: `https://${address}:8788`, certificateAuthority: state.certificateAuthority })) };
+  return { running: true, publicKey: key, ...(state.unavailableRouteCount > 0 ? { unavailableRouteCount: state.unavailableRouteCount } : {}), routes: addresses.map(address => ({ name: action === "tailscale" ? "Tailscale" : "Direct", url: `https://${address}:8788`, certificateAuthority: state.certificateAuthority })) };
 });
 const render = () => root.render(<FlowDialog title="添加设备" close={() => root.render(null)} className="pairing-wizard"><div className="settings-invite"><DesktopHostInvite hubKey={key} connection={inviteConnection}/></div></FlowDialog>);
 const shared: Route[] = [{ name: "Tailscale", url: "https://100.101.102.103:8788" }];
 const networkCalls: unknown[] = [];
 let routeRelease: (() => void) | undefined;
 let holdRoutes = false;
+let networkConnection: HubConnection | undefined;
+const networkListeners = new Set<() => void>();
 const renderNetwork = (purpose: "pairing" | "network" = "network") => {
-  const connection = { identity: { deviceId: "tailscale-network-fixture", hubPublicKey: key }, state: { status: "online", user: { role: "owner" }, pairingInvitesAvailable: true, hostRoutesAvailable: true, networkAvailable: true, network: { host: { routes: shared } } }, subscribe: () => () => {}, http: async (path: string, init?: RequestInit) => path !== HOST_ROUTES_PATH ? invites.http(path, init) : ({ v: 1, hostPublicKey: key,
+  const connection = { identity: { deviceId: "tailscale-network-fixture", hubPublicKey: key }, state: { status: state.networkStatus, user: { role: "owner" }, pairingInvitesAvailable: true, hostRoutesAvailable: true, networkAvailable: true, network: { host: { routes: shared } } }, subscribe: (listener: () => void) => { networkListeners.add(listener); return () => { networkListeners.delete(listener); }; }, http: async (path: string, init?: RequestInit) => path !== HOST_ROUTES_PATH ? invites.http(path, init) : ({ v: 1, hostPublicKey: key,
     routes: state.unpublished ? [] : [{ source: "managed", route: { name: "Direct", url: "https://192.168.10.20:8788", certificateAuthority: state.certificateAuthority } }],
     local: { lan: { enabled: true, listening: true }, tailscale: { enabled: true, listening: true } }, notices: [], observedAt: Date.now() }), refreshNetwork: async () => ({ host: { routes: shared } }), networkCommand: async (command: { routes: Route[] }) => { networkCalls.push(command); if (holdRoutes) await new Promise<void>(resolve => { routeRelease = resolve; }); shared.splice(0, shared.length, ...command.routes); } } as unknown as HubConnection;
+  networkConnection = connection;
   root.render(<FlowDialog title="本机连接" close={() => root.render(null)}><DesktopHostInvite key="network" hubKey={key} connection={connection} purpose={purpose}/></FlowDialog>);
 };
 const settingsConnection = {
@@ -65,4 +68,4 @@ const decode = async () => {
   const image = document.querySelector(".pair-qr") as HTMLImageElement;
   return await decodeQrImage(image.src, () => true);
 };
-Object.assign(window, { tailscaleFixture: { state, invites, render, renderNetwork, renderSettings, networkCalls, decode, setLocale, holdRoutes() { holdRoutes = true; }, releaseRoutes() { holdRoutes = false; routeRelease?.(); } } });
+Object.assign(window, { tailscaleFixture: { state, invites, render, renderNetwork, renderSettings, networkCalls, decode, setLocale, setNetworkStatus(status: "online" | "connecting") { networkConnection!.state = { ...networkConnection!.state, status }; networkListeners.forEach(listener => listener()); }, holdRoutes() { holdRoutes = true; }, releaseRoutes() { holdRoutes = false; routeRelease?.(); } } });

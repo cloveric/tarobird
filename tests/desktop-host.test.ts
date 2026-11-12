@@ -167,6 +167,27 @@ describe("desktop first installation", () => {
       expect((await readFile(path.join(dir, "desktop-network-enabled.json"), "utf8")).trim()).toBe("true");
     } finally { addresses.mockRestore(); }
   }, 30_000);
+  it("prepares the reachable LAN candidate when another interface vanished before the first port allocation", async () => {
+    const dir = await directory(); const started = await desktopHost("start", dir, entry);
+    const publicKey = "publicKey" in started ? started.publicKey : undefined;
+    // 192.0.2.123 is never assigned: its probe, its listener and its health
+    // check all fail for real, while the loopback candidate is served for real.
+    const addresses = vi.spyOn(desktopTlsModule, "desktopLanAddresses").mockReturnValue(["192.0.2.123", "127.0.0.1"]);
+    try {
+      const result = await desktopHost("network", dir, entry);
+      if (!("routes" in result)) throw Error("missing route");
+      expect(result.routes.map(route => new URL(route.url).hostname)).toEqual(["127.0.0.1"]);
+      expect(result).toMatchObject({ running: true, publicKey, unavailableRouteCount: 1 });
+      const port = Number(new URL(result.routes[0]!.url).port);
+      expect(JSON.parse(await readFile(path.join(dir, "desktop-network-port.json"), "utf8"))).toBe(port);
+      // An explicit CLI choice of the absent address is never replaced by the reachable one.
+      await expect(desktopHost("network", dir, entry, undefined, { selectAddress: () => "192.0.2.123" })).rejects.toThrow("desktop_host_lan_not_listening");
+      const selected = await desktopHost("network", dir, entry, undefined, { selectAddress: () => "127.0.0.1" });
+      expect(selected).toMatchObject({ routes: result.routes }); expect(selected).not.toHaveProperty("unavailableRouteCount");
+      expect(await desktopHost("status", dir, entry)).toMatchObject({ running: true, publicKey });
+      expect(JSON.parse(await readFile(path.join(dir, "desktop-network-port.json"), "utf8"))).toBe(port);
+    } finally { addresses.mockRestore(); }
+  }, 60_000);
   it("rejects an occupied saved route without changing its port or stopping the local host", async () => {
     const dir = await directory(); await desktopHost("start", dir, entry);
     const addresses = vi.spyOn(desktopTlsModule, "desktopLanAddresses").mockReturnValue(["127.0.0.1"]);

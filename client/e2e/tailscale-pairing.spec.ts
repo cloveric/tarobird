@@ -7,7 +7,7 @@ import { desktopTls } from "../../src/hub/desktop-tls.js";
 import { parsePairingLink } from "../src/pairing-link.js";
 import { createServer } from "./fixtures/vite.js";
 
-declare global { interface Window { tailscaleFixture: { state: { calls: string[]; lanAddresses: string[]; fail: boolean; wrongHost: boolean; certificateAuthority: string; hold?: () => void }; render(): void; decode(): Promise<string>; setLocale(locale: "zh" | "en"): void } } }
+declare global { interface Window { tailscaleFixture: { state: { calls: string[]; lanAddresses: string[]; unavailableRouteCount: number; fail: boolean; wrongHost: boolean; certificateAuthority: string; hold?: () => void }; render(): void; decode(): Promise<string>; setLocale(locale: "zh" | "en"): void } } }
 let server: ViteDevServer, directory: string, certificateAuthority: string;
 test.beforeAll(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), "tailscale-invite-"));
@@ -51,9 +51,10 @@ test("a later Wi-Fi candidate remains selectable without putting all interfaces 
   await page.evaluate(() => { window.tailscaleFixture.state.lanAddresses = ["192.168.50.2", "172.16.10.1", "172.16.11.1", "10.10.10.2", "192.168.10.20"]; });
   await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
   const selector = page.getByRole("combobox", { name: /^选择电脑所在网络/ });
-  await expect(selector.locator("option")).toHaveCount(5);
+  await expect(selector.locator("option:not([disabled])")).toHaveCount(5);
   await selector.selectOption({ label: "192.168.10.20" });
   await expect(page.getByLabel("连接地址", { exact: true })).toHaveValue("https://192.168.10.20:8788");
+  await expect(page.getByRole("img", { name: "连接二维码", exact: true })).toBeVisible();
   await expect.poll(async () => parsePairingLink(await page.evaluate(() => window.tailscaleFixture.decode()))).toMatchObject({
     kind: "connect", routes: [{ name: "Direct", url: "https://192.168.10.20:8788", certificateAuthority }],
   });
@@ -235,4 +236,127 @@ test("host addresses include the port, stay discoverable on reopen, and copy wit
   await expect(page.getByLabel("连接地址 1", { exact: true })).toHaveCount(0);
   await expect(page.getByText("本机入口已就绪", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.tailscaleFixture.state.calls)).toEqual([]);
+});
+
+
+test("multiple LAN candidates require a choice before creating a QR or publishing a route", async ({ page }, testInfo) => {
+  await page.evaluate(() => {
+    const fixture = window.tailscaleFixture as any;
+    fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
+    fixture.renderNetwork("pairing");
+  });
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  const selector = page.getByRole("combobox", { name: /^选择电脑所在网络/ });
+  await expect(selector).toHaveValue("-1");
+  await expect(page.getByText("检测到多个地址，请选择与另一台设备在同一网络的地址。", { exact: true })).toBeVisible();
+  await expect(page.locator(".pair-qr")).toHaveCount(0);
+  await expect(page.getByLabel("连接地址", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls)).toEqual([]);
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).invites.calls.filter((call: { method: string }) => call.method === "POST"))).toEqual([]);
+  for (const width of [320, 390, 1360]) {
+    await page.setViewportSize({ width, height: 900 });
+    await selector.scrollIntoViewIfNeeded();
+    await expect(selector).toBeInViewport();
+    expect(await page.locator(".desktop-host-invite").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  }
+  await page.screenshot({ path: testInfo.outputPath("lan-explicit-choice.png"), animations: "disabled" });
+  await selector.selectOption({ label: "192.168.10.20" });
+  await expect(page.getByLabel("连接地址", { exact: true })).toHaveValue("https://192.168.10.20:8788");
+  await expect(page.getByRole("img", { name: "连接二维码", exact: true })).toBeVisible();
+  await expect.poll(async () => parsePairingLink(await page.evaluate(() => window.tailscaleFixture.decode()))).toMatchObject({
+    kind: "connect", routes: [{ url: "https://192.168.10.20:8788" }],
+  });
+  await expect.poll(() => page.evaluate(() => (window.tailscaleFixture as any).networkCalls.length)).toBe(1);
+  await page.getByRole("button", { name: "网络变了？重新准备线路", exact: true }).click();
+  await expect(selector).toHaveValue("-1");
+  await expect(page.locator(".pair-qr")).toHaveCount(0);
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls.length)).toBe(1);
+});
+
+test("network preparation waits for an explicit LAN choice and translates its prompt", async ({ page }) => {
+  await page.evaluate(() => {
+    const fixture = window.tailscaleFixture as any;
+    fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
+    fixture.renderNetwork();
+  });
+  await page.getByRole("button", { name: "准备局域网线路", exact: true }).click();
+  const selector = page.getByRole("combobox", { name: /^选择电脑所在网络/ });
+  await expect(selector).toHaveValue("-1");
+  await expect(selector).toBeEnabled();
+  await expect(page.getByText("本机线路已共享，可以继续确认加入。", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls)).toEqual([]);
+  await page.evaluate(() => window.tailscaleFixture.setLocale("en"));
+  await expect(page.getByText("Multiple addresses found. Choose the one on the same network as the other device.", { exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: /^Select the host network/ }).selectOption("1");
+  await expect(page.getByText("This computer’s route is shared. You can continue joining.", { exact: true })).toBeVisible();
+});
+
+test("connection settings do not publish the first LAN candidate before a choice", async ({ page }) => {
+  await page.evaluate(() => {
+    const fixture = window.tailscaleFixture as any;
+    fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
+    fixture.state.local.lan = { enabled: false, listening: false };
+    fixture.renderSettings();
+  });
+  await page.getByRole("button", { name: "开启局域网访问", exact: true }).click();
+  const selector = page.getByRole("combobox", { name: /^选择连接地址/ });
+  await expect(selector).toHaveValue("-1");
+  await expect(selector).toBeEnabled();
+  await expect(page.getByRole("button", { name: "关闭本机对外连接", exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls)).toEqual([]);
+  await selector.selectOption("1");
+  await expect.poll(() => page.evaluate(() => (window.tailscaleFixture as any).networkCalls.length)).toBe(1);
+  await expect(page.locator(".pair-qr")).toHaveCount(0);
+});
+
+test("a partial readiness warning persists through publication and clears on a healthy retry", async ({ page }) => {
+  await page.evaluate(() => { window.tailscaleFixture.state.unavailableRouteCount = 2; });
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption("0");
+  await expect(page.getByRole("img", { name: "连接二维码", exact: true })).toBeVisible();
+  await expect(page.getByText("2 个地址暂未就绪，已显示可用地址。", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.tailscaleFixture.setLocale("en"));
+  await expect(page.getByText("Addresses not ready: 2. Showing available addresses.", { exact: true })).toBeVisible();
+  await page.evaluate(() => { window.tailscaleFixture.state.unavailableRouteCount = 0; });
+  await page.getByRole("button", { name: "Network changed? Prepare routes again", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Connection QR code", exact: true })).toBeVisible();
+  await expect(page.getByText("Addresses not ready: 2. Showing available addresses.", { exact: true })).toHaveCount(0);
+});
+
+
+test("a LAN choice can change while the host is reconnecting before publication starts", async ({ page }) => {
+  await page.evaluate(() => {
+    const fixture = window.tailscaleFixture as any;
+    fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
+    fixture.state.networkStatus = "connecting";
+    fixture.renderNetwork("pairing");
+  });
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  const selector = page.getByRole("combobox", { name: /^选择电脑所在网络/ });
+  await selector.selectOption("0");
+  await expect(selector).toBeEnabled();
+  await selector.selectOption("1");
+  await expect(selector).toHaveValue("1");
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls)).toEqual([]);
+  await page.evaluate(() => (window.tailscaleFixture as any).setNetworkStatus("online"));
+  await expect.poll(() => page.evaluate(() => (window.tailscaleFixture as any).networkCalls.length)).toBe(1);
+  await expect(page.getByRole("img", { name: "连接二维码", exact: true })).toBeVisible();
+  expect(parsePairingLink(await page.evaluate(() => window.tailscaleFixture.decode()))).toMatchObject({ routes: [{ url: "https://192.168.10.20:8788" }] });
+});
+
+test("a sole surviving LAN candidate still requires consent when other candidates failed", async ({ page }) => {
+  await page.evaluate(() => {
+    const fixture = window.tailscaleFixture as any;
+    fixture.state.unavailableRouteCount = 1;
+    fixture.renderNetwork("pairing");
+  });
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  const selector = page.getByRole("combobox", { name: /^选择电脑所在网络/ });
+  await expect(selector).toHaveValue("-1");
+  await expect(selector.locator("option:not([disabled])")).toHaveCount(1);
+  await expect(page.locator(".pair-qr")).toHaveCount(0);
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls)).toEqual([]);
+  await selector.selectOption("0");
+  await expect(page.getByRole("img", { name: "连接二维码", exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window.tailscaleFixture as any).networkCalls.length)).toBe(1);
 });
