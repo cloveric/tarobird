@@ -50,3 +50,32 @@ the guide policy during a fold refreshes its geometry. Narrow inner-screen
 Split View intentionally does not receive the expanded-only workaround; check
 its keyboard and Send visibility on a Simulator or device. Geometry/browser
 tests cannot settle these UIKit runtime conditions.
+
+## ADHD pane containment and device limit (2026-11-12)
+
+The native overlay viewport rules previously targeted every `.app-shell`,
+including the `conversation-pane` shells nested inside ADHD cards. On touch
+layouts fixed positioning removed panes from the card's flex sizing and left
+zero-height content inside empty frames; the wide iOS pointer complement could instead cover
+other cards and the picker. The same selectors apply to iPad and expanded
+iPhone windows. Both rule sets now target the outer chat or ADHD shell only;
+card contents keep their local flex layout. The outer board follows the visible
+keyboard band. Excluding panes does not raise the selectors' specificity.
+
+Expanded iPhone boards now allow two selected panes in total, not just two
+columns. Checkboxes and navigation share the same capacity check. On initial
+restore, older phone layouts mount only their first two panes and explain the
+limit. The read does not rewrite stored layout; later user edits save the active
+selection as usual. Conversation and draft stores are untouched, and the other
+conversations remain selectable after removing a pane. iPad and desktop retain
+the existing twelve-pane limit. Ordinary phone eligibility is unchanged.
+
+`adhd-ios-phone` now exercises native overlay CSS as well as platform eligibility,
+checks headers/messages/composers and hit targets inside cards, and covers iPad
+portrait/landscape/split windows, touch/pointer input, keyboard open/close,
+Duo capacity, legacy layout restoration, retained drafts and folding during an
+upload. The earlier browser fixture only changed board platform checks, missing
+the native overlay CSS responsible for the blank cards. `adhd-board-state`
+covers non-mutating restoration and unchanged iPad/desktop limits. These are
+browser and source checks, not a physical iPad/Duo or installed-App receipt.
+No Host protocol, CLI command, dependency or native keyboard timing changes.

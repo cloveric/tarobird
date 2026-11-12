@@ -33,15 +33,17 @@
     scroll-padding-bottom: 24px;
   }
 
-  /* The shell is exactly what the user can see. With the keyboard up it is also
+  /* Nested conversation panes belong to their card; only the outer chat or
+     ADHD shell owns viewport position and height.
+     The shell is exactly what the user can see. With the keyboard up it is also
      pinned to the visual viewport, so a browser that pans instead of resizing
      (iOS Safari) cannot leave the composer under the keyboard. A fixed shell is
      not the containing block of the fixed layers inside it (no transform). */
-  :root .app-shell {
+  :root :is(.app-shell:not(:where(.conversation-pane)), .adhd-shell) {
     height: var(--shell-height);
   }
 
-  html[data-keyboard-open="true"] .app-shell {
+  html[data-keyboard-open="true"] :is(.app-shell:not(:where(.conversation-pane)), .adhd-shell) {
     position: fixed;
     inset: var(--shell-top) 0 auto;
   }
@@ -247,12 +249,12 @@
     --shell-height: var(--app-height, 100dvh);
     --shell-top: 0px;
   }
-  html[data-keyboard-resize="overlay"] .app-shell {
+  html[data-keyboard-resize="overlay"] :is(.app-shell:not(:where(.conversation-pane)), .adhd-shell) {
     position: fixed;
     inset: 0 0 auto;
   }
   :root :is(.loading-screen, .app-lock-screen) { overflow-y: auto; }
-  html[data-keyboard-resize="overlay"][data-keyboard-motion] .app-shell {
+  html[data-keyboard-resize="overlay"][data-keyboard-motion] :is(.app-shell:not(:where(.conversation-pane)), .adhd-shell) {
     transition: height var(--keyboard-motion, .25s ease-out);
   }
   html[data-keyboard-resize="overlay"][data-keyboard-motion] .composer-wrap {

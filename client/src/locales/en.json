@@ -3049,6 +3049,7 @@
   "拖动排序；Alt + 左右方向键移动": "Drag to reorder; Alt + Left or Right to move",
   "搜索对话或 Bot": "Find a conversation or Bot",
   "放大此面板": "Expand this pane",
+  "此设备最多打开 {0} 个面板，已恢复前 {0} 个。其余对话和草稿保留，可从列表重新选择。": "This device supports up to {0} panes. The first {0} have been restored. Your other conversations and drafts are kept; select them again from the list.",
   "最多同时打开 {0} 个对话。请先移除一个面板。": "You can open up to {0} conversations. Remove a pane before adding another.",
   "正在保存布局…": "Saving layout…",
   "正在读取此主机的对话…": "Loading conversations from this host…",

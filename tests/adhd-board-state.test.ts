@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAdhdPane, adhdBoardSchema, adhdBoardSupported, adhdColumns, adhdPaneKey, adhdPhoneBoard, adhdSupported, emptyAdhdBoard, moveAdhdPane } from "../client/src/adhd-board-state.js";
+import { addAdhdPane, adhdBoardForDevice, adhdBoardSchema, adhdBoardSupported, adhdColumns, adhdPaneKey, adhdPhoneBoard, adhdSupported, emptyAdhdBoard, moveAdhdPane } from "../client/src/adhd-board-state.js";
 const pane = (hostId = "host-a", registrationId = "registration-a", conversationId = "same-chat") => ({ hostId, registrationId, conversationId });
 describe("desktop ADHD board identity and storage", () => {
   it("does not offer the expanded board on ordinary iPhones in either orientation", () => {
@@ -11,6 +11,17 @@ describe("desktop ADHD board identity and storage", () => {
     expect(adhdBoardSupported("ios", 880, 605, "iPhone")).toBe(true);
     expect(adhdBoardSupported("ios", 1000, 687, "iPhone")).toBe(true);
     expect(adhdBoardSupported("ios", 900, 500, "iPad")).toBe(true);
+  });
+  it("restores at most two expanded-phone panes without mutating stored conversations or other devices", () => {
+    const saved = { ...emptyAdhdBoard(), columns: 4 as const, fontSize: 14, panes: [pane("a"), pane("b"), pane("c")] };
+    const restored = adhdBoardForDevice(saved, "ios", "iPhone");
+    expect(restored).toEqual({ ...saved, panes: saved.panes.slice(0, 2) });
+    expect(saved.panes).toHaveLength(3);
+    expect(restored.panes[0]).toBe(saved.panes[0]);
+    expect(adhdBoardForDevice(restored, "ios", "iPhone")).toBe(restored);
+    for (const [platform, ua] of [["ios", "iPad"], ["ios", "Macintosh"], ["android", "Android"], ["web", "iPhone"], ["macos", "Macintosh"], ["windows", "Windows"]]) {
+      expect(adhdBoardForDevice(saved, platform!, ua!)).toBe(saved);
+    }
   });
   it("starts empty, deduplicates exact identities and isolates hosts and re-pairing", () => {
     const initial = emptyAdhdBoard(), a = addAdhdPane(initial, pane());

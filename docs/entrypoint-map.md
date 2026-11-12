@@ -1297,7 +1297,13 @@ and the existing network/run/delete suites listed in that audit.
   `AdhdBoard.tsx` hosts independent `Workspace` pane presentations keyed by
   host/registration/conversation. The third `SidebarLayoutSwitch` option reuses
   `ConversationList`/`CombinedSidebar` with sibling checkboxes. `adhd-board-state.ts`
-  validates device-local layout and independent text/column settings; `HostRegistry`
+  validates device-local layout and independent text/column settings. Expanded
+  iPhone boards cap selection and legacy restore at two panes; iPad/desktop keep
+  twelve. `viewport.css` and `ios-adaptive.css` size only the outer chat/ADHD
+  shell, never nested `conversation-pane` shells. Browser `adhd-ios-phone` covers
+  native overlay containment, keyboard geometry, capacity and retained drafts;
+  see [Duo/iPad pane repair](client/iphone-duo-scope-2026-11-10.md#adhd-pane-containment-and-device-limit-2026-11-12).
+  `HostRegistry`
   commits legacy layout and display records atomically. `connection.ts` supplies command subscribers
   and per-conversation invalidation, retaining global receipt watermarks.
   Tests: `adhd-board-state`, `client/tests/adhd-connection`, browser `adhd-board`

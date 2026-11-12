@@ -10,7 +10,7 @@ import type { ConnectedHost } from "./host-connections.js";
 import type { HostDirectory, WorkspaceProps } from "./HostApp.js";
 import type { HostRegistry } from "./host-registry.js";
 import type { Preferences, SidebarLayout } from "./storage.js";
-import { addAdhdPane, ADHD_FOLD_SETTLE_MS, ADHD_PANEL_LIMIT, ADHD_PHONE_CARD_MIN, ADHD_PHONE_COLUMNS, adhdColumns, adhdPaneKey, adhdPhoneBoard, emptyAdhdBoard, moveAdhdPane, type AdhdBoardState, type AdhdPaneRef } from "./adhd-board-state.js";
+import { addAdhdPane, ADHD_FOLD_SETTLE_MS, ADHD_PANEL_LIMIT, ADHD_PHONE_CARD_MIN, ADHD_PHONE_COLUMNS, ADHD_PHONE_PANEL_LIMIT, adhdBoardForDevice, adhdColumns, adhdPaneKey, adhdPhoneBoard, emptyAdhdBoard, moveAdhdPane, type AdhdBoardState, type AdhdPaneRef } from "./adhd-board-state.js";
 import { nativePlatform } from "./native.js";
 import { useAdhdPaneDrag } from "./adhd-pane-drag.js";
 import { CreationDialog } from "./CreationDialog.js";
@@ -51,6 +51,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
   const [browserOpened, setBrowserOpened] = useState(false), [browserOpen, setBrowserOpen] = useState(false);
   const browserSupported = isElectron();
   const phoneBoard = adhdPhoneBoard(nativePlatform(), navigator.userAgent);
+  const panelLimit = phoneBoard ? ADHD_PHONE_PANEL_LIMIT : ADHD_PANEL_LIMIT;
   const browserLayout = useSideWindowExpansion(shellRoot, browserOpen && !compact);
   const closeBrowser = () => { setBrowserOpen(false); browserToggle.current?.focus({ preventScroll: true }); };
   // Both top-level tools use the right edge. Keep their contents, show one dock.
@@ -137,9 +138,16 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
   const claimMicrophone = useCallback((key: string) => { if (microphone.current && microphone.current !== key) return false; microphone.current = key; setMicrophoneOwner(key); return true; }, []);
   const releaseMicrophone = useCallback((key: string) => { if (microphone.current === key) { microphone.current = ""; setMicrophoneOwner(""); } }, []);
   const load = useCallback(async () => {
-    try { const saved = await registry.adhdBoard(); if (live.current) { current.current = saved; setBoard(saved); setReady(true); setError(""); } }
+    try {
+      const saved = await registry.adhdBoard();
+      if (live.current) {
+        const restored = adhdBoardForDevice(saved, nativePlatform(), navigator.userAgent);
+        current.current = restored; setBoard(restored); setReady(true); setError("");
+        if (restored !== saved) setNotice(t("此设备最多打开 {0} 个面板，已恢复前 {0} 个。其余对话和草稿保留，可从列表重新选择。", panelLimit));
+      }
+    }
     catch { if (live.current) setError(t("面板布局未能读取，原记录已保留。请重试。")); }
-  }, [registry]);
+  }, [registry, panelLimit]);
   useEffect(() => { live.current = true; void load(); return () => { live.current = false; }; }, [load]);
   const persist = (next: AdhdBoardState) => {
     const id = ++revision.current;
@@ -160,8 +168,8 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
   const add = (pane: AdhdPaneRef, messageId?: string, restoreFocus = false, createdTitle?: string) => {
     const key = adhdPaneKey(pane), exists = current.current.panes.some(item => adhdPaneKey(item) === key);
     setNotice("");
-    if (!exists && current.current.panes.length >= ADHD_PANEL_LIMIT) {
-      setNotice(createdTitle ? t("已创建「{0}」。面板已满，请移除一个面板后，从左侧选择它。", createdTitle) : t("最多同时打开 {0} 个对话。请先移除一个面板。", ADHD_PANEL_LIMIT)); return false;
+    if (!exists && current.current.panes.length >= panelLimit) {
+      setNotice(createdTitle ? t("已创建「{0}」。面板已满，请移除一个面板后，从左侧选择它。", createdTitle) : t("最多同时打开 {0} 个对话。请先移除一个面板。", panelLimit)); return false;
     }
     const serial = ++focusSerial.current;
     setReveal({ key, serial });
@@ -289,7 +297,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
       const pane = { hostId: host.host.id, registrationId: host.host.registrationId, conversationId: member.conversationId };
       const key = adhdPaneKey(pane);
       if (!next.panes.some(item => adhdPaneKey(item) === key)) {
-        if (next.panes.length >= ADHD_PANEL_LIMIT) { skipped++; continue; }
+        if (next.panes.length >= panelLimit) { skipped++; continue; }
         next = addAdhdPane(next, pane);
       }
       target ??= key;
@@ -299,7 +307,7 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
     // focus. Only explicit navigation/initial load calls this, never polling.
     if (target) { setExpanded(""); setFocused(target); setReveal({ key: target, serial: ++focusSerial.current, settleBusLayout: true }); }
     if (skipped) {
-      const text = t("有 {0} 个成员窗口尚未打开，面板最多容纳 {1} 个对话。关闭其他窗口后可重新显示。", skipped, ADHD_PANEL_LIMIT);
+      const text = t("有 {0} 个成员窗口尚未打开，面板最多容纳 {1} 个对话。关闭其他窗口后可重新显示。", skipped, panelLimit);
       busCapacityNotice.current = { registrationId: host.host.registrationId, workspaceId: workspace.id, text }; setNotice(text);
     }
   };
@@ -344,8 +352,8 @@ export function AdhdBoard({ navigationRejected, busNavigation, compact, agentBus
             return next;
           }),
         },
-        disabled: conversationId => { const key = adhdPaneKey({ hostId, registrationId, conversationId }); return !!busy[key] || !!pendingLeave || !selected.has(key) && count >= ADHD_PANEL_LIMIT; },
-        reason: conversationId => { const key = adhdPaneKey({ hostId, registrationId, conversationId }); return busy[key] ? blockedTip : !selected.has(key) && count >= ADHD_PANEL_LIMIT ? t("最多同时打开 {0} 个对话。请先移除一个面板。", ADHD_PANEL_LIMIT) : undefined; },
+        disabled: conversationId => { const key = adhdPaneKey({ hostId, registrationId, conversationId }); return !!busy[key] || !!pendingLeave || !selected.has(key) && count >= panelLimit; },
+        reason: conversationId => { const key = adhdPaneKey({ hostId, registrationId, conversationId }); return busy[key] ? blockedTip : !selected.has(key) && count >= panelLimit ? t("最多同时打开 {0} 个对话。请先移除一个面板。", panelLimit) : undefined; },
         toggle: conversationId => { const pane = { hostId, registrationId, conversationId }, key = adhdPaneKey(pane); if (selected.has(key)) remove(key); else add(pane); },
       }) })}</div>
       {toolHost && <AdhdWorkspaceTools key={toolHost.host.registrationId} host={toolHost} connection={toolHost.connection!} preferences={preferences} updatePreferences={updatePreferences} actions={{ manageHosts: (beforeLeave, hostKey, options) => guard(() => tools.manageHosts(beforeLeave, hostKey, options)), manageConnections: beforeLeave => guard(() => tools.manageConnections(beforeLeave)), addHost: () => guard(tools.addHost), createBot: hostId => guard(() => tools.createBot(hostId)) }} navigate={(conversationId, title) => add({ hostId: toolHost.host.id, registrationId: toolHost.host.registrationId, conversationId }, undefined, true, title)}/>}

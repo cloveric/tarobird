@@ -103,6 +103,9 @@ for (const touch of [true, false]) test.describe(`native window ${touch ? 'touch
     await preparePairing(page, hub); await page.getByRole('button',{name:'配对此设备',exact:true}).click();
     await hub.auth.approve(await page.getByLabel('配对码',{exact:true}).innerText(),'local-owner');
     await page.getByLabel('配对码',{exact:true}).waitFor({state:'hidden'});
+    // Pairing can disappear before the home tab is initialized. Wait for the
+    // message-list context before asking its menu for an option.
+    await expect(mobileHome(page)).toHaveAttribute('data-tab', 'messages');
     await setListOption(page, '显示未连接 Bot', true);
     await enterMobileChat(page,chat.title);
     await page.evaluate(()=>document.documentElement.dataset.platform='ios');

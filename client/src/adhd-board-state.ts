@@ -55,9 +55,16 @@ export function adhdBoardSupported(platform: string, width: number, height: numb
     && (!adhdPhoneBoard(platform, userAgent) || expandedIphoneWindow(platform, userAgent, width, height));
 }
 /** An unfolded iPhone: two tall panes beside the full picker. */
-export const ADHD_PHONE_CARD_MIN = 260, ADHD_PHONE_COLUMNS = 2;
+export const ADHD_PHONE_CARD_MIN = 260, ADHD_PHONE_COLUMNS = 2, ADHD_PHONE_PANEL_LIMIT = 2;
 /** Folding shut must hold this long before the board gives way, so a transient size during the fold does not exit. */
 export const ADHD_FOLD_SETTLE_MS = 450;
 export function adhdPhoneBoard(platform: string, userAgent: string) {
   return platform === "ios" && /\biPhone\b/.test(userAgent);
+}
+
+/** Restore only the panes this device can display, before any Workspace mounts.
+ * Keep the stored layout readable and leave conversations/drafts untouched. */
+export function adhdBoardForDevice(board: AdhdBoardState, platform: string, userAgent: string): AdhdBoardState {
+  return adhdPhoneBoard(platform, userAgent) && board.panes.length > ADHD_PHONE_PANEL_LIMIT
+    ? { ...board, panes: board.panes.slice(0, ADHD_PHONE_PANEL_LIMIT) } : board;
 }

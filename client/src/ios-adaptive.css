@@ -100,10 +100,10 @@
     --shell-height: var(--app-height, 100dvh);
     --shell-top: 0px;
   }
-  :root[data-platform=ios][data-keyboard-resize=overlay] :is(.app-shell, .pairing-page, .loading-screen, .app-lock-screen) {
+  :root[data-platform=ios][data-keyboard-resize=overlay] :is(.app-shell:not(:where(.conversation-pane)), .adhd-shell, .pairing-page, .loading-screen, .app-lock-screen) {
     height: var(--shell-height);
   }
-  :root[data-platform=ios][data-keyboard-resize=overlay] .app-shell { position: fixed; inset: 0 0 auto; }
+  :root[data-platform=ios][data-keyboard-resize=overlay] :is(.app-shell:not(:where(.conversation-pane)), .adhd-shell) { position: fixed; inset: 0 0 auto; }
   :root[data-platform=ios] .conversation-main > .composer-wrap { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: calc(var(--shell-height) * .6); }
   :root[data-platform=ios] .composer-wrap .composer { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; overflow: auto; overscroll-behavior: contain; }
   :root[data-platform=ios] .composer-wrap .composer > :is(.attachment-draft, .link-preview-draft) { flex: 0 40 auto; min-height: 3.25rem; overflow-y: auto; }
@@ -116,7 +116,7 @@
   :root[data-platform=ios][data-keyboard-open=true] .modal-scrim { top: 0; bottom: auto; height: var(--shell-height); }
   :root[data-platform=ios][data-keyboard-open=true] dialog.creation-dialog:not(.mobile-settings-dialog):modal { top: 0; bottom: calc(100% - var(--shell-height)); max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px); }
   :root[data-platform=ios][data-keyboard-open=true] .modal-scrim > :is(.settings-panel, .new-chat-panel) { max-height: calc(var(--shell-height) - max(20px, var(--app-safe-top)) - 12px); }
-  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion] .app-shell { transition: height var(--keyboard-motion, .25s ease-out); }
+  :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion] :is(.app-shell:not(:where(.conversation-pane)), .adhd-shell) { transition: height var(--keyboard-motion, .25s ease-out); }
   :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion] .composer-wrap { transition: padding-bottom var(--keyboard-motion, .25s ease-out); }
   :root[data-platform=ios][data-keyboard-resize=overlay][data-keyboard-motion] dialog:is(.creation-dialog, .preferences-dialog):modal { transition: bottom var(--keyboard-motion, .25s ease-out), max-height var(--keyboard-motion, .25s ease-out); }
 }

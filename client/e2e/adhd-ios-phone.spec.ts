@@ -10,8 +10,9 @@ import { createCoreServiceRuntime } from "../../src/core/runtime.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
 
 // An unfolded iPhone (Duo) runs the desktop layout. Browsers cannot be native
-// iOS, so the board-state chunk alone answers its platform checks as iOS; the
-// App, Hub, layout and exit paths are the real ones. Not a device test.
+// iOS, so the board-state chunks answer their platform checks as iOS. Native
+// overlay attributes exercise the shipping iOS CSS too, including nested panes.
+// The App, Hub, layout and exit paths are real; UIKit delivery is not simulated.
 const IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148";
 test.use({ serviceWorkers: "block", userAgent: IPHONE });
 test.skip(({ browserName }) => browserName === "firefox", "The iPhone check is exercised once in Chromium/WebKit.");
@@ -23,6 +24,37 @@ async function asIphone(page: Page) {
     if (patched === body) throw new Error("board platform checks changed; update this fixture");
     await route.fulfill({ response, body: patched });
   });
+}
+async function overlay(page: Page, keyboardHeight = 0) {
+  await page.evaluate(height => {
+    const root = document.documentElement;
+    root.dataset.platform = "ios";
+    root.dataset.keyboardResize = "overlay";
+    root.dataset.keyboardOpen = height ? "true" : "false";
+    root.style.setProperty("--app-height", `${innerHeight - height}px`);
+  }, keyboardHeight);
+}
+async function assertPaneContent(page: Page) {
+  for (const card of await page.locator(".adhd-card:not([hidden])").all()) {
+    const pane = card.locator(".conversation-pane");
+    await expect(pane).not.toHaveCSS("position", "fixed");
+    const header = card.locator(".conversation-header");
+    await expect(header).toBeVisible();
+    await expect(card.locator(".message-scroll")).toContainText("第一条回复");
+    const input = card.getByRole("textbox");
+    await expect(input).toBeVisible();
+    const geometry = await card.evaluate(node => {
+      const outer = node.getBoundingClientRect();
+      return [".conversation-header", ".composer textarea"].map(selector => {
+        const child = node.querySelector(selector)!;
+        const rect = child.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        return { inside: rect.left >= outer.left && rect.right <= outer.right && rect.top >= outer.top && rect.bottom <= outer.bottom,
+          reachable: !!hit && child.contains(hit) };
+      });
+    });
+    for (const item of geometry) expect(item).toEqual({ inside: true, reachable: true });
+  }
 }
 async function setup(page: Page) {
   const root = await mkdtemp(path.join(os.tmpdir(), "adhd-iphone-"));
@@ -42,6 +74,7 @@ async function setup(page: Page) {
   await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
   await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
   await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+  await overlay(page);
   const close = async () => { await page.close(); for (const gateway of gateways) await gateway.disconnect(); await hub.close(); await rm(root, { recursive: true, force: true }); };
   return { hub, chats, close };
 }
@@ -75,18 +108,25 @@ test('ordinary iPhone rotation keeps ADHD hidden; expanding and reducing height 
   } finally { await close(); }
 });
 
-for (const width of [880, 1000]) test(`unfolded iPhone at ${width}px: two tall panes beside the full list, at most two columns, no Bot name or model mark`, async ({ page }, info) => {
+for (const width of [880, 1000]) test(`unfolded iPhone at ${width}px: two tall panes beside the full list, at most two panes, no Bot name or model mark`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: Math.round(width / 1.455) });
   const { close } = await setup(page);
   try {
-    await openBoard(page, ["重构重试逻辑", "周报数据整理", "明天北京天气"]);
+    await openBoard(page, ["重构重试逻辑", "周报数据整理"]);
+    const third = page.getByRole("checkbox", { name: /加入面板：.*明天北京天气$/ });
+    await expect(third).toBeDisabled();
+    // The row is also a navigation entry; it must not bypass the checkbox cap.
+    await page.getByRole("button", { name: /^在面板中查看 明天北京天气/ }).click();
+    await expect(page.locator(".adhd-notice")).toContainText("最多同时打开 2 个对话");
+    await expect(page.locator(".adhd-card")).toHaveCount(2);
+    await assertPaneContent(page);
     const shell = page.locator(".adhd-shell");
     await expect(page.getByRole("button", { name: "打开 Agent Bus" })).toHaveCount(0); // desktop-only
     await expect(shell).toHaveAttribute("data-adhd-device", "phone");
     const columns = page.getByLabel("ADHD 每行窗口数", { exact: true });
     await expect(columns.locator("option")).toHaveText(["自动", "2 列"]);
     const boxes = await page.locator(".adhd-card").evaluateAll(cards => cards.map(card => card.getBoundingClientRect()).map(r => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) })));
-    expect(boxes[0]!.y).toBe(boxes[1]!.y); expect(boxes[2]!.y).toBeGreaterThan(boxes[0]!.y);
+    expect(boxes[0]!.y).toBe(boxes[1]!.y);
     for (const box of boxes) expect(box.w).toBeGreaterThanOrEqual(260);
     expect(await page.locator(".adhd-grid").evaluate(grid => grid.scrollWidth <= grid.clientWidth + 1)).toBe(true);
     expect(Math.round(await page.locator(".adhd-shell > .sidebar").evaluate(node => node.getBoundingClientRect().width))).toBeGreaterThanOrEqual(272);
@@ -132,5 +172,78 @@ test("folding shut opens the focused panel's conversation in 按对话; unfoldin
     await page.setViewportSize({ width: 1000, height: 687 });
     await page.waitForTimeout(800);
     await expect(page.locator("[data-adhd-mode]")).toHaveCount(0);
+  } finally { await close(); }
+});
+
+for (const device of ["Duo", "iPad"] as const) for (const touch of [true, false]) test.describe(`${device} native overlay ${touch ? "touch" : "pointer"}`, () => {
+  test.use({ hasTouch: touch, userAgent: device === "Duo" ? IPHONE : (touch ? IPHONE.replace("(iPhone; CPU iPhone OS", "(iPad; CPU OS") : "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15") });
+  test("pane contents stay within their cards", async ({ page }, info) => {
+    await page.setViewportSize({ width: 1000, height: 687 });
+    const { close } = await setup(page);
+    try {
+      await openBoard(page, ["重构重试逻辑", "周报数据整理"]);
+      if (device === "Duo") await expect(page.locator(".adhd-shell")).toHaveAttribute("data-adhd-device", "phone");
+      else await expect(page.locator(".adhd-shell")).not.toHaveAttribute("data-adhd-device");
+      await assertPaneContent(page);
+      await page.screenshot({ path: info.outputPath("native-board.png") });
+      const input = page.locator(".adhd-card").first().getByRole("textbox");
+      await input.fill("保留草稿");
+      await overlay(page, 240);
+      await expect.poll(() => page.locator(".adhd-shell").evaluate(node => node.getBoundingClientRect().height)).toBe(447);
+      await assertPaneContent(page);
+      await overlay(page);
+      await expect(input).toHaveValue("保留草稿");
+      if (device === "iPad") {
+        const third = page.getByRole("checkbox", { name: /加入面板：.*明天北京天气$/ });
+        await expect(third).toBeEnabled();
+        await third.check();
+        await expect(page.locator(".adhd-card")).toHaveCount(3);
+        await third.uncheck();
+        for (const size of [{ width: 834, height: 1194 }, { width: 1194, height: 834 }, { width: 800, height: 834 }]) {
+          await page.setViewportSize(size); await overlay(page);
+          await assertPaneContent(page);
+          await expect(input).toHaveValue("保留草稿");
+        }
+        await page.setViewportSize({ width: 600, height: 834 }); await overlay(page);
+        await expect(page.locator(".adhd-compact")).toBeVisible();
+        await page.setViewportSize({ width: 1194, height: 834 }); await overlay(page);
+        await assertPaneContent(page);
+        await expect(input).toHaveValue("保留草稿");
+      }
+    } finally { await close(); }
+  });
+});
+
+test("restoring an older three-pane phone layout keeps conversations and saved drafts", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 687 });
+  const { chats, close } = await setup(page);
+  const toggle = (title: string) => page.getByRole("checkbox", { name: new RegExp(`^加入面板：.*${title}$`) });
+  try {
+    await openBoard(page, ["明天北京天气"]);
+    await page.locator(".adhd-card").getByRole("textbox").fill("第三个对话的草稿不能丢");
+    await toggle("明天北京天气").uncheck();
+    await expect(page.locator(".adhd-card")).toHaveCount(0);
+    await toggle("重构重试逻辑").check(); await toggle("周报数据整理").check();
+    await page.getByRole("button", { name: "返回聊天", exact: true }).click();
+    await expect(page.locator("[data-adhd-mode]")).toHaveCount(0);
+    // Preserve a layout written by the older client; do not touch draft stores.
+    await page.evaluate(conversationId => new Promise<void>((resolve, reject) => {
+      const open = indexedDB.open("tarocub-hosts-v1"); open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction("meta", "readwrite"), store = tx.objectStore("meta");
+        const get = store.get("adhd-board-v1");
+        get.onsuccess = () => { const saved = JSON.parse(get.result); saved.panes.push({ ...saved.panes[0], conversationId }); store.put(JSON.stringify(saved), "adhd-board-v1"); };
+        tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => reject(tx.error);
+      };
+    }), chats[2]!.id);
+    await page.getByRole("button", { name: "打开 ADHD 模式", exact: true }).click();
+    await expect(page.locator(".adhd-card")).toHaveCount(2);
+    await expect(page.locator(".adhd-notice")).toContainText("已恢复前 2 个");
+    await expect(toggle("明天北京天气")).not.toBeChecked();
+    await expect(toggle("明天北京天气")).toBeDisabled();
+    await toggle("重构重试逻辑").uncheck(); await toggle("明天北京天气").check();
+    await expect(page.locator(`[data-pane-conversation="${chats[2]!.id}"]`).getByRole("textbox")).toHaveValue("第三个对话的草稿不能丢");
+    await expect(page.locator(".adhd-card")).toHaveCount(2);
+    await expect(page.locator(".adhd-selection-count")).toHaveText("已选 2");
   } finally { await close(); }
 });
