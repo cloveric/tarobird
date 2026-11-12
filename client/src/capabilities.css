@@ -178,3 +178,18 @@
     .capabilities-panel .capabilities-context select,.capabilities-panel .capabilities-filters select{font-size:16px}
   }
 }
+
+/* Same-name Skills are one disclosure with independently addressable sources. */
+.capabilities-group-note{margin:8px 0 2px}
+.capability-source{padding:14px 0}
+.capability-source:has(+.capability-group-hint){padding-bottom:0}
+.capability-source+.capability-source{border-top:1px solid var(--border)}
+.capability-source-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;color:var(--muted)}
+.capability-source-path{display:block;margin-bottom:8px;color:var(--text)}
+.capability-source>p{margin:6px 0 0}
+.capability-source .capability-next{flex-direction:row;align-items:center;flex-wrap:wrap;gap:6px 10px;margin-top:10px;padding-top:0;border:0}
+.capability-group-intro{color:var(--muted)}
+.capability-source-count{padding:1px 7px;border-radius:999px;background:var(--surface);color:var(--grey)}
+.capability-status.partial-disabled{border-style:dashed}
+.capability-meta{align-items:center}
+.capability-group-detail>.capability-group-hint{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}

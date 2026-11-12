@@ -2759,6 +2759,10 @@ and the existing network/run/delete suites listed in that audit.
   Reads native configuration without starting CLIs, exposing credentials or claiming
   live connection/loading status. Managed offline reads use Bot-local scope only.
   Tests: `bot-capabilities`, `gateway-operations`; browser `capabilities`.
+  `client/src/capability-groups.ts` groups exact same-name Skills for display only,
+  retaining source-specific status, descriptions and help drafts; MCP/Host/CLI
+  entries remain unchanged. Filters match individual sources before group counts
+  and pagination. Tests: `client-capability-groups`; browser `capability-groups`.
   Coverage and explicit unsupported sources: [Skills and MCP](client/skills-mcp.md).
 - `client/src/CapabilityHelpDialog.tsx`, `client/src/CapabilitiesPanel.tsx`
   Capability configuration handoff: editable message preview, an idempotently

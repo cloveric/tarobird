@@ -164,3 +164,36 @@ border color for pointer and keyboard focus. Focused `capabilities` and `safe-ar
 journeys cover touch/Tab navigation, light/dark themes, phone portrait/landscape,
 desktop windows and the resized keyboard viewport. Ten Chromium/WebKit journeys
 and both builds passed on 2026-10-13; new native installers were not published.
+
+## Same-name Skill groups (2026-11-12)
+
+The App groups Skills by their exact displayed name. Case, whitespace and plugin
+namespaces are not normalized. A group is a presentation shortcut, not a claim
+that its sources have identical instructions or that any source wins at runtime.
+Names can be grouped across user, workspace and plugin scopes; source ownership
+is preserved. MCP rows remain separate. The Host metadata response, scanners, installed files,
+engine loading and CLI behavior are unchanged.
+
+Expand a group to see each source's configuration status, description and source
+label. Each **Ask Bot to check** action retains that original source in the
+reviewable message draft; the list never chooses a source or sends automatically.
+Mixed discovered/disabled sources show **Some sources disabled**, and differing
+descriptions are kept separately instead of selecting a representative version.
+Identical descriptions appear once, and source-specific accessible descriptions
+identify each check button to screen readers.
+
+Search, scope and status must all match the same source. Filtering hides other
+sources and shows the visible/total source count. The group status, description
+comparison and ordering still consider all its sources, so filtering never
+relabels a partially disabled Skill as wholly disabled or wholly discovered.
+Skill tab totals, filter counts
+and pagination count groups; a mixed group can appear in both state filters,
+which the page explains. Sources stay together on a page. Refresh collapses the
+previous disclosure and returns to page one so removed sources cannot leave a
+stale expanded action. Bot selection and request ownership guards remain intact.
+
+Focused validation covers exact-name boundaries, per-source matching and drafts,
+mixed states, grouping before pagination, refresh, desktop/phone layouts and
+English/dark appearance. Browser evidence does not establish installed-App or
+physical-device acceptance. No release or skill installation is part of this
+presentation change.

@@ -12,11 +12,12 @@ import { t, useLocale } from "./i18n.js";
 import type { HubConnection, Bot } from "./connection.js";
 import { IntegrationRecommendations } from "./IntegrationRecommendations.js";
 import type { CapabilityHelpRequest } from "./CapabilityHelpDialog.js";
+import { capabilityGroupStatus, filterCapabilityGroups, groupCapabilities, type CapabilityStateFilter } from "./capability-groups.js";
 import "./capabilities.css";
 
 type Kind = BotCapability["kind"];
 type Warning = BotCapabilities["warnings"][number];
-type StateFilter = "all" | "active" | "disabled";
+type StateFilter = CapabilityStateFilter;
 type HelpRequest = { botId: string; kind: Kind; name?: string; source?: string; intent: "add" | "check" };
 type Props = {
   connection: HubConnection; bots: Bot[]; initialBot?: string; close: () => void;
@@ -28,7 +29,7 @@ const PAGE_SIZE = 30;
 // Warnings that change how far the list can be trusted stay inline; the rest fold under 读取范围与限制.
 const prominent = new Set<Warning>(["config_unreadable", "workspace_unknown", "offline_workspace_only", "scan_limited"]);
 const scopes = () => ({ user: t("用户共享"), workspace: t("工作区"), plugin: t("插件"), bridge: "TaroBird", system: t("系统"), bot: t("Bot 私有") });
-const statuses = () => ({ discovered: t("已发现"), configured: t("已配置"), disabled: t("配置已禁用") });
+const statuses = () => ({ discovered: t("已发现"), configured: t("已配置"), disabled: t("配置已禁用"), "partial-disabled": t("部分禁用"), mixed: t("状态不同") });
 const stateFilters = () => ({ all: t("全部"), active: t("已发现/配置"), disabled: t("已禁用") });
 const transports = () => ({ stdio: t("本地进程"), http: t("远程服务"), sse: t("远程服务"), ws: t("远程服务"), sdk: t("内置 SDK"), unknown: t("未知") });
 const warnings = () => ({
@@ -99,7 +100,7 @@ export function CapabilitiesPanel({ connection, bots, initialBot, close, help }:
     if (!bot) { setBusy(false); return; }
     try {
       const next = botCapabilitiesSchema.parse(await connection.http(`/api/bots/${encodeURIComponent(bot)}/capabilities`));
-      if (current === sequence.current) { setLoaded({ bot, value: next }); setPage(0); setOpen((id) => next.entries.some((entry) => entry.id === id) ? id : ""); }
+      if (current === sequence.current) { setLoaded({ bot, value: next }); setPage(0); setOpen(""); }
     } catch (error) {
       if (current === sequence.current) {
         setLoaded(undefined);
@@ -123,11 +124,13 @@ export function CapabilitiesPanel({ connection, bots, initialBot, close, help }:
   const foldedCount = folded.length;
   const entries = data?.entries.filter((entry) => entry.kind === kind) ?? [];
   const availableScopes = new Set(entries.map((value) => value.scope));
-  const needle = query.trim().toLocaleLowerCase();
-  const matched = entries.filter((entry) => (!scope || scope === entry.scope) && (!needle || `${entry.name} ${entry.description} ${entry.source}`.toLocaleLowerCase().includes(needle)));
-  const disabledCount = matched.filter((entry) => entry.status === "disabled").length;
-  const counts: Record<StateFilter, number> = { all: matched.length, active: matched.length - disabledCount, disabled: disabledCount };
-  const rows = matched.filter((entry) => state === "all" || (entry.status === "disabled") === (state === "disabled")).sort((a, b) => Number(a.status === "disabled") - Number(b.status === "disabled"));
+  const groups = groupCapabilities(entries);
+  const matched = filterCapabilityGroups(groups, query, scope);
+  const active = filterCapabilityGroups(matched, "", "", "active"), disabled = filterCapabilityGroups(matched, "", "", "disabled");
+  const counts: Record<StateFilter, number> = { all: matched.length, active: active.length, disabled: disabled.length };
+  const rows = (state === "active" ? active : state === "disabled" ? disabled : matched)
+    .sort((a, b) => Number(a.sources.every(entry => entry.status === "disabled")) - Number(b.sources.every(entry => entry.status === "disabled")));
+  const overlappingStates = kind === "skill" && active.length + disabled.length > matched.length;
   const filtered = !!(query || scope || state !== "all");
   const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1), currentPage = Math.min(page, lastPage);
   const hostFingerprint = (() => { try { return runtimeHostId(connection.identity.hubPublicKey ?? "").slice(4).match(/.{1,4}/g)!.join(" "); } catch { return t("未知主机"); } })();
@@ -153,7 +156,7 @@ export function CapabilitiesPanel({ connection, bots, initialBot, close, help }:
       <button className="file-action capabilities-refresh" aria-disabled={busy || !botId} data-busy={busy || undefined} onClick={() => { if (!busy && botId) void load(true); }}><RefreshCw size={15} aria-hidden/><span>{t("刷新清单")}</span></button>
     </div>
     <div className="capabilities-tabbar">
-      <nav className="capabilities-tabs" aria-label={t("能力分类")}><button aria-pressed={kind === "skill"} onClick={() => switchKind("skill")}><BookOpen size={17} aria-hidden/>Skills{data && <span>{blocking ? "—" : data.entries.filter((row) => row.kind === "skill").length}</span>}</button><button aria-pressed={kind === "mcp"} onClick={() => switchKind("mcp")}><Plug size={17} aria-hidden/>MCP{data && <span>{blocking ? "—" : data.entries.filter((row) => row.kind === "mcp").length}</span>}</button></nav>
+      <nav className="capabilities-tabs" aria-label={t("能力分类")}><button aria-pressed={kind === "skill"} onClick={() => switchKind("skill")}><BookOpen size={17} aria-hidden/>Skills{data && <span>{blocking ? "—" : groupCapabilities(data.entries.filter((row) => row.kind === "skill")).length}</span>}</button><button aria-pressed={kind === "mcp"} onClick={() => switchKind("mcp")}><Plug size={17} aria-hidden/>MCP{data && <span>{blocking ? "—" : data.entries.filter((row) => row.kind === "mcp").length}</span>}</button></nav>
       {canHelp && <button className="capabilities-action primary" aria-describedby={`${uid}-hint`} onClick={() => ask({ kind, intent: "add" })}><Plus size={15} aria-hidden/>{kind === "skill" ? t("添加 Skills") : t("添加 MCP")}</button>}
     </div>
     <div ref={body} className="capabilities-body" aria-busy={busy}>
@@ -184,25 +187,43 @@ export function CapabilitiesPanel({ connection, bots, initialBot, close, help }:
             <div className="capabilities-filters"><label className="capabilities-search"><Search size={16} aria-hidden/><input ref={search} aria-label={t("搜索能力")} placeholder={t("搜索名称、说明或来源")} value={query} onChange={(event) => { setQuery(event.target.value); resetView(); }}/></label><select aria-label={t("能力来源")} value={scope} onChange={(event) => { setScope(event.target.value); resetView(); }}><option value="">{t("全部来源")}</option>{Object.entries(scopeNames).filter(([value]) => availableScopes.has(value as BotCapability["scope"]) || value === scope).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
             <div className="capabilities-states-row"><div className="capabilities-states" role="group" aria-label={t("配置状态")}>{(["all", "active", "disabled"] as const).map((value) => <button key={value} aria-pressed={state === value} onClick={() => { setState(value); resetView(); }}><span className="capabilities-state-label">{stateNames[value]}<span>{counts[value]}</span></span></button>)}</div><span className="capabilities-result" role="status">{t("显示 {0} 项", rows.length)}</span></div>
           </div>
-          <div ref={list} className="capabilities-list">{rows.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE).map((entry, index) => {
-            const expanded = open === entry.id, detail = `${uid}-entry-${index}`;
-            return <article className="capability-card" data-status={entry.status} key={entry.id}>
-              <button type="button" className="capability-summary" data-entry={entry.id} aria-expanded={expanded} aria-controls={expanded ? detail : undefined} onClick={() => setOpen(expanded ? "" : entry.id)}><strong>{entry.name}</strong><span className={`capability-status ${entry.status}`}>{statusNames[entry.status]}</span><ChevronDown className="capability-chevron" size={16} aria-hidden/></button>
-              {entry.description && <p className="capability-description">{entry.description}</p>}
-              <div className="capability-meta"><span>{scopeNames[entry.scope]}</span>{entry.transport && <span>{entry.transport}</span>}</div>
-              {expanded && <div id={detail} className="capability-detail">
-                <p>{meaning(entry)}</p>
-                <dl>
-                  <div><dt>{t("实际状态")}</dt><dd>{t("未确认")}</dd></div>
-                  <div><dt>{t("来源范围")}</dt><dd>{scopeNames[entry.scope]}</dd></div>
-                  {entry.transport && <div><dt>{t("连接方式")}</dt><dd>{transportNames[entry.transport]}{entry.transport !== "unknown" && ` · ${entry.transport}`}</dd></div>}
-                  <div><dt>{t("配置来源")}</dt><dd><code>{entry.source}</code></dd></div>
-                </dl>
-                <div className="capability-next">
-                  <p><strong>{t("建议下一步")}</strong>{nextStep(entry)}</p>
-                  {canHelp ? <><button className="capabilities-action" aria-describedby={`${detail}-hint`} onClick={() => ask({ kind: entry.kind, name: entry.name, source: entry.source, intent: "check" })}><MessageSquare size={15} aria-hidden/>{t("让 Bot 检查")}</button><p id={`${detail}-hint`} className="capabilities-hint">{helpHint}</p></>
-                    : <p className="capabilities-hint">{manualHint}</p>}
-                </div>
+          {overlappingStates && <p className="capabilities-hint capabilities-group-note">{t("按 Skill 名称计数；同名 Skill 的不同来源可能分属不同状态。")}</p>}
+          <div ref={list} className="capabilities-list">{rows.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE).map((group, index) => {
+            const entry = group.entries[0]!, multiple = group.total > 1;
+            const expanded = open === group.id, detail = `${uid}-entry-${index}`;
+            const status = capabilityGroupStatus(group.sources);
+            const descriptions = new Set(group.sources.map(value => value.description));
+            const description = descriptions.size === 1 ? entry.description : t("各来源的说明不同，展开查看详情。");
+            return <article className="capability-card" data-status={status} key={group.id}>
+              <button type="button" className="capability-summary" data-entry={group.id} aria-expanded={expanded} aria-controls={expanded ? detail : undefined} onClick={() => setOpen(expanded ? "" : group.id)}><strong>{group.name}</strong><span className={`capability-status ${status}`}>{statusNames[status]}</span><ChevronDown className="capability-chevron" size={16} aria-hidden/></button>
+              {description && <p className="capability-description">{description}</p>}
+              <div className="capability-meta">{multiple ? <><span className="capability-source-count">{group.entries.length === group.total ? t("{0} 个来源", group.total) : t("显示 {0} / {1} 个来源", group.entries.length, group.total)}</span><span>{[...new Set(group.sources.map(source => scopeNames[source.scope]))].join(" · ")}</span></> : <span>{scopeNames[entry.scope]}</span>}{entry.transport && <span>{entry.transport}</span>}</div>
+              {expanded && <div id={detail} className={`capability-detail${multiple ? " capability-group-detail" : ""}`}>
+                {multiple && <p className="capability-group-intro">{t("同名 Skill 按来源列出；内容可能不同，实际加载状态未确认。")}</p>}
+                {group.entries.map((sourceEntry, sourceIndex) => {
+                  const sourcePath = `${detail}-source-${sourceIndex}-path`;
+                  const hint = multiple ? `${detail}-hint` : `${detail}-source-${sourceIndex}-hint`;
+                  return <div className={multiple ? "capability-source" : undefined} key={sourceEntry.id} role={multiple ? "group" : undefined} aria-labelledby={multiple ? sourcePath : undefined}>
+                    {multiple && <>
+                      <code id={sourcePath} className="capability-source-path">{sourceEntry.source}</code>
+                      <div className="capability-source-heading"><span>{scopeNames[sourceEntry.scope]}</span><span className={`capability-status ${sourceEntry.status}`}>{statusNames[sourceEntry.status]}</span></div>
+                      {descriptions.size > 1 && sourceEntry.description && <p className="capability-description">{sourceEntry.description}</p>}
+                    </>}
+                    {!multiple && <p>{meaning(sourceEntry)}</p>}
+                    {!multiple && <dl>
+                      <div><dt>{t("实际状态")}</dt><dd>{t("未确认")}</dd></div>
+                      <div><dt>{t("来源范围")}</dt><dd>{scopeNames[sourceEntry.scope]}</dd></div>
+                      {sourceEntry.transport && <div><dt>{t("连接方式")}</dt><dd>{transportNames[sourceEntry.transport]}{sourceEntry.transport !== "unknown" && ` · ${sourceEntry.transport}`}</dd></div>}
+                      <div><dt>{t("配置来源")}</dt><dd><code>{sourceEntry.source}</code></dd></div>
+                    </dl>}
+                    <div className="capability-next">
+                      {!multiple && <p><strong>{t("建议下一步")}</strong>{nextStep(sourceEntry)}</p>}
+                      {canHelp ? <><button className="capabilities-action" aria-describedby={multiple ? `${sourcePath} ${hint}` : hint} onClick={() => ask({ kind: sourceEntry.kind, name: sourceEntry.name, source: sourceEntry.source, intent: "check" })}><MessageSquare size={15} aria-hidden/>{t("让 Bot 检查")}</button>{!multiple && <p id={hint} className="capabilities-hint">{helpHint}</p>}</>
+                        : !multiple && <p className="capabilities-hint">{manualHint}</p>}
+                    </div>
+                  </div>;
+                })}
+                {multiple && <p id={`${detail}-hint`} className="capabilities-hint capability-group-hint">{canHelp ? t("每次只检查一个来源；消息由你确认发送。") : manualHint}</p>}
               </div>}
             </article>;
           })}</div>
