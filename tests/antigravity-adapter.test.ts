@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ProcessAntigravityAdapter } from "../src/codex/antigravity-adapter.js";
 import { EngineIncompleteResponseError } from "../src/codex/adapter.js";
+import { classifyFailure, getBusErrorSemantics } from "../src/runtime/error-classification.js";
 import * as processTree from "../src/codex/process-tree.js";
 import { APP_USER_STOP_REASON, APP_STOP_PROCESS_GRACE_MS } from "../src/runtime/turn-cancellation.js";
 import { removeTempRoot } from "./helpers/temp-files.js";
@@ -16,6 +17,52 @@ import { removeTempRoot } from "./helpers/temp-files.js";
 const CONVERSATION_ID = "11111111-2222-4333-8444-555555555555";
 
 describe("ProcessAntigravityAdapter", () => {
+  it.each([
+    "unknown flag: --log-file",
+    "Antigravity emitted result before init: Authentication required",
+  ])("does not replay an incomplete turn because of diagnostic text: %s", async diagnostic => {
+    const { spawnAntigravity, child, calls } = createSpawnHarness();
+    const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);
+    const abort = new AbortController();
+    let settled = false;
+    try {
+      const turn = adapter.sendUserMessage("tarobot-incomplete-diagnostic", { text: "inspect", files: [], abortSignal: abort.signal });
+      const failure = turn.then(() => { settled = true; }, error => { settled = true; return error; });
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      child.stdout.emitData(jsonLine({ event: "init", conversation_id: CONVERSATION_ID, init: {} }));
+      child.stdout.emitData(jsonLine({ event: "step_update", step_update: { conversation_id: CONVERSATION_ID, step_index: 1, step_type: "agent_response", state: "DONE", text_delta: "partial answer" } }));
+      child.stderr.emitData(diagnostic);
+      child.stdout.emitData(jsonLine({ event: "result", result: { conversation_id: CONVERSATION_ID, status: "ERROR", response: "partial answer", finished_reason: "error" } }));
+      await vi.waitFor(() => expect(settled || calls.length > 1).toBe(true));
+      if (calls.length > 1) abort.abort();
+      const error = await failure;
+      expect(calls).toHaveLength(1);
+      expect(error).toBeInstanceOf(EngineIncompleteResponseError);
+    } finally { abort.abort(); await adapter.destroy(); }
+  });
+  it.each([false, true].flatMap(goal => ["ACTIVE", "DONE", "unindexed"].map(state => ({ goal, state }))))("does not make a tool-only failed turn retryable ($goal/$state)", async ({ goal, state }) => {
+    const { spawnAntigravity, child, calls } = createSpawnHarness();
+    const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);
+    const events: Array<{ type: string }> = [];
+    try {
+      const turn = adapter.sendUserMessage("tarobot-tool-only-finish", { text: goal ? "/goal inspect" : "inspect", files: [], onEngineEvent: event => { events.push(event); } });
+      const failure = turn.then(() => undefined, error => error);
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      child.stdout.emitData(jsonLine({ event: "init", conversation_id: CONVERSATION_ID, init: {} }));
+      child.stdout.emitData(jsonLine({ event: "step_update", step_update: {
+        conversation_id: CONVERSATION_ID, ...(state === "unindexed" ? {} : { step_index: 1 }),
+        step_type: "tool", state: state === "unindexed" ? "ACTIVE" : state,
+        tool_name: "write_file", tool_info: { parameters: { path: "example.txt", content: "saved" }, output: "saved" },
+      } }));
+      child.stdout.emitData(jsonLine({ event: "result", result: { conversation_id: CONVERSATION_ID, status: "ERROR", response: "", error: "503 Service Unavailable", finished_reason: "error" } }));
+      child.close(0);
+      const error = await failure;
+      expect(error).toBeInstanceOf(EngineIncompleteResponseError);
+      expect(getBusErrorSemantics(classifyFailure(error))).toMatchObject({ retryable: false });
+      expect(events.some(event => event.type === "result")).toBe(false);
+      expect(calls).toHaveLength(1);
+    } finally { await adapter.destroy(); }
+  });
   it.each([false, true].flatMap(goal => ["print_timeout", "interrupted", "error", "future_reason"].map(reason => ({ goal, reason }))))("rejects explicit early termination even after a DONE answer ($goal/$reason)", async ({ goal, reason }) => {
     const { spawnAntigravity, child, calls } = createSpawnHarness();
     const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);

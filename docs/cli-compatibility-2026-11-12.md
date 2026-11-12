@@ -13,7 +13,7 @@ the persistent stream and native-goal paths. `print_timeout`, `interrupted`,
 `error`, and unknown nonempty reasons cannot produce a successful result.
 Partial streamed text remains visible, but the turn is classified incomplete
 and not eligible for blind replay. Diagnostic stderr preserves that error type.
-Authentication/quota errors before any answer retain their existing handling.
+Authentication/quota errors before any answer or tool work retain their existing handling.
 Older results without the field retain the verified stale-status workaround.
 
 The native `/btw` feature exists, including tool support in
@@ -25,6 +25,27 @@ interface lacks a side-query facility, but no supported native branch API for
 our transport was verified. No side button or fake context-free fork is enabled.
 Supporting it remains pending a verified programmatic interface or a separately
 reviewed transport change. Literal `/btw` model text is not a native side query.
+
+### Follow-up audit
+
+The follow-up found two AGY replay hazards. First, a tool-only turn could fail
+before emitting assistant prose and be returned as a generic, retryable error.
+Tool activity is now tracked independently of response text and display IDs in
+both execution paths. Second, diagnostic stderr could match the older startup
+authentication or unsupported-flag recovery rules even after an incomplete
+turn. Those rules now refuse typed incomplete errors. Genuine startup recovery
+remains covered by the existing tests.
+
+Eight new negative regressions reproduced these issues before their fixes:
+six tool-only cases and two cases that started a second worker from misleading
+diagnostics. A real AGY 1.5.6 single-turn smoke check also returned the expected
+answer with `status: SUCCESS` and no `finished_reason`, confirming the native
+success shape. This smoke check is distinct from adapter tests and does not
+establish installed-App acceptance.
+
+After these fixes, all 666 tests in the same 17-file regression set passed,
+as did the Host build. TypeScript diagnostics remain identical to the 178-item
+baseline. No engine upgrade, release or installed-App update is included.
 
 ## DeepSeek Harness 0.2.2 release candidates
 

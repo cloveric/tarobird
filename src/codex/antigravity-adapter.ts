@@ -97,11 +97,11 @@ type AntigravityResult = {
 
 /** Since CLI 1.4.11 this field is authoritative even if a prior step reached
  * DONE. Keep the legacy stale-status workaround only when no reason is given. */
-function assertAntigravityTurnFinished(result: AntigravityResult, streamedText: string): void {
+function assertAntigravityTurnFinished(result: AntigravityResult, streamedText: string, toolStepSeen: boolean): void {
   if (result.finished_reason === undefined || result.finished_reason === null || result.finished_reason === "") return;
-  // Preserve actionable authentication/quota failures before any answer. A
-  // partial answer must not turn into a retryable ordinary runtime failure.
-  if (result.finished_reason === "error" && !streamedText.trim() && !(typeof result.response === "string" && result.response.trim())) {
+  // Preserve actionable failures only before any answer or tool work. A
+  // tool-only turn can already have side effects despite returning no text.
+  if (result.finished_reason === "error" && !toolStepSeen && !streamedText.trim() && !(typeof result.response === "string" && result.response.trim())) {
     const error = stringifyToolValue(result.error);
     if (error) throw new Error(error);
   }
@@ -139,6 +139,7 @@ type AntigravityPendingTurn = {
   resultSeen: boolean;
   finalAgentResponseSeen: boolean;
   toolSeenAfterFinalAgentResponse: boolean;
+  toolStepSeen: boolean;
   stepUsage: Map<number, AdapterUsage>;
   emittedTools: Map<number, string>;
   toolProgress: Map<number, string>;
@@ -231,6 +232,7 @@ function removeLogFileArgs(args: string[]): string[] {
 }
 
 function isUnsupportedLogFileFlagError(error: unknown): boolean {
+  if (error instanceof EngineIncompleteResponseError) return false;
   const message = error instanceof Error ? error.message : String(error);
   return (
     /(?:flag provided but not defined|unknown flag).*log-file/i.test(message) ||
@@ -239,6 +241,7 @@ function isUnsupportedLogFileFlagError(error: unknown): boolean {
 }
 
 function isRecoverableStartupAuthError(error: unknown): boolean {
+  if (error instanceof EngineIncompleteResponseError) return false;
   const message = error instanceof Error ? error.message : String(error);
   return (
     /antigravity emitted result before init/i.test(message) &&
@@ -791,6 +794,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
         resultSeen: false,
         finalAgentResponseSeen: false,
         toolSeenAfterFinalAgentResponse: false,
+        toolStepSeen: false,
         stepUsage: new Map(),
         emittedTools: new Map(),
         toolProgress: new Map(),
@@ -924,8 +928,9 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
         pending.finalAgentResponseSeen = true;
         pending.toolSeenAfterFinalAgentResponse = false;
       }
-      if (step.step_type === "tool" && pending.finalAgentResponseSeen) {
-        pending.toolSeenAfterFinalAgentResponse = true;
+      if (step.step_type === "tool") {
+        pending.toolStepSeen = true;
+        if (pending.finalAgentResponseSeen) pending.toolSeenAfterFinalAgentResponse = true;
       }
       if (step.step_type === "tool" && index !== undefined) {
         const info = (asRecord(step.tool_info) ?? {}) as AntigravityToolInfo;
@@ -964,7 +969,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       const result = asRecord(parsed.result) as AntigravityResult | undefined;
       if (!result) throw new Error("Antigravity emitted an invalid result event");
       this.setWorkerSessionId(worker, result.conversation_id, "result");
-      assertAntigravityTurnFinished(result, pending.streamedText);
+      assertAntigravityTurnFinished(result, pending.streamedText, pending.toolStepSeen);
       const status = typeof result.status === "string" ? result.status : "UNKNOWN";
       if (
         status !== "SUCCESS"
@@ -1299,6 +1304,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       let resultSeen = false;
       let finalAgentResponseSeen = false;
       let toolSeenAfterFinalAgentResponse = false;
+      let toolStepSeen = false;
       const stdoutDecoder = new StringDecoder("utf8");
       const stderrDecoder = new StringDecoder("utf8");
       const stepUsage = new Map<number, AdapterUsage>();
@@ -1461,8 +1467,9 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
             finalAgentResponseSeen = true;
             toolSeenAfterFinalAgentResponse = false;
           }
-          if (step.step_type === "tool" && finalAgentResponseSeen) {
-            toolSeenAfterFinalAgentResponse = true;
+          if (step.step_type === "tool") {
+            toolStepSeen = true;
+            if (finalAgentResponseSeen) toolSeenAfterFinalAgentResponse = true;
           }
           if (step.step_type === "tool" && index !== undefined) {
             const info = (asRecord(step.tool_info) ?? {}) as AntigravityToolInfo;
@@ -1495,7 +1502,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
           const result = asRecord(parsed.result) as AntigravityResult | undefined;
           if (!result) throw new Error("Antigravity emitted an invalid result event");
           setSessionId(result.conversation_id, "result");
-          assertAntigravityTurnFinished(result, streamedText);
+          assertAntigravityTurnFinished(result, streamedText, toolStepSeen);
           resultSeen = true;
           const status = typeof result.status === "string" ? result.status : "UNKNOWN";
           if (
