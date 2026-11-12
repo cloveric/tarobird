@@ -98,10 +98,19 @@ type AntigravityResult = {
 /** Since CLI 1.4.11 this field is authoritative even if a prior step reached
  * DONE. Keep the legacy stale-status workaround only when no reason is given. */
 function assertAntigravityTurnFinished(result: AntigravityResult, streamedText: string, toolStepSeen: boolean): void {
-  if (result.finished_reason === undefined || result.finished_reason === null || result.finished_reason === "") return;
+  const hasAnswer = Boolean(streamedText.trim() || (typeof result.response === "string" && result.response.trim()));
+  if (result.finished_reason === undefined || result.finished_reason === null || result.finished_reason === "") {
+    // Successful native execution can still omit the answer after tools ran.
+    // Keep the existing empty-answer failure, but never invite replay or emit
+    // a successful result before reporting this incomplete receipt.
+    if (result.status === "SUCCESS" && toolStepSeen && !hasAnswer) {
+      throw new EngineIncompleteResponseError("Antigravity completed without returning a response", "interrupted");
+    }
+    return;
+  }
   // Preserve actionable failures only before any answer or tool work. A
   // tool-only turn can already have side effects despite returning no text.
-  if (result.finished_reason === "error" && !toolStepSeen && !streamedText.trim() && !(typeof result.response === "string" && result.response.trim())) {
+  if (result.finished_reason === "error" && !toolStepSeen && !hasAnswer) {
     const error = stringifyToolValue(result.error);
     if (error) throw new Error(error);
   }

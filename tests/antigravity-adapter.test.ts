@@ -17,6 +17,25 @@ import { removeTempRoot } from "./helpers/temp-files.js";
 const CONVERSATION_ID = "11111111-2222-4333-8444-555555555555";
 
 describe("ProcessAntigravityAdapter", () => {
+  it.each([false, true])("keeps a successful tool-only empty response non-retryable (goal=%s)", async goal => {
+    const { spawnAntigravity, child, calls } = createSpawnHarness();
+    const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);
+    const events: Array<{ type: string }> = [];
+    try {
+      const turn = adapter.sendUserMessage("tarobot-tool-only-empty", { text: goal ? "/goal inspect" : "inspect", files: [], onEngineEvent: event => { events.push(event); } });
+      const failure = turn.then(() => undefined, error => error);
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      child.stdout.emitData(jsonLine({ event: "init", conversation_id: CONVERSATION_ID, init: {} }));
+      child.stdout.emitData(jsonLine({ event: "step_update", step_update: { conversation_id: CONVERSATION_ID, step_index: 1, step_type: "tool", state: "DONE", tool_name: "write_file", tool_info: { output: "saved" } } }));
+      child.stdout.emitData(jsonLine({ event: "result", result: { conversation_id: CONVERSATION_ID, status: "SUCCESS", response: " \n" } }));
+      child.close(0);
+      const error = await failure;
+      expect(error).toBeInstanceOf(EngineIncompleteResponseError);
+      expect(getBusErrorSemantics(classifyFailure(error))).toMatchObject({ retryable: false });
+      expect(events.some(event => event.type === "result")).toBe(false);
+      expect(calls).toHaveLength(1);
+    } finally { await adapter.destroy(); }
+  });
   it.each([
     "unknown flag: --log-file",
     "Antigravity emitted result before init: Authentication required",

@@ -43,9 +43,26 @@ answer with `status: SUCCESS` and no `finished_reason`, confirming the native
 success shape. This smoke check is distinct from adapter tests and does not
 establish installed-App acceptance.
 
-After these fixes, all 666 tests in the same 17-file regression set passed,
-as did the Host build. TypeScript diagnostics remain identical to the 178-item
-baseline. No engine upgrade, release or installed-App update is included.
+An independent DeepSeek review reproduced both findings against the original
+commit and identified a third, pre-existing adjacent case: a native SUCCESS
+receipt after tool execution with no answer text was also classified retryable.
+The primary review reproduced it in both execution paths before fixing it.
+It still fails the existing empty-answer contract, but now fails as incomplete
+before publishing a successful result event. No retry is suggested for work
+whose tool effects may already have occurred.
+
+The review's broader suggestions were assessed separately. A tool reported as
+ACTIVE can already have side effects, so it still blocks blind replay; requiring
+DONE would weaken this protection. Potential future Kimi error-message variants,
+unknown future AGY finish values and additional DSH lifecycle test combinations
+are not treated as confirmed defects or reasons to rewrite the transports.
+Failed-turn usage accounting and real native unload-during-registration remain
+separate validation questions; this pass makes no new acceptance claim for them.
+
+The final regression set adds ten negative cases to the previous 658 tests:
+all 668 tests in 17 files passed, along with the Host build. TypeScript retains
+the same 178 baseline diagnostics with no additions. No engine upgrade,
+release or installed-App update is included.
 
 ## DeepSeek Harness 0.2.2 release candidates
 
