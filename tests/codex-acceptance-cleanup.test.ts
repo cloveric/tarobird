@@ -20,7 +20,7 @@ describe("real Codex acceptance cleanup", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["live-app-tools-", "live-widget-interaction-"])("archives only the owned %s fixture workspace and verifies removal", async (prefix) => {
+  it.each(["live-app-tools-", "live-widget-interaction-", "live-codex-consent-"])("archives only the owned %s fixture workspace and verifies removal", async (prefix) => {
     const root = await fixture(prefix);
     await mkdir(path.join(root, "workspace"));
     const archived: string[] = [];

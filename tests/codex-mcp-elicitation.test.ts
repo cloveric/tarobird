@@ -5,6 +5,46 @@ const request = (properties: Record<string, unknown>, required = Object.keys(pro
 const answer = (form: NonNullable<ReturnType<typeof normalizeCodexMcpElicitation>>, values: string[]) => form.response({ behavior: "allow", updatedInput: { answers: Object.fromEntries(form.toolInput.questions.map((q, i) => [q.question, values[i] ?? ""])) } });
 
 describe("Codex MCP form elicitation", () => {
+  const computerConsent = (persist: unknown = ["session", "always"]) => ({ ...request({}),
+    message: 'Allow Computer Use to use "Example Browser"?',
+    _meta: { codex_approval_kind: "mcp_tool_call", connector_name: "Computer Use", persist,
+      subtitle: "This grants access to the selected app.", tool_name: "get_app",
+      tool_params_display: [{ name: "app", display_name: "App", value: "Example Browser" }] },
+  });
+  it("preserves native Computer Use consent choices and returns only the selected persistence", () => {
+    const form = normalizeCodexMcpElicitation(computerConsent())!;
+    expect(form.toolInput.questions[0]!.options.map((o) => o.label)).toEqual(["允许本次", "本会话允许", "始终允许", "拒绝"]);
+    expect(form.toolInput.questions[0]!.question).toContain("This grants access to the selected app.");
+    expect(form.toolInput.questions[0]!.question).toContain("App: Example Browser");
+    expect(answer(form, ["允许本次"])).toEqual({ action: "accept", content: {} });
+    expect(answer(form, ["本会话允许"])).toEqual({ action: "accept", content: {}, _meta: { persist: "session" } });
+    expect(answer(form, ["始终允许"])).toEqual({ action: "accept", content: {}, _meta: { persist: "always" } });
+    expect(answer(form, ["拒绝"])).toEqual({ action: "decline" });
+    expect(form.response({ behavior: "deny" })).toEqual({ action: "cancel" });
+    expect(form.response({ behavior: "allow", scope: "session" })).toEqual({ action: "decline" });
+  });
+  it.each([[], ["session"], ["always"]].map((persist) => ({ persist })))("never invents consent scopes absent from $persist", ({ persist }) => {
+    const form = normalizeCodexMcpElicitation(computerConsent(persist))!;
+    for (const [value, label] of [["session", "本会话允许"], ["always", "始终允许"]]) {
+      expect(form.toolInput.questions[0]!.options.some((o) => o.label === label)).toBe(persist.includes(value!));
+      expect(answer(form, [label!])).toEqual(persist.includes(value!)
+        ? { action: "accept", content: {}, _meta: { persist: value } } : { action: "decline" });
+    }
+  });
+  it("does not treat arbitrary form metadata as permission to persist", () => {
+    const value = computerConsent(); delete (value._meta as Record<string, unknown>).codex_approval_kind;
+    const form = normalizeCodexMcpElicitation(value)!;
+    expect(answer(form, ["始终允许"])).toEqual({ action: "decline" });
+    expect(answer(form, ["允许本次"])).toEqual({ action: "accept", content: {} });
+  });
+  it.each([["forever"], "always", ["always", "always"]].map((persist) => ({ persist })))("declines malformed native persistence $persist", ({ persist }) => {
+    expect(normalizeCodexMcpElicitation(computerConsent(persist))).toBeUndefined();
+  });
+  it("keeps consent immutable while the user is answering", () => {
+    const value = computerConsent(["session"]), form = normalizeCodexMcpElicitation(value)!;
+    (value._meta.persist as string[]).push("always");
+    expect(answer(form, ["始终允许"])).toEqual({ action: "decline" });
+  });
   it("requires explicit one-time confirmation for empty forms", () => {
     const form = normalizeCodexMcpElicitation(request({}))!;
     expect(form.toolInput.questions[0]!.allowFreeText).toBe(false);

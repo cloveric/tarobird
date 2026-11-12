@@ -54,7 +54,7 @@ export async function openAcceptanceCodexRpc() {
 /** Call only after the fixture's Hub/workers stop, and before removing its root. */
 export async function archiveAcceptanceThreads(root: string, requestOverride?: Request, expectedThreadIds: readonly string[] = []): Promise<number> {
   const ownedRoot = await realpath(root), temporaryRoot = await realpath(os.tmpdir());
-  if (path.dirname(ownedRoot) !== temporaryRoot || !/^live-(?:session-model|client-worker|hub-backup|client-bus|codex-input|codex-async|codex-permissions|app-tools|widget-interaction)-[A-Za-z0-9]+$/.test(path.basename(ownedRoot))) {
+  if (path.dirname(ownedRoot) !== temporaryRoot || !/^live-(?:session-model|client-worker|hub-backup|client-bus|codex-input|codex-async|codex-permissions|codex-consent|app-tools|widget-interaction)-[A-Za-z0-9]+$/.test(path.basename(ownedRoot))) {
     throw new Error("Refusing Codex cleanup outside an owned acceptance directory");
   }
   const candidates = [ownedRoot, path.join(ownedRoot, "project"), path.join(ownedRoot, "workspace")];

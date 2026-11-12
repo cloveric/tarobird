@@ -842,6 +842,11 @@ and the existing network/run/delete suites listed in that audit.
   or retired ownership fails closed. Approval mode and native policy are
   unchanged. Tests: `codex-goal-approvals`, `app-server-adapter`,
   `codex-user-input`, `codex-mcp-elicitation`, `codex-permissions`.
+  Empty MCP tool-consent forms preserve only the offered native persistence
+  choices in `codex/codex-mcp-elicitation.ts`; the shared question card returns
+  the explicit choice as `_meta.persist`, with no local permission cache.
+  Opt-in browser acceptance: `live-codex-consent` (real Codex, synthetic MCP).
+  [Consent mapping and evidence](client/codex-computer-use-consent-2026-11-12.md).
   [Behavior and evidence](client/async-questions-2026-10-12.md).
   Claude background-question receipts use `core/question-feedback.ts` and the
   adapter's host-local `onAnswerProgress` observer; retained approval callbacks

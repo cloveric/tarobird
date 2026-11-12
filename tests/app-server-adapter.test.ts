@@ -771,6 +771,56 @@ describe("Codex native user input lifecycle", () => {
     } finally { h.adapter.destroy(); }
   });
 
+  it.each(["normal", "bypass", "full-auto"])("forwards explicit MCP consent and persistence in %s mode", async (approvalMode) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "codex-consent-"));
+    const config = path.join(root, "config.json"); await writeFile(config, JSON.stringify({ approvalMode }));
+    let answer!: () => void;
+    const callback = vi.fn((input: EngineApprovalRequest) => new Promise<EngineApprovalDecision>((resolve) => {
+      const value = input.toolInput as { questions: { question: string; options: { label: string }[] }[] };
+      expect(value.questions[0]!.options.map((o) => o.label)).toEqual(["允许本次", "本会话允许", "始终允许", "拒绝"]);
+      answer = () => resolve({ behavior: "allow", updatedInput: { answers: { [value.questions[0]!.question]: "始终允许" } } });
+    }));
+    const h = await boot(callback, config);
+    try {
+      h.request({ threadId: question.threadId, turnId: question.turnId, serverName: "fixture", mode: "form",
+        message: 'Allow Computer Use to use "Example Browser"?', requestedSchema: { type: "object", properties: {} },
+        _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
+      }, "mcpServer/elicitation/request");
+      await waitFor(() => callback.mock.calls.length === 1);
+      expect(h.responses()).toEqual([]);
+      answer(); // Explicit user selection, not approval-mode auto-accept.
+      await waitFor(() => h.responses().length === 1);
+      expect(h.responses()[0].result).toEqual({ action: "accept", content: {}, _meta: { persist: "always" } });
+      h.finish(); await h.turn;
+    } finally { h.adapter.destroy(); await removeTempRoot(root); }
+  });
+
+  it.each(["abort", "resolved", "complete", "child"])("retires MCP consent on %s and ignores a late persistent grant", async (reason) => {
+    let answer!: () => void, signal: AbortSignal | undefined;
+    const callback = vi.fn((input: EngineApprovalRequest) => new Promise<EngineApprovalDecision>((resolve) => {
+      signal = input.abortSignal;
+      const value = input.toolInput as { questions: { question: string }[] };
+      answer = () => resolve({ behavior: "allow", updatedInput: { answers: { [value.questions[0]!.question]: "始终允许" } } });
+    }));
+    const h = await boot(callback);
+    try {
+      h.request({ threadId: question.threadId, turnId: question.turnId, serverName: "fixture", mode: "form",
+        message: "Allow synthetic consent?", requestedSchema: { type: "object", properties: {} },
+        _meta: { codex_approval_kind: "mcp_tool_call", persist: ["session", "always"] },
+      }, "mcpServer/elicitation/request");
+      await waitFor(() => callback.mock.calls.length === 1);
+      if (reason === "abort") h.controller.abort();
+      else if (reason === "complete") h.finish();
+      else if (reason === "child") h.child.close(1);
+      else h.child.stdout.emitData(JSON.stringify({ method: "serverRequest/resolved", params: { threadId: question.threadId, requestId: "native-question" } }) + "\n");
+      await waitFor(() => signal!.aborted);
+      answer(); await new Promise((resolve) => setImmediate(resolve));
+      expect(h.responses()).toEqual(["abort", "complete"].includes(reason) ? [{ jsonrpc: "2.0", id: "native-question", result: { action: "cancel" } }] : []);
+      if (reason === "resolved") h.finish();
+      await h.turn.catch(() => undefined);
+    } finally { h.adapter.destroy(); }
+  });
+
   it.each(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"])("retires %s on process replacement and ignores late approval", async (method) => {
     let answer!: (decision: EngineApprovalDecision) => void;
     let signal: AbortSignal | undefined;

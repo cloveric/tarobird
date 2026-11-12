@@ -18,11 +18,23 @@ const property = z.discriminatedUnion("type", [
 ]);
 const schema = z.object({
   threadId: z.string().min(1), turnId: z.string().min(1).nullish(), serverName: z.string().min(1).max(256),
-  mode: z.literal("form"), message: text,
+  mode: z.literal("form"), message: text, _meta: z.unknown().optional(),
   requestedSchema: z.object({ type: z.literal("object"), $schema: text.nullish(), properties: z.record(z.string().min(1).max(256), property), required: z.array(z.string()).nullish() }).strict(),
 });
 type Property = z.infer<typeof property>;
 type Choice = { label: string; value: string };
+
+// Codex 0.167.2 Computer Use emits an empty standard MCP form with these
+// consent options in metadata. The response's _meta.persist belongs to Codex;
+// it must come from an explicit choice, never the Bot's command approval mode.
+const consentMetadata = z.object({
+  codex_approval_kind: z.literal("mcp_tool_call"),
+  persist: z.array(z.enum(["session", "always"])).max(2).refine((values) => new Set(values).size === values.length).default([]),
+  connector_name: z.string().max(256).optional(), subtitle: text.optional(),
+  tool_name: z.string().max(256).optional(), riskLevel: z.string().max(100).optional(),
+  tool_params_display: z.array(z.object({ display_name: z.string().max(256), value: z.unknown() })).max(20).optional(),
+});
+type ElicitationResponse = { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown>; _meta?: { persist: "session" | "always" } };
 
 function choices(field: Property): Choice[] | undefined {
   if (field.type === "boolean") return [{ label: "true", value: "true" }, { label: "false", value: "false" }];
@@ -86,18 +98,33 @@ export function normalizeCodexMcpElicitation(value: unknown) {
   const required = new Set(request.requestedSchema.required ?? []);
   if ([...required].some((key) => !Object.hasOwn(request.requestedSchema.properties, key))) return undefined;
   // Codex also uses an empty standard form for an MCP tool-call confirmation.
-  // Ask explicitly; an empty schema must never count as a completed answer or
-  // grant persistent access merely because there are no fields to validate.
+  // Empty fields do not constitute consent. Preserve only native persistence
+  // choices, with the requested target and warning visible before submission.
   if (!entries.length) {
-    const question = request.message.trim() || `${request.serverName} 请求确认`;
+    const meta = request._meta;
+    const isConsent = meta != null && typeof meta === "object" && "codex_approval_kind" in meta && meta.codex_approval_kind === "mcp_tool_call";
+    const consent = isConsent ? consentMetadata.safeParse(meta) : undefined;
+    if (consent && !consent.success) return undefined;
+    const native = consent?.data;
+    const options: { label: string; persist?: "session" | "always" }[] = [{ label: "允许本次" }];
+    if (native?.persist.includes("session")) options.push({ label: "本会话允许", persist: "session" });
+    if (native?.persist.includes("always")) options.push({ label: "始终允许", persist: "always" });
+    const details = (native?.tool_params_display ?? []).map((item) => `${item.display_name}: ${typeof item.value === "string" ? item.value : JSON.stringify(item.value)}`);
+    const question = [request.message.trim() || `${request.serverName} 请求确认`, native?.subtitle,
+      native?.tool_name && `工具: ${native.tool_name}`, ...details,
+      native?.riskLevel && `工具声明的风险级别: ${native.riskLevel}`,
+      native?.persist.includes("always") && "选择“始终允许”会将持续授权选择交给 Codex 保存和管理。",
+    ].filter(Boolean).join("\n\n");
+    if (question.length > 16_000) return undefined;
     return {
       threadId: request.threadId, turnId: request.turnId, itemId: undefined,
-      toolInput: { questions: [{ question, header: `${request.serverName} · 确认`, options: [{ label: "允许本次" }, { label: "拒绝" }], allowFreeText: false, required: true, multiSelect: false }] },
-      response(decision: EngineApprovalDecision): { action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> } {
+      toolInput: { questions: [{ question, header: `${native?.connector_name || request.serverName} · 确认`, options: [...options.map(({ label }) => ({ label })), { label: "拒绝" }], allowFreeText: false, required: true, multiSelect: false }] },
+      response(decision: EngineApprovalDecision): ElicitationResponse {
         if (decision.behavior !== "allow") return { action: "cancel" };
         const input = z.object({ answers: z.record(z.string(), z.string()) }).safeParse(decision.updatedInput);
-        return input.success && Object.hasOwn(input.data.answers, question) && input.data.answers[question] === "允许本次"
-          ? { action: "accept", content: {} } : { action: "decline" };
+        const selected = input.success && Object.hasOwn(input.data.answers, question)
+          ? options.find((option) => option.label === input.data.answers[question]) : undefined;
+        return selected ? { action: "accept", content: {}, ...(selected.persist ? { _meta: { persist: selected.persist } } : {}) } : { action: "decline" };
       },
     };
   }
