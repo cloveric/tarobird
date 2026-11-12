@@ -64,6 +64,25 @@ all 668 tests in 17 files passed, along with the Host build. TypeScript retains
 the same 178 baseline diagnostics with no additions. No engine upgrade,
 release or installed-App update is included.
 
+### Additional lifecycle and CI verification
+
+Four isolated component probes using the actual rc.1/rc.2 Cordis fibers and
+projection registries passed disposal or pipe closure while a registration
+handle was delayed. They left no live hooks or projection references and
+disposed the handle once. The delay wrapper and in-memory streams are fixtures;
+these results do not certify full Host-process reload or installed-App behavior.
+
+The subsequent source CI failed two existing Host tests at the default five-second
+timeout. Inspection and an argument-capture probe found that `npm test -- ...`
+appended Vitest's worker/timeout flags to the trailing `node --test` command,
+so Vitest never received the intended CI settings. The Vitest command is now
+the `test` script, with the same Node script suite in `posttest`. Parameters
+reach Vitest, both stages run in sequence, and either stage's failure remains
+fatal. An actual scoped `npm test -- ... --maxWorkers=2 --testTimeout=15000`
+passed 391 tests plus all 20 posttest cases, including the two timed-out cases.
+This fixes a verified test-entry defect; it does not by itself establish the
+sole cause of every CI timeout or a passing full remote run.
+
 ## DeepSeek Harness 0.2.2 release candidates
 
 The App plugin now awaits `sessionProjections.register()` before publishing
