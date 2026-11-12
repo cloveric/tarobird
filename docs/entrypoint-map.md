@@ -385,6 +385,12 @@ For deeper system context, then read:
 - `docs/kimi-capability-matrix.md` — Kimi vs Codex vs Claude release contract, including explicit protocol gaps.
 - `docs/deepseek-harness-engine.md` — DeepSeek Harness host architecture, verified capability matrix, recovery invariants, and limits.
 
+The [2026-11-12 CLI compatibility pass](cli-compatibility-2026-11-12.md) covers
+AGY explicit early-termination receipts, asynchronous DeepSeek projection startup
+and disposal, and Kimi terminal-login guidance. It records real rc.1/rc.2 and Kimi
+2.5.3 probes and the still-unavailable AGY side-query/Kimi steering interfaces;
+native terminal features do not automatically advertise App capabilities.
+
 The [2026-10-15 comprehensive audit fixes](comprehensive-audit-fixes-2026-10-15.md)
 record approval/turn fencing, workflow settlement, parallel-run cancellation,
 transport bounds, CLI update recovery, legacy fixes and pending native gates.

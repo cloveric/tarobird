@@ -6,9 +6,9 @@ import type { EngineTaskSnapshot, EngineTaskControlResult } from "../client-prot
 import type { EngineOverride } from "../state/instance-config.js";
 export type { EngineTask, EngineTaskSnapshot, EngineTaskControlResult } from "../client-protocol/engine-tasks.js";
 
-/** A terminal frame arrived without a real answer. Never blindly replay tools. */
+/** A terminal frame arrived without a complete answer. Never blindly replay tools. */
 export class EngineIncompleteResponseError extends Error {
-  constructor(message: string) { super(message); this.name = "EngineIncompleteResponseError"; }
+  constructor(message: string, readonly reason: "placeholder" | "interrupted" = "placeholder") { super(message); this.name = "EngineIncompleteResponseError"; }
 }
 
 /** A stop request was sent, but the engine did not confirm that work stopped. */

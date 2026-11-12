@@ -15,6 +15,7 @@ import type {
   CodexUserMessageInput,
   EngineStreamEvent,
 } from "./adapter.js";
+import { EngineIncompleteResponseError } from "./adapter.js";
 import { killProcessTree } from "./process-tree.js";
 import { appStopKillOptions } from "../runtime/turn-cancellation.js";
 import { renderPrivateTurnInstructions } from "./turn-instructions.js";
@@ -91,7 +92,26 @@ type AntigravityResult = {
   status?: unknown;
   response?: unknown;
   error?: unknown;
+  finished_reason?: unknown;
 };
+
+/** Since CLI 1.4.11 this field is authoritative even if a prior step reached
+ * DONE. Keep the legacy stale-status workaround only when no reason is given. */
+function assertAntigravityTurnFinished(result: AntigravityResult, streamedText: string): void {
+  if (result.finished_reason === undefined || result.finished_reason === null || result.finished_reason === "") return;
+  // Preserve actionable authentication/quota failures before any answer. A
+  // partial answer must not turn into a retryable ordinary runtime failure.
+  if (result.finished_reason === "error" && !streamedText.trim() && !(typeof result.response === "string" && result.response.trim())) {
+    const error = stringifyToolValue(result.error);
+    if (error) throw new Error(error);
+  }
+  switch (result.finished_reason) {
+    case "print_timeout": throw new EngineIncompleteResponseError("Antigravity print timeout: the answer is incomplete", "interrupted");
+    case "interrupted": throw new EngineIncompleteResponseError("Antigravity turn interrupted: the answer is incomplete", "interrupted");
+    case "error": throw new EngineIncompleteResponseError("Antigravity turn failed: the answer is incomplete", "interrupted");
+    default: throw new EngineIncompleteResponseError("Antigravity reported an unfinished turn with an unknown finish reason", "interrupted");
+  }
+}
 
 type AntigravityStreamEvent = {
   event?: unknown;
@@ -944,6 +964,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       const result = asRecord(parsed.result) as AntigravityResult | undefined;
       if (!result) throw new Error("Antigravity emitted an invalid result event");
       this.setWorkerSessionId(worker, result.conversation_id, "result");
+      assertAntigravityTurnFinished(result, pending.streamedText);
       const status = typeof result.status === "string" ? result.status : "UNKNOWN";
       if (
         status !== "SUCCESS"
@@ -1167,7 +1188,9 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
     if (worker.removed) return;
     const stderr = worker.stderrTail.trim();
     const diagnosed = stderr && !error.message.includes(stderr)
-      ? new Error(`${error.message}\n\nAntigravity stderr:\n${stderr}`)
+      ? error instanceof EngineIncompleteResponseError
+        ? new EngineIncompleteResponseError(`${error.message}\n\nAntigravity stderr:\n${stderr}`, error.reason)
+        : new Error(`${error.message}\n\nAntigravity stderr:\n${stderr}`)
       : error;
     this.rejectPersistentTurn(worker, diagnosed);
     try {
@@ -1472,6 +1495,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
           const result = asRecord(parsed.result) as AntigravityResult | undefined;
           if (!result) throw new Error("Antigravity emitted an invalid result event");
           setSessionId(result.conversation_id, "result");
+          assertAntigravityTurnFinished(result, streamedText);
           resultSeen = true;
           const status = typeof result.status === "string" ? result.status : "UNKNOWN";
           if (

@@ -8,6 +8,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { ProcessAntigravityAdapter } from "../src/codex/antigravity-adapter.js";
+import { EngineIncompleteResponseError } from "../src/codex/adapter.js";
 import * as processTree from "../src/codex/process-tree.js";
 import { APP_USER_STOP_REASON, APP_STOP_PROCESS_GRACE_MS } from "../src/runtime/turn-cancellation.js";
 import { removeTempRoot } from "./helpers/temp-files.js";
@@ -15,6 +16,40 @@ import { removeTempRoot } from "./helpers/temp-files.js";
 const CONVERSATION_ID = "11111111-2222-4333-8444-555555555555";
 
 describe("ProcessAntigravityAdapter", () => {
+  it.each([false, true].flatMap(goal => ["print_timeout", "interrupted", "error", "future_reason"].map(reason => ({ goal, reason }))))("rejects explicit early termination even after a DONE answer ($goal/$reason)", async ({ goal, reason }) => {
+    const { spawnAntigravity, child, calls } = createSpawnHarness();
+    const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);
+    const events: Array<{ type: string }> = [];
+    try {
+      const turn = adapter.sendUserMessage("tarobot-finish-reason", { text: goal ? "/goal inspect" : "inspect", files: [], onEngineEvent: event => { events.push(event); } });
+      const rejected = expect(turn).rejects.toThrow(/Antigravity.*(timeout|interrupted|failed|unfinished)/i);
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      child.stdout.emitData(jsonLine({ event: "init", conversation_id: CONVERSATION_ID, init: {} }));
+      child.stdout.emitData(jsonLine({ event: "step_update", step_update: { conversation_id: CONVERSATION_ID, step_index: 1, step_type: "agent_response", state: "DONE", text_delta: "partial answer" } }));
+      child.stderr.emitData("historic diagnostic: 401 from a prior attempt\n");
+      child.stdout.emitData(jsonLine({ event: "result", result: { conversation_id: CONVERSATION_ID, status: "SUCCESS", response: "partial answer", finished_reason: reason } }));
+      child.close(0);
+      await rejected;
+      await expect(turn).rejects.toBeInstanceOf(EngineIncompleteResponseError);
+      expect(events.some(event => event.type === "assistant_text")).toBe(true);
+      expect(events.some(event => event.type === "result")).toBe(false);
+      expect(calls).toHaveLength(1);
+    } finally { await adapter.destroy(); }
+  });
+  it.each([false, true])("preserves a native authentication error before any answer (goal=%s)", async goal => {
+    const { spawnAntigravity, child, calls } = createSpawnHarness();
+    const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);
+    try {
+      const turn = adapter.sendUserMessage("tarobot-auth-finish", { text: goal ? "/goal inspect" : "inspect", files: [] });
+      const rejected = expect(turn).rejects.toThrow("Authentication required");
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      child.stdout.emitData(jsonLine({ event: "init", conversation_id: CONVERSATION_ID, init: {} }));
+      child.stdout.emitData(jsonLine({ event: "result", result: { conversation_id: CONVERSATION_ID, status: "ERROR", response: "", error: "Authentication required", finished_reason: "error" } }));
+      child.close(0); await rejected;
+      await expect(turn).rejects.not.toBeInstanceOf(EngineIncompleteResponseError);
+      expect(calls).toHaveLength(1);
+    } finally { await adapter.destroy(); }
+  });
   it.each([false, true])("preserves actual checkpoint receipts in both AGY paths (goal=%s)", async goal => {
     const { spawnAntigravity, child, calls } = createSpawnHarness(), probe = nativeRunProbe();
     const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);

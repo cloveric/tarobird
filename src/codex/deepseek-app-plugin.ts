@@ -19,7 +19,7 @@ type ClaimedInput = { agent: Agent; message: InboxMessage; turn: number };
 type Services = {
   fileUploads: { retirePrompt(agent: Agent, rpcId: string): void };
   goals: { get(agent: Agent): { id?: string; revision?: number; phase: string; activation: string } | undefined; pause?(agent: Agent, ref: { id: string; revision: number }): { id: string; revision: number } };
-  sessionProjections: { register(definition: typeof deepseekGoalUsageDefinition): () => void };
+  sessionProjections: { register(definition: typeof deepseekGoalUsageDefinition): (() => void | Promise<void>) | PromiseLike<{ dispose(): void | Promise<void> }> };
 };
 type Hooks = {
   "agent/created": (input: { agent: Agent }) => Promise<void> | void;
@@ -28,7 +28,7 @@ type Hooks = {
   "agent/pre-step": (input: { agent: Agent; turn: number; signal: AbortSignal }, next: () => Promise<unknown>) => Promise<unknown>;
   "session/event": (session: Agent["session"], event: Event) => void;
 };
-type Context = { agents: { get(id: string): Agent | undefined; withInitiator?<T>(agent: Agent, operation: () => T): T }; get?<K extends keyof Services>(name: K): Services[K] | undefined; on?<K extends keyof Hooks>(name: K, handler: Hooks[K], options?: { prepend: boolean }): () => void; effect(effect: () => (() => void)): unknown };
+type Context = { agents: { get(id: string): Agent | undefined; withInitiator?<T>(agent: Agent, operation: () => T): T }; get?<K extends keyof Services>(name: K): Services[K] | undefined; on?<K extends keyof Hooks>(name: K, handler: Hooks[K], options?: { prepend: boolean }): () => void; effect(effect: () => (() => void | Promise<void>)): unknown };
 type Claim = { turn: number; sources: InboxMessage["source"][] };
 const promptStopSchema = z.object({ sessionId: z.string().min(1), sourceRpcId: z.string().uuid() }).strict();
 const promptSteerSchema = promptStopSchema.extend({ expectedTurn: z.number().int().nonnegative(), requestId: z.string().uuid(), text: z.string().min(1).max(200_000), clientTimeZone: z.string().min(1).max(100) }).strict();
@@ -127,7 +127,7 @@ function sourceForCall(events: readonly Event[], exec: Execution, name: string, 
 
 /** Loaded only in TaroCub's private Harness home. The CLI's own tool registry
  * supplies execution identity. No public RPC, global config or log parsing. */
-export function apply(ctx: Context): void {
+export async function apply(ctx: Context): Promise<void> {
   if (process.env.TAROCUB_DSH_APP_PIPES !== "1") return;
   delete process.env.TAROCUB_DSH_APP_PIPES;
   // libuv owns these inherited handles, including close/cancellation. A fs
@@ -140,14 +140,51 @@ export function apply(ctx: Context): void {
     for (const [fd, owner] of [[3, input], [4, output]] as const) { if (!owner) { try { closeSync(fd); } catch {} } }
     return; // Unsupported handles leave this process on compatible delivery.
   }
-  const close = connectDeepSeekAppPlugin(ctx, input, output);
-  ctx.effect(() => close);
+  await connectDeepSeekAppPlugin(ctx, input, output);
 }
 
-export function connectDeepSeekAppPlugin(ctx: Context, input: Readable, output: Writable): () => void {
+export async function connectDeepSeekAppPlugin(ctx: Context, input: Readable, output: Writable): Promise<() => Promise<void>> {
+  let closed = false, disconnect: (() => void) | undefined;
+  let releaseUsage: (() => void | Promise<void>) | undefined, releasing: Promise<void> | undefined;
+  const close = async () => {
+    closed = true;
+    const cleanup = disconnect; disconnect = undefined;
+    try { cleanup?.(); }
+    finally {
+      input.destroy(); output.destroy();
+      // A context can retire while register() is pending. Its late handle
+      // still needs disposal, so an early close must not cache an empty release.
+      if (releaseUsage) releasing ??= Promise.resolve().then(releaseUsage);
+      await releasing;
+    }
+  };
+  const pendingClose = () => { closed = true; input.destroy(); output.destroy(); };
+  input.on("error", pendingClose); input.on("close", pendingClose); input.on("end", pendingClose);
+  output.on("error", pendingClose); output.on("close", pendingClose);
+  const detach = () => {
+    input.off("error", pendingClose); input.off("close", pendingClose); input.off("end", pendingClose);
+    output.off("error", pendingClose); output.off("close", pendingClose);
+  };
+  try {
+    ctx.effect(() => close);
+    // Await the thenable before inspecting its shape: rc.1's compatibility
+    // object is both callable and awaitable, but only awaiting observes errors.
+    const handle = await ctx.get?.("sessionProjections")?.register(deepseekGoalUsageDefinition);
+    releaseUsage = typeof handle === "function" ? handle : handle ? () => handle.dispose() : undefined;
+    if (closed || input.destroyed || output.destroyed) throw new Error("Native App plugin closed during initialization");
+    disconnect = connectReadyDeepSeekAppPlugin(ctx, input, output);
+    detach();
+    return close;
+  } catch (error) {
+    await close();
+    // Retain error listeners on failed streams for late teardown errors.
+    throw error;
+  }
+}
+
+function connectReadyDeepSeekAppPlugin(ctx: Context, input: Readable, output: Writable): () => void {
   const installed = new WeakMap<Agent, { key: string; cleanup: () => void }>();
   const registrations = new Set<() => void>();
-  const releaseUsage = ctx.get?.("sessionProjections")?.register(deepseekGoalUsageDefinition);
   // Keep durable usage alive if just the private pipe closes; budget frames
   // still reach the adapter so it can stop native continuation safely.
   // Inbox claims precede async prompt assembly and the durable user/message.
@@ -305,5 +342,5 @@ export function connectDeepSeekAppPlugin(ctx: Context, input: Readable, output: 
       return { installed: installed.get(agent) === entry };
     } catch { cleanup(); return { installed: false }; }
   }, cleanup);
-  return () => { pipe.close(); cleanup(); releaseUsage?.(); };
+  return () => { pipe.close(); cleanup(); };
 }

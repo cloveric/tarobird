@@ -440,6 +440,12 @@ function readAcpErrorDetails(error: unknown): string | undefined {
 function normalizeKimiAcpError(error: unknown): Error {
   const normalized = error instanceof Error ? error : new Error(String(error));
   const details = readAcpErrorDetails(error);
+  // Native ACP 2.5 returns only this bare error when its account is absent.
+  // Preserve engine identity for Host/mobile guidance, without launching login
+  // or executing the command/env advertised by terminal-auth automatically.
+  if (normalized.message === "Authentication required" && !details) {
+    return new Error("Kimi Code authentication required", { cause: normalized });
+  }
   let enriched = normalized;
   if (details && !normalized.message.includes(details)) {
     enriched = new Error(`${normalized.message}: ${details}`, { cause: normalized });

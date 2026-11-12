@@ -81,6 +81,9 @@ export function renderCoreUserFacingError(
   if (error instanceof EngineRecoveryExhaustedError) return locale === "en"
     ? "The model service is still unavailable and automatic recovery has ended. The conversation and completed work are preserved. Once the service recovers, send ‘continue’ to resume the unfinished task."
     : "模型服务仍未恢复，本轮自动恢复已结束。原会话和已完成的工作已保留；服务恢复后发送“继续”，即可接着处理未完成的任务。";
+  if (error instanceof EngineIncompleteResponseError && error.reason === "interrupted") return locale === "en"
+    ? "The engine ended this turn early; the answer may be incomplete. Review completed operations before continuing. The conversation is preserved and the request was not automatically replayed."
+    : "引擎提前结束了本轮，回答可能不完整。请先核对已执行的操作，再继续未完成的任务。原会话已保留，未自动重发请求。";
   if (error instanceof EngineIncompleteResponseError) return locale === "en"
     ? "The engine returned a placeholder instead of an answer; this turn is not confirmed complete. Prior tool effects may be unknown. Review the run before deciding whether to continue."
     : "引擎返回了占位内容，本轮未确认完成。已执行操作的结果可能仍不确定；请先查看运行过程，再决定是否继续。";
@@ -128,6 +131,7 @@ export function renderCoreUserFacingError(
     : "错误：无法启动引擎，找不到启动程序或工作目录。请检查主机的 CLI 安装、启动路径（PATH）和 Bot 工作目录后重试。";
   const isAntigravityAuth = category === "auth" && /(?:antigravity|\bagy\b)/i.test(errorText);
   const isClaudeAuth = category === "auth" && error instanceof Error && error.name === "ClaudeError";
+  const isKimiAuth = category === "auth" && error instanceof Error && /^Kimi Code authentication required(?:$|\n)/.test(error.message);
   const isKimiQuota = category === "engine-quota" && /(?:kimi|5-hour usage limit)/i.test(errorText);
   const quotaResetHint = category === "engine-quota" ? extractQuotaResetHint(error) : undefined;
   const isModelCapacity =
@@ -148,6 +152,7 @@ export function renderCoreUserFacingError(
   }
   if (locale === "en") {
     if (category === "auth") {
+      if (isKimiAuth) return "Error: Kimi Code sign-in is missing or expired. Run `kimi login` on the host running this Bot, then retry. Chat history is preserved.";
       if (isClaudeAuth) return "Error: Claude Code sign-in is missing or expired. Run `claude auth login` on the host running this Bot, then retry. Chat history is preserved.";
       if (isAntigravityAuth) {
         return "Error: Antigravity authentication could not be refreshed. Run `agy` locally to sign in, then retry.";
@@ -206,6 +211,7 @@ export function renderCoreUserFacingError(
   }
 
   if (category === "auth") {
+    if (isKimiAuth) return "错误：Kimi Code 尚未登录或登录已过期。请在运行此 Bot 的主机上执行 `kimi login`，完成登录后重试。聊天记录会保留。";
     if (isClaudeAuth) return "错误：Claude Code 尚未登录或登录已过期。请在运行此 Bot 的主机上执行 `claude auth login`，完成登录后重试。聊天记录会保留。";
     if (isAntigravityAuth) {
       return "错误：Antigravity 认证刷新失败。请先在本机运行 `agy` 完成登录，再重试。";

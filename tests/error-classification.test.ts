@@ -13,6 +13,14 @@ import { renderCategorizedErrorMessage } from "../src/runtime/message-renderer.j
 import { EngineCancellationUnconfirmedError, EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineStopTooLateError } from "../src/codex/adapter.js";
 
 describe("classifyFailure auth detection", () => {
+  it("keeps explicitly unfinished native turns non-retryable and distinguishes them from placeholders", () => {
+    const error = new EngineIncompleteResponseError("Antigravity print timeout", "interrupted");
+    expect(classifyFailure(error)).toBe("engine-incomplete");
+    expect(getBusErrorSemantics(classifyFailure(error)).retryable).toBe(false);
+    expect(renderCoreUserFacingError(error, "engine", "zh")).toContain("提前结束");
+    expect(renderCoreUserFacingError(error, "engine", "zh")).not.toContain("占位");
+    expect(renderCoreUserFacingError(error, "engine", "en")).toContain("not automatically replayed");
+  });
   it("gives host-local Claude login instructions without obsolete transport labels", () => {
     const error = claudeError("Failed to authenticate: OAuth session expired and could not be refreshed");
     expect(classifyFailure(error)).toBe("auth");

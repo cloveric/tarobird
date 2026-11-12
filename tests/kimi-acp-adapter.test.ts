@@ -2,6 +2,8 @@ import { setTimeout as realDelay } from "node:timers/promises";
 import { nativeRunProbe } from "./helpers/native-run.js";
 import { runEntryTitle, runDiff, runPlan } from "../client/src/run-presentation.js";
 import { summarizeRun } from "../src/core/run-record.js";
+import { renderCoreUserFacingError } from "../src/core/errors.js";
+import { classifyFailure } from "../src/runtime/error-classification.js";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, realpath, rm as fsRm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -144,6 +146,7 @@ class FakeAcpServer {
   autoCompleteCancel = true;
   respondToSessionList = true;
   sessionRequestErrorDetails: string | undefined;
+  sessionRequestError: { code: number; message: string } | undefined;
   listedSessions: Array<{
     sessionId: string;
     cwd: string;
@@ -358,6 +361,10 @@ class FakeAcpServer {
   }
 
   private rejectSessionRequest(request: JsonRpcMessage): boolean {
+    if (this.sessionRequestError && request.id !== undefined) {
+      this.send({ jsonrpc: "2.0", id: request.id, error: this.sessionRequestError });
+      return true;
+    }
     const details = this.sessionRequestErrorDetails;
     if (!details || request.id === undefined) {
       return false;
@@ -6079,6 +6086,33 @@ describe("KimiAcpAdapter", () => {
       files: [],
     })).rejects.toThrow("Internal error: provider auth config is invalid");
     adapter.destroy();
+  });
+
+  it.each(["tarobot-login-probe", "durable-session"])("explains native Kimi 2.5 terminal login on the Bot host (%s)", async session => {
+    const harness = createHarness(server => { server.sessionRequestError = { code: -32000, message: "Authentication required" }; });
+    const adapter = new KimiAcpAdapter("kimi", { ...adapterOptions(harness), mcpServers: [] });
+    try {
+      const error = await adapter.sendUserMessage(session, { text: "start", files: [] }).catch(error => error);
+      expect(error).toBeInstanceOf(Error);
+      expect(classifyFailure(error)).toBe("auth");
+      for (const locale of ["zh", "en"] as const) {
+        expect(renderCoreUserFacingError(error, "engine", locale)).toContain("kimi login");
+        expect(renderCoreUserFacingError(error, "engine", locale)).not.toMatch(/MCP|ACP|restart|重启/);
+      }
+      expect(harness.children).toHaveLength(1);
+      expect(harness.children[0].server.requests("authenticate")).toHaveLength(0);
+      expect(harness.children[0].server.requests("session/prompt")).toHaveLength(0);
+    } finally { await adapter.destroy(); }
+  });
+
+  it("keeps a Kimi quota error distinct from a native terminal-login request", async () => {
+    const harness = createHarness(server => { server.sessionRequestError = { code: -32000, message: "Authentication required: you've reached your 5-hour usage limit" }; });
+    const adapter = new KimiAcpAdapter("kimi", { ...adapterOptions(harness), mcpServers: [] });
+    try {
+      const error = await adapter.sendUserMessage("tarobot-quota-probe", { text: "start", files: [] }).catch(error => error);
+      expect(classifyFailure(error)).toBe("engine-quota");
+      expect(renderCoreUserFacingError(error, "engine", "zh")).not.toContain("kimi login");
+    } finally { await adapter.destroy(); }
   });
 
   it("lists and validates Kimi sessions through a short-lived ACP control connection", async () => {
