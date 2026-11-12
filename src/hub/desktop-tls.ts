@@ -12,7 +12,10 @@ const algorithm = { name: "ECDSA", namedCurve: "P-256", hash: "SHA-256" };
 const authoritySchema = z.object({ certificate: z.string(), privateKey: z.string() }).strict();
 const pem = (type: string, bytes: ArrayBuffer) => `-----BEGIN ${type}-----\n${Buffer.from(bytes).toString("base64").match(/.{1,64}/g)!.join("\n")}\n-----END ${type}-----\n`;
 export function desktopLanAddresses(): string[] {
-  return [...new Set(Object.values(networkInterfaces()).flat().filter((v) => v && !v.internal && v.family === "IPv4" && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(v.address)).map((v) => v!.address))].slice(0, 4);
+  // Discover every eligible interface before the owner chooses an address.
+  // Bridge/VPN entries can precede Wi-Fi; the client route limit must not hide
+  // later candidates from either desktop pairing or CLI --address selection.
+  return [...new Set(Object.values(networkInterfaces()).flat().filter((v) => v && !v.internal && v.family === "IPv4" && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(v.address)).map((v) => v!.address))];
 }
 export function desktopTailscaleAddresses(interfaces = networkInterfaces()): string[] {
   // CGNAT IPv4 alone can belong to an ISP or another VPN. macOS uses utun names,

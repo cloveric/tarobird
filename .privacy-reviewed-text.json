@@ -1220,6 +1220,58 @@
           "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
         }
       ]
+    },
+    {
+      "path": "client/e2e/fixtures/tailscale-pairing.tsx",
+      "sha256": "0a36551ead552a51e284a85d32b1224a61e869c785358342a77cb21931198595",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic Tailscale test address in isolated pairing fixtures; no deployed address or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/tailscale-pairing.spec.ts",
+      "sha256": "7a3db2a1c8f378321978ab63405a61a96b9d27b89176f94ec5c33e2fd9ee769b",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic Tailscale test address in isolated pairing fixtures; no deployed address or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/desktop-lan-addresses.test.ts",
+      "sha256": "d497053fdb97ead834b8affd2b5430fefb22cc57a0068edcaef51b804d006c98",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic Tailscale test address in isolated pairing fixtures; no deployed address or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "src/hub/desktop-tls.ts",
+      "sha256": "2a66903e3a14e3fda955afe1987883bc8e76737594e17b89267a6e9537778012",
+      "reviewer": "codex",
+      "note": "Reviewed unchanged TLS server-authentication OID fragments; these numeric matches are not IP addresses.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "375add07a88ef6685c09ba16a0aab02f0cac2c271d1a041914ee57975e29c5fd"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "9b0632e21f383c31605a18b1f6a731b78208df822413c7c90eeb838d48c1e71b"
+        }
+      ]
     }
   ]
 }

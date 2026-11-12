@@ -7,7 +7,7 @@ import { desktopTls } from "../../src/hub/desktop-tls.js";
 import { parsePairingLink } from "../src/pairing-link.js";
 import { createServer } from "./fixtures/vite.js";
 
-declare global { interface Window { tailscaleFixture: { state: { calls: string[]; fail: boolean; wrongHost: boolean; certificateAuthority: string; hold?: () => void }; render(): void; decode(): Promise<string>; setLocale(locale: "zh" | "en"): void } } }
+declare global { interface Window { tailscaleFixture: { state: { calls: string[]; lanAddresses: string[]; fail: boolean; wrongHost: boolean; certificateAuthority: string; hold?: () => void }; render(): void; decode(): Promise<string>; setLocale(locale: "zh" | "en"): void } } }
 let server: ViteDevServer, directory: string, certificateAuthority: string;
 test.beforeAll(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), "tailscale-invite-"));
@@ -45,6 +45,21 @@ test("explicit Tailscale choice creates a decodable, scoped HTTPS invite and exp
     await expect(page.locator(".pair-qr")).toBeInViewport();
     expect(await page.locator(".desktop-host-invite").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   }
+});
+
+test("a later Wi-Fi candidate remains selectable without putting all interfaces in a legacy QR", async ({ page }) => {
+  await page.evaluate(() => { window.tailscaleFixture.state.lanAddresses = ["192.168.50.2", "172.16.10.1", "172.16.11.1", "10.10.10.2", "192.168.10.20"]; });
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  const selector = page.getByRole("combobox", { name: /^选择电脑所在网络/ });
+  await expect(selector.locator("option")).toHaveCount(5);
+  await selector.selectOption({ label: "192.168.10.20" });
+  await expect(page.getByLabel("连接地址", { exact: true })).toHaveValue("https://192.168.10.20:8788");
+  await expect.poll(async () => parsePairingLink(await page.evaluate(() => window.tailscaleFixture.decode()))).toMatchObject({
+    kind: "connect", routes: [{ name: "Direct", url: "https://192.168.10.20:8788", certificateAuthority }],
+  });
+  const payload = parsePairingLink(await page.evaluate(() => window.tailscaleFixture.decode()));
+  expect(payload.kind === "connect" && payload.routes.length).toBe(1);
+  expect(await page.evaluate(() => window.tailscaleFixture.state.calls)).toEqual(["status", "network"]);
 });
 
 test("missing VPN can retry, a refresh never leaves a stale QR, and a different host is never configured", async ({ page }) => {

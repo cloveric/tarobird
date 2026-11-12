@@ -4116,6 +4116,13 @@ unavailable interfaces do not block local startup. Native setup and headless
 CLI pairing share this path. Regressions: `desktop-host`, `desktop-tailscale`,
 `hub-host-routes`; see [1.0.117 verification](releases/1.0.117-verification.md).
 
+`desktop-tls.ts` retains all eligible LAN IPv4 candidates rather than truncating
+before a later Wi-Fi interface. Desktop selection and CLI `pair --lan --address`
+share that list; the selected QR remains a single direct route. Regressions:
+`desktop-lan-addresses`, `desktop-host`, `desktop-tailscale`, `hub-host-routes`,
+`host-cli-management`, `tailscale-review-regressions` and Chromium
+`tailscale-pairing`. See [scope and evidence](client/lan-interface-discovery-2026-11-12.md).
+
 ### 2026-10-21 Host route refresh and self-route sync
 
 `src/hub/host-routes.ts` observes bound desktop-managed listeners after each

@@ -25,7 +25,7 @@ const invites = inviteApiFixture();
 const inviteConnection = { identity: { deviceId: "tailscale-fixture", hubPublicKey: key },
   state: { status: "online", user: { role: "owner" }, pairingInvitesAvailable: true, networkAvailable: false },
   subscribe: () => () => {}, http: invites.http } as unknown as HubConnection;
-const state = { calls: [] as string[], fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
+const state = { calls: [] as string[], lanAddresses: ["192.168.10.20"], fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
 mockIPC(async (command, args) => {
   if (command !== "desktop_host") throw Error("unexpected_command");
   const action = String(args?.action); state.calls.push(action);
@@ -33,7 +33,8 @@ mockIPC(async (command, args) => {
   if (state.hold) await new Promise<void>(resolve => { state.hold = resolve; });
   if (state.fail) throw Error("desktop_host_operation_failed");
   state.local[action === "tailscale" ? "tailscale" : "lan"] = { enabled: true, listening: true };
-  return { running: true, publicKey: key, routes: [{ name: action === "tailscale" ? "Tailscale" : "Direct", url: action === "tailscale" ? "https://100.101.102.103:8788" : "https://192.168.10.20:8788", certificateAuthority: state.certificateAuthority }] };
+  const addresses = action === "tailscale" ? ["100.101.102.103"] : state.lanAddresses;
+  return { running: true, publicKey: key, routes: addresses.map(address => ({ name: action === "tailscale" ? "Tailscale" : "Direct", url: `https://${address}:8788`, certificateAuthority: state.certificateAuthority })) };
 });
 const render = () => root.render(<FlowDialog title="添加设备" close={() => root.render(null)} className="pairing-wizard"><div className="settings-invite"><DesktopHostInvite hubKey={key} connection={inviteConnection}/></div></FlowDialog>);
 const shared: Route[] = [{ name: "Tailscale", url: "https://100.101.102.103:8788" }];
