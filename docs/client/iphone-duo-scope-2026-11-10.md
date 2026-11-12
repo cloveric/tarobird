@@ -109,3 +109,32 @@ UIKit, WKWebView, installed-App and physical iPad/Duo acceptance remain separate
 Ordinary phone keyboard and board-containment regressions run alongside it.
 This is client layout behavior: Host/CLI/protocols, dependencies, device limits,
 saved layouts and native keyboard animation timing are unchanged.
+
+## Explicit expanded-phone keyboard dismissal (2026-11-12)
+
+The native Keyboard plugin hides WebKit's input accessory bar by default. An
+expanded iPhone keyboard may have no dismissal key of its own, leaving only
+chat-tap dismissal, which deliberately excludes selection and interactive
+controls. A report of intermittent failure to dismiss by tapping is not yet a
+reproduced physical-device failure of that gesture.
+
+`ios-keyboard-accessory.ts`, installed by `MobileViewport`, restores the system
+accessory bar (including its localized Done control) only in the existing
+expanded-iPhone window scope. It restores the hidden policy on folding or
+teardown. Ordinary/cover iPhones, iPads, Android and desktop retain their
+existing policy. It does not change keyboard animation, viewport geometry,
+message delivery or drafts; no native dependency is upgraded. The Host/CLI has
+no input accessory bar and needs no command change.
+
+Native calls are serialized and the desired window state is rechecked after
+module loading. Folding or unmounting during loading cannot enable a stale bar;
+an in-flight Show is followed by Hide when required. A rejected native call is
+reported without unhandled rejections or a retry on every same-scope resize.
+
+Focused checks cover compact/landscape phones, iPad/Android exclusion, rotation,
+folding, teardown during loading/native calls, failure handling and the existing
+touch-dismissal/safe-area behavior. Native component probes use the production
+Capacitor shell and real system keyboard with synthetic content and window-policy
+metrics. They do not certify physical folding, the friend's third-party keyboard
+or the complete installed App. The intermittent chat-tap report remains open
+for device confirmation; this change supplies an explicit dismissal route.
