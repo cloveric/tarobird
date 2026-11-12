@@ -70,6 +70,7 @@ final class TaroBotKeyboardInsets: NSObject, WKScriptMessageHandler {
     private var ready = false
     private var layoutPending = false
     private static let readyMessage = "tarobotKeyboardReady"
+    private static let accessoryMessage = "tarobirdKeyboardAccessoryRefresh"
 
     init(view: UIView, webView: WKWebView) {
         self.view = view
@@ -78,8 +79,9 @@ final class TaroBotKeyboardInsets: NSObject, WKScriptMessageHandler {
 
         let controller = webView.configuration.userContentController
         controller.add(self, name: Self.readyMessage)
+        controller.add(self, name: Self.accessoryMessage)
         controller.addUserScript(WKUserScript(source: """
-            Object.defineProperty(window,'tarobotKeyboardInsets',{value:Object.freeze({supported:()=>true}),configurable:false,writable:false});
+            Object.defineProperty(window,'tarobotKeyboardInsets',{value:Object.freeze({supported:()=>true,refreshAccessory:()=>window.webkit.messageHandlers.tarobirdKeyboardAccessoryRefresh.postMessage(null)}),configurable:false,writable:false});
             window.webkit.messageHandlers.tarobotKeyboardReady.postMessage(null);
             """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
@@ -133,7 +135,21 @@ final class TaroBotKeyboardInsets: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == Self.readyMessage, message.frameInfo.isMainFrame, message.webView === webView else { return }
+        guard message.frameInfo.isMainFrame, message.webView === webView else { return }
+        if message.name == Self.accessoryMessage {
+            guard let webView, view?.traitCollection.userInterfaceIdiom == .phone else { return }
+            // UIKit caches the current responder's accessory view. The public
+            // reload API updates it in place without resigning the responder
+            // or writing to the field.
+            func refresh(_ node: UIView) -> Bool {
+                if node.isFirstResponder { node.reloadInputViews(); return true }
+                for child in node.subviews { if refresh(child) { return true } }
+                return false
+            }
+            _ = refresh(webView)
+            return
+        }
+        guard message.name == Self.readyMessage else { return }
         ready = true
         // Navigation creates a fresh JS world. A still-open keyboard needs a
         // fresh snapshot even though its native geometry has not changed.

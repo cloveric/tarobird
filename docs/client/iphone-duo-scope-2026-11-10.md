@@ -131,6 +131,34 @@ module loading. Folding or unmounting during loading cannot enable a stale bar;
 an in-flight Show is followed by Hide when required. A rejected native call is
 reported without unhandled rejections or a retry on every same-scope resize.
 
+The follow-up review found two lifecycle omissions. An already-open keyboard
+does not re-read the accessory view when the plugin changes its visibility
+policy. After the final successful policy call, the optional native
+`tarobotKeyboardInsets.refreshAccessory()` bridge refreshes the WebView's current
+first responder with `reloadInputViews()`. It accepts only this WebView's main
+frame and phone idiom; it does not blur/refocus or rewrite the input. Older
+native shells without this bridge safely skip the refresh.
+Their policy still changes, but an already-open accessory bar may keep its
+previous appearance until the next keyboard presentation.
+
+Native plugin state also survives a document reload. Each new iPhone document
+therefore applies its current policy once, including Hide on compact phones,
+rather than assuming that native state was reset. Ordinary/cover iPhones keep
+the hidden default; iPads and non-iOS entry points remain excluded. No storage
+marker, native private-field access or dependency change is needed.
+
+The production loader must return a plain method adapter, not the Capacitor
+plugin proxy itself: its synthesized `then` property is mistaken for a Promise
+and invokes an unsupported native method instead of settling the load. A proxy
+regression covers this boundary, and native component probes now use the real
+production loader and plugin proxy rather than a direct native-call fixture.
+
+Native component regressions reproduced both omissions before their respective
+fixes. They now cover live Show/Hide with the keyboard remaining open, selection
+and draft preservation, Done dismissal and a reload into compact policy. Window
+policy metrics are synthetic; these checks do not validate physical folding,
+third-party keyboards or composition text during a fold.
+
 Focused checks cover compact/landscape phones, iPad/Android exclusion, rotation,
 folding, teardown during loading/native calls, failure handling and the existing
 touch-dismissal/safe-area behavior. Native component probes use the production

@@ -3944,8 +3944,14 @@ input. Ordinary/folded iPhones and iPads retain their previous keyboard behavior
 scrolling, selection, long presses and interactive controls remain unchanged.
 `ios-keyboard-accessory.ts` restores the native Done bar only in expanded iPhone
 windows and restores the default on folding/teardown. Its serialized lifecycle
-is covered by `ios-keyboard-accessory.test.ts`; native component probes are
-distinct from physical folding or installed-App acceptance.
+also reconciles retained native state on every iPhone document load. A plain
+method adapter loads the Capacitor proxy without Promise assimilation. After a
+successful current policy call, the optional main-frame native
+`tarobotKeyboardInsets.refreshAccessory()` refreshes the existing input view
+without a blur/refocus cycle; older shells skip this bridge. Coverage is in
+`ios-keyboard-accessory.test.ts`; native component probes cover live policy
+changes and document reloads, separately from physical folding or installed-App
+acceptance.
 Regression: browser `ios-keyboard-dismiss`; pure Swift geometry is not an
 installed-device keyboard receipt. These are App presentation changes; the
 headless CLI has no keyboard or viewport.

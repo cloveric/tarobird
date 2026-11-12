@@ -13,7 +13,43 @@ const settled = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; };
 
 describe('expanded iPhone native keyboard dismissal bar', () => {
-  it.each([[390, 844, 'iPhone'], [844, 390, 'iPhone'], [466, 678, 'iPhone'], [678, 466, 'iPhone'], [1024, 768, 'iPad'], [951, 669, 'Android']])(
+  it('restores compact policy after a document reload retains the native Show state', async () => {
+    let nativeVisible = false;
+    const setAccessoryBarVisible = vi.fn(async ({ isVisible }: { isVisible: boolean }) => { nativeVisible = isVisible; });
+    const load = async () => ({ setAccessoryBarVisible });
+    installExpandedIphoneKeyboardBar(windowFixture(), load);
+    await settled(); expect(nativeVisible).toBe(true);
+    // A full page reload destroys the old JS world without React cleanup.
+    const stop = installExpandedIphoneKeyboardBar(windowFixture(466, 678), load);
+    await settled(); expect(nativeVisible).toBe(false);
+    expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: true }], [{ isVisible: false }]]);
+    stop();
+  });
+
+  it('refreshes the existing native input view only after the current policy has applied', async () => {
+    const win = windowFixture(), gate = deferred(), refreshAccessory = vi.fn();
+    Object.assign(win, { tarobotKeyboardInsets: { refreshAccessory } });
+    const setAccessoryBarVisible = vi.fn(async ({ isVisible }: { isVisible: boolean }) => { if (isVisible) await gate.promise; });
+    const stop = installExpandedIphoneKeyboardBar(win, async () => ({ setAccessoryBarVisible }));
+    await settled(); expect(refreshAccessory).not.toHaveBeenCalled();
+    resize(win, 466, 678); gate.resolve(); await settled();
+    expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: true }], [{ isVisible: false }]]);
+    expect(refreshAccessory).toHaveBeenCalledTimes(1); // Only the final Hide.
+    resize(win, 951, 669); await settled();
+    expect(refreshAccessory).toHaveBeenCalledTimes(2);
+    stop(); await settled(); expect(refreshAccessory).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([[390, 844], [844, 390], [466, 678], [678, 466]])(
+    'keeps the compact default hidden at %s x %s without repeating on resize', async (width, height) => {
+      const win = windowFixture(width, height), setAccessoryBarVisible = vi.fn(async () => {});
+      const stop = installExpandedIphoneKeyboardBar(win, async () => ({ setAccessoryBarVisible }));
+      await settled(); resize(win, height, width); await settled(); stop(); await settled();
+      expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: false }]]);
+    },
+  );
+
+  it.each([[1024, 768, 'iPad'], [951, 669, 'Android']])(
     'leaves the existing policy untouched for %s x %s %s', async (width, height, ua) => {
       const load = vi.fn();
       const stop = installExpandedIphoneKeyboardBar(windowFixture(width, height, ua), load);
@@ -22,7 +58,7 @@ describe('expanded iPhone native keyboard dismissal bar', () => {
     },
   );
 
-  it('shows only on expansion, restores on folding and removes its listener', async () => {
+  it('coalesces expansion during initial loading, restores on folding and removes its listener', async () => {
     const win = windowFixture(466, 678), setAccessoryBarVisible = vi.fn(async () => {});
     const load = vi.fn(async () => ({ setAccessoryBarVisible }));
     const stop = installExpandedIphoneKeyboardBar(win, load);
@@ -40,7 +76,7 @@ describe('expanded iPhone native keyboard dismissal bar', () => {
     const stop = installExpandedIphoneKeyboardBar(win, async () => { await gate.promise; return { setAccessoryBarVisible }; });
     if (action === 'fold') resize(win, 466, 678); else stop();
     gate.resolve(); await settled();
-    expect(setAccessoryBarVisible).not.toHaveBeenCalled(); stop();
+    expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: false }]]); stop();
   });
 
   it.each(['fold', 'dispose'])('serializes restoration after %s during a native Show request', async action => {
@@ -54,7 +90,7 @@ describe('expanded iPhone native keyboard dismissal bar', () => {
     expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: true }], [{ isVisible: false }]]); stop();
   });
 
-  it('reports a native failure once and still restores the default after folding', async () => {
+  it('reports a native failure once and requests default restoration after folding', async () => {
     const win = windowFixture(), report = vi.fn();
     const setAccessoryBarVisible = vi.fn(async () => { throw new Error('unavailable'); });
     const stop = installExpandedIphoneKeyboardBar(win, async () => ({ setAccessoryBarVisible }), report);
