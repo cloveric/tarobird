@@ -1301,7 +1301,12 @@ and the existing network/run/delete suites listed in that audit.
   iPhone boards cap selection and legacy restore at two panes; iPad/desktop keep
   twelve. `viewport.css` and `ios-adaptive.css` size only the outer chat/ADHD
   shell, never nested `conversation-pane` shells. Browser `adhd-ios-phone` covers
-  native overlay containment, keyboard geometry, capacity and retained drafts;
+  native overlay containment, capacity and retained drafts. `viewport.ts` reveals
+  the entire active iOS ADHD composer inside its grid when the keyboard opens,
+  focus moves or the window resizes; single-chat/non-iOS exclusions remain.
+  `ios-adaptive.css` owns the card input-size floor and outer toolbar top inset.
+  Browser `adhd-keyboard` exercises the actual viewport controller with native-
+  shaped events, lower rows, split resize, tall keyboards and input/Send hit tests;
   see [Duo/iPad pane repair](client/iphone-duo-scope-2026-11-10.md#adhd-pane-containment-and-device-limit-2026-11-12).
   `HostRegistry`
   commits legacy layout and display records atomically. `connection.ts` supplies command subscribers

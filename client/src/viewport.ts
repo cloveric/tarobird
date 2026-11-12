@@ -84,7 +84,7 @@ export function installAppViewport(win: Window, doc: Document, nativeOverlay: Ke
     const resized = win.innerWidth !== width || win.innerHeight !== height;
     // A split-view/window resize can keep the same IME height. The inner
     // form still shrinks or wraps, without another keyboard/focus event.
-    // Recheck only native keyboard resizes; reveal ignores the chat composer
+    // Recheck only native keyboard resizes; reveal ignores the single-chat composer
     // and writes nothing when the active field already fits.
     if (motion && nativeKeyboard && resized) revealPending = true;
     width = win.innerWidth; height = win.innerHeight;
@@ -118,21 +118,25 @@ export function installAppViewport(win: Window, doc: Document, nativeOverlay: Ke
   // inner containers; moving the document would reintroduce the header/composer
   // jump this controller prevents. A sheet that still moves with the keyboard
   // grows its scroll range each frame, so follow it while the field is outside
-  // the final band. The chat composer rides on the shell and is never measured.
+  // the final band. A single-chat composer rides on the shell. An iOS ADHD
+  // composer instead rides on a card in a scrollable grid: reveal the whole
+  // input area so its Send button follows the field above the keyboard too.
   const reveal = (value: { top: number; height: number }) => {
     revealFrame = 0;
     const field = doc.activeElement;
-    if (stopped || !nativeKeyboard || !field?.matches(textField) || field.closest('.composer-wrap')) return;
+    const paneComposer = root.getAttribute('data-platform') === 'ios' ? field?.closest('.adhd-card .composer-wrap') : null;
+    if (stopped || !nativeKeyboard || !field?.matches(textField) || (field.closest('.composer-wrap') && !paneComposer)) return;
+    const subject = paneComposer ?? field;
     const top = value.top + 8, bottom = value.top + value.height - 8;
-    for (let parent = field.parentElement; parent && parent !== doc.body && parent !== root; parent = parent.parentElement) {
+    for (let parent = subject.parentElement; parent && parent !== doc.body && parent !== root; parent = parent.parentElement) {
       if (parent.scrollHeight <= parent.clientHeight || !/^(auto|scroll)$/.test(win.getComputedStyle(parent).overflowY)) continue;
-      const box = parent.getBoundingClientRect(), target = field.getBoundingClientRect();
+      const box = parent.getBoundingClientRect(), target = subject.getBoundingClientRect();
       const upper = Math.max(box.top + 8, top), lower = Math.min(box.bottom - 8, bottom);
       if (lower <= upper) continue;
       const delta = target.top < upper ? target.top - upper : target.bottom > lower ? Math.min(target.top - upper, target.bottom - lower) : 0;
       if (delta) parent.scrollTop += delta;
     }
-    const rect = field.getBoundingClientRect();
+    const rect = subject.getBoundingClientRect();
     if (motionTimer !== undefined && (rect.top < top || rect.bottom > bottom)) revealFrame = win.requestAnimationFrame(() => reveal(value));
   };
   const schedule = () => { if (!stopped && !frame) frame = win.requestAnimationFrame(update); };

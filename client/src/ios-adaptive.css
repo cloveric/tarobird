@@ -91,6 +91,11 @@
 :root[data-platform=ios] .workbench :is(.workbench-tabs, .workbench-tab-actions, .workbench-tab-strip) > button {
   min-height: 44px; min-width: 44px;
 }
+/* ADHD's saved reading size must not override the iOS input-size floor.
+   Only the outer toolbar touches the top edge; reserve that inset once,
+   for touch and pointing devices alike, without padding each nested card. */
+:root[data-platform=ios] .adhd-card .composer textarea { font-size: max(16px, var(--font-size)); }
+:root[data-platform=ios] .adhd-toolbar { padding-top: calc(8px + var(--app-safe-top)); }
 /* A pointing device does not turn an iOS window into a desktop WebView. The
    native overlay still needs keyboard avoidance when touch media queries stop
    matching. Keep this complement limited to that otherwise uncovered case. */

@@ -70,12 +70,42 @@ selection as usual. Conversation and draft stores are untouched, and the other
 conversations remain selectable after removing a pane. iPad and desktop retain
 the existing twelve-pane limit. Ordinary phone eligibility is unchanged.
 
-`adhd-ios-phone` now exercises native overlay CSS as well as platform eligibility,
-checks headers/messages/composers and hit targets inside cards, and covers iPad
-portrait/landscape/split windows, touch/pointer input, keyboard open/close,
-Duo capacity, legacy layout restoration, retained drafts and folding during an
-upload. The earlier browser fixture only changed board platform checks, missing
+`adhd-ios-phone` exercises native overlay CSS as well as platform eligibility,
+checks headers/message text/composers and hit targets inside cards, and covers
+iPad portrait/landscape/split windows, touch/pointer input, Duo capacity,
+legacy layout restoration, retained drafts and folding during an upload.
+Its keyboard open/close check uses manually set overlay attributes with two
+panes in one row; it does not exercise the viewport controller's focus reveal.
+The earlier browser fixture only changed board platform checks, missing
 the native overlay CSS responsible for the blank cards. `adhd-board-state`
 covers non-mutating restoration and unchanged iPad/desktop limits. These are
 browser and source checks, not a physical iPad/Duo or installed-App receipt.
 No Host protocol, CLI command, dependency or native keyboard timing changes.
+
+### ADHD keyboard follow-up (2026-11-12)
+
+The containment repair exposed a missing keyboard-reveal path: a single-chat
+composer follows its outer shell, but an ADHD composer belongs to a card in a
+scrollable grid with a minimum row height. Shrinking the shell can leave a
+lower-row composer, or a Duo composer under a taller keyboard, below the visible
+area. `viewport.ts` now reveals the entire active composer (including Send)
+only for iOS ADHD cards. It scrolls inner containers, never the document or the
+message history. Existing single-chat and non-iOS composer exclusions remain.
+Focus changes with the keyboard already open and window resizes use the same
+path. Repeated unchanged keyboard reports do not reset an intentional scroll.
+
+The iOS-only card input rule now preserves the existing 16px input-size floor
+without changing the saved message reading size. The outer ADHD toolbar
+consumes the top safe-area inset once, for touch and pointer input alike.
+These correct measurable CSS contract gaps; browser checks alone do not prove
+that a particular WKWebView had focus zoom or native status-bar overlap.
+
+`adhd-keyboard` selects the real `MobileViewport` controller in an isolated Vite
+fixture and delivers native-shaped keyboard events to it. It covers iPad
+lower-row input, touch/pointer focus changes, split resize with the keyboard
+open, a taller Duo keyboard, preserved drafts, visible/hittable input and Send,
+the input-size floor and top safe area. The native event bridge is a fixture;
+UIKit, WKWebView, installed-App and physical iPad/Duo acceptance remain separate.
+Ordinary phone keyboard and board-containment regressions run alongside it.
+This is client layout behavior: Host/CLI/protocols, dependencies, device limits,
+saved layouts and native keyboard animation timing are unchanged.

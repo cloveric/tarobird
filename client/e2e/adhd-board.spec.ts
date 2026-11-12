@@ -794,7 +794,10 @@ test("ADHD composer actions keep equal sizes and a right anchor across draft and
     const empty = pane(page, chats[0]!.id), drafted = pane(page, chats[1]!.id), busy = pane(page, chats[2]!.id);
     await drafted.locator(".composer textarea").fill("这个草稿保留在自己的窗口");
     await expect(drafted.locator(".draft-save-status")).toHaveText("草稿已保存");
-    await expect(busy.locator(".composer-steer")).toBeVisible();
+    // Codex now exposes steering in the shared send-choice control; the
+    // toolbar-only steer button is intentionally absent on this path.
+    await expect(busy.getByRole("radio", { name: "补充", exact: true })).toBeEnabled();
+    await expect(busy.getByRole("radio", { name: "排队", exact: true })).toBeChecked();
     const check = async (card: ReturnType<typeof pane>, state: string) => {
       const metrics = await card.locator(".composer-toolbar").evaluate(toolbar => {
         const bounds = toolbar.getBoundingClientRect(), send = toolbar.querySelector(".send-button")!.getBoundingClientRect();

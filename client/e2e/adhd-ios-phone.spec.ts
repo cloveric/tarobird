@@ -45,11 +45,11 @@ async function assertPaneContent(page: Page) {
     await expect(input).toBeVisible();
     const geometry = await card.evaluate(node => {
       const outer = node.getBoundingClientRect();
-      return [".conversation-header", ".composer textarea"].map(selector => {
+      return [".conversation-header", ".message-scroll .markdown", ".composer textarea"].map(selector => {
         const child = node.querySelector(selector)!;
         const rect = child.getBoundingClientRect();
         const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-        return { inside: rect.left >= outer.left && rect.right <= outer.right && rect.top >= outer.top && rect.bottom <= outer.bottom,
+        return { inside: rect.width > 0 && rect.height > 0 && rect.left >= outer.left && rect.right <= outer.right && rect.top >= outer.top && rect.bottom <= outer.bottom,
           reachable: !!hit && child.contains(hit) };
       });
     });
