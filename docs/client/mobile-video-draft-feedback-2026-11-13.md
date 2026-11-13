@@ -17,8 +17,10 @@ reveal Retry. The composer still contains that scroll; it does not pass it to
 the message list or page. A real wheel regression covers this handoff because
 programmatic `scrollIntoView` alone would bypass the nested-scroll trap.
 
-The capacity notice now explains that the draft is not saved offline and asks
-the user to keep the page open, send it, or remove attachments and retry. The
+The capacity notice says that the draft was not saved automatically and asks
+the user to keep the page open, send it, or remove attachments and retry. Both
+Chinese and English label the expandable explanation as local draft limits;
+a local save failure does not imply a lost network connection. The
 32-file / 64 MiB conversation limit and 128 MiB per-Host local limit remain
 available in an expandable explanation. No storage limit, upload admission,
 identity check, draft revision, send receipt or persistence behavior changes.
@@ -40,6 +42,11 @@ Verification on 2026-11-13:
   budget, failed initial reads and late send receipts. Three group-composer
   checks passed for quota recovery, temporary writes and conflicting drafts.
 - Host/client builds, client type checking and translation validation passed.
+
+The wording follow-up reran all eight quota cases in Chromium and the client
+build (including type and translation checks). The English 360 px notice was
+also visually inspected: it wraps without horizontal overflow, and preview,
+removal and Retry remain reachable. The follow-up changes display text only.
 
 The viewport and keyboard signals are simulated in Chromium. WebKit, native
 pickers and physical iPhone/Android acceptance remain unverified. This source

@@ -1943,7 +1943,7 @@ test("ordinary ADHD entry never replays an old or cancelled Bus navigation inten
   };
   const addUnsavedAttachments = async () => {
     await page.locator('input[type="file"][multiple]').setInputFiles(Array.from({ length: 33 }, (_, index) => ({ name: `draft-${index}.txt`, mimeType: "text/plain", buffer: Buffer.from(`local draft ${index}`) })));
-    await expect(page.getByText("草稿离线保存空间不足", { exact: false })).toBeVisible();
+    await expect(page.getByText("草稿未自动保存", { exact: false })).toBeVisible();
   };
   try {
     await page.getByRole("button", { name: "打开 Bus：产品评审", exact: true }).click();

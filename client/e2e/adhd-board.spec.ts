@@ -1401,7 +1401,7 @@ test("failed draft save offers keep-editing or explicit discard instead of locki
     await page.goto(hub.url); await pair(page, hub, "Mac mini"); await page.getByRole("button", { name: "打开 ADHD 模式", exact: true }).click(); await page.getByRole("checkbox", { name: "加入面板：Mac mini · 未保存草稿", exact: true }).check();
     const a = pane(page, chat.id);
     await a.locator('input[type="file"]').setInputFiles(Array.from({ length: 33 }, (_, i) => ({ name: `f${i}.txt`, mimeType: "text/plain", buffer: Buffer.from(`file ${i}`) })));
-    await expect(a.getByText("草稿离线保存空间不足", { exact: false })).toBeVisible(); await expect(a.getByRole("button", { name: "移除此面板", exact: true })).toBeEnabled();
+    await expect(a.getByText("草稿未自动保存", { exact: false })).toBeVisible(); await expect(a.getByRole("button", { name: "移除此面板", exact: true })).toBeEnabled();
     await a.getByRole("button", { name: "移除此面板", exact: true }).click(); const confirmation = page.getByRole("dialog", { name: "有草稿尚未保存", exact: true }); await expect(confirmation).toBeVisible();
     await confirmation.getByRole("button", { name: "继续编辑", exact: true }).click(); await expect(a.getByText("f32.txt", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "返回聊天", exact: true }).click(); await expect(confirmation).toBeVisible(); await confirmation.getByRole("button", { name: "继续编辑", exact: true }).click();
@@ -1518,7 +1518,7 @@ test("a failed draft in a previous normal chat requires explicit discard before 
     const a = await hub.store.createConversation("owner", ["alpha"], "未保存的附件", "a"), b = await hub.store.createConversation("owner", ["alpha"], "其他对话", "b");
     await page.goto(hub.url); await pair(page, hub, "Mac mini"); await page.locator(`.sidebar [data-conversation-id="${a.id}"]`).click();
     await page.locator('input[type="file"][multiple]').setInputFiles(Array.from({ length: 33 }, (_, i) => ({ name: `f${i}.txt`, mimeType: "text/plain", buffer: Buffer.from(`file ${i}`) })));
-    await expect(page.getByText("草稿离线保存空间不足", { exact: false })).toBeVisible();
+    await expect(page.getByText("草稿未自动保存", { exact: false })).toBeVisible();
     await page.locator(`.sidebar [data-conversation-id="${b.id}"]`).click();
     await page.getByRole("button", { name: "打开 ADHD 模式", exact: true }).click(); const dialog = page.getByRole("dialog", { name: "有草稿尚未保存", exact: true });
     await expect(dialog).toContainText("Mac mini"); await dialog.getByRole("button", { name: "继续编辑", exact: true }).click();

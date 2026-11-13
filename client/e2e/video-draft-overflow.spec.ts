@@ -72,7 +72,10 @@ for (const variant of variants) test(`oversized video draft keeps preview and re
     await attachVideos(page, (await readFile("e2e/fixtures/media/clip.mp4")).toString("base64"));
     const composer = page.locator(".host-workspace:not([hidden]) .composer"), tray = composer.getByRole("region", { name: label("待发送的附件"), exact: true });
     await expect(tray.getByRole("listitem")).toHaveCount(2);
-    await expect(composer.getByRole("alert")).toContainText(english ? "Draft not saved offline" : "草稿离线保存空间不足");
+    await expect(composer.getByRole("alert")).toContainText(english ? "Draft not saved automatically" : "草稿未自动保存");
+    await expect(composer.getByRole("alert")).not.toContainText(/离线|offline/i);
+    await expect(composer.locator(".draft-save-limits>summary")).toHaveText(label("本地草稿保存上限"));
+    await expect.poll(() => composer.getByRole("alert").evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1);
     await expect(composer.getByRole("button", { name: label("发送消息"), exact: true })).toBeEnabled();
     await page.screenshot({ path: info.outputPath(`quota-${variant.name}.png`) });
     const open = tray.getByRole("button", { name: label("预览 {0}").replace("{0}", "screen-one.mp4"), exact: true });

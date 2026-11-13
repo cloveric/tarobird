@@ -1054,7 +1054,7 @@ for (const fault of ['attachment-quota', 'temporary-text-write'] as const) test(
     const box = page.getByLabel('消息', { exact: true });
     if (fault === 'attachment-quota') {
       await page.locator('input[type=file][multiple]').setInputFiles({ name: 'legal-upload.txt', mimeType: 'text/plain', buffer: Buffer.from('VALID_HUB_UPLOAD') });
-      await expect(page.getByText('草稿离线保存空间不足：', { exact: false })).toBeVisible();
+      await expect(page.getByText('草稿未自动保存，', { exact: false })).toBeVisible();
       await box.fill('本机满了仍然发送');
     } else {
       await box.fill('恢复存储后发送');
