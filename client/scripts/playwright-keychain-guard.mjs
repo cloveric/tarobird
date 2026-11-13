@@ -1,25 +1,26 @@
-/** Test-harness policy only. Temporary browser profiles do not isolate the
+/** Test-harness reminder only. Temporary browser profiles do not isolate the
  * macOS login keychain used by WebKit to serialize CryptoKeys. */
-export function assertWebKitTestEnvironment(browserName, {
-  platform = process.platform, env = process.env,
+export function warnWebKitTestEnvironment(browserName, {
+  platform = process.platform, warn = console.warn,
 } = {}) {
   if (platform !== "darwin" || browserName !== "webkit") return;
-  if (env.TAROBIRD_TEST_DISPOSABLE_MAC === "1" &&
-      env.GITHUB_ACTIONS === "true" && env.RUNNER_ENVIRONMENT === "github-hosted") return;
-  throw new Error(
-    "WebKit tests are blocked on a personal Mac before launching the browser: " +
-    "persisting CryptoKeys may open repeated Playwright WebCrypto Master Key prompts. " +
-    "Run Chromium locally or use the hosted macOS test workflow. " +
-    "Only on that GitHub-hosted runner, set TAROBIRD_TEST_DISPOSABLE_MAC=1. " +
-    "Do not grant, delete or reset the owner's keychain to run tests. " +
+  warn(
+    "WebKit tests are allowed on this Mac. Reminder: persisting CryptoKeys " +
+    "may open Playwright WebCrypto Master Key permission prompts. " +
+    "A temporary browser profile does not isolate the login keychain. " +
+    "This reminder does not block the run or change keychain permissions. " +
     "See docs/client/playwright-keychain-isolation.md.",
   );
 }
 
+// Retain the existing import for standalone probes; it now only warns.
+export const assertWebKitTestEnvironment = warnWebKitTestEnvironment;
+
 // The resolved config also includes projects created by --browser webkit/all.
-// Keep browser selection in project configuration, never in spec-level use().
-export default function guardBrowserTests(config) {
-  for (const project of config.projects) {
-    assertWebKitTestEnvironment(project.use.browserName ?? project.use.defaultBrowserType ?? "chromium");
+// Warn once for a mixed run; Chromium/Firefox-only runs remain quiet.
+export default function remindBrowserTests(config) {
+  if (config.projects.some(project =>
+    (project.use.browserName ?? project.use.defaultBrowserType ?? "chromium") === "webkit")) {
+    warnWebKitTestEnvironment("webkit");
   }
 }

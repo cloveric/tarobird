@@ -102,17 +102,6 @@ when required for an atomic App replacement; retire it after verified installati
 When relocating existing task files, preserve uncommitted work, check active
 processes, verify copied bytes and links, and retain path compatibility where needed.
 
-## Browser automation on macOS
-
-Do not run Playwright WebKit on the owner's everyday macOS account: persisting
-test CryptoKeys can repeatedly prompt for the real login keychain. Use Chromium
-locally and disposable macOS runners for full WebKit coverage. Follow
-[the test isolation policy](docs/client/playwright-keychain-isolation.md),
-including for standalone probes. Never set `TAROBIRD_TEST_DISPOSABLE_MAC=1` on
-the owner's desktop, authorize/delete keychain items, reset ACLs or keep
-restarting blocked browsers to make tests pass. Keep engine selection in the
-guarded project configuration, not spec-level overrides.
-
 ## Desktop, mobile and CLI evolve together
 
 TaroBot's headless CLI is a first-class entry point to the same host core as the

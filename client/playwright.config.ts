@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 process.env.TAROBOT_MODEL_DISCOVERY ??= "0";
 
 export default defineConfig({
+  // Warning only: macOS WebKit is allowed; this setup never blocks browser launch.
   globalSetup: fileURLToPath(new URL("./scripts/playwright-keychain-guard.mjs", import.meta.url)),
   testDir: "./e2e", fullyParallel: false, workers: 1, timeout: 60_000,
   // Explicit browserName wins over a device descriptor's defaultBrowserType.

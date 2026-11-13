@@ -19,46 +19,37 @@ The checked Playwright WebKit launcher does not expose Chromium's
 
 ## Test entrypoints
 
-`client/playwright.config.ts` installs `playwright-keychain-guard.mjs` as global
-setup. On macOS, a resolved WebKit project fails **before any worker starts**
-unless `TAROBIRD_TEST_DISPOSABLE_MAC=1` is set on a GitHub-hosted runner
-(`GITHUB_ACTIONS=true`, `RUNNER_ENVIRONMENT=github-hosted`, as defined in
-[GitHub's runner variables](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)).
-The WebKit config and CLI `--browser=webkit` / `--browser=all` use the
-same guard. A mixed config is conservatively blocked if it contains WebKit,
-even when the invocation selects another project. Use the Chromium base config
-for local work. Listing tests does not launch browsers and remains available.
+The owner authorized Playwright WebKit on the development Mac on November 13,
+2026. Local WebKit runs no longer require a disposable-runner opt-in.
 
-- Run Chromium checks normally on the developer's Mac.
-- Keep full WebKit journeys on the disposable hosted macOS browser jobs in
-  `.github/workflows/client.yml`. Those jobs set the opt-in explicitly. Linux
-  WebKit remains available, but does not substitute for macOS media coverage.
-- Never set the opt-in on the owner's everyday desktop, infer it from `CI=1`,
-  or fabricate runner variables to bypass the guard. These checks prevent
-  accidental local opt-ins; they do not isolate a keychain or attest the machine.
-- Specs select viewport and touch behavior, but leave browser choice to the
-  project config. The phone slide journey now runs with the selected engine;
-  it no longer silently starts WebKit in a Chromium suite.
-  The base config explicitly selects Chromium, so spreading a phone descriptor
-  cannot switch it through `defaultBrowserType` either.
-- Standalone browser probes must apply `assertWebKitTestEnvironment` before
-  launching WebKit too. Do not launch an ad-hoc unguarded WebKit script on the
-  owner's Mac. Test selection and this restriction also apply to agents.
+`client/playwright.config.ts` keeps `playwright-keychain-guard.mjs` as global
+setup, but it now prints a reminder instead of rejecting the run. The WebKit
+config and CLI `--browser=webkit` / `--browser=all` continue into workers on
+macOS. Chromium/Firefox-only and non-Mac runs remain quiet. Mixed configurations
+emit at most one reminder. No environment variable or fabricated CI identity
+is needed to permit local WebKit.
 
-If a prompt occurs, stop the test run and identify its browser process by exact
-executable and parent run before closing it. Do not keep rerunning failed tests,
-kill shared WebKit services or SecurityAgent, enter the owner's password, grant
-permanent access, delete the keychain entry, or reset its ACL as a test fix.
+- Run the relevant WebKit checks locally with
+  `npx playwright test --config=playwright.webkit.config.ts <spec>` from `client`.
+  Hosted macOS browser jobs remain available for broader coverage.
+- Specs select viewport and touch behavior; project configuration owns browser
+  choice so the CLI-selected engine is respected. The base config selects Chromium.
+- Standalone probes may call `warnWebKitTestEnvironment`; the existing
+  `assertWebKitTestEnvironment` export is retained as a warning-only alias.
+- A permission prompt is still possible. The reminder does not authorize or
+  perform any keychain permission changes. Record a stalled or interrupted run
+  as incomplete, preserve its evidence and diagnose the actual test/browser.
+  Do not alter keychain entries or ACLs as an automatic test workaround.
 
 ## Verification boundary
 
-`node --test client/scripts/playwright-keychain-guard.test.mjs` checks the OS and
-runner policy, spec overrides, both configs and CLI browser selection. Its real
-CLI probes use no browser fixtures: a failed guard can only write a marker, so
-the regression cannot create the very permission popup it tests against.
+`node --test client/scripts/playwright-keychain-guard.test.mjs` checks warning
+selection, the legacy export, project browser selection, both configs and CLI
+browser options. Its real CLI probes use no browser fixture: they prove that
+workers run despite the reminder, without opening a browser or keychain prompt.
+Actual WebKit journeys are separate evidence.
 
-This change prevents the known repository test entrypoints from repeatedly
-triggering the owner's login keychain. It does not patch upstream WebKit or
-claim that arbitrary external Playwright scripts are intercepted. Production
+This policy change permits local WebKit tests; it does not fix upstream WebKit,
+prevent system permission prompts or certify a particular run. Production
 WebCrypto, private-key extractability, IndexedDB, native keychain behavior and
-App/Host/CLI protocols are unchanged. No App release or installation is needed.
+App/Host/CLI protocols are unchanged. No App installation is needed.
