@@ -412,3 +412,74 @@ test("a partial LAN warning does not follow a different relay QR", async ({ page
   await expect(warning).toHaveCount(0);
   expect(await scanned(page)).toMatchObject({ routes: [{ name: "VPS", url: relay }] });
 });
+
+for (const existing of [false, true]) test(`compact preparation never exposes a temporary invitation before returning to the QR (${existing ? "existing" : "first"} route)`, async ({ page }) => {
+  await page.evaluate(() => window.inviteFixture.preparation(["192.168.50.2", "192.168.10.20"]));
+  await add(page, "L", { key: keyA, holdNetwork: true, identityRoutes: [{ name: "Direct", url: "http://127.0.0.1:8787" }], view: { routes: existing ? [managed({ name: "Direct", url: lan, certificateAuthority: ca })] : [] } });
+  await show(page, "L", true);
+  if (existing) {
+    await scanned(page);
+    await page.getByText("其他连接方式", { exact: true }).click();
+    await page.getByRole("button", { name: "设置其他连接方式", exact: true }).click();
+  }
+  const priorIssues = (await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST").length;
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption("1");
+  await expect.poll(async () => (await calls(page)).network.filter(call => call.operation === "routes").length).toBe(1);
+  // Wait for a rendered pending state; issuing while this view is about to
+  // unmount would revoke a code the new device may already have copied.
+  await expect(page.getByText("正在等待本机重新连接并共享线路…", { exact: true })).toBeVisible();
+  expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toHaveLength(priorIssues);
+  await expect(qr(page)).toHaveCount(0);
+  await page.evaluate(() => window.inviteFixture.release("L"));
+  await expect(page.getByText("其他连接方式", { exact: true })).toBeVisible();
+  const issued = await scanned(page);
+  expect(issued.routes[0]?.url).toBe(lan);
+  expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toHaveLength(priorIssues + 1);
+  await page.getByRole("button", { name: "复制连接信息", exact: true }).click();
+  expect(parsePairingLink(await page.evaluate(() => window.inviteFixture.copied()))).toEqual(issued);
+});
+
+test("a definitive publication failure keeps a stable manual LAN invite beside the warning", async ({ page }) => {
+  await page.evaluate(() => window.inviteFixture.preparation(["192.168.50.2", "192.168.10.20"]));
+  const shared = { name: "Tailscale" as const, url: tailnet, certificateAuthority: ca };
+  await add(page, "L", { key: keyA, view: { routes: [managed(shared)], tailscale: { enabled: true, listening: true }, notices: ["lan_selection_required"] } });
+  await page.evaluate(([key, route]) => window.inviteFixture.update("L", { network: { host: { publicKey: key, routes: [route] } } }), [keyA, shared] as const);
+  await show(page, "L", true);
+  await scanned(page);
+  await page.getByText("其他连接方式", { exact: true }).click();
+  await page.getByRole("button", { name: "设置其他连接方式", exact: true }).click();
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption("1");
+  await expect(page.getByRole("alert")).toContainText("此地址尚未自动共享");
+  const payload = await scanned(page);
+  expect(payload.routes[0]?.url).toBe(lan);
+  await page.getByRole("button", { name: "复制连接信息", exact: true }).click();
+  expect(parsePairingLink(await page.evaluate(() => window.inviteFixture.copied()))).toEqual(payload);
+  const count = (await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST").length;
+  await page.evaluate(() => window.inviteFixture.update("L", { status: "offline" }));
+  await expect(qr(page)).toHaveCount(0);
+  await page.evaluate(() => window.inviteFixture.update("L", { status: "online" }));
+  expect((await scanned(page)).invite).toBe(payload.invite);
+  expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toHaveLength(count);
+});
+
+test("the waiting notice alone never mints a temporary code before the handoff", async ({ page }) => {
+  await page.clock.install();
+  await page.evaluate(() => window.inviteFixture.preparation(["192.168.50.2", "192.168.10.20"]));
+  await add(page, "L", { key: keyA, holdNetwork: true, identityRoutes: [{ name: "Direct", url: "http://127.0.0.1:8787" }], view: { routes: [] } });
+  await show(page, "L", true);
+  await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
+  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption({ label: "192.168.10.20" });
+  await expect(page.getByText("正在等待本机重新连接并共享线路…", { exact: true })).toBeVisible();
+  await page.clock.fastForward(21_000);
+  // Publication is late, not rejected: it may still succeed and hand off.
+  await expect(page.getByRole("alert").filter({ hasText: "网络线路仍在同步，完成后会自动更新，请稍候。" })).toBeVisible();
+  await expect(qr(page)).toHaveCount(0);
+  expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toEqual([]);
+  await page.evaluate(() => window.inviteFixture.release("L"));
+  await expect(page.getByText("其他连接方式", { exact: true })).toBeVisible();
+  expect(await scanned(page)).toMatchObject({ routes: [{ name: "Direct", url: lan }] });
+  expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toHaveLength(1);
+  expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITE_REVOKE_PATH)).toEqual([]);
+});

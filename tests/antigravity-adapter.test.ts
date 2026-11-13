@@ -17,6 +17,23 @@ import { removeTempRoot } from "./helpers/temp-files.js";
 const CONVERSATION_ID = "11111111-2222-4333-8444-555555555555";
 
 describe("ProcessAntigravityAdapter", () => {
+  it.each([false, true].flatMap(goal => ["legacy-error", "exit-zero", "exit-error", "protocol-error"].map(end => ({ goal, end }))))("does not replay work when the terminal receipt is missing or legacy ($goal/$end)", async ({ goal, end }) => {
+    const { spawnAntigravity, child, calls } = createSpawnHarness();
+    const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);
+    try {
+      const failure = adapter.sendUserMessage("tarobot-incomplete-receipt", { text: goal ? "/goal inspect" : "inspect", files: [] }).then(() => undefined, error => error);
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      child.stdout.emitData(jsonLine({ event: "init", conversation_id: CONVERSATION_ID, init: {} }));
+      child.stdout.emitData(jsonLine({ event: "step_update", step_update: { conversation_id: CONVERSATION_ID, step_index: 1, step_type: "tool", state: "DONE", tool_name: "write_file", tool_info: { output: "saved" } } }));
+      if (end === "legacy-error") child.stdout.emitData(jsonLine({ event: "result", result: { conversation_id: CONVERSATION_ID, status: "ERROR", response: "", error: "503 Service Unavailable" } }));
+      if (end === "protocol-error") child.stdout.emitData(jsonLine({ event: "result", result: null }));
+      child.close(end === "exit-error" ? 1 : 0);
+      const error = await failure;
+      expect(error).toBeInstanceOf(EngineIncompleteResponseError);
+      expect(getBusErrorSemantics(classifyFailure(error))).toMatchObject({ retryable: false });
+      expect(calls).toHaveLength(1);
+    } finally { await adapter.destroy(); }
+  });
   it.each([false, true])("keeps a successful tool-only empty response non-retryable (goal=%s)", async goal => {
     const { spawnAntigravity, child, calls } = createSpawnHarness();
     const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);

@@ -35,6 +35,7 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
   const [busy, setBusy] = useState(false), [error, setError] = useState(""); const [created, setCreated] = useState<Bot>();
   const pending = useRef<CreateBotInput>(undefined);
   const selectionOnRefresh = useRef<{ connection: HubConnection; engine: CreateBotInput["engine"] }>(undefined);
+  const pathsReason = useId();
   const options = catalog?.engines.find((e) => e.id === engine);
   const models = modelOptions(engine, options?.models ?? []), selectedModel = selectedModelOption(models, model);
   const displayedEffort = selectedModelEffort(selectedModel, { model, effort }), levels = selectedModel?.efforts ?? [""];
@@ -65,6 +66,20 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
   }, [connection, catalogAttempt, online]);
   const catalogMessage = catalogError === "settingsUnavailable" ? t(ENGINE_SETTINGS_REPAIR_HINT) : catalogError === "forbidden" ? t("只有管理员可以创建 Bot。") : catalogError === "unsupported" ? t("此 Hub 暂未启用 Bot 创建，请更新 Hub 后重试。") : catalogError === "offline" ? t("连接中断，恢复后会自动重新读取可用引擎。") : catalogError === "failed" ? t("暂时无法读取可用引擎，请重试。") : "";
   const creationBlocked = busy || pathsBusy || pathsDirty || !name.trim() || !options?.available || !validSelection || !online;
+  // Path reads finish asynchronously; decide from the catalog and choice shown now.
+  const shown = useRef({ catalog, catalogError, engine }); shown.current = { catalog, catalogError, engine };
+  const reloadCatalog = () => {
+    // Only a choice made against a loaded catalog is kept. The placeholder shown
+    // before the first successful read must still receive the engine's defaults.
+    selectionOnRefresh.current = shown.current.catalog ? { connection, engine: shown.current.engine } : undefined;
+    setCatalog(undefined); setCatalogAttempt(value => value + 1);
+  };
+  const pathsDetected = (available: readonly string[]) => {
+    // An uncertain creation keeps its frozen request; do not move the form under it.
+    if (pending.current) return;
+    const { catalog: current, catalogError: failure } = shown.current;
+    if (current ? current.engines.some(item => item.available !== available.includes(item.id)) : failure === "failed" || failure === "settingsUnavailable") reloadCatalog();
+  };
   const submit = async () => {
     if (creationBlocked) return; setBusy(true); setError("");
     const selection = selectModelEffort(selectedModel, model, displayedEffort)!;
@@ -83,7 +98,7 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
     {/* Engine catalog problems lead the form, outside the disabled fieldset, so their cause and retry are seen first. */}
     {catalogError && <div role="alert" className="error-text new-bot-alert new-bot-catalog"><p>{catalogMessage}</p>{catalogError !== "forbidden" && catalogError !== "unsupported" && <button type="button" disabled={!online} onClick={() => setCatalogAttempt(value => value + 1)}>{t("重新读取")}</button>}</div>}
     {catalog && !catalog.engines.some((e) => e.available) && <p role="alert" className="new-bot-alert new-bot-catalog is-warning">{t("此主机尚未检测到支持的 AI CLI。请先在主机上安装至少一种引擎，再重新打开此页面。")}</p>}
-    {state.engineSettingsAvailable && <fieldset className="engine-path-gate" disabled={busy || !!pending.current}><details className="new-bot-engine-settings" onToggle={event => setPathsOpen(event.currentTarget.open)}><summary>{t("找不到引擎？检查 CLI 路径")}</summary><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={pathsOpen} onBusy={setPathsBusy} onDirty={setPathsDirty} onSaved={() => { selectionOnRefresh.current = { connection, engine }; setCatalog(undefined); setCatalogAttempt(value => value + 1); }}/></details></fieldset>}
+    {state.engineSettingsAvailable && <fieldset className="engine-path-gate" disabled={busy || !!pending.current}><details className="new-bot-engine-settings" onToggle={event => setPathsOpen(event.currentTarget.open)}><summary>{t("找不到引擎？检查 CLI 路径")}</summary><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={pathsOpen} onBusy={setPathsBusy} onDirty={setPathsDirty} onSaved={reloadCatalog} onDetected={pathsDetected}/></details></fieldset>}
     <fieldset disabled={busy || pathsBusy || !!pending.current} className="bot-fields">
     <div className="new-bot-block">
       <label>{t("Bot 名称")}<input autoFocus required maxLength={100} value={name} placeholder={t("例如：研究助手、代码助手")} onChange={(e) => setName(e.target.value)}/></label>
@@ -115,7 +130,8 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
     <div className="new-bot-footer">
       {!catalog && !catalogError && <p role="status" className="new-bot-status"><LoaderCircle className="spin" size={14} aria-hidden="true"/>{t("正在读取可用引擎…")}</p>}
       {error && <p role="alert" className="error-text new-bot-alert">{error}</p>}
-      <button className="primary full new-bot-submit" disabled={creationBlocked}>{busy ? <LoaderCircle className="spin" size={17}/> : <BotIcon size={17}/>} {busy ? t("正在创建 Bot…") : pending.current ? t("重试创建") : t("创建 Bot")}</button>
+      {pathsDirty && <p role="status" id={pathsReason} className="new-bot-status">{t("CLI 路径有未保存的修改。请先在「找不到引擎？检查 CLI 路径」中保存或取消，再创建 Bot。")}</p>}
+      <button className="primary full new-bot-submit" disabled={creationBlocked} aria-describedby={pathsDirty ? pathsReason : undefined}>{busy ? <LoaderCircle className="spin" size={17}/> : <BotIcon size={17}/>} {busy ? t("正在创建 Bot…") : pending.current ? t("重试创建") : t("创建 Bot")}</button>
     </div>
   </form>}</CreationDialog>;
 }

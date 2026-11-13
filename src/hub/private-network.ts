@@ -151,7 +151,12 @@ export class PrivateNetwork {
   /** This host's signed single-direct descriptor routes, for its own views. */
   async sharedRoutes(validate?: () => Promise<unknown>): Promise<Route[]> {
     this.checkOpen();
-    return this.store.db.serial(async () => { this.checkOpen(); await validate?.(); return structuredClone((await this.load()).routes); });
+    return this.store.db.serial(async () => { await validate?.(); return this.sharedRoutesInTransaction(); });
+  }
+  /** Host-internal read; caller must hold the store DB queue. Keeps route
+   * choice validation and its derived-state write under the same guard. */
+  async sharedRoutesInTransaction(): Promise<Route[]> {
+    this.checkOpen(); return structuredClone((await this.load()).routes);
   }
   /** Host-internal maintenance of its own descriptor: no device proof, because
    * no other identity's data changes. Compare-and-swap in the same transaction

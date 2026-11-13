@@ -32,7 +32,7 @@ type Managed = { bot_id: string; owner_id: string; request_id: string; specifica
 export interface BotManagerOptions { entrypoint: string; env?: NodeJS.ProcessEnv }
 const restartResultSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), result: z.object({ text: z.string() }) }),
-  z.object({ ok: z.literal(false), error: z.enum(["hub_stopping", "bot_worker_stopping", "restart_send_failed", "restart_confirmation_unavailable", "operation_failed", "operation_interrupted"]) }),
+  z.object({ ok: z.literal(false), error: z.enum(["hub_stopping", "bot_worker_stopping", "restart_send_failed", "restart_confirmation_unavailable", "operation_failed", "operation_interrupted", "engine_settings_unavailable"]) }),
 ]);
 type RestartResult = z.infer<typeof restartResultSchema>;
 /** Each Bot owns a normal TaroCub config, workspace, session store and process.
@@ -56,6 +56,8 @@ export class BotManager {
   private restartPending = new Map<string, Promise<RestartResult>>();
   private restartQueued = new WeakSet<ChildProcess>();
   private restartTasks = new Set<Promise<RestartResult>>();
+  /** Bots whose last launch was refused because the engine path settings were unreadable. */
+  private settingsBlocked = new Set<string>();
   constructor(readonly store: HubStore, readonly directory: string, readonly options: BotManagerOptions, readonly instanceUrl: () => string, readonly changed: (id: string) => Promise<void>) {}
   private get env(): NodeJS.ProcessEnv {
     try { return hostEngineEnvironment(this.directory, this.options.env ?? process.env); }
@@ -212,8 +214,9 @@ export class BotManager {
   private launch(botId: string): ChildProcess | undefined {
     if (this.stopping || this.draining || this.deleted.has(botId) || this.children.has(botId)) return;
     let env: NodeJS.ProcessEnv;
-    try { env = this.env; }
-    catch {
+    try { env = this.env; this.settingsBlocked.delete(botId); }
+    catch (error) {
+      if (error instanceof HubError && error.code === "engine_settings_unavailable") this.settingsBlocked.add(botId);
       // A damaged operator setting must not crash the Host from a retry timer
       // or silently launch a different executable. Existing workers keep running.
       const previous = this.logs.get(botId)?.text() ?? "", notice = "Engine path settings are unavailable. Check the host settings file before restarting this Bot.\n";
@@ -303,7 +306,9 @@ export class BotManager {
     }
     const timer = this.timers.get(botId); if (timer) clearTimeout(timer); this.timers.delete(botId); this.failures.delete(botId);
     const launched = this.launch(botId);
-    if (!launched) return { ok: false, error: "hub_stopping" };
+    // launch() already logged the reason and re-armed its retry. A damaged
+    // settings file is the owner's to repair; it is not a stopping Hub.
+    if (!launched) return { ok: false, error: !this.stopping && !this.draining && this.settingsBlocked.has(botId) ? "engine_settings_unavailable" : "hub_stopping" };
     return new Promise((resolve) => {
       const spawned = () => { launched.off("error", failed); resolve({ ok: true, result: { text: "已启动 Bot，正在连接。" } }); };
       const failed = () => { launched.off("spawn", spawned); resolve({ ok: false, error: "operation_failed" }); };
@@ -315,7 +320,7 @@ export class BotManager {
     const work = this.tail.then(async () => {
       if (this.stopping) throw new HubError("hub_stopping", 503);
       const conversations = await this.store.deleteBot(userId, botId, expectedName, validate);
-      this.deleted.add(botId);
+      this.deleted.add(botId); this.settingsBlocked.delete(botId);
       const timer = this.timers.get(botId); if (timer) clearTimeout(timer); this.timers.delete(botId);
       this.failures.delete(botId);
       // Publish revocation before stopping: new inputs cannot reach this worker.

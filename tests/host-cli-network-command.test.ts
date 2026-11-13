@@ -162,3 +162,18 @@ it("shows this host's local routes read-only through the authenticated owner end
   await expect(runHostCli(["network", "status", "--tailscale", "--state-dir", a.directory])).rejects.toThrow("--tailscale 仅支持 network local");
   await expect(runHostCli(["network", "local", "--yes", "--state-dir", a.directory])).rejects.toThrow("network local 只读");
 });
+
+
+it("selects a managed LAN via CLI while keeping Tailscale and requiring explicit confirmation", async () => {
+  const a = await host("Host A"), ca = "A".repeat(120);
+  vi.spyOn(a.hub, "managedListeners").mockReturnValue([{ host: "192.168.10.20", port: 8443, listening: true, authority: ca, interfaceKey: "wifi" }, { host: "192.168.64.1", port: 8443, listening: true, authority: ca, interfaceKey: "bridge" }]);
+  const shared = [{ name: "Tailscale" as const, url: "https://100.64.0.7:8443", certificateAuthority: ca }];
+  await a.hub.network.replaceManagedRoutes([], shared); await a.hub.refreshHostRoutes();
+  const file = path.join(a.directory, "lan.json");
+  await writeFile(file, JSON.stringify({ name: "Direct", url: "https://192.168.10.20:8443", certificateAuthority: ca }));
+  await expect(run(a, "network", "select-lan", "--from", file)).rejects.toThrow("--yes");
+  await run(a, "network", "select-lan", "--from", file, "--yes");
+  await a.hub.refreshHostRoutes();
+  expect((await a.hub.hostRoutes.view()).notices).not.toContain("lan_selection_required");
+  expect(await a.hub.network.sharedRoutes()).toEqual(shared);
+});

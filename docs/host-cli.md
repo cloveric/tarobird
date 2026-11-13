@@ -618,3 +618,20 @@ For an explicit structured-report request, use `widgets publish CONVERSATION --r
 exactly one of `--html-file` and `--report-file`. The same Host switch and receipt
 apply. Typed data is rendered by App-owned components, without generated scripts.
 See the [report format and execution contract](client/inline-widgets-cpu-containment-2026-10-22.md).
+
+
+### Choosing a managed LAN alongside Tailscale
+
+`tarobot pair --lan --address IP` still produces a bounded pairing invitation.
+On hosts advertising `host-routes.select-lan.v1`, it also records the selected
+live LAN endpoint without replacing an existing shared Tailscale route. It does
+not silently replace a different signed LAN route; use `network routes` for
+that explicit change.
+
+`tarobot network select-lan --from route.json --yes` selects an already-listening
+managed LAN endpoint using the same owner API. The JSON file contains one strict
+route object (`name`, `url`, `certificateAuthority`). The URL and certificate
+must exactly match a currently listening Host endpoint; the command cannot
+start a listener, import a new trust anchor or select another host's address.
+`network local --json` reads back the owner view. Older hosts keep the existing
+manual pairing flow until updated.

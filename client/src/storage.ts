@@ -692,7 +692,7 @@ export class ClientCache {
     if (!current) this.diffReviewsChanged();
   }
   /** Persist only enrollment progress for the same device and Hub. */
-  async savePendingPairing(identity: Identity, pending?: PendingPairing, expected?: { requestId?: string; code: string }): Promise<void> {
+  async savePendingPairing(identity: Identity, pending?: PendingPairing, expected?: { requestId?: string; code: string }, routeUpdate?: { routes: Route[]; deployment?: Deployment }): Promise<void> {
     // Update only enrollment progress, preserving route edits and cache ownership.
     const tx = await this.write(["settings"]), settings = tx.objectStore("settings");
     const current = await settings.get("identity") as Identity | undefined;
@@ -701,6 +701,14 @@ export class ClientCache {
     }
     if (expected && (!current.pendingPairing || current.pendingPairing.code !== expected.code || current.pendingPairing.request?.requestId !== expected.requestId)) {
       tx.abort(); await tx.done.catch(() => undefined); throw new Error("pairing_request_changed");
+    }
+    if (routeUpdate) {
+      const revoked = await settings.get("revokedIdentity");
+      const error = !expected || !pending ? "pairing_request_changed"
+        : revoked === JSON.stringify([identity.deviceId, identity.hubPublicKey]) ? "device_revoked"
+        : networkCanonical(current.routes) !== networkCanonical(identity.routes) || current.deployment !== identity.deployment ? "routes_changed" : undefined;
+      if (error) { tx.abort(); await tx.done.catch(() => undefined); throw new Error(error); }
+      current.routes = routeUpdate.routes; current.deployment = routeUpdate.deployment;
     }
     if (pending) current.pendingPairing = pending; else delete current.pendingPairing;
     await settings.put(current, "identity"); await tx.done;

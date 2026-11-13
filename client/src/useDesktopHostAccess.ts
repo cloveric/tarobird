@@ -3,7 +3,7 @@ import { invoke } from "./desktop-bridge.js";
 import { mergeNetworkInviteRoute } from "./network-routes.js";
 import type { HubConnection } from "./connection.js";
 import type { Route } from "./storage.js";
-import { HOST_ROUTES_PATH, hostRoutesViewSchema } from "../../src/client-protocol/host-routes.js";
+import { HOST_ROUTES_PATH, HOST_LAN_SELECTION_PATH, hostRoutesViewSchema } from "../../src/client-protocol/host-routes.js";
 import { routesSchema } from "../../src/client-protocol/routes.js";
 import { t } from "./i18n.js";
 
@@ -14,11 +14,15 @@ export function useDesktopHostAccess({ hubKey, connection, purpose, disabled = f
   const [unavailableRouteCount, setUnavailableRouteCount] = useState(0);
   const [publishedRoute, setPublishedRoute] = useState("");
   const [publishingRoute, setPublishingRoute] = useState(false);
+  // True only after this route's publication was rejected and will not continue
+  // by itself. The 20-second waiting notice is not a failure: publication can
+  // still succeed afterwards and hand the invitation to the parent view.
+  const [publicationFailed, setPublicationFailed] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   // Publish only after the owner explicitly opens LAN/Tailscale access.
   // Wait for the restarted local Hub before signing its shareable routes.
   useEffect(() => {
-    setPublishingRoute(false);
+    setPublishingRoute(false); setPublicationFailed(false);
     if (!connection || !routes[selected]) return;
     let disposed = false, publishing = false, published = false, failed = false;
     const timeout = setTimeout(() => { if (!disposed && !published) { setError(t("网络线路仍在同步，完成后会自动更新，请稍候。")); } }, 20000);
@@ -40,12 +44,17 @@ export function useDesktopHostAccess({ hubKey, connection, purpose, disabled = f
         await connection.networkCommand({ operation:"routes", routes:merged });
         if (disposed) return false;
         if (!merged.some(route => route.url === routes[selected]!.url)) {
-          const own = hostRoutesViewSchema.parse(await connection.http(HOST_ROUTES_PATH));
+          // Keep the signed Tailscale route while recording an explicit choice
+          // among this host's live managed LAN listeners. Older hosts retain
+          // the readback/manual-QR fallback without pretending to save a choice.
+          const own = hostRoutesViewSchema.parse(await (connection.state.hostLanSelectionAvailable
+            ? connection.http(HOST_LAN_SELECTION_PATH, { method: "POST", body: JSON.stringify({ route: routes[selected]! }) })
+            : connection.http(HOST_ROUTES_PATH)));
           if (own.hostPublicKey !== hubKey || !own.routes.some(entry => entry.route.url === routes[selected]!.url
             && entry.route.certificateAuthority === routes[selected]!.certificateAuthority)) throw new Error("host_route_not_published");
         }
         return !disposed;
-      })().then(ok => { if (ok) { clearTimeout(timeout); published = true; if (!disposed) { setPublishedRoute(routes[selected]!.url); setError(""); } } }).catch(cause => { clearTimeout(timeout); failed = true; if (!disposed) setError(purpose === "connection" ? t("本机入口已准备，但地址尚未同步。请重试；已配对设备的授权不会改变。") : cause instanceof Error && cause.message === "network_route_preserved" ? t("连接码已生成。自动同步局域网与 Tailscale 多条线路需要先更新本机主机。") : cause instanceof Error && cause.message === "host_route_not_published" ? t("连接码已生成，但此地址尚未自动共享。请在其他设备扫码添加这条线路。") : t("连接码已生成，但网络线路尚未同步。请刷新连接码重试。")); }).finally(() => { publishing = false; if (!disposed) setPublishingRoute(false); });
+      })().then(ok => { if (ok) { clearTimeout(timeout); published = true; if (!disposed) { setPublishedRoute(routes[selected]!.url); setError(""); } } }).catch(cause => { clearTimeout(timeout); failed = true; if (!disposed) setPublicationFailed(true); if (!disposed) setError(cause instanceof Error && cause.message.includes("managed_lan_route_unavailable") ? t("所选地址已变化或尚未就绪，请重新准备线路并选择地址。") : purpose === "connection" ? t("本机入口已准备，但地址尚未同步。请重试；已配对设备的授权不会改变。") : cause instanceof Error && cause.message === "network_route_preserved" ? t("连接码已生成。自动同步局域网与 Tailscale 多条线路需要先更新本机主机。") : cause instanceof Error && cause.message === "host_route_not_published" ? t("连接码已生成，但此地址尚未自动共享。请在其他设备扫码添加这条线路。") : t("连接码已生成，但网络线路尚未同步。请刷新连接码重试。")); }).finally(() => { publishing = false; if (!disposed) setPublishingRoute(false); });
     };
     const stop = connection.subscribe(publish); publish();
     return () => { disposed = true; clearTimeout(timeout); stop(); };
@@ -58,11 +67,11 @@ export function useDesktopHostAccess({ hubKey, connection, purpose, disabled = f
   const operationBusy = busy || publishingRoute || !!routes[selected] && publishedRoute !== routes[selected]!.url && !error && !!connection;
   useEffect(() => { busyChange?.(operationBusy); return () => busyChange?.(false); }, [operationBusy, busyChange]);
   const operation = useRef(0), preparing = useRef(false);
-  useEffect(() => { setRoutes([]); setSelected(-1); setUnavailableRouteCount(0); setError(""); setBusy(false); preparing.current = false; return () => { ++operation.current; }; }, [hubKey]);
+  useEffect(() => { setRoutes([]); setSelected(-1); setUnavailableRouteCount(0); setError(""); setPublicationFailed(false); setBusy(false); preparing.current = false; return () => { ++operation.current; }; }, [hubKey]);
   async function prepare() {
     if (preparing.current || operationBusy || disabled) return;
     preparing.current = true; const current = ++operation.current;
-    setBusy(true); setError(""); setRoutes([]); setSelected(-1); setUnavailableRouteCount(0); setPublishedRoute("");
+    setBusy(true); setError(""); setPublicationFailed(false); setRoutes([]); setSelected(-1); setUnavailableRouteCount(0); setPublishedRoute("");
     try {
       const local = await invoke<{ running: boolean; publicKey?: string }>("desktop_host", { action: "status" });
       if (current !== operation.current) return;
@@ -86,11 +95,11 @@ export function useDesktopHostAccess({ hubKey, connection, purpose, disabled = f
   }
   function chooseMethod(value: "network" | "tailscale") {
     if (operationBusy || disabled || value === method) return;
-    setMethod(value); setRoutes([]); setSelected(-1); setUnavailableRouteCount(0); setPublishedRoute(""); setError("");
+    setMethod(value); setPublicationFailed(false); setRoutes([]); setSelected(-1); setUnavailableRouteCount(0); setPublishedRoute(""); setError("");
   }
   function chooseRoute(index: number) {
     if (busy || publishingRoute || disabled || !Number.isInteger(index) || !routes[index] || index === selected) return;
-    setError(""); setSelected(index); setPublishedRoute("");
+    setError(""); setPublicationFailed(false); setSelected(index); setPublishedRoute("");
   }
-  return { method, chooseMethod, routes, selected, setSelected: chooseRoute, unavailableRouteCount, publishedRoute, busy, publishingRoute, operationBusy, error, prepare };
+  return { method, chooseMethod, routes, selected, setSelected: chooseRoute, unavailableRouteCount, publishedRoute, publicationFailed, busy, publishingRoute, operationBusy, error, prepare };
 }

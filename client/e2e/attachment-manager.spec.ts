@@ -92,8 +92,8 @@ test("deleting the last page returns to the remaining attachments", async ({ pag
   } finally { await page.close(); await f.close(); }
 });
 
-for (const width of [1360, 820, 390]) test(`attachment management fits in English at ${width}px`, async ({ page }, info) => {
-  await page.setViewportSize({ width, height: 860 });
+for (const { width, height } of [{ width: 1360, height: 860 }, { width: 820, height: 860 }, { width: 390, height: 860 }, { width: 844, height: 390 }]) test(`attachment management fits in English at ${width}x${height}`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height });
   const f = await imageViewerFixture(page);
   try {
     await english(page);
@@ -103,9 +103,14 @@ for (const width of [1360, 820, 390]) test(`attachment management fits in Englis
     await center.getByRole("tab", { name: "Attachments", exact: true }).click();
     await center.getByRole("button", { name: /图片手势/ }).click();
     const details = center.getByRole("complementary", { name: "Conversation attachments", exact: true });
+    expect((await details.locator(".attachment-scroll").boundingBox())!.height).toBeGreaterThan(40);
     await details.locator(".attachment-list input[type=checkbox]").first().check();
     await details.getByRole("button", { name: "Delete selected (1)", exact: true }).click();
     await expect(details.getByRole("alertdialog")).toContainText("Delete 1 attachment(s) and free");
+    expect((await details.locator(".attachment-scroll").boundingBox())!.height).toBeGreaterThan(40);
+    await details.getByRole("button", { name: "Delete", exact: true }).scrollIntoViewIfNeeded();
+    await expect(details.getByRole("button", { name: "Delete", exact: true })).toBeInViewport({ ratio: 0.98 });
+    await details.getByRole("button", { name: "Delete", exact: true }).click({ trial: true });
     const overflow = await center.evaluate(root => [...root.querySelectorAll("*")].filter(el => {
       const style = getComputedStyle(el); if (style.display === "none" || el.clientWidth === 0 || el.children.length) return false;
       return el.scrollWidth > el.clientWidth + 1 && !["auto", "scroll", "hidden"].includes(style.overflowX) && style.textOverflow !== "ellipsis";
@@ -116,7 +121,7 @@ for (const width of [1360, 820, 390]) test(`attachment management fits in Englis
   } finally { await page.close(); await f.close(); }
 });
 
-for (const viewport of [{ width: 1360, height: 700 }, { width: 820, height: 620 }, { width: 390, height: 700 }]) test(`attachment actions do not cover scrolling rows at ${viewport.width}px`, async ({ page }, info) => {
+for (const viewport of [{ width: 1360, height: 700 }, { width: 820, height: 620 }, { width: 390, height: 700 }, { width: 844, height: 390 }, { width: 720, height: 480 }]) test(`attachment actions do not cover scrolling rows at ${viewport.width}x${viewport.height}`, async ({ page }, info) => {
   await page.setViewportSize(viewport);
   const f = await imageViewerFixture(page);
   try {
@@ -145,6 +150,7 @@ for (const viewport of [{ width: 1360, height: 700 }, { width: 820, height: 620 
     };
     await page.screenshot({ path: info.outputPath(`attachment-list-${viewport.width}.png`) });
     await footerOutsideList();
+    if (viewport.width > 700) await expect(center.getByRole("button", { name: "刷新", exact: true })).toBeInViewport({ ratio: 1 });
     const last = details.locator(".attachment-list input[type=checkbox]").last();
     await last.check();
     await details.getByRole("button", { name: "删除所选（1）", exact: true }).click();
@@ -152,6 +158,11 @@ for (const viewport of [{ width: 1360, height: 700 }, { width: 820, height: 620 
     await expect(confirm).toBeInViewport({ ratio: 1 });
     await footerOutsideList();
     await page.screenshot({ path: info.outputPath(`attachment-confirm-layout-${viewport.width}.png`) });
+    // Confirmation can scroll on short windows; both actions must stay reachable.
+    // Allow subpixel scroll rounding while requiring the whole hit target.
+    await confirm.getByRole("button", { name: "确认删除", exact: true }).scrollIntoViewIfNeeded();
+    await expect(confirm.getByRole("button", { name: "确认删除", exact: true })).toBeInViewport({ ratio: 0.98 });
+    await confirm.getByRole("button", { name: "确认删除", exact: true }).click({ trial: true });
     await confirm.getByRole("button", { name: "取消", exact: true }).click();
     await expect(last).toBeChecked();
     // Pagination and the final file remain reachable above the fixed actions.
@@ -160,5 +171,14 @@ for (const viewport of [{ width: 1360, height: 700 }, { width: 820, height: 620 
     await details.getByRole("checkbox").check();
     await expect(details.getByRole("button", { name: "删除所选（1）", exact: true })).toBeEnabled();
     await footerOutsideList();
+    if (viewport.height < 560) {
+      await details.getByRole("button", { name: "删除所选（1）", exact: true }).click();
+      await confirm.getByRole("button", { name: "确认删除", exact: true }).click();
+      const notice = center.locator(".file-center-notices").getByRole("status");
+      await expect(notice).toContainText("已删除 1 个附件");
+      await expect(notice).toBeInViewport({ ratio: 1 });
+      await expect(center.getByRole("button", { name: "刷新", exact: true })).toBeInViewport({ ratio: 1 });
+      await footerOutsideList();
+    }
   } finally { await page.close(); await f.close(); }
 });

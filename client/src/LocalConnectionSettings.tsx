@@ -37,6 +37,8 @@ export function LocalConnectionSettings({ connection, busyChange }: { connection
   const reading = canRead && !result && !access.operationBusy;
   const mode = access.method === "tailscale" ? "tailscale" : "lan";
   const listening = view?.local[mode].listening;
+  const needsSelection = mode === "lan" && !!view?.notices.includes("lan_selection_required");
+  const selectionNeedsUpdate = needsSelection && !state.hostLanSelectionAvailable && !!view?.routes.some(entry => entry.source === "shared" && entry.route.name === "Tailscale");
   const addresses = view?.routes.filter(({ route }) => route.name === (mode === "tailscale" ? "Tailscale" : "Direct")) ?? [];
   const copyAddress = async (url: string) => {
     try { await navigator.clipboard.writeText(url); setCopy({ key: hubKey, url }); }
@@ -45,6 +47,7 @@ export function LocalConnectionSettings({ connection, busyChange }: { connection
   const status = (value: "lan" | "tailscale") => !allowed ? t("暂时无法读取")
     : access.operationBusy ? t("正在更新…") : failed ? t("状态读取失败")
     : !view ? canRead ? t("正在读取…") : t("状态不可用")
+    : value === "lan" && view.notices.includes("lan_selection_required") ? t("待选择连接地址")
     : !view.local[value].enabled ? t("未开启") : view.local[value].listening ? t("本机已就绪") : t("等待网络连接");
   const refresh = () => setAttempt(value => value + 1);
   return <section className="local-connection-settings">
@@ -56,7 +59,8 @@ export function LocalConnectionSettings({ connection, busyChange }: { connection
     </div>
     <div className="local-access-body">
       <p>{access.method === "tailscale" ? t("外出也能连接。各设备需连接同一个 Tailscale 网络，并允许相互访问。") : t("适合同一 Wi-Fi 或有线局域网内的设备。")}</p>
-      {listening && <p className="local-access-ready"><CheckCircle2 size={16}/>{t("本机入口已就绪")}</p>}
+      {listening && !needsSelection && <p className="local-access-ready"><CheckCircle2 size={16}/>{t("本机入口已就绪")}</p>}
+      {needsSelection && !selectionNeedsUpdate && <p role="status">{t("局域网已开启，请选择与另一台设备在同一网络的地址后继续。")}</p>}
       {view && <div className="local-access-addresses">
         <strong>{mode === "tailscale" ? t("主机的 Tailscale 连接地址") : t("主机的局域网连接地址")}</strong>
         {!listening && addresses.length > 0 && <p className="muted">{t("入口当前未就绪，以下为已保存的地址。")}</p>}
@@ -73,11 +77,12 @@ export function LocalConnectionSettings({ connection, busyChange }: { connection
       </div>}
       {!allowed ? <p role="status">{state.status !== "online" ? t("请等待主机重新连接后再设置。") : t("仅主机管理者可设置连接方式。")}</p>
         : reading ? <p role="status"><LoaderCircle className="spin" size={16}/>{t("正在读取入口状态…")}</p>
+        : selectionNeedsUpdate ? <p role="status">{t("此主机暂不支持同时保存局域网选择与 Tailscale。请更新主机；也可在「添加设备」中生成局域网连接码手动配对。")}</p>
         : failed ? <><p role="alert">{t("未能读取本机入口状态，请重试。")}</p><button type="button" onClick={refresh}>{t("重新读取")}</button></>
         : <>
           {!listening && <p className="muted local-access-restart">{t("首次开启或更新地址可能短暂重启主机，请先完成正在执行的任务。")}</p>}
-          {listening && !access.error ? <button type="button" onClick={refresh}>{t("刷新状态")}</button> : <button type="button" className="primary" disabled={access.operationBusy} onClick={() => void access.prepare()}>
-            {access.operationBusy && <LoaderCircle className="spin" size={16}/>}{access.operationBusy ? t("正在准备连接…") : access.error || view?.local[mode].enabled ? t("重新准备线路") : access.method === "tailscale" ? t("开启 Tailscale 访问") : t("开启局域网访问")}
+          {listening && !access.error && !needsSelection ? <button type="button" onClick={refresh}>{t("刷新状态")}</button> : <button type="button" className="primary" disabled={access.operationBusy} onClick={() => void access.prepare()}>
+            {access.operationBusy && <LoaderCircle className="spin" size={16}/>}{access.operationBusy ? t("正在准备连接…") : needsSelection ? t("选择连接地址") : access.error || view?.local[mode].enabled ? t("重新准备线路") : access.method === "tailscale" ? t("开启 Tailscale 访问") : t("开启局域网访问")}
           </button>}
           {!listening && view?.local[mode].enabled && !access.operationBusy && <button type="button" onClick={refresh}>{t("刷新状态")}</button>}
         </>}
@@ -92,7 +97,7 @@ export function LocalConnectionSettings({ connection, busyChange }: { connection
       <p>{t("若旧线路已全部失效，或此设备没有管理权限，可在「连接状态与线路」中扫描二维码更新地址，保留原来的配对关系。")}</p>
       <p>{t("「本机已就绪」只表示这台主机的入口正常；其他设备仍需联网，Tailscale 也需保持连接。")}</p>
       <p>{t("首次开启或更新地址可能短暂重启主机，请先完成正在执行的任务。")}</p>
-      {allowed && view && !access.operationBusy && <button type="button" onClick={() => void access.prepare()}>{t("重新准备线路")}</button>}
+      {allowed && view && !selectionNeedsUpdate && !access.operationBusy && <button type="button" onClick={() => void access.prepare()}>{t("重新准备线路")}</button>}
     </details>
   </section>;
 }

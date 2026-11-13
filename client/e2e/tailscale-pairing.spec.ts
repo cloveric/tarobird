@@ -240,8 +240,9 @@ test("host addresses include the port, stay discoverable on reopen, and copy wit
 
 
 test("multiple LAN candidates require a choice before creating a QR or publishing a route", async ({ page }, testInfo) => {
-  await page.evaluate(() => {
+  await page.evaluate(keepTailscale => {
     const fixture = window.tailscaleFixture as any;
+    if (!keepTailscale) fixture.shared.splice(0);
     fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
     fixture.renderNetwork("pairing");
   });
@@ -274,8 +275,9 @@ test("multiple LAN candidates require a choice before creating a QR or publishin
 });
 
 test("network preparation waits for an explicit LAN choice and translates its prompt", async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(keepTailscale => {
     const fixture = window.tailscaleFixture as any;
+    if (!keepTailscale) fixture.shared.splice(0);
     fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
     fixture.renderNetwork();
   });
@@ -325,8 +327,9 @@ test("a partial readiness warning persists through publication and clears on a h
 
 
 test("a LAN choice can change while the host is reconnecting before publication starts", async ({ page }) => {
-  await page.evaluate(() => {
+  await page.evaluate(keepTailscale => {
     const fixture = window.tailscaleFixture as any;
+    if (!keepTailscale) fixture.shared.splice(0);
     fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
     fixture.state.networkStatus = "connecting";
     fixture.renderNetwork("pairing");
@@ -359,4 +362,50 @@ test("a sole surviving LAN candidate still requires consent when other candidate
   await selector.selectOption("0");
   await expect(page.getByRole("img", { name: "连接二维码", exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window.tailscaleFixture as any).networkCalls.length)).toBe(1);
+});
+
+for (const keepTailscale of [false, true]) for (const locale of ["zh", "en"] as const) test(`reopened LAN settings finish address selection (${locale}, Tailscale=${keepTailscale})`, async ({ page }) => {
+  await page.evaluate(keepTailscale => {
+    const fixture = window.tailscaleFixture as any;
+    if (!keepTailscale) fixture.shared.splice(0);
+    fixture.state.lanAddresses = ["192.168.50.2", "192.168.10.20"];
+    fixture.state.local.lan = { enabled: false, listening: false };
+    fixture.state.lanSelectionRequired = true;
+    fixture.renderSettings();
+  }, keepTailscale);
+  await page.getByRole("button", { name: "开启局域网访问", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: /^选择连接地址/ })).toHaveValue("-1");
+  await page.getByRole("button", { name: "关闭本机对外连接", exact: true }).click();
+  await page.evaluate(locale => { const f = window.tailscaleFixture as any; f.setLocale(locale); f.renderSettings(); }, locale);
+  const body = page.locator(".local-access-body");
+  const next = body.getByRole("button", { name: locale === "zh" ? "选择连接地址" : "Choose a connection address", exact: true });
+  await expect(next).toBeVisible();
+  await expect(page.getByText(locale === "zh" ? "本机入口已就绪" : "Host endpoint ready", { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls)).toEqual([]);
+  await next.click();
+  const selector = page.getByRole("combobox");
+  await expect(selector).toHaveValue("-1");
+  await selector.selectOption("1");
+  await expect.poll(() => page.evaluate(() => (window.tailscaleFixture as any).networkCalls.length)).toBe(1);
+  const ready = locale === "zh" ? "本机入口已就绪" : "Host endpoint ready";
+  await expect(body.getByText(ready, { exact: true })).toBeVisible();
+  await expect(body.locator("code").filter({ hasText: "https://192.168.10.20:8788" })).toBeVisible();
+  const routes = await page.evaluate(() => (window.tailscaleFixture as any).shared);
+  expect(routes[0].name).toBe(keepTailscale ? "Tailscale" : "Direct");
+  await page.getByRole("button", { name: "关闭本机对外连接", exact: true }).click();
+  await page.evaluate(() => (window.tailscaleFixture as any).renderSettings());
+  await expect(page.getByText(ready, { exact: true })).toBeVisible();
+  await expect(next).toHaveCount(0);
+});
+
+
+test("an older host with Tailscale explains manual pairing instead of repeating a LAN selection it cannot save", async ({ page }) => {
+  await page.evaluate(() => {
+    const f = window.tailscaleFixture as any;
+    f.state.lanSelectionRequired = true; f.state.selectionAvailable = false; f.renderSettings();
+  });
+  await expect(page.getByText(/此主机暂不支持同时保存局域网选择与 Tailscale/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "选择连接地址", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "重新准备线路", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => (window.tailscaleFixture as any).networkCalls)).toEqual([]);
 });

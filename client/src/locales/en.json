@@ -5230,5 +5230,11 @@
   "保存结果未确认或设置已变化，请重新读取后再操作。": "The save could not be confirmed, or settings changed. Reload before trying again.",
   "找不到引擎？检查 CLI 路径": "Engine missing? Check CLI paths",
   "主机的引擎路径设置无法读取。请主机所有者备份并检查主机数据目录中的 engine-settings.json（格式、所有者和访问权限），修复或恢复备份后重新读取；不要直接删除文件。已运行的 Bot 不受影响。": "The host engine path settings cannot be read. Ask the host owner to back up and inspect engine-settings.json in the host data directory (format, owner and permissions), repair it or restore a backup, then read again. Do not simply delete it. Running Bots are unaffected.",
-  "此前选择的模型或推理强度已不可用，请重新选择。": "The selected model or reasoning effort is no longer available. Please choose again."
+  "此前选择的模型或推理强度已不可用，请重新选择。": "The selected model or reasoning effort is no longer available. Please choose again.",
+  "待选择连接地址": "Select a connection address to continue",
+  "局域网已开启，请选择与另一台设备在同一网络的地址后继续。": "LAN access is on. Choose an address on the same network as the other device to continue.",
+  "新连接码包含不同的公网地址或证书。请先通过「更新主机地址」核对并保存，再扫描此连接码。": "The new code contains a different public address or certificate. Review and save it through Update host address before scanning this code again.",
+  "此主机暂不支持同时保存局域网选择与 Tailscale。请更新主机；也可在「添加设备」中生成局域网连接码手动配对。": "This host cannot yet save a LAN selection alongside Tailscale. Update the host, or generate a LAN code in Add device to pair manually.",
+  "所选地址已变化或尚未就绪，请重新准备线路并选择地址。": "The selected address has changed or is not ready. Prepare access again and choose an address.",
+  "CLI 路径有未保存的修改。请先在「找不到引擎？检查 CLI 路径」中保存或取消，再创建 Bot。": "The CLI path has unsaved changes. Save or cancel them under “Engine missing? Check CLI paths” before creating the Bot."
 }

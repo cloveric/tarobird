@@ -51,7 +51,7 @@ import { HostProfile } from "./host-profile.js";
 import { hostNameSchema } from "../client-protocol/host-profile.js";
 import { PrivateNetwork } from "./private-network.js";
 import { certificateAuthorityFromChain, lanInterfaceKey, HostRoutes, type ManagedListener } from "./host-routes.js";
-import { HOST_ROUTES_PATH } from "../client-protocol/host-routes.js";
+import { HOST_ROUTES_PATH, HOST_LAN_SELECTION_PATH, managedLanSelectionSchema } from "../client-protocol/host-routes.js";
 import { markDeviceNameAlias } from "./network-device-name.js";
 import { networkCommandSchema } from "../client-protocol/private-network.js";
 import { exchangeNetworkPeer, MAX_NETWORK_BYTES } from "./network-peer.js";
@@ -1718,6 +1718,12 @@ export class HubServer {
       }
       if (route === "/api/network" && req.method === "GET") {
         await requireOwner(); await reply(200, await this.network.view(validateInQueue)); return;
+      }
+      if (route === HOST_LAN_SELECTION_PATH && req.method === "POST") {
+        await requireOwner();
+        const input = managedLanSelectionSchema.parse(await this.jsonBody(req));
+        await this.hostRoutes.selectLan(input.route, validateInQueue);
+        await reply(200, await this.hostRoutes.view(validateInQueue)); return;
       }
       if (route === HOST_ROUTES_PATH && req.method === "GET") {
         await requireOwner(); await reply(200, await this.hostRoutes.view(validateInQueue)); return;

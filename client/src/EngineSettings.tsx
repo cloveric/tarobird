@@ -9,7 +9,7 @@ import { t, useLocale } from "./i18n.js";
 import "./engine-settings.css";
 
 const labels: Record<HostEngine, string> = { codex: "Codex", claude: "Claude Code", antigravity: "Antigravity", kimi: "Kimi", deepseek: "DeepSeek" };
-export function EngineSettings({ connection, active, onBusy, onDirty, onSaved }: { connection: HubConnection; active: boolean; onBusy?: (busy: boolean) => void; onDirty?: (dirty: boolean) => void; onSaved?: () => void }) {
+export function EngineSettings({ connection, active, onBusy, onDirty, onSaved, onDetected }: { connection: HubConnection; active: boolean; onBusy?: (busy: boolean) => void; onDirty?: (dirty: boolean) => void; onSaved?: () => void; /** Engines the host reported as present in a completed read (not a save). */ onDetected?: (available: HostEngine[]) => void }) {
   useLocale(); const host = useContext(RuntimeHostContext);
   const state = useSyncExternalStore(notify => connection.subscribe(notify), () => connection.state);
   const owner = state.user?.role === "owner", online = state.status === "online", supported = state.engineSettingsAvailable === true;
@@ -23,6 +23,8 @@ export function EngineSettings({ connection, active, onBusy, onDirty, onSaved }:
   }, [active, editing, busy]);
   const cancelEdit = () => { returnFocus.current = editing; setEditing(undefined); if (!needsRead) setError(""); };
   const flight = useRef<symbol | undefined>(undefined), generation = useRef(0);
+  // A read can finish after the parent re-rendered; always call its latest callback.
+  const detected = useRef(onDetected); detected.current = onDetected;
   const dirty = owner && supported && editing !== undefined && draft.trim() !== (view?.engines.find(engine => engine.id === editing)?.override ?? "");
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
   useEffect(() => { onDirty?.(dirty); return () => onDirty?.(false); }, [dirty, onDirty]);
@@ -31,7 +33,7 @@ export function EngineSettings({ connection, active, onBusy, onDirty, onSaved }:
   async function refresh() {
     if (flight.current || !owner || !online || !supported) return;
     const current = generation.current, token = Symbol(); flight.current = token; setBusy(true); setSaved(false);
-    try { const value = await read(); if (current !== generation.current) return; setView(value); setEditing(undefined); setError(""); setNeedsRead(false); }
+    try { const value = await read(); if (current !== generation.current) return; setView(value); setEditing(undefined); setError(""); setNeedsRead(false); detected.current?.(value.engines.filter(engine => engine.available).map(engine => engine.id)); }
     catch (cause) { if (current === generation.current) { setError(cause instanceof HubHttpError && cause.code === "engine_settings_unavailable" ? ENGINE_SETTINGS_REPAIR_HINT : "读取失败，请重新读取。"); setNeedsRead(true); } }
     finally { if (flight.current === token) { flight.current = undefined; if (current === generation.current) setBusy(false); } }
   }

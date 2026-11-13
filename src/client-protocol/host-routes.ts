@@ -5,6 +5,9 @@ import { localRoutesSchema, MAX_LOCAL_ROUTES, routeSchema, type Route } from "./
 /** Advertised in `ready.serverCapabilities` by Hubs that serve the owner-only
  * self-route view below. Older Hubs omit it; clients then keep their routes. */
 export const HOST_ROUTES_CAPABILITY = "host-routes.v1";
+export const HOST_LAN_SELECTION_CAPABILITY = "host-routes.select-lan.v1";
+export const HOST_LAN_SELECTION_PATH = "/api/network/host-routes/select-lan";
+export const managedLanSelectionSchema = z.object({ route: routeSchema }).strict();
 export const HOST_ROUTES_PATH = "/api/network/host-routes";
 
 /** `shared` routes are the host's signed single-direct descriptor (wire v2).

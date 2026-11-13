@@ -151,6 +151,12 @@ export type HostRoutesOptions = { store: HubStore; network: PrivateNetwork; publ
  * desktop mutex; performs DB work only and never a network exchange. */
 export class HostRoutes {
   private running?: Promise<void>;
+  private mutations: Promise<unknown> = Promise.resolve();
+  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.mutations.then(operation);
+    this.mutations = next.catch(() => undefined);
+    return next;
+  }
   private observedAt = 0;
   private readonly now: () => number;
   constructor(private readonly options: HostRoutesOptions) { this.now = options.now ?? Date.now; }
@@ -168,7 +174,32 @@ export class HostRoutes {
     return { lan: optIn.lan || listeners.some(listener => managedRouteMode(listener.host) === "lan"), tailscale: optIn.tailscale || listeners.some(listener => managedRouteMode(listener.host) === "tailscale") };
   }
   refresh(): Promise<void> {
-    return this.running ??= this.observe().finally(() => { this.running = undefined; });
+    return this.running ??= this.serialize(() => this.observe()).finally(() => { this.running = undefined; });
+  }
+  /** Owner choice among already-listening managed LAN routes. Never changes
+   * listeners, trust anchors, the signed directory or the shared Tailscale route. */
+  selectLan(raw: unknown, validate?: () => Promise<unknown>): Promise<void> {
+    return this.serialize(async () => {
+      const route = routeSchema.parse(raw);
+      await this.options.store.db.serial(async () => {
+        await validate?.();
+        const shared = await this.options.network.sharedRoutesInTransaction();
+        // An explicitly shared LAN stays authoritative. Read it under the same
+        // guard as the write so a concurrent owner command cannot be missed.
+        if (shared.some(item => item.name === "Direct" && managedRouteMode(new URL(item.url).hostname) === "lan"
+          && (item.url !== route.url || item.certificateAuthority !== route.certificateAuthority))) throw new HubError("managed_lan_shared_route_conflict", 409);
+        const match = this.options.listeners().find(listener => listener.listening
+          && managedRouteMode(listener.host) === "lan" && listener.authority
+          && route.name === "Direct" && managedOrigin(listener.host, listener.port) === route.url
+          && listener.authority === route.certificateAuthority);
+        if (!match) throw new HubError("managed_lan_route_unavailable", 409);
+        const record = await this.read(), now = this.now();
+        record.modes.lan = { route: managedRoute("lan", match), seen: 1, interfaceKey: match.interfaceKey };
+        record.changedAt = now; delete record.lanNeedsSelection;
+        await this.options.store.db.run("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [HOST_ROUTES_KEY, JSON.stringify(recordSchema.parse(record))]);
+        this.observedAt = now;
+      });
+    });
   }
   private async observe(): Promise<void> {
     const now = this.now(), listeners = this.options.listeners(), enabled = await this.enabled(listeners);

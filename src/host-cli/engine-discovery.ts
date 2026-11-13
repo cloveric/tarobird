@@ -16,9 +16,10 @@ function nvmDefault(root: string): string | undefined {
       try {
         const names = readdirSync(path.join(root, "versions/node"));
         if (names.length > 1024) return;
+        // nvm documents `stable` as an alias for `node`: the newest installed version.
         const prefix = alias.replace(/^v/, ""), any = alias === "node" || alias === "stable";
         const selected = names.filter(name => /^v\d+\.\d+\.\d+$/.test(name))
-          .filter(name => any ? alias !== "stable" || Number(name.split(".")[0]!.slice(1)) % 2 === 0 : name.slice(1) === prefix || name.slice(1).startsWith(`${prefix}.`))
+          .filter(name => any || name.slice(1) === prefix || name.slice(1).startsWith(`${prefix}.`))
           .sort((a, b) => { const aa = a.slice(1).split(".").map(Number), bb = b.slice(1).split(".").map(Number); return bb[0]! - aa[0]! || bb[1]! - aa[1]! || bb[2]! - aa[2]!; })[0];
         return selected ? path.join(root, "versions/node", selected, "bin") : undefined;
       } catch { return; }
@@ -28,13 +29,21 @@ function nvmDefault(root: string): string | undefined {
   }
 }
 
+/** fnm uses the first existing base directory: XDG data (also on macOS), then
+ * the legacy ~/.fnm, then macOS Application Support. Mirror that order instead
+ * of searching a directory fnm itself would not use. */
+function fnmDirectory(home: string, data: string, platform: NodeJS.Platform): string {
+  const candidates = [path.join(data, "fnm"), path.join(home, ".fnm"), ...(platform === "darwin" ? [path.join(home, "Library/Application Support/fnm")] : [])];
+  return candidates.find(directoryExists) ?? candidates[0]!;
+}
+
 /** Fallbacks follow the inherited PATH, preserving the operator's selection.
  * fnm's alias is a symlink to its installation; asdf/mise/Volta use stable shims. */
 export function discoverEngineDirectories(home: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] {
   if (platform === "win32") return [];
   const root = (key: string, fallback: string) => env[key] && path.posix.isAbsolute(env[key]!) && !/[\x00-\x1f\x7f:]/.test(env[key]!) ? env[key]! : fallback;
   const data = root("XDG_DATA_HOME", path.join(home, ".local/share"));
-  const fnm = root("FNM_DIR", platform === "darwin" && !env.XDG_DATA_HOME ? path.join(home, "Library/Application Support/fnm") : path.join(data, "fnm"));
+  const fnm = root("FNM_DIR", fnmDirectory(home, data, platform));
   const candidates = [
     path.join(root("VOLTA_HOME", path.join(home, ".volta")), "bin"),
     path.join(root("BUN_INSTALL", path.join(home, ".bun")), "bin"),

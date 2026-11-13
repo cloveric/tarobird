@@ -48,7 +48,12 @@ export function installExpandedIphoneKeyboardBar(
         }
         catch { report(); }
       }
-    } catch { report(); }
+    } catch {
+      // Loading failed before any native request. Bound retries to policy
+      // changes, just like native failures, using the latest folded/disposed state.
+      requested = desired;
+      report();
+    }
     finally { pending = false; }
   };
   const update = () => {

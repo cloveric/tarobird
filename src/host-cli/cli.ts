@@ -225,6 +225,7 @@ export const HOST_CLI_HELP = `TaroBird — 同一台主机，桌面与命令行�
     需运行新版主机并登记 CLI 控制器（tarobot enroll）；生成 5 分钟有效、仅限一台新设备的邀请。
   network status | create --name N | routes --from FILE --yes
   network local [--tailscale] [--json] 只读查看本机局域网/Tailscale 线路与共享线路
+  network select-lan --from FILE --yes 选择已监听的局域网线路，保留已共享的 Tailscale
   network offer --out FILE
   network propose --from OFFER --out PROPOSAL --yes
   network admit --from PROPOSAL --out ADMISSION --yes
@@ -304,7 +305,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     if (seenOptions.has(token.name) && !repeatable) throw new Error(`${command} 命令不能重复 --${token.name}。`);
     seenOptions.add(token.name);
   }
-  if (command === "network" && !v.help && !["local", "status", "inspect", "recover", "create", "offer", "routes", "propose", "admit", "join", "leave", "remove"].includes(sub ?? "")) throw new Error("未知 network 命令。请执行 tarobot network --help。");
+  if (command === "network" && !v.help && !["local", "select-lan", "status", "inspect", "recover", "create", "offer", "routes", "propose", "admit", "join", "leave", "remove"].includes(sub ?? "")) throw new Error("未知 network 命令。请执行 tarobot network --help。");
   if (v.help || !command || command === "help") { console.log(HOST_CLI_HELP); return; }
   if (extra.length) throw new Error("多余的位置参数。请执行 tarobot --help。");
   const commands = ["attachments", "screens", "workbench", "init", "run", "start", "stop", "restart", "status", "logs", "doctor", "enroll", "name", "drain", "drain-cancel", "service", "bots", "queue", "side", "tasks", "steer", "changes", "bus", "groups", "messages", "tickets", "widgets", "engines", "folders", "conversations", "devices", "pair", "network", "update", "backups", "backup", "restore", "directory", "integrations"];
@@ -645,7 +646,17 @@ export async function runHostCli(argv: string[]): Promise<void> {
     }
     if (!routes.length) throw new Error("尚无可分享线路。局域网用 pair --lan；已有 VPS / HTTPS 线路用 --routes FILE。");
     const service = await inspectHubService(directory); if (!service.running) throw new Error("请先启动主机。");
-    const invitation = await withHostManagement(directory, management => management.issuePairingInvite()).catch((error: unknown) => {
+    const invitation = await withHostManagement(directory, async management => {
+      if (v.lan && management.client.supports("host-routes.select-lan.v1")) {
+        // Record an additional managed LAN choice, without editing any signed
+        // route. A different already-shared LAN stays under `network routes`.
+        const network = new HostNetwork(management.client), view = await network.view();
+        const sharedLan = view.host.routes.find(route => route.name === "Direct" && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(new URL(route.url).hostname));
+        if (!sharedLan || sharedLan.url === routes[0]!.url && sharedLan.certificateAuthority === routes[0]!.certificateAuthority) await network.selectLan(routes[0]);
+        else console.error("已生成所选地址的连接码；原共享局域网线路保持不变。如需替换，请使用 network routes 明确更新。");
+      }
+      return management.issuePairingInvite();
+    }).catch((error: unknown) => {
       if (error instanceof Error && error.message === "pairing_invites_full") throw new Error("有效邀请或待确认设备过多。请用 tarobot devices invites 查看，再用 tarobot devices revoke-invite ID 撤销未使用的邀请，或等待 5 分钟后重试。");
       throw error;
     });
@@ -793,6 +804,9 @@ export async function runHostCli(argv: string[]): Promise<void> {
       const tailscale = v.tailscale ? await tailscaleDiagnostic([...new Set(addresses)]) : undefined;
       if (v.json) { await output({ ...local, ...(tailscale ? { tailscale } : {}) }); return; }
       console.log(formatLocalRoutes(local, tailscale)); return;
+    }
+    if (command === "network" && sub === "select-lan") {
+      yes(); await output(await new HostNetwork(management.client).selectLan(await readJson(required(v.from, "缺少线路文件 --from。")))); return;
     }
     if (command === "network") {
       const network = new HostNetwork(management.client), view = await network.view();

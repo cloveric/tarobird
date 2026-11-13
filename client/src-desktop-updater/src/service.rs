@@ -1019,32 +1019,45 @@ mod tests {
         std::fs::write(app.join("old"), "previous").unwrap();
         let running = std::fs::metadata(&app).unwrap().ino();
         // An observer stands in for Finder, Dock or a relaunch racing the update.
+        // A miss records the step in flight and the errno (CI once saw one).
+        const STEPS: [&str; 6] = ["prepare", "stage", "begin", "replace", "rollback", "drop"];
         let (stop, missing, looks) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let (step, misses) = (Arc::new(AtomicUsize::new(0)), Arc::new(std::sync::Mutex::new(Vec::<String>::new())));
         let observer = {
-            let (app, stop, missing, looks) = (app.clone(), stop.clone(), missing.clone(), looks.clone());
+            let (app, stop, missing, looks, step, misses) = (app.clone(), stop.clone(), missing.clone(), looks.clone(), step.clone(), misses.clone());
             std::thread::spawn(move || while !stop.load(Ordering::Relaxed) {
                 looks.fetch_add(1, Ordering::Relaxed);
-                if std::fs::symlink_metadata(&app).is_err() { missing.fetch_add(1, Ordering::Relaxed); }
+                if let Err(error) = std::fs::symlink_metadata(&app) {
+                    missing.fetch_add(1, Ordering::Relaxed);
+                    let mut misses = misses.lock().unwrap();
+                    if misses.len() < 8 { misses.push(format!("{} errno={:?}", STEPS[step.load(Ordering::Relaxed)], error.raw_os_error())); }
+                }
             })
         };
         for _ in 0..25 {
+            step.store(0, Ordering::Relaxed);
             let mut backup = AppBackup::at(&app).await.unwrap();
+            step.store(1, Ordering::Relaxed);
             let staged = backup.directory.join("staged.noindex/TaroBot.app");
             std::fs::create_dir_all(staged.join("Contents")).unwrap();
             std::fs::write(staged.join("new"), "next").unwrap();
             let next = std::fs::metadata(&staged).unwrap().ino();
+            step.store(2, Ordering::Relaxed);
             backup.begin().unwrap();
+            step.store(3, Ordering::Relaxed);
             replace(&backup, &staged).unwrap();
             assert_eq!(std::fs::metadata(&app).unwrap().ino(), next, "the verified staged bundle is installed in place");
             assert_eq!(std::fs::metadata(displaced(&backup)).unwrap().ino(), running, "the running bundle is retained");
+            step.store(4, Ordering::Relaxed);
             rollback(&mut backup, &staged).unwrap();
             assert_eq!(std::fs::metadata(&app).unwrap().ino(), running, "rollback restores the bundle that was running, not a copy");
+            step.store(5, Ordering::Relaxed);
             drop(backup);
         }
         stop.store(true, Ordering::Relaxed);
         observer.join().unwrap();
         assert!(looks.load(Ordering::Relaxed) > 0);
-        assert_eq!(missing.load(Ordering::Relaxed), 0, "the install path was observed missing");
+        assert_eq!(missing.load(Ordering::Relaxed), 0, "the install path was observed missing: {:?}", misses.lock().unwrap());
         assert_eq!(std::fs::read_to_string(app.join("old")).unwrap(), "previous");
         let leftovers = std::fs::read_dir(&root).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with(".tarobot-update-")).count();
         assert_eq!(leftovers, 0, "a completed rollback removes its backup");

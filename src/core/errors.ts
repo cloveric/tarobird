@@ -81,9 +81,16 @@ export function renderCoreUserFacingError(
   if (error instanceof EngineRecoveryExhaustedError) return locale === "en"
     ? "The model service is still unavailable and automatic recovery has ended. The conversation and completed work are preserved. Once the service recovers, send ‘continue’ to resume the unfinished task."
     : "模型服务仍未恢复，本轮自动恢复已结束。原会话和已完成的工作已保留；服务恢复后发送“继续”，即可接着处理未完成的任务。";
-  if (error instanceof EngineIncompleteResponseError && error.reason === "interrupted") return locale === "en"
-    ? "The engine ended this turn early; the answer may be incomplete. Review completed operations before continuing. The conversation is preserved and the request was not automatically replayed."
-    : "引擎提前结束了本轮，回答可能不完整。请先核对已执行的操作，再继续未完成的任务。原会话已保留，未自动重发请求。";
+  if (error instanceof EngineIncompleteResponseError && error.reason === "interrupted") {
+    // Keep the incomplete type non-retryable. Only a bounded explanation of
+    // authentication/quota is exposed; never print the engine's raw diagnostics.
+    const category = classifyFailure(new Error(error.message));
+    const cause = category === "auth" ? locale === "en" ? "Engine sign-in is missing or expired. Sign in on the host. " : "引擎尚未登录或登录已过期，请先在主机上完成登录。"
+      : category === "engine-quota" ? locale === "en" ? "The engine usage quota is exhausted. Wait for its reset or increase the account quota. " : "引擎额度已用尽，请等待额度恢复或增加账户额度。" : "";
+    return cause + (locale === "en"
+      ? "The engine ended this turn early; the answer may be incomplete. Review completed operations before continuing. The conversation is preserved and the request was not automatically replayed."
+      : "引擎提前结束了本轮，回答可能不完整。请先核对已执行的操作，再继续未完成的任务。原会话已保留，未自动重发请求。");
+  }
   if (error instanceof EngineIncompleteResponseError) return locale === "en"
     ? "The engine returned a placeholder instead of an answer; this turn is not confirmed complete. Prior tool effects may be unknown. Review the run before deciding whether to continue."
     : "引擎返回了占位内容，本轮未确认完成。已执行操作的结果可能仍不确定；请先查看运行过程，再决定是否继续。";

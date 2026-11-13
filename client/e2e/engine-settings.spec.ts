@@ -287,3 +287,118 @@ test("a disappeared model is shown as unavailable without changing approval pref
     await expect(permission).toHaveValue("full-auto");
   } finally { await f.dispose(); }
 });
+const openNewBot = async (page: Page) => {
+  await page.getByRole("button", { name: "新建", exact: true }).filter({ visible: true }).click();
+  await page.getByRole("button", { name: "新建 Bot", exact: true }).or(page.getByRole("menuitem", { name: "新建 Bot", exact: true })).click();
+};
+test("re-detecting a newly installed CLI inside a new Bot refreshes its engine list", async ({ page }) => {
+  const f = await fixture(page, false);
+  try {
+    await openNewBot(page);
+    await page.getByLabel("Bot 名称", { exact: true }).fill("Example Bot");
+    const engine = page.getByRole("combobox", { name: "引擎", exact: true }), create = page.getByRole("button", { name: "创建 Bot", exact: true });
+    const missing = page.getByText("此主机尚未检测到支持的 AI CLI", { exact: false });
+    await expect(missing).toBeVisible(); await expect(create).toBeDisabled();
+    await page.getByText("找不到引擎？检查 CLI 路径", { exact: true }).click();
+    const row = f.panel.getByRole("region", { name: "Codex", exact: true });
+    await expect(row).toContainText("未检测到 CLI");
+    // The owner installs the CLI on the host while this dialog stays open.
+    const cli = path.join(f.root, "codex"); await writeFile(cli, "fixture; never run"); await chmod(cli, 0o700);
+    await f.panel.getByRole("button", { name: "重新检测", exact: true }).click();
+    await expect(row).toContainText("已检测到 CLI");
+    await expect(engine.locator("option[value=codex]")).toBeEnabled();
+    await expect(missing).toHaveCount(0);
+    await expect(engine).toHaveValue("codex");
+    await expect(page.getByLabel("Bot 名称", { exact: true })).toHaveValue("Example Bot");
+    await expect(create).toBeEnabled();
+  } finally { await f.dispose(); }
+});
+test("an engine detected on opening the path section keeps the engine and model already chosen", async ({ page }) => {
+  const f = await fixture(page, false);
+  try {
+    await f.hub.engineSettings.update({ engine: "codex", path: f.executable, requestId: "seed", revision: "default" }, apply => apply());
+    await openNewBot(page);
+    await page.getByLabel("Bot 名称", { exact: true }).fill("Example Bot");
+    const engine = page.getByRole("combobox", { name: "引擎", exact: true }), model = page.getByRole("combobox", { name: "模型", exact: true });
+    await expect(engine).toHaveValue("codex"); await expect(engine.locator("option[value=kimi]")).toBeDisabled();
+    const initial = await model.inputValue();
+    const alternatives = await model.locator("option").evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
+    await model.selectOption(alternatives.find(value => value !== "" && value !== initial) ?? alternatives[0]);
+    const chosen = await model.inputValue(); expect(chosen).not.toBe(initial);
+    const cli = path.join(f.root, "kimi"); await writeFile(cli, "fixture; never run"); await chmod(cli, 0o700);
+    // Opening the section reads the host; no path is edited or saved.
+    await page.getByText("找不到引擎？检查 CLI 路径", { exact: true }).click();
+    await expect(f.panel.getByRole("region", { name: "Kimi", exact: true })).toContainText("已检测到 CLI");
+    await expect(engine.locator("option[value=kimi]")).toBeEnabled();
+    await expect(engine).toHaveValue("codex"); await expect(model).toHaveValue(chosen);
+    await expect(page.getByRole("button", { name: "创建 Bot", exact: true })).toBeEnabled();
+    expect(f.hub.engineSettings.status().engines.find(item => item.id === "kimi")?.override).toBeNull();
+  } finally { await f.dispose(); }
+});
+test("an unsaved path draft explains why creating is unavailable, also after its section is collapsed", async ({ page }) => {
+  const f = await fixture(page, false);
+  try {
+    await f.hub.engineSettings.update({ engine: "codex", path: f.executable, requestId: "seed", revision: "default" }, apply => apply());
+    await openNewBot(page);
+    await page.getByLabel("Bot 名称", { exact: true }).fill("Example Bot");
+    const create = page.getByRole("button", { name: "创建 Bot", exact: true }); await expect(create).toBeEnabled();
+    const reason = page.getByText("CLI 路径有未保存的修改", { exact: false }); await expect(reason).toHaveCount(0);
+    const summary = page.getByText("找不到引擎？检查 CLI 路径", { exact: true }); await summary.click();
+    const row = f.panel.getByRole("region", { name: "Claude Code", exact: true });
+    await row.getByRole("button", { name: "指定路径", exact: true }).click();
+    await row.getByLabel("Claude Code CLI 程序路径").fill("/opt/tools/claude-draft");
+    await expect(create).toBeDisabled(); await expect(reason).toBeVisible();
+    await summary.click(); // collapsed: the draft stays mounted but hidden
+    await expect(page.getByLabel("Claude Code CLI 程序路径")).toBeHidden();
+    await expect(create).toBeDisabled(); await expect(reason).toBeVisible();
+    const described = await create.getAttribute("aria-describedby");
+    expect(described).toBeTruthy(); await expect(page.locator(`[id="${described}"]`)).toContainText("CLI 路径有未保存的修改");
+    await summary.click();
+    await row.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(reason).toHaveCount(0); await expect(create).toBeEnabled();
+    expect(await create.getAttribute("aria-describedby")).toBeNull();
+  } finally { await f.dispose(); }
+});
+test("a path saved after a failed first engine read still applies the engine defaults", async ({ page }) => {
+  const f = await fixture(page, false);
+  try {
+    await f.hub.engineSettings.update({ engine: "codex", path: f.executable, requestId: "seed", revision: "default" }, apply => apply());
+    const engine = page.getByRole("combobox", { name: "引擎", exact: true }), model = page.getByRole("combobox", { name: "模型", exact: true }), effort = page.getByRole("combobox", { name: "推理强度（effort）", exact: true });
+    await openNewBot(page);
+    await expect(engine).toHaveValue("codex"); await expect(model.locator("option")).not.toHaveCount(0);
+    const defaults = { model: await model.inputValue(), effort: await effort.inputValue() };
+    await page.keyboard.press("Escape"); await expect(engine).toHaveCount(0);
+    let fail = true;
+    await page.route("**/api/bots/catalog", route => fail ? route.fulfill({ status: 500, json: { error: "fixture" } }) : route.continue());
+    await openNewBot(page);
+    await expect(page.getByText("暂时无法读取可用引擎，请重试。", { exact: true })).toBeVisible();
+    fail = false;
+    await page.getByText("找不到引擎？检查 CLI 路径", { exact: true }).click();
+    const row = f.panel.getByRole("region", { name: "Kimi", exact: true });
+    await row.getByRole("button", { name: "指定路径", exact: true }).click();
+    await row.getByLabel("Kimi CLI 程序路径").fill(f.executable); await row.getByLabel("Kimi CLI 程序路径").press("Enter");
+    await expect(f.panel.getByText("已保存并核实。", { exact: true })).toBeVisible();
+    await expect(engine).toHaveValue("codex"); await expect(engine.locator("option[value=kimi]")).toBeEnabled();
+    await expect(model).toHaveValue(defaults.model); await expect(effort).toHaveValue(defaults.effort);
+  } finally { await f.dispose(); }
+});
+test("a detection during an uncertain creation does not reload the engine list under the frozen request", async ({ page }) => {
+  const f = await fixture(page, false);
+  try {
+    await f.hub.engineSettings.update({ engine: "codex", path: f.executable, requestId: "seed", revision: "default" }, apply => apply());
+    let catalogReads = 0; page.on("request", request => { if (request.url().endsWith("/api/bots/catalog")) catalogReads++; });
+    await openNewBot(page);
+    await page.getByLabel("Bot 名称", { exact: true }).fill("Example Bot");
+    const engine = page.getByRole("combobox", { name: "引擎", exact: true }); await expect(engine).toHaveValue("codex");
+    await page.route("**/api/bots", route => route.request().method() === "POST" ? route.abort("failed") : route.continue());
+    await page.getByRole("button", { name: "创建 Bot", exact: true }).click();
+    const retry = page.getByRole("button", { name: "重试创建", exact: true }); await expect(retry).toBeEnabled();
+    const before = catalogReads;
+    const cli = path.join(f.root, "kimi"); await writeFile(cli, "fixture; never run"); await chmod(cli, 0o700);
+    await page.getByText("找不到引擎？检查 CLI 路径", { exact: true }).click();
+    await expect(f.panel.getByRole("region", { name: "Kimi", exact: true })).toContainText("已检测到 CLI");
+    await page.waitForTimeout(500);
+    expect(catalogReads).toBe(before);
+    await expect(engine).toHaveValue("codex"); await expect(retry).toBeEnabled();
+  } finally { await f.dispose(); }
+});

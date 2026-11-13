@@ -23,6 +23,7 @@ export type HostSpec = {
   pairingInvitesAvailable?: boolean;
   inviteTtl?: number;
   holdInvite?: boolean;
+  holdNetwork?: boolean;
   status?: "online" | "offline" | "connecting";
   role?: "owner" | "member";
   hostRoutesAvailable?: boolean;
@@ -71,7 +72,7 @@ mockIPC(async (command, args) => {
 
 function fake(label: string, spec: HostSpec): Fake {
   const listeners = new Set<() => void>(), waiting: (() => void)[] = [];
-  let failures = spec.failures ?? 0, hold = !!spec.hold, holdInvite = !!spec.holdInvite;
+  let failures = spec.failures ?? 0, hold = !!spec.hold, holdInvite = !!spec.holdInvite, holdNetwork = !!spec.holdNetwork;
   const invites = new Map<string, { id: string; invite: string; createdAt: number; expiresAt: number; state: string }>();
   const connection = {
     identity: { deviceId: `device-${label}`, hubPublicKey: spec.key, routes: spec.identityRoutes ?? [{ name: "Direct", url: "https://127.0.0.1:8788" }], deployment: "computer" },
@@ -106,11 +107,11 @@ function fake(label: string, spec: HostSpec): Fake {
       return { v: 1, hostPublicKey: view.hostPublicKey ?? spec.key, routes: view.routes, local: { lan: view.lan ?? { enabled: false, listening: false }, tailscale: view.tailscale ?? { enabled: false, listening: false } }, notices: view.notices ?? [], observedAt: Date.now() };
     },
     async refreshNetwork() { log.network.push({ host: label, operation: "refresh" }); return connection.state.network; },
-    async networkCommand(command: { operation: string }) { log.network.push({ host: label, operation: command.operation }); return { view: connection.state.network }; },
+    async networkCommand(command: { operation: string }) { log.network.push({ host: label, operation: command.operation }); if (holdNetwork) await new Promise<void>(resolve => waiting.push(resolve)); return { view: connection.state.network }; },
   };
   return {
     connection: connection as unknown as HubConnection,
-    release() { hold = false; holdInvite = false; waiting.splice(0).forEach(resolve => resolve()); },
+    release() { hold = false; holdInvite = false; holdNetwork = false; waiting.splice(0).forEach(resolve => resolve()); },
     update(patch) { connection.state = { ...connection.state, ...patch } as typeof connection.state; listeners.forEach(listener => listener()); },
   };
 }

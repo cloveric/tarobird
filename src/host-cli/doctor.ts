@@ -51,7 +51,13 @@ export async function inspectHost(directory: string, env: NodeJS.ProcessEnv = pr
       const value = lookup(key);
       if (value && path.isAbsolute(value) && !/[\x00-\x1f\x7f]/.test(value)) fallback[key] = value;
     }
-    engines = inspectEngines(buildHostEnvironment({ env: fallback }));
+    // The fallback still applies the Host's saved paths: reporting a different
+    // program than the Host would start, or hiding a damaged file, is a silent fallback.
+    try { engines = inspectEngines(hostEngineEnvironment(directory, buildHostEnvironment({ env: fallback }))); }
+    catch (settingsError) {
+      if (!(settingsError instanceof Error && settingsError.message === "engine_settings_unavailable")) throw settingsError;
+      engines = []; environmentCheck = { ...environmentCheck, hint: ENGINE_SETTINGS_REPAIR_HINT };
+    }
     }
   }
   let database: { schema?: number; bots?: number; pendingMessages?: number; network?: { id: string; name: string; hosts: number } } | undefined;

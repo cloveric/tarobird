@@ -15,9 +15,9 @@
     },
     {
       "path": "client/e2e/device-invite.spec.ts",
-      "sha256": "19ffe150eb59e242476c9b27eae72d550eb32855d89a4d63648dd1ffa68b3d50",
+      "sha256": "66f6e74fc591616a4d1776488efcc97042239a6137d7e4a8cf7ec8b4cdce41ef",
       "reviewer": "codex",
-      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -27,9 +27,9 @@
     },
     {
       "path": "client/e2e/fixtures/device-invite.tsx",
-      "sha256": "6aceb384aa8ae4cd625cd1c71f048e34f674014bf86e4cb3167cc937b3d7f951",
+      "sha256": "a2fbee94a1114bf8e3817565201e3d01b875011f9807fc87582fb1902eb6588a",
       "reviewer": "codex",
-      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -79,9 +79,9 @@
     },
     {
       "path": "client/e2e/fixtures/tailscale-pairing.tsx",
-      "sha256": "9ed520ac3bf8aeb914c638239a2d6f77425db6c94223224dade9da19417391cc",
+      "sha256": "343f0a46089e4e179efa0fccdd146d27c21b82cdf1917284c68408b275e14f99",
       "reviewer": "codex",
-      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -191,9 +191,9 @@
     },
     {
       "path": "client/e2e/tailscale-pairing.spec.ts",
-      "sha256": "b9f3f323bbe1f272cd306c3d4cd1bc05750958856b4dc12fc356adb9baf72f24",
+      "sha256": "100c1ba49796b9d154a7ddc0018e712afb413d8ff7cfdf79b42c6e1caf6dd68d",
       "reviewer": "codex",
-      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -799,9 +799,9 @@
     },
     {
       "path": "tests/client-multipath-routes.test.ts",
-      "sha256": "210bf76374c743b995066635c41e02569342638ae39e2acb67a4711abd1c396d",
+      "sha256": "e8d5e53bc9a917f8c07ffc1df8d41643019553205e27de171ec6c7716173ea35",
       "reviewer": "codex",
-      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -810,6 +810,10 @@
         {
           "kind": "non-example-public-ip",
           "fingerprint": "63246b8fde0d7ce1f3ac7fdbf4b6c5e9aa9bd23d2d8156036cd57e4ce9308edb"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
         }
       ]
     },
@@ -927,10 +931,14 @@
     },
     {
       "path": "tests/host-cli-day-audit.test.ts",
-      "sha256": "b8b4bfcd5f0b35086d9d2e7b2b8aacb9a6bbf170ab15b843a9b44c1bb06b704f",
+      "sha256": "0411752d0363143de4ef7e30f7c6dba716e0e71b5ff91d6334251e460f8eefbd",
       "reviewer": "codex",
-      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "b561751746c6b986134f7802acf540666c18c1f35cbcb132a55f9a98e1a4a23a"
+        },
         {
           "kind": "non-example-public-ip",
           "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
@@ -1027,9 +1035,9 @@
     },
     {
       "path": "tests/hub-host-routes.test.ts",
-      "sha256": "628c02f73fad31dd194378a88a2aeef02ac85c35c1786e4783c62079fb71505d",
+      "sha256": "cb157750a1483b0320c667a5b4f9af0ec7315ad61b8ccbc07dbfe2da49c6fe76",
       "reviewer": "codex",
-      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -1318,6 +1326,18 @@
         {
           "kind": "non-example-public-ip",
           "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-network-command.test.ts",
+      "sha256": "a88d4718d5256a5f3fe5999a7ba482fc65e66d5be977b61c140101cf4ae8fee3",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
         }
       ]
     }

@@ -30,26 +30,40 @@ test("pending pairing survives a reload and enters chats only after authenticate
   } finally { await page.close(); await hub.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
-test("expired enrollment renews the same device key without losing the host", async ({ page }) => {
+for (const moved of [false, true]) test(`expired enrollment renews the same device key (moved LAN=${moved})`, async ({ page }) => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "pair-renew-"));
   const hub = await HubServer.start({ stateDir: dir, clientDir: path.resolve("dist") });
   try {
     let requests = 0;
-    await page.route("**/api/pair", async route => {
-      requests++; const response = await route.fetch(); const body = await response.json();
-      await route.fulfill({ response, json: { ...body, expiresAt: requests === 1 ? Date.now() + 1000 : body.expiresAt } });
+    const replacement = "https://192.168.10.77:8788", former = "https://192.168.10.76:8788";
+    if (moved) await page.route(/^https:\/\/192\.168\.10\.(76|77):8788\//, async route => {
+      const response = await route.fetch({ url: hub.url + new URL(route.request().url()).pathname });
+      await route.fulfill({ response, headers: { ...response.headers(), "access-control-allow-origin": "*" } });
     });
-    await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    // Private addresses are HTTP proxies only in this fixture. Reject their
+    // sockets immediately so approval reconnects through the retained local
+    // relay, without touching a real LAN or waiting for an OS socket timeout.
+    if (moved) await page.routeWebSocket(/^wss:\/\/192\.168\.10\.(76|77):8788\//, socket => socket.close());
+    const pairUrls: string[] = [];
+    await page.route("**/api/pair", async route => {
+      requests++; pairUrls.push(route.request().url());
+      // The former LAN address is no longer reachable after the host moves.
+      if (moved && requests > 1 && !route.request().url().startsWith(replacement)) { await route.abort("connectionrefused"); return; }
+      const response = await route.fetch({ url: hub.url + "/api/pair" }); const body = await response.json();
+      await route.fulfill({ response, headers: { ...response.headers(), "access-control-allow-origin": "*" }, json: { ...body, expiresAt: requests === 1 ? Date.now() + 1000 : body.expiresAt } });
+    });
+    await page.goto(hub.url); await preparePairing(page, hub, moved ? [{ name: "Direct", url: former, certificateAuthority: "A".repeat(120) }, { name: "VPS", url: hub.url }] : undefined); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
     const code = await page.getByLabel("配对码", { exact: true }).innerText();
     const before = await hub.store.db.get<{ device_id: string; public_key: string }>("SELECT device_id,public_key FROM pairing_requests WHERE status='pending'");
     await hub.store.db.run("UPDATE pairing_requests SET expires_at=?", [Date.now() - 1]);
     const invitation = await fixtureInvitation(hub);
     await page.getByRole("button", { name: "扫描新的连接码", exact: true }).click();
     await page.getByRole("button", { name: "粘贴配对信息", exact: true }).click();
-    await page.getByLabel("配对信息", { exact: true }).fill(pairingLink({ v: 1, kind: "connect", hubPublicKey: hub.auth.publicKey, routes: [{ name: "Direct", url: hub.url }], invite: invitation.invite }));
+    await page.getByLabel("配对信息", { exact: true }).fill(pairingLink({ v: 1, kind: "connect", hubPublicKey: hub.auth.publicKey, routes: [{ name: "Direct", url: moved ? replacement : hub.url, ...(moved ? { certificateAuthority: "A".repeat(120) } : {}) }], invite: invitation.invite }));
     await page.getByRole("button", { name: "使用配对信息", exact: true }).click();
     await expect(page.getByLabel("配对码", { exact: true })).not.toHaveText(code);
     expect(await hub.store.db.get("SELECT device_id,public_key FROM pairing_requests WHERE status='pending'")).toEqual(before);
+    expect(pairUrls.at(-1)).toBe((moved ? replacement : hub.url) + "/api/pair");
     await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
     await expect(page.getByLabel("配对码", { exact: true })).toHaveCount(0, { timeout: 15_000 });
     expect((await hub.store.devices("owner")).find(device => device.id !== "pairing_fixture_owner")?.id).toBe(before?.device_id);

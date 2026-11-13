@@ -159,3 +159,26 @@ it("retains worker errors when a damaged settings file prevents automatic restar
     expect(manager.serviceStatus(bot.id).text).toContain("fixture stderr before restart");
   } finally { await manager.close(); await hub.close(); }
 });
+
+it("reports damaged engine settings, not a stopping Hub, when a stopped Bot is restarted", async () => {
+  const f = await fixture(); await initializeHost(f.root, "Restart fixture");
+  const entrypoint = path.join(f.root, "worker-restart.cjs");
+  await writeFile(entrypoint, `setInterval(() => {}, 1000); process.on('message', message => { if (message.type === 'shutdown.now') process.exit(0); });`);
+  const hub = await HubServer.start({ stateDir: f.root });
+  const manager = new BotManager(hub.store, f.root, { entrypoint, env: { ...f.env, TAROBOT_MODEL_DISCOVERY: "0" } }, () => hub.instanceUrl, async () => {});
+  try {
+    const bot = await manager.create("owner", { requestId: "restart", name: "Fixture", engine: "codex", model: "", effort: "", workspace: "" });
+    await vi.waitFor(() => expect((manager as any).children.get(bot.id)?.pid).toBeTruthy());
+    await writeFile(engineSettingsFile(f.root), "broken", { mode: 0o600 });
+    (manager as any).children.get(bot.id).kill();
+    await vi.waitFor(() => expect(manager.serviceStatus(bot.id).text).toContain("Engine path settings are unavailable"), { timeout: 5000 });
+    expect(await manager.restart(bot.id)).toEqual({ ok: false, error: "engine_settings_unavailable" });
+    // The automatic retry stays armed, and the worker log keeps the reason.
+    expect((manager as any).timers.has(bot.id)).toBe(true);
+    expect(manager.serviceStatus(bot.id).text).toContain("Engine path settings are unavailable");
+    // Once the owner repairs the file, the same manual restart starts the Bot.
+    await rm(engineSettingsFile(f.root));
+    expect(await manager.restart(bot.id)).toMatchObject({ ok: true });
+    await vi.waitFor(() => expect((manager as any).children.get(bot.id)?.pid).toBeTruthy());
+  } finally { await manager.close(); await hub.close(); }
+});

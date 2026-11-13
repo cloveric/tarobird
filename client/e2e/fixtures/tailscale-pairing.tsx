@@ -8,7 +8,7 @@ import { LocalConnectionSettings } from "../../src/LocalConnectionSettings.js";
 import { DesktopHostInvite } from "../../src/DesktopHostInvite.js";
 import { CreationDialog as FlowDialog } from "../../src/CreationDialog.js";
 import { setLocale } from "../../src/i18n.js";
-import { HOST_ROUTES_PATH } from "../../../src/client-protocol/host-routes.js";
+import { HOST_ROUTES_PATH, HOST_LAN_SELECTION_PATH } from "../../../src/client-protocol/host-routes.js";
 import { inviteApiFixture } from "./invite-api.js";
 import "../../src/styles.css";
 import "../../src/brand-theme.css";
@@ -25,7 +25,7 @@ const invites = inviteApiFixture();
 const inviteConnection = { identity: { deviceId: "tailscale-fixture", hubPublicKey: key },
   state: { status: "online", user: { role: "owner" }, pairingInvitesAvailable: true, networkAvailable: false },
   subscribe: () => () => {}, http: invites.http } as unknown as HubConnection;
-const state = { calls: [] as string[], lanAddresses: ["192.168.10.20"], unavailableRouteCount: 0, networkStatus: "online" as "online" | "connecting", fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
+const state = { calls: [] as string[], lanAddresses: ["192.168.10.20"], unavailableRouteCount: 0, networkStatus: "online" as "online" | "connecting", fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, lanSelectionRequired: false, selectionAvailable: true, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
 mockIPC(async (command, args) => {
   if (command !== "desktop_host") throw Error("unexpected_command");
   const action = String(args?.action); state.calls.push(action);
@@ -51,21 +51,28 @@ const renderNetwork = (purpose: "pairing" | "network" = "network") => {
   root.render(<FlowDialog title="本机连接" close={() => root.render(null)}><DesktopHostInvite key="network" hubKey={key} connection={connection} purpose={purpose}/></FlowDialog>);
 };
 const settingsConnection = {
-  identity: { hubPublicKey: key }, state: { status: "online", user: { role: "owner" }, hostRoutesAvailable: true, networkAvailable: true },
+  identity: { hubPublicKey: key }, state: { status: "online", user: { role: "owner" }, hostRoutesAvailable: true, hostLanSelectionAvailable: true, networkAvailable: true },
   subscribe: () => () => {},
-  http: async () => { ++state.reads; if (state.statusFail) throw Error("read_failed"); return { v: 1, hostPublicKey: state.statusWrongHost ? "other-host" : key,
-    routes: [{ source: "shared", route: shared[0] }, { source: "managed", route: { name: "Direct", url: "https://192.168.10.20:8788" } }], local: state.local, notices: [], observedAt: Date.now() }; },
+  http: async (path: string, init?: RequestInit) => {
+    if (path === HOST_LAN_SELECTION_PATH) {
+      if (init?.method !== "POST") throw Error("unexpected_method");
+      const { route } = JSON.parse(String(init.body));
+      if (!state.lanAddresses.some(address => route.url === `https://${address}:8788`) || route.certificateAuthority !== state.certificateAuthority) throw Error("managed_lan_route_unavailable");
+      state.lanSelectionRequired = false;
+    }
+    ++state.reads; if (state.statusFail) throw Error("read_failed"); return { v: 1, hostPublicKey: state.statusWrongHost ? "other-host" : key,
+    routes: [...(shared[0] ? [{ source: "shared", route: shared[0] }] : []), ...(state.lanSelectionRequired || shared.some(route => route.url === "https://192.168.10.20:8788") ? [] : [{ source: "managed", route: { name: "Direct", url: "https://192.168.10.20:8788", certificateAuthority: state.certificateAuthority } }])], local: state.local, notices: state.local.lan.enabled && state.lanSelectionRequired ? ["lan_selection_required"] : [], observedAt: Date.now() }; },
   refreshNetwork: async () => ({ host: { routes: shared } }),
-  networkCommand: async (command: { routes: Route[] }) => { networkCalls.push(command); if (holdRoutes) await new Promise<void>(resolve => { routeRelease = resolve; }); }
+  networkCommand: async (command: { routes: Route[] }) => { networkCalls.push(command); if (holdRoutes) await new Promise<void>(resolve => { routeRelease = resolve; }); shared.splice(0, shared.length, ...command.routes); if (command.routes.some(route => route.name === "Direct")) state.lanSelectionRequired = false; }
 } as unknown as HubConnection;
 function SettingsDialog() {
   const [busy, setBusy] = useState(false);
   return <FlowDialog title="局域网与 Tailscale" busy={busy} closeLabel="关闭本机对外连接" close={() => root.render(null)}><LocalConnectionSettings connection={settingsConnection} busyChange={setBusy}/></FlowDialog>;
 }
-const renderSettings = () => { settingsConnection.state.hostRoutesAvailable = !state.legacy; root.render(<SettingsDialog/>); };
+const renderSettings = () => { settingsConnection.state.hostRoutesAvailable = !state.legacy; settingsConnection.state.hostLanSelectionAvailable = state.selectionAvailable; root.render(<SettingsDialog/>); };
 // Exercise the same bounded pixel samplers as a real imported pairing image.
 const decode = async () => {
   const image = document.querySelector(".pair-qr") as HTMLImageElement;
   return await decodeQrImage(image.src, () => true);
 };
-Object.assign(window, { tailscaleFixture: { state, invites, render, renderNetwork, renderSettings, networkCalls, decode, setLocale, setNetworkStatus(status: "online" | "connecting") { networkConnection!.state = { ...networkConnection!.state, status }; networkListeners.forEach(listener => listener()); }, holdRoutes() { holdRoutes = true; }, releaseRoutes() { holdRoutes = false; routeRelease?.(); } } });
+Object.assign(window, { tailscaleFixture: { state, shared, invites, render, renderNetwork, renderSettings, networkCalls, decode, setLocale, setNetworkStatus(status: "online" | "connecting") { networkConnection!.state = { ...networkConnection!.state, status }; networkListeners.forEach(listener => listener()); }, holdRoutes() { holdRoutes = true; }, releaseRoutes() { holdRoutes = false; routeRelease?.(); } } });

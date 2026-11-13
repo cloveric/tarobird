@@ -6,6 +6,7 @@ import { CollaborationPanel } from "./CollaborationPanel.js";
 import { BotDashboard } from "./BotDashboard.js";
 import { DiagnosticsPanel } from "./DiagnosticsPanel.js";
 import { t, useLocale } from "./i18n.js";
+import { ENGINE_SETTINGS_REPAIR_HINT } from "../../src/client-protocol/engine-settings.js";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { HubConnection, Bot } from "./connection.js";
 type Usage = { totalInputTokens: number; totalOutputTokens: number; totalCostUsd: number; requestCount: number; unmeteredRequestCount?: number };
@@ -19,6 +20,7 @@ function operationError(message: string): string {
     case "restart_confirmation_unavailable":
     case "operation_interrupted": return t("重启结果尚未确认。请先检查服务状态，再决定是否重试。");
     case "operation_failed": return t("操作失败，请查看服务详情后再试。");
+    case "engine_settings_unavailable": return t(ENGINE_SETTINGS_REPAIR_HINT);
     default: return message;
   }
 }

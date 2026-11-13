@@ -39,6 +39,18 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
   const [deployment, setDeployment] = useState<Deployment>(), [legacyDirect, setLegacyDirect] = useState<Route>();
   const [address, setAddress] = useState(nativePlatform() === "web" && location.origin.startsWith("http") ? location.origin : ""), [relays, setRelays] = useState<Route[]>([]);
   const [name, setName] = useState(() => defaultDeviceName(platform));
+  const pairButton = useRef<HTMLButtonElement>(null), imported = useRef(false);
+  useEffect(() => {
+    if (scan || !imported.current) return;
+    imported.current = false;
+    // The scanner restores its previous focus while closing. Reveal the next
+    // explicit action afterwards, without opening the keyboard or submitting.
+    const frame = requestAnimationFrame(() => {
+      pairButton.current?.focus({ preventScroll: true });
+      pairButton.current?.scrollIntoView({ block: "nearest", behavior: "instant" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [scan]);
   const [createdIdentity, setIdentity] = useState<Identity>(), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const identity = createdIdentity ?? pendingConnection?.identity;
   const joiningDesktop = desktop && (localHostReady || !!preparedLocal);
@@ -113,7 +125,8 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
     const expected = { requestId: request.requestId, code: identity.pendingPairing!.code };
     admission.current = true; setBusy(true); setError(""); setRequestError(undefined);
     try {
-      const routes = [pendingConnection.state.route, ...orderedRoutes(identity.routes)].filter((route): route is Route => !!route);
+      const active = identity.routes.find(route => route.url === pendingConnection.state.route?.url && route.certificateAuthority === pendingConnection.state.route?.certificateAuthority);
+      const routes = [active, ...orderedRoutes(identity.routes)].filter((route): route is Route => !!route);
       let next: PendingPairing | undefined, failure: unknown;
       for (const route of routes.filter((route, index) => routes.findIndex(other => other.url === route.url) === index)) {
         try { next = await requestPair(identity, route, identity.hubPublicKey, request); break; }
@@ -183,7 +196,7 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
         <button type="button" className="pairing-scan full" disabled={busy} onClick={() => { setInputMode("image"); setScan(true); }}><ImagePlus size={18}/>{t("导入二维码图片")}</button>
         <button type="button" className="pairing-scan full" disabled={busy} onClick={(event) => { event.currentTarget.focus(); setInputMode("scan"); setScan(true); }}><QrCode size={20} aria-hidden="true"/>{t("扫描连接二维码")}</button>
         </div>
-        {expectedKey && <div className="pairing-import"><Monitor size={18}/><div><strong>{t("已读取主机信息")}</strong><p className="muted">{address ? new URL(address).hostname : t("VPS 中转")}</p></div><button type="button" disabled={busy} onClick={() => { setInputMode("text"); setScan(true); }}>{t("更换连接信息")}</button></div>}
+        {expectedKey && <div className="pairing-import" role="status"><Monitor size={18}/><div><strong>{t("已读取主机信息")}</strong><p className="muted">{address ? new URL(address).hostname : t("VPS 中转")}</p></div><button type="button" disabled={busy} onClick={() => { setInputMode("text"); setScan(true); }}>{t("更换连接信息")}</button></div>}
         {expectedKey && (tailscaleRoute || lanRoute) && <p className="pairing-route-hint">{tailscaleRoute ? t("此连接使用 Tailscale。这台电脑也需连接同一 Tailscale 网络，并允许访问目标主机；仅复制地址不会自动建立连接。") : t("此连接包含局域网地址。人在外面时需有可用的 Tailscale 或 VPS 线路；家里的 Wi-Fi 地址通常无法从外部直接访问。")}</p>}
         {(manual || expectedKey) && <>
           <label>{t("设备名称")}<input value={name} required maxLength={100} disabled={busy} aria-describedby="pairing-device-name-help" onChange={(e) => setName(e.target.value)}/></label><p id="pairing-device-name-help" className="settings-note muted">{t("确认一个其他设备也能认出的名称，例如 MacBook Pro 或 vivo 手机。")}</p>
@@ -193,7 +206,7 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
             {usesPinnedTransport() && !expectedKey && <label>{t("主机身份公钥")}<input disabled={busy} value={manualKey} maxLength={120} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(e) => setManualKey(e.target.value)} placeholder="MCowBQYDK2VwAyEA…"/></label>}
             <details className="pairing-options" open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)}><summary>{t("连接选项与备用中转（可选）")}</summary>{optionsOpen && <Suspense fallback={null}><PairingRouteOptions relays={relays} busy={busy} setRelays={setRelays}/></Suspense>}</details>
           </details>
-          <button className="primary full" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17}/> : <ShieldCheck size={17}/>}{busy ? t("正在请求连接…") : t("配对此设备")}</button>
+          <button ref={pairButton} className="primary full" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17}/> : <ShieldCheck size={17}/>}{busy ? t("正在请求连接…") : t("配对此设备")}</button>
         </>}
         {!manual && !expectedKey && <button type="button" className="pairing-manual full" disabled={busy} onClick={() => setManual(true)}>{t("手动连接与高级选项")}</button>}
       </form>
@@ -209,12 +222,26 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
       if (admission.current) throw new Error(t("正在核对上一份申请，请稍候。"));
       admission.current = true; setBusy(true); setError("");
       const next: PendingPairing = { code: "", expiresAt: 0, request: { invite: payload.invite, requestId: randomNonce() } };
-      void pendingConnection.cache.savePendingPairing(identity, next, { code: pending.code, requestId: pending.request?.requestId })
-        .then(() => { identity.pendingPairing = next; pendingConnection.identity.pendingPairing = next; setNow(Date.now()); pendingConnection.refreshCache(); })
-        .catch(() => setError(t("配对状态已变化，请重新检查连接。")))
+      void (async () => {
+        const snapshot = { ...pendingConnection.identity };
+        const direct = payload.routes.find(route => route.name !== "VPS");
+        const unchanged = !direct || snapshot.routes.some(route => route.url === direct.url && route.certificateAuthority === direct.certificateAuthority);
+        let repair;
+        if (!unchanged) {
+          const { renewedPairingRoutes } = await import("./RepairHostRoute.js");
+          repair = renewedPairingRoutes(snapshot, payload);
+        }
+        await pendingConnection.updateRoutes(repair?.routes ?? snapshot.routes, {
+          expected: snapshot.routes, deployment: repair ? repair.deployment : snapshot.deployment, reason: "user",
+          pairing: { next, expected: { code: pending.code, requestId: pending.request?.requestId } },
+        });
+      })()
+        .then(() => { setIdentity(pendingConnection.identity); setNow(Date.now()); pendingConnection.refreshCache(); })
+        .catch(cause => setError(cause instanceof Error && cause.message === "pairing_route_confirmation_required" ? t("新连接码包含不同的公网地址或证书。请先通过「更新主机地址」核对并保存，再扫描此连接码。") : t("配对状态已变化，请重新检查连接。")))
         .finally(() => { admission.current = false; setBusy(false); });
       return;
     }
+    imported.current = true;
     setInvite(payload.invite);
     setDeployment(payload.deployment); setLegacyDirect(payload.routes.find((r) => r.name !== "VPS")); setAddress(payload.routes.find((r) => r.name !== "VPS")?.url ?? ""); setRelays(payload.routes.filter((r) => r.name === "VPS")); setExpectedKey(payload.hubPublicKey); setManual(false); setOptionsOpen(false); setError("");
   }}/></Suspense>}</main>;

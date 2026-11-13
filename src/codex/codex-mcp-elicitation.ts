@@ -110,11 +110,11 @@ export function normalizeCodexMcpElicitation(value: unknown) {
     if (native?.persist.includes("session")) options.push({ label: "本会话允许", persist: "session" });
     if (native?.persist.includes("always")) options.push({ label: "始终允许", persist: "always" });
     const details = (native?.tool_params_display ?? []).map((item) => `${item.display_name}: ${typeof item.value === "string" ? item.value : JSON.stringify(item.value)}`);
-    const question = [request.message.trim() || `${request.serverName} 请求确认`, native?.subtitle,
+    const question = [request.message.trim() || `${request.serverName} 请求确认`, native && `MCP 服务: ${request.serverName}`, native?.subtitle,
       native?.tool_name && `工具: ${native.tool_name}`, ...details,
       native?.riskLevel && `工具声明的风险级别: ${native.riskLevel}`,
       native?.persist.includes("always") && "选择“始终允许”会将持续授权选择交给 Codex 保存和管理。",
-    ].filter(Boolean).join("\n\n");
+    ].filter(Boolean).join("\n\n").trim();
     if (question.length > 16_000) return undefined;
     return {
       threadId: request.threadId, turnId: request.turnId, itemId: undefined,

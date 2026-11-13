@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { routesSchema, localRoutesSchema } from "../src/client-protocol/routes.js";
 import { sharedRoutesSchema } from "../src/client-protocol/private-network.js";
-import { repairRoutes } from "../client/src/RepairHostRoute.js";
+import { repairRoutes, renewedPairingRoutes } from "../client/src/RepairHostRoute.js";
 import { multipathConfiguration } from "../client/src/connection-routes.js";
 
 const lan = { name: "Direct" as const, url: "https://192.168.1.20:8788", certificateAuthority: "A".repeat(120) };
@@ -65,4 +65,19 @@ it("a multi-route identity produces a legacy-decodable QR with scoped trust and 
   const activeLan = connectionPairingPayload("h".repeat(44), local, "computer", local[0]!.url);
   expect(parsePairingLink(pairingLink(activeLan))).toMatchObject({ routes: [local[0], local[2]] });
   expect(connectionPairingPayload("h".repeat(44), local, undefined, "https://not-saved.example")).toMatchObject({ routes: [local[1], local[2]] });
+});
+
+
+it("renewed private pairing addresses preserve other paths, while public or trust changes require review", () => {
+  const identity = { hubPublicKey, routes: [lan, vpn, relay] };
+  const payload = (route: typeof lan | typeof vpn) => ({ v: 1 as const, kind: "connect" as const, hubPublicKey, routes: [route] });
+  const fresh = { ...lan, url: "https://192.168.1.21:8788" };
+  expect(renewedPairingRoutes(identity, payload(fresh))?.routes).toEqual([fresh, vpn, relay]);
+  expect(renewedPairingRoutes(identity, payload({ ...vpn, url: "https://100.80.1.21:8788" }))?.routes).toContainEqual(lan);
+  for (const route of [{ ...lan, url: "https://public.example.test:8788" }, { ...lan, certificateAuthority: "B".repeat(120) }, { ...lan, url: fresh.url, certificateAuthority: undefined }, { ...lan, url: fresh.url, certificateAuthority: "C".repeat(120) }, { ...vpn, url: "https://public.example.test" }, { ...vpn, url: "https://100.64.untrusted.example" }, { ...lan, url: "https://192.168.untrusted.example" }]) {
+    expect(() => renewedPairingRoutes(identity, payload(route as typeof lan))).toThrow("pairing_route_confirmation_required");
+  }
+  expect(() => renewedPairingRoutes(identity, { ...payload(fresh), hubPublicKey: "other" })).toThrow();
+  expect(() => renewedPairingRoutes({ hubPublicKey, routes: [relay] }, payload(fresh))).toThrow("pairing_route_confirmation_required");
+  expect(identity.routes).toEqual([lan, vpn, relay]);
 });

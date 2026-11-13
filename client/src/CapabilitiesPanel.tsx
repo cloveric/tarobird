@@ -216,11 +216,11 @@ export function CapabilitiesPanel({ connection, bots, initialBot, close, help }:
                       {sourceEntry.transport && <div><dt>{t("连接方式")}</dt><dd>{transportNames[sourceEntry.transport]}{sourceEntry.transport !== "unknown" && ` · ${sourceEntry.transport}`}</dd></div>}
                       <div><dt>{t("配置来源")}</dt><dd><code>{sourceEntry.source}</code></dd></div>
                     </dl>}
-                    <div className="capability-next">
+                    {(!multiple || canHelp) && <div className="capability-next">
                       {!multiple && <p><strong>{t("建议下一步")}</strong>{nextStep(sourceEntry)}</p>}
                       {canHelp ? <><button className="capabilities-action" aria-describedby={multiple ? `${sourcePath} ${hint}` : hint} onClick={() => ask({ kind: sourceEntry.kind, name: sourceEntry.name, source: sourceEntry.source, intent: "check" })}><MessageSquare size={15} aria-hidden/>{t("让 Bot 检查")}</button>{!multiple && <p id={hint} className="capabilities-hint">{helpHint}</p>}</>
                         : !multiple && <p className="capabilities-hint">{manualHint}</p>}
-                    </div>
+                    </div>}
                   </div>;
                 })}
                 {multiple && <p id={`${detail}-hint`} className="capabilities-hint capability-group-hint">{canHelp ? t("每次只检查一个来源；消息由你确认发送。") : manualHint}</p>}

@@ -9,7 +9,8 @@ import type { HubConnection } from "./connection.js";
 import type { Identity, Route } from "./storage.js";
 
 const loopback = (url: string) => { const host = new URL(url).hostname; return host === "localhost" || host === "[::1]" || host.startsWith("127."); };
-const privateLan = (url: string) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(new URL(url).hostname);
+const ipv4Octets = (host: string) => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) && host.split(".").every(value => Number(value) <= 255) ? host.split(".").map(Number) : undefined;
+const privateLan = (url: string) => { const ip = ipv4Octets(new URL(url).hostname); return !!ip && (ip[0] === 10 || ip[0] === 192 && ip[1] === 168 || ip[0] === 172 && ip[1]! >= 16 && ip[1]! <= 31); };
 export type RouteRepair = { routes: Route[]; deployment?: Deployment; direct: Route; replaced?: Route; relays: number; certificateChanged: boolean };
 
 /** Refresh one access type from a QR of the same Hub key. The other access
@@ -38,6 +39,20 @@ export function repairRoutes(identity: Pick<Identity, "hubPublicKey" | "routes" 
   const routes = parsed.data, deployment = payload.deployment ?? (deploymentMatchesRoutes(identity.deployment, routes) ? identity.deployment : undefined);
   if (!deploymentMatchesRoutes(deployment, routes)) throw new Error(t("二维码中的连接方式与已保存的线路不一致，请使用「编辑线路」调整。"));
   return { routes, deployment, direct: routes[0]!, replaced, relays: relays.length, certificateChanged: replaced?.url === direct.url && replaced.certificateAuthority !== direct.certificateAuthority };
+}
+
+/** Renewing a pending private-network invitation can carry the host's new
+ * address. Public endpoint/trust changes still require the explicit repair UI. */
+export function renewedPairingRoutes(identity: Pick<Identity, "hubPublicKey" | "routes" | "deployment">, payload: PairingPayload): RouteRepair | undefined {
+  const repair = repairRoutes(identity, payload);
+  const host = repair && new URL(repair.direct.url).hostname;
+  const ip = host ? ipv4Octets(host) : undefined;
+  const tailnet = !!host && (!!ip && ip[0] === 100 && ip[1]! >= 64 && ip[1]! <= 127 || /^\[fd7a:115c:a1e0:/.test(host));
+  const knownAuthority = repair && repair.direct.certificateAuthority && identity.routes.some(route => route.name !== "VPS" && route.certificateAuthority === repair.direct.certificateAuthority);
+  if (repair && ((!privateLan(repair.direct.url) && !tailnet) || !knownAuthority || repair.certificateChanged)) {
+    throw new Error("pairing_route_confirmation_required");
+  }
+  return repair;
 }
 
 export function RepairHostRoute({ connection, online, busyChange }: { connection: HubConnection; online: boolean; busyChange?: (busy: boolean) => void }) {

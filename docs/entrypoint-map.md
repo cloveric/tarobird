@@ -4179,7 +4179,16 @@ debounce record in the `host-routes:v1` meta key. `src/hub/private-network.ts`
 `replaceManagedRoutes` may only replace this host's own stale managed direct
 route by compare-and-swap. `src/hub/server.ts` serves owner-only
 `GET /api/network/host-routes` (`src/client-protocol/host-routes.ts`,
-`host-routes.v1`). Client `network-sync.ts` applies it per origin through
+`host-routes.v1`). `POST /api/network/host-routes/select-lan`
+(`host-routes.select-lan.v1`) records an owner's explicit choice among current,
+listening managed LAN endpoints. URL and CA must match; authorization, the
+signed-route conflict check and the local record write share the DB guard.
+Selection and background observations are serialized. This endpoint never
+changes signed routes, listeners or trust anchors. The CLI's explicit
+`pair --lan --address IP` uses the same selection when compatible with existing
+shared routes; `network select-lan --from FILE --yes` exposes the owner API.
+A different signed LAN route requires the existing explicit `network routes`
+command. Client `network-sync.ts` applies the read view per origin through
 `host-route-sync.ts` with `host-registry.ts` `hostRoutes` provenance; signed
 discovery keeps `networkRoutes` as its own base. CLI: `network local
 [--tailscale]` (`src/host-cli/network-local.ts`, `tailscale-status.ts`).

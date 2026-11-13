@@ -13,6 +13,14 @@ import { renderCategorizedErrorMessage } from "../src/runtime/message-renderer.j
 import { EngineCancellationUnconfirmedError, EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineStopTooLateError } from "../src/codex/adapter.js";
 
 describe("classifyFailure auth detection", () => {
+  it.each([["Authentication required", "sign-in", "登录"], ["Quota exceeded", "quota", "额度"]])("explains an incomplete turn's actionable cause without replaying or exposing diagnostics: %s", (reason, en, zh) => {
+    const error = new EngineIncompleteResponseError(`Antigravity turn failed: ${reason}; private-debug-value`, "interrupted");
+    expect(getBusErrorSemantics(classifyFailure(error)).retryable).toBe(false);
+    expect(renderCoreUserFacingError(error, "engine", "en")).toContain(en);
+    expect(renderCoreUserFacingError(error, "engine", "zh")).toContain(zh);
+    expect(renderCoreUserFacingError(error, "engine", "en")).toContain("not automatically replayed");
+    expect(renderCoreUserFacingError(error, "engine", "en")).not.toContain("private-debug-value");
+  });
   it("keeps explicitly unfinished native turns non-retryable and distinguishes them from placeholders", () => {
     const error = new EngineIncompleteResponseError("Antigravity print timeout", "interrupted");
     expect(classifyFailure(error)).toBe("engine-incomplete");

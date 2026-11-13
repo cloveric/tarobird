@@ -40,6 +40,23 @@ describe("Codex MCP form elicitation", () => {
   it.each([["forever"], "always", ["always", "always"]].map((persist) => ({ persist })))("declines malformed native persistence $persist", ({ persist }) => {
     expect(normalizeCodexMcpElicitation(computerConsent(persist))).toBeUndefined();
   });
+  it.each([
+    { subtitle: "Explanation with trailing whitespace \n", tool_params_display: [] },
+    { tool_params_display: [{ display_name: "Text", value: "hello\n" }] },
+    { riskLevel: "low \n" },
+  ])("accepts explicit card answers after metadata whitespace normalization: %j", (metadata) => {
+    const value = computerConsent(["session"]);
+    Object.assign(value._meta, metadata);
+    const form = normalizeCodexMcpElicitation(value)!;
+    const question = form.toolInput.questions[0]!.question.trim();
+    expect(form.response({ behavior: "allow", updatedInput: { answers: { [question]: "允许本次" } } })).toEqual({ action: "accept", content: {} });
+    expect(form.response({ behavior: "allow", updatedInput: { answers: { [question]: "本会话允许" } } })).toEqual({ action: "accept", content: {}, _meta: { persist: "session" } });
+    expect(form.response({ behavior: "allow", updatedInput: { answers: { [question]: "始终允许" } } })).toEqual({ action: "decline" });
+  });
+  it("retains the actual MCP server identity alongside a connector display name", () => {
+    const form = normalizeCodexMcpElicitation(computerConsent())!;
+    expect(form.toolInput.questions[0]!.question).toContain("MCP 服务: acceptance");
+  });
   it("keeps consent immutable while the user is answering", () => {
     const value = computerConsent(["session"]), form = normalizeCodexMcpElicitation(value)!;
     (value._meta.persist as string[]).push("always");

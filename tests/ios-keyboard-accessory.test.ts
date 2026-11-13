@@ -90,6 +90,42 @@ describe('expanded iPhone native keyboard dismissal bar', () => {
     expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: true }], [{ isVisible: false }]]); stop();
   });
 
+  it('bounds loader failures across unchanged resizes and retries when the window policy changes', async () => {
+    const win = windowFixture(), report = vi.fn(), refreshAccessory = vi.fn();
+    Object.assign(win, { tarobotKeyboardInsets: { refreshAccessory } });
+    const setAccessoryBarVisible = vi.fn(async () => {});
+    const load = vi.fn().mockRejectedValueOnce(new Error('module unavailable')).mockResolvedValue({ setAccessoryBarVisible });
+    const stop = installExpandedIphoneKeyboardBar(win, load, report);
+    await settled();
+    for (const [width, height] of [[669, 951], [951, 669], [900, 650]]) { resize(win, width!, height!); await settled(); }
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(refreshAccessory).not.toHaveBeenCalled();
+    resize(win, 466, 678); await settled();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: false }]]);
+    resize(win, 951, 669); await settled();
+    expect(setAccessoryBarVisible.mock.calls).toEqual([[{ isVisible: false }], [{ isVisible: true }]]);
+    expect(refreshAccessory).toHaveBeenCalledTimes(2);
+    stop(); await settled();
+    expect(setAccessoryBarVisible.mock.calls.at(-1)).toEqual([{ isVisible: false }]);
+    resize(win, 951, 669); await settled();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['fold', 'dispose'])('does not loop after loading rejects during %s', async action => {
+    const gate = deferred(), win = windowFixture(), report = vi.fn();
+    const load = vi.fn(async () => { await gate.promise; throw new Error('module unavailable'); });
+    const stop = installExpandedIphoneKeyboardBar(win, load, report);
+    if (action === 'fold') resize(win, 466, 678); else stop();
+    gate.resolve(); await settled();
+    resize(win, 678, 466); await settled();
+    resize(win, 466, 678); await settled();
+    stop(); await settled();
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a native failure once and requests default restoration after folding', async () => {
     const win = windowFixture(), report = vi.fn();
     const setAccessoryBarVisible = vi.fn(async () => { throw new Error('unavailable'); });

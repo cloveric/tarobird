@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { runHostCli } from "../src/host-cli/cli.js";
 import { LocalHostClient } from "../src/host-cli/client.js";
+import { HostNetwork } from "../src/host-cli/network-cli.js";
 import * as setup from "../src/host-cli/setup.js";
 import * as runtime from "../src/host-cli/update.js";
 import * as guard from "../src/host-cli/schema-guard.js";
@@ -66,6 +67,23 @@ it("pairs through an unchanged listener immediately without draining busy Bots o
   expect(f.connect).toHaveBeenCalledTimes(1);
   expect(f.verifyRoute).toHaveBeenCalledExactlyOnceWith("https://192.168.1.2:8790", "A".repeat(120), key);
   expect(JSON.parse(f.output.mock.calls[0]![0])).toMatchObject({ routes: [{ url: "https://192.168.1.2:8790" }] });
+});
+
+it.each(["none", "tailscale", "public", "same-lan", "other-lan"])("records a supported LAN selection without editing signed routes: %s", async kind => {
+  const f = await pairingFixture();
+  const client = await LocalHostClient.connect(f.directory);
+  client.supports = () => true;
+  const selected = { name: "Direct", url: "https://192.168.1.2:8790", certificateAuthority: "A".repeat(120) };
+  const routes = kind === "none" ? [] : [{ ...selected, name: kind === "tailscale" ? "Tailscale" : "Direct", url: kind === "same-lan" ? selected.url : kind === "tailscale" ? "https://100.64.1.2:8790" : kind === "public" ? "https://relay.example.test:8790" : "https://192.168.1.3:8790" }];
+  vi.spyOn(HostNetwork.prototype, "view").mockResolvedValue({ host: { routes } } as never);
+  const select = vi.spyOn(HostNetwork.prototype, "selectLan").mockResolvedValue({} as never);
+  const command = vi.spyOn(HostNetwork.prototype, "command").mockRejectedValue(new Error("signed routes must remain unchanged"));
+  const warning = vi.spyOn(console, "error").mockImplementation(() => {});
+  await runHostCli(["pair", "--lan", ...f.args]);
+  if (kind === "other-lan") { expect(select).not.toHaveBeenCalled(); expect(warning).toHaveBeenCalledWith(expect.stringContaining("原共享局域网线路保持不变")); }
+  else expect(select).toHaveBeenCalledExactlyOnceWith(selected);
+  expect(command).not.toHaveBeenCalled();
+  expect(JSON.parse(f.output.mock.calls[0]![0])).toMatchObject({ routes: [selected] });
 });
 
 it("does not create a pairing invite when the selected endpoint fails HTTPS verification", async () => {

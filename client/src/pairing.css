@@ -118,3 +118,10 @@
 
 .pairing-journey { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; list-style-position: inside; color: var(--muted); font-size: 12px; margin: 20px 0; }
 .pairing-journey [aria-current="step"] { color: var(--accent); font-weight: 600; }
+
+/* A translated action must not squeeze the host name/address into a few
+   characters on compact phones. Keep it below the imported host summary. */
+@media(max-width:400px){
+  .pairing-import{display:grid;grid-template-columns:18px minmax(0,1fr)}
+  .pairing-import>button{grid-column:2;justify-self:start}
+}

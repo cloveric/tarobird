@@ -24,6 +24,9 @@ if (!new URL(location.href).searchParams.has("phone")) {
   Object.assign(globalThis, { isTauri: true });
   const streams = new Map<string, Uint8Array>(), sockets = new Map<string, WebSocket>();
   mockIPC(async (command, args: any) => {
+    // This retained Tauri fixture is a fresh, non-transition desktop profile.
+    if (command === "desktop_migration_mode") return { transition: false, appVersion: "0.0.0" };
+    if (command === "desktop_migration_status") return { exports: [], imported: [], partials: [] };
     if (command === "net_document") return "novice-document";
     if (command === "net_allocate") return crypto.randomUUID();
     if (command === "net_http_open") {

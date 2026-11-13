@@ -66,7 +66,9 @@ test('iOS keyboard motion keeps the tail, reading position and draft through ope
       const { frames, duration } = await motion(height);
       await info.attach(`motion-${height}.json`, { body: JSON.stringify(frames), contentType: 'application/json' });
       expect(duration).toBe(height ? '0.25s' : '0.383s');
-      expect(new Set(frames.map(f => Math.round(f.height))).size).toBeGreaterThan(4);
+      // Assert an actual intermediate geometry, not the host's rendering rate.
+      expect(frames.some(frame => frame.height > 583 && frame.height < 931)).toBe(true);
+      expect(frames.at(-1)!.height).toBeCloseTo(932 - height, 0);
       expect(Math.max(...frames.map(f => Math.abs(f.distance)))).toBeLessThan(4);
       await expect.poll(async () => Math.abs(await distance())).toBeLessThan(3);
     }

@@ -117,7 +117,7 @@ function assertAntigravityTurnFinished(result: AntigravityResult, streamedText: 
   switch (result.finished_reason) {
     case "print_timeout": throw new EngineIncompleteResponseError("Antigravity print timeout: the answer is incomplete", "interrupted");
     case "interrupted": throw new EngineIncompleteResponseError("Antigravity turn interrupted: the answer is incomplete", "interrupted");
-    case "error": throw new EngineIncompleteResponseError("Antigravity turn failed: the answer is incomplete", "interrupted");
+    case "error": throw new EngineIncompleteResponseError(`Antigravity turn failed: the answer is incomplete${result.error ? `\n${stringifyToolValue(result.error)}` : ""}`, "interrupted");
     default: throw new EngineIncompleteResponseError("Antigravity reported an unfinished turn with an unknown finish reason", "interrupted");
   }
 }
@@ -990,6 +990,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
         )
       ) {
         const message = stringifyToolValue(result.error) ?? `Antigravity result status: ${status}`;
+        if (pending.toolStepSeen || pending.streamedText.trim()) throw new EngineIncompleteResponseError(message, "interrupted");
         throw new Error(message);
       }
       pending.resultSeen = true;
@@ -1193,12 +1194,16 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       const error = code === 0 && !signal
         ? new Error("Antigravity exited successfully without a result event")
         : new Error(formatAntigravityExit(worker.stderrTail, code, signal));
-      this.rejectPersistentTurn(worker, error);
+      this.rejectPersistentTurn(worker, worker.pendingTurn.toolStepSeen || worker.pendingTurn.streamedText.trim()
+        ? new EngineIncompleteResponseError(error.message, "interrupted") : error);
     }
     this.removeWorker(worker);
   }
 
   private failAndStopWorker(worker: AntigravityWorker, error: Error, killOptions?: { graceMs: number }): void {
+    const pending = worker.pendingTurn;
+    if (pending && (pending.toolStepSeen || pending.streamedText.trim()) && !(error instanceof EngineIncompleteResponseError)
+      && error.message !== "Task was stopped by user") error = new EngineIncompleteResponseError(error.message, "interrupted");
     if (worker.removed) return;
     const stderr = worker.stderrTail.trim();
     const diagnosed = stderr && !error.message.includes(stderr)
@@ -1350,6 +1355,8 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       };
       const rejectAndKill = (error: Error, killOptions?: { graceMs: number }) => {
         if (settled) return;
+        if ((toolStepSeen || streamedText.trim()) && !(error instanceof EngineIncompleteResponseError)
+          && error.message !== "Task was stopped by user") error = new EngineIncompleteResponseError(error.message, "interrupted");
         settled = true;
         clearTimers();
         clearAbortListener();
@@ -1524,6 +1531,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
             )
           ) {
             const message = stringifyToolValue(result.error) ?? `Antigravity result status: ${status}`;
+            if (toolStepSeen || streamedText.trim()) throw new EngineIncompleteResponseError(message, "interrupted");
             throw new Error(message);
           }
           const responseText = typeof result.response === "string" ? result.response : "";
@@ -1599,14 +1607,18 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
           settled = true;
           clearTimers();
           clearAbortListener();
-          reject(new Error(formatAntigravityExit(stderrTail, code, signal)));
+          const message = formatAntigravityExit(stderrTail, code, signal);
+          reject(!resultSeen && (toolStepSeen || streamedText.trim())
+            ? new EngineIncompleteResponseError(message, "interrupted") : new Error(message));
           return;
         }
         if (!resultSeen) {
           settled = true;
           clearTimers();
           clearAbortListener();
-          reject(new Error("Antigravity exited successfully without a result event"));
+          const message = "Antigravity exited successfully without a result event";
+          reject(toolStepSeen || streamedText.trim()
+            ? new EngineIncompleteResponseError(message, "interrupted") : new Error(message));
           return;
         }
         if (!sessionId) {

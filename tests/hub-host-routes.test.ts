@@ -9,7 +9,7 @@ import { deviceProof } from "../src/hub/auth.js";
 import * as desktopTls from "../src/hub/desktop-tls.js";
 import { loadHubTls } from "../src/hub/tls.js";
 import { CAPABILITIES } from "../src/client-protocol/index.js";
-import { HOST_ROUTES_CAPABILITY, HOST_ROUTES_PATH, hostRoutesViewSchema } from "../src/client-protocol/host-routes.js";
+import { HOST_ROUTES_CAPABILITY, HOST_ROUTES_PATH, HOST_LAN_SELECTION_CAPABILITY, HOST_LAN_SELECTION_PATH, hostRoutesViewSchema } from "../src/client-protocol/host-routes.js";
 import { routesSchema, type Route } from "../src/client-protocol/routes.js";
 import { networkViewSchema, sharedRoutesSchema } from "../src/client-protocol/private-network.js";
 import {
@@ -161,7 +161,79 @@ describe("host route coordinator", () => {
   });
 });
 
+describe("explicit managed LAN selection", () => {
+  it("persists a chosen live LAN across refresh and restart without replacing shared Tailscale", async () => {
+    const target = await start();
+    const shared = [tailscale("https://100.64.0.7:8443"), vps];
+    await target.network.replaceManagedRoutes([], shared);
+    const options = { store: target.store, network: target.network, publicKey: target.auth.publicKey, stateDir: directory!, listeners: () => [listener("192.168.10.10"), listener("192.168.64.1"), listener("100.64.0.7")] };
+    const routes = new HostRoutes(options);
+    await routes.refresh(); expect((await routes.view()).notices).toContain("lan_selection_required");
+    await routes.selectLan(direct("https://192.168.10.10:8443"));
+    await routes.refresh();
+    const restored = new HostRoutes(options); await restored.refresh();
+    const view = await restored.view();
+    expect(view.notices).not.toContain("lan_selection_required");
+    expect(view.routes).toContainEqual({ source: "managed", route: direct("https://192.168.10.10:8443") });
+    expect(await target.network.sharedRoutes()).toEqual(shared);
+  });
+  it("rejects unknown, unbound, wrong-CA and non-LAN routes without changing the record", async () => {
+    const target = await start();
+    const routes = new HostRoutes({ store: target.store, network: target.network, publicKey: target.auth.publicKey, stateDir: directory!, listeners: () => [listener("192.168.10.10"), listener("192.168.10.11", false), listener("100.64.0.7")] });
+    await routes.refresh(); const before = await routes.view();
+    for (const route of [direct("https://192.168.10.12:8443"), direct("https://192.168.10.11:8443"), direct("https://192.168.10.10:8443", { certificateAuthority: OTHER_CA }), tailscale("https://100.64.0.7:8443"), direct("https://127.0.0.1:8443"), direct("https://192.168.10.10:8444"), direct("https://public.example.test:8443")]) {
+      await expect(routes.selectLan(route)).rejects.toThrow("managed_lan_route_unavailable");
+    }
+    expect((await routes.view()).routes).toEqual(before.routes);
+    await target.network.replaceManagedRoutes([], [direct("https://192.168.10.99:8443")]);
+    await expect(routes.selectLan(direct("https://192.168.10.10:8443"))).rejects.toThrow("managed_lan_shared_route_conflict");
+  });
+  it("checks the signed route after acquiring the write guard", async () => {
+    const target = await start();
+    await target.network.replaceManagedRoutes([], [tailscale("https://100.64.0.7:8443")]);
+    const routes = new HostRoutes({ store: target.store, network: target.network, publicKey: target.auth.publicKey, stateDir: directory!, listeners: () => [listener("192.168.10.10"), listener("192.168.64.1")] });
+    await expect(routes.selectLan(direct("https://192.168.10.10:8443"), async () => {
+      // An owner route change has landed by the time this mutation is authorized.
+      const row = await target.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key='private-network:v1'");
+      const state = JSON.parse(row!.value); state.routes = [direct("https://192.168.64.1:8443")];
+      await target.store.db.run("UPDATE meta SET value=? WHERE key='private-network:v1'", [JSON.stringify(state)]);
+    })).rejects.toThrow("managed_lan_shared_route_conflict");
+    expect((await routes.view()).routes).not.toContainEqual({ source: "managed", route: direct("https://192.168.10.10:8443") });
+  });
+  it("serializes a refresh before a selection and checks authorization at the write", async () => {
+    const target = await start();
+    let release!: () => void, entered!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; }), ready = new Promise<void>(resolve => { entered = resolve; });
+    const read = target.network.sharedRoutes.bind(target.network);
+    vi.spyOn(target.network, "sharedRoutes").mockImplementationOnce(async () => { entered(); await gate; return read(); });
+    const routes = new HostRoutes({ store: target.store, network: target.network, publicKey: target.auth.publicKey, stateDir: directory!, listeners: () => [listener("192.168.10.10"), listener("192.168.64.1")] });
+    const refresh = routes.refresh(); await ready;
+    const selection = routes.selectLan(direct("https://192.168.10.10:8443")); release();
+    await Promise.all([refresh, selection]);
+    expect((await routes.view()).notices).not.toContain("lan_selection_required");
+    await expect(routes.selectLan(direct("https://192.168.64.1:8443"), async () => { throw new Error("revoked"); })).rejects.toThrow("revoked");
+    expect((await routes.view()).routes).toContainEqual({ source: "managed", route: direct("https://192.168.10.10:8443") });
+  });
+});
+
 describe("owner-only host routes endpoint", () => {
+  it("only lets active owners select a live managed LAN, without changing shared routes", async () => {
+    const target = await start(), route = direct("https://192.168.10.10:8443");
+    vi.spyOn(target, "managedListeners").mockReturnValue([listener("192.168.10.10"), listener("192.168.64.1")]);
+    expect(CAPABILITIES).toContain(HOST_LAN_SELECTION_CAPABILITY);
+    const send = (headers?: Record<string, string>, value: unknown = { route }) => fetch(target.url + HOST_LAN_SELECTION_PATH, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(value) });
+    expect((await send()).status).toBe(401);
+    const owner = await enroll(target);
+    await target.store.db.run("INSERT INTO users VALUES('member','Member','member')");
+    expect((await send(await enroll(target, "member_device", "member"))).status).toBe(403);
+    expect((await send(owner, { route, unknown: true })).status).toBe(400);
+    const response = await send(owner); expect(response.status).toBe(200);
+    expect(hostRoutesViewSchema.parse(await response.json()).routes).toContainEqual({ source: "managed", route });
+    expect(await target.network.sharedRoutes()).toEqual([]);
+    await target.auth.revoke("owner_device", "local-owner");
+    expect((await send(owner)).status).toBe(401);
+  });
+
   it("advertises the capability and binds the reply to this host's key for owners only", async () => {
     expect(CAPABILITIES).toContain(HOST_ROUTES_CAPABILITY);
     const target = await start();

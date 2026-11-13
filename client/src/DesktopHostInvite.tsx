@@ -8,8 +8,14 @@ import "./desktop-host.css";
 
 export function DesktopHostInvite({ hubKey, connection, purpose = "pairing", disabled = false, busyChange, compact = false, onReady }: { compact?: boolean; onReady?: (route: Route, unavailableRouteCount?: number) => void; disabled?: boolean; busyChange?: (busy: boolean) => void; hubKey: string; connection?: HubConnection; purpose?: "pairing" | "network" }) {
   useLocale();
-  const { method, chooseMethod, routes, selected, setSelected, publishedRoute, busy, publishingRoute, unavailableRouteCount, error, prepare } = useDesktopHostAccess({ hubKey, connection, purpose, disabled, busyChange, onReady });
+  const { method, chooseMethod, routes, selected, setSelected, publishedRoute, publicationFailed, busy, publishingRoute, unavailableRouteCount, error, prepare } = useDesktopHostAccess({ hubKey, connection, purpose, disabled, busyChange, onReady });
   const selectedRoute = routes[selected];
+  // The parent replaces this preparation view after publication. Minting a
+  // code here would revoke it on that automatic handoff, even after a scan.
+  const handsOffInvitation = purpose === "pairing" && !!onReady;
+  // A rejected publication never reaches the parent. Its code is then stable
+  // here until the owner prepares, switches method or picks another address.
+  const showInvitation = purpose === "pairing" && (!handsOffInvitation || publicationFailed);
   return <section className="desktop-host-invite">
     {(!compact || !routes.length) && <><fieldset className="pairing-network-choice" disabled={busy || publishingRoute || disabled}><legend>{t("选择连接方式")}</legend>
       <div>{(["network", "tailscale"] as const).map(value => <button key={value} type="button" aria-pressed={method === value} onClick={() => chooseMethod(value)}>{value === "network" ? t("同一 Wi-Fi") : t("Tailscale 异地连接")}</button>)}</div>
@@ -35,9 +41,9 @@ export function DesktopHostInvite({ hubKey, connection, purpose = "pairing", dis
       {(routes.length > 1 || !selectedRoute) && <label>{method === "tailscale" ? t("选择 Tailscale 地址") : t("选择电脑所在网络")}<select disabled={busy || publishingRoute || disabled} value={selected} onChange={(e) => setSelected(Number(e.target.value))}>{selected < 0 && <option value={-1} disabled>{t("请选择连接地址")}</option>}{routes.map((route, i) => <option key={route.url} value={i}>{new URL(route.url).hostname}</option>)}</select></label>}
       {!selectedRoute && <p className="settings-note" role="status">{t("检测到多个地址，请选择与另一台设备在同一网络的地址。")}</p>}
       {selectedRoute && <>
-      {purpose === "pairing" && <ConnectionInviteCode connection={connection} payload={{ v: 1, kind: "connect", hubPublicKey: hubKey, routes: [selectedRoute], deployment: "computer" }}/>}
+      {showInvitation && <ConnectionInviteCode connection={connection} payload={{ v: 1, kind: "connect", hubPublicKey: hubKey, routes: [selectedRoute], deployment: "computer" }}/>}
       {compact ? <details><summary>{t("连接地址")}</summary><input aria-label={t("连接地址")} readOnly value={selectedRoute.url}/></details> : <label>{t("连接地址")}<input readOnly value={selectedRoute.url} onFocus={event => event.currentTarget.select()}/></label>}
-      {purpose === "pairing" ? <p>{t("在新设备打开 TaroBird，扫描此二维码。再回到这里，输入新设备上的 8 位配对码确认。")}</p> : !error && <p role="status">{publishedRoute === selectedRoute.url ? t("本机线路已共享，可以继续确认加入。") : t("正在等待本机重新连接并共享线路…")}</p>}
+      {showInvitation ? <p>{t("在新设备打开 TaroBird，扫描此二维码。再回到这里，输入新设备上的 8 位配对码确认。")}</p> : !error && <p role="status">{!handsOffInvitation && publishedRoute === selectedRoute.url ? t("本机线路已共享，可以继续确认加入。") : t("正在等待本机重新连接并共享线路…")}</p>}
       </>}
       <button type="button" disabled={busy || publishingRoute || disabled} onClick={() => void prepare()}>{purpose === "network" ? t("重新准备线路") : t("网络变了？重新准备线路")}</button>
     </>}

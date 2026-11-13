@@ -53,3 +53,44 @@ it.runIf(process.platform !== "win32")("follows fnm's default alias including a 
   const env = hostProcessEnvironment({ home, platform: "darwin", env: { PATH: "/usr/bin:/bin" } });
   expect(resolveEngineExecutable("discovery-cli", env)).toBe(path.join(root, "aliases/default/bin/discovery-cli"));
 });
+it.runIf(process.platform !== "win32")("resolves nvm's stable alias like node instead of preferring an even major", async () => {
+  const home = await fixture();
+  await file(home, ".nvm/versions/node/v22.12.0/bin/discovery-cli");
+  const latest = await file(home, ".nvm/versions/node/v23.5.0/bin/discovery-cli");
+  for (const alias of ["stable", "node"]) {
+    await file(home, ".nvm/alias/default", `${alias}\n`);
+    const env = hostProcessEnvironment({ home, env: { PATH: "/usr/bin:/bin" } });
+    expect(resolveEngineExecutable("discovery-cli", env)).toBe(latest);
+    expect(env.PATH).not.toContain("v22.12.0");
+  }
+});
+// fnm uses the first existing base directory: XDG data, then ~/.fnm, then (macOS)
+// Application Support. A directory fnm itself would not use is never searched.
+it.runIf(process.platform !== "win32").each([
+  { name: "XDG data on macOS", platform: "darwin" as const, installed: [".local/share/fnm"], chosen: ".local/share/fnm" },
+  { name: "the legacy home directory on macOS", platform: "darwin" as const, installed: [".fnm"], chosen: ".fnm" },
+  { name: "the legacy home directory on Linux", platform: "linux" as const, installed: [".fnm"], chosen: ".fnm" },
+  { name: "XDG data ahead of Application Support", platform: "darwin" as const, installed: [".local/share/fnm", "Library/Application Support/fnm"], chosen: ".local/share/fnm" },
+  { name: "the legacy home directory ahead of Application Support", platform: "darwin" as const, installed: [".fnm", "Library/Application Support/fnm"], chosen: ".fnm" },
+  { name: "XDG data ahead of the legacy home directory", platform: "linux" as const, installed: [".local/share/fnm", ".fnm"], chosen: ".local/share/fnm" },
+])("follows fnm's base directory order: $name", async ({ platform, installed, chosen }) => {
+  const home = await fixture();
+  for (const root of installed) await file(home, `${root}/aliases/default/bin/discovery-cli`);
+  const env = hostProcessEnvironment({ home, platform, env: { PATH: "/usr/bin:/bin" } });
+  expect(resolveEngineExecutable("discovery-cli", env)).toBe(path.join(home, chosen, "aliases/default/bin/discovery-cli"));
+  for (const root of installed.filter(root => root !== chosen)) expect(env.PATH).not.toContain(path.join(home, root));
+});
+it.runIf(process.platform !== "win32")("does not search an fnm directory that fnm itself would not use", async () => {
+  const home = await fixture();
+  // fnm selects the existing XDG directory even though it has no default alias.
+  await mkdir(path.join(home, ".local/share/fnm"), { recursive: true });
+  await file(home, ".fnm/aliases/default/bin/discovery-cli");
+  await file(home, "Library/Application Support/fnm/aliases/default/bin/discovery-cli");
+  for (const platform of ["darwin", "linux"] as const) expect(resolveEngineExecutable("discovery-cli", hostProcessEnvironment({ home, platform, env: { PATH: "/usr/bin:/bin" } }))).toBeUndefined();
+  // An explicit root still wins over every default location.
+  const configured = path.join(home, "configured-fnm"), chosen = await file(configured, "aliases/default/bin/discovery-cli");
+  expect(resolveEngineExecutable("discovery-cli", hostProcessEnvironment({ home, platform: "darwin", env: { PATH: "/usr/bin:/bin", FNM_DIR: configured } }))).toBe(chosen);
+  // Application Support is a macOS location only.
+  const linuxHome = await fixture(); await file(linuxHome, "Library/Application Support/fnm/aliases/default/bin/discovery-cli");
+  expect(resolveEngineExecutable("discovery-cli", hostProcessEnvironment({ home: linuxHome, platform: "linux", env: { PATH: "/usr/bin:/bin" } }))).toBeUndefined();
+});

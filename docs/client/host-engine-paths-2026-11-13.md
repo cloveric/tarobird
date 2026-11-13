@@ -42,8 +42,13 @@ existing Volta/Bun bin directories, asdf/mise shims, fnm's default alias and
 the one nvm version selected by its default alias. Explicit inherited PATH
 selections precede these fallbacks. Standard manager-root environment variables
 are honored when present. The nvm reader supports numeric versions, `node`,
-`stable` and bounded named/LTS alias chains; missing, looping or unsupported
-aliases are not guessed. It does not put all installed Node versions on PATH.
+`stable` (nvm's alias for `node`, the newest installed version) and bounded
+named/LTS alias chains; missing, looping or unsupported aliases are not
+guessed. It does not put all installed Node versions on PATH. Without
+`FNM_DIR`, fnm's base directory is the first that exists of the XDG data
+directory (`~/.local/share/fnm`, also on macOS), the legacy `~/.fnm`, and on
+macOS `~/Library/Application Support/fnm`; a directory fnm itself would not
+use is not searched.
 
 Discovery and the settings API read manager files and directories without
 running login shells, interactive profiles, installers or engine programs.
@@ -53,8 +58,9 @@ unsupported selectors and nonstandard installations can use the manual path.
 Windows keeps its existing automatic discovery and gains the same manual
 setting/API. Existing service manifests retain their captured environment.
 
-The layouts follow the upstream [nvm usage](https://github.com/nvm-sh/nvm#usage)
-and [fnm alias implementation](https://github.com/Schniz/fnm/blob/master/src/alias.rs).
+The layouts follow the upstream [nvm usage](https://github.com/nvm-sh/nvm#usage),
+[fnm alias implementation](https://github.com/Schniz/fnm/blob/master/src/alias.rs)
+and [fnm base directory order](https://github.com/Schniz/fnm/blob/master/src/directories.rs).
 This change upgrades no dependencies or engine CLIs.
 
 ## Entry points and verification
@@ -102,3 +108,61 @@ selection and stricter permissions, pending writes, IME Enter, focus/cancel,
 visible reread controls, and role changes during editing. Browser checks use
 isolated Chromium Hosts; they do not establish installed-App or physical-device
 acceptance. No dependency, release or live Host settings change is included.
+
+## Audit follow-up (2026-11-13)
+
+A post-1.3.1 audit reproduced seven defects in isolated fixtures before the
+repairs below. Each has a regression that failed on the previous source.
+
+- **fnm location.** Discovery looked only in macOS Application Support (or
+  XDG on Linux). It now follows fnm's own order, so a current macOS install in
+  `~/.local/share/fnm` and a legacy `~/.fnm` are found.
+- **nvm `stable`.** It was resolved to the highest even major. It is nvm's
+  alias for `node`, so the newest installed version is selected.
+- **New Bot re-detection.** A completed read of the path panel (opening it,
+  "re-detect" or "read again") now reloads the engine list when availability
+  differs, or when the list itself had failed to load, keeping a
+  still-available engine/model choice. A newly installed CLI no longer
+  requires closing and reopening the dialog. While a creation result is
+  unconfirmed ("retry create"), such a read does not reload the list: the
+  frozen request and the form stay as submitted.
+- **Unsaved path draft.** While a draft blocks creation, the form says so
+  beside the create button, including when the path section is collapsed.
+- **First engine read failure.** A path saved before the engine list was
+  ever read no longer freezes the placeholder choice; the engine's default
+  model, effort and approval are applied when the list arrives.
+- **Manual restart with damaged settings.** A stopped Bot's manual restart
+  returns `engine_settings_unavailable` instead of "Hub is stopping"; the App
+  shows the existing repair guidance for it. The worker log notice and the
+  automatic retry remain.
+- **Doctor fallback.** With an invalid terminal environment, doctor still
+  applies the saved manual paths, and reports damaged settings (no engines,
+  repair hint) together with the invalid variable name.
+
+### Manual paths to interpreter scripts
+
+A manual path may point to a script whose first line is `#!/usr/bin/env node`
+(the usual npm global layout under nvm/fnm). Detection checks only that the
+file exists and is executable, so it reports the CLI as detected even when
+the Host's worker PATH has no `node`; the Bot then fails at launch. The Host
+does **not** add the script's directory to PATH: the owner selected one file,
+and that directory also holds other globally installed programs which would
+become implicitly runnable. The supported remedies are to select the version
+as the manager's default (so discovery adds it), add the interpreter's
+directory to the Host environment PATH, or point the manual path at a
+standalone binary or a wrapper with an absolute interpreter. A read-only
+warning for an unresolved interpreter is a possible later addition; it is not
+part of this repair.
+
+### Follow-up verification
+
+- Negative regressions failed first on 86c5913: 9 Host cases (`host-engine-discovery`,
+  `host-cli-doctor-environment`, `host-engine-settings`) and 4 Chromium cases
+  (`engine-settings`). A fifth Chromium case covers the unconfirmed-creation
+  guard; it fails on the repair without that guard, since 86c5913 never
+  reloads on a read. After the repair, `engine-settings` passes 21 cases
+  (the 16 existing ones unchanged), and `host-engine-path`, `new-bot-catalog`,
+  `operations` and `creation` pass.
+- The fnm order was read from upstream source; no fnm or nvm binary was run.
+  Windows discovery is unchanged and was not exercised. No dependency,
+  release, installed App or live Host setting is part of this follow-up.

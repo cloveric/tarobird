@@ -1,6 +1,6 @@
 import { createHash, verify } from "node:crypto";
 import { networkCanonical, networkCommandSchema, networkCommandResultSchema, networkGenesisText, networkManifestProof, networkMemberText, networkProposalProof, networkViewSchema, signedNetworkManifestSchema, signedNetworkProposalSchema, type NetworkCommand, type NetworkCommandResult, type NetworkView, type SignedNetworkManifest, type SignedNetworkProposal } from "../client-protocol/private-network.js";
-import { HOST_ROUTES_CAPABILITY, HOST_ROUTES_PATH, hostRoutesViewSchema, type HostRoutesView } from "../client-protocol/host-routes.js";
+import { HOST_ROUTES_CAPABILITY, HOST_ROUTES_PATH, HOST_LAN_SELECTION_CAPABILITY, HOST_LAN_SELECTION_PATH, managedLanSelectionSchema, hostRoutesViewSchema, type HostRoutesView } from "../client-protocol/host-routes.js";
 import { hashSecret, parsePublicKey } from "../hub/auth.js";
 import { HostCliError, LocalHostClient } from "./client.js";
 
@@ -44,6 +44,14 @@ export class HostNetwork {
   async localRoutes(): Promise<HostRoutesView> {
     if (!this.client.ready.serverCapabilities.includes(HOST_ROUTES_CAPABILITY)) throw new HostCliError("host_routes_update_required");
     const view = hostRoutesViewSchema.parse(await this.client.request(HOST_ROUTES_PATH));
+    if (view.hostPublicKey !== this.client.publicKey) throw new HostCliError("network_host_mismatch");
+    return view;
+  }
+  /** Explicitly select an already-listening LAN without replacing shared Tailscale. */
+  async selectLan(raw: unknown): Promise<HostRoutesView> {
+    if (!this.client.ready.serverCapabilities.includes(HOST_LAN_SELECTION_CAPABILITY)) throw new HostCliError("host_routes_update_required");
+    const input = managedLanSelectionSchema.parse({ route: raw });
+    const view = hostRoutesViewSchema.parse(await this.client.request(HOST_LAN_SELECTION_PATH, "POST", input));
     if (view.hostPublicKey !== this.client.publicKey) throw new HostCliError("network_host_mismatch");
     return view;
   }

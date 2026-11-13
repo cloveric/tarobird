@@ -221,7 +221,10 @@ test("restoring an older three-pane phone layout keeps conversations and saved d
   try {
     await openBoard(page, ["明天北京天气"]);
     await page.locator(".adhd-card").getByRole("textbox").fill("第三个对话的草稿不能丢");
-    await toggle("明天北京天气").uncheck();
+    // Removal may await the outstanding draft write; setChecked asserts synchronously.
+    await expect(toggle("明天北京天气")).toBeChecked();
+    await toggle("明天北京天气").click();
+    await expect(toggle("明天北京天气")).not.toBeChecked();
     await expect(page.locator(".adhd-card")).toHaveCount(0);
     await toggle("重构重试逻辑").check(); await toggle("周报数据整理").check();
     await page.getByRole("button", { name: "返回聊天", exact: true }).click();
