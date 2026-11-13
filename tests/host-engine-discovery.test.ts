@@ -34,6 +34,17 @@ it.runIf(process.platform !== "win32")("bounds nvm alias traversal and never exe
   await file(home, ".nvm/alias/default", "../../outside\n");
   expect(hostProcessEnvironment({ home, env: {} }).PATH).not.toContain("versions/node");
 });
+it.runIf(process.platform !== "win32")("honors an explicit nvm root instead of silently choosing the home-directory installation", async () => {
+  const home = await fixture();
+  await file(home, ".nvm/versions/node/v22.12.0/bin/discovery-cli");
+  await file(home, ".nvm/alias/default", "22\n");
+  const configured = path.join(home, "configured-nvm");
+  const chosen = await file(configured, "versions/node/v24.1.0/bin/discovery-cli");
+  await file(configured, "alias/default", "24\n");
+  const env = hostProcessEnvironment({ home, env: { PATH: "/usr/bin:/bin", NVM_DIR: configured } });
+  expect(resolveEngineExecutable("discovery-cli", env)).toBe(chosen);
+  expect(env.PATH).not.toContain(path.join(home, ".nvm/versions/node"));
+});
 it.runIf(process.platform !== "win32")("follows fnm's default alias including a macOS path containing spaces", async () => {
   const home = await fixture(), root = path.join(home, "Library/Application Support/fnm");
   const cli = await file(home, "Library/Application Support/fnm/node-versions/v22.12.0/installation/bin/discovery-cli");

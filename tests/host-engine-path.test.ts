@@ -7,7 +7,7 @@ import { hostProcessEnvironment, buildHostEnvironment } from "../src/host-cli/en
 import { hubServiceCommand, inspectHubService } from "../src/hub/service.js";
 import { initializeHost } from "../src/host-cli/setup.js";
 import { LocalHostClient } from "../src/host-cli/client.js";
-import { HostManagement } from "../src/host-cli/management.js";
+import { engineSettingsSchema } from "../src/client-protocol/engine-settings.js";
 import { renderCoreUserFacingError } from "../src/core/errors.js";
 
 const roots: string[] = [], directories: string[] = [], children: ChildProcess[] = [];
@@ -47,19 +47,23 @@ it.runIf(process.platform !== "win32").each([ ["detached", "local"], ["foregroun
   const root = await mkdtemp(path.join(os.tmpdir(), "tb-path-")); roots.push(root);
   const home = path.join(root, "user"), directory = path.join(root, "host"); directories.push(directory);
   await mkdir(path.join(home, ".local/bin"), { recursive: true });
-  // The catalog uses disposable executables, never a real engine or model.
+  const expectedDirectories = new Set<string>();
+  // Presence checks never invoke a real engine installed elsewhere on the host.
   for (const command of ["codex", "claude", "kimi", "dsh", "agy"]) {
     const dirs: Record<string, string> = { codex: ".nvm/versions/node/v22.12.0/bin", claude: ".volta/bin", kimi: ".asdf/shims", dsh: ".local/share/mise/shims", agy: ".bun/bin" };
     const cli = path.join(home, layout === "local" ? ".local/bin" : dirs[command]!, command);
+    expectedDirectories.add(path.dirname(cli));
     await mkdir(path.dirname(cli), { recursive: true });
     await writeFile(cli, "#!/bin/sh\nexit 0\n"); await chmod(cli, 0o700);
   }
   if (layout === "managers") { await mkdir(path.join(home, ".nvm/alias"), { recursive: true }); await writeFile(path.join(home, ".nvm/alias/default"), "22\n"); }
   await initializeHost(directory, "PATH regression host");
   const identity = await readFile(path.join(directory, "identity.json"), "utf8");
-  const env = { ...process.env, HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", CODEX_EXECUTABLE: "", CLAUDE_EXECUTABLE: "", KIMI_EXECUTABLE: "", DSH_EXECUTABLE: "", ANTIGRAVITY_EXECUTABLE: "" };
+  // CI images and developer shells can export manager roots outside this fixture.
+  const overrides = { HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", NVM_DIR: "", VOLTA_HOME: "", BUN_INSTALL: "", ASDF_DATA_DIR: "", MISE_DATA_DIR: "", FNM_DIR: "", XDG_DATA_HOME: "", CODEX_EXECUTABLE: "", CLAUDE_EXECUTABLE: "", KIMI_EXECUTABLE: "", DSH_EXECUTABLE: "", ANTIGRAVITY_EXECUTABLE: "" };
+  const env = { ...process.env, ...overrides };
   if (mode === "detached") {
-    for (const key of ["HOME", "PATH", "CODEX_EXECUTABLE", "CLAUDE_EXECUTABLE", "KIMI_EXECUTABLE", "DSH_EXECUTABLE", "ANTIGRAVITY_EXECUTABLE"] as const) vi.stubEnv(key, env[key]);
+    for (const [key, value] of Object.entries(overrides)) vi.stubEnv(key, value);
     await hubServiceCommand("start", directory, entry);
     vi.unstubAllEnvs();
   } else {
@@ -69,8 +73,10 @@ it.runIf(process.platform !== "win32").each([ ["detached", "local"], ["foregroun
   }
   const client = await LocalHostClient.connect(directory, { enroll: true });
   try {
-    const catalog = await new HostManagement(client).catalog();
-    expect(catalog.engines.map(engine => [engine.id, engine.available]).sort()).toEqual([
+    const settings = engineSettingsSchema.parse(await client.request("/api/settings/engines"));
+    // A globally installed CLI must not hide a missing fixture search directory.
+    for (const directory of expectedDirectories) expect(settings.searchPaths).toContain(directory);
+    expect(settings.engines.map(engine => [engine.id, engine.available]).sort()).toEqual([
       ["antigravity", true], ["claude", true], ["codex", true], ["deepseek", true], ["kimi", true],
     ]);
   } finally { client.close(); }
