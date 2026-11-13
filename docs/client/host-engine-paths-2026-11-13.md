@@ -166,3 +166,37 @@ part of this repair.
 - The fnm order was read from upstream source; no fnm or nvm binary was run.
   Windows discovery is unchanged and was not exercised. No dependency,
   release, installed App or live Host setting is part of this follow-up.
+
+### UI recovery and reused-panel follow-up
+
+The path panel is reused in Settings and New Bot. Save/clear feedback now stays
+inside the engine card that initiated the operation, including after cancelling
+an unconfirmed save. Failed re-detection keeps its recovery control at the foot
+of the list. Keyboard focus returns to that control or the affected engine;
+read-back is still required before another write after an uncertain outcome.
+
+The reused panel now carries its own theme-token warning styles, spacing and
+phone touch sizes rather than depending on the Settings container. Its New Bot
+entry and path actions have 44 px phone targets, with 16 px input text. Existing
+desktop action sizes and palettes are retained. New Bot directs supported Hosts
+to in-place path checking; older Hosts retain the reopen guidance.
+
+The additional Chromium regressions first failed on the previous build. They
+cover lower-card clear/save failures, cancel and read-back, failed re-detection,
+keyboard focus and New Bot phone controls. Disabled engine-option assertions
+now check the option's native `disabled` property: the label-wrapped option
+locator otherwise resolves its enabled state through the parent select, which
+both hid unavailable-option regressions and caused a false failure.
+
+This is App presentation and interaction only. The headless CLI, Host settings
+API, persisted paths, authorization, idempotency and worker restart policy are
+unchanged; no CLI command changes are needed. Chromium viewport checks do not
+establish installed-App, mobile keyboard or physical-device acceptance. This
+follow-up does not publish a release or change an installed App.
+
+Verification for this UI follow-up: client translation/type/build checks and
+the Host build passed; the 36 Chromium cases in `engine-settings`,
+`new-bot-catalog` and `creation`, plus 22 `host-engine-settings` / `host-engine-path`
+guard tests, passed. Independent review covered six additional Settings/New Bot
+viewport, locale and theme combinations with failure injection and keyboard
+checks. This retains the physical-device boundary above.

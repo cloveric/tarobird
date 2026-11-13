@@ -5237,5 +5237,6 @@
   "新连接码包含不同的公网地址或证书。请先通过「更新主机地址」核对并保存，再扫描此连接码。": "The new code contains a different public address or certificate. Review and save it through Update host address before scanning this code again.",
   "此主机暂不支持同时保存局域网选择与 Tailscale。请更新主机；也可在「添加设备」中生成局域网连接码手动配对。": "This host cannot yet save a LAN selection alongside Tailscale. Update the host, or generate a LAN code in Add device to pair manually.",
   "所选地址已变化或尚未就绪，请重新准备线路并选择地址。": "The selected address has changed or is not ready. Prepare access again and choose an address.",
-  "CLI 路径有未保存的修改。请先在「找不到引擎？检查 CLI 路径」中保存或取消，再创建 Bot。": "The CLI path has unsaved changes. Save or cancel them under “Engine missing? Check CLI paths” before creating the Bot."
+  "CLI 路径有未保存的修改。请先在「找不到引擎？检查 CLI 路径」中保存或取消，再创建 Bot。": "The CLI path has unsaved changes. Save or cancel them under “Engine missing? Check CLI paths” before creating the Bot.",
+  "此主机尚未检测到支持的 AI CLI。若已安装，请在下方检查 CLI 路径；否则请先在主机上安装，再重新检测。": "No supported AI CLI was detected on this host. If already installed, check the CLI paths below; otherwise install an engine on the host, then run detection again."
 }

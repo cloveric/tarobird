@@ -306,7 +306,7 @@ test("re-detecting a newly installed CLI inside a new Bot refreshes its engine l
     const cli = path.join(f.root, "codex"); await writeFile(cli, "fixture; never run"); await chmod(cli, 0o700);
     await f.panel.getByRole("button", { name: "重新检测", exact: true }).click();
     await expect(row).toContainText("已检测到 CLI");
-    await expect(engine.locator("option[value=codex]")).toBeEnabled();
+    await expect(engine.locator("option[value=codex]")).toHaveJSProperty("disabled", false);
     await expect(missing).toHaveCount(0);
     await expect(engine).toHaveValue("codex");
     await expect(page.getByLabel("Bot 名称", { exact: true })).toHaveValue("Example Bot");
@@ -320,7 +320,7 @@ test("an engine detected on opening the path section keeps the engine and model 
     await openNewBot(page);
     await page.getByLabel("Bot 名称", { exact: true }).fill("Example Bot");
     const engine = page.getByRole("combobox", { name: "引擎", exact: true }), model = page.getByRole("combobox", { name: "模型", exact: true });
-    await expect(engine).toHaveValue("codex"); await expect(engine.locator("option[value=kimi]")).toBeDisabled();
+    await expect(engine).toHaveValue("codex"); await expect(engine.locator("option[value=kimi]")).toHaveJSProperty("disabled", true);
     const initial = await model.inputValue();
     const alternatives = await model.locator("option").evaluateAll(options => options.map(option => (option as HTMLOptionElement).value));
     await model.selectOption(alternatives.find(value => value !== "" && value !== initial) ?? alternatives[0]);
@@ -329,7 +329,7 @@ test("an engine detected on opening the path section keeps the engine and model 
     // Opening the section reads the host; no path is edited or saved.
     await page.getByText("找不到引擎？检查 CLI 路径", { exact: true }).click();
     await expect(f.panel.getByRole("region", { name: "Kimi", exact: true })).toContainText("已检测到 CLI");
-    await expect(engine.locator("option[value=kimi]")).toBeEnabled();
+    await expect(engine.locator("option[value=kimi]")).toHaveJSProperty("disabled", false);
     await expect(engine).toHaveValue("codex"); await expect(model).toHaveValue(chosen);
     await expect(page.getByRole("button", { name: "创建 Bot", exact: true })).toBeEnabled();
     expect(f.hub.engineSettings.status().engines.find(item => item.id === "kimi")?.override).toBeNull();
@@ -378,7 +378,7 @@ test("a path saved after a failed first engine read still applies the engine def
     await row.getByRole("button", { name: "指定路径", exact: true }).click();
     await row.getByLabel("Kimi CLI 程序路径").fill(f.executable); await row.getByLabel("Kimi CLI 程序路径").press("Enter");
     await expect(f.panel.getByText("已保存并核实。", { exact: true })).toBeVisible();
-    await expect(engine).toHaveValue("codex"); await expect(engine.locator("option[value=kimi]")).toBeEnabled();
+    await expect(engine).toHaveValue("codex"); await expect(engine.locator("option[value=kimi]")).toHaveJSProperty("disabled", false);
     await expect(model).toHaveValue(defaults.model); await expect(effort).toHaveValue(defaults.effort);
   } finally { await f.dispose(); }
 });
@@ -400,5 +400,67 @@ test("a detection during an uncertain creation does not reload the engine list u
     await page.waitForTimeout(500);
     expect(catalogReads).toBe(before);
     await expect(engine).toHaveValue("codex"); await expect(retry).toBeEnabled();
+  } finally { await f.dispose(); }
+});
+
+for (const context of ["settings", "new Bot"] as const) for (const width of [390, 1360]) test(`path feedback stays with the action and restores focus in ${context} at ${width}px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 }); const f = await fixture(page, false);
+  try {
+    await f.hub.engineSettings.update({ engine: "deepseek", path: f.executable, requestId: "seed", revision: "default" }, apply => apply());
+    if (context === "settings") await f.open();
+    else { await openNewBot(page); await page.getByText("找不到引擎？检查 CLI 路径", { exact: true }).click(); }
+    const row = f.panel.getByRole("region", { name: "DeepSeek", exact: true }), edit = row.getByRole("button", { name: "指定路径", exact: true });
+    let failWrite = true, failRead = false, writes = 0;
+    await page.route("**/api/settings/engines*", route => {
+      if (route.request().method() === "PUT") { writes++; if (failWrite) return route.abort("failed"); }
+      else if (failRead) return route.abort("failed");
+      return route.continue();
+    });
+    const clear = row.getByRole("button", { name: "清除手动路径", exact: true });
+    await clear.focus(); await clear.press("Enter");
+    const recovery = row.getByRole("button", { name: "重新读取", exact: true });
+    await expect(recovery).toBeInViewport({ ratio: 1 }); await expect(recovery).toBeFocused();
+    await expect(row.getByRole("alert")).toBeInViewport(); await expect(edit).toBeDisabled(); expect(writes).toBe(1);
+    await recovery.press("Enter"); await expect(edit).toBeFocused();
+    expect(writes).toBe(1); await expect(row).toContainText(f.executable);
+    // Cancelling an uncertain editor save retains recovery in the same card.
+    await edit.press("Enter"); await row.getByLabel("DeepSeek CLI 程序路径").fill(f.executable + "-changed");
+    await row.getByRole("button", { name: "保存路径", exact: true }).click();
+    await expect(row.getByRole("button", { name: "放弃修改并重新读取", exact: true })).toBeFocused();
+    await row.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(recovery).toBeInViewport({ ratio: 1 }); await expect(recovery).toBeFocused();
+    await recovery.press("Enter"); await expect(edit).toBeFocused(); expect(writes).toBe(2);
+    failWrite = false;
+    await clear.focus(); await clear.press("Enter"); await expect(edit).toBeFocused();
+    await expect(row.getByRole("status")).toContainText("已保存并核实");
+    expect(f.hub.engineSettings.status().engines.find(e => e.id === "deepseek")?.override).toBeNull();
+    // A bottom re-detect error keeps recovery at that end of the list.
+    const redetect = f.panel.getByRole("button", { name: "重新检测", exact: true });
+    failRead = true; await redetect.focus(); await redetect.press("Enter");
+    const reload = f.panel.getByRole("button", { name: "重新读取", exact: true });
+    // At the scroll boundary Chromium can clip a fractional CSS pixel.
+    await expect(reload).toBeInViewport({ ratio: 0.99 }); await expect(reload).toBeFocused();
+    await expect(f.panel.getByRole("alert")).toBeInViewport();
+    failRead = false; await reload.press("Enter"); await expect(redetect).toBeFocused(); expect(writes).toBe(3);
+  } finally { await f.dispose(); }
+});
+
+for (const width of [320, 390]) test(`new Bot path controls keep phone target sizes and warning styling at ${width}px`, async ({ page }, info) => {
+  await page.setViewportSize({ width, height: 844 }); const f = await fixture(page, false);
+  try {
+    await openNewBot(page);
+    const summary = page.getByText("找不到引擎？检查 CLI 路径", { exact: true });
+    expect((await summary.boundingBox())!.height).toBeGreaterThanOrEqual(44); await summary.click();
+    const row = f.panel.getByRole("region", { name: "Codex", exact: true }), edit = row.getByRole("button", { name: "指定路径", exact: true });
+    expect((await edit.boundingBox())!.height).toBeGreaterThanOrEqual(44); await edit.click();
+    const input = row.getByLabel("Codex CLI 程序路径"); await input.fill("~/codex");
+    expect((await input.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await input.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16);
+    await row.getByRole("button", { name: "保存路径", exact: true }).click();
+    const alert = row.getByRole("alert"); await expect(alert).toContainText("完整绝对路径");
+    const colors = await alert.evaluate(element => ({ background: getComputedStyle(element).backgroundColor, text: getComputedStyle(element).color, body: getComputedStyle(document.body).color }));
+    expect(colors.background).not.toBe("rgba(0, 0, 0, 0)"); expect(colors.text).not.toBe(colors.body);
+    expect((await row.getByRole("button", { name: "取消", exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({ path: info.outputPath(`new-bot-path-error-${width}.png`) });
   } finally { await f.dispose(); }
 });

@@ -1,8 +1,24 @@
+/* Engine program paths (EngineSettings.tsx). The panel renders in Settings and
+   inside the New Bot dialog, so it carries its own text, notice and touch
+   sizing instead of relying on .settings-content. Values mirror the Settings
+   rules in brand-theme.css; colours are the active palette's tokens. */
 .engine-settings { min-width: 0; }
+
+/* Heading, notes and status lines. */
+.engine-settings .settings-group-heading h4 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--grey); }
+.engine-settings p { margin: 8px 0; font-size: 12.5px; line-height: 1.6; }
+.engine-settings .settings-note { margin-top: 8px; margin-bottom: 0; }
+
+/* Warnings: the "not detected" chip and error text. */
+.engine-settings .settings-warning { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--orange-soft); color: var(--orange); }
+.engine-path-recovery { margin: 12px 0; }
+/* Confirmation beside the path that was just saved. */
+.engine-settings .engine-path-feedback { display: block; margin: 8px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--green); }
+
 .engine-path-list { display: grid; gap: 12px; margin: 16px 0; }
 .engine-path-card { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 14px; }
 .engine-path-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
-.engine-path-source { margin: 8px 0 4px; font-size: 12px; color: var(--muted); }
+.engine-path-source { color: var(--muted); }
 .engine-path-value { display: block; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
 .engine-path-editor { margin-top: 12px; }
 .engine-path-editor label { display: grid; gap: 8px; }
@@ -10,7 +26,28 @@
 .engine-path-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .engine-path-diagnostics { margin: 14px 0; }
 .engine-path-diagnostics li { overflow-wrap: anywhere; font-size: 12px; }
-.new-bot-engine-settings { margin: 12px 0; }
+
+/* Disclosures. The shared chevron style skips classed <details> in dialogs,
+   so both summaries opt in here; the terminal palette keeps its own marker. */
+:root:not([data-palette=cli]) :is(.new-bot-engine-settings, .engine-settings .engine-path-diagnostics) > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+:root:not([data-palette=cli]) :is(.new-bot-engine-settings, .engine-settings .engine-path-diagnostics) > summary::-webkit-details-marker { display: none; }
+:root:not([data-palette=cli]) :is(.new-bot-engine-settings, .engine-settings .engine-path-diagnostics) > summary::before { content: "›"; font-size: 18px; line-height: 1; transition: transform var(--t-fast) var(--ease); }
+:root:not([data-palette=cli]) :is(.new-bot-engine-settings, .engine-settings .engine-path-diagnostics)[open] > summary::before { transform: rotate(90deg); }
+
+/* New Bot: the section reads like the form's other disclosure (高级设置). */
+.new-bot-engine-settings { margin: 4px 0 12px; }
+.new-bot-engine-settings > summary { width: fit-content; min-height: 36px; align-content: center; font-size: 13px; font-weight: 550; color: var(--grey); cursor: pointer; }
+.new-bot-engine-settings .settings-group-heading { margin-top: 4px; }
+/* A hairline closes the open section, so the form fields below read as separate. */
+.new-bot-engine-settings[open] { margin-bottom: 22px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
 
 .engine-path-gate { border: 0; padding: 0; margin: 0; min-width: 0; }
-.engine-path-recovery { margin: 12px 0; }
+
+/* Touch sizing, as Settings applies it on phones and coarse pointers. */
+@media (max-width: 760px), (pointer: coarse) {
+  .engine-settings button, .engine-settings input { min-height: 44px; }
+  :is(.new-bot-engine-settings, .engine-settings .engine-path-diagnostics) > summary { min-height: 44px; align-content: center; }
+}
+@media (max-width: 760px) {
+  .engine-settings input { font-size: 16px; }
+}

@@ -97,7 +97,7 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
     <p className="new-bot-lead">{t("设置一次，开对话、开群和开话题都能直接选用。")}</p>
     {/* Engine catalog problems lead the form, outside the disabled fieldset, so their cause and retry are seen first. */}
     {catalogError && <div role="alert" className="error-text new-bot-alert new-bot-catalog"><p>{catalogMessage}</p>{catalogError !== "forbidden" && catalogError !== "unsupported" && <button type="button" disabled={!online} onClick={() => setCatalogAttempt(value => value + 1)}>{t("重新读取")}</button>}</div>}
-    {catalog && !catalog.engines.some((e) => e.available) && <p role="alert" className="new-bot-alert new-bot-catalog is-warning">{t("此主机尚未检测到支持的 AI CLI。请先在主机上安装至少一种引擎，再重新打开此页面。")}</p>}
+    {catalog && !catalog.engines.some((e) => e.available) && <p role="alert" className="new-bot-alert new-bot-catalog is-warning">{t(state.engineSettingsAvailable ? "此主机尚未检测到支持的 AI CLI。若已安装，请在下方检查 CLI 路径；否则请先在主机上安装，再重新检测。" : "此主机尚未检测到支持的 AI CLI。请先在主机上安装至少一种引擎，再重新打开此页面。")}</p>}
     {state.engineSettingsAvailable && <fieldset className="engine-path-gate" disabled={busy || !!pending.current}><details className="new-bot-engine-settings" onToggle={event => setPathsOpen(event.currentTarget.open)}><summary>{t("找不到引擎？检查 CLI 路径")}</summary><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={pathsOpen} onBusy={setPathsBusy} onDirty={setPathsDirty} onSaved={reloadCatalog} onDetected={pathsDetected}/></details></fieldset>}
     <fieldset disabled={busy || pathsBusy || !!pending.current} className="bot-fields">
     <div className="new-bot-block">
