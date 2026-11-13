@@ -1,0 +1,6 @@
+"NSFaceIDUsageDescription" = "验证身份后解锁 TaroBird 中的对话。";
+"NSLocalNetworkUsageDescription" = "连接你授权的局域网主机，以发送消息和传输附件。";
+"NSMicrophoneUsageDescription" = "录制语音消息并发送给你选择的 bot。";
+"NSCameraUsageDescription" = "拍照后作为消息附件发送。";
+"NSPhotoLibraryUsageDescription" = "选择照片作为消息附件。";
+"NSPhotoLibraryAddUsageDescription" = "将连接二维码保存到照片。";

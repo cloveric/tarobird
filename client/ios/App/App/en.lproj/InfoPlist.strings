@@ -1,0 +1,6 @@
+"NSFaceIDUsageDescription" = "Verify your identity to unlock your conversations in TaroBird.";
+"NSLocalNetworkUsageDescription" = "Connect to hosts you authorized on your local network to send messages and transfer attachments.";
+"NSMicrophoneUsageDescription" = "Record voice messages to send to the bot you choose.";
+"NSCameraUsageDescription" = "Take photos to send as message attachments.";
+"NSPhotoLibraryUsageDescription" = "Choose photos to send as message attachments.";
+"NSPhotoLibraryAddUsageDescription" = "Save the connection QR code to Photos.";

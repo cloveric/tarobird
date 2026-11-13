@@ -3,6 +3,7 @@ import { deleteDB, openDB, type DBSchema } from "idb";
 import { runtimeHostId } from "./runtime-host-id.js";
 export { runtimeHostId } from "./runtime-host-id.js";
 import { ClientCache, cache as legacyCache, defaultPreferences, type Identity, type Preferences } from "./storage.js";
+import { storedLocale } from "./system-locale.js";
 import { type ResetStep } from "./local-reset.js";
 import type { BrowserScope } from "./workbench-browser.js";
 import type { NetworkHost } from "../../src/client-protocol/private-network.js";
@@ -92,7 +93,7 @@ export class HostRegistry {
     const preferences = { ...defaultPreferences, ...stored };
     // Retired palettes fall back without resetting the other device preferences.
     // Ignore an old disabled-animation choice after removing the App switch.
-    return { ...preferences, palette: isColorPalette(stored?.palette) ? stored.palette : DEFAULT_PALETTE, monoAccent: isMonoAccent(stored?.monoAccent) ? stored.monoAccent : DEFAULT_MONO_ACCENT, animations: true, animatedAvatars: stored?.animatedAvatars !== false, linkPreviewStyle: stored?.linkPreviewStyle === "inline" ? "inline" : "card", layoutDensity: normalizeLayoutDensity(stored?.layoutDensity), sidebarGroupByHost: preferences.sidebarGroupByHost === true, showDisconnectedBots: preferences.showDisconnectedBots === true, showTicketConversations: preferences.showTicketConversations === true, sidebarLayout: preferences.sidebarLayout === "conversations" ? "conversations" : "bots" };
+    return { ...preferences, locale: storedLocale(stored), palette: isColorPalette(stored?.palette) ? stored.palette : DEFAULT_PALETTE, monoAccent: isMonoAccent(stored?.monoAccent) ? stored.monoAccent : DEFAULT_MONO_ACCENT, animations: true, animatedAvatars: stored?.animatedAvatars !== false, linkPreviewStyle: stored?.linkPreviewStyle === "inline" ? "inline" : "card", layoutDensity: normalizeLayoutDensity(stored?.layoutDensity), sidebarGroupByHost: preferences.sidebarGroupByHost === true, showDisconnectedBots: preferences.showDisconnectedBots === true, showTicketConversations: preferences.showTicketConversations === true, sidebarLayout: preferences.sidebarLayout === "conversations" ? "conversations" : "bots" };
   }
   async savePreferences(value: Preferences): Promise<void> { await (await this.db).put("meta", JSON.stringify(value), "preferences"); }
   async adhdBoard(): Promise<AdhdBoardState> {

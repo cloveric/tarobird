@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import english from "./locales/en.json" with { type: "json" };
-export type Locale = "zh" | "en";
+import type { Locale } from "./system-locale.js";
+export type { Locale };
 let locale: Locale = "zh";
 const listeners = new Set<() => void>();
 export function setLocale(next: Locale): void { if (next === locale) return; locale = next; document.documentElement.lang = next === "zh" ? "zh-CN" : "en"; listeners.forEach((listener) => listener()); }

@@ -19,6 +19,8 @@ import { DesktopRecovery } from "./DesktopRecovery.js";
 import App from "./Bootstrap.js";
 import { NativeBackNavigation } from "./NativeBackNavigation.js";
 import { MobileViewport } from "./MobileViewport.js";
+import { setLocale } from "./i18n.js";
+import { systemLocale } from "./system-locale.js";
 import "./styles.css";
 // Component skin followed by the selected colour family.
 import "./brand-theme.css";
@@ -38,6 +40,8 @@ import "./porcelain-details.css";
 import "./desktop-window-chrome.css";
 import "./ios-adaptive.css";
 
+// Loading and pairing screens follow the system language until saved preferences load.
+setLocale(systemLocale());
 const stopMotion = installMotion();
 restoreAppearance();
 const stopWindowChrome = installDesktopWindowChrome();

@@ -16,6 +16,7 @@ import { networkCanonical, type SignedNetworkManifest } from "../../src/client-p
 import { conversationFoldersSchema, emptyConversationFolders, type ConversationFoldersState } from "../../src/client-protocol/conversation-folders.js";
 import { DEFAULT_MONO_ACCENT, DEFAULT_PALETTE, DEFAULT_THEME, isColorPalette, isMonoAccent, type ColorPalette, type MonoAccent } from "./palettes.js";
 import { normalizeLayoutDensity, type LayoutDensity } from "./layout-density.js";
+import { storedLocale, systemLocale } from "./system-locale.js";
 import type { NamedBot } from "./bot-references.js";
 import { profileCacheSchema, type ProfileCache } from "../../src/client-protocol/avatars.js";
 import { openDB, type DBSchema, type StoreNames, type IDBPTransaction, type IDBPDatabase } from "idb";
@@ -41,7 +42,7 @@ export type LocalReset = { keyRef?: string };
 export type ConversationActivity = { preview: string; at: number; unread: Record<string, number>; lastContentSeq: number; attention?: Record<string, MessageAttention>; replies?: Record<string, BotReply>; workingReplies?: Record<string, number> };
 export type SidebarLayout = "bots" | "conversations";
 export type Preferences = { sidebarLayout: SidebarLayout; sidebarGroupByHost: boolean; showDisconnectedBots: boolean; showTicketConversations: boolean; layoutDensity: LayoutDensity; theme: "system" | "light" | "dark"; palette: ColorPalette; monoAccent?: MonoAccent; locale: "zh" | "en"; fontSize: number; quietStart: string; quietEnd: string; showModelIcons: boolean; animatedAvatars: boolean; animations: boolean; linkPreviewStyle: LinkPreviewStyle };
-export const defaultPreferences: Preferences = { sidebarLayout: "bots", sidebarGroupByHost: false, showDisconnectedBots: false, showTicketConversations: false, layoutDensity: normalizeLayoutDensity(undefined), theme: DEFAULT_THEME, palette: DEFAULT_PALETTE, monoAccent: DEFAULT_MONO_ACCENT, locale: "zh", fontSize: 14, quietStart: "", quietEnd: "", showModelIcons: true, animatedAvatars: true, animations: true, linkPreviewStyle: "card" };
+export const defaultPreferences: Preferences = { sidebarLayout: "bots", sidebarGroupByHost: false, showDisconnectedBots: false, showTicketConversations: false, layoutDensity: normalizeLayoutDensity(undefined), theme: DEFAULT_THEME, palette: DEFAULT_PALETTE, monoAccent: DEFAULT_MONO_ACCENT, locale: systemLocale(), fontSize: 14, quietStart: "", quietEnd: "", showModelIcons: true, animatedAvatars: true, animations: true, linkPreviewStyle: "card" };
 export type ConversationDraft = { files: File[]; workbench?: WorkbenchDraft; reply?: Message; previewChoice?: string | null; previewStyle: import("../../src/client-protocol/links.js").LinkPreviewStyle; recipients?: string[] };
 export type DraftPreview = { text: string; files: number; reply: boolean };
 type StoredConversationDraft = Omit<ConversationDraft, "files"> & { files: { bytes: ArrayBuffer; name: string; type: string; lastModified: number }[]; revision: string; owner: string; size: number; active: number };
@@ -864,8 +865,9 @@ export class ClientCache {
   async preferences(): Promise<Preferences> {
     const saved = await (await this.db).get("settings", "preferences") as Partial<Preferences> | undefined;
     // Missing or retired palettes use Monochrome; preserve all other saved choices.
+    // A saved record keeps its language; a device without one follows the system.
     // Retain the legacy animations field, but the retired App switch is always on.
-    return { ...defaultPreferences, ...saved, animations: true, animatedAvatars: saved?.animatedAvatars !== false, linkPreviewStyle: saved?.linkPreviewStyle === "inline" ? "inline" : "card", layoutDensity: normalizeLayoutDensity(saved?.layoutDensity), sidebarGroupByHost: saved?.sidebarGroupByHost === true, showDisconnectedBots: saved?.showDisconnectedBots === true, showTicketConversations: saved?.showTicketConversations === true, sidebarLayout: saved?.sidebarLayout === "conversations" ? "conversations" : "bots", palette: isColorPalette(saved?.palette) ? saved.palette : DEFAULT_PALETTE, monoAccent: isMonoAccent(saved?.monoAccent) ? saved.monoAccent : DEFAULT_MONO_ACCENT };
+    return { ...defaultPreferences, ...saved, locale: storedLocale(saved), animations: true, animatedAvatars: saved?.animatedAvatars !== false, linkPreviewStyle: saved?.linkPreviewStyle === "inline" ? "inline" : "card", layoutDensity: normalizeLayoutDensity(saved?.layoutDensity), sidebarGroupByHost: saved?.sidebarGroupByHost === true, showDisconnectedBots: saved?.showDisconnectedBots === true, showTicketConversations: saved?.showTicketConversations === true, sidebarLayout: saved?.sidebarLayout === "conversations" ? "conversations" : "bots", palette: isColorPalette(saved?.palette) ? saved.palette : DEFAULT_PALETTE, monoAccent: isMonoAccent(saved?.monoAccent) ? saved.monoAccent : DEFAULT_MONO_ACCENT };
   }
   async savePreferences(value: Preferences): Promise<void> { const tx = await this.write(["settings"]); await tx.objectStore("settings").put(value, "preferences"); await tx.done; }
   async draft(id: string): Promise<string> { return (await (await this.db).get("settings", `draft:${id}`)) as string ?? ""; }
