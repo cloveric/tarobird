@@ -324,12 +324,15 @@ describe("preventive compaction completion deadlines", () => {
       } else f.completed();
       expect(f.engine.pendingCompactions.size).toBe(0);
 
+      f.request.mockImplementation(async method => method === "thread/goal/set" ? {
+        goal: { threadId: "original-context", objective: "retry", status: "active", tokenBudget: null, tokensUsed: 0, timeUsedSeconds: 0, createdAt: 1, updatedAt: 1 },
+      } : method === "thread/goal/clear" ? { cleared: true } : {});
       await f.adapter.setThreadGoal("original-context", { objective: "retry" });
       const stop = new AbortController();
       const watch = f.adapter.watchThreadGoal("original-context", { objective: "retry", abortSignal: stop.signal });
       await vi.advanceTimersByTimeAsync(0);
       expect(f.engine.goalWatchers.has("original-context")).toBe(true);
-      expect(f.methods()).toEqual(["thread/compact/start", "thread/goal/set", "thread/goal/clear", "thread/goal/set"]);
+      expect(f.methods()).toEqual(["thread/compact/start", "thread/goal/clear", "thread/goal/set", "thread/goal/clear", "thread/goal/set"]);
       stop.abort();
       await watch;
     } finally { errors.mockRestore(); f.adapter.destroy(); vi.useRealTimers(); }
@@ -1147,13 +1150,19 @@ describe("CodexAppServerAdapter", () => {
     child.stdout.emitData(`{"id":${threadStart.id},"result":{"thread":{"id":"thread-123"}}}\n`);
 
     await waitFor(() => child.stdin.lines.length >= 3);
-    const goalSet = JSON.parse(child.stdin.lines[2] ?? "{}");
+    const goalClear = JSON.parse(child.stdin.lines[2] ?? "{}");
+    expect(goalClear).toMatchObject({ method: "thread/goal/clear", params: { threadId: "thread-123", origin: "user" } });
+    child.stdout.emitData(JSON.stringify({ id: goalClear.id, result: { cleared: false } }) + "\n");
+    await waitFor(() => child.stdin.lines.length >= 4);
+    const goalSet = JSON.parse(child.stdin.lines[3] ?? "{}");
     expect(goalSet).toMatchObject({
       method: "thread/goal/set",
       params: {
         threadId: "thread-123",
         objective: "ship the release",
         tokenBudget: null,
+        status: "active",
+        origin: "user",
       },
     });
     child.stdout.emitData(`{"id":${goalSet.id},"result":{"goal":{"threadId":"thread-123","objective":"ship the release","status":"active","tokenBudget":null,"tokensUsed":0,"timeUsedSeconds":0,"createdAt":1,"updatedAt":1}}}\n`);
@@ -1244,12 +1253,15 @@ describe("CodexAppServerAdapter", () => {
     // It resolves only when Codex's autonomous pursuit actually reaches complete.
     child.stdout.emitData(`{"method":"thread/goal/updated","params":{"threadId":"thread-123","goal":{"threadId":"thread-123","objective":"review the bugs","status":"complete","tokenBudget":null,"tokensUsed":1234,"timeUsedSeconds":56,"createdAt":1,"updatedAt":2}}}\n`);
 
+    await waitFor(() => child.stdin.lines.some(line => JSON.parse(line).method === "thread/goal/get"));
+    const confirmGoal = child.stdin.lines.map(line => JSON.parse(line)).find(frame => frame.method === "thread/goal/get");
+    child.stdout.emitData(JSON.stringify({ id: confirmGoal.id, result: { goal: { threadId: "thread-123", objective: "review the bugs", status: "complete", tokenBudget: null, tokensUsed: 1234, timeUsedSeconds: 56, createdAt: 1, updatedAt: 2 } } }) + "\n");
     const result = await promise;
     expect(result.goal?.status).toBe("complete");
     expect(result.goal?.tokensUsed).toBe(1234);
   });
 
-  it("resolves goal watchers with the latest goal when the app-server child exits", async () => {
+  it("rejects goal watchers when the app-server child exits instead of reporting a normal goal end", async () => {
     const { child, spawnFn } = createSpawnHarness();
     const adapter = new CodexAppServerAdapter("codex", "/tmp/default-workspace", spawnFn);
 
@@ -1276,12 +1288,9 @@ describe("CodexAppServerAdapter", () => {
     const goalSet = JSON.parse(child.stdin.lines[3] ?? "{}");
     child.stdout.emitData(`{"id":${goalSet.id},"result":{"goal":{"threadId":"thread-123","objective":"keep shipping","status":"active","tokenBudget":null,"tokensUsed":7,"timeUsedSeconds":2,"createdAt":1,"updatedAt":1}}}\n`);
 
+    const failed = expect(promise).rejects.toThrow(/app-server.*exit|not running|stopped|destroyed/i);
     child.close(1);
-
-    await expect(Promise.race([
-      promise.then((result) => result.goal?.status ?? "missing-goal"),
-      new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 20)),
-    ])).resolves.toBe("active");
+    await failed;
   });
 
   it.each([false, true])("disarms an aborted goal without interrupting ordinary work (goal turn already ended: %s)", async (goalTurnEnded) => {
@@ -1352,6 +1361,7 @@ describe("CodexAppServerAdapter", () => {
       await f.respond("turn/start", { turn: { id: "ordinary" } });
       await Promise.resolve();
       f.emit("thread/goal/updated", { goal: { ...f.goal, status: "complete" } });
+      await f.respond("thread/goal/get", { goal: { ...f.goal, status: "complete" } });
       expect((await f.watch).goal?.status).toBe("complete");
       expect(f.events).toContainEqual({ type: "result", text: "goal final", sessionId: f.goal.threadId });
       f.emit("turn/completed", { turn: { id: "ordinary", status: "completed", items: [{ type: "agentMessage", text: "ordinary final" }] } });
@@ -1386,10 +1396,10 @@ describe("CodexAppServerAdapter", () => {
       f.emit("item/agentMessage/delta", { turnId: "aborted-ordinary", delta: "must not enter goal" });
       await f.respond("turn/start", { turn: { id: "aborted-ordinary" } });
       f.abort.abort();
-      // Ordinary abort invalidates the loaded-thread cache; native cleanup
-      // resumes that same thread before its clear RPC.
-      await f.respond("thread/resume", { thread: { id: f.goal.threadId } });
+      // Ordinary abort invalidates only our loaded-thread cache. Goal cleanup
+      // already owns the exact native thread; never re-resolve into a fallback.
       await f.respond("thread/goal/clear", { cleared: true }, 2); await f.watch;
+      expect(f.frames().filter((r) => r.method === "thread/resume")).toHaveLength(0);
       expect(f.frames().filter((r) => r.method === "turn/interrupt").map((r) => r.params.turnId)).toEqual(["aborted-ordinary", "real-goal"]);
       expect(JSON.stringify(f.events)).not.toContain("must not enter goal");
     } finally { f.adapter.destroy(); }
@@ -1401,6 +1411,8 @@ describe("CodexAppServerAdapter", () => {
     vi.useFakeTimers();
     try {
       f.emit("thread/goal/updated", { goal: { ...f.goal, status: "complete" } });
+      await vi.advanceTimersByTimeAsync(0);
+      await f.respond("thread/goal/get", { goal: { ...f.goal, status: "complete" } });
       await vi.advanceTimersByTimeAsync(40_000);
       f.emit("item/agentMessage/delta", { turnId: "long-final", delta: "still writing" });
       await vi.advanceTimersByTimeAsync(40_000);
@@ -1430,7 +1442,9 @@ describe("CodexAppServerAdapter", () => {
     if (missingEnd) vi.useFakeTimers();
     try {
       child.stdout.emitData(JSON.stringify({ method: "thread/goal/updated", params: { threadId: goal.threadId, goal: { ...goal, status: "complete" } } }) + "\n");
-      await Promise.resolve(); await Promise.resolve();
+      for (let i = 0; i < 16; i++) await Promise.resolve();
+      await respond("thread/goal/get", { goal: { ...goal, status: "complete" } });
+      for (let i = 0; i < 16; i++) await Promise.resolve();
       expect(settled).toBe(false);
       if (missingEnd) {
         const failure = expect(watch).rejects.toThrow("final native turn did not finish");
@@ -1465,7 +1479,7 @@ describe("CodexAppServerAdapter", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(JSON.parse(child.stdin.lines[2] ?? "{}").method).toBe("thread/goal/clear");
 
-      const assertion = expect(promise).rejects.toThrow(/thread\/goal\/set|not running/);
+      const assertion = expect(promise).rejects.toThrow(/thread\/goal\/(set|clear)|not running/);
       await vi.advanceTimersByTimeAsync(CODEX_APP_SERVER_GOAL_RPC_TIMEOUT_MS);
       await vi.advanceTimersByTimeAsync(0);
       await assertion;

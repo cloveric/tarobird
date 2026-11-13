@@ -10,7 +10,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createRunRecord, recordRunEvent, summarizeRun } from "../src/core/run-record.js";
-import { nativeRun, RUN_BYTE_LIMIT, RUN_ENTRY_LIMIT, RUN_RETENTION_MS } from "../src/client-protocol/run.js";
+import { nativeRun, isGoalTurnEnded, RUN_BYTE_LIMIT, RUN_ENTRY_LIMIT, RUN_RETENTION_MS } from "../src/client-protocol/run.js";
 import { forwardedBlocks } from "../src/client-protocol/forwarding.js";
 import { HubMaintenance } from "../src/hub/maintenance.js";
 import { HubStore } from "../src/hub/store.js";
@@ -290,6 +290,28 @@ describe("Hub run detail isolation and persistence", () => {
     transport.capabilities = []; const old = await channel.send(chat, { card: renderCoreRunCard(state) });
     expect(JSON.stringify(await store.messageForUser("owner", old.messageId))).not.toContain("nativeRun");
     expect(JSON.stringify(forwardedBlocks(stored.blocks, new Map()))).not.toContain("nativeRun");
+  });
+  it("keeps a goal turn-end hint outside strict summaries and scopes it to the exact run", async () => {
+    const transport = { capabilities: ["runs.v1"], options: { stateDir: root }, request: async (method: string, input: any) => { if (method === "run.write") { await journal.write("bot", input); return null; } if (method === "publish") return store.publishBotMessage("bot", input); throw new Error(method); } };
+    const channel = new GatewayChannel(transport as unknown as GatewayTransport);
+    const state = initialCoreRunState("goal"); state.nativeRun = createRunRecord();
+    state.status = "done"; state.goalTurnEnded = true; state.resultText = "This turn ended; the goal remains set.";
+    const sent = await channel.send(chat, { card: renderCoreRunCard(state) });
+    const message = await store.messageForUser("owner", sent.messageId);
+    const block = message.blocks[0]; expect(block.type).toBe("card"); if (block.type !== "card") throw new Error("Expected a card");
+    const run = nativeRun(block)!;
+    expect(run).toMatchObject({ phase: "done" });
+    expect(run).not.toHaveProperty("goalTurnEnded");
+    expect(isGoalTurnEnded(block, run)).toBe(true);
+    expect(isGoalTurnEnded(block, { ...run, id: "other" })).toBe(false);
+    expect(isGoalTurnEnded(block, { ...run, revision: run.revision + 1 })).toBe(false);
+    expect(isGoalTurnEnded(block, { ...run, phase: "working" })).toBe(false);
+    expect(isGoalTurnEnded({ extra: { ...block.extra, scopedRun: run } }, run)).toBe(false);
+    expect(isGoalTurnEnded({ extra: { goalTurnEnded: true } }, run)).toBe(false);
+    expect(JSON.stringify(forwardedBlocks([block], new Map()))).not.toContain("goalTurnEnded");
+    state.goalTurnEnded = false;
+    await channel.updateCard(sent.messageId, renderCoreRunCard(state));
+    expect(JSON.stringify((await store.messageForUser("owner", sent.messageId)).blocks)).not.toContain("goalTurnEnded");
   });
   it("publishes live thought tails separately from strict summaries and clears them on completion", async () => {
     const transport = { capabilities: ["runs.v1"], options: { stateDir: root }, request: async (method: string, input: any) => { if (method === "run.write") { await journal.write("bot", input); return null; } if (method === "publish") return store.publishBotMessage("bot", input); throw new Error(method); } };

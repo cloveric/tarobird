@@ -54,6 +54,15 @@ export function nativeRun(block: { extra?: Record<string, unknown> }): RunSummar
   const parsed = runSummarySchema.safeParse(block.extra?.nativeRun);
   return parsed.success ? parsed.data : undefined;
 }
+
+// Keep presentation hints outside the strict v1 summary for older clients.
+const goalTurnEndedSchema = z.object({ runId: runSummarySchema.shape.id, revision: runSummarySchema.shape.revision }).strict();
+/** A finished Claude turn does not certify that its native goal succeeded. */
+export function isGoalTurnEnded(block: { extra?: Record<string, unknown> }, run: RunSummary): boolean {
+  if (run.phase !== "done" || block.extra?.scopedRun !== undefined) return false;
+  const marker = goalTurnEndedSchema.safeParse(block.extra?.goalTurnEnded);
+  return marker.success && marker.data.runId === run.id && marker.data.revision === run.revision;
+}
 /** Explicitly opt in to read-only scoped reports for rendering and lifecycle. */
 export function anyRun(block: { extra?: Record<string, unknown> }): RunSummary | undefined {
   const scoped = runSummarySchema.safeParse(block.extra?.scopedRun);

@@ -4,7 +4,7 @@ import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useS
 import { createPortal } from "react-dom";
 import { Check, ChevronRight, ChevronsLeft, ChevronsRight, CircleStop, Copy, Download, GitBranch, ListTree, LoaderCircle, RefreshCw, Search } from "lucide-react";
 import type { Block, Message } from "../../src/client-protocol/index.js";
-import { RUN_ENTRY_LIMIT, runPageSchema, scopedJournal, type ScopedJournal, type RunEntry, type RunPage, type RunSummary } from "../../src/client-protocol/run.js";
+import { RUN_ENTRY_LIMIT, runPageSchema, scopedJournal, isGoalTurnEnded, type ScopedJournal, type RunEntry, type RunPage, type RunSummary } from "../../src/client-protocol/run.js";
 import type { HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
 import { MarkdownText } from "./MarkdownText.js";
@@ -49,6 +49,7 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
   const detailFocus = useMemo(() => ({ get current() { return compact && !trigger.current?.getClientRects().length ? compactReturnFocus?.current ?? trigger.current : trigger.current; } }), [compact, compactReturnFocus]);
   const reportFocus = useMemo(() => ({ get current() { return reportTrigger.current ?? detailFocus.current ?? card.current; } }), [detailFocus]);
   const scoped = block.extra?.scopedRun !== undefined;
+  const goalTurnEnded = isGoalTurnEnded(block, run);
   const taskLabel = scopedTaskLabelSchema.safeParse(block.extra?.scopedTask);
   const scopeUnsupported = scoped && state.runScopesAvailable === false;
   const sync = scopedJournal(block, run);
@@ -110,10 +111,10 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
   const recovering = active && phase !== "stopping" && !disconnected && run.current?.name === "engine_retry";
   const retrySeconds = recovering && run.current?.status === "waiting"
     ? Math.max(0, Math.ceil((run.current.at + Number(runInput(run.current).delayMs ?? 0) - Math.max(run.current.at, observedNow)) / 1000)) : 0;
-  const phaseLabel = notice?.delivery === "unconfirmed" ? t("交付未确认") : scopeUnsupported && active ? t("最后状态待确认") : disconnected ? t("连接中断，当前状态待确认") : active && run.current && phase === "working" ? runEntryTitle(run.current) : phase === "done" && backgroundNote ? t("本轮已回复") : scoped && phase === "partial" ? t("最终状态未确认") : runPhaseLabel(phase);
+  const phaseLabel = notice?.delivery === "unconfirmed" ? t("交付未确认") : scopeUnsupported && active ? t("最后状态待确认") : disconnected ? t("连接中断，当前状态待确认") : active && run.current && phase === "working" ? runEntryTitle(run.current) : phase === "done" && backgroundNote ? t("本轮已回复") : scoped && phase === "partial" ? t("最终状态未确认") : goalTurnEnded ? t("本轮已结束") : runPhaseLabel(phase);
   const readers = <>
     {opened?.key === key && opened.kind === "report" && hostActive && createPortal(<RunReport key={key} status={phaseLabel} block={block} message={message} source={backgroundSource} returnFocus={reportFocus} close={() => open(undefined)} process={scopeUnsupported ? undefined : () => open({ key, kind: "process" })}/>, document.body)}
-    {opened?.key === key && opened.kind === "process" && hostActive && !scopeUnsupported && createPortal(<RunDetails key={key} scoped={scoped} run={run} phase={phase} observedNow={observedNow} sync={sync} connection={connection} message={message} view={position(key)} returnFocus={detailFocus} close={() => open(undefined)} report={compact ? () => open({ key, kind: "report" }) : undefined}/>, document.body)}
+    {opened?.key === key && opened.kind === "process" && hostActive && !scopeUnsupported && createPortal(<RunDetails key={key} goalTurnEnded={goalTurnEnded} scoped={scoped} run={run} phase={phase} observedNow={observedNow} sync={sync} connection={connection} message={message} view={position(key)} returnFocus={detailFocus} close={() => open(undefined)} report={compact ? () => open({ key, kind: "report" }) : undefined}/>, document.body)}
   </>;
   if (compact && scoped) return <>
     <button type="button" ref={trigger} className="background-task-row" data-phase={phase}
@@ -131,7 +132,7 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
     <div className="native-run-heading">
     {scoped && <span className="run-scope-heading"><GitBranch size={14}/>{t(notice ? "后台任务" : "子代理")}</span>}
     <div className={`native-run-status${active && run.current && phase === "working" && !disconnected && !scopeUnsupported ? " has-current" : ""}${disconnected || interrupted ? " is-interrupted" : ""}`}>
-      {active && !disconnected && !interrupted && !scopeUnsupported && !["waiting_approval", "waiting_answer"].includes(phase) ? <LoaderCircle size={14} className="spin"/> : phase === "done" ? <Check size={14}/> : <span className="run-state-dot"/>}
+      {active && !disconnected && !interrupted && !scopeUnsupported && !["waiting_approval", "waiting_answer"].includes(phase) ? <LoaderCircle size={14} className="spin"/> : phase === "done" && !goalTurnEnded ? <Check size={14}/> : <span className="run-state-dot"/>}
       <span>{phaseLabel}</span>
       <time title={t(ticking ? "本次运行总耗时" : "截至最近一次事件")}>{formatRunDuration(elapsed)}</time>
     </div>
@@ -158,7 +159,7 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
   </section>;
 }
 
-function RunDetails({ scoped, run, phase, observedNow, sync, message, connection, view, close, returnFocus, report }: { report?: () => void; scoped: boolean; run: RunSummary; phase: RunSummary["phase"]; observedNow: number; sync?: ScopedJournal; message: Message; connection: HubConnection; view: View; close: () => void; returnFocus: React.RefObject<HTMLButtonElement | null> }) {
+function RunDetails({ goalTurnEnded, scoped, run, phase, observedNow, sync, message, connection, view, close, returnFocus, report }: { goalTurnEnded?: boolean; report?: () => void; scoped: boolean; run: RunSummary; phase: RunSummary["phase"]; observedNow: number; sync?: ScopedJournal; message: Message; connection: HubConnection; view: View; close: () => void; returnFocus: React.RefObject<HTMLButtonElement | null> }) {
   const locale = useLocale(); const [after, setAfter] = useState(view.after), [query, setQuery] = useState(view.query), [search, setSearch] = useState(view.query);
   const [before, setBefore] = useState(view.before), [tail, setTail] = useState(!!view.tail);
   const [page, setPage] = useState<RunPage>(), [error, setError] = useState(""), [busy, setBusy] = useState(false), [exporting, setExporting] = useState(false), [notice, setNotice] = useState("");
@@ -283,7 +284,7 @@ function RunDetails({ scoped, run, phase, observedNow, sync, message, connection
   };
   const hasPagination = page?.next != null || page?.previous != null || after > 0 || before !== undefined || tail || view.history.length > 0;
   return <CreationDialog title={t("运行过程")} closeLabel={t("关闭运行过程")} close={close} returnFocus={returnFocus} className="run-details" back>
-    <p className="run-details-meta"><span className="run-details-phase">{disconnected ? t("连接中断，当前状态待确认") : scoped && phase === "partial" ? t("最终状态未确认") : runPhaseLabel(phase)}</span><span>{t("{0} 个动作完成", run.completed)}{run.failed ? ` · ${t("{0} 个动作失败", run.failed)}` : ""}{run.model ? ` · ${run.model}${run.effort ? ` · ${run.effort}` : ""}` : ""}</span></p>
+    <p className="run-details-meta"><span className="run-details-phase">{disconnected ? t("连接中断，当前状态待确认") : scoped && phase === "partial" ? t("最终状态未确认") : goalTurnEnded && phase === "done" ? t("本轮已结束") : runPhaseLabel(phase)}</span><span>{t("{0} 个动作完成", run.completed)}{run.failed ? ` · ${t("{0} 个动作失败", run.failed)}` : ""}{run.model ? ` · ${run.model}${run.effort ? ` · ${run.effort}` : ""}` : ""}</span></p>
     {report && <button type="button" className="run-report-trigger" onClick={report}>{t("查看完整回复")}</button>}
     <form className="run-details-tools" onSubmit={e => { e.preventDefault(); view.query = search.trim(); view.history = []; setQuery(view.query); move(0); reload(value => value + 1); }}><label><Search size={16}/><input aria-label={t("搜索过程记录")} placeholder={t("搜索过程记录")} value={search} maxLength={200} onChange={e => setSearch(e.target.value)}/></label><button>{t("搜索")}</button><button type="button" disabled={busy || online !== "online"} onClick={() => reload(value => value + 1)} aria-label={t("刷新过程记录")} title={t("刷新过程记录")}><RefreshCw size={16}/></button><button type="button" disabled={exporting || online !== "online"} onClick={() => void exportRun()} aria-label={t("导出过程记录")} title={t("导出过程记录")}><Download size={16}/></button></form>
     <div className="run-details-body" ref={body} onScroll={e => { view.scroll = e.currentTarget.scrollTop; }} aria-busy={busy}>

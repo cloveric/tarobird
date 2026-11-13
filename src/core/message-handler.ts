@@ -12,6 +12,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import type { EngineStreamEvent } from "../codex/adapter.js";
+import type { ClaudeNativeGoalReceipt, ClaudeNativeGoalUpdate } from "../codex/claude-native-goal.js";
 import { EngineCancellationUnconfirmedError, EngineSteeringRejectedError, EngineStopTooLateError, EngineNativeInputUnsentError } from "../codex/adapter.js";
 import { checkBudgetAvailability, recordBridgeTurnUsage } from "../runtime/bridge-turn.js";
 import type { ChatQueueWaitEvent } from "../runtime/chat-queue.js";
@@ -73,7 +74,10 @@ import {
   handleCoreBgCommandText,
   handleCoreGroupCommandBeforeAccess,
   handleCoreSimpleCommand,
+  withCoreGoalCommandLock,
   isCoreBgCommand,
+  isCoreGoalControlCommand,
+  tryHandleCoreGoalControlBeforeQueue,
   isCoreLocalEngineCommand,
   isStopCommand,
 } from "./commands.js";
@@ -165,6 +169,24 @@ const defaultTranscribeLarkMedia = createDefaultTranscribeVoice();
 const defaultPrepareLarkVideoInput = prepareVideoInput;
 
 type CoreTurnUsage = Awaited<ReturnType<CoreBridgeLike["handleAuthorizedMessage"]>>["usage"];
+
+function claudeGoalReceiptText(receipt: ClaudeNativeGoalReceipt | undefined, locale: "zh" | "en"): string {
+  if (receipt?.rejection) return locale === "en"
+    ? `Claude did not accept the goal.${receipt.state === "active" ? " The existing native goal is still active." : ""} Use /goal to check the native state.`
+    : `Claude 未受理这个目标。${receipt.state === "active" ? "原有目标仍保留。" : ""}可用 /goal 查询原生状态。`;
+  if (receipt?.state === "active") return locale === "en"
+    ? `${receipt.capped ? "Claude reached its evaluator limit for this turn; the" : "This turn ended; the"} goal is still active. Use /goal to check it or /goal clear to remove it.`
+    : `${receipt.capped ? "本轮达到 Claude 的目标检查次数限制；" : "本轮已结束；"}原生目标仍保留。可用 /goal 查询，或用 /goal clear 清除。`;
+  if (receipt?.state === "none") {
+    if (receipt.cleared) return locale === "en" ? "Claude confirmed that the goal was cleared." : "Claude 已确认清除目标。";
+    return locale === "en"
+      ? "Claude reports no goal set. This does not confirm that its completion condition was met."
+      : "Claude 当前未报告已设置的目标；这不代表已确认达成目标条件。";
+  }
+  return locale === "en"
+    ? "The native goal state could not be verified. Use /goal to check it."
+    : "尚未核实原生目标状态，可用 /goal 查询。";
+}
 
 function mergeCoreTurnUsage(first: CoreTurnUsage, second: CoreTurnUsage): CoreTurnUsage {
   if (!first) return second;
@@ -512,6 +534,15 @@ async function runAcceptedCoreMessage(
       });
     return false;
   };
+
+  // Codex goal controls must remain reachable while an ordinary turn runs.
+  // Native Claude commands still execute through its serialized input stream.
+  // Never switch the App's selected session underneath a live turn here.
+  if (isCoreGoalControlCommand(commandText) && (await loadInstanceConfig(input.stateDir)).engine === "codex"
+    && (!input.channel.canSteerConversation || await input.channel.canSteerConversation(normalized.chatId))) {
+    if (!(await checkPreQueueAccess("/goal"))) return true;
+    if (await tryHandleCoreGoalControlBeforeQueue({ ...input, requestApproval: requestCoreApproval, createRunCard: createCoreRunCardController }, normalized, commandText)) return true;
+  }
 
   // /bg is instance-scoped process control, independent of the conversation
   // session — run it pre-queue like /stop so it is never serialized behind the
@@ -2069,6 +2100,13 @@ async function runNormalizedCoreMessage(
     }
 
     let runCard: CoreRunCardController | undefined;
+    let nativeGoalReceipt: ClaudeNativeGoalReceipt | undefined;
+    let nativeGoalObserved = false;
+    let nativeGoalReplacementRejected = false;
+    let nativeGoalAttempt = 0;
+    let nativeGoalAttemptOpen = false;
+    const claudeGoalSetTurn = cfg.engine === "claude" && Boolean(normalized.goalObjective);
+    const claudeGoalQuery = cfg.engine === "claude" && /^\/goal(?:\s+clear)?$/i.test(normalized.text.trim());
     let completedEngineText: string | undefined;
     let runCardFinished = false;
     let obligationId: string | null = null;
@@ -2096,7 +2134,7 @@ async function runNormalizedCoreMessage(
         elementStream: cfg.elementStream !== false,
         abortSignal: runController.signal,
         ...(queuedRef ? { existingCard: queuedRef } : {}),
-        ...(normalized.goalObjective ? { goalObjective: normalized.goalObjective } : {}),
+        ...(cfg.engine !== "claude" && normalized.goalObjective ? { goalObjective: normalized.goalObjective } : {}),
       });
       // Record whether a live run card exists so the stop handlers can skip the
       // redundant "已停止。" text — the card itself updates in place to "已中断".
@@ -2411,18 +2449,10 @@ async function runNormalizedCoreMessage(
         }
       };
 
-      // Reconcile a stale Codex thread-goal before this ordinary turn. If the thread
-      // still carries a goal but no live watcher owns it — the watcher was killed by a
-      // service restart, or the goal finished without being cleared — clear it so a
-      // normal message is never silently resumed into, or shaped by, an old goal. A goal
-      // that IS being actively pursued holds the activeRuns slot and is left untouched;
-      // engines without a structured thread-goal API (Claude/Antigravity native /goal)
-      // expose no get/clearThreadGoal and are skipped. Best-effort — never blocks a turn.
-      if (
-        input.bridge.getThreadGoal
-        && input.bridge.clearThreadGoal
-        && !input.runtime.activeRuns.get(normalized.conversationKey)?.goalWatch
-      ) {
+      // A saved Codex goal outlives the host observer. Retain its objective and
+      // counters; only suspend unobserved autonomous work before a normal turn.
+      // Explicit /goal resume reattaches streaming and approval ownership.
+      if (input.bridge.getThreadGoal && !input.runtime.activeRuns.get(normalized.conversationKey)?.goalWatch) {
         const goalReconcileInput = {
           chatId: normalized.bridgeChatId,
           userId: normalized.bridgeUserId,
@@ -2430,13 +2460,27 @@ async function runNormalizedCoreMessage(
           conversationKey: normalized.conversationKey,
           workspaceOverride,
         };
-        try {
-          const { goal } = await input.bridge.getThreadGoal(goalReconcileInput);
-          if (goal) {
-            await input.bridge.clearThreadGoal(goalReconcileInput);
-          }
-        } catch {
-          // Best-effort: never block an ordinary turn on goal-state reconciliation.
+        if (cfg.engine === "codex") {
+          await withCoreGoalCommandLock(input.runtime, normalized.conversationKey, async () => {
+            if (input.runtime.activeRuns.get(normalized.conversationKey)?.goalWatch) return;
+            // A failed compatibility/status read must not turn every ordinary
+            // message into a goal error. The normal engine path owns recovery.
+            const saved = await input.bridge.getThreadGoal!(goalReconcileInput).catch(() => null);
+            if (saved?.goal?.status === "active" && input.bridge.updateThreadGoal && !input.runtime.activeRuns.get(normalized.conversationKey)?.goalWatch) {
+              const paused = await input.bridge.updateThreadGoal!({ ...goalReconcileInput, sessionId: saved.goal.threadId, status: "paused", origin: "automatic" });
+              if (!paused.goal) return;
+              await sendCoreMarkdown(input.channel, normalized.chatId, locale === "en"
+                ? "The saved goal has been paused after reconnecting. Its objective and usage are retained; use /goal resume to continue."
+                : "重新连接后，已暂停先前未受监控的目标，目标和用量仍保留；使用 /goal resume 可继续执行。",
+                coreReplyOptions(normalized.messageId, Boolean(normalized.threadId)));
+            }
+          });
+        } else if (cfg.engine !== "claude" && input.bridge.clearThreadGoal) {
+          // Preserve the legacy lifecycle for other structured adapters.
+          try {
+            const { goal } = await input.bridge.getThreadGoal(goalReconcileInput);
+            if (goal) await input.bridge.clearThreadGoal(goalReconcileInput);
+          } catch { /* best-effort for legacy adapters */ }
         }
       }
 
@@ -2507,12 +2551,45 @@ async function runNormalizedCoreMessage(
             [channelProfile() === "gateway" ? "TAROBOT_ACTIVE_STATE_DIR" : "CCTB_LARK_ACTIVE_STATE_DIR"]: input.stateDir,
           },
         };
+        const runBridgeTurn = async (turnInput: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]) => {
+          const attempt = ++nativeGoalAttempt;
+          nativeGoalAttemptOpen = true;
+          try {
+            const response = await input.bridge.handleAuthorizedMessage({ ...turnInput,
+              ...(cfg.engine === "claude" ? { onNativeGoal: (update: ClaudeNativeGoalUpdate) => {
+                // A native callback belongs to one engine attempt. Do not let a
+                // late callback from an earlier repair/turn revive its banner.
+                if (!nativeGoalAttemptOpen || attempt !== nativeGoalAttempt || runController.signal.aborted
+                  || !isCoreRunActive(input.runtime, normalized.conversationKey, runController)) return;
+                nativeGoalObserved = true;
+                if (update.state === "accepted") nativeGoalReplacementRejected = false;
+                else if (update.state === "rejected" && claudeGoalSetTurn) nativeGoalReplacementRejected = true;
+                const confirmedActive = update.state === "active" && (!claudeGoalSetTurn
+                  || !nativeGoalReplacementRejected && update.objective?.trim() === normalized.goalObjective?.trim());
+                if (!claudeGoalQuery && (update.state === "accepted" || confirmedActive) && update.objective?.trim()) {
+                  runCard?.setGoalObjective?.(update.objective);
+                } else if (["rejected", "none", "unverified"].includes(update.state)) {
+                  runCard?.setGoalObjective?.("");
+                }
+              } } : {}),
+            });
+            if (cfg.engine === "claude") {
+              nativeGoalObserved ||= response.nativeGoal !== undefined;
+              // A repair is another native turn. An earlier active receipt is
+              // not evidence of the state after a later unverified attempt.
+              nativeGoalReceipt = response.nativeGoal;
+            }
+            return response;
+          } finally {
+            if (attempt === nativeGoalAttempt) nativeGoalAttemptOpen = false;
+          }
+        };
         runCard?.beginAnswerAttempt();
         let recoveredEngineError: unknown;
         let result: Awaited<ReturnType<CoreBridgeLike["handleAuthorizedMessage"]>>;
         try {
           workflowOutcome = "failed";
-          result = await input.bridge.handleAuthorizedMessage(bridgeTurnInput);
+          result = await runBridgeTurn(bridgeTurnInput);
         } catch (error) {
           if (error instanceof EngineNativeInputUnsentError) throw error;
           if (classifyCoreTurnTermination(error, runController.signal).kind !== "error") {
@@ -2575,7 +2652,7 @@ async function runNormalizedCoreMessage(
           });
           const firstUsage = result.usage;
           runCard?.beginAnswerAttempt();
-          const repaired = await input.bridge.handleAuthorizedMessage({
+          const repaired = await runBridgeTurn({
             ...bridgeTurnInput,
             reviewAdmission: undefined, nativeInput: undefined,
             text: coreDeliveryFollowupRepairPrompt(),
@@ -2636,7 +2713,7 @@ async function runNormalizedCoreMessage(
           const previouslyDelivered = new Set(appDeliveries.keys());
           const previousVersions = new Set([...appDeliveries.values()].map((receipt) => `${receipt.path}:${receipt.sha256}`));
           runCard?.beginAnswerAttempt();
-          const repaired = await input.bridge.handleAuthorizedMessage({
+          const repaired = await runBridgeTurn({
             ...bridgeTurnInput,
             text: coreDeliveryPreflightRepairPrompt(initialDeliveryDirectivePreflight),
             reviewAdmission: undefined, nativeInput: undefined,
@@ -2687,6 +2764,14 @@ async function runNormalizedCoreMessage(
             });
           }
         }
+        const nativeGoalTurnEnded = cfg.engine === "claude" && !claudeGoalQuery
+          && (claudeGoalSetTurn || nativeGoalObserved);
+        if (cfg.engine === "claude" && (nativeGoalTurnEnded || nativeGoalReceipt)) {
+          // Ending a Claude turn does not prove the native condition was met.
+          // Keep receipts in the delivered answer, including the no-card path.
+          runCard?.setGoalObjective?.("");
+          result = { ...result, text: [result.text, claudeGoalReceiptText(nativeGoalReceipt, locale)].filter((part) => part.trim()).join("\n\n") };
+        }
         completedEngineText = result.text;
         if (deliveryLedgerEnabled()) {
           // Durable delivery obligation: the engine's answer now exists only in
@@ -2736,7 +2821,7 @@ async function runNormalizedCoreMessage(
         const deliveryCardResult = runCard
           ? await (requiresVisibleDeliveryPhase
               ? runCard.beginDelivery(runCardAnswerText)
-              : runCard.finish(runCardAnswerText))
+              : runCard.finish(runCardAnswerText, { goalTurnEnded: nativeGoalTurnEnded }))
           : undefined;
         runCardFinished = Boolean(runCard) && !requiresVisibleDeliveryPhase;
         const answerShownInCard = deliveryCardResult?.shown ?? false;
@@ -2866,7 +2951,7 @@ async function runNormalizedCoreMessage(
                     runCardAnswerText,
                     renderCoreUserFacingError(recoveredEngineError, "engine", locale),
                   )
-              : await runCard.finish(runCardAnswerText)
+              : await runCard.finish(runCardAnswerText, { goalTurnEnded: nativeGoalTurnEnded })
             : deliveryCardResult
           : undefined;
         runCardFinished = Boolean(runCard);
@@ -2982,9 +3067,15 @@ async function runNormalizedCoreMessage(
         return true;
       }
       const terminal = classifyCoreTurnTermination(error, runController.signal);
+      const goalStopNote = cfg.engine === "claude" && (claudeGoalSetTurn || nativeGoalObserved)
+        ? locale === "en"
+          ? "Stopping this turn does not clear a native goal. Use /goal to check it or /goal clear to remove it."
+          : "停止本轮不会清除原生目标。可用 /goal 查询，或用 /goal clear 清除。"
+        : "";
       let engineFailureOutcome: "error" | "partial" = "error";
       if (terminal.kind === "interrupted") {
-        await runCard?.interrupt();
+        const text = goalStopNote ? [runCard?.resolveFinalText("") ?? "", goalStopNote].filter((part) => part.trim()).join("\n\n") : undefined;
+        await runCard?.interrupt(text);
       } else if (terminal.kind === "idle_timeout") {
         await runCard?.idleTimeout(terminal.minutes);
       } else {
@@ -2995,7 +3086,7 @@ async function runNormalizedCoreMessage(
       if (!runCard) {
         await input.channel.send(normalized.chatId, {
           text: terminal.kind === "interrupted"
-            ? (locale === "en" ? "Stopped." : "已停止。")
+            ? (goalStopNote || (locale === "en" ? "Stopped." : "已停止。"))
             : terminal.kind === "idle_timeout"
               ? (locale === "en"
                 ? `No response for ${terminal.minutes} minute(s); the task was auto-stopped. Restart the instance if it keeps happening.`
@@ -3068,13 +3159,14 @@ export interface CoreRunCardController {
   /** Show the final answer while its files/cards are still being delivered. */
   beginDelivery(text: string): Promise<CoreRunFinishResult>;
   /** Finalize with the answer; resolves to whether/how the answer was shown in a card. */
-  finish(text: string): Promise<CoreRunFinishResult>;
+  finish(text: string, options?: { goalTurnEnded?: boolean }): Promise<CoreRunFinishResult>;
   /** Preserve the generated answer while surfacing a post-engine delivery failure. */
   failDelivery(text: string, errorText: string): Promise<CoreRunFinishResult>;
   /** Preserve and label a verified partial answer when the engine terminates after producing it. */
   finishPartial(text: string, errorText: string): Promise<CoreRunFinishResult>;
   fail(text: string): Promise<"error" | "partial">;
-  interrupt(): Promise<void>;
+  interrupt(text?: string): Promise<void>;
+  setGoalObjective?(objective: string): void;
   discard?(reason: "not_admitted" | "withdrawn"): Promise<void>;
   idleTimeout(minutes: number): Promise<void>;
 }
@@ -3585,12 +3677,13 @@ export async function createCoreRunCardController(input: {
       cancelScheduledUpdate(false);
       return await enqueuePatch(() => finalize(finalText));
     },
-    finish: async (text): Promise<CoreRunFinishResult> => {
+    finish: async (text, options): Promise<CoreRunFinishResult> => {
       const finalText = resolveCoreFinalAnswerText(state, text, answerAttemptStartBlock);
       state = { ...state, finalAnswerBlockStart: answerAttemptStartBlock };
       // Reuse the reducer so non-streaming engines (which emit no incremental
       // assistant_text) still get the final answer seeded into the block stream.
       state = applyCoreEngineEvent(state, { type: "result", text: finalText });
+      if (options?.goalTurnEnded) state = { ...state, goalTurnEnded: true };
       cancelScheduledUpdate();
       // Returns whether/how the answer was shown in a card.
       return await enqueuePatch(() => finalize(finalText));
@@ -3648,10 +3741,16 @@ export async function createCoreRunCardController(input: {
       await enqueuePatch(() => finalize());
       return failureStatus;
     },
-    interrupt: async () => {
-      state = { ...state, status: "interrupted", footer: null };
+    setGoalObjective: (objective) => {
+      if (!terminal) { state = { ...state, goalObjective: objective }; scheduleUpdate(true); }
+    },
+    interrupt: async (text) => {
+      state = { ...state, status: "interrupted", footer: null, ...(text ? { resultText: text } : {}) };
       cancelScheduledUpdate();
-      await enqueuePatch(() => finalize());
+      const result = await enqueuePatch(() => finalize(text));
+      if (text && !result.shown) await sendCoreMarkdown(input.channel, input.chatId, text, {
+        ...(input.replyTo ? { replyTo: input.replyTo } : {}), ...(input.replyInThread ? { replyInThread: true } : {}),
+      });
     },
     discard: async (reason) => {
       state = { ...state, status: "interrupted", footer: null,

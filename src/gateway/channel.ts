@@ -358,7 +358,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     const taskLabel = scopedTaskLabelSchema.safeParse(appScopedTask);
     if (taskLabel.success) translated = { ...translated, extra: { ...translated.extra, scopedTask: taskLabel.data } };
     if (!this.transport.capabilities?.includes(RUN_CAPABILITY) || !appRun) return { block: translated };
-    const bundle = appRun as { summary: unknown; entries: RunEntry[]; background?: boolean };
+    const bundle = appRun as { summary: unknown; entries: RunEntry[]; background?: boolean; goalTurnEnded?: boolean };
     const scopesSupported = this.transport.capabilities.includes(RUN_SCOPES_CAPABILITY);
     // Old clients must keep the static background report: nativeRun exposes
     // conversation-level stop controls that could cancel a newer foreground turn.
@@ -406,11 +406,13 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       ? { v: 1, runId: summary.id, revision: summary.revision, ...summarizeRecordedChanges(bundle.entries) } : undefined;
     if (changes) changes.partial ||= summary.truncated || ["stopped", "error", "interrupted", "partial"].includes(summary.phase);
     const thinking = !bundle.background ? publicThinkingPreview(bundle.entries, summary) : undefined;
+    const goalTurnEnded = !bundle.background && bundle.goalTurnEnded === true && summary.phase === "done"
+      ? { runId: summary.id, revision: summary.revision } : undefined;
     // A presentation hint for bound background reports only, bound to this
     // scoped summary. Each member keeps its own message, journal and status.
     const group = scopesSupported && bundle.background && background.success && background.data.origin === "bound" && this.transport.capabilities.includes(BACKGROUND_TASK_GROUP_CAPABILITY)
       ? backgroundTaskGroupSourceSchema.safeParse(appScopedGroup) : undefined;
-    return { block: { ...translated, extra: { ...translated.extra, ...(thinking ? { nativeRunThinking: thinking } : {}), ...(changes ? { runChanges: changes } : {}), ...(sync ? { scopedJournal: sync } : {}), ...(group?.success ? { backgroundTaskGroup: { ...group.data, runId: summary.id } } : {}), [bundle.background ? "scopedRun" : "nativeRun"]: JSON.parse(JSON.stringify(summary)) } }, afterPublish };
+    return { block: { ...translated, extra: { ...translated.extra, ...(goalTurnEnded ? { goalTurnEnded } : {}), ...(thinking ? { nativeRunThinking: thinking } : {}), ...(changes ? { runChanges: changes } : {}), ...(sync ? { scopedJournal: sync } : {}), ...(group?.success ? { backgroundTaskGroup: { ...group.data, runId: summary.id } } : {}), [bundle.background ? "scopedRun" : "nativeRun"]: JSON.parse(JSON.stringify(summary)) } }, afterPublish };
   }
 
   async send(to: string, raw: unknown, opts: CoreSendOptions = {}): Promise<{ messageId: string }> {

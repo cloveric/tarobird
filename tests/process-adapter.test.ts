@@ -67,13 +67,18 @@ describe("ProcessCodexAdapter", () => {
     child.stdout.emitData(`{"id":${threadStart.id},"result":{"thread":{"id":"thread-123"}}}\n`);
 
     await waitForLength(child.stdin.writes, 3);
-    const goalSet = JSON.parse(child.stdin.writes[2]?.trim() ?? "{}");
+    const goalClear = JSON.parse(child.stdin.writes[2]?.trim() ?? "{}");
+    expect(goalClear).toMatchObject({ method: "thread/goal/clear", params: { threadId: "thread-123", origin: "user" } });
+    child.stdout.emitData(`{"id":${goalClear.id},"result":{"cleared":false}}\n`);
+    await waitForLength(child.stdin.writes, 4);
+    const goalSet = JSON.parse(child.stdin.writes[3]?.trim() ?? "{}");
     expect(goalSet).toMatchObject({
       method: "thread/goal/set",
       params: {
         threadId: "thread-123",
         objective: "ship the release",
         tokenBudget: null,
+        origin: "user",
       },
     });
     child.stdout.emitData(`{"id":${goalSet.id},"result":{"goal":{"threadId":"thread-123","objective":"ship the release","status":"active","tokenBudget":null,"tokensUsed":0,"timeUsedSeconds":0,"createdAt":1,"updatedAt":1}}}\n`);

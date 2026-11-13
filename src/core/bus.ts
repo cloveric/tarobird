@@ -80,6 +80,8 @@ export class CoreGoalRunController extends AbortController {
     return () => { this.concurrentTurns.delete(turn); };
   }
 
+  detachConcurrentTurn(turn: CoreActiveRun): void { this.concurrentTurns.delete(turn); }
+
   override abort(reason?: unknown): void {
     const turn = this.liveConcurrentTurn();
     if (turn) {
@@ -156,6 +158,9 @@ export function claimCoreRunSlot(
   }
   return () => {
     detach?.();
+    // A resumed goal may have adopted this turn after its original claim.
+    const holder = runtime.activeRuns.get(conversationKey)?.abortController;
+    if (holder instanceof CoreGoalRunController) holder.detachConcurrentTurn(run);
     const concurrent = runtime.concurrentRuns.get(conversationKey);
     concurrent?.delete(run);
     if (!concurrent?.size) runtime.concurrentRuns.delete(conversationKey);

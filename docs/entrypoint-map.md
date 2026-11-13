@@ -837,6 +837,16 @@ and the existing network/run/delete suites listed in that audit.
   confirmation, steering versus queue admission, retries and cancellation.
   `core/bus.ts:isLarkRunActive` identifies the originating ordinary turn even
   while it is attached to a background Goal or promoted after that Goal ends.
+  Codex native goal controls, state retention and Claude command framing are
+  documented in [native goal alignment](native-goal-alignment.md). Existing
+  Codex controls bypass the ordinary queue only for the still-bound session;
+  creation and other engines retain normal admission. Regression suites:
+  `core-native-goal`, `core-goal-control-races`, `codex-goal-native`,
+  `bridge-goal-sessions`, `claude-native-goal`, `core-claude-native-goal` and
+  `run-presentation`; browser `goal-native-ui`. Claude command framing and
+  native evidence parsing live in `codex/claude-stream-adapter.ts` and
+  `codex/claude-native-goal.ts`. A turn-end presentation hint is carried outside
+  the strict v1 run summary; it never changes the native goal state.
   `/goal` watcher events are presented by `core/commands.ts` with queue-only
   answers; stopping an attached ordinary turn preserves the surviving goal's
   own question. `QuestionForm.tsx` keeps device-scoped drafts and existing

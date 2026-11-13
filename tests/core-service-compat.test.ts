@@ -7730,7 +7730,7 @@ describe("core service compatibility profile", () => {
     }
   });
 
-  it("aborts the active goal watcher on /goal clear (stops it cleanly, no double-clear)", async () => {
+  it("waits for the native clear receipt without issuing a second destructive abort", async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-clear-abort-"));
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
     const channel = fakeChannel();
@@ -7751,20 +7751,19 @@ describe("core service compatibility profile", () => {
         stateDir,
         message: fakeLarkMessage({ messageId: "om_goal_clear", content: "/goal clear" }),
       });
-      // The watcher is aborted (its own abort path clears the goal + interrupts the
-      // card), so the clear handler must NOT double-clear, and confirms to the user.
-      expect(watcherAbort.signal.aborted).toBe(true);
-      expect(bridge.clearThreadGoal).not.toHaveBeenCalled();
+      // The native clear receipt resolves the real observer; no second abort
+      // should destroy a replacement target after that receipt.
+      expect(watcherAbort.signal.aborted).toBe(false);
+      expect(bridge.clearThreadGoal).toHaveBeenCalledWith(expect.objectContaining({ origin: "user" }));
       expect(JSON.stringify((channel.send as ReturnType<typeof vi.fn>).mock.calls)).toContain("已清除");
     } finally {
       await rm(stateDir, { recursive: true, force: true });
     }
   });
 
-  it("clears the Codex thread-goal when the goal completes, not only on abort (no lingering goal)", async () => {
-    // Previously the watcher cleared the goal only on abort; a normally-completed goal
-    // stayed SET in the Codex thread and bled into later ordinary turns. Completion must
-    // clear it too.
+  it("retains completed Codex native goal state for status and later edits", async () => {
+    // A completed native goal does not autonomously resume. Keep its state and
+    // usage, matching the CLI instead of deleting it after the final answer.
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-complete-clear-"));
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
     const channel = fakeChannel(); // updateCard → the live watch path engages
@@ -7791,15 +7790,14 @@ describe("core service compatibility profile", () => {
         stateDir,
         message: fakeLarkMessage({ messageId: "om_goal_complete", content: "/goal ship it" }),
       });
-      // The watch runs detached; the completion branch must clear the goal.
-      await vi.waitFor(() => expect(clearThreadGoal).toHaveBeenCalled());
-      expect(clearThreadGoal).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "original-goal-session" }));
+      await vi.waitFor(() => expect(runtime.activeRuns.size).toBe(0));
+      expect(clearThreadGoal).not.toHaveBeenCalled();
     } finally {
       await rm(stateDir, { recursive: true, force: true });
     }
   });
 
-  it("cleans the published goal session when cancellation rejects the watch", async () => {
+  it("does not double-clear a Codex observer that already owns cancellation cleanup", async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-abort-publish-"));
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
     const channel = fakeChannel(), runtime = createCoreServiceRuntime();
@@ -7814,44 +7812,46 @@ describe("core service compatibility profile", () => {
     };
     try {
       await handleCoreMessage({ channel, bridge: bridge as never, runtime, stateDir, message: fakeLarkMessage({ messageId: "goal-abort-publish", content: "/goal first" }) });
-      await vi.waitFor(() => expect(clearThreadGoal).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "published-before-abort" })));
       await vi.waitFor(() => expect(runtime.activeRuns.size).toBe(0));
+      expect(clearThreadGoal).not.toHaveBeenCalled();
     } finally { await rm(stateDir, { recursive: true, force: true }); }
   });
 
   it("waits for the old pursuit's native cleanup before starting a replacement goal", async () => {
-    const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-replace-"));
-    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "core-goal-replace-"));
+    await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }));
     const channel = fakeChannel(), runtime = createCoreServiceRuntime();
     let releaseClear!: () => void;
     const clearGate = new Promise<void>((resolve) => { releaseClear = resolve; });
     const order: string[] = [];
-    const watchThreadGoal = vi.fn(async (input: { objective: string; abortSignal: AbortSignal }) => {
+    const watchThreadGoal = vi.fn(async (input: { objective: string; abortSignal: AbortSignal; onEngineEvent: (event: { type: "session"; sessionId: string }) => void }) => {
       order.push(`watch:${input.objective}`);
-      if (input.objective === "first") await new Promise<void>((resolve) => input.abortSignal.addEventListener("abort", () => resolve(), { once: true }));
+      input.onEngineEvent({ type: "session", sessionId: "same-native-session" });
+      if (input.objective === "first") {
+        await new Promise<void>((resolve) => input.abortSignal.addEventListener("abort", () => resolve(), { once: true }));
+        // Codex's adapter owns abort cleanup and resolves only after it drains.
+        order.push("clear"); await clearGate; order.push("cleared");
+      }
       return { goal: null, sessionId: "same-native-session" };
     });
-    const clearThreadGoal = vi.fn(async () => {
-      order.push("clear");
-      if (order.filter((value) => value === "clear").length === 1) await clearGate;
-      order.push("cleared"); return { cleared: true };
-    });
+    const clearThreadGoal = vi.fn(async () => ({ cleared: true }));
     const bridge = { checkAccess: async () => ({ kind: "allow" as const }), watchThreadGoal, clearThreadGoal, handleAuthorizedMessage: vi.fn() };
+    let replacing: Promise<boolean> | undefined;
     try {
       await handleCoreMessage({ channel, bridge: bridge as never, runtime, stateDir, message: fakeLarkMessage({ messageId: "goal-first", content: "/goal first" }) });
-      await vi.waitFor(() => expect(watchThreadGoal).toHaveBeenCalledTimes(1));
-      await handleCoreMessage({ channel, bridge: bridge as never, runtime, stateDir, message: fakeLarkMessage({ messageId: "goal-second", content: "/goal second" }) });
-      await vi.waitFor(() => expect(clearThreadGoal).toHaveBeenCalledTimes(1));
+      replacing = handleCoreMessage({ channel, bridge: bridge as never, runtime, stateDir, message: fakeLarkMessage({ messageId: "goal-second", content: "/goal second" }) });
+      await vi.waitFor(() => expect(order).toContain("clear"));
       expect(watchThreadGoal).toHaveBeenCalledTimes(1);
-      releaseClear();
+      releaseClear(); await replacing;
       await vi.waitFor(() => expect(runtime.activeRuns.size).toBe(0));
-      expect(order).toEqual(["watch:first", "clear", "cleared", "watch:second", "clear", "cleared"]);
-    } finally { releaseClear(); await rm(stateDir, { recursive: true, force: true }); }
+      expect(order).toEqual(["watch:first", "clear", "cleared", "watch:second"]);
+      expect(clearThreadGoal).not.toHaveBeenCalled();
+    } finally { releaseClear(); await replacing; await rm(stateDir, { recursive: true, force: true }); }
   });
 
-  it("clears an orphaned Codex thread-goal before a normal turn (no live watcher) so a normal message isn't resumed into a stale goal", async () => {
+  it("pauses an orphaned Codex goal before a normal turn without losing its target or usage", async () => {
     // The operator's case: a goal's watcher was killed by a service restart, leaving the
-    // goal SET in the Codex thread with no watcher. A later NORMAL message must clear it
+    // goal SET in the Codex thread with no watcher. A later NORMAL message suspends it
     // first, then run as an ordinary turn — not silently resume the old goal.
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-goal-orphan-"));
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex" }) + "\n");
@@ -7864,10 +7864,12 @@ describe("core service compatibility profile", () => {
       },
     }));
     const clearThreadGoal = vi.fn(async () => ({ cleared: true }));
+    const updateThreadGoal = vi.fn(async () => ({ goal: null }));
     const handleAuthorizedMessage = vi.fn(async () => ({ text: "normal reply" }));
     const bridge = {
       checkAccess: vi.fn(async () => ({ kind: "allow" as const })),
       getThreadGoal,
+      updateThreadGoal,
       clearThreadGoal,
       handleAuthorizedMessage,
     };
@@ -7880,9 +7882,10 @@ describe("core service compatibility profile", () => {
         stateDir,
         message: fakeLarkMessage({ messageId: "om_normal_after_goal", content: "继续写第二段" }),
       });
-      // Reconciled (cleared) before the ordinary turn, which still runs.
+      // Reconciled (paused) before the ordinary turn, which still runs.
       expect(getThreadGoal).toHaveBeenCalled();
-      expect(clearThreadGoal).toHaveBeenCalled();
+      expect(clearThreadGoal).not.toHaveBeenCalled();
+      expect(updateThreadGoal).toHaveBeenCalledWith(expect.objectContaining({ status: "paused", origin: "automatic" }));
       expect(handleAuthorizedMessage).toHaveBeenCalled();
     } finally {
       await rm(stateDir, { recursive: true, force: true });
@@ -8177,10 +8180,9 @@ describe("core service compatibility profile", () => {
     }
   });
 
-  it("frames a Claude /goal turn's run card with a 🎯 goal banner (full path)", async () => {
-    // The fall-through path (command sets normalized.goalObjective → message-handler
-    // → run card) must actually reach the card, not just type-check — same lesson as
-    // the watchThreadGoal bind bug: exercise the whole wiring, not the pieces.
+  it("does not frame an unacknowledged Claude /goal command as an accepted goal", async () => {
+    // User intent alone is not a native receipt. Exercise the full command
+    // fall-through path without an acceptance callback or terminal receipt.
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-claude-goal-banner-"));
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude" }) + "\n");
     const seenTexts: string[] = [];
@@ -8204,13 +8206,14 @@ describe("core service compatibility profile", () => {
 
       // Forwarded as Claude's native /goal turn (no thread-goal API).
       expect(seenTexts).toEqual(["/goal review the auth bugs"]);
-      // …and the turn's run card is framed as a goal: 🎯 banner + the objective.
+      // A normal model answer cannot establish native goal acceptance.
       const cards = JSON.stringify([
         ...(channel.send as ReturnType<typeof vi.fn>).mock.calls,
         ...(channel.updateCard as ReturnType<typeof vi.fn>).mock.calls,
       ]);
-      expect(cards).toContain("🎯");
-      expect(cards).toContain("review the auth bugs");
+      expect(cards).not.toContain("🎯");
+      expect(cards).toContain("尚未核实原生目标状态");
+      expect(cards).toContain("本轮已结束");
     } finally {
       await rm(stateDir, { recursive: true, force: true });
     }

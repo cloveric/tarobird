@@ -27,6 +27,8 @@ export interface CoreActiveRun {
    * falsely reported as "goal cleared", by `/goal clear`.
    */
   goalWatch?: boolean;
+  /** Update only this observer's banner after an explicit native goal edit. */
+  updateGoalObjective?: (objective: string) => void;
   /**
    * Epoch ms when the run was claimed. Steering is only eligible within the
    * first LARK_STEER_ELIGIBILITY_WINDOW_MS of a run (operator decision: a task

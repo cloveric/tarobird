@@ -747,8 +747,12 @@ it.each([false, true])("steers an answer into its live origin across a real goal
     return true;
   });
   const { runtime, c } = await start({ handleAuthorizedMessage: engine, supportsSteering: () => true, steerActiveTurn: steer,
-    watchThreadGoal: async () => {
-      await new Promise<void>(resolve => { finishGoal = resolve; });
+    watchThreadGoal: async input => {
+      const settled = new Promise<void>(resolve => { finishGoal = resolve; });
+      // Real native watchers publish their session after registration, before
+      // autonomous work. Core releases command admission at this boundary.
+      await input.onEngineEvent?.({ type: "session", sessionId: "goal_session" });
+      await settled;
       return { goal: { threadId: "goal_session", objective: "Keep working", status: "complete", tokenBudget: null, tokensUsed: 1, timeUsedSeconds: 1, createdAt: 0, updatedAt: 1 } };
     }, clearThreadGoal: async () => ({ cleared: true }),
   }, undefined, "/goal Keep working");
@@ -781,6 +785,7 @@ function questioningGoal(engine: CoreBridgeLike["handleAuthorizedMessage"], stee
     watchThreadGoal: async input => {
       const pursuit = finishers.length;
       const settled = new Promise<void>(resolve => { finishers.push(resolve); input.abortSignal?.addEventListener("abort", () => resolve(), { once: true }); });
+      await input.onEngineEvent?.({ type: "session", sessionId: "goal_session" });
       await input.onEngineEvent?.({ ...questionEvent, requestId: `goal_question_${pursuit}` });
       await settled;
       return { goal: { threadId: "goal_session", objective: input.objective, status: input.abortSignal?.aborted ? "paused" : "complete",

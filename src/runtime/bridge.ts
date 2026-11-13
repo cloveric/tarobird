@@ -1,4 +1,5 @@
 import type { NativeInputAction, NativeInputCapability, NativeInputControlResult, NativeInputObserver } from "../client-protocol/native-input.js";
+import type { ClaudeNativeGoalUpdate } from "../codex/claude-native-goal.js";
 import type { SteeringApplication } from "../client-protocol/steering-outcome.js";
 import { EngineSteeringRejectedError } from "../codex/adapter.js";
 import { botInstructionsGuidance } from "./bot-instructions.js";
@@ -100,6 +101,7 @@ export interface BridgeAuthorizedMessageInput {
   onProgress?: (partialText: string) => void;
   onApprovalRequest?: (request: EngineApprovalRequest) => Promise<EngineApprovalDecision>;
   onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+  onNativeGoal?: (update: ClaudeNativeGoalUpdate) => void;
   requestOutputDir?: string;
   workspaceOverride?: string;
   instructions?: string;
@@ -537,6 +539,7 @@ export class Bridge {
             onProgress: input.onProgress,
             onApprovalRequest: input.onApprovalRequest,
             onEngineEvent: handleEngineEvent,
+            onNativeGoal: input.onNativeGoal,
             requestOutputDir: input.requestOutputDir,
             workspaceOverride: input.workspaceOverride,
             extraEnv: turnEnvSupported ? input.extraEnv : undefined,
@@ -921,9 +924,8 @@ export class Bridge {
     const response = await this.adapter.getThreadGoal(session.sessionId, {
       workspaceOverride: input.workspaceOverride,
     });
-    if (response.sessionId && response.sessionId !== session.sessionId) {
-      await this.sessionManager.bindSession(scope, response.sessionId);
-    }
+    // A status query must never change the conversation binding. Only native
+    // setup publishes a session; a delayed read cannot undo /reset or /resume.
     return { goal: response.goal };
   }
 
@@ -953,7 +955,51 @@ export class Bridge {
     });
   }
 
+  private goalSessionIsCurrent(scope: BridgeConversationScope, sessionId: string, external?: () => boolean | Promise<boolean>): () => Promise<boolean> {
+    return async () => {
+      if (external && !await external()) return false;
+      return !this.sessionManager.getExistingSession || (await this.sessionManager.getExistingSession(scope))?.sessionId === sessionId;
+    };
+  }
+
+  async updateThreadGoal(input: {
+    isCurrentSession?: () => boolean | Promise<boolean>;
+    sessionId?: string;
+    chatId: number;
+    userId?: number;
+    chatType?: string;
+    messageThreadId?: number;
+    conversationKey?: string;
+    objective?: string;
+    status?: CodexThreadGoal["status"];
+    tokenBudget?: number | null;
+    origin?: "user" | "automatic";
+    workspaceOverride?: string;
+  }): Promise<{ goal: CodexThreadGoal | null }> {
+    if (!this.adapter.updateThreadGoal) throw new Error("Native goal controls are not available for this runtime");
+    const scope = this.conversationScope(input);
+    // Controls must reach a running goal without waiting behind an attached user
+    // turn. The adapter serializes these against native goal initialization.
+    const session = await this.sessionManager.getExistingSession?.(scope);
+    if (!session || (input.sessionId && input.sessionId !== session.sessionId)) return { goal: null };
+    const isCurrentSession = this.goalSessionIsCurrent(scope, session.sessionId, input.isCurrentSession);
+    if (!await isCurrentSession()) throw new Error("Goal session binding changed");
+    const response = await this.adapter.updateThreadGoal(session.sessionId, {
+      isCurrentSession,
+      ...(input.objective !== undefined ? { objective: input.objective } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+      origin: input.origin ?? "user",
+      workspaceOverride: input.workspaceOverride,
+    });
+    // Never rebind a stale control over a concurrent /reset or /resume.
+    return { goal: response.goal };
+  }
+
   async watchThreadGoal(input: {
+    sessionId?: string;
+    isCurrentSession?: () => boolean | Promise<boolean>;
+    mode?: "replace" | "resume" | "observe";
     chatId: number;
     userId?: number;
     chatType?: string;
@@ -971,21 +1017,29 @@ export class Bridge {
     }
     const scope = this.conversationScope(input);
     let pursuit!: Promise<{ goal: CodexThreadGoal | null; sessionId?: string }>;
-    await withBridgeTurnLock(bridgeConversationLockId(scope, await this.sessionManager.getLockNamespace?.()), async () => {
+    const start = async () => {
       input.abortSignal?.throwIfAborted();
-      const session = await this.sessionManager.getOrCreateSession(scope);
+      const session = input.mode && input.mode !== "replace"
+        ? await this.sessionManager.getExistingSession?.(scope)
+        : await this.sessionManager.getOrCreateSession(scope);
+      if (!session || (input.sessionId && session.sessionId !== input.sessionId)) { pursuit = Promise.resolve({ goal: null }); return; }
       input.abortSignal?.throwIfAborted();
       let published = false, confirmedSessionId: string | undefined, publication: Promise<void> | undefined, releaseStartup!: () => void;
       const startup = new Promise<void>((resolve) => { releaseStartup = resolve; });
       const publish = async (sessionId: string) => {
-        publication ??= this.sessionManager.bindSession(scope, sessionId).then(() => {
+        publication ??= (input.mode && input.mode !== "replace" ? Promise.resolve() : this.sessionManager.bindSession(scope, sessionId)).then(() => {
           published = true;
           confirmedSessionId = sessionId;
           releaseStartup();
         });
         await publication;
       };
+      const isCurrentSession = input.mode && input.mode !== "replace"
+        ? this.goalSessionIsCurrent(scope, session.sessionId, input.isCurrentSession) : input.isCurrentSession;
+      if (isCurrentSession && !await isCurrentSession()) throw new Error("Goal session binding changed");
       pursuit = this.adapter.watchThreadGoal!(session.sessionId, {
+        ...(isCurrentSession ? { isCurrentSession } : {}),
+        ...(input.mode ? { mode: input.mode } : {}),
         objective: input.objective,
         tokenBudget: input.tokenBudget,
         workspaceOverride: input.workspaceOverride,
@@ -1006,17 +1060,23 @@ export class Bridge {
       // Hold the conversation lock only through native session establishment,
       // so ordinary turns can continue while the goal runs in the background.
       await startup;
-    });
+    };
+    // Existing-goal controls must not wait behind an attached ordinary turn.
+    // They observe the existing binding and never publish a new one.
+    if (input.mode && input.mode !== "replace") await start();
+    else await withBridgeTurnLock(bridgeConversationLockId(scope, await this.sessionManager.getLockNamespace?.()), start);
     return await pursuit;
   }
 
   async clearThreadGoal(input: {
+    isCurrentSession?: () => boolean | Promise<boolean>;
     chatId: number;
     userId?: number;
     chatType?: string;
     messageThreadId?: number;
     conversationKey?: string;
     workspaceOverride?: string;
+    origin?: "user" | "automatic";
     /** Native session returned by this watch; cleanup must not follow a later resume. */
     sessionId?: string;
   }): Promise<{ cleared: boolean }> {
@@ -1030,12 +1090,13 @@ export class Bridge {
     if (!session) {
       return { cleared: false };
     }
+    const isCurrentSession = input.sessionId ? undefined : this.goalSessionIsCurrent(scope, session.sessionId, input.isCurrentSession);
+    if (isCurrentSession && !await isCurrentSession()) throw new Error("Goal session binding changed");
     const response = await this.adapter.clearThreadGoal(session.sessionId, {
+      ...(isCurrentSession ? { isCurrentSession } : {}),
       workspaceOverride: input.workspaceOverride,
+      ...(input.origin ? { origin: input.origin } : {}),
     });
-    if (!input.sessionId && response.sessionId && response.sessionId !== session.sessionId) {
-      await this.sessionManager.bindSession(scope, response.sessionId);
-    }
     return { cleared: response.cleared };
   }
 }

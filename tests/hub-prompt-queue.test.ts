@@ -17,6 +17,7 @@ import { attachGateway } from "../src/gateway/service.js";
 import { createCoreServiceRuntime } from "../src/core/runtime.js";
 import { JsonStore } from "../src/state/json-store.js";
 import type { Message } from "../src/client-protocol/index.js";
+import type { CodexThreadGoal } from "../src/codex/adapter.js";
 
 class Peer {
   frames: any[] = []; messages: Message[] = [];
@@ -266,6 +267,47 @@ describe("durable host prompt queue", () => {
     } finally { release(); await gateway.disconnect(); }
   });
 
+  it("routes Codex goal controls around a running ordinary turn and settles their durable deliveries once", async () => {
+    const stateDir = path.join(directory, "goal-control-worker");
+    await mkdir(stateDir); await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", locale: "en" }));
+    const seen: string[] = [], mutations: Array<Partial<CodexThreadGoal>> = [];
+    let interrupted = false, release = () => {}, goal: CodexThreadGoal | null = null;
+    const gateway = await attachGateway({ stateDir, url: `${hub.instanceUrl.replace(/^http/, "ws")}/instance`, botId: "bot", secret, engine: "codex", runtime: createCoreServiceRuntime(), bridge: {
+      handleAuthorizedMessage: async input => {
+        seen.push(input.text);
+        if (seen.length === 1) await new Promise<void>(resolve => { release = resolve; input.abortSignal?.addEventListener("abort", () => { interrupted = true; resolve(); }, { once: true }); });
+        return { text: "Complete" };
+      },
+      getThreadGoal: async () => ({ goal }),
+      updateThreadGoal: async input => {
+        mutations.push({ ...(input.status ? { status: input.status } : {}), ...(input.objective ? { objective: input.objective } : {}) });
+        if (goal) goal = { ...goal, ...(input.status ? { status: input.status } : {}), ...(input.objective ? { objective: input.objective } : {}) };
+        return { goal };
+      },
+      clearThreadGoal: async () => { const cleared = goal !== null; goal = null; return { cleared }; },
+    } });
+    try {
+      await until(async () => (await read()).supported || undefined);
+      const active = await send("Ordinary turn remains running"); await until(() => seen.length === 1 || undefined);
+      goal = { threadId: "goal-native-fixture", objective: "Existing goal", status: "active", tokenBudget: 1000, tokensUsed: 50, timeUsedSeconds: 1, createdAt: 1, updatedAt: 1 };
+      const queued = await send("Keep queued ordinary order"); await waitItems(2);
+      const controls: Message[] = [];
+      for (const text of ["/goal pause", "/goal status", "/goal edit Updated objective", "/goal clear"]) {
+        const control = await send(text); controls.push(control);
+        await until(async () => (await hub.store.db.get<{ status: string }>("SELECT status FROM deliveries WHERE message_id=?", [control.id]))?.status === "accepted" || undefined);
+        expect(interrupted).toBe(false); expect(seen).toEqual(["Ordinary turn remains running"]);
+      }
+      expect(mutations).toEqual([{ status: "paused" }, { objective: "Updated objective" }]);
+      expect(goal).toBeNull();
+      release();
+      await until(async () => !(await read()).items.length || undefined);
+      expect(seen).toEqual(["Ordinary turn remains running", "Keep queued ordinary order"]);
+      for (const message of [active, queued, ...controls]) {
+        expect(await hub.store.db.get("SELECT status FROM deliveries WHERE message_id=?", [message.id])).toEqual({ status: "accepted" });
+      }
+    } finally { release(); await gateway.disconnect(); }
+  });
+
   it("forbids crossing queued command barriers and permits empty edit only when an attachment remains", async () => {
     await new HubPromptQueue(hub.store).registerWorker("bot", true);
     const a = await send("Before"), control = await send("/new"), c = await send("After"); await waitItems(3);
@@ -436,7 +478,7 @@ describe("durable host prompt queue", () => {
 
   it("treats absolute paths as editable prompts without flushing the command barrier", async () => {
     const peer = await worker(), a = await send("Running"); await waitSent(peer, 1);
-    const b = await send("/Users/me/work.ts"), c = await send("/tmp/log read this");
+    const b = await send("/Users/example/work.ts"), c = await send("/tmp/log read this");
     expect((await waitItems(3)).items.slice(1).every(item => item.canEdit && item.state === "queued")).toBe(true);
     await change({ type: "edit", messageId: b.id, text: "/tmp/updated.log" });
     await change({ type: "move", messageId: c.id, beforeId: b.id });

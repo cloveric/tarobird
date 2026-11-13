@@ -33,7 +33,7 @@ export const CORE_SLASH_COMMANDS: readonly CoreSlashCommandDefinition[] = [
   defineCommand("timeout", "Inspect or change runtime safeguards", "查看或调整任务超时保护"),
   defineCommand("steer", "Inspect or change the mid-turn steering window", "查看或调整任务中途引导窗口"),
   defineCommand("account", "Show the bound Feishu or Lark app", "查看当前绑定的飞书或 Lark 应用"),
-  defineCommand("goal", "Set, inspect, or clear the conversation goal", "设置、查看或清除会话目标"),
+  defineCommand("goal", "Manage the native goal; Codex also supports pause, resume and edit", "管理原生目标；Codex 支持暂停、恢复和编辑"),
   defineCommand("resume", "Find or bind an existing native agent session", "查找或绑定已有原生 Agent 会话"),
   defineCommand("detach", "Detach the current native agent session", "解绑当前原生 Agent 会话"),
   defineCommand("reset", "Reset the current chat session binding", "重置当前聊天的会话绑定"),

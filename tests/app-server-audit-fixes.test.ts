@@ -774,6 +774,9 @@ describe("app-server goal watch poll keeps the shared child alive", () => {
       await expect(turnPromise).resolves.toMatchObject({ text: "other ok" });
 
       child.stdout.emitData('{"method":"thread/goal/updated","params":{"threadId":"thread-goal","goal":{"threadId":"thread-goal","objective":"long goal","status":"complete","tokenBudget":null,"tokensUsed":10,"timeUsedSeconds":3,"createdAt":1,"updatedAt":3}}}\n');
+      await vi.advanceTimersByTimeAsync(0);
+      const confirmation = parsedStdinLines(child).filter(line => line.method === "thread/goal/get").at(-1)!;
+      child.stdout.emitData(JSON.stringify({ id: confirmation.id, result: { goal: { threadId: "thread-goal", objective: "long goal", status: "complete", tokenBudget: null, tokensUsed: 10, timeUsedSeconds: 3, createdAt: 1, updatedAt: 3 } } }) + "\n");
       const result = await goalPromise;
       expect(result.goal?.status).toBe("complete");
     } finally {
@@ -795,20 +798,26 @@ describe("app-server goal watch poll keeps the shared child alive", () => {
       child.stdout.emitData(`{"id":${otherThreadStart.id},"result":{"thread":{"id":"thread-other"}}}\n`);
       await vi.advanceTimersByTimeAsync(0);
       const turnAssertion = expect(turnPromise).rejects.toThrow("Adapter destroyed");
+      const goalAssertion = expect(goalPromise).rejects.toThrow("Adapter destroyed");
+      const polls = () => parsedStdinLines(child).filter(line => line.method === "thread/goal/get");
 
-      await vi.advanceTimersByTimeAsync(30_000); // poll1 written
-      await vi.advanceTimersByTimeAsync(30_000); // poll2 written
-      await vi.advanceTimersByTimeAsync(30_000); // poll1 times out (1st consecutive)
+      await vi.advanceTimersByTimeAsync(30_000); // first poll written
+      expect(polls()).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(30_000); // no overlapping second poll
+      expect(polls()).toHaveLength(1);
       expect(child.killCalls).toBe(0);
-      await vi.advanceTimersByTimeAsync(30_000); // poll2 times out (2nd consecutive)
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(30_000); // first 60-second timeout; next poll starts
+      expect(polls()).toHaveLength(2);
+      expect(child.killCalls).toBe(0);
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(child.killCalls).toBe(0);
+      await vi.advanceTimersByTimeAsync(1); // second consecutive 60-second timeout
 
-      // Two consecutive timeouts = the child is presumed wedged: destroyed,
-      // the goal watch resolves with the latest known goal, pending turns fail.
+      // Only two actual consecutive timeouts destroy the shared child. Native
+      // observation and unrelated pending turns both report transport failure.
       expect(child.killCalls).toBe(1);
       await turnAssertion;
-      const result = await goalPromise;
-      expect(result.goal?.status).toBe("active");
+      await goalAssertion;
     } finally {
       vi.useRealTimers();
     }

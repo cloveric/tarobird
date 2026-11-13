@@ -4,6 +4,7 @@ import type { RunScope } from "../client-protocol/run.js";
 import type { Locale } from "../runtime/locale.js";
 import type { EngineTaskSnapshot, EngineTaskControlResult } from "../client-protocol/engine-tasks.js";
 import type { EngineOverride } from "../state/instance-config.js";
+import type { ClaudeNativeGoalReceipt, ClaudeNativeGoalUpdate } from "./claude-native-goal.js";
 export type { EngineTask, EngineTaskSnapshot, EngineTaskControlResult } from "../client-protocol/engine-tasks.js";
 
 /** A terminal frame arrived without a complete answer. Never blindly replay tools. */
@@ -76,6 +77,8 @@ export interface CodexAdapterResponse {
   text: string;
   sessionId?: string;
   usage?: AdapterUsage;
+  /** Claude's native command/stream evidence; an ended turn is not goal success. */
+  nativeGoal?: ClaudeNativeGoalReceipt;
 }
 
 /** What an adapter's native side conversation can honestly promise. An engine
@@ -142,7 +145,7 @@ export interface EngineSideSession {
 export interface CodexThreadGoal {
   threadId: string;
   objective: string;
-  status: "active" | "paused" | "budgetLimited" | "complete";
+  status: "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete";
   tokenBudget: number | null;
   tokensUsed: number;
   /** DeepSeek counts native goal-round provider usage, excluding ordinary/child turns. */
@@ -393,6 +396,7 @@ export interface CodexUserMessageInput {
   onProgress?: (partialText: string) => void;
   onApprovalRequest?: (request: EngineApprovalRequest) => Promise<EngineApprovalDecision>;
   onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+  onNativeGoal?: (update: ClaudeNativeGoalUpdate) => void;
   requestOutputDir?: string;
   workspaceOverride?: string;
   extraEnv?: Record<string, string>;
@@ -452,9 +456,20 @@ export interface CodexAdapter {
     tokenBudget?: number | null;
     workspaceOverride?: string;
   }): Promise<CodexThreadGoalResponse>;
-  // Set a goal and watch Codex's autonomous pursuit of it, streaming turn/item events
-  // to onEngineEvent until it reaches a terminal status (or abortSignal fires).
+  /** Patch an existing native goal without resetting its usage or objective. */
+  updateThreadGoal?(sessionId: string, input: {
+    isCurrentSession?: () => boolean | Promise<boolean>;
+    status?: CodexThreadGoal["status"];
+    objective?: string;
+    tokenBudget?: number | null;
+    origin?: "user" | "automatic";
+    workspaceOverride?: string;
+  }): Promise<CodexThreadGoalResponse>;
+  // Observe autonomous pursuit until it stops, is suspended, or is cleared.
+  // A suspended result retains native state and can be resumed.
   watchThreadGoal?(sessionId: string, input: {
+    isCurrentSession?: () => boolean | Promise<boolean>;
+    mode?: "replace" | "resume" | "observe";
     objective: string;
     tokenBudget?: number | null;
     workspaceOverride?: string;
@@ -462,7 +477,7 @@ export interface CodexAdapter {
     onApprovalRequest?: (request: EngineApprovalRequest) => Promise<EngineApprovalDecision>;
     abortSignal?: AbortSignal;
   }): Promise<CodexThreadGoalResponse>;
-  clearThreadGoal?(sessionId: string, input?: { workspaceOverride?: string }): Promise<{ cleared: boolean; sessionId?: string }>;
+  clearThreadGoal?(sessionId: string, input?: { workspaceOverride?: string; origin?: "user" | "automatic"; isCurrentSession?: () => boolean | Promise<boolean> }): Promise<{ cleared: boolean; sessionId?: string }>;
   /** Optional native side conversations; absent means unsupported. */
   sideCapability?(input?: { workspaceOverride?: string; tools?: "inherited" }): SideCapability;
   /** sourceSessionId must be the parent's real native ID (never a logical

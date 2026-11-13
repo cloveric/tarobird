@@ -23,6 +23,22 @@ function groupMode(allowedChatIds: number[]) {
 }
 
 describe("Bridge", () => {
+  it("forwards native goal evidence without interpreting turn completion as goal success", async () => {
+    const receipt = { command: "set" as const, acknowledged: true, state: "active" as const, objective: "Verify the result", capped: true, verifiedBy: ["command" as const, "query" as const] };
+    const update = { state: "accepted" as const, objective: receipt.objective };
+    const access: AccessStoreLike = { load: vi.fn().mockResolvedValue({ policy: "allowlist", allowlist: [84], pairedUsers: [], pendingPairs: [] }), issuePairingCode: vi.fn() };
+    const manager: SessionManagerLike = { getOrCreateSession: vi.fn().mockResolvedValue({ sessionId: "native-goal-session" }), bindSession: vi.fn() };
+    const adapter: CodexAdapter = { createSession: vi.fn(), sendUserMessage: vi.fn(async (_id, input) => {
+      input.onNativeGoal?.(update);
+      return { text: "Turn ended", nativeGoal: receipt, usage: { inputTokens: 10, outputTokens: 2 } };
+    }) };
+    const onNativeGoal = vi.fn();
+    const result = await new Bridge(access, manager, adapter).handleAuthorizedMessage({ chatId: 84, userId: 42, chatType: "private", text: "/goal Verify the result", files: [], onNativeGoal });
+    expect(onNativeGoal).toHaveBeenCalledExactlyOnceWith(update);
+    expect(result).toEqual({ text: "Turn ended", nativeGoal: receipt, usage: { inputTokens: 10, outputTokens: 2 } });
+    expect(adapter.sendUserMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("routes an authorized message through the current session", async () => {
     const accessStore: AccessStoreLike = {
       load: vi.fn().mockResolvedValue({

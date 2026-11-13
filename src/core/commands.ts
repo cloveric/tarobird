@@ -85,8 +85,9 @@ import type { CoreServiceRuntime } from "./runtime.js";
 import type { CoreBridgeLike, CoreChannelLike } from "./types.js";
 import { appendCoreTimelineEvent } from "./timeline.js";
 
-// Keep pending cleanup by runtime/conversation even if its active-run slot changes.
+// Keep native cleanup (not card publication) by runtime/conversation until it drains.
 const goalPursuitCompletions = new WeakMap<CoreServiceRuntime, Map<string, Promise<void>>>();
+const goalCommandLocks = new WeakMap<CoreServiceRuntime, Map<string, Promise<unknown>>>();
 
 const VALID_LARK_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
 const LARK_ENGINE_CHOICES: InstanceEngine[] = ["claude", "codex", "kimi", "deepseek", "antigravity"];
@@ -116,6 +117,7 @@ export type CoreCommandInput = {
   abortSignal?: AbortSignal;
   /** Explicitly null means this conversation is attached to no resumed workspace. */
   conversationResume?: ResumeState | null;
+  isCurrentGoalSession?: () => boolean | Promise<boolean>;
   workspaceOverride?: string;
   // Live run-card factory, supplied by message-handler. Typed via an erased type-query
   // so commands.ts keeps no runtime import of message-handler.ts (which imports this
@@ -182,9 +184,10 @@ export async function handleCoreSimpleCommand(
     return true;
   }
 
-  const goalCommand = parseCoreGoalCommand(commandText);
-  if (goalCommand) {
-    const cfg = await loadInstanceConfig(input.stateDir);
+  const goalCfg = /^\/goal(?:\s|$)/i.test(commandText.trim()) ? await loadInstanceConfig(input.stateDir) : undefined;
+  const goalCommand = goalCfg ? parseCoreGoalCommand(commandText, goalCfg.engine) : null;
+  if (goalCommand && goalCfg) {
+    const cfg = goalCfg;
     if (input.conversationResume !== undefined) {
       cfg.resume = input.conversationResume ?? undefined;
     }
@@ -978,8 +981,11 @@ function renderCoreNewGroupFailed(locale: Locale, error: unknown): string {
 type CoreGoalCommand =
   | { kind: "status" }
   | { kind: "clear" }
+  | { kind: "pause" }
+  | { kind: "resume" }
+  | { kind: "edit"; objective?: string; tokenBudget?: number | null }
   | { kind: "set"; objective: string; tokenBudget: number | null; explicitUnbounded: boolean }
-  | { kind: "invalid"; reason: "invalid_budget" | "missing_objective" };
+  | { kind: "invalid"; reason: "invalid_budget" | "missing_objective" | "invalid_control" | "too_long" };
 
 function parseCoreGoalTokenBudget(value: string): number | null {
   const normalized = value.trim().replace(/[,_]/g, "").toLowerCase();
@@ -1018,13 +1024,43 @@ function parseCoreSetGoal(rest: string): Extract<CoreGoalCommand, { kind: "set" 
   return { kind: "set", objective: rest, tokenBudget: null, explicitUnbounded: false };
 }
 
-function parseCoreGoalCommand(text: string): CoreGoalCommand | null {
+function parseCoreGoalCommand(text: string, engine: InstanceEngine): CoreGoalCommand | null {
   const match = text.trim().match(/^\/goal(?:\s+([\s\S]+))?$/i);
   if (!match) return null;
   const rest = match[1]?.trim() ?? "";
   if (!rest || /^status$/i.test(rest)) return { kind: "status" };
-  if (/^(clear|off|reset)$/i.test(rest)) return { kind: "clear" };
-  return parseCoreSetGoal(rest);
+  if (/^(clear|off|reset)$/i.test(rest) || (engine === "claude" && /^(stop|cancel|none)$/i.test(rest))) return { kind: "clear" };
+  if (engine === "codex") {
+    if (/^(pause|resume)$/i.test(rest)) return { kind: rest.toLowerCase() as "pause" | "resume" };
+    if (/^(pause|resume)\s/i.test(rest)) return { kind: "invalid", reason: "invalid_control" };
+    const edit = rest.match(/^edit(?:\s+([\s\S]+))?$/i);
+    if (edit) {
+      const value = edit[1]?.trim() ?? "";
+      if (!value) return { kind: "edit" };
+      // Budget-only edits preserve the native objective, status and counters.
+      const budgetOnly = value.match(/^(?:--budget|-b)(?:=|\s+)(\S+)$/i);
+      if (budgetOnly) {
+        const tokenBudget = parseCoreGoalTokenBudget(budgetOnly[1]!);
+        return tokenBudget === null ? { kind: "invalid", reason: "invalid_budget" } : { kind: "edit", tokenBudget };
+      }
+      if (/^(--unbounded|--no-budget)$/i.test(value)) return { kind: "edit", tokenBudget: null };
+      const parsed = parseCoreSetGoal(value);
+      if (parsed.kind === "invalid") return parsed;
+      if (parsed.objective.length > 4000) return { kind: "invalid", reason: "too_long" };
+      return { kind: "edit", objective: parsed.objective,
+        ...(parsed.tokenBudget !== null || parsed.explicitUnbounded ? { tokenBudget: parsed.tokenBudget } : {}) };
+    }
+  }
+  const parsed = parseCoreSetGoal(rest);
+  if ((engine === "codex" || engine === "claude") && parsed.kind === "set" && parsed.objective.length > 4000) return { kind: "invalid", reason: "too_long" };
+  return parsed;
+}
+
+/** Only existing-goal controls may bypass the ordinary chat queue. A new
+ * objective (including --budget) keeps normal admission and preparation. */
+export function isCoreGoalControlCommand(text: string): boolean {
+  const action = parseCoreGoalCommand(text, "codex");
+  return !!action && action.kind !== "set";
 }
 
 export function isStopCommand(text: string): boolean {
@@ -2462,7 +2498,11 @@ function renderCoreGoal(goal: CodexThreadGoal, locale: Locale): string {
   ].join("\n");
 }
 
-function renderInvalidCoreGoalCommand(reason: "invalid_budget" | "missing_objective", locale: Locale): string {
+function renderInvalidCoreGoalCommand(reason: Extract<CoreGoalCommand, { kind: "invalid" }>["reason"], locale: Locale): string {
+  if (reason === "too_long") return locale === "en" ? "A native goal can contain at most 4,000 characters." : "原生目标最多支持 4,000 个字符。";
+  if (reason === "invalid_control") return locale === "en"
+    ? "Use /goal pause or /goal resume without arguments. To edit the objective or budget, use /goal edit."
+    : "请直接使用 /goal pause 或 /goal resume；修改目标或预算请用 /goal edit。";
   if (locale === "en") {
     if (reason === "missing_objective") {
       return "Write the goal, for example: /goal ship release notes. To add a limit, use /goal --budget 50000 ship release notes.";
@@ -2480,9 +2520,9 @@ function toNativeCoreGoalCommandText(
   commandText: string,
   engine: "claude" | "antigravity",
 ): string | null {
-  if (action.kind !== "set") {
-    return commandText.trim();
-  }
+  if (engine === "claude" && action.kind === "status") return "/goal";
+  if (engine === "claude" && action.kind === "clear") return "/goal clear";
+  if (action.kind !== "set") return commandText.trim();
   if (action.tokenBudget === null) {
     return `/goal ${action.objective}`;
   }
@@ -2490,7 +2530,49 @@ function toNativeCoreGoalCommandText(
   return `/goal ${action.objective}\n\n[Bridge note: 用户请求 token 预算：${action.tokenBudget} tokens。原生 ${engineName} goal 可能只会把它当作指导，而不是强制预算。]`;
 }
 
-async function handleCoreGoalCommand(
+function renderCoreGoalEdit(goal: CodexThreadGoal, locale: Locale): string {
+  return `${renderCoreGoal(goal, locale)}\n\n${locale === "en"
+    ? "Use /goal edit <new objective>, /goal edit --budget 50000, or /goal edit --unbounded. Edits preserve usage and do not resume a paused goal; use /goal resume to continue."
+    : "使用 /goal edit <新目标>、/goal edit --budget 50000 或 /goal edit --unbounded。修改会保留已用量，暂停的目标不会自动恢复；继续执行请用 /goal resume。"}`;
+}
+
+/** Existing-goal controls share authorization with normal input, but need no
+ * model turn. Never prepare/rebind an App conversation while its turn runs. */
+export async function tryHandleCoreGoalControlBeforeQueue(input: CoreCommandInput, normalized: CoreNormalizedBridgeMessage, text: string): Promise<boolean> {
+  return withCoreGoalCommandLock(input.runtime, normalized.conversationKey, async () => {
+    const cfg = await loadInstanceConfig(input.stateDir);
+    const action = parseCoreGoalCommand(text, cfg.engine);
+    if (cfg.engine !== "codex" || !action || action.kind === "set") return false;
+    const current = () => input.channel.canSteerConversation?.(normalized.chatId) ?? true;
+    if (!await current()) return false;
+    const { record, warning } = await new SessionStore(path.join(input.stateDir, "session.json")).findByConversationKeySafe(normalized.conversationKey);
+    cfg.resume = warning ? undefined : resolveConversationResume(record, cfg.resume);
+    if (!await current()) return false;
+    const handled = await applyCoreGoalCommand({ ...input,
+      workspaceOverride: input.workspaceOverride ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg),
+      isCurrentGoalSession: current,
+    }, normalized, cfg, action, text, await resolveCoreLocale(input.stateDir));
+    return handled ?? false;
+  });
+}
+
+/** Serialize goal control transactions, never the autonomous pursuit itself. */
+export async function withCoreGoalCommandLock<T>(runtime: CoreServiceRuntime, key: string, run: () => Promise<T>): Promise<T> {
+  let locks = goalCommandLocks.get(runtime);
+  if (!locks) { locks = new Map(); goalCommandLocks.set(runtime, locks); }
+  const previous = locks.get(key);
+  const operation = (async () => { await previous?.catch(() => {}); return await run(); })();
+  locks.set(key, operation);
+  try { return await operation; }
+  finally { if (locks.get(key) === operation) locks.delete(key); }
+}
+
+async function handleCoreGoalCommand(...args: Parameters<typeof applyCoreGoalCommand>): Promise<boolean | null> {
+  const [input, normalized] = args;
+  return withCoreGoalCommandLock(input.runtime, normalized.conversationKey, () => applyCoreGoalCommand(...args));
+}
+
+async function applyCoreGoalCommand(
   input: CoreCommandInput,
   normalized: CoreNormalizedBridgeMessage,
   cfg: InstanceConfig,
@@ -2503,6 +2585,12 @@ async function handleCoreGoalCommand(
     return true;
   }
 
+  if (cfg.engine === "claude" && action.kind === "set" && action.tokenBudget !== null) {
+    await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
+      ? "Claude's native /goal has no enforceable token budget. No goal was started. Send /goal <completion condition> without --budget, or use Codex for a native token limit."
+      : "Claude 原生 /goal 不支持强制 token 预算，本次未启动目标。请去掉 --budget，使用 /goal <完成条件>；需要原生 token 限额时请使用 Codex。");
+    return true;
+  }
   if (cfg.engine === "claude" || cfg.engine === "antigravity") {
     const nativeText = toNativeCoreGoalCommandText(action, commandText, cfg.engine);
     if (nativeText) {
@@ -2532,6 +2620,7 @@ async function handleCoreGoalCommand(
     chatType: normalized.bridgeChatType,
     conversationKey: normalized.conversationKey,
     workspaceOverride: input.workspaceOverride ?? resolveInstanceWorkspacePath(cfg),
+    ...(input.isCurrentGoalSession ? { isCurrentSession: input.isCurrentGoalSession } : {}),
   };
   // activeRuns key for this conversation — shared by the live watcher (which claims
   // it) and by clear (which aborts it), so a detached goal watcher participates in
@@ -2564,7 +2653,7 @@ async function handleCoreGoalCommand(
     // run card to interrupted. Guard on goalWatch so a normal turn sharing the
     // activeRuns slot is NOT killed (nor falsely reported "cleared") by /goal clear.
     const activeGoalRun = input.runtime.activeRuns.get(conversationKey);
-    if (activeGoalRun?.goalWatch) {
+    if (cfg.engine !== "codex" && activeGoalRun?.goalWatch) {
       // End the PURSUIT specifically: abortGoal bypasses the stop routing that
       // would otherwise divert a plain abort() into an ordinary turn currently
       // running alongside the pursuit — /goal clear must kill the goal, never
@@ -2578,12 +2667,53 @@ async function handleCoreGoalCommand(
         ? "Current goal cleared." : "已清除当前 goal。");
       return true;
     }
-    const { cleared } = await input.bridge.clearThreadGoal(goalInput);
+    const { cleared } = await input.bridge.clearThreadGoal({ ...goalInput, origin: "user" });
     await sendCoreCommandMarkdown(input, normalized, "/goal", cleared
       ? locale === "en" ? "Current goal cleared." : "已清除当前 goal。"
       : locale === "en" ? "This chat has no goal to clear." : "当前聊天没有可清除的 goal。");
     return true;
   }
+
+  let watchMode: "replace" | "resume" = "replace";
+  let resumeSessionId: string | undefined;
+  if (action.kind === "pause" || action.kind === "resume" || action.kind === "edit") {
+    if (!input.bridge.getThreadGoal || !input.bridge.updateThreadGoal) {
+      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en" ? "This runtime does not support native goal controls." : "当前 runtime 不支持原生目标控制。");
+      return true;
+    }
+    const { goal } = await input.bridge.getThreadGoal(goalInput);
+    if (!goal) {
+      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en" ? "This chat has no goal to control." : "当前聊天没有可控制的目标。");
+      return true;
+    }
+    if (action.kind === "edit" && action.objective === undefined && action.tokenBudget === undefined) {
+      await sendCoreCommandMarkdown(input, normalized, "/goal", renderCoreGoalEdit(goal, locale));
+      return true;
+    }
+    if (input.isCurrentGoalSession && !await input.isCurrentGoalSession()) {
+      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en" ? "The selected session changed. Send the goal command again for the current session." : "所选会话已变化，请为当前会话重新发送目标命令。");
+      return true;
+    }
+    const active = input.runtime.activeRuns.get(conversationKey);
+    if (action.kind === "resume" && !active?.goalWatch && input.bridge.watchThreadGoal && input.createRunCard) {
+      // Register an observer before native resume. Never clear/recreate the goal.
+      watchMode = "resume";
+      resumeSessionId = goal.threadId;
+      action = { kind: "set", objective: goal.objective, tokenBudget: goal.tokenBudget, explicitUnbounded: false };
+    } else {
+      const changes = action.kind === "edit"
+        ? { ...(action.objective !== undefined ? { objective: action.objective } : {}), ...(action.tokenBudget !== undefined ? { tokenBudget: action.tokenBudget } : {}) }
+        : { status: action.kind === "pause" ? "paused" as const : "active" as const };
+      const updated = await input.bridge.updateThreadGoal({ ...goalInput, sessionId: goal.threadId, ...changes, origin: "user" });
+      if (updated.goal && input.runtime.activeRuns.get(conversationKey) === active) active?.updateGoalObjective?.(updated.goal.objective);
+      await sendCoreCommandMarkdown(input, normalized, "/goal", updated.goal ? renderCoreGoal(updated.goal, locale)
+        : locale === "en" ? "The goal is no longer available." : "该目标已不存在。");
+      return true;
+    }
+  }
+
+  if (action.kind !== "set") return true;
+  const pursuitAction = action;
 
   // Live path: set the goal AND watch the structured runtime's autonomous pursuit,
   // streaming progress into a run card. Codex and DeepSeek self-drive once the goal is set. The watch runs
@@ -2600,7 +2730,7 @@ async function handleCoreGoalCommand(
       replyTo: normalized.messageId,
       replyInThread: Boolean(normalized.threadId),
       locale,
-      goalObjective: action.objective,
+      goalObjective: pursuitAction.objective,
       abortSignal: abort.signal,
       elementStream: goalCfg.elementStream !== false,
     });
@@ -2623,28 +2753,49 @@ async function handleCoreGoalCommand(
       // it). A replaced PURSUIT is ended entirely (goal + any attached ordinary turn:
       // both would be orphaned by the overwrite). Guarantees exactly one tracked
       // active run per conversation.
-      const previousActive = input.runtime.activeRuns.get(conversationKey)?.abortController;
+      const previousRun = input.runtime.activeRuns.get(conversationKey);
+      const previousActive = previousRun?.abortController;
       let completions = goalPursuitCompletions.get(input.runtime);
       if (!completions) { completions = new Map(); goalPursuitCompletions.set(input.runtime, completions); }
       const previousCompletion = completions.get(conversationKey);
       if (previousActive instanceof CoreGoalRunController) {
         previousActive.abortAll();
+      } else if (watchMode === "resume" && previousRun && !previousActive?.signal.aborted) {
+        // Resuming an existing goal does not cancel an ordinary turn already
+        // using this conversation. Its original release detaches this handle.
+        abort.attachConcurrentTurn(previousRun);
+        const concurrent = input.runtime.concurrentRuns.get(conversationKey) ?? new Set();
+        concurrent.add(previousRun);
+        input.runtime.concurrentRuns.set(conversationKey, concurrent);
       } else {
         previousActive?.abort();
       }
-      input.runtime.activeRuns.set(conversationKey, { abortController: abort, hasRunCard: true, goalWatch: true, startedAt: Date.now() });
+      input.runtime.activeRuns.set(conversationKey, { abortController: abort, hasRunCard: true, goalWatch: true, startedAt: Date.now(), updateGoalObjective: (objective) => runCard.setGoalObjective?.(objective) });
+      let resolveNativeDone!: () => void, resolveStartup!: () => void;
+      const nativeDone = new Promise<void>((resolve) => { resolveNativeDone = resolve; });
+      const startup = new Promise<void>((resolve) => { resolveStartup = resolve; });
+      const releaseGoalRun = () => {
+        resolveNativeDone();
+        resolveStartup();
+        if (completions!.get(conversationKey) === nativeDone) completions!.delete(conversationKey);
+        if (input.runtime.activeRuns.get(conversationKey)?.abortController !== abort) return;
+        const concurrent = abort.liveConcurrentTurn();
+        if (concurrent) input.runtime.activeRuns.set(conversationKey, concurrent);
+        else input.runtime.activeRuns.delete(conversationKey);
+      };
       const pursuit = (async () => {
         let goalSessionId: string | undefined;
         let goalFinalAnswer = "";
         try {
           await previousCompletion?.catch(() => {});
-          if (abort.signal.aborted) { await runCard.interrupt(); return; }
+          if (abort.signal.aborted) { releaseGoalRun(); await runCard.interrupt(); return; }
           const result = await watchThreadGoal({
             ...goalInput,
-            objective: action.objective,
-            tokenBudget: action.tokenBudget,
+            ...(watchMode !== "replace" ? { mode: watchMode, sessionId: resumeSessionId } : {}),
+            objective: pursuitAction.objective,
+            ...(watchMode === "replace" ? { tokenBudget: pursuitAction.tokenBudget } : {}),
             onEngineEvent: (event) => {
-              if (event.type === "session" && event.sessionId) goalSessionId ??= event.sessionId;
+              if (event.type === "session" && event.sessionId) { goalSessionId ??= event.sessionId; resolveStartup(); }
               if (event.type === "result" && event.text.trim()) goalFinalAnswer = event.text;
               void runCard.apply(event);
               if (event.type !== "user_input_request") return;
@@ -2692,17 +2843,25 @@ async function handleCoreGoalCommand(
           });
           goalSessionId ??= result.sessionId ?? result.goal?.threadId;
           const watched = result.goal;
-          if (abort.signal.aborted || (watched && !["complete", "budgetLimited"].includes(watched.status))) {
+          if (abort.signal.aborted || (cfg.engine !== "codex" && watched && !["complete", "budgetLimited"].includes(watched.status))) {
             // Stopped: clear the goal so the engine halts its autonomous pursuit
             // (aborting the watcher alone only stops us listening), then flip the card to "已中断".
-            if (goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId }); } catch { /* best-effort */ } }
+            if (cfg.engine !== "codex" && goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ } }
+            releaseGoalRun();
             await runCard.interrupt();
+          } else if (cfg.engine === "codex" && (!watched || watched.status !== "complete")) {
+            releaseGoalRun();
+            const summary = watched ? renderCoreGoal(watched, locale)
+              : locale === "en" ? "Goal cleared." : "目标已清除。";
+            const answer = goalFinalAnswer.trim() || runCard.resolveFinalText("").trim();
+            // This run ended; the goal may still be resumable. Never mark the
+            // objective completed or destroy its native state and usage.
+            await runCard.interrupt(answer ? `${answer}\n\n---\n\n${summary}` : summary);
           } else {
-            // Completed (watchThreadGoal only resolves at a terminal status). Clear the
-            // goal from the engine session too — previously only the abort path cleared it,
-            // so a finished goal stayed SET in the thread and was silently resumed by, or
-            // bled into, later ordinary messages in the same thread.
-            if (goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId }); } catch { /* best-effort */ } }
+            // Codex retains completed state for native status/edit/resume. Keep
+            // the existing cleanup contract for other structured adapters.
+            if (cfg.engine !== "codex" && goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ } }
+            releaseGoalRun();
             const answer = goalFinalAnswer.trim() || runCard.resolveFinalText("").trim();
             const summary = watched ? renderCoreGoal(watched, locale)
               : locale === "en" ? "Goal finished." : "Goal 已结束。";
@@ -2714,12 +2873,14 @@ async function handleCoreGoalCommand(
           }
         } catch (error) {
           if (abort.signal.aborted) {
-            if (goalSessionId) {
-              try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId }); } catch { /* best-effort */ }
+            if (cfg.engine !== "codex" && goalSessionId) {
+              try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ }
             }
+            releaseGoalRun();
             await runCard.interrupt();
             return;
           }
+          releaseGoalRun();
           // Record the real reason so "详细原因已记录到日志" is actually true and the
           // failure is diagnosable from the timeline (the run card stays redacted).
           await appendCoreTimelineEvent(input.stateDir, normalized, {
@@ -2735,23 +2896,23 @@ async function handleCoreGoalCommand(
           // pursuit ended first), PROMOTE it into the slot so /stop and the stop
           // buttons can still reach it for the rest of its run — its own guarded
           // release (claimLarkRunSlot) then cleans the promoted slot up.
-          if (input.runtime.activeRuns.get(conversationKey)?.abortController === abort) {
-            const concurrent = abort.liveConcurrentTurn();
-            if (concurrent) {
-              input.runtime.activeRuns.set(conversationKey, concurrent);
-            } else {
-              input.runtime.activeRuns.delete(conversationKey);
-            }
-          }
+          releaseGoalRun();
         }
       })();
-      completions.set(conversationKey, pursuit);
-      const forget = () => { if (completions.get(conversationKey) === pursuit) completions.delete(conversationKey); };
+      completions.set(conversationKey, nativeDone);
+      const forget = () => { if (completions.get(conversationKey) === nativeDone) completions.delete(conversationKey); };
       void pursuit.then(forget, forget);
+      await startup;
       return true;
     }
   }
 
+  if (watchMode === "resume") {
+    const { goal } = await input.bridge.updateThreadGoal!({ ...goalInput, sessionId: resumeSessionId, status: "active", origin: "user" });
+    await sendCoreCommandMarkdown(input, normalized, "/goal", goal ? renderCoreGoal(goal, locale)
+      : locale === "en" ? "The goal is no longer available." : "该目标已不存在。");
+    return true;
+  }
   if (!input.bridge.setThreadGoal) {
     await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
       ? "The current runtime does not support structured /goal."
@@ -2760,8 +2921,8 @@ async function handleCoreGoalCommand(
   }
   const { goal } = await input.bridge.setThreadGoal({
     ...goalInput,
-    objective: action.objective,
-    tokenBudget: action.tokenBudget,
+    objective: pursuitAction.objective,
+    tokenBudget: pursuitAction.tokenBudget,
   });
   await sendCoreCommandMarkdown(input, normalized, "/goal", goal
     ? locale === "en" ? `Goal set.\n\n${renderCoreGoal(goal, locale)}` : `Goal 已设置。\n\n${renderCoreGoal(goal, locale)}`

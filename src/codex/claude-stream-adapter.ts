@@ -17,7 +17,11 @@ import { ENGINE_DEFAULT_INACTIVITY_TIMEOUT_MS } from "./engine-timeouts.js";
 import { killProcessTree } from "./process-tree.js";
 import { APP_STOP_PROCESS_GRACE_MS, APP_USER_STOP_REASON, appStopKillOptions } from "../runtime/turn-cancellation.js";
 import { sideAttachmentPrompt } from "./side-attachments.js";
-import { prependPrivateTurnInstructions } from "./turn-instructions.js";
+import { prependPrivateTurnInstructions, renderPrivateTurnInstructions } from "./turn-instructions.js";
+import {
+  CLAUDE_GOAL_BLOCK_CAP_NOTIFICATION, claudeGoalFrameContent, claudeLocalCommandStdout, parseClaudeGoalCommand, parseClaudeGoalFeedback, parseClaudeGoalStdout,
+  type ClaudeGoalCommand, type ClaudeGoalStdout, type ClaudeNativeGoalReceipt, type ClaudeNativeGoalTurnInput, type ClaudeNativeGoalUpdate,
+} from "./claude-native-goal.js";
 import { ClaudeTurnRecovery, claudeNoResponseError, isClaudeNoResponsePlaceholder } from "./claude-turn-recovery.js";
 import { ClaudeSessionUsage } from "./claude-session-usage.js";
 import { EngineRetryableError, type EngineRetryReason } from "./turn-retry.js";
@@ -130,6 +134,15 @@ type ClaudeStreamEvent = {
   tool_use_result?: unknown;
   event?: unknown;
   mcp_server_errors?: unknown;
+  /** `system/init`: the slash commands this CLI answers natively. */
+  slash_commands?: unknown;
+  /** A message Claude wrote itself, e.g. a Stop hook's feedback to the model. */
+  isSynthetic?: boolean;
+  /** On the synthetic reply to a local slash command: the command it ran. */
+  local_command_run?: { command?: string; args?: string };
+  local_command_source?: unknown;
+  /** `system/notification`. */
+  key?: string;
   origin?: {
     kind?: string;
   } | null;
@@ -169,6 +182,12 @@ type ClaudeStreamEvent = {
 };
 
 type PendingTurn = {
+  /** The host's own local `/goal` query: never shown, steered or counted as a
+   * user turn (see queryGoal). */
+  internal?: boolean;
+  /** What Claude says about `/goal` while this turn is the one running: the
+   * worker's current evidence from the prompt's write until the turn settles. */
+  goalEvidence?: ClaudeGoalTurnEvidence;
   inputOwnerKey?: string;
   nativeAdmission?: boolean;
   nativeStarted?: boolean;
@@ -465,7 +484,38 @@ type ClaudeWorker = {
   /** Opaque task ids handed to the host, valid for this worker only. */
   taskTokens: Map<string, string>;
   tokenByTask: Map<string, string>;
+  goal: ClaudeWorkerGoal;
 };
+
+type ClaudeTextBlock = { type: "text"; text: string };
+
+/** What Claude itself reported about `/goal` during one host turn. It belongs
+ * to that turn alone: frames before its prompt was written, or after its
+ * result, are never its evidence and never reach its observer. */
+type ClaudeGoalTurnEvidence = {
+  command?: ClaudeGoalCommand["kind"];
+  /** Claude's reply to this turn's own command. */
+  reply?: ClaudeGoalStdout;
+  armedAtStart: boolean;
+  /** Any goal command reply or verdict of the known goal. */
+  sawGoal: boolean;
+  /** "Not met" verdicts of the known goal. */
+  verdicts: number;
+  lastReason?: string;
+  capped: boolean;
+  /** A Stop hook blocked while no goal was known: it may be one Claude
+   * restored for a resumed session. */
+  unattributedFeedback: boolean;
+  onUpdate?: (update: ClaudeNativeGoalUpdate) => void;
+};
+
+/** The native goal of one worker's session, from evidence only. It starts
+ * unknown as "none": nothing is read from Claude's own files. `turn` is the
+ * evidence of the host turn running now, or an unobserved one between turns. */
+type ClaudeWorkerGoal = { armed: boolean; condition?: string; turn: ClaudeGoalTurnEvidence };
+
+const goalTurnEvidence = (armedAtStart: boolean, command?: ClaudeGoalCommand["kind"], onUpdate?: (update: ClaudeNativeGoalUpdate) => void): ClaudeGoalTurnEvidence =>
+  ({ command, armedAtStart, sawGoal: false, verdicts: 0, capped: false, unattributedFeedback: false, onUpdate });
 
 const backgroundCallKey = (id: string, parent?: string) => parent ? `${parent}\0${id}` : id;
 
@@ -1097,6 +1147,9 @@ export class ClaudeStreamAdapter implements CodexAdapter {
   // Dedicated unpersisted forks for side questions when no parent worker is
   // live. Never in `workers`: no turn, binding or reaping path can adopt them.
   private readonly sideProcesses = new Set<ClaudeSideProcess>();
+  /** This CLI answered `/goal` as its own command (init list or a reply).
+   * The host writes its own `/goal` query only after that. */
+  private nativeGoalCommandSeen = false;
 
   constructor(
     private readonly claudeExecutable: string,
@@ -1205,7 +1258,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     };
   }
 
-  async sendUserMessage(sessionId: string, input: CodexUserMessageInput): Promise<CodexAdapterResponse> {
+  async sendUserMessage(sessionId: string, input: CodexUserMessageInput & ClaudeNativeGoalTurnInput): Promise<CodexAdapterResponse & { nativeGoal?: ClaudeNativeGoalReceipt }> {
     const agentInstructions = this.instructionsPath ? await this.loadInstructions() : null;
     const existingWorker = this.workers.get(sessionId);
     if (input.reviewAdmission === "native" && (!input.nativeInput?.id || !existingWorker || !this.canAdmitReviewInput(existingWorker, input))) this.rejectReviewInput(input);
@@ -1241,33 +1294,47 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       ? claudeAppInstructions([nativeTools.instructions, nativeTools.turnInstructions].filter(Boolean).join("\n\n"))
       : worker.appMcp || input.appPlatformTools ? [input.instructions, "Native App tools are unavailable for this turn. Use this turn's channel delivery procedures instead.", input.turnInstructions].filter(Boolean).join("\n\n") : input.turnInstructions };
     turnInput.turnInstructions = [turnInput.turnInstructions, recoveryInstructions].filter(Boolean).join("\n\n") || undefined;
-    const prompt = this.buildPrompt(turnInput);
+    // Claude's own `/goal` must stay a slash command; see buildTurnContent.
+    const goalCommand = input.engineRecoveryContinuation ? null : parseClaudeGoalCommand(input.text);
+    // One evidence record per written attempt; only the last one is this turn's.
+    const goalEvidence: ClaudeGoalTurnEvidence[] = [];
+    const sendOwnTurn = (target: ClaudeWorker, turn: CodexUserMessageInput): Promise<CodexAdapterResponse> => {
+      goalEvidence.push(goalTurnEvidence(false, goalCommand?.kind, input.onNativeGoal));
+      return this.sendTurn(target, this.buildTurnContent(turn, goalCommand), turn, { goalEvidence: goalEvidence.at(-1) });
+    };
 
     let response: CodexAdapterResponse;
+    let nativeGoal: ClaudeNativeGoalReceipt | undefined;
     try {
-      // A fence that opened after acquisition can end with the worker replaced
-      // (explicit recovery) before this prompt was written: use the new one.
-      for (let replaced = 0; ; replaced += 1) {
-        try { response = await this.sendTurn(worker, prompt, turnInput); break; }
-        catch (error) {
-          if (!(error instanceof ClaudeWorkerReplacedBeforeWriteError) || replaced >= 2 || input.abortSignal?.aborted || this.destroyPromise) throw error;
-          worker = await this.getOrCreateWorker(sessionId, agentInstructions, bridgeInstructions, approvalMode, effectiveWorkspace, engineOptions, requestedTools);
+      try {
+        // A fence that opened after acquisition can end with the worker replaced
+        // (explicit recovery) before this prompt was written: use the new one.
+        for (let replaced = 0; ; replaced += 1) {
+          try { response = await sendOwnTurn(worker, turnInput); break; }
+          catch (error) {
+            if (!(error instanceof ClaudeWorkerReplacedBeforeWriteError) || replaced >= 2 || input.abortSignal?.aborted || this.destroyPromise) throw error;
+            worker = await this.getOrCreateWorker(sessionId, agentInstructions, bridgeInstructions, approvalMode, effectiveWorkspace, engineOptions, requestedTools);
+          }
         }
+      } catch (error) {
+        // Only this typed pre-prompt handshake failure is safe to retry. Never
+        // replay a model turn after an engine/tool/publish failure or user stop.
+        if (!(error instanceof ClaudeAppMcpInitializationError) || input.abortSignal?.aborted || this.destroyPromise) throw error;
+        const notice = input.locale === "en"
+          ? "Claude native App tools could not initialize. This turn uses compatible file delivery; other conversations are unaffected."
+          : "Claude 原生 App 工具初始化失败，本轮已改用兼容文件交付；其他会话不受影响。";
+        await this.emitEngineEvent(worker, { type: "assistant_text", text: notice, sessionId: worker.currentSessionId ?? undefined }, input.onEngineEvent);
+        worker = await this.getOrCreateWorker(sessionId, agentInstructions, input.instructions ?? null, approvalMode, effectiveWorkspace, engineOptions);
+        // A deterministic rejection disables only this fallback worker. A slow
+        // initialization can retry next turn, and healthy sessions stay native.
+        if (error.reason === "rejected") this.appMcpUnavailable.add(worker);
+        const fallback = { ...input, appPlatformTools: undefined, turnInstructions: [input.instructions, input.turnInstructions, recoveryInstructions].filter(Boolean).join("\n\n") };
+        response = await sendOwnTurn(worker, fallback);
       }
-    } catch (error) {
-      // Only this typed pre-prompt handshake failure is safe to retry. Never
-      // replay a model turn after an engine/tool/publish failure or user stop.
-      if (!(error instanceof ClaudeAppMcpInitializationError) || input.abortSignal?.aborted || this.destroyPromise) throw error;
-      const notice = input.locale === "en"
-        ? "Claude native App tools could not initialize. This turn uses compatible file delivery; other conversations are unaffected."
-        : "Claude 原生 App 工具初始化失败，本轮已改用兼容文件交付；其他会话不受影响。";
-      await this.emitEngineEvent(worker, { type: "assistant_text", text: notice, sessionId: worker.currentSessionId ?? undefined }, input.onEngineEvent);
-      worker = await this.getOrCreateWorker(sessionId, agentInstructions, input.instructions ?? null, approvalMode, effectiveWorkspace, engineOptions);
-      // A deterministic rejection disables only this fallback worker. A slow
-      // initialization can retry next turn, and healthy sessions stay native.
-      if (error.reason === "rejected") this.appMcpUnavailable.add(worker);
-      const fallback = { ...input, appPlatformTools: undefined, turnInstructions: [input.instructions, input.turnInstructions, recoveryInstructions].filter(Boolean).join("\n\n") };
-      response = await this.sendTurn(worker, this.buildPrompt(fallback), fallback);
+      nativeGoal = await this.settleGoalTurn(worker, goalCommand, goalEvidence.at(-1)!);
+    } finally {
+      // The turn is over, however it ended: its observer hears nothing more.
+      for (const evidence of goalEvidence) evidence.onUpdate = undefined;
     }
     const nextSessionId = response.sessionId;
     if (nextSessionId && nextSessionId !== sessionId) {
@@ -1289,6 +1356,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       // Usage must ride the return: dropping it made every Claude turn invisible
       // to /usage, budget enforcement, and telemetry (they all read result.usage).
       usage: response.usage,
+      ...(nativeGoal ? { nativeGoal } : {}),
     };
   }
 
@@ -1394,6 +1462,168 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       parts.push(`Attachment: ${file}`);
     }
     return parts.join("\n");
+  }
+
+  /** The user message for one host turn. An ordinary prompt is one block, as
+   * before. Claude reads a slash command only from character 0 of the last
+   * text block, and everything after `/goal ` becomes the goal's condition: so
+   * a new goal carries this turn's private guidance and attachments in a block
+   * of their own, ahead of the bare command. Both reach the model with the
+   * goal's first turn; neither enters the condition or the evaluator's rule.
+   * A status or clear command runs no model and is written alone. */
+  private buildTurnContent(input: CodexUserMessageInput, goalCommand: ClaudeGoalCommand | null): ClaudeTextBlock[] {
+    if (!goalCommand) return [{ type: "text", text: this.buildPrompt(input) }];
+    const context = [renderPrivateTurnInstructions(input.turnInstructions), input.files.map((file) => `Attachment: ${file}`).join("\n")].filter(Boolean).join("\n\n");
+    return claudeGoalFrameContent(goalCommand, context);
+  }
+
+  /** Records what Claude itself says about `/goal` on the main thread: the
+   * reply to a goal command, each "not met" verdict of the known goal and the
+   * consecutive-block cap. Claude reports nothing on this stream when the
+   * evaluator ends a goal (settleGoalTurn asks whether one is still set). */
+  private observeNativeGoal(worker: ClaudeWorker, parsed: ClaudeStreamEvent): void {
+    if (parsed.parent_tool_use_id) return;
+    const goal = worker.goal, turn = goal.turn;
+    const tell = (update: ClaudeNativeGoalUpdate) => { try { turn.onUpdate?.(update); } catch { /* an observer never breaks the turn */ } };
+    if (parsed.type === "system") {
+      if (parsed.subtype === "init" && Array.isArray(parsed.slash_commands) && parsed.slash_commands.includes("goal")) this.nativeGoalCommandSeen = true;
+      // Any blocking Stop hook can reach the cap; it is this goal's only while one is set.
+      if (parsed.subtype === "notification" && parsed.key === CLAUDE_GOAL_BLOCK_CAP_NOTIFICATION && goal.armed && !turn.capped) {
+        turn.capped = true;
+        tell({ state: "active", ...(goal.condition ? { objective: goal.condition } : {}), ...(turn.lastReason ? { message: turn.lastReason } : {}), evaluations: turn.verdicts, capped: true });
+      }
+      return;
+    }
+    if (parsed.type === "assistant" && parsed.local_command_run?.command === "goal") {
+      this.nativeGoalCommandSeen = true;
+      const text = claudeLocalCommandStdout(parsed.local_command_source)
+        ?? (parsed.message?.content ?? []).map((item) => item.type === "text" && typeof item.text === "string" ? item.text : "").join("");
+      const reply = parseClaudeGoalStdout(text);
+      turn.sawGoal = true;
+      const own = turn.command !== undefined && !turn.reply;
+      if (own) turn.reply = reply;
+      if (reply.kind === "set") {
+        goal.armed = true;
+        goal.condition = reply.condition;
+        turn.verdicts = 0;
+        turn.lastReason = undefined;
+        turn.capped = false;
+        tell({ state: "accepted", objective: reply.condition });
+      } else if (reply.kind === "active") {
+        goal.armed = true;
+        goal.condition = reply.condition;
+      } else if (reply.kind === "cleared") {
+        goal.armed = false;
+        goal.condition = reply.condition;
+      } else if (reply.kind === "none") {
+        goal.armed = false;
+      } else if (own && turn.command === "set" && reply.kind === "rejected") {
+        tell({ state: "rejected", message: reply.message });
+      }
+      return;
+    }
+    if (parsed.type === "user" && parsed.isSynthetic === true) {
+      const text = (parsed.message?.content ?? []).find((item) => item?.type === "text" && typeof item.text === "string")?.text;
+      if (!text?.startsWith("Stop hook feedback:")) return;
+      const verdict = goal.armed && goal.condition !== undefined ? parseClaudeGoalFeedback(text, goal.condition) : null;
+      if (verdict) {
+        turn.sawGoal = true;
+        turn.verdicts += 1;
+        turn.lastReason = verdict.reason;
+        tell({ state: "active", objective: verdict.condition, message: verdict.reason, evaluations: turn.verdicts });
+      } else if (!goal.armed) {
+        turn.unattributedFeedback = true;
+      }
+    }
+  }
+
+  /** Whether the host's own `/goal` query could be written and answered now,
+   * without waiting behind Claude's work. */
+  private goalQueryReady(worker: ClaudeWorker): boolean {
+    if (worker.retired || this.destroyPromise || !this.nativeGoalCommandSeen) return false;
+    this.advanceTaskNotificationQueue(worker);
+    return !worker.pendingTurn && !worker.continuationTurn && !worker.stopFence
+      && !this.taskNotificationTurnBusy(worker) && !worker.pendingTaskNotification && worker.queuedTaskNotifications.length === 0;
+  }
+
+  /** Writes the host's own bare `/goal` and returns Claude's reply, or nothing
+   * when Claude is busy: the query never waits (see sendTurn). A local
+   * command: no model request, nothing published, no user turn, and the
+   * observer of the real turn stays in place. */
+  private async queryGoal(worker: ClaudeWorker): Promise<ClaudeGoalStdout | undefined> {
+    if (!this.goalQueryReady(worker)) return undefined;
+    const own = goalTurnEvidence(false, "status");
+    const content = claudeGoalFrameContent({ kind: "status" }, "");
+    await this.sendTurn(worker, content, { text: content[0]!.text, files: [] }, { internal: true, goalEvidence: own });
+    return own.reply;
+  }
+
+  /** The worker's current evidence goes back to an unobserved one when its
+   * turn settles; a newer turn's evidence is never replaced. */
+  private releaseGoalEvidence(worker: ClaudeWorker, pending: PendingTurn): void {
+    if (pending.goalEvidence && worker.goal.turn === pending.goalEvidence) worker.goal.turn = goalTurnEvidence(worker.goal.armed);
+  }
+
+  /** The truthful end of a turn that involved a native goal. A finished turn
+   * proves nothing by itself: the evaluator may have ended the goal (as met,
+   * or as impossible; Claude does not say which), or the turn ended with the
+   * goal still set (the block cap, an evaluator error, background work, a
+   * restored goal). So Claude is asked once, with its own free `/goal`, when
+   * it can answer at once. The receipt says only what Claude stated: a goal is
+   * set, none is set, or it could not be asked. It never claims achievement.
+   * Turns without any goal evidence return nothing and write nothing. */
+  private async settleGoalTurn(worker: ClaudeWorker, goalCommand: ClaudeGoalCommand | null, turn: ClaudeGoalTurnEvidence): Promise<ClaudeNativeGoalReceipt | undefined> {
+    const receipt = await this.goalTurnReceipt(worker, goalCommand, turn);
+    if (receipt) {
+      try {
+        turn.onUpdate?.({ state: receipt.state, ...(receipt.objective ? { objective: receipt.objective } : {}),
+          ...(receipt.lastReason ? { message: receipt.lastReason } : {}),
+          ...(receipt.evaluations !== undefined ? { evaluations: receipt.evaluations } : {}), ...(receipt.capped ? { capped: true } : {}) });
+      } catch { /* an observer never breaks the turn */ }
+    }
+    return receipt;
+  }
+
+  private async goalTurnReceipt(worker: ClaudeWorker, goalCommand: ClaudeGoalCommand | null, turn: ClaudeGoalTurnEvidence): Promise<ClaudeNativeGoalReceipt | undefined> {
+    const goal = worker.goal, reply = turn.reply;
+    const acknowledged = reply !== undefined && reply.kind !== "unknown";
+    const base = { ...(goalCommand ? { command: goalCommand.kind } : {}), acknowledged };
+    const verifiedBy: ClaudeNativeGoalReceipt["verifiedBy"] = [];
+    if (acknowledged) verifiedBy.push("command");
+    if (goalCommand && goalCommand.kind !== "set") {
+      // A status or clear command: Claude's own reply is the state.
+      if (reply?.kind === "active") return { ...base, state: "active", objective: reply.condition, evaluations: reply.evaluations, ...(reply.lastReason ? { lastReason: reply.lastReason } : {}), verifiedBy };
+      if (reply?.kind === "none") return { ...base, state: "none", verifiedBy };
+      if (reply?.kind === "cleared") return { ...base, state: "none", objective: reply.condition, cleared: true, verifiedBy };
+      return { ...base, state: "unverified", verifiedBy };
+    }
+    if (turn.verdicts > 0 || turn.capped) verifiedBy.push("stream");
+    const rejection = reply?.kind === "rejected" ? { rejection: { reason: reply.reason, message: reply.message } }
+      : reply?.kind === "unknown" ? { rejection: { reason: "unknown" as const, message: reply.text } } : {};
+    const known = turn.armedAtStart || goal.armed || turn.sawGoal;
+    if (goalCommand) {
+      // Refused, and no earlier goal is left to speak of.
+      if (reply?.kind === "rejected" && !goal.armed && !turn.armedAtStart) return { ...base, ...rejection, state: "none", verifiedBy };
+      // Not answered as a command at all: this CLI may not have `/goal`.
+      if (!acknowledged && !goal.armed && !turn.armedAtStart) return { ...base, ...rejection, state: "unverified", verifiedBy };
+    } else if (!known && !turn.unattributedFeedback) {
+      return undefined;
+    }
+    const named = goal.condition ? { objective: goal.condition } : {};
+    const queried = await this.queryGoal(worker).catch(() => undefined);
+    if (queried?.kind === "active") {
+      verifiedBy.push("query");
+      const lastReason = queried.lastReason ?? turn.lastReason;
+      return { ...base, ...rejection, state: "active", objective: queried.condition, evaluations: queried.evaluations,
+        ...(lastReason ? { lastReason } : {}), ...(turn.capped ? { capped: true } : {}), verifiedBy };
+    }
+    // Some other Stop hook blocked and no goal is known: not a goal turn.
+    if (!goalCommand && !known) return undefined;
+    if (queried?.kind === "none") {
+      verifiedBy.push("query");
+      return { ...base, ...rejection, state: "none", ...named, verifiedBy };
+    }
+    return { ...base, ...rejection, state: "unverified", ...named, ...(turn.lastReason ? { lastReason: turn.lastReason } : {}), ...(turn.capped ? { capped: true } : {}), verifiedBy };
   }
 
   private async getOrCreateWorker(sessionId: string, agentInstructions: string | null, bridgeInstructions: string | null, approvalMode: ApprovalMode, workspacePath: string | undefined, engineOptions?: { effort?: string; model?: string; permissionMode?: string; chrome?: boolean }, appTools?: AppPlatformTools): Promise<ClaudeWorker> {
@@ -1584,6 +1814,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       nativeAwaitingReply: new Set(),
       taskTokens: new Map(),
       tokenByTask: new Map(),
+      goal: { armed: false, turn: goalTurnEvidence(false) },
     };
 
     child.stdout?.on("data", (chunk) => {
@@ -1679,6 +1910,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     // Side-question responses belong to the side channel only; they never
     // reach the foreground turn, task reviews or session bookkeeping.
     if (worker.side?.handle(parsed as Record<string, unknown>)) return;
+    // Evidence only: never changes how a frame is routed below.
+    this.observeNativeGoal(worker, parsed);
     // Host-originated control responses and lifecycle frames; task frames are
     // only observed here and keep their existing routing below.
     if (worker.control.handle(parsed as Record<string, unknown>)) return;
@@ -3133,18 +3366,26 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     }
   }
 
-  private async sendTurn(worker: ClaudeWorker, prompt: string, input: CodexUserMessageInput): Promise<CodexAdapterResponse> {
-    // Only authenticated ordinary input can overlap an owned review. It owns
-    // no output or tools until the CLI starts its command; the same result can
-    // then finish the adopted review and this host turn. Other sources wait.
-    do {
-      await this.waitForStopFence(worker, input.abortSignal);
-      await this.waitForReviewAdmission(worker, input);
-      this.advanceTaskNotificationQueue(worker);
-    } while (worker.stopFence || this.taskNotificationTurnBusy(worker) && !this.canAdmitReviewInput(worker, input));
+  private async sendTurn(worker: ClaudeWorker, content: ClaudeTextBlock[], input: CodexUserMessageInput, options: { internal?: boolean; goalEvidence?: ClaudeGoalTurnEvidence } = {}): Promise<CodexAdapterResponse> {
+    if (options.internal) {
+      // The host's own query never waits behind a stop, a review or queued
+      // work: it claims the idle worker in this same tick, or is not asked.
+      if (!this.goalQueryReady(worker)) throw new Error("Claude is busy");
+    } else {
+      // Only authenticated ordinary input can overlap an owned review. It owns
+      // no output or tools until the CLI starts its command; the same result can
+      // then finish the adopted review and this host turn. Other sources wait.
+      do {
+        await this.waitForStopFence(worker, input.abortSignal);
+        await this.waitForReviewAdmission(worker, input);
+        this.advanceTaskNotificationQueue(worker);
+      } while (worker.stopFence || this.taskNotificationTurnBusy(worker) && !this.canAdmitReviewInput(worker, input));
+    }
     if (worker.retired) throw new ClaudeWorkerReplacedBeforeWriteError();
     if (input.reviewAdmission === "native" && !this.canAdmitReviewInput(worker, input)) this.rejectReviewInput(input);
-    if (input.reviewAdmission !== "native") worker.onEngineEvent = input.onEngineEvent;
+    // The host's own goal command is not a user turn: later background output
+    // keeps reporting to the last real turn's observer.
+    if (input.reviewAdmission !== "native" && !options.internal) worker.onEngineEvent = input.onEngineEvent;
 
     if (worker.pendingTurn || worker.continuationTurn) {
       throw new Error("Claude session already has an in-flight turn");
@@ -3154,6 +3395,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       this.markWorkerActivity(worker);
       const commandUuid = randomUUID();
       const pendingTurn: PendingTurn = {
+        ...(options.internal ? { internal: true } : {}),
+        ...(options.goalEvidence ? { goalEvidence: options.goalEvidence } : {}),
         inputOwnerKey: input.inputOwnerKey,
         nativeAdmission: input.reviewAdmission === "native" && this.reviewInputProtocolReady(worker),
         commandUuid,
@@ -3172,8 +3415,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
         inactivityTimeoutDisabled: input.disableRuntimeTimeout === true,
         outstandingToolUseIds: new Set<string>(),
         startedAt: Date.now(), observedToolCalls: 0, observedToolResults: 0, pendingToolNames: new Map(),
-        resolve,
-        reject,
+        resolve: (value) => { this.releaseGoalEvidence(worker, pendingTurn); resolve(value); },
+        reject: (error) => { this.releaseGoalEvidence(worker, pendingTurn); reject(error); },
       };
       worker.pendingTurn = pendingTurn;
       if (pendingTurn.nativeAdmission) void this.emitEngineEvent(worker, { type: "native_input_wait", status: "started", sessionId: worker.currentSessionId ?? undefined }, pendingTurn.onEngineEvent);
@@ -3210,6 +3453,11 @@ export class ClaudeStreamAdapter implements CodexAdapter {
           return;
         }
         pendingTurn.promptWritten = true;
+        if (pendingTurn.goalEvidence) {
+          // From here on, what Claude says about `/goal` belongs to this turn.
+          pendingTurn.goalEvidence.armedAtStart = worker.goal.armed;
+          worker.goal.turn = pendingTurn.goalEvidence;
+        }
         worker.control.track(commandUuid);
         if (pendingTurn.nativeAdmission && input.nativeInput) this.registerNativeInput(worker, input.nativeInput, commandUuid, pendingTurn);
         worker.child.stdin?.write(
@@ -3218,12 +3466,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
           uuid: commandUuid,
           message: {
             role: "user",
-            content: [
-              {
-                type: "text",
-                text: prompt,
-              },
-            ],
+            content,
           },
         }) + "\n",
         (error) => {
@@ -3286,6 +3529,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     const pending = worker?.pendingTurn;
     if (!worker || worker.retired || worker.stopFence || this.destroyPromise) return reject("stale");
     if (!pending) return reject(worker.continuationTurn ? "not_ready" : "stale");
+    // The host's own goal command is not a turn a user can add to.
+    if (pending.internal) return reject("not_ready");
     if (!worker.control.has(CLAUDE_MESSAGE_LIFECYCLE)) return reject("unsupported");
     if (pending.approvalAbortController.signal.aborted) return reject("stale");
     if (!pending.promptWritten || worker.control.commandState(pending.nativeCommand) !== "started") return reject("queued");
@@ -4111,9 +4356,13 @@ export class ClaudeStreamAdapter implements CodexAdapter {
 
   private settleTurnSuccess(worker: ClaudeWorker, pending: PendingTurn, text: string, usage: Promise<AdapterUsage | undefined>, dropped: number): void {
     this.clearPendingTurnTimeout(pending);
+    // The turn ended with this result; its promise settles after the usage record.
+    this.releaseGoalEvidence(worker, pending);
     const eventText = withDroppedSteerNotice(text, dropped, pending.locale);
-    if (worker.currentSessionId) this.turnRecovery.clear(worker.currentSessionId, worker.workspacePath);
-    this.emitEngineEvent(worker, { type: "result", text: eventText, sessionId: worker.currentSessionId ?? undefined }, pending.onEngineEvent);
+    if (!pending.internal) {
+      if (worker.currentSessionId) this.turnRecovery.clear(worker.currentSessionId, worker.workspacePath);
+      this.emitEngineEvent(worker, { type: "result", text: eventText, sessionId: worker.currentSessionId ?? undefined }, pending.onEngineEvent);
+    }
     const finalText = eventText.trim() || (pending.locale === "zh" ? "Claude 本轮已结束，未返回文字回复。" : "Claude ended this turn without a text reply.");
     const sessionId = worker.currentSessionId ?? undefined;
     void usage.then((value) => pending.resolve({ text: finalText, sessionId, usage: value }), () => pending.resolve({ text: finalText, sessionId }));
@@ -4136,7 +4385,10 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     event: EngineStreamEvent,
     handlerOverride?: (event: EngineStreamEvent) => void | Promise<void>,
   ): Promise<void> {
-    const handler = handlerOverride ?? this.activePendingTurn(worker)?.onEngineEvent ?? worker.onEngineEvent;
+    const active = this.activePendingTurn(worker);
+    // Nothing of the host's own goal command is published.
+    if (!handlerOverride && active?.internal) return Promise.resolve();
+    const handler = handlerOverride ?? active?.onEngineEvent ?? worker.onEngineEvent;
     if (!handler) {
       return Promise.resolve();
     }

@@ -63,6 +63,8 @@ export interface CoreRunState {
    * so without this the card is indistinguishable from any other reply.
    */
   goalObjective?: string;
+  /** A native goal turn ended; this does not assert that its condition was met. */
+  goalTurnEnded?: boolean;
 }
 
 export interface CoreApprovalCardInput {
@@ -373,7 +375,7 @@ function capBlocks(blocks: CoreRunBlock[]): CoreRunBlock[] {
 export function renderCoreRunCard(state: CoreRunState, locale: Locale = "zh"): Record<string, unknown> {
   const labels = runCardLabels(locale);
   const elements: unknown[] = [
-    markdownElement(`**${runCardStatusLabel(state.status, labels)}**`),
+    markdownElement(`**${runCardStatusLabel(state.status, labels, state.goalTurnEnded)}**`),
   ];
 
   // Goal banner: when this run is an autonomous /goal pursuit, show the
@@ -483,7 +485,7 @@ export function renderCoreRunCard(state: CoreRunState, locale: Locale = "zh"): R
   }
 
   return constrainCoreCardTables({
-    ...(state.nativeRun ? { appRun: { summary: summarizeRun(state.nativeRun, state.status), entries: state.nativeRun.entries } } : {}),
+    ...(state.nativeRun ? { appRun: { summary: summarizeRun(state.nativeRun, state.status), ...(state.status === "done" && state.goalTurnEnded ? { goalTurnEnded: true } : {}), entries: state.nativeRun.entries } } : {}),
     schema: "2.0",
     config: {
       streaming_mode: state.status === "running",
@@ -1166,7 +1168,7 @@ function finalAnswerOverlapLength(text: string, answer: string): number {
 export function renderCoreRunCardCompact(state: CoreRunState, locale: Locale = "zh"): Record<string, unknown> {
   const labels = runCardLabels(locale);
   const elements: unknown[] = [
-    markdownElement(`**${runCardStatusLabel(state.status, labels)}**`),
+    markdownElement(`**${runCardStatusLabel(state.status, labels, state.goalTurnEnded)}**`),
   ];
 
   // Goal banner: when this run is an autonomous /goal pursuit, show the
@@ -1219,7 +1221,7 @@ export function renderCoreRunCardCompact(state: CoreRunState, locale: Locale = "
   }
 
   return constrainCoreCardTables({
-    ...(state.nativeRun ? { appRun: { summary: summarizeRun(state.nativeRun, state.status), entries: state.nativeRun.entries } } : {}),
+    ...(state.nativeRun ? { appRun: { summary: summarizeRun(state.nativeRun, state.status), ...(state.status === "done" && state.goalTurnEnded ? { goalTurnEnded: true } : {}), entries: state.nativeRun.entries } } : {}),
     schema: "2.0",
     config: {
       streaming_mode: false,
@@ -1243,7 +1245,7 @@ export function renderCoreRunCardCompact(state: CoreRunState, locale: Locale = "
  */
 export function renderCoreRunCardMinimal(state: CoreRunState, locale: Locale = "zh"): Record<string, unknown> {
   const labels = runCardLabels(locale);
-  const elements: unknown[] = [markdownElement(`**${runCardStatusLabel(state.status, labels)}**`)];
+  const elements: unknown[] = [markdownElement(`**${runCardStatusLabel(state.status, labels, state.goalTurnEnded)}**`)];
   if (state.status === "interrupted") {
     elements.push(noteElement(`_⏹ ${labels.interrupted}_`));
   } else if (state.status === "idle_timeout") {
@@ -1260,7 +1262,7 @@ export function renderCoreRunCardMinimal(state: CoreRunState, locale: Locale = "
     elements.push(noteElement(locale === "en" ? "_Full reply sent as a message below._" : "_完整回复见下方消息。_"));
   }
   return {
-    ...(state.nativeRun ? { appRun: { summary: summarizeRun(state.nativeRun, state.status), entries: state.nativeRun.entries } } : {}),
+    ...(state.nativeRun ? { appRun: { summary: summarizeRun(state.nativeRun, state.status), ...(state.status === "done" && state.goalTurnEnded ? { goalTurnEnded: true } : {}), entries: state.nativeRun.entries } } : {}),
     schema: "2.0",
     config: {
       streaming_mode: false,
@@ -1837,6 +1839,7 @@ export function normalizeCoreMarkdown(text: string, preserveRichMarkdown = false
 function runCardStatusLabel(
   status: CoreRunState["status"],
   labels: ReturnType<typeof runCardLabels>,
+  goalTurnEnded = false,
 ): string {
   if (status === "running") return labels.running;
   if (status === "delivering") return labels.delivering;
@@ -1845,7 +1848,7 @@ function runCardStatusLabel(
   if (status === "delivery_error") return labels.deliveryError;
   if (status === "interrupted") return labels.interruptedTitle;
   if (status === "idle_timeout") return labels.idleTimeoutTitle;
-  return labels.done;
+  return goalTurnEnded ? labels.goalTurnEnded : labels.done;
 }
 
 function footerStatusText(
@@ -1883,6 +1886,7 @@ function runCardLabels(locale: Locale): {
   running: string;
   delivering: string;
   done: string;
+  goalTurnEnded: string;
   partial: string;
   partialWarning: string;
   error: string;
@@ -1913,6 +1917,7 @@ function runCardLabels(locale: Locale): {
       running: "Task is running...",
       delivering: "Delivering result...",
       done: "Done",
+      goalTurnEnded: "Turn ended",
       partial: "Partially completed",
       partialWarning: "The engine failed after producing output; the content above may be incomplete.",
       error: "Failed",
@@ -1942,6 +1947,7 @@ function runCardLabels(locale: Locale): {
       running: "任务处理中...",
       delivering: "正在交付结果...",
       done: "已完成",
+      goalTurnEnded: "本轮已结束",
       partial: "部分完成",
       partialWarning: "引擎在输出内容后失败，以上内容可能不完整。",
       error: "执行失败",
@@ -2515,6 +2521,7 @@ function cardSummary(state: CoreRunState, locale: Locale): string {
   if (state.status === "idle_timeout") {
     return locale === "en" ? "Auto-stopped" : "无响应已终止";
   }
+  if (state.goalTurnEnded) return locale === "en" ? "Turn ended" : "本轮已结束";
   const text = cleanCardText(finalAnswerText(state), locale);
   return text.trim().slice(0, 80) || (locale === "en" ? "Done" : "已完成");
 }

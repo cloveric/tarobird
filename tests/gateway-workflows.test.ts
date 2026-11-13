@@ -154,7 +154,8 @@ it("streams a native goal card, reports status and clears the same bridge goal",
   const runtime = createCoreServiceRuntime(); gateway = await attachGateway({ ...options(), bridge, runtime });
   const c = await hub.store.createConversation("owner", ["alpha"], "Goals", "create");
   await send(c.id, `/goal ${goal.objective}`, "goal"); await until(async () => !runtime.activeRuns.has(`lark:${c.id}`));
-  expect(clear).toHaveBeenCalledTimes(1); clear.mockClear();
+  // Native completion retains the goal and usage until the user's clear.
+  expect(clear).not.toHaveBeenCalled();
   await send(c.id, "/goal status", "status"); await send(c.id, "/goal clear", "clear");
   const body = (await hub.store.snapshot("owner", c.id)).messages.filter((m) => m.authorType === "bot").map((m) => blocksText(m.blocks)).join("\n");
   expect(body).toContain(goal.objective); expect(body).toContain("123"); expect(body).toContain("Goal progress fixture"); expect(clear).toHaveBeenCalledTimes(1); expect(engine).not.toHaveBeenCalled();

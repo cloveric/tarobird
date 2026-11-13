@@ -20,8 +20,8 @@ export function forwardedBlocks(blocks: Block[], attachments: ReadonlyMap<string
   // input, so carrying “cancelled / not sent” into it would misreport its state.
   return blocks.filter(b => !(b.type === "card" && b.extra?.promptQueue)).map((b) => {
     if (b.type === "card") {
-      const { nativeRun: _run, nativeRunThinking: _thinking, scopedRun: _scopedRun, scopedJournal: _scopedJournal, backgroundTask: _background, backgroundTaskGroup: _group, answerFollowup: _answerFollowup, appQueue: _queue, ...extra } = b.extra ?? {};
-      return { ...b, ...(_run || _thinking || _scopedRun || _scopedJournal || _background || _group || _answerFollowup || _queue ? { extra } : {}),
+      const { nativeRun: _run, nativeRunThinking: _thinking, goalTurnEnded: _goalTurnEnded, scopedRun: _scopedRun, scopedJournal: _scopedJournal, backgroundTask: _background, backgroundTaskGroup: _group, answerFollowup: _answerFollowup, appQueue: _queue, ...extra } = b.extra ?? {};
+      return { ...b, ...(_run || _thinking || _goalTurnEnded || _scopedRun || _scopedJournal || _background || _group || _answerFollowup || _queue ? { extra } : {}),
         elements: b.elements.filter(e => !_background || e.id !== "background_context").map(element) };
     }
     if ("attachmentId" in b) return { ...b, attachmentId: attachments.get(b.attachmentId)! };

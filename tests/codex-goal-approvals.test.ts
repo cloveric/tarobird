@@ -135,6 +135,7 @@ describe("Codex /goal watcher interactive requests", () => {
 
       h.emit("turn/completed", { turn: { id: "goal-turn", status: "completed", items: [] } });
       h.emit("thread/goal/updated", { goal: { ...goalRecord, status: "complete" } });
+      await h.respond("thread/goal/get", { goal: { ...goalRecord, status: "complete" } });
       await expect(watch).resolves.toMatchObject({ goal: { status: "complete" } });
     } finally { h.adapter.destroy(); }
   });
@@ -291,6 +292,7 @@ describe("Codex /goal watcher interactive requests", () => {
       else if (reason === "complete") {
         h.emit("thread/goal/updated", { goal: { ...goalRecord, status: "complete" } });
         h.emit("turn/completed", { turn: { id: "goal-turn", status: "completed", items: [] } });
+        await h.respond("thread/goal/get", { goal: { ...goalRecord, status: "complete" } });
       } else h.child.close(1);
       // Closed before any cleanup RPC answers: the card must not outlive the stop.
       await waitFor(() => request.abortSignal?.aborted === true);
@@ -301,7 +303,8 @@ describe("Codex /goal watcher interactive requests", () => {
       await settle();
       expect(h.responses("goal-request")).toEqual(expected === undefined ? [] : [expected]);
       if (reason === "abort" || reason === "clear") await h.respond("thread/goal/clear", { cleared: true }, 2);
-      await watch;
+      if (reason === "child") await expect(watch).rejects.toThrow(/app-server exited/);
+      else await watch;
     } finally { h.adapter.destroy(); }
   });
 
@@ -340,6 +343,7 @@ describe("Codex /goal watcher interactive requests", () => {
       expect(h.responses("second-request")).toEqual([{ decision: "accept" }]);
       h.emit("turn/completed", { turn: { id: "goal-2", status: "completed", items: [] } });
       h.emit("thread/goal/updated", { goal: { ...goalRecord, objective: "next goal", status: "complete" } });
+      await h.respond("thread/goal/get", { goal: { ...goalRecord, objective: "next goal", status: "complete" } });
       await watch;
     } finally { h.adapter.destroy(); }
   });

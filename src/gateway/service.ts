@@ -184,6 +184,7 @@ export async function attachGateway(options: GatewayServiceOptions): Promise<Gat
         let response = await target.handleAuthorizedMessage({ ...input, text: engineText, appPlatformTools,
           extraEnv: { ...input.extraEnv, TAROBOT_MESSAGE_ID: discussionTurn ? "" : channel.currentMessageId() ?? "", TAROBOT_HOST_DIR: process.env.TAROBOT_HOST_DIR ?? "", TAROBOT_CLI_ENTRYPOINT: process.env.TAROBOT_CLI_ENTRYPOINT ?? "", TAROBOT_NODE_EXECUTABLE: process.env.TAROBOT_NODE_EXECUTABLE ?? "" },
           onEngineEvent: onEngineEvent ? event => withChannelProfile("gateway", () => onEngineEvent(event)) : undefined,
+          onNativeGoal: input.onNativeGoal ? update => withChannelProfile("gateway", () => input.onNativeGoal!(update)) : undefined,
           onApprovalRequest: input.onApprovalRequest ? request => withChannelProfile("gateway", () => input.onApprovalRequest!(request)) : undefined,
           turnInstructions: mergeTurnInstructions(botContext, mergeTurnInstructions(input.turnInstructions, appTurnInstructions(capabilityText, instructionOptions))) });
         if (discussionTurn) {

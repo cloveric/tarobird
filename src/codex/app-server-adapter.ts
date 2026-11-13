@@ -632,7 +632,7 @@ function readThreadGoal(value: unknown): CodexThreadGoal | null {
   if (
     typeof goal.threadId !== "string" ||
     typeof goal.objective !== "string" ||
-    (goal.status !== "active" && goal.status !== "paused" && goal.status !== "budgetLimited" && goal.status !== "complete")
+    (goal.status !== "active" && goal.status !== "paused" && goal.status !== "blocked" && goal.status !== "usageLimited" && goal.status !== "budgetLimited" && goal.status !== "complete")
   ) {
     return null;
   }
@@ -649,15 +649,20 @@ function readThreadGoal(value: unknown): CodexThreadGoal | null {
 }
 
 function readGoalResponse(value: unknown): CodexThreadGoalResponse {
-  const goal = typeof value === "object" && value !== null && "goal" in value
-    ? readThreadGoal((value as { goal?: unknown }).goal)
-    : null;
-  return { goal };
+  if (typeof value === "object" && value !== null && "goal" in value) {
+    const raw = (value as { goal?: unknown }).goal;
+    if (raw === null) return { goal: null };
+    const goal = readThreadGoal(raw);
+    if (goal) return { goal };
+  }
+  // Only a confirmed null means cleared. Unknown/new states must not erase a
+  // goal or make a caller claim that no goal exists.
+  throw new Error("Invalid Codex goal response");
 }
 
-/** Goal statuses at which the autonomous pursuit has stopped — the watch should end. */
-function isTerminalGoalStatus(status: CodexThreadGoal["status"]): boolean {
-  return status === "complete" || status === "budgetLimited";
+/** An inactive goal is retained natively, but no longer pursues another turn. */
+function isStoppedGoalStatus(status: CodexThreadGoal["status"]): boolean {
+  return status !== "active";
 }
 
 /**
@@ -678,6 +683,14 @@ type CodexGoalWatcher = {
   resolve: (goal: CodexThreadGoal | null) => void;
   reject: (error: Error) => void;
   latestGoal: CodexThreadGoal | null;
+  /** Distinguish no state read yet from an authoritative clear. */
+  hasGoalState?: boolean;
+  acceptGoalEvents?: boolean;
+  revision?: number;
+  /** Serialize controls behind initial clear/set without holding the chat turn lock. */
+  setupDone?: Promise<void>;
+  refreshInFlight?: boolean;
+  refreshPending?: boolean;
   activeTurnId?: string;
   finalTurnTimer?: ReturnType<typeof setTimeout>;
   finalText?: string;
@@ -1022,9 +1035,16 @@ export class CodexAppServerAdapter implements CodexAdapter {
     const runtimeOptions = await this.loadRuntimeOptions();
     await this.ensureInitialized(runtimeOptions);
     const threadId = await this.resolveThreadForMessageWithRetry(sessionId, runtimeOptions, input.workspaceOverride ?? this.cwd);
+    await this.waitForGoalSetup(threadId);
+    const watcher = this.goalWatchers.get(threadId);
+    const revision = watcher?.revision;
     const result = await this.request("thread/goal/get", { threadId }, GOAL_RPC_REQUEST_OPTIONS);
+    const response = readGoalResponse(result);
+    if (watcher && this.goalWatchers.get(threadId) === watcher && watcher.revision === revision) {
+      this.observeGoalState(threadId, watcher, response.goal);
+    }
     return {
-      ...readGoalResponse(result),
+      ...response,
       sessionId: threadId !== sessionId ? threadId : undefined,
     };
   }
@@ -1038,8 +1058,12 @@ export class CodexAppServerAdapter implements CodexAdapter {
     await this.ensureInitialized(runtimeOptions);
     const threadId = await this.resolveThreadForMessageWithRetry(sessionId, runtimeOptions, input.workspaceOverride ?? this.cwd);
     this.assertNoCompaction(threadId);
+    if (this.goalWatchers.has(threadId)) throw new Error("A Codex goal observer is already active for this thread");
+    await this.request("thread/goal/clear", { threadId, origin: "user" }, GOAL_RPC_REQUEST_OPTIONS);
     const result = await this.request("thread/goal/set", {
       threadId,
+      origin: "user",
+      status: "active",
       objective: input.objective,
       tokenBudget: input.tokenBudget ?? null,
     }, GOAL_RPC_REQUEST_OPTIONS);
@@ -1049,15 +1073,57 @@ export class CodexAppServerAdapter implements CodexAdapter {
     };
   }
 
-  /**
-   * Sets a thread goal and then watches Codex's AUTONOMOUS pursuit of it: streams the
-   * turn/item events to onEngineEvent (so a live run card can render the progress) and
-   * resolves when the goal reaches a terminal status (complete / budgetLimited) or the
-   * abort signal fires. No turn is started here — Codex self-drives once the goal is set.
-   */
+  /** Patches the native goal; never clears its identity, status or usage implicitly. */
+  async updateThreadGoal(sessionId: string, input: {
+    objective?: string;
+    status?: CodexThreadGoal["status"];
+    tokenBudget?: number | null;
+    workspaceOverride?: string;
+    origin?: "user" | "automatic";
+    isCurrentSession?: () => boolean | Promise<boolean>;
+  }): Promise<CodexThreadGoalResponse> {
+    const runtimeOptions = await this.loadRuntimeOptions();
+    await this.ensureInitialized(runtimeOptions);
+    const threadId = await this.resolveThreadForMessageWithRetry(sessionId, runtimeOptions, input.workspaceOverride ?? this.cwd);
+    this.assertNoCompaction(threadId);
+    await this.waitForGoalSetup(threadId);
+    await this.assertCurrentGoalSession(sessionId, threadId, input.isCurrentSession);
+    const watcher = this.goalWatchers.get(threadId);
+    const revision = watcher?.revision;
+    const result = await this.request("thread/goal/set", {
+      threadId, origin: input.origin ?? "user",
+      ...(input.objective !== undefined ? { objective: input.objective } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+    }, GOAL_RPC_REQUEST_OPTIONS);
+    const response = readGoalResponse(result);
+    if (watcher && this.goalWatchers.get(threadId) === watcher && watcher.revision === revision) {
+      this.observeGoalState(threadId, watcher, response.goal);
+    }
+    return { ...response, sessionId: threadId !== sessionId ? threadId : undefined };
+  }
+
+  private async assertCurrentGoalSession(sessionId: string, threadId: string, check?: () => boolean | Promise<boolean>): Promise<void> {
+    if (check && (threadId !== sessionId || !await check())) throw new Error("Codex goal session binding changed");
+  }
+
+  private async waitForGoalSetup(threadId: string): Promise<void> {
+    let watcher = this.goalWatchers.get(threadId);
+    while (watcher?.setupDone) {
+      await watcher.setupDone;
+      const current = this.goalWatchers.get(threadId);
+      if (current === watcher) return;
+      watcher = current;
+    }
+  }
+
+  /** Register before the native mutation so autonomous events cannot outrun the
+   * observer. Resume/observe preserve native identity, objective and accounting. */
   async watchThreadGoal(sessionId: string, input: {
     objective: string;
     tokenBudget?: number | null;
+    mode?: "replace" | "resume" | "observe";
+    isCurrentSession?: () => boolean | Promise<boolean>;
     workspaceOverride?: string;
     onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
     onApprovalRequest?: (request: EngineApprovalRequest) => Promise<EngineApprovalDecision>;
@@ -1068,28 +1134,30 @@ export class CodexAppServerAdapter implements CodexAdapter {
     await this.ensureInitialized(runtimeOptions);
     input.abortSignal?.throwIfAborted();
     const threadId = await this.resolveThreadForMessageWithRetry(sessionId, runtimeOptions, input.workspaceOverride ?? this.cwd);
-    // Checked synchronously with registration: once the watcher exists, no
-    // preventive compaction can start on this thread (see prepareThreadForTurn).
+    await this.assertCurrentGoalSession(sessionId, threadId, input.isCurrentSession);
+    input.abortSignal?.throwIfAborted();
     this.assertNoCompaction(threadId);
+    if (this.goalWatchers.has(threadId)) throw new Error("A Codex goal observer is already active for this thread");
 
     let resolveTerminal!: (goal: CodexThreadGoal | null) => void;
     let rejectTerminal!: (error: Error) => void;
     const terminal = new Promise<CodexThreadGoal | null>((resolve, reject) => { resolveTerminal = resolve; rejectTerminal = reject; });
     void terminal.catch(() => {});
+    let resolveSetup!: () => void;
+    let rejectSetup!: (error: unknown) => void;
+    const setupDone = new Promise<void>((resolve, reject) => { resolveSetup = resolve; rejectSetup = reject; });
+    void setupDone.catch(() => {});
     const interactions = new AbortController();
     const watcher: CodexGoalWatcher = {
       onEngineEvent: input.onEngineEvent,
-      // Same gate as startTurn: the running child's mode decides whether tool
-      // approvals reach the operator. Questions are answers, not grants.
       onApprovalRequest: this.currentApprovalMode === "normal" ? input.onApprovalRequest : undefined,
       onUserInputRequest: input.onApprovalRequest,
       interactionAbortController: interactions,
       resolve: (goal) => { interactions.abort(); resolveTerminal(goal); },
       reject: (error) => { interactions.abort(); rejectTerminal(error); },
-      latestGoal: null,
+      latestGoal: null, hasGoalState: false, acceptGoalEvents: false, revision: 0, setupDone,
     };
     this.goalWatchers.set(threadId, watcher);
-
     const onAbort = () => watcher.resolve(watcher.latestGoal);
     if (input.abortSignal) {
       if (input.abortSignal.aborted) onAbort();
@@ -1101,70 +1169,75 @@ export class CodexAppServerAdapter implements CodexAdapter {
     try {
       await input.onEngineEvent?.({ type: "session", sessionId: threadId });
       if (input.abortSignal?.aborted) return { goal: null, sessionId: threadId };
-      // Clear any existing goal first. thread/goal/set on a thread that already holds a
-      // COMPLETE goal keeps the stale "complete" status + old token/time usage, so the
-      // watch would resolve instantly showing the PREVIOUS run's stats (e.g. a brand-new
-      // "review the bugs" goal reporting 432937 tokens / 1430s as already done). Clearing
-      // makes the new objective start fresh as "active" so Codex actually pursues it.
-      await this.request("thread/goal/clear", { threadId }, GOAL_RPC_REQUEST_OPTIONS).catch(() => {});
-      if (input.abortSignal?.aborted) return { goal: null, sessionId: threadId };
-      goalSetStarted = true;
-      const setResult = await this.request("thread/goal/set", {
-        threadId,
-        objective: input.objective,
-        tokenBudget: input.tokenBudget ?? null,
-      }, GOAL_RPC_REQUEST_OPTIONS);
-      const setGoal = readGoalResponse(setResult).goal;
-      if (setGoal) {
-        watcher.latestGoal = setGoal;
-        this.settleGoalAfterFinalTurn(threadId, watcher);
+      await this.assertCurrentGoalSession(sessionId, threadId, input.isCurrentSession);
+      input.abortSignal?.throwIfAborted();
+      const mode = input.mode ?? "replace";
+      if (mode === "replace") {
+        // This clear belongs to setup, not to the new pursuit. Its notification
+        // must not resolve the observer before the replacement is even set.
+        await this.request("thread/goal/clear", { threadId, origin: "user" }, GOAL_RPC_REQUEST_OPTIONS);
+        if (input.abortSignal?.aborted) return { goal: null, sessionId: threadId };
       }
-      // Poll fallback so the watch always resolves even if the live terminal
-      // thread/goal/updated event is missed (otherwise the caller's active-run slot
-      // leaks and the instance looks permanently busy — observed on a long goal).
-      // A timed-out poll is retried without destroying the shared child (see
-      // GOAL_POLL_REQUEST_OPTIONS); only consecutive timeouts escalate, and a
-      // successful poll resets the counter.
+      await this.assertCurrentGoalSession(sessionId, threadId, input.isCurrentSession);
+      input.abortSignal?.throwIfAborted();
+      watcher.acceptGoalEvents = true;
+      const revision = watcher.revision;
+      goalSetStarted = mode !== "observe";
+      const initialResponse = mode === "observe"
+        ? await this.request("thread/goal/get", { threadId }, GOAL_RPC_REQUEST_OPTIONS)
+        : await this.request("thread/goal/set", {
+          threadId, origin: "user",
+          ...(mode === "resume"
+            ? { status: "active", ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}) }
+            : { objective: input.objective, tokenBudget: input.tokenBudget ?? null, status: "active" }),
+        }, GOAL_RPC_REQUEST_OPTIONS);
+      const initialGoal = readGoalResponse(initialResponse).goal;
+      if (watcher.revision === revision) this.observeGoalState(threadId, watcher, initialGoal);
+      resolveSetup();
+
       let consecutivePollTimeouts = 0;
+      let polling = false;
       pollTimer = setInterval(() => {
+        if (polling || watcher.terminalDelivered || this.goalWatchers.get(threadId) !== watcher) return;
+        polling = true;
+        const revision = watcher.revision;
         void this.request("thread/goal/get", { threadId }, GOAL_POLL_REQUEST_OPTIONS)
           .then((response) => {
+            if (this.goalWatchers.get(threadId) !== watcher || watcher.terminalDelivered) return;
             consecutivePollTimeouts = 0;
             const goal = readGoalResponse(response).goal;
-            if (goal) {
-              watcher.latestGoal = goal;
-              this.settleGoalAfterFinalTurn(threadId, watcher);
-            }
+            // A response to an older read cannot replace a newer live event.
+            if (watcher.revision === revision) this.observeGoalState(threadId, watcher, goal);
           })
           .catch((error) => {
+            if (this.goalWatchers.get(threadId) !== watcher || watcher.terminalDelivered) return;
             if (!(error instanceof CodexAppServerRequestTimeoutError)) {
+              watcher.reject(error instanceof Error ? error : new Error(String(error)));
               return;
             }
             consecutivePollTimeouts += 1;
-            if (consecutivePollTimeouts >= GOAL_POLL_TIMEOUTS_BEFORE_DESTROY) {
-              this.destroy(error.childGeneration);
-            }
-          });
+            if (consecutivePollTimeouts >= GOAL_POLL_TIMEOUTS_BEFORE_DESTROY) this.destroy(error.childGeneration);
+          }).finally(() => { polling = false; });
       }, GOAL_WATCH_POLL_MS);
       pollTimer.unref?.();
       const finalGoal = await terminal;
-      return {
-        goal: finalGoal ?? setGoal ?? watcher.latestGoal,
-        sessionId: threadId !== sessionId ? threadId : undefined,
-      };
+      return { goal: finalGoal, sessionId: threadId !== sessionId ? threadId : undefined };
+    } catch (error) {
+      rejectSetup(error);
+      throw error;
     } finally {
-      if (pollTimer) {
-        clearInterval(pollTimer);
-      }
+      resolveSetup();
+      if (pollTimer) clearInterval(pollTimer);
       interactions.abort();
       if (watcher.finalTurnTimer) clearTimeout(watcher.finalTurnTimer);
       try {
-        // Clearing the objective disarms future autonomous turns, but does not
-        // interrupt an already-streaming native turn. Keep its exact ownership
-        // until clearThreadGoal has sent the interrupt; never target an ordinary
-        // turn that happens to share this thread.
+        // Stop only this observer's exact autonomous turn. Automatic teardown is
+        // not a new user goal mutation and must not manufacture user provenance.
         if (goalSetStarted && input.abortSignal?.aborted && this.goalWatchers.get(threadId) === watcher) {
-          await this.clearThreadGoal(threadId);
+          // Setup may have failed after the native mutation. Cleanup already
+          // owns this exact thread and must not await its rejected setup barrier
+          // or resolve the old session into a different fallback thread.
+          await this.clearResolvedThreadGoal(threadId, "automatic");
         }
       } finally {
         if (watcher.activeTurnId) this.rememberRetiredTurn(threadId, watcher.activeTurnId);
@@ -1175,14 +1248,59 @@ export class CodexAppServerAdapter implements CodexAdapter {
     }
   }
 
+  private observeGoalState(threadId: string, watcher: CodexGoalWatcher, goal: CodexThreadGoal | null): void {
+    if (watcher.terminalDelivered) return;
+    watcher.latestGoal = goal;
+    watcher.hasGoalState = true;
+    watcher.revision = (watcher.revision ?? 0) + 1;
+    this.settleGoalAfterFinalTurn(threadId, watcher);
+  }
+
+  private refreshGoalState(threadId: string, watcher: CodexGoalWatcher): void {
+    // Mutation replies precede ordered notifications. A prior pause/complete/
+    // clear can arrive after a replacement or resume, and even a turn ID does
+    // not identify the current goal revision. Confirm transitions against the
+    // native state. Coalesce bursts, and read again only for an intervening event.
+    watcher.revision = (watcher.revision ?? 0) + 1;
+    watcher.refreshPending = true;
+    if (watcher.refreshInFlight) return;
+    watcher.refreshInFlight = true;
+    const current = () => this.goalWatchers.get(threadId) === watcher && !watcher.terminalDelivered;
+    void (async () => {
+      await watcher.setupDone;
+      while (watcher.refreshPending && current()) {
+        watcher.refreshPending = false;
+        const revision = watcher.revision;
+        const result = await this.request("thread/goal/get", { threadId }, GOAL_POLL_REQUEST_OPTIONS);
+        if (!current()) return;
+        if (watcher.revision === revision) this.observeGoalState(threadId, watcher, readGoalResponse(result).goal);
+      }
+    })().catch(error => {
+      if (current()) watcher.reject(error instanceof Error ? error : new Error(String(error)));
+    }).finally(() => {
+      watcher.refreshInFlight = false;
+      // A notification can arrive after the loop exits but before this finally.
+      if (watcher.refreshPending && current()) this.refreshGoalState(threadId, watcher);
+    });
+  }
+
   private settleGoalAfterFinalTurn(threadId: string, watcher: CodexGoalWatcher): void {
-    if (!watcher.latestGoal || !isTerminalGoalStatus(watcher.latestGoal.status)) return;
+    const finalAnswerExpected = watcher.latestGoal?.status === "complete" || watcher.latestGoal?.status === "budgetLimited";
+    if (!finalAnswerExpected && watcher.finalTurnTimer) {
+      clearTimeout(watcher.finalTurnTimer); watcher.finalTurnTimer = undefined;
+    }
+    if (!watcher.hasGoalState || (watcher.latestGoal && !isStoppedGoalStatus(watcher.latestGoal.status))) {
+      if (watcher.finalTurnTimer) { clearTimeout(watcher.finalTurnTimer); watcher.finalTurnTimer = undefined; }
+      return;
+    }
     if (!watcher.activeTurnId) {
       if (watcher.terminalDelivered) return;
       watcher.terminalDelivered = true;
       if (watcher.finalText?.trim()) this.emitEngineEvent(threadId, { type: "result", text: watcher.finalText, sessionId: threadId }, null);
       watcher.resolve(watcher.latestGoal);
-    } else if (!watcher.finalTurnTimer) {
+    } else if (!watcher.finalTurnTimer && finalAnswerExpected) {
+      // Pause/clear stop future pursuit but let an existing native turn drain,
+      // matching native CLI semantics; they do not impose a new turn deadline.
       // Native update_goal(complete) can precede the assistant's final answer.
       // Keep streaming until that owned turn ends, with a bounded failure path
       // if its completion notification never arrives.
@@ -1194,10 +1312,18 @@ export class CodexAppServerAdapter implements CodexAdapter {
     }
   }
 
-  async clearThreadGoal(sessionId: string, input: { workspaceOverride?: string } = {}): Promise<{ cleared: boolean; sessionId?: string }> {
+  async clearThreadGoal(sessionId: string, input: { workspaceOverride?: string; origin?: "user" | "automatic"; isCurrentSession?: () => boolean | Promise<boolean> } = {}): Promise<{ cleared: boolean; sessionId?: string }> {
     const runtimeOptions = await this.loadRuntimeOptions();
     await this.ensureInitialized(runtimeOptions);
     const threadId = await this.resolveThreadForMessageWithRetry(sessionId, runtimeOptions, input.workspaceOverride ?? this.cwd);
+    await this.waitForGoalSetup(threadId);
+    await this.assertCurrentGoalSession(sessionId, threadId, input.isCurrentSession);
+    const cleared = await this.clearResolvedThreadGoal(threadId, input.origin ?? "user");
+    return { cleared, sessionId: threadId !== sessionId ? threadId : undefined };
+  }
+
+  /** Caller has established ownership and setup ordering for this exact thread. */
+  private async clearResolvedThreadGoal(threadId: string, origin: "user" | "automatic"): Promise<boolean> {
     const watcher = this.goalWatchers.get(threadId);
     if (watcher) {
       watcher.stopping = true;
@@ -1205,22 +1331,20 @@ export class CodexAppServerAdapter implements CodexAdapter {
     }
     let result: unknown;
     try {
-      result = await this.request("thread/goal/clear", { threadId }, GOAL_RPC_REQUEST_OPTIONS);
+      result = await this.request("thread/goal/clear", { threadId, origin }, GOAL_RPC_REQUEST_OPTIONS);
     } finally {
       // Send even if clear fails: a stop request must still reach its owned
       // native turn. Completed turns remove their ID before this continuation.
       if (watcher) this.interruptTurn(threadId, watcher.activeTurnId);
     }
-    // End any live watcher for this thread so its run card finalizes instead of
-    // hanging: clearing the goal stops Codex's autonomous pursuit but emits no
-    // terminal thread/goal/updated for the watcher to key off.
+    // The clear RPC confirms absence even when the notification was missed.
+    // Never return the previous active goal from a successful clear.
     if (watcher) {
-      watcher.resolve(watcher.latestGoal);
+      watcher.latestGoal = null;
+      watcher.hasGoalState = true;
+      watcher.resolve(null);
     }
-    return {
-      cleared: readClearedResponse(result),
-      sessionId: threadId !== sessionId ? threadId : undefined,
-    };
+    return readClearedResponse(result);
   }
 
   async validateExternalSession(sessionId: string): Promise<void> {
@@ -1732,17 +1856,25 @@ export class CodexAppServerAdapter implements CodexAdapter {
       return;
     }
 
+    if (parsed.method === "thread/goal/cleared") {
+      const threadId = this.readString(parsed.params?.threadId);
+      const watcher = threadId ? this.goalWatchers.get(threadId) : undefined;
+      if (threadId && watcher?.acceptGoalEvents) this.refreshGoalState(threadId, watcher);
+      return;
+    }
+
     if (parsed.method === "thread/goal/updated") {
       // Progress of a (possibly self-running) thread goal. Feed the goal watcher so a
       // live goal run card can show status/usage; a terminal status ends the watch.
       const threadId = this.readString(parsed.params?.threadId);
       if (threadId) {
         const watcher = this.goalWatchers.get(threadId);
-        if (watcher) {
+        if (watcher?.acceptGoalEvents) {
           const goal = readThreadGoal((parsed.params as { goal?: unknown } | undefined)?.goal);
           if (goal) {
-            watcher.latestGoal = goal;
-            this.settleGoalAfterFinalTurn(threadId, watcher);
+            if (!watcher.hasGoalState || goal.status !== watcher.latestGoal?.status || watcher.refreshInFlight) {
+              this.refreshGoalState(threadId, watcher);
+            } else this.observeGoalState(threadId, watcher, goal);
           }
         }
       }
@@ -4059,7 +4191,7 @@ export class CodexAppServerAdapter implements CodexAdapter {
     this.pendingTurnsByTurnId.clear();
     this.completingTurns = 0;
     for (const watcher of this.goalWatchers.values()) {
-      watcher.resolve(watcher.latestGoal);
+      watcher.reject(error);
     }
     this.goalWatchers.clear();
     for (const threadId of [...this.pendingCompactions.keys()]) {

@@ -1,4 +1,5 @@
 import type { NativeInputAction, NativeInputCapability, NativeInputControlResult, NativeInputObserver } from "../client-protocol/native-input.js";
+import type { ClaudeNativeGoalReceipt, ClaudeNativeGoalUpdate } from "../codex/claude-native-goal.js";
 import type { SteeringApplication } from "../client-protocol/steering-outcome.js";
 import type {
   CardActionEvent,
@@ -142,6 +143,7 @@ export interface CoreBridgeLike {
     files: string[];
     onApprovalRequest?: (request: EngineApprovalRequest) => Promise<EngineApprovalDecision>;
     onEngineEvent?: (event: EngineStreamEvent) => void | Promise<void>;
+    onNativeGoal?: (update: ClaudeNativeGoalUpdate) => void;
     requestOutputDir?: string;
     workspaceOverride?: string;
     instructions?: string;
@@ -163,7 +165,7 @@ export interface CoreBridgeLike {
     onTurnLockWait?: (event: BridgeTurnLockWaitEvent) => void | Promise<void>;
     turnPoolWaitNotifyAfterMs?: number;
     onTurnPoolWait?: (event: TurnPoolWaitEvent) => void | Promise<void>;
-  }): Promise<{ text: string; appDeliveries?: AppDeliveryReceipt[]; usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd?: number } }>;
+  }): Promise<{ text: string; nativeGoal?: ClaudeNativeGoalReceipt; appDeliveries?: AppDeliveryReceipt[]; usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd?: number } }>;
   validateCodexThread?(
     threadId: string,
     input?: { workspaceOverride?: string },
@@ -219,7 +221,23 @@ export interface CoreBridgeLike {
     tokenBudget?: number | null;
     workspaceOverride?: string;
   }): Promise<{ goal: CodexThreadGoal | null }>;
+  updateThreadGoal?(input: {
+    isCurrentSession?: () => boolean | Promise<boolean>;
+    sessionId?: string;
+    chatId: number;
+    userId?: number;
+    chatType?: string;
+    conversationKey?: string;
+    workspaceOverride?: string;
+    objective?: string;
+    status?: CodexThreadGoal["status"];
+    tokenBudget?: number | null;
+    origin?: "user" | "automatic";
+  }): Promise<{ goal: CodexThreadGoal | null }>;
   watchThreadGoal?(input: {
+    sessionId?: string;
+    isCurrentSession?: () => boolean | Promise<boolean>;
+    mode?: "replace" | "resume" | "observe";
     chatId: number;
     userId?: number;
     chatType?: string;
@@ -232,12 +250,14 @@ export interface CoreBridgeLike {
     abortSignal?: AbortSignal;
   }): Promise<{ goal: CodexThreadGoal | null; sessionId?: string }>;
   clearThreadGoal?(input: {
+    isCurrentSession?: () => boolean | Promise<boolean>;
     chatId: number;
     userId?: number;
     chatType?: string;
     conversationKey?: string;
     workspaceOverride?: string;
     sessionId?: string;
+    origin?: "user" | "automatic";
   }): Promise<{ cleared: boolean }>;
 }
 

@@ -390,10 +390,10 @@ describe("goal pursuit survives ordinary traffic (finding 1)", () => {
         message: fakeLarkMessage({ messageId: "om_goal_clear", content: "/goal clear" }),
       });
 
-      expect(goal.signal.aborted).toBe(true); // the pursuit is gone
+      expect(goal.signal.aborted).toBe(false); // the adapter receipt, not a second abort/clear, ends the watch
       expect(concurrent.abortController.signal.aborted).toBe(false); // the turn is not
-      // Its own abort path clears the engine-side goal; no double clear here.
-      expect(bridge.clearThreadGoal).not.toHaveBeenCalled();
+      // Native clear owns interruption/observer completion; acknowledge only its receipt.
+      expect(bridge.clearThreadGoal).toHaveBeenCalledWith(expect.objectContaining({ origin: "user" }));
       expect(JSON.stringify(channel.send.mock.calls)).toContain("已清除");
     } finally {
       await cleanupTempRoot(stateDir);
