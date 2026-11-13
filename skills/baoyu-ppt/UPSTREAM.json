@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/JimLiu/baoyu-design",
-  "commit": "64a874988262e558c9b071eb55b4d02038ca33f8",
-  "version": "2.13.0",
+  "commit": "016a68e1b1ac1c7c291b2cb88d66ff087e50b017",
+  "version": "2.15.2",
   "component": "claude-slides",
   "adapted": true,
   "upstreamFiles": {
@@ -21,7 +21,7 @@
     "artifact-type/reference/questions.md": "70ba904f7bcb4084398cc74d22af1e2bb8cfd931163974f95266992a7a8ce3b7",
     "artifact-type/reference/styles.md": "9bee74605ed03ea28f3c41c3d1fb65c9e959e1a78cc3bedc2773800cc55194c2",
     "artifact-type/reference/view-state.md": "b81f6ddd448ca8fb052bafa7c2f646347d7ef5267bca428a18648623db1cac95",
-    "scripts/artifact.mjs": "bd32cae4ae94229fc9230fb8e7aa5f90337f478517611977f5ccac40ce7ddc20",
-    "scripts/server.mjs": "4b091837b75043386397a93f0612cfaaad82a6b397b8ed1fbe01ed210a1cb3c4"
+    "scripts/artifact.mjs": "e73f72110978c1a0b95e068408e580c46abe18a984a13262da7d2ef3d369cfbb",
+    "scripts/server.mjs": "998cc2bd1823147994bbf469a8c21b297a32ac2175d824bcf0b266ba8866391f"
   }
 }

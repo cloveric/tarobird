@@ -38,6 +38,15 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
     const timer = setTimeout(() => { pending.delete(id); if(writeKey)failedWrites.add(writeKey); reject(new Error("design_request_timeout")); }, 15000);
     pending.set(id, { resolve, reject, timer, writeKey }); port.postMessage({ id, operation, payload });
   });
+  // Upstream repair actions use chat.suggestPrompt. Keep them on the existing
+  // tab-owned draft path: no upstream session dispatch and no automatic send.
+  // A declined composer must reject so upstream never reports success.
+  globalThis.__tarobotDesignSuggest = async text => {
+    if (globalThis.__tarobirdDesignRepairEnabled === false) throw new Error("design_repair_unavailable");
+    if (typeof text !== "string" || !text.trim() || text.length > 10_000) throw new Error("design_invalid_prompt");
+    const result = await request("comments.request", { text });
+    if (result?.status !== 202 || result.body?.draft !== "opened") throw new Error("design_draft_unavailable");
+  };
   // A shared edit can introduce assets after boot. Only fetch new/changed bytes,
   // and prepare their local URLs before the editor renders that edit.
   const syncAssets = async () => {
@@ -172,6 +181,9 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
     if (event.source !== parent) return;
     if (event.data?.type === "tarobot-design-theme" && port && typeof event.data.dark === "boolean") { setTheme(event.data.dark); return; }
     if (event.data?.type !== "tarobot-design-init" || port || !event.ports[0]) return;
+    // Host-owned presentation capability, settled before the editor boots.
+    // iOS keeps editing and error details, but omits automatic repair requests.
+    Object.defineProperty(globalThis, "__tarobirdDesignRepairEnabled", { value: event.data.repairRequests !== false });
     port = event.ports[0];
     port.onmessage = ({ data }) => {
       if(data?.type === "design-event") {

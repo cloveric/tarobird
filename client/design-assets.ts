@@ -26,31 +26,43 @@ export function buildDesignSandbox(format: DesignFormat = "canvas"): string {
   const patch = (from: string, to: string) => { if (js.split(from).length !== 2) throw new Error("design_adapter_contract_changed:" + from.slice(0,100)); js = js.replace(from, to); };
   // A chat receipt proves delivery, not that a Bot has started working. Keep
   // the status readable without the upstream activity spinner or that claim.
-  if (format === "slides") patch('authorName:au,agent:!0,working:N,footnote:N==="queued"?"Waiting for the agent":"Working…"',
+  if (format === "slides") patch('authorName:su,agent:!0,working:F,footnote:F==="queued"?"Waiting for the agent":"Working…"',
+    'authorName:"Bot",agent:!0,footnote:F==="queued"?"Draft ready":"Sent to Bot"');
+  else patch('authorName:gf,agent:!0,working:N,footnote:N==="queued"?"Waiting for the agent":"Working…"',
     'authorName:"Bot",agent:!0,footnote:N==="queued"?"Draft ready":"Sent to Bot"');
-  else patch('authorName:ef,agent:!0,working:R,footnote:R==="queued"?"Waiting for the agent":"Working…"',
-    'authorName:"Bot",agent:!0,footnote:R==="queued"?"Draft ready":"Sent to Bot"');
   // Patch only the editor's viewport consumers, after its native-scroll
   // decision. Keep upstream bytes, touch gestures and unrelated controls intact.
   const wheel = `(${designWheelDelta.toString()})`;
   if (format === "slides") {
+    patch('canAsk:!Ma||ca?.mayEdit===!0', 'canAsk:window.__tarobirdDesignRepairEnabled&&(!Ma||ca?.mayEdit===!0)');
+    patch('d=(0,e.formatMessage)({defaultMessage:"Someone who can edit this presentation can ask the agent to fix the slide.",id:"6E4gKJHZfQ"})',
+      'd=window.__tarobirdDesignRepairEnabled?(0,e.formatMessage)({defaultMessage:"Someone who can edit this presentation can ask the agent to fix the slide.",id:"6E4gKJHZfQ"}):""');
     // Upstream's new batch button calls a standalone server endpoint and
     // claims dispatch. Keep the existing reviewable per-thread draft flow.
-    patch('Ca.jsx(CG,{controller:e,state:t})', 'null');
-    patch('let de=ue.deltaMode===1?16:ue.deltaMode===2?window.innerHeight:1,Le=ue.deltaMode===1?16:ue.deltaMode===2?window.innerWidth:1;if(Se==="zoom"){let{sx:nt,sy:He}=X(ue.clientX,ue.clientY);k.setView(A(k.getView(),nt,He,S(ue.deltaY*de),k.limits))}else k.setView(w(k.getView(),-ue.deltaX*Le,-ue.deltaY*de))',
-      `let delta=${wheel}(ue,y.clientWidth,y.clientHeight);if(Se==="zoom"){let{sx:nt,sy:He}=X(ue.clientX,ue.clientY);k.setView(A(k.getView(),nt,He,Math.exp(delta.zoomLog),k.limits))}else k.setView(w(k.getView(),-delta.dx,-delta.dy))`);
-    patch('NU({localComments:e=>sW({base:e,toolbar:!0}),room:jU,clashes:YU,mergeText:$U});P9();export{s0 as a,iW as g};', 'NU({base:"https://design.invalid/",localComments:e=>sW({base:e,toolbar:!0}),room:jU});window.slidesHost.downloads={save:window.__tarobotDesignSave};P9();');
-    patch('u=i?null:e.localComments?.(r)??null,d=i??u?.link??null','u=e.localComments?.(r)??null,d=u?.link??null');
-    patch('n=d?pU(d,u?.pins??fU(t.document)):null,g=i?I9(i):null', 'n=d?pU(d,u?.pins??fU(t.document)):null,g=null');
-    patch('flushForUnload:ia,settle:async()=>{He&&bt(),await da.settle()}', 'flushForUnload:ia,settle:window.__tarobotDesignSettle=async()=>{He&&bt(),await da.settle()}');
-    patch('const k=await lA(t,s);i.post({type:"editor:flushed",requestId:b.requestId,saved:k})', 'let k=false;try{await t.__tarobotDesignSettle?.();k=await lA(t,s)}catch{}i.post({type:"editor:flushed",requestId:b.requestId,saved:k})');
-    patch('import("./woff2-decoder-ByxtpGxr.js")', 'import(window.__tarobotDesignResource("assets/woff2-decoder-ByxtpGxr.js"))');
-    patch('return ve.asset!==void 0?lt.get(ve.asset):ve.src', 'return window.__tarobotDesignAssets(ve.asset!==void 0?lt.get(ve.asset):ve.src)');
+    patch('ka.jsx(RW,{controller:e,state:t})', 'null');
+    patch('let Xe=ue.deltaMode===1?16:ue.deltaMode===2?window.innerHeight:1,vt=ue.deltaMode===1?16:ue.deltaMode===2?window.innerWidth:1;if(Be==="zoom"){let{sx:Vt,sy:Re}=Q(ue.clientX,ue.clientY);M.setView(E(M.getView(),Vt,Re,A(ue.deltaY*Xe),M.limits))}else M.setView(S(M.getView(),-ue.deltaX*vt,-ue.deltaY*Xe))',
+      `let delta=${wheel}(ue,g.clientWidth,g.clientHeight);if(Be==="zoom"){let{sx:Vt,sy:Re}=Q(ue.clientX,ue.clientY);M.setView(E(M.getView(),Vt,Re,Math.exp(delta.zoomLog),M.limits))}else M.setView(S(M.getView(),-delta.dx,-delta.dy))`);
+    patch('fG({localComments:e=>fK({base:e,toolbar:!0}),room:yG,clashes:kG,mergeText:LG});d9();export{Sv as a,hK as g};', 'fG({base:"https://design.invalid/",localComments:e=>fK({base:e,toolbar:!0}),room:yG});window.slidesHost.downloads={save:window.__tarobotDesignSave};window.slidesHost.chat={suggestPrompt:window.__tarobotDesignSuggest};d9();');
+    patch('f=c?null:e.localComments?.(r)??null,d=c??f?.link??null','f=e.localComments?.(r)??null,d=f?.link??null');
+    patch('s=d?q9(d,f?.pins??W9(t.document)):null,h=c?h9(c):null', 's=d?q9(d,f?.pins??W9(t.document)):null,h=null');
+    patch('flushForUnload:Wo,settle:async()=>{await ya(),await V,await ya(),await pt.settle()}', 'flushForUnload:Wo,settle:window.__tarobotDesignSettle=async()=>{await ya(),await V,await ya(),await pt.settle()}');
+    patch('const M=await yA(t,n);c.post({type:"editor:flushed",requestId:x.requestId,saved:M})', 'let M=false;try{await t.__tarobotDesignSettle?.();M=await yA(t,n)}catch{}c.post({type:"editor:flushed",requestId:x.requestId,saved:M})');
+    patch('import("./woff2-decoder-ZKHvEj5x.js")', 'import(window.__tarobotDesignResource("assets/woff2-decoder-ZKHvEj5x.js"))');
+    patch('return Te.asset!==void 0?ca.get(Te.asset):Te.src', 'return window.__tarobotDesignAssets(Te.asset!==void 0?ca.get(Te.asset):Te.src)');
     patch('import.meta.url', '"https://design.invalid/"');
   } else if (format === "canvas") {
-  patch('j.jsx(J$,{controller:e,state:a})', 'null');
-  patch('let Be=me.deltaMode===1?16:me.deltaMode===2?window.innerHeight:1,Ae=me.deltaMode===1?16:me.deltaMode===2?window.innerWidth:1;if(Se==="zoom"){let{sx:Re,sy:ie}=se(me.clientX,me.clientY);y.setView(f(y.getView(),Re,ie,h(me.deltaY*Be),y.limits))}else y.setView(c(y.getView(),-me.deltaX*Ae,-me.deltaY*Be))',
-    `let delta=${wheel}(me,C.clientWidth,C.clientHeight);if(Se==="zoom"){let{sx:Re,sy:ie}=se(me.clientX,me.clientY);y.setView(f(y.getView(),Re,ie,Math.exp(delta.zoomLog),y.limits))}else y.setView(c(y.getView(),-delta.dx,-delta.dy))`);
+  // iOS omits every repair entry, including the error-list menu and damaged
+  // index notice. The errors, editor and ordinary comment controls remain.
+  patch('canAsk:qt&&(0,e.embedMemoryPrefix)()===""', 'canAsk:window.__tarobirdDesignRepairEnabled&&qt&&(0,e.embedMemoryPrefix)()===""');
+  patch('ArtboardErrorsPopover,{problems:Dd,canvasTitle:document.title,canEdit:qt,', 'ArtboardErrorsPopover,{problems:Dd,canvasTitle:document.title,canEdit:window.__tarobirdDesignRepairEnabled&&qt,');
+  patch('DesignIndexProblemNotice,{problem:kp,canAsk:Xm,', 'DesignIndexProblemNotice,{problem:kp,canAsk:window.__tarobirdDesignRepairEnabled&&Xm,');
+  patch('viewOnly:(0,e.formatMessage)({defaultMessage:"Someone who can edit this canvas can ask the agent to fix them.",id:"QhQxoLgUY7"})',
+    'viewOnly:window.__tarobirdDesignRepairEnabled?(0,e.formatMessage)({defaultMessage:"Someone who can edit this canvas can ask the agent to fix them.",id:"QhQxoLgUY7"}):""');
+  patch('shownReader:(0,e.formatMessage)({defaultMessage:"This design’s saved layout has a problem, so its artboards appear side by side for now. They’re safe. Someone who can edit this design can ask the agent to fix the layout.",id:"R3IUU/OVLu"})',
+    'shownReader:window.__tarobirdDesignRepairEnabled?(0,e.formatMessage)({defaultMessage:"This design’s saved layout has a problem, so its artboards appear side by side for now. They’re safe. Someone who can edit this design can ask the agent to fix the layout.",id:"R3IUU/OVLu"}):(0,e.formatMessage)({defaultMessage:"This design’s saved layout has a problem. Artboards are shown side by side and are read-only until the layout is repaired.",id:"tarobird.layoutProblem"})');
+  patch('j.jsx(dX,{controller:e,state:a})', 'null');
+  patch('let Re=De.deltaMode===1?16:De.deltaMode===2?window.innerHeight:1,Pe=De.deltaMode===1?16:De.deltaMode===2?window.innerWidth:1;if(be==="zoom"){let{sx:me,sy:ye}=se(De.clientX,De.clientY);C.setView(s(C.getView(),me,ye,d(De.deltaY*Re),C.limits))}else C.setView(l(C.getView(),-De.deltaX*Pe,-De.deltaY*Re))',
+    `let delta=${wheel}(De,k.clientWidth,k.clientHeight);if(be==="zoom"){let{sx:me,sy:ye}=se(De.clientX,De.clientY);C.setView(s(C.getView(),me,ye,Math.exp(delta.zoomLog),C.limits))}else C.setView(l(C.getView(),-delta.dx,-delta.dy))`);
   // An artboard is a nested preview which forwards wheel messages rather than
   // bubbling them. Normalize here once, before forwarding, using the same rule.
   patch('var position = fillStyle.deltaMode === 1 ? 16 : fillStyle.deltaMode === 2 ? window.innerHeight : 1;\n      var shaft = fillStyle.deltaMode === 1 ? 16 : fillStyle.deltaMode === 2 ? window.innerWidth : 1;',
@@ -59,31 +71,34 @@ export function buildDesignSandbox(format: DesignFormat = "canvas"): string {
   patch('fillStyle.deltaX * shaft,\n          fillStyle.deltaY * position,', 'delta.dx,\n          delta.dy,');
   // Keep upstream's editor controls available when embedded. Host messaging,
   // saves and downloads still go through the original framed host adapter.
-  patch('let qb=typeof window<"u"&&window.parent===window', 'let qb=true');
+  patch('let cg=typeof window<"u"&&window.parent===window', 'let cg=true');
   // Keep local comment UI and room events; writes still obey the strict tab-owned CAS.
-  patch('uq({localComments:e=>IY({base:e,toolbar:!0}),room:bq,clashes:Tq});iK();sK();', 'uq({base:"https://design.invalid/",localComments:e=>IY({base:e,toolbar:!0}),room:bq});iK();sK();');
+  patch('Zq({localComments:e=>qX({base:e,toolbar:!0}),room:r$,clashes:f$});$K();qK();', 'Zq({base:"https://design.invalid/",localComments:e=>qX({base:e,toolbar:!0}),room:r$});window.designHost.chat={suggestPrompt:window.__tarobotDesignSuggest};$K();qK();');
   // TaroBot's virtual project paths allow Unicode names, spaces, parentheses
   // and plus signs. Upstream's ASCII-only component filter silently discarded
   // these saved artboards on load. Keep its traversal/reserved-name/length
   // checks; widen only this character filter inside the isolated editor.
-  patch('Wt=/^[A-Za-z0-9_](?:[A-Za-z0-9 ._-]*[A-Za-z0-9_-])?$/',
-    String.raw`Wt=/^[\p{L}\p{N}_](?:[\p{L}\p{N}\p{M} ._()+-]*[\p{L}\p{N}\p{M}_()+-])?$/u`);
-  // Comments use the tab-owned local bridge even while embedded. The upstream
-  // chat bridge stays off; Send to Agent opens a TaroBot draft for review.
-  patch('b=o?null:e.localComments?.(n)??null,x=o??b?.link??null','b=e.localComments?.(n)??null,x=b?.link??null');
-  patch('p=x?UK(x,b?.pins??VK(a.document)):null,m=o?uK(o):null', 'p=x?UK(x,b?.pins??VK(a.document)):null,m=null');
+  patch('Kt=/^[A-Za-z0-9_](?:[A-Za-z0-9 ._-]*[A-Za-z0-9_-])?$/',
+    String.raw`Kt=/^[\p{L}\p{N}_](?:[\p{L}\p{N}\p{M} ._()+-]*[\p{L}\p{N}\p{M}_()+-])?$/u`);
+  // Comments use the tab-owned local bridge even while embedded. Upstream
+  // dispatch stays off; suggestion actions open a TaroBird draft for review.
+  patch('m=c?null:e.localComments?.(n)??null,b=c??m?.link??null','m=e.localComments?.(n)??null,b=m?.link??null');
+  patch('p=b?_q(b,m?.pins??Eq(a.document)):null,g=c?ZK(c):null', 'p=b?_q(b,m?.pins??Eq(a.document)):null,g=null');
+  // The App opens a reviewable draft; upstream Canvas otherwise calls this
+  // fallback "sent" even when suggestPrompt only populated a composer.
+  patch('return await re(te),"sent"', 'return await re(te),"staged"');
   // Upstream mirrors live text edits before settling the editable model. Its
   // HTTP host's beforeunload loop alone cannot settle an active text session.
   // Reuse the editor's own settler (also used for export), then retain its full
   // unsaved/publish check. A refused settle must never acknowledge saved=true.
-  patch('function Id(we){Ba=we}', 'function Id(we){Ba=we;window.__tarobotDesignSettle=we}');
-  patch('const h=await Qw(a,w);o.post({type:"editor:flushed",requestId:c.requestId,saved:h})', 'let h=false;try{await a.__tarobotDesignSettle?.();h=await Qw(a,w)}catch{}o.post({type:"editor:flushed",requestId:c.requestId,saved:h})');
-  patch('G=r(N,W);return{doc:l(G,z),parts:k', 'G=window.__tarobotDesignAssets(r(N,W));return{doc:l(G,z),parts:k');
-  patch('${JSON.stringify(c.kind)},${JSON.stringify(h)},${c.streaming?"true":"false"}', '${JSON.stringify(c.kind)},${JSON.stringify(window.__tarobotDesignAssets(h))},${c.streaming?"true":"false"}');
+  patch('function uc(Se){Fn=Se}', 'function uc(Se){Fn=Se;window.__tarobotDesignSettle=Se}');
+  patch('const d=await kC(a,x);c.post({type:"editor:flushed",requestId:l.requestId,saved:d})', 'let d=false;try{await a.__tarobotDesignSettle?.();d=await kC(a,x)}catch{}c.post({type:"editor:flushed",requestId:l.requestId,saved:d})');
+  patch('X=l(R,q);return{doc:s(X,$),parts:T', 'X=window.__tarobotDesignAssets(l(R,q));return{doc:s(X,$),parts:T');
+  patch('${JSON.stringify(l.kind)},${JSON.stringify(d)},${l.streaming?"true":"false"}', '${JSON.stringify(l.kind)},${JSON.stringify(window.__tarobotDesignAssets(d))},${l.streaming?"true":"false"}');
   // Runtime files become blob URLs, so retain their full URL instead of its pathname.
-  const runtimeUrls = 'return new URL(E,document.baseURI).pathname';
+  const runtimeUrls = 'return new URL(T,document.baseURI).pathname';
   if (js.split(runtimeUrls).length !== 3) throw new Error("design_runtime_url_contract_changed");
-  js = js.replaceAll(runtimeUrls, 'return new URL(E,document.baseURI).href');
+  js = js.replaceAll(runtimeUrls, 'return new URL(T,document.baseURI).href');
   }
   const resources: Record<string, { type: string; base64: string }> = {};
   // Keep standalone sharing and the Node exporter pinned, but out of the App frame.

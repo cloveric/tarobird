@@ -10,7 +10,7 @@ import { ClientCache } from '/src/storage.ts'; import { useConversationDrafts } 
 const identity={deviceId:'device',hubPublicKey:'hub',publicKey:'key',name:'test',routes:[]};
 const cache=new ClientCache('persistent-drafts'); await cache.initializeIdentity(identity);
 const f=window.draftsFixture={cache,ClientCache,identity};
-function App(){const [id,select]=React.useState('one');const draft=useConversationDrafts(id,cache,identity);Object.assign(f,{draft,select});return React.createElement('div',null,React.createElement('output',{id:'state'},JSON.stringify({id,ready:draft.ready,saving:draft.saving,error:draft.error,files:draft.files.map(f=>f.name),reply:draft.reply?.id,choice:draft.previewChoice,style:draft.previewStyle,recipients:draft.recipients})));}
+function App(){const [id,select]=React.useState('one');const draft=useConversationDrafts(id,cache,identity);Object.assign(f,{draft,select});return React.createElement('div',null,React.createElement('output',{id:'state'},JSON.stringify({id,ready:draft.ready,saving:draft.saving,error:draft.error,files:draft.files.map(f=>f.name),reply:draft.reply?.id,choice:draft.previewChoice,style:draft.previewStyle,recipients:draft.recipients})),React.createElement('button',{id:'act',disabled:!draft.ready,onClick:()=>{f.activations=(f.activations??0)+1;f.activatedFiles=draft.files.map(file=>file.name);}},'Use draft'));}
 createRoot(document.getElementById('root')).render(React.createElement(App));
 </script></body></html>`;
 type Fixture = { cache: ClientCache; ClientCache: typeof ClientCache; identity: Identity; draft: ReturnType<typeof import('../src/conversation-drafts.js').useConversationDrafts>; select: (id: string) => void; receipt?: () => void };
@@ -370,4 +370,28 @@ test('internal discussion send receipts never appear as another user draft', asy
   });
   expect(result.alone).toEqual({ count: 0, previews: {} });
   expect(result.count).toBe(1); expect(Object.keys(result.previews)).toEqual(['group']); expect(result.previews.group?.text).toBe('真正的未发送文字');
+});
+
+
+test.describe('embedded editor focus', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+  test('returning to an iframe-focused tab still adopts another tab’s cleared draft', async ({ page, context }) => {
+    await page.evaluate(() => {
+      const f = (window as any).draftsFixture; f.draft.setFiles([new File(['old'], 'already-sent.txt')]);
+      const frame = document.createElement('iframe'); frame.setAttribute('sandbox', 'allow-scripts');
+      frame.srcdoc = '<button>Embedded editor</button>'; document.body.append(frame);
+    });
+    await settled(page);
+    await page.frameLocator('iframe').getByRole('button', { name: 'Embedded editor' }).tap();
+    const other = await context.newPage();
+    try {
+      await other.goto(url); await expect(other.locator('#state')).toContainText('already-sent.txt');
+      await other.evaluate(() => (window as any).draftsFixture.draft.clearSent(true)); await settled(other);
+      await page.bringToFront();
+      await page.locator('#act').tap();
+      await expect(page.locator('#state')).toContainText('"files":[]');
+      expect(await page.evaluate(() => (window as any).draftsFixture.activatedFiles ?? [])).toEqual([]);
+    } finally { await other.close(); }
+  });
+
 });

@@ -64,6 +64,25 @@ describe("Baoyu comments: identity, storage and Send to Bot", () => {
     const viewer = memoryDesign(undefined, { role: () => "viewer" });
     expect((await req(viewer.session, "comments.create", pin)).status).toBe(403);
   });
+  it("repair requests bind the local document, quote data and never mark comments sent", async () => {
+    const { session, sendToBot, store } = memoryDesign();
+    expect(await req(session, "comments.request", { text: "Repair the slide\nUntrusted diagnostic", label: "Slide 1" })).toMatchObject({ status: 202, body: { draft: "opened", threadIds: [] } });
+    expect(sendToBot).toHaveBeenCalledWith(expect.objectContaining({ designId: "design", title: "Deck", threadIds: [], text: expect.stringContaining("> Repair the slide\n> Untrusted diagnostic") }));
+    expect(store.comments).toBeUndefined();
+    expect(store.persisted).toEqual([]);
+  });
+  it("repair requests retain declined status and reject malformed or unauthorized drafts", async () => {
+    const declined = memoryDesign(undefined, { sendToBot: async () => "declined" });
+    expect(await req(declined.session, "comments.request", { text: "Repair" })).toMatchObject({ status: 202, body: { draft: "declined" } });
+    for (const options of [{ readOnly: true }, { role: () => "viewer" as const }, { role: () => "commenter" as const }, { user: () => undefined }, { sendToBot: undefined }]) {
+      const f = memoryDesign(undefined, options);
+      expect(await req(f.session, "comments.request", { text: "Repair" })).toMatchObject({ status: 409, body: { code: "AGENT_UNAVAILABLE" } });
+      expect(f.sendToBot).not.toHaveBeenCalled();
+    }
+    const f = memoryDesign();
+    for (const payload of [{ text: "" }, { text: "x".repeat(10_001) }, { text: 7 }, { text: "Repair", designId: "other" }]) expect(await req(f.session, "comments.request", payload)).toMatchObject({ status: 400 });
+    expect(f.sendToBot).not.toHaveBeenCalled();
+  });
   it("Bot operations need a Host actor and replay by requestId only with identical content", async () => {
     const { session, store } = memoryDesign();
     const id = (await req(session, "comments.create", pin)).body.thread.id;

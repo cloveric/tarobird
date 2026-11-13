@@ -1340,6 +1340,70 @@
           "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
         }
       ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/assets/index-CK1q-zjV.js",
+      "sha256": "25e01128a1abc936300de71c71314445af7713455399907310d2f15a314acc92",
+      "reviewer": "codex",
+      "note": "Exact upstream 2.15.2 bytes verified against commit 016a68e1b1ac1c7c291b2cb88d66ff087e50b017; matches are SVG path coordinates and codec profile strings, not network addresses.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "488004dac5c665ebbca5636a4cb1db57a04c3f8df7a577e7936c0ed70a39a23c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "28f7d84f78d8594f09a8d3b893634edefb9c89efc878e163bf7ef01dab0a31c5"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/node/compiler.cjs",
+      "sha256": "5ef885dae56b6cfba9a452b175ab0e1db72ea79b5fadb13f89c6aa567c9fa507",
+      "reviewer": "codex",
+      "note": "Exact upstream 2.15.2 bytes verified against commit 016a68e1b1ac1c7c291b2cb88d66ff087e50b017; matches are SVG path coordinates and codec profile strings, not network addresses.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "488004dac5c665ebbca5636a4cb1db57a04c3f8df7a577e7936c0ed70a39a23c"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "28f7d84f78d8594f09a8d3b893634edefb9c89efc878e163bf7ef01dab0a31c5"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "c1e0fd0658396eacb34c12e8b69ead39446b9e1f7676e6a5addc176993cd03aa"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/node/third-party-licenses.txt",
+      "sha256": "c54577753c0b3b729c8351542ee33546081ab6aff0d2382b27b952652c664a39",
+      "reviewer": "codex",
+      "note": "Exact upstream 2.15.2 bytes verified against commit 016a68e1b1ac1c7c291b2cb88d66ff087e50b017; public clsx MIT copyright attribution, no owner information.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/baoyu-slides/editor/third-party-licenses.txt",
+      "sha256": "181d383931cc3d06a97562e0cf2523677723a430546044be2f08942d4c5ef020",
+      "reviewer": "codex",
+      "note": "Exact upstream 2.15.2 bytes verified against commit 016a68e1b1ac1c7c291b2cb88d66ff087e50b017; public clsx MIT copyright attribution, no owner information.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        }
+      ]
     }
   ]
 }

@@ -24,6 +24,7 @@ baoyu-design brings claude.ai's Artifact types and Claude Design to local agents
 - **Reference docs.** `skills/*/artifact-type/reference/`, and the copies under `scripts/editor/artifact-type/`: the craft, format and layout guides, font lists and other references of the Artifact types.
 - **The `dataviz` skill.** `skills/dataviz/` is Anthropic's dataviz skill. Its palette validators include code from Color.js (MIT, Lea Verou and Chris Lilley), credited in the files.
 - **The editors.** `skills/claude-*/scripts/editor/` holds editors reconstructed from the claude.ai Artifact-type runtimes: their interface, wording and behaviour are Anthropic's. The built files mix that reconstruction with the maintainer's local additions (section 1) and with open-source packages (section 3).
+- **Compiled engines.** Where an editor ships a WebAssembly engine as upstream built it (a `*.wasm` file in its `scripts/editor/artifact-type/`), the engine is Anthropic's too. The open-source code compiled into it is listed in the notices shipped beside it (`THIRD_PARTY_NOTICES.md`, `RUST_STANDARD_LIBRARY_NOTICES.html`).
 - **Icon fonts.** The Anthropicons icon fonts: the `anthropicons-*.woff2` files in the editors' `assets/` and `artifact-type/` folders, and the Anthropicons font faces embedded as data URIs in the editors' CSS.
 - **The archived `baoyu-design` skill.** In `archive/baoyu-design/`: `system-prompt.md`, `references/upstream-system-prompt.md` and `references/upstream-sync/` (the Claude Design system prompt, a snapshot of it and its sync records), `built-in-skills/` (Claude Design's built-in skills) and `starter-components/` (Claude Design's starter components; the local patches are recorded in the `*-patch.md` files there).
 
@@ -33,7 +34,7 @@ baoyu-design brings claude.ai's Artifact types and Claude Design to local agents
 
 ## 3. Third-party open-source code
 
-The editors bundle open-source packages, such as React, Base UI, d3 and pptxgenjs. Each keeps its own license, which this project's license does not replace. The licenses are in each editor's `scripts/editor/third-party-licenses.txt`, and for the slides compiler in `scripts/editor/node/third-party-licenses.txt`.
+The editors bundle open-source packages, such as React, Base UI, d3 and pptxgenjs. Each keeps its own license, which this project's license does not replace. The licenses are in each editor's `scripts/editor/third-party-licenses.txt`, and for the slides compiler in `scripts/editor/node/third-party-licenses.txt`. The open-source crates and the Rust standard library compiled into a WebAssembly engine are listed in the notices beside it.
 
 The archived `baoyu-design` skill vendors React, ReactDOM, Babel and fflate (MIT) in `archive/baoyu-design/agents/vendor/`, and pptxgenjs (MIT) in `archive/baoyu-design/agents/gen-pptx/vendor/pptxgenjs/`, with its `LICENSE`.
 
@@ -51,6 +52,7 @@ If you hold rights in anything here and want it credited differently, changed or
    - `artifact-type/reference/` 里的参考文档；
    - `skills/dataviz/`（Anthropic 的 dataviz 技能）；
    - `scripts/editor/` 里从 claude.ai 运行时还原的编辑器（界面、文案和行为）；
+   - 编辑器原样带上的 WebAssembly 引擎（`scripts/editor/artifact-type/` 里的 `*.wasm`），编进去的开源代码列在它旁边的 `THIRD_PARTY_NOTICES.md`、`RUST_STANDARD_LIBRARY_NOTICES.html` 里；
    - Anthropicons 图标字体（`anthropicons-*.woff2` 文件，以及编辑器 CSS 里内嵌的字体）；
    - `archive/baoyu-design/` 里的 Claude Design 系统提示词、内置技能和起步组件。
    

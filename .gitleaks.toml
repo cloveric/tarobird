@@ -14,15 +14,15 @@ paths = ['^client/vendor/baoyu-slides/editor/assets/index-S9woRl4b\.js$', '^clie
 regexTarget = "match"
 regexes = ['\Aaria-keyshortcuts":te\.shortcut===void \z']
 [[allowlists]]
-description = "Reviewed Design 2.12.2 shortcut comparison, not a credential"
+description = "Reviewed Design shortcut comparisons in exact upstream bundles, not credentials"
 condition = "AND"
-paths = ['^client/vendor/baoyu-design/editor/assets/index-B0Ur8XcL\.js$']
+paths = ['^client/vendor/baoyu-design/editor/assets/index-B0Ur8XcL\.js$', '^client/vendor/baoyu-design/editor/assets/index-0vK2y_jx\.js$']
 regexTarget = "match"
 regexes = ['\Aaria-keyshortcuts":pe\.shortcut===void \z']
 [[allowlists]]
-description = "Reviewed Slides 2.12.2 shortcut comparison, not a credential"
+description = "Reviewed Slides shortcut comparisons in exact upstream bundles, not credentials"
 condition = "AND"
-paths = ['^client/vendor/baoyu-slides/editor/assets/index-BIvbGgb1\.js$']
+paths = ['^client/vendor/baoyu-slides/editor/assets/index-BIvbGgb1\.js$', '^client/vendor/baoyu-slides/editor/assets/index-CK1q-zjV\.js$']
 regexTarget = "match"
 regexes = ['\Aaria-keyshortcuts":Ie\.shortcut===void \z']
 [[allowlists]]

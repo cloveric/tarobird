@@ -15,6 +15,8 @@ for (const [editor, asset, symbol] of [
   ['baoyu-slides', 'index-7OEzB54c.js', 'te'],
   ['baoyu-design', 'index-B0Ur8XcL.js', 'pe'],
   ['baoyu-slides', 'index-BIvbGgb1.js', 'Ie'],
+  ['baoyu-design', 'index-0vK2y_jx.js', 'pe'],
+  ['baoyu-slides', 'index-CK1q-zjV.js', 'Ie'],
 ]) test(`${editor}/${asset} shortcut expression exception requires exact JavaScript syntax and exact asset path`, () => {
   const root = mkdtempSync(join(tmpdir(), 'privacy-design-'));
   const source = fileURLToPath(new URL('../', import.meta.url));

@@ -1,5 +1,9 @@
 # Entrypoint Map
 
+[1.4.0 preflight](client/release-1.4.0-preflight.md) tracks the full release,
+Canvas/PPT upstream adaptation and independent review gate. Package publication
+and installed-device acceptance remain separate from source verification.
+
 [1.3.1 corrected rebuild](client/release-1.3.1-preflight.md) records the unified
 patch scope, installed-dependency provenance correction and Android replacement.
 [The unified download page](releases/1.3.1-verification.md#november-12-unified-download-page)
@@ -65,12 +69,11 @@ the scoped Design/PPT fullscreen repair and its separate installed acceptance.
 
 This file is the source of truth for codebase navigation when modifying this repository.
 
-[WebKit test isolation](client/playwright-keychain-isolation.md) prevents the
-macOS test browser from repeatedly prompting for the owner's login keychain.
-`client/playwright.config.ts` uses a pre-worker environment guard inherited by
-the WebKit config and CLI browser selection; disposable macOS CI retains real
-WebKit coverage. Specs do not override the selected engine. Production identity,
-App/Host/CLI behavior and native keychain security are unchanged. Regressions:
+[WebKit test guidance](client/playwright-keychain-isolation.md) documents the
+warning-only macOS keychain reminder. Local WebKit is permitted; the base,
+WebKit and CLI browser selections continue past global setup. Browser choice
+remains project-owned. Production identity, App/Host/CLI behavior and keychain
+permissions are unchanged. Regressions:
 `client/scripts/playwright-keychain-guard.test.mjs` (no browser launch).
 
 [1.0.128 release verification](releases/1.0.128-verification.md) records the

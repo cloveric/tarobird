@@ -52,12 +52,12 @@ test("canvas comments bind a Unicode page and create a durable exact-design chat
  const note="请把标题变大 — Keep the English subtitle 🌿";
  await editor.getByRole("textbox",{name:"Comment",exact:true}).fill(note);await editor.getByRole("checkbox",{name:"Send to Agent",exact:true}).check();await editor.getByRole("button",{name:"Send",exact:true}).click();
  await expect(page.getByRole("textbox",{name:"消息",exact:true})).toHaveValue(new RegExp("Keep the English subtitle"),{timeout:15000});
- await expect(page.getByText("设计评论已加入草稿；修改回到原设计项目。",{exact:true})).toBeVisible();
+ await expect(page.getByText("设计请求已加入草稿；修改回到原设计项目。",{exact:true})).toBeVisible();
  const comments=await f.command({requestId:"comments-read",operation:"design.comments.read",target,payload:{}});expect(comments.status).toBe("success");console.log("COMMENT_READ",JSON.stringify(comments.result));expect((comments.result as {threads:{file:string}[]}).threads[0].file).toBe("project/"+fileName);
  const draft=await page.getByRole("textbox",{name:"消息",exact:true}).inputValue();expect(draft).toContain(note);expect(draft).toContain("project/"+fileName);
  const messages=await f.hub.store.db.get<{n:number}>("SELECT count(*) AS n FROM messages WHERE conversation_id=?",[f.conversation.id]);expect(messages?.n).toBe(0);
  await page.reload();await waitForClientOnline(page);await selectConversation(page,f.conversation.title);await expect(page.getByRole("textbox",{name:"消息",exact:true})).toHaveValue(draft);
- await expect(page.getByText("设计评论已加入草稿；修改回到原设计项目。",{exact:true})).toBeVisible();
+ await expect(page.getByText("设计请求已加入草稿；修改回到原设计项目。",{exact:true})).toBeVisible();
  await page.screenshot({path:info.outputPath("comments-draft.png")});
  }finally{await f.close();}
 });

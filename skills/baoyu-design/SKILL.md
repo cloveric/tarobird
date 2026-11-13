@@ -38,7 +38,10 @@ The supplied starter is authoritative. See [format](references/format.md) for
 `.dc.html` / `<x-dc>` / DCLogic details and [craft](references/craft.md) for visual
 choices. These are upstream authoring references, not transport instructions:
 Use [diagrams](references/diagrams.md) for connected layouts and
-[print](references/print.md) for print-oriented geometry. The upstream reference
+[print](references/print.md) for print-oriented geometry. Read
+[shaders](references/shaders.md) before a requested shader or WebGL artboard;
+ordinary gradients remain CSS. The editor's existing isolation rules still apply.
+The upstream reference
 to `editor-and-saving.md` describes its own host; this adapter's save rules below
 are authoritative for TaroBot.
 Artifact calls, server commands, host paths and uploads mentioned there do not
@@ -63,6 +66,9 @@ if that control is present in the running editor. The exported page contains
 rendered artboards without frames; the user can open it in Chrome and capture it
 with Figma's extension. Do not promise this option in an older installed App or
 claim that directly capturing the embedded canvas imports its artboard contents.
+For a page preview at a chosen width, use the full-window artboard's Fill view
+and width selector when available. Its Export menu can save the full page as
+PNG at that width. Do not claim this control is present in an older installed App.
 
 `UPSTREAM.json` pins the original skill and authoring references to the bundled
 editor version. During upgrades review their changes against this adapter's API

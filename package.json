@@ -1,6 +1,6 @@
 {
   "name": "tarobot",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "TaroBird: desktop and mobile AI workspace with a self-hosted Hub, multi-engine Bots and optional VPS relay.",
   "private": true,
   "license": "AGPL-3.0-only",
@@ -149,6 +149,7 @@
     "skills/baoyu-design/references/google-fonts-reserved.json",
     "skills/baoyu-design/references/make-from-this.md",
     "skills/baoyu-design/references/print.md",
+    "skills/baoyu-design/references/shaders.md",
     "skills/baoyu-design/references/questions.md",
     "skills/baoyu-design/references/view-state.md",
     "skills/baoyu-ppt/LICENSE",

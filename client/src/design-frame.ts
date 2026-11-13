@@ -3,6 +3,7 @@ import { exportAttachment } from "./attachment-export.js";
 import type { DesignSession } from "./workbench-design-session.js";
 import { designEditorLocks } from "./workbench-library.js";
 import { designExportPrompt } from "./design-export-prompt.js";
+import { nativePlatform } from "./native.js";
 
 // data: documents have their own opaque origin even with allow-same-origin.
 // That flag permits the editor to operate its own nested preview DOM; it does
@@ -169,7 +170,7 @@ class DesignFrame {
       this.unsubscribeEvents = this.session.onEvent(event=>{if(this.generation===generation)channel.port1.postMessage({type:"design-event",event});});
       let revision = this.session.document.revision;
       this.unsubscribe = this.session.subscribe(()=>{ if(generation===this.generation && revision!==this.session.document.revision) {revision=this.session.document.revision;channel.port1.postMessage({type:"document-changed",revision});} });
-      frame!.contentWindow!.postMessage({ type: "tarobot-design-init", dark: this.dark }, "*", [channel.port2]); return;
+      frame!.contentWindow!.postMessage({ type: "tarobot-design-init", dark: this.dark, repairRequests: nativePlatform() !== "ios" }, "*", [channel.port2]); return;
     }
     if (value?.type === "tarobot-design-error") { clearTimeout(this.readyTimer); this.report("design_editor_load_failed"); return; }
     if (value?.type === "editor:ready") { this.ready = true; clearTimeout(this.readyTimer); this.report(undefined); return; }

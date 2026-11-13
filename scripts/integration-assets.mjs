@@ -24,6 +24,7 @@ export const integrationAssets = [
   'skills/baoyu-design/references/google-fonts-reserved.json',
   'skills/baoyu-design/references/make-from-this.md',
   'skills/baoyu-design/references/print.md',
+  'skills/baoyu-design/references/shaders.md',
   'skills/baoyu-design/references/questions.md',
   'skills/baoyu-design/references/view-state.md',
   'skills/baoyu-ppt/LICENSE',

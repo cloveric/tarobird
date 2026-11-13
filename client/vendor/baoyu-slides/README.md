@@ -1,7 +1,7 @@
 # Baoyu Slides vendor
 
 Pristine Slides editor and authoring references from JimLiu/baoyu-design 2.12.2,
-commit `64a874988262e558c9b071eb55b4d02038ca33f8`, aligned with the canvas editor.
+commit `016a68e1b1ac1c7c291b2cb88d66ff087e50b017`, aligned with the canvas editor.
 `UPSTREAM.json` records every included byte. `skills/baoyu-ppt/UPSTREAM.json`
 records upstream skill/helper provenance. The adapted entry loaded by Bots is
 `skills/baoyu-ppt/SKILL.md`.

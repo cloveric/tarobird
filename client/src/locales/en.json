@@ -5127,7 +5127,7 @@
   "开始第 {0} 条消息": "Start message {0}",
   "开始": "Start",
   "请先在工作台打开原设计，再发送评论。草稿已保留。": "Open the original design in the workbench before sending its comments. Your draft is kept.",
-  "设计评论已加入草稿；修改回到原设计项目。": "Design comments are in the draft; changes target the original project.",
+  "设计请求已加入草稿；修改回到原设计项目。": "The design request is in the draft; changes target the original project.",
   "取消设计关联": "Remove design target",
   "设计评论暂不支持自动群讨论，请改用普通聊天或点名单个 Bot。草稿已保留。": "Design comments are not supported in automatic group discussions yet. Use a regular chat or mention one Bot. Your draft is preserved.",
   "设置角色、语气与偏好；留空则移除文件中的人设要求。": "Set a role, tone and preferences. Leave blank to remove persona instructions from the file.",

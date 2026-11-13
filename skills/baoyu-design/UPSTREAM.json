@@ -1,14 +1,14 @@
 {
   "repository": "https://github.com/JimLiu/baoyu-design",
-  "commit": "64a874988262e558c9b071eb55b4d02038ca33f8",
-  "version": "2.13.0",
+  "commit": "016a68e1b1ac1c7c291b2cb88d66ff087e50b017",
+  "version": "2.15.2",
   "component": "claude-design",
   "adapted": true,
   "upstreamFiles": {
-    "SKILL.md": "86c149e92e0982937ee774352761c8d5d29999ae2252e7b4ef8cecf4114e28ba",
+    "SKILL.md": "959264e5b922dc7808b92fcf39d438c1008ae7f6881f7787529075fe163c42d5",
     "artifact-type/reference/brand-colors.md": "f451f1e68b640f2bbe4d15420339ddcb7a84595cb7d12e888caa1a6bd5bd4b3a",
     "artifact-type/reference/brand-typography.md": "d3aa7f635e355d674680a54fe305d4efc66463c25ec04e0a1243f8937a9ece20",
-    "artifact-type/reference/craft.md": "d6fc81adee30d8cd3abe2e700488a29a884b1932bf790db52a1143edd6726fd3",
+    "artifact-type/reference/craft.md": "d06fedf074bac0ac5aeeac16afb6dd88a1b4d9d8d774cf97a40a5e803922880b",
     "artifact-type/reference/design-system-components.md": "be6d36c90371cd28dccc509d4e1cf7bd65f1b8253de8cd4d084123303dcebdb7",
     "artifact-type/reference/diagrams.md": "c5747e7ab8d8bd04e7ac484f10be02728b9f8f2df1c024024d1d218be9bb20a7",
     "artifact-type/reference/format.md": "b509b31cc2db41a7ddc247f67b164c0f6f755e3f07d909ad3baf20a27718b771",
@@ -18,8 +18,9 @@
     "artifact-type/reference/make-from-this.md": "8089c8f1771fd14a5690f83112174af1fe42fdd2809709b03e4f0579ab94e645",
     "artifact-type/reference/print.md": "f2b00538b800f8c3d1456baa916c72db1f2ab82c0ea886b0a3ef8c7a7d3e7c07",
     "artifact-type/reference/questions.md": "34139a6b25e7b6048b8c98afbb7892116c9c3dc7369f22b5cf9c88d06cab108e",
-    "artifact-type/reference/view-state.md": "2b40c2de9bda3130f15d5c4fb5ec8529224d2eea8bf7df6426205dd52bbcb87c",
-    "scripts/artifact.mjs": "3848b5405c65e8826f76ac5a1327d8f24682c5f54563b301ec6cec0cb29cc514",
-    "scripts/server.mjs": "ea3855368c76ff8de52ee8381ea26f1cbe578b46fb9772144098b32661361b2a"
+    "artifact-type/reference/shaders.md": "191622028fec8b73b874b907df95bd4c760d26bd591b6605e9ad672fdf1e3158",
+    "artifact-type/reference/view-state.md": "f34d2845026a3d865069b9bb659fc7f1aeead11fd1c259c2897d5d120014c012",
+    "scripts/artifact.mjs": "e12b4e528ab657179cb550f02bad3f98a8fd120d3eaa2b3ec9e73fad815daccf",
+    "scripts/server.mjs": "ad953432491500e605a71aa59de121fc9b3fc5d0c99359aee75763900998c480"
   }
 }
