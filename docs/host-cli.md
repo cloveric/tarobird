@@ -28,6 +28,14 @@ tarobird engines reset --engine codex --revision REV --json
 `tarobird engines status --request-id ID --json` 核对，不要换编号反复提交。
 搜索目录和程序路径属于私有主机诊断信息，分享日志前请自行隐去个人路径。
 旧主机不支持此接口时，需要先更新主机。
+
+若返回 `engine_settings_unavailable`，主机数据目录中的 `engine-settings.json`
+无法安全读取；新 Bot 不会绕过设置改用另一套程序，已有进程继续运行。
+先用 `tarobird doctor --json` 确认主机目录并备份原文件，检查 JSON 格式与版本、
+文件所有者及私有访问权限。未知格式可能来自较新的主机版本，应使用匹配的
+运行时；确认损坏时从可信备份恢复该文件，或由主机所有者修复后重新读取。
+不要直接删除文件、放宽权限或盲目重建；这些操作会丢失已选引擎路径。
+界面的「重新读取」只重读已修复的文件，不会自动修改它。
 详见[发现机制和验证边界](client/host-engine-paths-2026-11-13.md)。
 
 ## Bot 人设小节（源码新增）

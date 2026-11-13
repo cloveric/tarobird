@@ -36,7 +36,7 @@ it("persists explicit paths without executing, and reset restores the original e
 });
 it("rejects invalid files and paths without changing the saved settings", async () => {
   const f = await fixture();
-  for (const invalid of ["codex", "~/bin/codex", `"${f.executable}"`, f.root, path.join(f.root, "missing"), `${f.executable} --flag`]) {
+  for (const invalid of ["codex", "~/bin/codex", `"${f.executable}"`, f.root, path.join(f.root, "missing"), `${f.executable} --flag`, `${f.executable} `]) {
     await expect(f.settings.update({ engine: "codex", path: invalid, requestId: "bad", revision: "default" }, apply => apply())).rejects.toThrow(/engine_path_/);
   }
   if (process.platform !== "win32") {
@@ -121,5 +121,41 @@ it("passes saved paths to new workers, preserves running workers, and reapplies 
     await writeFile(engineSettingsFile(f.root), "broken");
     manager = new BotManager(hub.store, f.root, options, () => hub.instanceUrl, async () => undefined); await manager.restore();
     expect(manager.serviceStatus(bot.id).text).toContain("Engine path settings are unavailable");
+  } finally { await manager.close(); await hub.close(); }
+});
+
+it("reports unreadable settings through the owner API without replacing the file", async () => {
+  const f = await fixture(); await initializeHost(f.root, "Damaged settings fixture");
+  const hub = await HubServer.start({ stateDir: f.root, managedBots: { entrypoint: path.resolve("dist/src/index.js"), env: f.env } });
+  const close = await startHubControl(f.root, { running: true, pid: process.pid, url: hub.url, instanceUrl: hub.instanceUrl, publicKey: hub.auth.publicKey }, () => {}, { enrollController: value => hub.enrollLocalController(value) });
+  const client = await LocalHostClient.connect(f.root, { enroll: true });
+  try {
+    for (const bytes of ["broken", JSON.stringify({ format: 2, revision: "future", paths: {}, receipts: [] }), JSON.stringify({ format: 1, revision: "trailing", paths: { codex: f.executable + " " }, receipts: [] })]) {
+      await writeFile(engineSettingsFile(f.root), bytes, { mode: 0o600 });
+      for (const [route, method, body] of [
+        ["/api/settings/engines", "GET", undefined],
+        ["/api/settings/engines", "PUT", { engine: "codex", path: f.executable, revision: "default", requestId: "repair" }],
+        ["/api/bots/catalog", "GET", undefined],
+        ["/api/bots", "POST", { requestId: "blocked", name: "Fixture", engine: "codex", model: "", effort: "", workspace: "" }],
+      ] as const) await expect(client.request(route, method, body)).rejects.toMatchObject({ code: "engine_settings_unavailable", status: 503 });
+      await expect(engineSettingsCommand(client, "status", {}, () => {})).rejects.toThrow("engine-settings.json");
+      expect(await readFile(engineSettingsFile(f.root), "utf8")).toBe(bytes);
+    }
+  } finally { client.close(); await close(); await hub.close(); }
+});
+it("retains worker errors when a damaged settings file prevents automatic restart", async () => {
+  const f = await fixture(); await initializeHost(f.root, "Worker log fixture");
+  const entrypoint = path.join(f.root, "worker-log.cjs");
+  await writeFile(entrypoint, `process.stderr.write('fixture stderr before restart\\n'); setInterval(() => {}, 1000); process.on('message', message => { if (message.type === 'shutdown.now') process.exit(0); });`);
+  const hub = await HubServer.start({ stateDir: f.root });
+  const manager = new BotManager(hub.store, f.root, { entrypoint, env: { ...f.env, TAROBOT_MODEL_DISCOVERY: "0" } }, () => hub.instanceUrl, async () => {});
+  try {
+    const bot = await manager.create("owner", { requestId: "log", name: "Fixture", engine: "codex", model: "", effort: "", workspace: "" });
+    await vi.waitFor(() => expect(manager.serviceStatus(bot.id).text).toContain("fixture stderr before restart"));
+    await writeFile(engineSettingsFile(f.root), "broken", { mode: 0o600 });
+    const child = (manager as any).children.get(bot.id);
+    child.kill();
+    await vi.waitFor(() => expect(manager.serviceStatus(bot.id).text).toContain("Engine path settings are unavailable"), { timeout: 5000 });
+    expect(manager.serviceStatus(bot.id).text).toContain("fixture stderr before restart");
   } finally { await manager.close(); await hub.close(); }
 });

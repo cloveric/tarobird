@@ -1,4 +1,4 @@
-import { hostEngineEnvironment } from "../runtime/host-engine-settings.js";
+import { EngineSettingsReadError, hostEngineEnvironment } from "../runtime/host-engine-settings.js";
 import { assignNewBotAvatar } from "./bot-avatar-default.js";
 import { publishExclusive } from "../state/publish-exclusive.js";
 import { resolveEngineExecutable } from "../runtime/engine-process.js";
@@ -57,7 +57,10 @@ export class BotManager {
   private restartQueued = new WeakSet<ChildProcess>();
   private restartTasks = new Set<Promise<RestartResult>>();
   constructor(readonly store: HubStore, readonly directory: string, readonly options: BotManagerOptions, readonly instanceUrl: () => string, readonly changed: (id: string) => Promise<void>) {}
-  private get env(): NodeJS.ProcessEnv { return hostEngineEnvironment(this.directory, this.options.env ?? process.env); }
+  private get env(): NodeJS.ProcessEnv {
+    try { return hostEngineEnvironment(this.directory, this.options.env ?? process.env); }
+    catch (error) { if (error instanceof EngineSettingsReadError) throw new HubError(error.message, 503); throw error; }
+  }
   capabilities(engine: InstanceEngine) { return readEngineCapabilities(engine, { env: this.env }); }
   private engineBinaries(env = this.env): Record<InstanceEngine, string> {
     return { codex: env.CODEX_EXECUTABLE || "codex", claude: env.CLAUDE_EXECUTABLE || "claude", kimi: env.KIMI_EXECUTABLE || "kimi", deepseek: env.DSH_EXECUTABLE || "dsh", antigravity: env.ANTIGRAVITY_EXECUTABLE || "agy" };
@@ -213,7 +216,8 @@ export class BotManager {
     catch {
       // A damaged operator setting must not crash the Host from a retry timer
       // or silently launch a different executable. Existing workers keep running.
-      const log = new RedactedLogTail(); log.write("Engine path settings are unavailable. Check the host settings file before restarting this Bot.\n"); this.logs.set(botId, log);
+      const previous = this.logs.get(botId)?.text() ?? "", notice = "Engine path settings are unavailable. Check the host settings file before restarting this Bot.\n";
+      const log = new RedactedLogTail(previous); if (!previous.endsWith(notice)) log.write(notice); this.logs.set(botId, log);
       const timer = setTimeout(() => { this.timers.delete(botId); this.launch(botId); }, 60_000); timer.unref(); this.timers.set(botId, timer);
       return;
     }

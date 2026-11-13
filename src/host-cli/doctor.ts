@@ -1,3 +1,4 @@
+import { ENGINE_SETTINGS_REPAIR_HINT } from "../client-protocol/engine-settings.js";
 import path from "node:path";
 import { hostEngineEnvironment } from "../runtime/host-engine-settings.js";
 import { readHubConfig } from "../hub/config.js";
@@ -31,11 +32,11 @@ export async function inspectHost(directory: string, env: NodeJS.ProcessEnv = pr
   let serviceEnvironmentDifferences: string[] = [], serviceEnvironmentCheck: string | undefined;
   try { serviceEnvironmentDifferences = await managedServiceEnvironmentDifferences(directory, env); }
   catch { serviceEnvironmentCheck = "host_service_environment_unavailable"; }
-  let engines: ReturnType<typeof inspectEngines>, environmentCheck: { error: string; variables: string[] } | undefined;
+  let engines: ReturnType<typeof inspectEngines>, environmentCheck: { error: string; variables: string[]; hint?: string } | undefined;
   try { engines = inspectEngines(hostEngineEnvironment(directory, buildHostEnvironment({ env }))); }
   catch (error) {
     if (error instanceof Error && error.message === "engine_settings_unavailable") {
-      engines = []; environmentCheck = { error: "engine_settings_unavailable", variables: [] };
+      engines = []; environmentCheck = { error: "engine_settings_unavailable", variables: [], hint: ENGINE_SETTINGS_REPAIR_HINT };
     } else {
     const candidate = error instanceof Error ? error.message.split(": ")[1] : undefined;
     const names = [...HOST_PRESERVED_ENVIRONMENT_KEYS, "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PATHEXT"] as string[];

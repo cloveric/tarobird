@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -32,4 +32,12 @@ it.each([{ CODEX_HOME: "relative-private-location" }, { HTTPS_PROXY: "private\np
   expect(result.environmentCheck).toEqual({ error: "host_environment_invalid", variables: [Object.keys(invalid)[0]] });
   expect(result.engines).toHaveLength(5);
   expect(JSON.stringify(result)).not.toContain(Object.values(invalid)[0]);
+});
+
+it("explains settings repair without falling back or changing a damaged file", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "doctor-settings-")); roots.push(root);
+  await writeFile(path.join(root, "engine-settings.json"), "broken", { mode: 0o600 });
+  const result = await inspectHost(root, { PATH: "/usr/bin" });
+  expect(result.engines).toEqual([]);
+  expect(result.environmentCheck).toMatchObject({ error: "engine_settings_unavailable", hint: expect.stringContaining("engine-settings.json") });
 });

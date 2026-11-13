@@ -12,6 +12,9 @@ export const storedEngineSettingsSchema = z.object({
   receipts: z.array(z.object({ requestId: z.string(), digest: z.string(), revision: z.string() })).max(32),
 }).strict();
 export type StoredEngineSettings = z.infer<typeof storedEngineSettingsSchema>;
+export class EngineSettingsReadError extends Error {
+  constructor() { super("engine_settings_unavailable"); this.name = "EngineSettingsReadError"; }
+}
 /** Private local state. An invalid/unreadable file must not silently select a
  * different executable. No shell evaluation, credentials, or profile loading. */
 export function readHostEngineSettings(directory: string): StoredEngineSettings {
@@ -21,16 +24,16 @@ export function readHostEngineSettings(directory: string): StoredEngineSettings 
     if (!expected.isFile() || expected.isSymbolicLink()) throw new Error();
     fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { format: 1, revision: "default", paths: {}, receipts: [] }; throw new Error("engine_settings_unavailable"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { format: 1, revision: "default", paths: {}, receipts: [] }; throw new EngineSettingsReadError(); }
   try {
     const info = fstatSync(fd);
     if (!info.isFile() || info.ino !== expected.ino || info.dev !== expected.dev || info.size > 65536 || (process.platform !== "win32" && (info.uid !== process.getuid?.() || (info.mode & 0o077)))) throw new Error();
     const bytes = Buffer.alloc(65537), size = readSync(fd, bytes, 0, bytes.length, 0);
     if (size > 65536) throw new Error();
     const value = storedEngineSettingsSchema.parse(JSON.parse(bytes.subarray(0, size).toString("utf8")));
-    if (Object.values(value.paths).some(file => !path.isAbsolute(file!))) throw new Error();
+    if (Object.values(value.paths).some(file => !path.isAbsolute(file!) || file !== file!.trim())) throw new Error();
     return value;
-  } catch { throw new Error("engine_settings_unavailable"); }
+  } catch { throw new EngineSettingsReadError(); }
   finally { closeSync(fd); }
 }
 export function hostEngineEnvironment(directory: string, base: NodeJS.ProcessEnv, settings = readHostEngineSettings(directory)): NodeJS.ProcessEnv {

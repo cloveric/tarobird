@@ -5228,5 +5228,7 @@
   "请填写主机上的完整绝对路径，不要填写命令参数或添加引号。": "Enter an absolute path on the host, without command arguments or enclosing quotes.",
   "该路径不是主机上可执行的文件，请检查位置和执行权限。": "This is not an executable file on the host. Check its location and execution permissions.",
   "保存结果未确认或设置已变化，请重新读取后再操作。": "The save could not be confirmed, or settings changed. Reload before trying again.",
-  "找不到引擎？检查 CLI 路径": "Engine missing? Check CLI paths"
+  "找不到引擎？检查 CLI 路径": "Engine missing? Check CLI paths",
+  "主机的引擎路径设置无法读取。请主机所有者备份并检查主机数据目录中的 engine-settings.json（格式、所有者和访问权限），修复或恢复备份后重新读取；不要直接删除文件。已运行的 Bot 不受影响。": "The host engine path settings cannot be read. Ask the host owner to back up and inspect engine-settings.json in the host data directory (format, owner and permissions), repair it or restore a backup, then read again. Do not simply delete it. Running Bots are unaffected.",
+  "此前选择的模型或推理强度已不可用，请重新选择。": "The selected model or reasoning effort is no longer available. Please choose again."
 }

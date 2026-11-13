@@ -11,3 +11,6 @@
 .engine-path-diagnostics { margin: 14px 0; }
 .engine-path-diagnostics li { overflow-wrap: anywhere; font-size: 12px; }
 .new-bot-engine-settings { margin: 12px 0; }
+
+.engine-path-gate { border: 0; padding: 0; margin: 0; min-width: 0; }
+.engine-path-recovery { margin: 12px 0; }

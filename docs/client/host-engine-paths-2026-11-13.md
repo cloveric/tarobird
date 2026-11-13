@@ -25,6 +25,10 @@ the reporter's exact installation and restart sequence remain unverified.
   read, not an automatic new write. Audit records omit executable paths.
 - Invalid settings do not silently select a different executable. Existing
   workers continue; new launches wait for the settings file to be repaired.
+  Owner API responses use `503 engine_settings_unavailable`; App, CLI and doctor
+  explain how to preserve and inspect the original file. Failed restart attempts
+  retain the previous worker error log instead of replacing it with a repeated
+  settings warning. Recovery does not delete or automatically rebuild the file.
 
 ## Discovery boundary
 
@@ -74,3 +78,27 @@ Source, fixture process and Chromium evidence are separate from an installed
 App release, physical Windows/macOS startup and the reporter's own machine.
 This implementation publishes no release and does not change the owner's
 installed App or saved Host settings.
+
+## Review follow-up
+
+Independent engine and UI reviews were checked against source and isolated
+reproductions before applying changes. New Bot preserves a still-available
+engine, model, effort and approval choice across path saves. Dirty or pending
+path saves prevent creation; an uncertain Bot creation freezes path edits until
+its idempotent retry settles. Configuring another engine does not silently
+replace the user's selected engine. If a refreshed catalog no longer offers the
+selected model or effort, the form asks for a new selection and retains the
+approval preference.
+
+The path editor ignores IME confirmation keys, maintains keyboard focus and
+uses the existing secondary button style. Error recovery remains visible after
+cancel or clear failure. Role/capability loss clears cached private settings and
+the unsaved-draft guard. Leading/trailing whitespace is rejected by the owner
+API instead of being accepted by detection and failing during process launch.
+
+Regressions include the former failures: API error classification and unchanged
+invalid/future-format files, preservation of worker stderr after restart,
+selection and stricter permissions, pending writes, IME Enter, focus/cancel,
+visible reread controls, and role changes during editing. Browser checks use
+isolated Chromium Hosts; they do not establish installed-App or physical-device
+acceptance. No dependency, release or live Host settings change is included.

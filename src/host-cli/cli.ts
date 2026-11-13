@@ -481,6 +481,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
         if (report.liveCheck) console.log(`后台引擎检查未完成：${report.liveCheck}`);
         if (report.serviceEnvironmentDifferences.length) console.log(`终端与后台服务的配置不同：${report.serviceEnvironmentDifferences.join("、")}。如需更新，停止主机后重新 service install。`);
         if (report.serviceEnvironmentCheck) console.log(`后台环境检查未完成：${report.serviceEnvironmentCheck}`);
+        if (report.environmentCheck?.hint) console.log(report.environmentCheck.hint);
         if (report.environmentCheck) console.log(`当前终端环境需检查：${report.environmentCheck.error}${report.environmentCheck.variables.length ? `（${report.environmentCheck.variables.join("、")}）` : ""}`);
         for (const note of report.notes) console.log(note);
       }
