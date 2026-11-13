@@ -762,7 +762,7 @@ test('DesktopServices keeps Host reset behind the migration gate', async () => {
   service.dispose();
 });
 
-test('a Host reset fences and purges every window, including one created during the reset; other Hosts keep working', async () => {
+test('a Host reset fences and purges every window, including one created during the reset; other Hosts keep working', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'tarobot-browser-reset-windows-')), registry = path.join(root, 'registry.json');
   const hostA = { host: 'windows-host-a', user: 'user-1', conversation: 'conv-a' }, hostB = { host: 'windows-host-b', user: 'user-1', conversation: 'conv-b' };
   const first = fixture({ options: { registry, partitionRoot: path.join(root, 'Partitions') } }), second = fixture({ options: { registry, partitionRoot: path.join(root, 'Partitions') } });
@@ -794,8 +794,7 @@ test('a Host reset fences and purges every window, including one created during 
   assert.equal(first.sessions.get(partitionFor(hostA)).cleared, true);
   // The fence ends with the reset in every window; a reused partition is registered again.
   assert.equal((await ask(late, hostA, { action: 'open', tab: 'a-again', url: 'https://a.example/4', requestId: '7' })).status, 'ok');
-  await new Promise(resolve => setTimeout(resolve, 20));
-  assert.ok(Object.hasOwn(JSON.parse(await readFile(registry, 'utf8')).partitions, partitionFor(hostA).slice('persist:'.length)));
+  await t.waitFor(async () => assert.ok(Object.hasOwn(JSON.parse(await readFile(registry, 'utf8')).partitions, partitionFor(hostA).slice('persist:'.length))), { timeout: 2_000 });
   for (const f of [first, second, late]) f.browser.dispose();
 });
 
