@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { discoverEngineDirectories } from "./engine-discovery.js";
 
 export const HOST_ENGINE_EXECUTABLE_KEYS = ["CODEX_EXECUTABLE", "CLAUDE_EXECUTABLE", "ANTIGRAVITY_EXECUTABLE", "KIMI_EXECUTABLE", "DSH_EXECUTABLE"] as const;
 export const HOST_CONFIG_DIRECTORY_KEYS = ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "DSH_HOME", "KIMI_CODE_HOME"] as const;
@@ -20,6 +21,7 @@ export function hostProcessEnvironment(options: HostEnvironmentOptions = {}): No
     paths.push(p.join(home, ".cargo/bin"), p.join(home, "scoop/shims"));
   } else paths.push("/opt/homebrew/bin", "/usr/local/bin");
   paths.push(...(lookup("PATH") ?? "").split(windows ? ";" : ":").filter(Boolean));
+  paths.push(...discoverEngineDirectories(home, env, platform));
   const seen = new Set<string>();
   const search = paths.filter(value => { const key = windows ? value.toLowerCase() : value; if (seen.has(key)) return false; seen.add(key); return true; }).join(windows ? ";" : ":");
   const result = { ...env };
@@ -27,7 +29,8 @@ export function hostProcessEnvironment(options: HostEnvironmentOptions = {}): No
   result.PATH = search;
   return result;
 }
-/** Same ordered search locations as desktop_host.rs. Only explicit engine paths,
+/** Native desktop_host.rs bootstraps Node; the shared Host adds manager fallbacks.
+ * Only explicit engine paths,
  * configuration directories and proxy settings are retained. Proxies can have
  * credentials, so the caller must keep the result private and never log it. */
 export function buildHostEnvironment(options: HostEnvironmentOptions = {}): Record<string, string> {

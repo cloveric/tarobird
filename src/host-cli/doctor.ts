@@ -1,4 +1,5 @@
 import path from "node:path";
+import { hostEngineEnvironment } from "../runtime/host-engine-settings.js";
 import { readHubConfig } from "../hub/config.js";
 import { inspectHubService } from "../hub/service.js";
 import { resolveEngineExecutable } from "../runtime/engine-process.js";
@@ -31,8 +32,11 @@ export async function inspectHost(directory: string, env: NodeJS.ProcessEnv = pr
   try { serviceEnvironmentDifferences = await managedServiceEnvironmentDifferences(directory, env); }
   catch { serviceEnvironmentCheck = "host_service_environment_unavailable"; }
   let engines: ReturnType<typeof inspectEngines>, environmentCheck: { error: string; variables: string[] } | undefined;
-  try { engines = inspectEngines(buildHostEnvironment({ env })); }
+  try { engines = inspectEngines(hostEngineEnvironment(directory, buildHostEnvironment({ env }))); }
   catch (error) {
+    if (error instanceof Error && error.message === "engine_settings_unavailable") {
+      engines = []; environmentCheck = { error: "engine_settings_unavailable", variables: [] };
+    } else {
     const candidate = error instanceof Error ? error.message.split(": ")[1] : undefined;
     const names = [...HOST_PRESERVED_ENVIRONMENT_KEYS, "PATH", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PATHEXT"] as string[];
     environmentCheck = { error: "host_environment_invalid", variables: candidate && names.includes(candidate) ? [candidate] : [] };
@@ -47,6 +51,7 @@ export async function inspectHost(directory: string, env: NodeJS.ProcessEnv = pr
       if (value && path.isAbsolute(value) && !/[\x00-\x1f\x7f]/.test(value)) fallback[key] = value;
     }
     engines = inspectEngines(buildHostEnvironment({ env: fallback }));
+    }
   }
   let database: { schema?: number; bots?: number; pendingMessages?: number; network?: { id: string; name: string; hosts: number } } | undefined;
   if (initialized) {

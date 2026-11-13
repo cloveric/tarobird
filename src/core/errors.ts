@@ -127,8 +127,8 @@ export function renderCoreUserFacingError(
   // ENOENT from spawn can mean either the executable/interpreter or cwd is missing.
   const missingLaunchPath = /^spawn [^\r\n]+ ENOENT(?:\r?\n|$)/.test(error instanceof Error ? error.message : String(error));
   if (phase === "engine" && missingLaunchPath) return locale === "en"
-    ? "Error: the engine could not start because its executable or working directory was not found. Check the CLI installation, host PATH and Bot workspace, then retry."
-    : "错误：无法启动引擎，找不到启动程序或工作目录。请检查主机的 CLI 安装、启动路径（PATH）和 Bot 工作目录后重试。";
+    ? "Error: the engine could not start because its executable or working directory was not found. Check the CLI installation, host PATH and Bot workspace, then retry. In Settings > Engine programs, the host owner can check detection and set the executable path."
+    : "错误：无法启动引擎，找不到启动程序或工作目录。请检查主机的 CLI 安装、启动路径（PATH）和 Bot 工作目录后重试。主机所有者可到「设置 → 引擎程序」检查检测结果或指定程序路径。";
   const isAntigravityAuth = category === "auth" && /(?:antigravity|\bagy\b)/i.test(errorText);
   const isClaudeAuth = category === "auth" && error instanceof Error && error.name === "ClaudeError";
   const isKimiAuth = category === "auth" && error instanceof Error && /^Kimi Code authentication required(?:$|\n)/.test(error.message);

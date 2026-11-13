@@ -3,6 +3,7 @@ import { runWorkbenchCommand } from "./workbench.js";
 import { runConversationsCommand } from './conversations.js';
 import { runBackupsCommand } from "./backups.js";
 import { runFoldersCommand } from './folders.js';
+import { engineSettingsCommand } from "./engine-settings.js";
 import { widgetSettingsCommand } from "./widget-settings.js";
 import { runWidgetsCommand, WIDGET_PUBLISH_USAGE } from "./widgets.js";
 import { voiceCommand } from "./voice.js";
@@ -146,6 +147,10 @@ export const HOST_CLI_HELP = `TaroBird — 同一台主机，桌面与命令行�
   workbench run CONVERSATION --from REQUEST.json --request-id ID [--context-message ID] [--file IMAGE] [--json]
     通过同一主机授权接口控制在线 App；返回真实回执。unknown 不代表成功，勿换编号自动重试。
     Markdown 笔记是 App 工作台对象，不是本机文件；导入导出只由用户在 App 中进行。
+  engines status [--request-id ID] [--json]
+  engines set --engine ENGINE --path ABSOLUTE_PATH --revision REV [--request-id ID]
+  engines reset --engine ENGINE --revision REV [--request-id ID]
+    路径属于运行主机；保存前只检查文件。新启动的 Bot 生效，已运行的 Bot 请空闲后重启。
   widgets status [--request-id ID] [--json]
   widgets set --enabled on|off --revision REV [--request-id ID] [--json]
   ${WIDGET_PUBLISH_USAGE}
@@ -302,11 +307,12 @@ export async function runHostCli(argv: string[]): Promise<void> {
   if (command === "network" && !v.help && !["local", "status", "inspect", "recover", "create", "offer", "routes", "propose", "admit", "join", "leave", "remove"].includes(sub ?? "")) throw new Error("未知 network 命令。请执行 tarobot network --help。");
   if (v.help || !command || command === "help") { console.log(HOST_CLI_HELP); return; }
   if (extra.length) throw new Error("多余的位置参数。请执行 tarobot --help。");
-  const commands = ["attachments", "screens", "workbench", "init", "run", "start", "stop", "restart", "status", "logs", "doctor", "enroll", "name", "drain", "drain-cancel", "service", "bots", "queue", "side", "tasks", "steer", "changes", "bus", "groups", "messages", "tickets", "widgets", "folders", "conversations", "devices", "pair", "network", "update", "backups", "backup", "restore", "directory", "integrations"];
+  const commands = ["attachments", "screens", "workbench", "init", "run", "start", "stop", "restart", "status", "logs", "doctor", "enroll", "name", "drain", "drain-cancel", "service", "bots", "queue", "side", "tasks", "steer", "changes", "bus", "groups", "messages", "tickets", "widgets", "engines", "folders", "conversations", "devices", "pair", "network", "update", "backups", "backup", "restore", "directory", "integrations"];
   if (!commands.includes(command)) throw new Error(`未知命令：${command}。请执行 tarobot --help。`);
   const allowed: Record<string, string[]> = {
     screens: ["from", "yes", "permission", "request-id"],
     workbench: ["from", "request-id", "context-message", "file"],
+    engines: ["engine", "path", "revision", "request-id"],
     backups: ["days", "revision", "request-id"],
     integrations: ["yes", "request-id", "mode", "enabled", "adapter", "threshold-seconds", "revision"], directory: ["from"], init: ["name"], stop: ["wait", "force"], restart: ["wait", "force"], enroll: ["reset", "yes"], name: ["name"], drain: ["wait"],
     service: ["yes"], bots: ["name", "engine", "model", "effort", "workspace", "permission", "request-id", "expected-name", "yes", "revision", "enabled", "role", "dispatch-mode", "max-concurrent", "allow", "from"],
@@ -326,7 +332,7 @@ export async function runHostCli(argv: string[]): Promise<void> {
     groups: ["from", "revision", "text-file", "file", "run", "request-id", "reply-to", "participants", "supersedes", "then", "if-running"],
   };
   for (const key of Object.keys(v)) if (!["state-dir", "json", "help", ...(allowed[command] ?? [])].includes(key)) throw new Error(`此命令不支持 --${key}。请执行 tarobot --help。`);
-  const positionalLimit: Record<string, number> = { screens: 3, workbench: 3, backups: 2, integrations: 3, directory: 2, name: 2, bots: 3, queue: 3, tasks: 3, steer: 3, side: 3, changes: 3, bus: 3, groups: 3, messages: 3, tickets: 3, widgets: 3, folders: 3, conversations: 2, devices: 3, service: 2, network: 3, update: 3, backup: 2, restore: 2 };
+  const positionalLimit: Record<string, number> = { screens: 3, workbench: 3, engines: 2, backups: 2, integrations: 3, directory: 2, name: 2, bots: 3, queue: 3, tasks: 3, steer: 3, side: 3, changes: 3, bus: 3, groups: 3, messages: 3, tickets: 3, widgets: 3, folders: 3, conversations: 2, devices: 3, service: 2, network: 3, update: 3, backup: 2, restore: 2 };
   if (command === "bus" && ["list", "create", "prepare"].includes(sub ?? "")) positionalLimit.bus = 2;
   if (command === "bots" && ["list", "catalog", "create"].includes(sub ?? "") || command === "devices" && ["list", "pending", "invites"].includes(sub ?? "") || command === "network" && sub !== "remove" || command === "update" && sub !== "apply") positionalLimit[command] = 2;
   if (p.length > (positionalLimit[command] ?? 1)) throw new Error("此命令不接受额外的位置参数。请执行 tarobot --help。");
@@ -391,6 +397,13 @@ export async function runHostCli(argv: string[]): Promise<void> {
   if (command === "backups") {
     const client = await LocalHostClient.connect(directory);
     try { await output(await runBackupsCommand(client, sub, { days: v.days, revision: v.revision, requestId: v["request-id"] }, id => console.error(`备份设置操作编号：${id}。结果未确认时用 backups status --request-id 核对。`))); }
+    finally { client.close(); }
+    return;
+  }
+  if (command === "engines") {
+    if (argument) throw new Error("请使用 engines status|set|reset --help。");
+    const client = await LocalHostClient.connect(directory);
+    try { await output(await engineSettingsCommand(client, sub ?? "", { engine: v.engine, path: v.path, revision: v.revision, requestId: v["request-id"] }, id => console.error(`引擎路径操作编号：${id}。结果未确认时用 engines status --request-id 核对。`))); }
     finally { client.close(); }
     return;
   }

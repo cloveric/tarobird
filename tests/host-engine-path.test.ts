@@ -24,16 +24,16 @@ afterEach(async () => {
 
 it.each(["darwin", "linux", "win32"] as const)("keeps %s host PATH consistent without changing overrides or the input environment", platform => {
   const windows = platform === "win32";
-  const home = windows ? "C:\\Users\\demo" : "/home/demo", executable = windows ? "D:\\TaroBot\\node.exe" : "/opt/tarobot/node";
-  const env = windows ? { Path: "C:\\Windows;C:\\custom", APPDATA: "C:\\Users\\demo\\AppData\\Roaming", CODEX_EXECUTABLE: "C:\\custom\\codex.cmd", MY_ENGINE_SETTING: "preserved" } : { PATH: "/usr/bin:/bin:/custom", CODEX_EXECUTABLE: "/custom/codex", MY_ENGINE_SETTING: "preserved" };
+  const home = windows ? "C:\\Users\\example" : "/home/example", executable = windows ? "D:\\TaroBot\\node.exe" : "/opt/tarobot/node";
+  const env = windows ? { Path: "C:\\Windows;C:\\custom", APPDATA: "C:\\Users\\example\\AppData\\Roaming", CODEX_EXECUTABLE: "C:\\custom\\codex.cmd", MY_ENGINE_SETTING: "preserved" } : { PATH: "/usr/bin:/bin:/custom", CODEX_EXECUTABLE: "/custom/codex", MY_ENGINE_SETTING: "preserved" };
   const snapshot = { ...env }, result = hostProcessEnvironment({ platform, home, executable, env });
   expect(env).toEqual(snapshot);
   expect(result.CODEX_EXECUTABLE).toBe(env.CODEX_EXECUTABLE);
   expect(result.MY_ENGINE_SETTING).toBe("preserved");
   expect(result.PATH).toBe(buildHostEnvironment({ platform, home, executable, env }).PATH);
   expect(hostProcessEnvironment({ platform, home, executable, env: result }).PATH).toBe(result.PATH);
-  if (windows) { expect(result.Path).toBeUndefined(); expect(result.PATH?.split(";")).toContain("C:\\Users\\demo\\AppData\\Roaming\\npm"); }
-  else { expect(result.PATH?.split(":")).toContain("/opt/homebrew/bin"); expect(result.PATH?.split(":")).toContain("/home/demo/.kimi-code/bin"); }
+  if (windows) { expect(result.Path).toBeUndefined(); expect(result.PATH?.split(";")).toContain("C:\\Users\\example\\AppData\\Roaming\\npm"); }
+  else { expect(result.PATH?.split(":")).toContain("/opt/homebrew/bin"); expect(result.PATH?.split(":")).toContain("/home/example/.kimi-code/bin"); }
 });
 
 it.each(["codex", "claude", "kimi", "agy", "dsh"])("explains a missing %s startup path without leaking the executable path or promising restart will fix it", engine => {
@@ -43,15 +43,18 @@ it.each(["codex", "claude", "kimi", "agy", "dsh"])("explains a missing %s startu
   expect(renderCoreUserFacingError(error, "engine", "zh")).not.toMatch(/重启|private/);
 });
 
-it.runIf(process.platform !== "win32").each(["detached", "foreground"] as const)("finds all five installed CLIs from a minimal system PATH in a real %s host", async mode => {
+it.runIf(process.platform !== "win32").each([ ["detached", "local"], ["foreground", "local"], ["detached", "managers"], ["foreground", "managers"] ] as const)("finds all five installed CLIs from a minimal system PATH in a real %s host (%s)", async (mode, layout) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "tb-path-")); roots.push(root);
   const home = path.join(root, "user"), directory = path.join(root, "host"); directories.push(directory);
   await mkdir(path.join(home, ".local/bin"), { recursive: true });
   // The catalog uses disposable executables, never a real engine or model.
   for (const command of ["codex", "claude", "kimi", "dsh", "agy"]) {
-    const cli = path.join(home, ".local/bin", command);
+    const dirs: Record<string, string> = { codex: ".nvm/versions/node/v22.12.0/bin", claude: ".volta/bin", kimi: ".asdf/shims", dsh: ".local/share/mise/shims", agy: ".bun/bin" };
+    const cli = path.join(home, layout === "local" ? ".local/bin" : dirs[command]!, command);
+    await mkdir(path.dirname(cli), { recursive: true });
     await writeFile(cli, "#!/bin/sh\nexit 0\n"); await chmod(cli, 0o700);
   }
+  if (layout === "managers") { await mkdir(path.join(home, ".nvm/alias"), { recursive: true }); await writeFile(path.join(home, ".nvm/alias/default"), "22\n"); }
   await initializeHost(directory, "PATH regression host");
   const identity = await readFile(path.join(directory, "identity.json"), "utf8");
   const env = { ...process.env, HOME: home, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", CODEX_EXECUTABLE: "", CLAUDE_EXECUTABLE: "", KIMI_EXECUTABLE: "", DSH_EXECUTABLE: "", ANTIGRAVITY_EXECUTABLE: "" };

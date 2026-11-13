@@ -1,0 +1,44 @@
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { hostProcessEnvironment } from "../src/host-cli/environment.js";
+import { resolveEngineExecutable } from "../src/runtime/engine-process.js";
+
+const roots: string[] = [];
+afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
+async function fixture() { const home = await mkdtemp(path.join(os.tmpdir(), "cli-discovery-")); roots.push(home); return home; }
+async function file(home: string, relative: string, text = "#!/bin/sh\nexit 0\n") {
+  const target = path.join(home, relative); await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, text); await chmod(target, 0o700); return target;
+}
+it.runIf(process.platform !== "win32").each([".volta/bin", ".bun/bin", ".asdf/shims", ".local/share/mise/shims"])("discovers %s with a minimal GUI PATH", async directory => {
+  const home = await fixture(), cli = await file(home, `${directory}/discovery-cli`);
+  expect(resolveEngineExecutable("discovery-cli", hostProcessEnvironment({ home, env: { PATH: "/usr/bin:/bin" } }))).toBe(cli);
+});
+it.runIf(process.platform !== "win32")("selects only nvm's default version and keeps the inherited PATH ahead of fallbacks", async () => {
+  const home = await fixture();
+  const chosen = await file(home, ".nvm/versions/node/v22.12.0/bin/discovery-cli");
+  await file(home, ".nvm/versions/node/v24.1.0/bin/discovery-cli");
+  await file(home, ".nvm/alias/default", "lts/example\n"); await file(home, ".nvm/alias/lts/example", "v22.12.0\n");
+  const env = hostProcessEnvironment({ home, env: { PATH: "/usr/bin:/bin" } });
+  expect(resolveEngineExecutable("discovery-cli", env)).toBe(chosen);
+  expect(env.PATH).not.toContain("v24.1.0");
+  const inherited = await file(home, "selected/bin/discovery-cli");
+  expect(resolveEngineExecutable("discovery-cli", hostProcessEnvironment({ home, env: { PATH: path.dirname(inherited) } }))).toBe(inherited);
+  expect(hostProcessEnvironment({ home, env }).PATH).toBe(env.PATH);
+});
+it.runIf(process.platform !== "win32")("bounds nvm alias traversal and never executes a profile or guesses an unselected version", async () => {
+  const home = await fixture(); await file(home, ".nvm/versions/node/v22.12.0/bin/discovery-cli");
+  await file(home, ".nvm/alias/default", "loop\n"); await file(home, ".nvm/alias/loop", "default\n");
+  expect(resolveEngineExecutable("discovery-cli", hostProcessEnvironment({ home, env: { PATH: "/usr/bin:/bin" } }))).toBeUndefined();
+  await file(home, ".nvm/alias/default", "../../outside\n");
+  expect(hostProcessEnvironment({ home, env: {} }).PATH).not.toContain("versions/node");
+});
+it.runIf(process.platform !== "win32")("follows fnm's default alias including a macOS path containing spaces", async () => {
+  const home = await fixture(), root = path.join(home, "Library/Application Support/fnm");
+  const cli = await file(home, "Library/Application Support/fnm/node-versions/v22.12.0/installation/bin/discovery-cli");
+  await mkdir(path.join(root, "aliases"), { recursive: true });
+  await symlink(path.dirname(path.dirname(cli)), path.join(root, "aliases/default"));
+  const env = hostProcessEnvironment({ home, platform: "darwin", env: { PATH: "/usr/bin:/bin" } });
+  expect(resolveEngineExecutable("discovery-cli", env)).toBe(path.join(root, "aliases/default/bin/discovery-cli"));
+});

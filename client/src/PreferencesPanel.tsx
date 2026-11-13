@@ -3,6 +3,7 @@ import type { WorkbenchFileTarget } from "./workbench-library-context.js";
 import { useDialogDrag } from "./dialog-drag.js";
 import { useSceneMotion } from "./use-scene-motion.js";
 import { BackupSettings } from "./BackupSettings.js";
+import { EngineSettings } from "./EngineSettings.js";
 import { WidgetSettings } from "./WidgetSettings.js";
 import { GoogleDocsSettings } from "./GoogleDocsSettings.js";
 import { VoiceSettings } from "./VoiceSettings.js";
@@ -41,7 +42,7 @@ import { ambiguousDeviceName, deviceDisplayName, deviceRevokeScope } from "./dev
 import "./device-settings.css";
 import { BotMessageGrants } from "./BotMessageGrants.js";
 
-type Section = "workbench" | "backups" | "general" | "network" | "notifications" | "devices" | "botMessages" | "voice";
+type Section = "workbench" | "backups" | "general" | "network" | "notifications" | "devices" | "botMessages" | "voice" | "engines";
 /** `created_at`/`last_seen` come from the host; 0 or missing means never recorded. */
 type Device = { id: string; name: string; nameSource?: "host"; platform: string; revoked: number; created_at?: number | string | null; last_seen?: number | string | null };
 /** Messages appear beside the control that produced them, not at the page end. */
@@ -124,13 +125,14 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   const [notificationDirty, setNotificationDirty] = useState(false), [notificationBusy, setNotificationBusy] = useState(false);
   const [backupDirty, setBackupDirty] = useState(false), [backupBusy, setBackupBusy] = useState(false);
   const [widgetBusy, setWidgetBusy] = useState(false);
+  const [engineBusy, setEngineBusy] = useState(false), [engineDirty, setEngineDirty] = useState(false);
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [voiceDirty, setVoiceDirty] = useState(false), [voiceBusy, setVoiceBusy] = useState(false);
   const [messageGrantsDirty, setMessageGrantsDirty] = useState(false), [messageGrantsBusy, setMessageGrantsBusy] = useState(false);
   const [deviceDrafts, setDeviceDrafts] = useState<Record<string, boolean>>({});
   const deviceDirty = Object.values(deviceDrafts).some(Boolean);
   const deviceDraftChange = useCallback((id: string, value: boolean) => setDeviceDrafts(previous => previous[id] === value ? previous : { ...previous, [id]: value }), []);
-  const dirty = notificationDirty || deviceDirty || messageGrantsDirty || voiceDirty || backupDirty, settingsBusy = libraryBusy || notificationBusy || messageGrantsBusy || voiceBusy || widgetBusy || backupBusy;
+  const dirty = notificationDirty || deviceDirty || messageGrantsDirty || voiceDirty || backupDirty || engineDirty, settingsBusy = libraryBusy || notificationBusy || messageGrantsBusy || voiceBusy || widgetBusy || backupBusy || engineBusy;
   const [scan, setScan] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]), [code, setCode] = useState("");
   const [selectedDevice, setSelectedDevice] = useState<string>(), [discardDeviceDraft, setDiscardDeviceDraft] = useState(false);
@@ -149,6 +151,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
 
   const sections = [
     { id: "general" as const, title: t("通用"), detail: t("语言、外观与个人头像"), icon: Settings2 },
+    { id: "engines" as const, title: t("引擎程序"), detail: t("检测 CLI 与手动指定程序路径"), icon: Monitor },
     { id: "network" as const, title: t("网络与连接"), detail: t("连接线路、VPS 与主机组网"), icon: Globe },
     { id: "workbench" as const, title: t("工作台文件"), detail: t("集中管理白板、笔记与设计"), icon: FolderOpen },
     { id: "backups" as const, title: t("数据与备份"), detail: t("自动备份、保留天数与空间占用"), icon: Database },
@@ -396,7 +399,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
     <header ref={header} className="preferences-header"><button className={`icon-button${phone ? " settings-back" : ""}`} aria-label={upToCategories ? t("返回设置分类") : backLabel ?? t("关闭设置")} disabled={busy || settingsBusy} onClick={goBack}>{phone || backLabel ? <ChevronLeft size={24}/> : <X size={20}/>}</button><h2 ref={heading}>{page || backLabel && !overview ? pageTitle : t("设置")}</h2></header>
     <div className="preferences-body">
       {!singleSection && <nav className="settings-navigation" aria-label={t("设置分类")}>
-        {sections.map(({ id, title, detail, icon: Icon }) => <button key={id} type="button" data-section={id} disabled={busy || settingsBusy} aria-current={!phone && section === id ? "page" : undefined} onClick={() => select(id)}><Icon size={20}/><span><strong>{title}</strong><small>{detail}</small></span>{((id === "notifications" && notificationDirty) || (id === "devices" && deviceDirty) || (id === "botMessages" && messageGrantsDirty) || (id === "voice" && voiceDirty) || (id === "backups" && backupDirty)) && <span role="img" className="settings-unsaved-dot" aria-label={t("有未保存的修改")}/>}<ChevronRight className="settings-chevron" size={17}/></button>)}
+        {sections.map(({ id, title, detail, icon: Icon }) => <button key={id} type="button" data-section={id} disabled={busy || settingsBusy} aria-current={!phone && section === id ? "page" : undefined} onClick={() => select(id)}><Icon size={20}/><span><strong>{title}</strong><small>{detail}</small></span>{((id === "notifications" && notificationDirty) || (id === "devices" && deviceDirty) || (id === "botMessages" && messageGrantsDirty) || (id === "voice" && voiceDirty) || (id === "backups" && backupDirty) || (id === "engines" && engineDirty)) && <span role="img" className="settings-unsaved-dot" aria-label={t("有未保存的修改")}/>}<ChevronRight className="settings-chevron" size={17}/></button>)}
       </nav>}
       <div ref={content} className="settings-content">
         <section hidden={section !== "network"} aria-label={t("网络与连接")} className="network-settings">
@@ -421,6 +424,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
           </div>
           <details className="network-settings-help"><summary>{t("第一次连接，应该从哪里开始？")}</summary><p>{t("新手机或电脑：点击「添加设备」展示二维码，让新设备扫码，再输入新设备上的 8 位配对码确认。")}</p><p>{t("外出时需要访问主机：到「连接状态与线路」配置可用的 VPS 中转或 Tailscale。填写地址不会自动部署服务器和隧道。")}</p></details>
         </section>
+        <section hidden={section !== "engines"} aria-label={t("引擎程序")}><h3>{t("引擎程序")}</h3><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "engines" && (!phone || !overview)} onDirty={setEngineDirty} onBusy={setEngineBusy}/></section>
         <section hidden={section !== "workbench"} aria-label={t("工作台文件")}><h3>{t("工作台文件")}</h3><WorkbenchLibrary connection={connection} active={section === "workbench" && (!phone || !overview)} onBusy={setLibraryBusy} onOpened={close} openLocalFile={openWorkbenchFile}/></section>
         <section hidden={section !== "backups"} aria-label={t("数据与备份")}><h3>{t("数据与备份")}</h3><BackupSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "backups" && (!phone || !overview)} onDirty={setBackupDirty} onBusy={setBackupBusy}/></section>
         <section hidden={section !== "voice"} aria-label={t("语音转写")}><h3>{t("语音转写")}</h3><VoiceSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "voice" && (!phone || !overview)} onDirty={setVoiceDirty} onBusy={setVoiceBusy}/></section>
@@ -541,7 +545,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
     {confirmation && <CreationDialog key={confirmationKey} title={confirmation.kind === "discard" ? t("放弃未保存的修改？") : confirmation.kind === "revoke" ? t("撤销设备授权？") : t("断开并重新配对？")} close={() => setConfirmation(undefined)} closeLabel={t("关闭确认")}>
       {confirmation.kind === "revoke" && <><p><strong>{deviceLabel(confirmation.device)}</strong></p>{revokeFacts(confirmation.device)}<p>{deviceRevokeScope(state.network, connection.identity.hubPublicKey, confirmation.device.id)}</p><p className="muted">{t("撤销设备访问不会让电脑退出组网，也不会删除 Bot。主机退出网络请到「设备与网络」操作。")}</p></>}
       <p className="muted">{confirmation.kind === "discard" ? confirmation.next === "hosts" ? t("设置修改尚未保存。放弃这些修改并打开主机管理？") : confirmation.next === "navigate" ? t("设置修改尚未保存。放弃这些修改并继续？") : t("设置修改尚未保存。放弃这些修改并关闭设置？") : confirmation.kind === "revoke" ? t("该设备上已缓存的历史消息和完整文件会保留。不确定是哪台设备时，请先取消并到那台设备上核对。") : t("将清除此设备上的缓存、草稿和未发送消息，并回到配对页。主机上的历史消息会保留，此设备的授权不会自动撤销。")}</p>
-      <div className="quick-actions"><button onClick={() => { setConfirmation(undefined); if (confirmation.kind === "discard") { if (notificationDirty) select("notifications"); else if (deviceDirty) select("devices"); else if (messageGrantsDirty) select("botMessages"); else if (voiceDirty) select("voice"); else if (backupDirty) select("backups"); } }}>{confirmation.kind === "discard" ? t("继续编辑") : t("取消")}</button><button className="text-danger" disabled={busy || (confirmation.kind === "revoke" && !online)} onClick={() => {
+      <div className="quick-actions"><button onClick={() => { setConfirmation(undefined); if (confirmation.kind === "discard") { if (notificationDirty) select("notifications"); else if (deviceDirty) select("devices"); else if (messageGrantsDirty) select("botMessages"); else if (voiceDirty) select("voice"); else if (backupDirty) select("backups"); else if (engineDirty) select("engines"); } }}>{confirmation.kind === "discard" ? t("继续编辑") : t("取消")}</button><button className="text-danger" disabled={busy || (confirmation.kind === "revoke" && !online)} onClick={() => {
         const action = confirmation; setConfirmation(undefined);
         if (action.kind === "discard") { close(); if (action.next === "hosts") void forget(); else if (action.next === "navigate") { const navigate = pendingNavigation.current; pendingNavigation.current = undefined; navigate?.(); } }
         else if (action.kind === "revoke") {

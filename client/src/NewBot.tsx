@@ -1,3 +1,4 @@
+import { EngineSettings } from "./EngineSettings.js";
 import { PermissionSelect } from "./PermissionSelect.js";
 import type { PermissionChoice } from "../../src/state/permission-options.js";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
@@ -41,7 +42,7 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
   // Hub". A dropped connection retries by itself once online; other failures
   // offer an explicit retry instead of requiring the dialog to be reopened.
   const [catalogError, setCatalogError] = useState<"offline" | "failed" | "forbidden" | "unsupported">();
-  const [catalogAttempt, setCatalogAttempt] = useState(0), online = state.status === "online";
+  const [catalogAttempt, setCatalogAttempt] = useState(0), [pathsOpen, setPathsOpen] = useState(false), [pathsBusy, setPathsBusy] = useState(false), online = state.status === "online";
   useEffect(() => {
     if (catalog) return;
     let alive = true; setCatalogError(undefined);
@@ -69,12 +70,13 @@ export function NewBot({ hostName, localHost = false, connection, close, chat, s
   };
   const bot = state.bots.find((b) => b.id === created?.id) ?? created;
   useEffect(() => { if (!bot || bot.online) { setSlowStart(false); return; } const timer = setTimeout(() => setSlowStart(true), 15_000); return () => clearTimeout(timer); }, [bot?.id, bot?.online]);
-  return <CreationDialog className={`bot-setup${bot ? "" : " conversation-creation"}`} title={t("新建 Bot")} close={close} busy={busy}>{bot ? <div className="bot-created"><Avatar kind="bot" id={bot.id} name={bot.name} size={64}/><h3>{t("{0} 已创建", bot.name)}</h3><p>{bot.engine} · {bot.model || t("引擎默认")} · {bot.effort || t("引擎默认")}</p><p role="status">{bot.online ? t("Bot 已上线，可以开始对话。") : slowStart ? t("Bot 已创建但尚未上线，可在运行状态中查看详情并重试启动。") : t("Bot 正在启动，进入对话后可以先写消息。")}</p>{recommend && <IntegrationRecommendations connection={connection} disabled={state.status !== "online"} prepare={features => setup!(bot, features)}/>}<button className={recommend ? "full" : "primary full"} onClick={() => chat(bot)}>{recommend ? t("跳过，开始对话") : t("开始对话")}</button></div> : <form className="new-bot-form" aria-busy={busy || undefined} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+  return <CreationDialog className={`bot-setup${bot ? "" : " conversation-creation"}`} title={t("新建 Bot")} close={close} busy={busy || pathsBusy}>{bot ? <div className="bot-created"><Avatar kind="bot" id={bot.id} name={bot.name} size={64}/><h3>{t("{0} 已创建", bot.name)}</h3><p>{bot.engine} · {bot.model || t("引擎默认")} · {bot.effort || t("引擎默认")}</p><p role="status">{bot.online ? t("Bot 已上线，可以开始对话。") : slowStart ? t("Bot 已创建但尚未上线，可在运行状态中查看详情并重试启动。") : t("Bot 正在启动，进入对话后可以先写消息。")}</p>{recommend && <IntegrationRecommendations connection={connection} disabled={state.status !== "online"} prepare={features => setup!(bot, features)}/>}<button className={recommend ? "full" : "primary full"} onClick={() => chat(bot)}>{recommend ? t("跳过，开始对话") : t("开始对话")}</button></div> : <form className="new-bot-form" aria-busy={busy || undefined} onSubmit={(e) => { e.preventDefault(); void submit(); }}>
     <p className="new-bot-lead">{t("设置一次，开对话、开群和开话题都能直接选用。")}</p>
     {/* Engine catalog problems lead the form, outside the disabled fieldset, so their cause and retry are seen first. */}
     {catalogError && <div role="alert" className="error-text new-bot-alert new-bot-catalog"><p>{catalogMessage}</p>{catalogError !== "forbidden" && catalogError !== "unsupported" && <button type="button" disabled={!online} onClick={() => setCatalogAttempt(value => value + 1)}>{t("重新读取")}</button>}</div>}
     {catalog && !catalog.engines.some((e) => e.available) && <p role="alert" className="new-bot-alert new-bot-catalog is-warning">{t("此主机尚未检测到支持的 AI CLI。请先在主机上安装至少一种引擎，再重新打开此页面。")}</p>}
-    <fieldset disabled={busy || !!pending.current} className="bot-fields">
+    {state.engineSettingsAvailable && <details className="new-bot-engine-settings" onToggle={event => setPathsOpen(event.currentTarget.open)}><summary>{t("找不到引擎？检查 CLI 路径")}</summary><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={pathsOpen} onBusy={setPathsBusy} onSaved={() => { setCatalog(undefined); setCatalogAttempt(value => value + 1); }}/></details>}
+    <fieldset disabled={busy || pathsBusy || !!pending.current} className="bot-fields">
     <div className="new-bot-block">
       <label>{t("Bot 名称")}<input autoFocus required maxLength={100} value={name} placeholder={t("例如：研究助手、代码助手")} onChange={(e) => setName(e.target.value)}/></label>
       <p className="new-bot-hint bot-avatar-hint">{t("创建后会自动分配一个精灵头像，可在 Bot 设置中更换。")}</p>

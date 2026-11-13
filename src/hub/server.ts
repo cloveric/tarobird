@@ -13,6 +13,8 @@ import { ConversationBatchOperations } from './conversation-batch.js';
 import { nativeInputControlRequestSchema } from "../client-protocol/steering.js";
 import { NATIVE_INPUT_CAPABILITY, NATIVE_REVIEW_INPUT_CAPABILITY, nativeInputControlResultSchema } from "../client-protocol/native-input.js";
 import { STEERING_OUTCOME_CAPABILITY } from "../client-protocol/steering-outcome.js";
+import { HubEngineSettings } from "./engine-settings.js";
+import { engineSettingsUpdateSchema } from "../client-protocol/engine-settings.js";
 import { HubWidgetSettings } from "./widget-settings.js";
 import { automaticBackupSummary, readBackupSettings, updateBackupSettings } from "./backup-settings.js";
 import { backupSettingsUpdateSchema } from "../client-protocol/backup-settings.js";
@@ -149,6 +151,7 @@ export class HubServer {
   readonly fileCenter: HubFileCenter;
   readonly workspaceDiff: HubWorkspaceDiff;
   readonly runChanges: HubRunChanges;
+  readonly engineSettings: HubEngineSettings;
   readonly widgetSettings: HubWidgetSettings;
   private readonly sideSessions: HubSideSessions;
   readonly voiceSettings: HubVoiceSettings;
@@ -319,6 +322,7 @@ export class HubServer {
     this.designSharing = new DesignShareBroker({repository:metaDesignShareRepository(store.db),requireMember:(userId,conversationId)=>store.db.serial(()=>store.requireMember(userId,conversationId)),userName:async userId=>(await store.user(userId))?.name});
     this.runChanges = new HubRunChanges(store);
     this.relaySources = options.relaySources ?? new RelaySources();
+    this.engineSettings = new HubEngineSettings(options.stateDir, () => options.managedBots?.env ?? process.env);
     this.widgetSettings = new HubWidgetSettings(options.stateDir);
     this.sideSessions = new HubSideSessions(store, auth, (botId, method, params, timeout) => this.callBot(botId, method, params, timeout));
     this.disposers.push(() => this.sideSessions.dispose());
@@ -1552,6 +1556,20 @@ export class HubServer {
           ? await updateBackupSettings(this.store, this.options.stateDir, backupSettingsUpdateSchema.parse(await this.jsonBody(req, 4096)), session.deviceId, validateInQueue)
           : await serial(() => readBackupSettings(this.store.db, idSchema.optional().parse(url.searchParams.get("requestId") ?? undefined)));
         await reply(200, { ...view, snapshots: await automaticBackupSummary(this.options.stateDir) }); return;
+      }
+      if (route === "/api/settings/engines" && ["GET", "PUT"].includes(req.method ?? "")) {
+        await requireOwner();
+        let view;
+        if (req.method === "PUT") {
+          const command = engineSettingsUpdateSchema.parse(await this.jsonBody(req, 8192));
+          view = await this.engineSettings.update(command, operation => serial(async () => {
+            await this.store.requireOwner(userId);
+            await operation();
+            // Executable paths are private host diagnostics, never audit payloads.
+            await this.store.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), session.deviceId, "engines.settings-updated", JSON.stringify({ engine: command.engine, manual: command.path !== null, requestId: command.requestId })]);
+          }));
+        } else view = this.engineSettings.status(idSchema.optional().parse(url.searchParams.get("requestId") ?? undefined));
+        await reply(200, view); return;
       }
       if (route === "/api/settings/widgets" && ["GET", "PUT"].includes(req.method ?? "")) {
         await requireOwner();

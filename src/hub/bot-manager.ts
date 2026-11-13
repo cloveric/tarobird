@@ -1,3 +1,4 @@
+import { hostEngineEnvironment } from "../runtime/host-engine-settings.js";
 import { assignNewBotAvatar } from "./bot-avatar-default.js";
 import { publishExclusive } from "../state/publish-exclusive.js";
 import { resolveEngineExecutable } from "../runtime/engine-process.js";
@@ -56,17 +57,17 @@ export class BotManager {
   private restartQueued = new WeakSet<ChildProcess>();
   private restartTasks = new Set<Promise<RestartResult>>();
   constructor(readonly store: HubStore, readonly directory: string, readonly options: BotManagerOptions, readonly instanceUrl: () => string, readonly changed: (id: string) => Promise<void>) {}
-  private get env(): NodeJS.ProcessEnv { return this.options.env ?? process.env; }
+  private get env(): NodeJS.ProcessEnv { return hostEngineEnvironment(this.directory, this.options.env ?? process.env); }
   capabilities(engine: InstanceEngine) { return readEngineCapabilities(engine, { env: this.env }); }
-  private engineBinaries(): Record<InstanceEngine, string> {
-    return { codex: this.env.CODEX_EXECUTABLE || "codex", claude: this.env.CLAUDE_EXECUTABLE || "claude", kimi: this.env.KIMI_EXECUTABLE || "kimi", deepseek: this.env.DSH_EXECUTABLE || "dsh", antigravity: this.env.ANTIGRAVITY_EXECUTABLE || "agy" };
+  private engineBinaries(env = this.env): Record<InstanceEngine, string> {
+    return { codex: env.CODEX_EXECUTABLE || "codex", claude: env.CLAUDE_EXECUTABLE || "claude", kimi: env.KIMI_EXECUTABLE || "kimi", deepseek: env.DSH_EXECUTABLE || "dsh", antigravity: env.ANTIGRAVITY_EXECUTABLE || "agy" };
   }
-  engineAvailable(engine: InstanceEngine): boolean { return !!resolveEngineExecutable(this.engineBinaries()[engine], this.env); }
+  engineAvailable(engine: InstanceEngine): boolean { const env = this.env; return !!resolveEngineExecutable(this.engineBinaries(env)[engine], env); }
   async catalog(): Promise<BotCatalog> {
-    const bins = this.engineBinaries();
+    const env = this.env, bins = this.engineBinaries(env);
     return { engines: await Promise.all((Object.keys(bins) as InstanceEngine[]).map(async (id) => {
-      const available = !!resolveEngineExecutable(bins[id], this.env);
-      const models = id === "antigravity" && !available ? [{ id: "", efforts: [""] }] : await modelCatalog(id, this.env);
+      const available = !!resolveEngineExecutable(bins[id], env);
+      const models = id === "antigravity" && !available ? [{ id: "", efforts: [""] }] : await modelCatalog(id, env);
       const defaults: Record<string, unknown> = {}; applyEngineSelection(defaults, id);
       if (id === "antigravity") defaults.model = preferredAntigravityModel(models);
       return { id, available, models, permissions: { defaultChoice: defaultPermission(id), choices: permissionOptions(id) }, defaultModel: String(defaults.model ?? (id === "codex" ? CODEX_MODEL_CHOICES[0] : "")), defaultEffort: String(defaults.effort ?? "") };
@@ -207,8 +208,17 @@ export class BotManager {
   }
   private launch(botId: string): ChildProcess | undefined {
     if (this.stopping || this.draining || this.deleted.has(botId) || this.children.has(botId)) return;
+    let env: NodeJS.ProcessEnv;
+    try { env = this.env; }
+    catch {
+      // A damaged operator setting must not crash the Host from a retry timer
+      // or silently launch a different executable. Existing workers keep running.
+      const log = new RedactedLogTail(); log.write("Engine path settings are unavailable. Check the host settings file before restarting this Bot.\n"); this.logs.set(botId, log);
+      const timer = setTimeout(() => { this.timers.delete(botId); this.launch(botId); }, 60_000); timer.unref(); this.timers.set(botId, timer);
+      return;
+    }
     const stateDir = path.join(this.directory, "bots", botId);
-    const child = fork(this.options.entrypoint, ["gateway", "run", "--state-dir", stateDir, "--bot-id", botId, "--hub-url", this.instanceUrl().replace(/^http/, "ws") + "/instance"], { env: { ...this.env, TAROBOT_CLI_ENTRYPOINT: this.options.entrypoint, TAROBOT_NODE_EXECUTABLE: process.execPath, TAROBOT_HOST_DIR: this.directory, TAROBOT_INSTANCE: botId, TAROBOT_STATE_DIR: stateDir }, execArgv: [], ...{ windowsHide: true }, stdio: ["ignore", "ignore", "pipe", "ipc"] });
+    const child = fork(this.options.entrypoint, ["gateway", "run", "--state-dir", stateDir, "--bot-id", botId, "--hub-url", this.instanceUrl().replace(/^http/, "ws") + "/instance"], { env: { ...env, TAROBOT_CLI_ENTRYPOINT: this.options.entrypoint, TAROBOT_NODE_EXECUTABLE: process.execPath, TAROBOT_HOST_DIR: this.directory, TAROBOT_INSTANCE: botId, TAROBOT_STATE_DIR: stateDir }, execArgv: [], ...{ windowsHide: true }, stdio: ["ignore", "ignore", "pipe", "ipc"] });
     this.children.set(botId, child);
     const log = new RedactedLogTail(this.logs.get(botId)?.text()); this.logs.set(botId, log);
     child.stderr?.on("data", (chunk: Buffer) => log.write(chunk));

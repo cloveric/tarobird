@@ -2,6 +2,34 @@
 
 TaroBot can run as a headless host. You can close its desktop window and use a paired phone to create Bots, send tasks, respond to approvals and receive files. The host computer still needs to be awake and reachable. TaroBot's CLI manages the host; the installed AI CLIs execute the work.
 
+## 引擎程序路径
+
+App 的「设置 → 引擎程序」和「新建 Bot → 找不到引擎？检查 CLI 路径」
+可查看所选主机的检测结果，并为五种引擎手动填写程序的完整路径。
+手机中填写的也是主机上的路径；检测成功不等于已登录引擎。
+
+无桌面主机使用相同的 owner API：
+
+```sh
+tarobird engines status --json
+tarobird engines set --engine codex --path /opt/tools/codex --revision REV --json
+tarobird engines reset --engine codex --revision REV --json
+```
+
+`REV` 使用刚读取的 `revision`。支持 `codex`、`claude`、`antigravity`、
+`kimi`、`deepseek`；Windows 可以填写 `.exe` 或 `.cmd` 的绝对路径。
+路径中有空格时用终端引号包住参数，但不要把引号本身保存为路径。
+手动路径优先于主机的 `CODEX_EXECUTABLE` 等变量；reset 只清除此项设置，
+恢复到环境变量或自动检测。设置不会修改登录信息；保存接口只检查文件，不启动或重启 Bot。
+新建 Bot 重新读取模型目录时，仍沿用现有的 CLI 模型发现机制。
+
+保存后，新启动的主机托管 Bot 使用新路径。已运行的 Bot 请在空闲后重启；
+保存不会打断当前任务。若请求结果不确定，保留操作编号并运行
+`tarobird engines status --request-id ID --json` 核对，不要换编号反复提交。
+搜索目录和程序路径属于私有主机诊断信息，分享日志前请自行隐去个人路径。
+旧主机不支持此接口时，需要先更新主机。
+详见[发现机制和验证边界](client/host-engine-paths-2026-11-13.md)。
+
 ## Bot 人设小节（源码新增）
 
 `tarobot bots persona BOT_ID --json` 读取当前人设和 `revision`。
