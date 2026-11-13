@@ -603,9 +603,9 @@
     },
     {
       "path": "docs/client/browser-extensions-2026-11-01.md",
-      "sha256": "2c3cfec435533d4104b56f7a7bd666f3496724123f397037a48a0d13cff29b9e",
+      "sha256": "bb18a258a2f672ea121f9d7661cb0623b067d1e85b4c1cb5ca92ced82baef1f3",
       "reviewer": "codex",
-      "note": "Reviewed documented synthetic names, API property names, version numbers and reserved network range examples; no real owner data.",
+      "note": "Re-reviewed the unchanged storage.local extension API name and the caption compatibility documentation; no owner data or new exemptions.",
       "findings": [
         {
           "kind": "device-or-tailnet-name",

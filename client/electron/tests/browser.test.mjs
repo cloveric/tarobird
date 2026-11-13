@@ -6,7 +6,7 @@ import { parseBrowserAction, parseBrowserLayout, parseBrowserReset, BROWSER_ACTI
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { classifyURL, navigationURL, partitionFor, privateHost, browserUserAgent } from '../browser-policy.mjs';
+import { classifyURL, installRequestFilter, navigationURL, partitionFor, privateHost, browserUserAgent, removeRequestFilter } from '../browser-policy.mjs';
 import { pageScript, PAGE_OPERATIONS } from '../browser-page.mjs';
 import { DESKTOP_COMMANDS, DESKTOP_EVENTS } from '../contract.mjs';
 import { DesktopServices } from '../desktop-services.mjs';
@@ -63,7 +63,7 @@ class Contents extends EventEmitter {
 class View { constructor({ webPreferences, webContents } = {}) { this.webContents = webContents ?? new Contents(webPreferences); this.bounds = undefined; this.shown = undefined; }
   setBounds(bounds) { this.bounds = bounds; } setVisible(value) { this.shown = value; } setBackgroundColor() {} }
 
-function fixture({ visible = true, zoom = 1, dialogs = [], options = {} } = {}) {
+function fixture({ visible = true, zoom = 1, dialogs = [], options = {}, userAgent = 'Mozilla/5.0 Chrome/140 Electron/45.1.0 Safari/537.36' } = {}) {
   const window = new EventEmitter(), children = [], events = [], sessions = new Map();
   let fullScreen = false;
   Object.assign(window, { isVisible: () => visible, isMinimized: () => false, isDestroyed: () => false, show() { visible = true; },
@@ -71,7 +71,8 @@ function fixture({ visible = true, zoom = 1, dialogs = [], options = {} } = {}) 
     getContentBounds: () => ({ x: 0, y: 0, width: 1200, height: 800 }), webContents: { getZoomFactor: () => zoom, send() {} },
     contentView: { addChildView: view => children.push(view), removeChildView: view => children.splice(children.indexOf(view), 1) } });
   const session = { fromPartition(name) {
-    if (!sessions.has(name)) sessions.set(name, Object.assign(new EventEmitter(), { name, webRequest: { onBeforeRequest: (filter, fn) => { sessions.get(name).requests = { filter, fn }; } }, agent: 'Mozilla/5.0 Chrome/140 Electron/45.1.0 Safari/537.36', getUserAgent() { return this.agent; }, setUserAgent(value) { this.agent = value; },
+    if (!sessions.has(name)) sessions.set(name, Object.assign(new EventEmitter(), { name, webRequest: { onBeforeRequest: (filter, fn) => { sessions.get(name).requests = { filter, fn }; },
+      onBeforeSendHeaders: (filter, fn) => { sessions.get(name).headers = filter === null ? undefined : { filter, fn }; } }, agent: userAgent, getUserAgent() { return this.agent; }, setUserAgent(value) { this.agent = value; },
       setPermissionCheckHandler(fn) { this.check = fn; }, setPermissionRequestHandler(fn) { this.permission = fn; }, setDevicePermissionHandler(fn) { this.device = fn; },
       setDisplayMediaRequestHandler() {},
       clearStorageData: async () => { sessions.get(name).cleared = true; }, clearCache: async () => {}, clearAuthCache: async () => {}, clearHostResolverCache: async () => {} }));
@@ -131,9 +132,56 @@ test('URL policy keeps http(s) in pages, confirms mail/tel and blocks file, App 
   assert.throws(() => navigationURL('mailto:x@example.org'), /unsupported_scheme/);
   for (const host of ['localhost', 'a.localhost', '127.0.0.1', '10.1.2.3', '192.168.1.1', '172.20.0.1', '[::1]', '169.254.1.1']) assert.equal(privateHost(host), true, host);
   for (const host of ['example.org', '8.8.8.8', ['172', '32', '0', '1'].join('.')]) assert.equal(privateHost(host), false, host);
-  for (const app of ['TaroBird/1.0.121', 'TaroBotElectronAcceptance/45.1.0', 'tarobot-desktop/1.0.0'])
-    assert.equal(browserUserAgent(`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ${app} Chrome/140.0 Electron/45.1.0 Safari/537.36`),
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36');
+  for (const app of ['TaroBird/1.0.121', 'TaroBotElectronAcceptance/45.1.0', 'tarobot-desktop/1.0.0']) {
+    const own = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) ${app} Chrome/140.0 Electron/45.1.0 Safari/537.36`;
+    assert.equal(browserUserAgent(own), 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36');
+    assert.equal(browserUserAgent(own, true), 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Electron/45.1.0 Safari/537.36', 'the engine form never names the App');
+  }
+});
+
+test("YouTube's integrity-token request names the Electron engine while everything else stays stripped", async () => {
+  const f = fixture();
+  await f.call({ action: 'open', tab: 't1', url: 'https://www.youtube.com/watch?v=x', requestId: 'o' });
+  const session = f.sessions.get(partitionFor(scope)), engine = 'Mozilla/5.0 Chrome/140 Electron/45.1.0 Safari/537.36', stripped = 'Mozilla/5.0 Chrome/140 Safari/537.36';
+  assert.equal(session.agent, stripped, 'pages and all other requests keep the stripped User-Agent');
+  // Only this endpoint: not the page, captions, other YouTube APIs or other hosts.
+  assert.deepEqual(session.headers?.filter, { urls: ['https://www.youtube.com/api/jnn/*'] });
+  const send = requestHeaders => new Promise(resolve => session.headers.fn({ url: 'https://www.youtube.com/api/jnn/v1/GenerateIT', requestHeaders }, resolve));
+  assert.deepEqual(await send({ 'User-Agent': stripped, Accept: '*/*' }), { requestHeaders: { Accept: '*/*', 'User-Agent': engine } });
+  assert.deepEqual(await send({ 'user-agent': stripped }), { requestHeaders: { 'User-Agent': engine } }, 'one header whatever its case');
+  const headers = { 'USER-AGENT': stripped, 'User-Agent': stripped, Accept: '*/*', 'X-Example': 'keep' };
+  assert.deepEqual(await send(headers), { requestHeaders: { Accept: '*/*', 'X-Example': 'keep', 'User-Agent': engine } });
+  assert.equal(headers['USER-AGENT'], stripped, 'does not mutate the supplied headers');
+  for (const url of ['https://www.youtube.com/watch?v=x', 'https://www.youtube.com/api/timedtext',
+    'https://www.youtube.com/api/jnn-other/x', 'http://www.youtube.com/api/jnn/x',
+    'https://www.youtube.com:8443/api/jnn/x', 'https://www.youtube.com.evil.test/api/jnn/x',
+    'https://youtube.com/api/jnn/x', 'https://user@www.youtube.com/api/jnn/x', 'invalid']) {
+    assert.deepEqual(await new Promise(resolve => session.headers.fn({ url, requestHeaders: headers }, resolve)), {}, url);
+  }
+  // Extension compatibility mode removes the session's listeners together and restores them together.
+  removeRequestFilter(session); assert.equal(session.headers, undefined); assert.equal(session.requests.filter, null);
+  installRequestFilter(session); assert.deepEqual(session.headers.filter, { urls: ['https://www.youtube.com/api/jnn/*'] });
+  assert.deepEqual(await send({ 'User-Agent': stripped }), { requestHeaders: { 'User-Agent': engine } });
+});
+
+test('caption compatibility retains each session engine and never fabricates a missing engine', async () => {
+  const agents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TaroBird/1.0.0 Chrome/156.0 Electron/45.3.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) TaroBird/1.0.0 Chrome/155.0 Electron/44.0.0 Safari/537.36',
+    'Mozilla/5.0 Chrome/156.0 Safari/537.36',
+  ];
+  const sessions = [];
+  for (const userAgent of agents) {
+    const f = fixture({ userAgent });
+    await f.call({ action: 'open', tab: 't1', url: 'https://example.org/', requestId: 'o' });
+    sessions.push(f.sessions.get(partitionFor(scope)));
+  }
+  for (const [index, session] of sessions.entries()) {
+    assert.equal(session.agent, browserUserAgent(agents[index]));
+    if (index === 2) { assert.equal(session.headers, undefined); continue; }
+    const result = await new Promise(resolve => session.headers.fn({ url: 'https://www.youtube.com/api/jnn/v1/GenerateIT', requestHeaders: {} }, resolve));
+    assert.equal(result.requestHeaders['User-Agent'], agents[index].replace(' TaroBird/1.0.0', ''));
+  }
 });
 
 test('partitions are derived in main from the scope and never shared across conversations', () => {

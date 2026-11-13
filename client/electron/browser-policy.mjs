@@ -61,18 +61,27 @@ export function permissionLabel(permission, details = {}, english = false) {
   return (labels[permission] ?? [permission, permission])[english ? 0 : 1];
 }
 
-/** User-Agent without Electron/App tokens, so sites see the same Chromium
- * product they already support. This changes no capability or identity. */
+/** User-Agent without Electron/App tokens for website compatibility.
+ * `engine` keeps the Electron token and removes only the App's. */
 const PRODUCTS = new Set(['Mozilla', 'AppleWebKit', 'Chrome', 'Safari', 'Version', 'Mobile']);
-export function browserUserAgent(agent) {
+export function browserUserAgent(agent, engine = false) {
   // Electron inserts the App name (spaces removed) and Electron/x tokens.
-  return agent.replace(/ ([A-Za-z][\w.-]*)\/\S+/g, (token, product) => PRODUCTS.has(product) ? token : '').replace(/\s{2,}/g, ' ');
+  return agent.replace(/ ([A-Za-z][\w.-]*)\/\S+/g, (token, product) => PRODUCTS.has(product) || engine && product === 'Electron' ? token : '').replace(/\s{2,}/g, ' ');
 }
+// YouTube's integrity-token service can return an unusable caption token when
+// the real Electron engine is omitted: CC stays on but timedtext returns an
+// empty HTTP 200. Retain the session's actual engine version only here. Never
+// invent a Chrome version or disclose the App token; page UA stays unchanged.
+const ATTESTATION = ['https://www.youtube.com/api/jnn/*'];
+// Session → that User-Agent (only when it differs from the stripped one).
+const engineAgents = new WeakMap();
 
 /** Install session-wide policy once. `route(contents)` resolves the managed
  * tab owning a webContents; unknown contents (workers, stale pages) are denied. */
 export function secureBrowserSession(session, { route }) {
-  session.setUserAgent(browserUserAgent(session.getUserAgent()));
+  const own = session.getUserAgent(), stripped = browserUserAgent(own), engine = browserUserAgent(own, true);
+  if (engine !== stripped) engineAgents.set(session, engine);
+  session.setUserAgent(stripped);
   session.setPermissionCheckHandler((contents, permission, origin, details) => {
     if (AUTOMATIC.has(permission)) return !!route(contents);
     const owner = route(contents);
@@ -138,8 +147,23 @@ export function installRequestFilter(session) {
     try { local = !!initiator && privateHost(new URL(initiator).hostname); } catch { local = false; }
     callback({ cancel: !local });
   });
+  // Part of the same filter: a session listener of any kind would keep taking
+  // precedence over extensions, so compatibility mode removes this one too.
+  const engine = engineAgents.get(session);
+  if (engine) session.webRequest.onBeforeSendHeaders({ urls: ATTESTATION }, (details, callback) => {
+    let url;
+    try { url = new URL(details.url); } catch { callback({}); return; }
+    if (url.origin !== 'https://www.youtube.com' || url.username || url.password || !url.pathname.startsWith('/api/jnn/')) { callback({}); return; }
+    const requestHeaders = {};
+    for (const [name, value] of Object.entries(details.requestHeaders ?? {})) if (name.toLowerCase() !== 'user-agent') requestHeaders[name] = value;
+    requestHeaders['User-Agent'] = engine;
+    callback({ requestHeaders });
+  });
 }
-export function removeRequestFilter(session) { session.webRequest.onBeforeRequest(null); }
+export function removeRequestFilter(session) {
+  session.webRequest.onBeforeRequest(null);
+  if (engineAgents.has(session)) session.webRequest.onBeforeSendHeaders(null);
+}
 // Sessions whose probe scheme main registered (tracked here: the Electron query is asynchronous).
 const probes = new WeakSet();
 export function holdProbe(session) {

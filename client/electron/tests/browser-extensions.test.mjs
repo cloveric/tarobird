@@ -723,7 +723,7 @@ test('an unreadable registry loads nothing and is kept', async () => {
 
 test('WorkbenchBrowser routes the command with a session preparer and clears extensions on full local reset only', async () => {
   const calls = [], session = { getUserAgent: () => 'Mozilla/5.0 Chrome/1 Electron/1 Safari/1', setUserAgent() {}, setPermissionCheckHandler() {}, setPermissionRequestHandler() {},
-    setDevicePermissionHandler() {}, setDisplayMediaRequestHandler() {}, on() {}, webRequest: { onBeforeRequest() {} }, clearStorageData: async () => {}, clearCache: async () => {}, clearAuthCache: async () => {}, clearHostResolverCache: async () => {} };
+    setDevicePermissionHandler() {}, setDisplayMediaRequestHandler() {}, on() {}, webRequest: { onBeforeRequest() {}, onBeforeSendHeaders() {} }, clearStorageData: async () => {}, clearCache: async () => {}, clearAuthCache: async () => {}, clearHostResolverCache: async () => {} };
   const extensions = { attach: (_session, scope) => { calls.push(['attach', scope.host]); return Promise.resolve(); }, ready: async () => {}, compatible: () => false,
     request: async (input, context) => { calls.push(['request', input.action, !!context.window]); context.prepare(PERSONAL_BROWSER_SCOPE); return { status: 'ok', extensions: [] }; },
     clear: async () => { calls.push(['clear']); }, forget: async names => { calls.push(['forget', names.length]); }, refreshCompat: async () => {} };

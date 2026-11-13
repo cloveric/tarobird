@@ -120,6 +120,26 @@ TaroBot therefore:
   install, preserving the newer choice/version or removal. See the
   [post-release audit and native evidence](post-1.0.123-audit-2026-11-01.md).
 
+## YouTube captions compatibility — 2026-11-13
+
+In default mode, the page session now retains its actual Electron version in
+the User-Agent sent only to `https://www.youtube.com/api/jnn/*`. Removing that
+engine token produced intermittent empty caption responses in isolated tests,
+even with CC selected. The App token stays removed; the page and all other
+requests keep the existing User-Agent. No browser permissions, cookies or
+credentials are changed.
+
+This correction is disabled together with the native filter in **extension
+compatibility mode**, so it cannot override installed extensions' network
+rules. Caption failures in that mode remain possible. A full page reload
+recovered the isolated failing cases; toggling CC alone did not. This is a
+workaround, not a guarantee or a request to change the user's extension setup.
+
+Verification includes isolated Mac Electron playback of the affected lecture,
+with ad and main-video captions distinguished, and browser policy regressions.
+Windows installed-App playback and signed-in sessions remain unverified. No
+release or installation accompanies this source change.
+
 ## Google sign-in
 
 Google may refuse sign-in from browsers embedded in other applications

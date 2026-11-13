@@ -4867,6 +4867,16 @@ Unavailable/unknown results must never be described as saved content.
 Electron `browser*.mjs` adds scoped WebContentsView pages through the existing
 DesktopServices/NativeOwner bridge. External pages have no App preload or file
 capabilities; session/permissions/lifecycle are separate from the chat document.
+`browser-policy.mjs` retains the session's actual Electron version only for
+YouTube's HTTPS `/api/jnn/` integrity requests, preventing the observed empty
+caption responses caused by stripping that engine token. Page UA, other sites
+and App-token removal stay unchanged. The header listener leaves and returns
+with the native request filter; extension compatibility mode keeps control of
+its own network handling and is outside this caption fix. Regression coverage:
+Electron `browser.test.mjs` (URL/header bounds, per-session versions and filter
+restoration) and `browser-extensions.test.mjs`. Source-level Mac playback and
+native browser checks do not certify Windows installed-App acceptance. This is
+desktop page-session behavior; the headless Host/CLI contract is unchanged.
 User takeover can only be resumed by trusted UI. `workbench-browser.ts` merges
 native layout across panels and hides pages behind dialogs/menus.
 `BrowserPageTools.tsx` and `workbench-browser-tools.ts` add trusted-user page
