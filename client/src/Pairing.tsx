@@ -29,7 +29,7 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
   useLocale();
   const [preparedLocal, setPreparedLocal] = useState<Identity>();
   const saveLocal = async (identity: Identity, name: string) => { if (save) await save(identity, name); else await cache.saveIdentity(identity); setPreparedLocal(identity); setName(name); };
-  const platform = nativePlatform(), desktop = platform === "macos" || platform === "windows";
+  const platform = nativePlatform(), desktop = platform === "macos" || platform === "windows", phone = platform === "ios" || platform === "android";
   const [remote, setRemote] = useState(!!pendingConnection?.identity.pendingPairing), [manual, setManual] = useState(platform === "web");
   const [hostName, setHostName] = useState(t("我的主机"));
   const [scan, setScan] = useState(false), [inputMode, setInputMode] = useState<"scan" | "text" | "image">("scan"), [optionsOpen, setOptionsOpen] = useState(false), [expectedKey, setExpectedKey] = useState<string>();
@@ -39,7 +39,7 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
   const [deployment, setDeployment] = useState<Deployment>(), [legacyDirect, setLegacyDirect] = useState<Route>();
   const [address, setAddress] = useState(nativePlatform() === "web" && location.origin.startsWith("http") ? location.origin : ""), [relays, setRelays] = useState<Route[]>([]);
   const [name, setName] = useState(() => defaultDeviceName(platform));
-  const pairButton = useRef<HTMLButtonElement>(null), imported = useRef(false);
+  const pairButton = useRef<HTMLButtonElement>(null), imported = useRef(false), failure = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     if (scan || !imported.current) return;
     imported.current = false;
@@ -52,9 +52,16 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
     return () => cancelAnimationFrame(frame);
   }, [scan]);
   const [createdIdentity, setIdentity] = useState<Identity>(), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  // On a short phone screen the action sits at the bottom edge, so a refusal
+  // below it would look like nothing happened. Reveal it; focus stays put.
+  const revealFailure = () => { if (phone) failure.current?.scrollIntoView({ block: "nearest", behavior: "instant" }); };
+  useEffect(() => { if (error) revealFailure(); }, [phone, error]);
   const identity = createdIdentity ?? pendingConnection?.identity;
   const joiningDesktop = desktop && (localHostReady || !!preparedLocal);
   const pending = identity?.pendingPairing;
+  // Native phones: connection details were read, nothing is connected yet.
+  // Derived only; the user still starts pairing and approves it elsewhere.
+  const reviewing = phone && !!expectedKey && !pending;
   const directHost = (() => { try { return address ? new URL(address).hostname : ""; } catch { return ""; } })();
   const tailscaleRoute = legacyDirect?.name === "Tailscale" || directHost.endsWith(".ts.net") || /^100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(directHost);
   const lanRoute = /^(?:192\.168\.|10\.|172\.(?:1[6-9]|2[0-9]|3[01])\.)/.test(directHost);
@@ -159,8 +166,9 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
       attempted.current.add(requestId); void submitRef.current();
     }
   }, [pendingConnection, pending?.code, pending?.request?.requestId, busy, desktop, remote]);
+  const routeHint = expectedKey && (tailscaleRoute || lanRoute) && <p className="pairing-route-hint">{tailscaleRoute ? t("此连接使用 Tailscale。这台设备也需连接同一 Tailscale 网络，并允许访问目标主机；仅复制地址不会自动建立连接。") : t("此连接包含局域网地址。人在外面时需有可用的 Tailscale 或 VPS 线路；家里的 Wi-Fi 地址通常无法从外部直接访问。")}</p>;
   if (desktop && !remote) return <Suspense fallback={<div className="loading-screen"><BrandMark/><LoaderCircle className="spin" size={16}/></div>}><DesktopWelcome localHostReady={localHostReady || !!preparedLocal} connected={connected} save={saveLocal} beforePair={beforePair} discard={discard} cancel={cancel ?? (preparedLocal ? () => { void Promise.resolve(connected(preparedLocal)).catch(e => setError(String(e))); } : undefined)} pending={!!pending} remote={() => setRemote(true)}/></Suspense>;
-  return <main className="pairing-page"><div className="pairing-layout"><div className={`pairing-card${!pending && (platform === "ios" || platform === "android") ? " pairing-phone-welcome" : ""}`}>
+  return <main className="pairing-page"><div className="pairing-layout"><div className={`pairing-card${!pending && phone ? " pairing-phone-welcome" : ""}`}>
     {(desktop || cancel) && <nav className="pairing-navigation">
       {desktop && <button type="button" className="pairing-host-cancel" disabled={busy} onClick={() => { setRemote(false); setError(""); }}><ChevronLeft size={16}/>{t("返回开始")}</button>}
       {cancel && <button type="button" className="pairing-host-cancel pairing-return-conversations" disabled={busy} onClick={cancel}><ArrowLeft size={16} aria-hidden="true"/>{t("返回会话")}</button>}
@@ -186,18 +194,22 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
       {pendingConnection && <details className="pairing-options"><summary>{t("无法连接？更新主机地址")}</summary><Suspense fallback={null}><RepairHostRoute connection={pendingConnection} online={status.status === "online"} busyChange={setBusy}/></Suspense>{manage && <button type="button" disabled={busy} onClick={manage}>{t("设备与网络")}</button>}</details>}
     </section> : <>
       {/* New users look for the QR code here; say where it comes from in the eye line, not only in the side guide. */}
-      <div className="pairing-qr-source" role="note"><Smartphone size={20} aria-hidden="true"/><div>
+      {!reviewing && <div className="pairing-qr-source" role="note"><Smartphone size={20} aria-hidden="true"/><div>
         <strong>{t("先在已连接的手机或电脑上打开「设备与网络 → 添加设备」")}</strong>
         <p>{t("那里会显示连接二维码，用下方「扫描连接二维码」扫它；也可以复制那里的连接信息，点「粘贴连接信息」。")}</p>
-      </div></div>
-      <form onSubmit={(e) => { void pair(e); }}>
-        <div className="pairing-import-actions">
+      </div></div>}
+      {/* A repeated identical refusal leaves `error` unchanged, so the effect
+          above stays quiet: reveal the message after every attempt as well. */}
+      <form className={reviewing ? "pairing-review" : undefined} onSubmit={(e) => { void pair(e).then(revealFailure); }}>
+        {/* Phone review step: the entry points give way to the summary below;
+            "Change connection details" reopens the same scanner dialog. */}
+        {!reviewing && <div className="pairing-import-actions">
         <button type="button" className="primary full" disabled={busy} onClick={() => { setInputMode("text"); setScan(true); }}><ClipboardPaste size={18}/>{t("粘贴连接信息")}</button>
         <button type="button" className="pairing-scan full" disabled={busy} onClick={() => { setInputMode("image"); setScan(true); }}><ImagePlus size={18}/>{t("导入二维码图片")}</button>
         <button type="button" className="pairing-scan full" disabled={busy} onClick={(event) => { event.currentTarget.focus(); setInputMode("scan"); setScan(true); }}><QrCode size={20} aria-hidden="true"/>{t("扫描连接二维码")}</button>
-        </div>
-        {expectedKey && <div className="pairing-import" role="status"><Monitor size={18}/><div><strong>{t("已读取主机信息")}</strong><p className="muted">{address ? new URL(address).hostname : t("VPS 中转")}</p></div><button type="button" disabled={busy} onClick={() => { setInputMode("text"); setScan(true); }}>{t("更换连接信息")}</button></div>}
-        {expectedKey && (tailscaleRoute || lanRoute) && <p className="pairing-route-hint">{tailscaleRoute ? t("此连接使用 Tailscale。这台电脑也需连接同一 Tailscale 网络，并允许访问目标主机；仅复制地址不会自动建立连接。") : t("此连接包含局域网地址。人在外面时需有可用的 Tailscale 或 VPS 线路；家里的 Wi-Fi 地址通常无法从外部直接访问。")}</p>}
+        </div>}
+        {expectedKey && <div className="pairing-import" role="status"><Monitor size={18}/><div><strong>{t("已读取主机信息")}</strong><p className="muted">{address ? directHost || address : t("VPS 中转")}</p>{reviewing && <p className="pairing-import-state">{t("尚未连接，请继续完成下方配对。")}</p>}</div><button type="button" disabled={busy} onClick={() => { setInputMode("text"); setScan(true); }}>{t("更换连接信息")}</button></div>}
+        {!reviewing && routeHint}
         {(manual || expectedKey) && <>
           <label>{t("设备名称")}<input value={name} required maxLength={100} disabled={busy} aria-describedby="pairing-device-name-help" onChange={(e) => setName(e.target.value)}/></label><p id="pairing-device-name-help" className="settings-note muted">{t("确认一个其他设备也能认出的名称，例如 MacBook Pro 或 vivo 手机。")}</p>
           <details className="pairing-options" open={manual} onToggle={(e) => setManual(e.currentTarget.open)}><summary>{t("手动连接与高级选项")}</summary>
@@ -206,12 +218,14 @@ export function Pairing({ connected, save, beforePair, discard, cancel, pendingC
             {usesPinnedTransport() && !expectedKey && <label>{t("主机身份公钥")}<input disabled={busy} value={manualKey} maxLength={120} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(e) => setManualKey(e.target.value)} placeholder="MCowBQYDK2VwAyEA…"/></label>}
             <details className="pairing-options" open={optionsOpen} onToggle={(e) => setOptionsOpen(e.currentTarget.open)}><summary>{t("连接选项与备用中转（可选）")}</summary>{optionsOpen && <Suspense fallback={null}><PairingRouteOptions relays={relays} busy={busy} setRelays={setRelays}/></Suspense>}</details>
           </details>
-          <button ref={pairButton} className="primary full" disabled={busy}>{busy ? <LoaderCircle className="spin" size={17}/> : <ShieldCheck size={17}/>}{busy ? t("正在请求连接…") : t("配对此设备")}</button>
+          {reviewing && <p id="pairing-next-help" className="pairing-next-hint">{t("之后会显示 8 位配对码，需在已连接的手机或电脑上确认，才会完成连接。")}</p>}
+          <button ref={pairButton} className="primary full" disabled={busy} aria-describedby={reviewing ? "pairing-next-help" : undefined}>{busy ? <LoaderCircle className="spin" size={17}/> : <ShieldCheck size={17}/>}{busy ? t("正在请求连接…") : reviewing ? t("下一步：配对此设备") : t("配对此设备")}</button>
         </>}
         {!manual && !expectedKey && <button type="button" className="pairing-manual full" disabled={busy} onClick={() => setManual(true)}>{t("手动连接与高级选项")}</button>}
       </form>
     </>}
-    {error && <p role="alert" className="error-text">{error}</p>}
+    {error && <p ref={failure} role="alert" className="error-text">{error}</p>}
+    {reviewing && routeHint}
     <footer><ShieldCheck size={13} aria-hidden="true"/>{t("只有经过你确认的设备才能访问 Bot。")}</footer>
   </div>{!pending && <PairingIntro/>}</div>
   {scan && <Suspense fallback={null}><PairingScanner initialMode={inputMode} close={() => setScan(false)} receive={(payload) => {

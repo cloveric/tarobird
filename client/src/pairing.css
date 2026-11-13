@@ -125,3 +125,26 @@
   .pairing-import{display:grid;grid-template-columns:18px minmax(0,1fr)}
   .pairing-import>button{grid-column:2;justify-self:start}
 }
+
+/* Native phone, connection details read (the form carries .pairing-review).
+   The entry points give way to one summary card where the "where to find the
+   QR code" note was, and the pair action is the only filled control left.
+   Nothing here claims a connection. Desktop and browser keep the plain row. */
+.pairing-phone-welcome .pairing-review { margin-top:0; }
+.pairing-phone-welcome .pairing-import { display:grid; grid-template-columns:18px minmax(0,1fr); align-items:start; gap:10px 12px; margin:0; padding:14px; border:0; border-radius:12px; background:var(--accent-soft,var(--surface)); }
+.pairing-phone-welcome .pairing-import>svg { margin-top:2px; color:var(--mono-signal,var(--mono-mark,var(--accent,var(--blue)))); }
+.pairing-phone-welcome .pairing-import strong { display:block; font-size:15px; font-weight:600; line-height:1.4; overflow-wrap:anywhere; }
+.pairing-phone-welcome .pairing-import p { margin:3px 0 0; font-size:13px; line-height:1.5; }
+.pairing-phone-welcome .pairing-import .pairing-import-state { margin-top:6px; color:var(--text); font-weight:500; }
+/* A translated action stays below the summary at every width. The chip is
+   36px inside a 44px touch target: the transparent border is the extra reach. */
+.pairing-phone-welcome .pairing-import>button { grid-column:2; justify-self:start; min-height:44px; margin:-4px; padding:0 12px; border:4px solid transparent; border-radius:12px; background:var(--raised,var(--bg)) padding-box; box-shadow:inset 0 0 0 1px var(--border); font-size:13px; font-weight:500; white-space:normal; text-align:left; }
+.pairing-phone-welcome .pairing-import>button:hover:not(:disabled) { background-color:var(--surface); }
+.pairing-phone-welcome .pairing-import>button:focus-visible { outline-offset:-2px; }
+.pairing-phone-welcome .pairing-review>.pairing-options { margin:6px 0 14px; }
+.pairing-phone-welcome .pairing-next-hint { margin:0 0 10px; font-size:13px; line-height:1.55; color:var(--text); overflow-wrap:anywhere; }
+/* The import focuses this button and a refusal is revealed below it: keep both clear of the screen edge and the home indicator. */
+.pairing-phone-welcome :is(.pairing-review>.primary.full,.error-text) { scroll-margin-bottom:max(16px,var(--app-safe-bottom,0px)); }
+/* The LAN/Tailscale caveat follows the action (and its error) on phones, so
+   the summary and the next step stay on one screen at 320px. */
+.pairing-phone-welcome>.pairing-route-hint { margin:16px 0 0; font-size:12px; line-height:1.6; color:var(--muted); overflow-wrap:anywhere; }

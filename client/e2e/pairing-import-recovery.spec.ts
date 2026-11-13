@@ -19,9 +19,9 @@ for (const os of ["ios", "android"]) for (const width of [320, 390]) for (const 
   await page.getByLabel(label("配对信息"), { exact: true }).fill(pairingLink({ v: 1, kind: "connect", hubPublicKey: "k".repeat(44), routes: [{ name: "Direct", url: "https://192.168.1.100:8788" }], invite: "a".repeat(43) }));
   await page.getByRole("button", { name: label("使用配对信息"), exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: label("配对此设备"), exact: true })).toBeInViewport();
+  await expect(page.getByRole("button", { name: locale === "en" ? /Next/ : /下一步/ })).toBeInViewport();
   await expect(page.getByText(label("已读取主机信息"), { exact: true })).toBeInViewport();
-  await expect(page.getByRole("button", { name: label("配对此设备"), exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: locale === "en" ? /Next/ : /下一步/ })).toBeFocused();
   await page.screenshot({ path: info.outputPath("imported.png") });
   await page.getByLabel(label("设备名称"), { exact: true }).fill("My phone");
   const change = page.getByRole("button", { name: label("更换连接信息"), exact: true });

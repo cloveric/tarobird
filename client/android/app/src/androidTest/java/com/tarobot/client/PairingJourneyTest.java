@@ -182,11 +182,11 @@ public class PairingJourneyTest {
         JSONObject fixture = new JSONObject(new String(java.util.Base64.getDecoder().decode(InstrumentationRegistry.getArguments().getString("fixture")), StandardCharsets.UTF_8));
         Intent intent = new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         activity = (MainActivity) instrumentation.startActivitySync(intent);
-        waitFor("document.body.innerText.includes('连接你的 TaroBot')"); screenshot("01-scan");
-        click("扫描 Hub 二维码"); waitFor("!!document.querySelector('input[type=file]')");
+        waitFor("document.body.innerText.includes('连接你的 TaroBird')"); screenshot("01-scan");
+        click("扫描连接二维码"); waitFor("!!document.querySelector('input[type=file]')");
         js("(()=>{const bytes=Uint8Array.from(atob(" + JSONObject.quote(fixture.getString("qr")) + "),c=>c.charCodeAt(0));const input=document.querySelector('input[type=file]');const transfer=new DataTransfer();transfer.items.add(new File([bytes],'pairing.png',{type:'image/png'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));})()");
         waitFor("document.body.innerText.includes('已读取主机信息')");
-        click("配对此设备"); waitFor("!!document.querySelector('.pair-code')"); screenshot("02-waiting");
+        click("下一步：配对此设备"); waitFor("!!document.querySelector('.pair-code')"); screenshot("02-waiting");
         assertFalse(js("document.body.innerText").contains("已确认，连接"));
         String code = new org.json.JSONTokener(js("document.querySelector('.pair-code').textContent")).nextValue().toString();
         // Reload before approval proves durable enrollment and native key reuse.

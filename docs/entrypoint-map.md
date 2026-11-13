@@ -3828,6 +3828,15 @@ and `widget-cpu-isolation`, plus physical iPhone keyboard/gesture evidence.
 
 ### 2026-10-04 phone settings and startup boundary
 
+[Mobile pairing feedback](client/mobile-pairing-feedback-2026-11-13.md) makes
+imported connection details and the explicit next pairing action visible on
+native phones and tablets. `Pairing.tsx` derives the review presentation without
+changing enrollment or approval; its host summary tolerates an incomplete
+address edit. Regressions: `pairing-import-feedback`, `pairing-import-recovery`,
+`pairing-design`, `pairing-layout`, plus existing strict/wizard/remote pairing.
+Browser fixtures do not establish native camera, credential or device acceptance.
+
+
 `client/src/Bootstrap.tsx` mounts HostApp and Pairing; `Pairing.tsx` owns the
 connection setup screen. The chat Workspace is dynamically loaded from App.tsx
 with explicit failure/retry feedback. Vite module preloading is disabled because
