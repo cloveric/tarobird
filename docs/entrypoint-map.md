@@ -768,9 +768,10 @@ and the existing network/run/delete suites listed in that audit.
 
 - Attachment save/share: `client/src/attachment-export.ts` separates saving,
   sharing and external readers. `AttachmentPreviewHeader.tsx` exposes the three
-  phone actions. `document-preview.css` gives these actions compact content-width
-  buttons with 32px fills and 44px touch targets. This is client presentation
-  only, with no host or headless CLI change.
+  phone actions. `document-preview.css` draws them below the file name as
+  content-width outlined capsules, 32px inside 44px touch targets, and moves
+  them onto the name's row from 560px. Sent files and drafts share this header.
+  This is client presentation only, with no host or headless CLI change.
   Android `AttachmentSaverPlugin` / `AttachmentDownloads` write
   verified public Downloads copies; iOS `AttachmentSaverPlugin.swift` exports
   through the document picker. Tests: browser `file-actions`, `mobile-file-export`,

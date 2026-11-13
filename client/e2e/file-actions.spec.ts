@@ -388,6 +388,13 @@ for (const width of [390, 320]) test(`phone save and share are separate, with tr
     await expect(preview.getByRole("status")).not.toContainText(english ? /saved/i : /已保存/);
     const bounds = await preview.locator("header button").evaluateAll(buttons => buttons.map(button => { const r = button.getBoundingClientRect(); return { width: r.width, height: r.height }; }));
     expect(bounds.every(b => b.width >= 44 && b.height >= 44)).toBe(true);
+    // The three actions stay on one row inside the 12px inset, with Chinese and
+    // English labels; each 44px target paints a 32px capsule.
+    const actions = await preview.locator(".native-file-actions > button").evaluateAll(buttons => buttons.map(button => { const r = button.getBoundingClientRect(); return { top: r.top, left: r.left, right: r.right, fill: getComputedStyle(button, "::before").height }; }));
+    expect(actions).toHaveLength(3); expect(new Set(actions.map(action => action.top)).size).toBe(1);
+    expect(actions.map(action => action.fill)).toEqual(["32px", "32px", "32px"]);
+    expect(actions[0]!.left).toBeGreaterThanOrEqual(12); expect(actions[2]!.right).toBeLessThanOrEqual(width - 12);
+    expect(actions.every((action, index) => !index || action.left >= actions[index - 1]!.right)).toBe(true);
     await preview.getByRole("button", { name: english ? "Close" : "关闭", exact: true }).click();
     await page.evaluate(() => { delete (window as any).phoneFileActions.save; });
     await card(page).getByRole("button", { name: english ? `Save ${name} to device` : `保存到手机 ${name}`, exact: true }).click();

@@ -64,8 +64,13 @@ for (const native of [false, true]) test(`phone readers fill safe bounds across 
     expect(await header.boundingBox()).toEqual(before);
     await content.evaluate(node => { node.scrollTop = 0; });
     await page.screenshot({ path: info.outputPath("word-safe-portrait.png") });
+    // Native header: the actions sit below the name on a portrait phone and
+    // join the name and Close on one row once the window is wide enough.
+    const headerRows = () => preview.locator(".native-file-header button").evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().top)));
+    if (native) { const [close, ...actions] = await headerRows(); expect(actions).toHaveLength(3); expect(actions.every(top => top === actions[0] && top > close!)).toBe(true); }
     await page.setViewportSize({ width: 844, height: 390 }); await insets(page, 0, 44, 21, 44);
     await fills(preview, { top: 0, left: 44, right: 800, bottom: 369 });
+    if (native) expect(new Set(await headerRows()).size).toBe(1);
     expect((await content.boundingBox())!.height).toBeGreaterThan(180);
     await page.screenshot({ path: info.outputPath("word-safe-landscape.png") });
     await preview.getByRole("button", { name: "关闭", exact: true }).click();
@@ -92,6 +97,7 @@ for (const native of [false, true]) test(`phone readers fill safe bounds across 
     if (native) await page.evaluate(() => { document.documentElement.dataset.nativeInsets = "android"; });
     await page.getByRole("region", { name: "notes.txt", exact: true }).getByRole("button", { name: "预览 notes.txt", exact: true }).click();
     await fills(preview, native ? { top: 0, left: 0, right: 390, bottom: 844 } : portrait);
+    const sentHeader = (await preview.locator(".file-preview > header").boundingBox())!.height;
     await page.keyboard.press("Escape");
     await expect(preview).toHaveCount(0);
     if (native) await page.evaluate(() => { delete document.documentElement.dataset.nativeInsets; });
@@ -104,6 +110,8 @@ for (const native of [false, true]) test(`phone readers fill safe bounds across 
     const draft = page.getByRole("dialog", { name: "附件预览", exact: true });
     await expect(draft.getByRole("heading", { name: "草稿全屏阅读", exact: true })).toBeVisible();
     await fills(draft, portrait);
+    // Sent files and drafts share one native header geometry.
+    if (native) expect((await draft.locator(".file-preview > header").boundingBox())!.height).toBe(sentHeader);
     // Visual-viewport keyboard band: no controls slip under the keyboard.
     await page.evaluate(() => {
       const root = document.documentElement;

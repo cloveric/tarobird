@@ -11,10 +11,52 @@
 
 .file-preview:has(.external-open) header{flex-wrap:wrap}.file-preview header .external-open{font-size:12px}
 @media(max-width:760px){.file-preview:has(.external-open) header strong{flex-basis:100%}}
-.file-preview header.native-file-header{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:0 8px;align-items:center;padding:8px 12px}
+/* Native phone header. The file name and Close share the first row; Save,
+   Share and Other apps follow as a quiet toolbar. Each action keeps a 44px
+   target and paints a 32px outlined capsule inside it, so three equal actions
+   read as controls without becoming filled blocks. */
+.file-preview header.native-file-header{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:0 4px;align-items:center}
 .native-file-header>strong{overflow-wrap:anywhere;min-width:0}
-.file-preview .native-file-close{width:44px;min-height:44px;padding:0;display:grid;place-items:center;justify-self:end}
-.native-file-actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:0 4px}
-/* Compact 32px fills inside 44px touch targets; the actions use content widths. */
-.file-preview .native-file-actions>button{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:4px;min-width:44px;min-height:44px;padding:0 8px;border:6px solid transparent;border-inline-width:0;font-size:11px;line-height:16px;border-radius:12px;background:var(--surface-alt);background-clip:padding-box;white-space:nowrap}
-.native-file-actions>button>svg{flex:none;width:14px;height:14px}
+.native-file-actions{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:0 8px;min-width:0}
+.file-preview :is(.native-file-actions>button,.native-file-close){position:relative;isolation:isolate;border:0;background:transparent}
+.file-preview .native-file-close{display:grid;place-items:center;justify-self:end;width:44px;min-height:44px;padding:0;border-radius:50%;color:var(--grey)}
+.file-preview .native-file-actions>button{flex:none;flex-direction:row;gap:6px;min-width:44px;min-height:44px;padding:0 12px 0 10px;border-radius:22px;color:var(--text);font-size:13px;font-weight:400;line-height:18px;white-space:nowrap}
+/* The shared button hover fill would cover the whole 44px target, and sticks
+   after a tap on touch screens. Feedback belongs to the painted shape. */
+.file-preview :is(.native-file-actions>button,.native-file-close):hover:not(:disabled){background:transparent}
+:is(.native-file-actions>button,.native-file-close)::before{content:"";position:absolute;z-index:-1;box-sizing:border-box;transition:background-color var(--t-fast) var(--ease)}
+.native-file-actions>button::before{inset:6px 0;border:1px solid var(--border);border-radius:16px;background:var(--raised)}
+.native-file-close::before{inset:4px;border-radius:50%}
+:is(.native-file-actions>button,.native-file-close):active:not(:disabled)::before{background:var(--hover);transition-duration:0s}
+@media(hover:hover){:is(.native-file-actions>button,.native-file-close):hover:not(:disabled)::before{background:var(--hover)}}
+.file-preview :is(.native-file-actions>button,.native-file-close):focus-visible{outline:none}
+:root:not([data-focus-intent=pointer]) :is(.native-file-actions>button,.native-file-close):focus-visible::before{outline:2px solid var(--focus);outline-offset:2px}
+:root:is([data-palette=cli]) :is(.native-file-actions>button,.native-file-close)::before{border-radius:0}
+/* Icons carry the theme accent (the chosen mark in monochrome), deepened
+   towards the label colour so they stay legible on the pale capsule. */
+.native-file-actions>button>svg{flex:none;width:16px;height:16px;color:color-mix(in srgb,var(--mono-mark,var(--accent)) 62%,var(--text))}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+  /* The reader is full-bleed here: the name, capsules and status share a 12px
+     inset, and Close reaches the edge so its glyph balances that inset. */
+  :root .file-preview>header.native-file-header{gap:0 4px;padding:4px 0 6px 12px}
+  :root .file-preview>.native-file-header>strong{margin-block:5px;font-size:15px;font-weight:600;line-height:1.35}
+  .native-file-actions{padding-inline-end:12px}
+}
+/* The longer English labels still fit one action row: tighter spacing below
+   390px, and a smaller label below 360px. Larger text wraps to a second row. */
+@media(max-width:389px){
+  .native-file-actions{gap:0 6px}
+  .file-preview .native-file-actions>button{gap:5px;padding:0 10px 0 8px}
+}
+@media(max-width:359px){
+  .native-file-actions{gap:0 4px}
+  .file-preview .native-file-actions>button{gap:4px;padding:0 8px 0 7px;font-size:12px}
+  .native-file-actions>button>svg{width:14px;height:14px}
+}
+/* Rotated phones and wider windows: one row leaves the height to the content.
+   The name keeps a readable minimum; actions that cannot fit beside it wrap. */
+@media(min-width:560px){
+  :root .file-preview>header.native-file-header{grid-template-columns:minmax(140px,1fr) auto 44px;column-gap:8px;padding-block:4px}
+  .native-file-header>.native-file-actions{grid-column:2;grid-row:1;justify-content:flex-end;padding-inline-end:0}
+  .file-preview .native-file-close{grid-column:3}
+}
