@@ -1,5 +1,8 @@
 # Entrypoint Map
 
+[1.4.1 patch preflight](client/release-1.4.1-preflight.md) records the language,
+pairing-feedback and attachment-layout delta and per-platform acceptance limits.
+
 [1.4.0 preflight](client/release-1.4.0-preflight.md) tracks the full release,
 Canvas/PPT upstream adaptation and independent review gate. Package publication
 and installed-device acceptance remain separate from source verification.

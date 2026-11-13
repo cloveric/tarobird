@@ -1,8 +1,8 @@
 {
   "format": 1,
   "product": "TaroBird",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "status": "stable",
   "iosBuild": 1,
-  "androidVersionCode": 2026110409
+  "androidVersionCode": 2026110410
 }

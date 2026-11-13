@@ -1,6 +1,6 @@
 {
   "name": "tarobot",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "TaroBird: desktop and mobile AI workspace with a self-hosted Hub, multi-engine Bots and optional VPS relay.",
   "private": true,
   "license": "AGPL-3.0-only",
