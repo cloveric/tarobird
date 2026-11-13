@@ -1,6 +1,11 @@
 /* Keep three files in view on phones. More files share one horizontal tray;
    the counter and paging controls stay above it instead of scrolling away. */
-:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft { padding:8px 10px 0; }
+/* The floor is the least height the keyboard-constrained composer may leave
+   the tray (viewport.css): the 8px inset, the 36px header row, a 32px remove
+   button and 4px of air. Every thumbnail's top and its remove button then stay
+   in view and tappable; the rest scrolls in place. Keep it below the shortest
+   tray (a lone phone image without the header is 84px). */
+:is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft { padding:8px 10px 0; --attachment-draft-floor:80px; }
 :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft > header { gap:4px; margin-bottom:4px; font-size:12px; }
 .draft-attachment-summary { display:flex; align-items:baseline; flex-wrap:wrap; column-gap:8px; }
 .draft-attachment-summary small { color:var(--muted); font-size:11px; }
@@ -29,8 +34,9 @@
   :is(.composer,.side-compose,.group-discussion-dialog) .image-draft .attachment-draft-thumbnail { height:72px; border-radius:12px; }
   :is(.composer,.side-compose,.group-discussion-dialog) .image-draft .draft-file-name { display:none; }
   :is(.composer,.side-compose,.group-discussion-dialog) .attachment-draft-file > .draft-file-remove { border-radius:50%; background:var(--raised); }
-  /* The main viewport rule can shrink this region; the concise header leaves
-     actual thumbnails reachable even with the keyboard visible. */
+  /* The phone composer is a column here, where the 100% basis from
+     mobile-shell.css would be its whole height. viewport.css may still shrink
+     the tray under the keyboard, never below --attachment-draft-floor. */
   .composer-input-row :is(.composer,.side-compose,.group-discussion-dialog) > .attachment-draft { flex-basis:auto; }
   .draft-attachment-preview .file-preview > header { gap:6px; padding:10px; }
   .draft-attachment-preview .file-preview > header > strong { min-width:0; overflow-wrap:anywhere; }

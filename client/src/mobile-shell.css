@@ -65,6 +65,15 @@
 
 .mobile-topic-label { display:none; }
 .composer-input-row { display:contents; }
+/* Draft save failure in the composer: message, optional explanation, Retry.
+   Retry keeps the end of the first row, so it stays in reach when the notice
+   gives its height to the attachments and scrolls in place (viewport.css). */
+.composer > .draft-save-error { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; column-gap:8px; padding:0 6px 4px 16px; overflow-wrap:anywhere; }
+.draft-save-error > p { margin:0; }
+.draft-save-error > button { grid-column:2; grid-row:1; min-height:32px; padding:4px 10px; color:var(--accent); font-weight:500; white-space:nowrap; }
+.draft-save-error > .draft-save-limits { grid-column:1 / -1; min-width:0; color:var(--muted); }
+.draft-save-limits > summary { width:fit-content; max-width:100%; padding-block:4px; cursor:pointer; }
+.draft-save-limits > p { margin:0; padding-bottom:4px; }
 .attachment-picker-input { position:absolute; width:1px; height:1px; padding:0; opacity:0; pointer-events:none; }
 @media(max-width:760px) {
   .composer-input-row { display:flex; align-items:flex-end; gap:6px; min-width:0; }
@@ -83,7 +92,13 @@
   .composer-wrap .composer-input-row .composer:is(.is-expanded,:has(.attachment-draft,.link-preview-draft,.voice-recording)) textarea { flex:0 1 auto; width:100%; }
   .composer-input-row .composer:is(.is-expanded,:has(.attachment-draft,.link-preview-draft,.voice-recording)) .composer-toolbar { width:100%; }
   .composer-input-row .composer > :is(.attachment-draft,.link-preview-draft,.link-preview-restore,.voice-recording){flex-basis:100%;width:100%}
-  .composer-input-row .composer > .error { flex-basis:100%; padding:8px; }
+  /* Its own row while the composer wraps. Width, not flex-basis: a rich draft
+     turns the composer into a column, where a 100% basis is the composer's
+     whole height and left the attachment tray a sliver. */
+  .composer-input-row .composer > .error { width:100%; padding:8px; }
+  .composer-input-row .composer > .draft-save-error { padding:2px 4px 4px 12px; }
+  .composer-input-row .draft-save-error > button { min-height:36px; }
+  .composer-input-row .draft-save-limits > summary { padding-block:6px; }
   .composer-input-row .composer-hint:is(.is-tip,.is-queue) { display:none; }
   .composer-input-row .composer-hint { margin-right:auto; }
   .composer-input-row .composer-stop { margin-left:auto; }

@@ -4067,6 +4067,10 @@ phone hold-to-talk release sends only that new recording. Text remains in Client
 `clearDraftIfMatches` atomically protects newer saved drafts from late sends.
 Composer autosave feedback is quiet during routine writes, retaining its flex
 spacer and showing failures. [Quiet draft feedback](client/quiet-drafts-2026-10-13.md).
+[Mobile video-draft feedback](client/mobile-video-draft-feedback-2026-11-13.md)
+keeps failed offline saves distinct from upload admission and keeps attachment
+preview/removal reachable. Regressions: `video-draft-overflow`,
+`attachment-composer` and `persistent-drafts`.
 App blocks archived conversation/topic retry both at entry and execution.
 `ConversationPanel` uses bounded receipt reconciliation, synchronous mutation
 admission, idempotent command retries, App confirmations and stable return focus.

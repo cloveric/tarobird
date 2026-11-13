@@ -115,9 +115,12 @@
     background: var(--surface);
   }
 
-  /* Inside the composer, attachments and the link preview yield first and scroll
-     in place (never below a 3.25rem peek); the field yields next, down to one
-     line; an active recording and the toolbar never yield. */
+  /* Inside the composer, the draft save notice yields first (down to its first
+     row, which holds Retry), then attachments and the link preview; each
+     scrolls in place. The attachment tray stops at a peek that still shows the
+     top of every thumbnail and its remove button; the link preview at 3.25rem.
+     The field yields next, down to one line; an active recording and the
+     toolbar never yield. Each tier shrinks 40 times faster than the next. */
   .composer-wrap .composer {
     display: flex;
     flex: 0 1 auto;
@@ -133,6 +136,20 @@
     min-height: 3.25rem;
     overflow-y: auto;
     overscroll-behavior-y: contain;
+  }
+
+  /* A 3.25rem tray is its header alone. attachment-draft.css states the floor
+     next to the geometry it is derived from. At its end the tray hands the
+     gesture to the composer, which may hold the notice below the fold. */
+  .composer-wrap .composer > .attachment-draft {
+    min-height: var(--attachment-draft-floor, 3.25rem);
+    overscroll-behavior-y: auto;
+  }
+
+  .composer-wrap .composer > .draft-save-error {
+    flex: 0 1600 auto;
+    min-height: 2.75rem;
+    overflow-y: auto;
   }
 
   .composer-wrap .composer > textarea {

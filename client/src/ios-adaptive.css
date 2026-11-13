@@ -112,6 +112,8 @@
   :root[data-platform=ios] .conversation-main > .composer-wrap { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; max-height: calc(var(--shell-height) * .6); }
   :root[data-platform=ios] .composer-wrap .composer { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 0; overflow: auto; overscroll-behavior: contain; }
   :root[data-platform=ios] .composer-wrap .composer > :is(.attachment-draft, .link-preview-draft) { flex: 0 40 auto; min-height: 3.25rem; overflow-y: auto; }
+  :root[data-platform=ios] .composer-wrap .composer > .attachment-draft { min-height: var(--attachment-draft-floor, 3.25rem); }
+  :root[data-platform=ios] .composer-wrap .composer > .draft-save-error { flex: 0 1600 auto; min-height: 2.75rem; overflow-y: auto; }
   :root[data-platform=ios] .composer-wrap > .reply-preview { flex: 0 40 auto; min-height: 52px; max-height: min(160px, calc(var(--shell-height) * .2)); overflow-y: auto; }
   :root[data-platform=ios] .composer-wrap .composer > textarea { flex: 0 1 auto; min-height: calc(1.5em + 20px); }
   :root[data-platform=ios] .composer-wrap .composer > :is(.voice-recording, .composer-toolbar) { flex: none; }
