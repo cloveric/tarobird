@@ -73,5 +73,8 @@ final class NativeAppearance {
         var controller = WindowCompat.getInsetsController(window, window.getDecorView());
         controller.setAppearanceLightStatusBars(darkIcons);
         controller.setAppearanceLightNavigationBars(darkIcons);
+        // DecorView's background update can clear the padding owned by
+        // NativeInsets. Restore it synchronously, before the next layout/paint.
+        NativeInsets.restorePadding(activity);
     }
 }

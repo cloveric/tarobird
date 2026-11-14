@@ -3954,6 +3954,17 @@ Android `MainActivity` installs `NativeInsets.java`: native window padding owns
 system bars and cutouts. It reports IME overlap to `viewport.ts` instead of
 resizing the WebView ahead of the keyboard. SystemBars inset handling is disabled,
 and Android selects zero CSS safe tokens before React renders.
+`NativeInsets` retains the last delivered system rectangle per DecorView with a
+weak key. `NativeAppearance` synchronously reapplies that padding after changing
+window backgrounds, which otherwise reset DecorView padding before the next
+inset dispatch. Immersive readers still select zero padding. The same installed
+listener resets reader state on page start; registering it after Bridge
+construction prevents Capacitor's builder from replacing it during startup.
+The isolated
+`NativeInsetsTest` checks real keyboard frames, rotation, reader exit and reload;
+see [Android canvas refresh regression](client/android-safe-area-refresh-2026-11-14.md).
+This native Android presentation change does not alter iOS, desktop or Host/CLI
+behavior.
 The opt-in `PairingJourneyTest` nativeLayout journey compares packaged controls
 with OS screen insets and exercises reload, rotation and keyboard transitions.
 The overlay controller also reveals the focused form field after a window

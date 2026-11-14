@@ -1,24 +1,13 @@
 package com.tarobot.client;
 
 import android.graphics.Color;
-import android.webkit.WebView;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.WebViewListener;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "TaroBotAppearance")
 public class AppearancePlugin extends Plugin {
-    @Override public void load() {
-        getBridge().addWebViewListener(new WebViewListener() {
-            @Override public void onPageStarted(WebView webView) {
-                // A reload drops every JavaScript reader lease without cleanup.
-                getActivity().runOnUiThread(() -> NativeAppearance.resetReader(getActivity()));
-            }
-        });
-    }
-
     @PluginMethod public void setCanvas(PluginCall call) {
         String color = call.getString("color", "");
         if (!color.matches("^#[0-9a-fA-F]{6}$")) { call.reject("invalid_canvas_color"); return; }

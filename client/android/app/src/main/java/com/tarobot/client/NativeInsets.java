@@ -2,6 +2,7 @@ package com.tarobot.client;
 
 import android.app.Activity;
 import android.os.Build;
+import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import androidx.core.graphics.Insets;
@@ -10,6 +11,7 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.WebViewListener;
+import java.util.WeakHashMap;
 
 /** Keep the whole WebView inside the OS safe rectangle, including its dialogs.
  * This does not depend on a WebView version or JavaScript injection timing.
@@ -21,6 +23,10 @@ final class NativeInsets {
     // Keep the framework's constant-typed field when saving the mode. A plain
     // int with a -1 sentinel loses that contract when it is restored.
     private static WindowManager.LayoutParams savedCutout;
+    // UI-thread only. Keep the latest system rectangle per window without
+    // retaining destroyed Activities. Window background changes can reset
+    // DecorView padding without delivering another set of insets.
+    private static final WeakHashMap<View, Insets> systemInsets = new WeakHashMap<>();
 
     private NativeInsets() {}
 
@@ -33,13 +39,21 @@ final class NativeInsets {
         // A reloaded page starts without the last report: give it the current
         // state. Its old dispatch time makes the page apply it without motion.
         if (bridge != null) bridge.addWebViewListener(new WebViewListener() {
+            @Override public void onPageStarted(WebView webView) {
+                // Register after Bridge construction: its builder replaces the
+                // listeners added during Plugin.load(). A new document owns no
+                // reader lease, so release the old native immersive state.
+                NativeAppearance.resetReader(activity);
+            }
             @Override public void onPageLoaded(WebView webView) {
                 publishKeyboard(activity, webView, (int) keyboard[0], keyboard[1]);
                 publishReaderInsets(activity, webView, readerInsets);
             }
         });
         ViewCompat.setOnApplyWindowInsetsListener(decor, (view, insets) -> {
-            var safe = immersive ? Insets.NONE : insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            var system = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            systemInsets.put(view, system);
+            var safe = immersive ? Insets.NONE : system;
             // Ignoring visibility keeps overlay controls clear of cutouts and
             // transient system bars even after immersive mode hides the bars.
             var readerSafe = immersive ? insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout()) : Insets.NONE;
@@ -67,6 +81,17 @@ final class NativeInsets {
                 .build();
         });
         ViewCompat.requestApplyInsets(decor);
+    }
+
+    /** Reassert native layout before a background/contrast refresh can paint.
+     * A WebView resize may eventually repair it, but that allows unsafe frames
+     * first and is not guaranteed across WebView versions or system keyboards. */
+    static void restorePadding(Activity activity) {
+        var decor = activity.getWindow().getDecorView();
+        var system = systemInsets.get(decor);
+        if (system == null) return; // First attachment still awaits its OS report.
+        var safe = immersive ? Insets.NONE : system;
+        decor.setPadding(safe.left, safe.top, safe.right, safe.bottom);
     }
 
     /** Viewer-only CSS padding; never applies to the chat or shrinks the canvas. */
