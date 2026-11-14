@@ -2991,6 +2991,9 @@ and the existing network/run/delete suites listed in that audit.
   and WebKit; root/client builds pass). Browser inset simulation is separate from
   physical-device acceptance and an updated native installer.
 - `src/gdocs/cli.ts`
+  The [public Google data review](google-public-data-review-2026-11-14.md)
+  records the restricted processing scope and the controls still required for
+  a managed public connector; it does not claim a shipped provider allowlist.
   Desktop-app OAuth and Google Docs CLI; Hub exports/status are owner-scoped.
   `gdocs configure` imports a private managed copy; `auth --client-file` persists
   the same import. CLI directory selection shares `resolveHostDirectory` with
