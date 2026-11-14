@@ -1334,6 +1334,10 @@ and the existing network/run/delete suites listed in that audit.
   the entire active iOS ADHD composer inside its grid when the keyboard opens,
   focus moves or the window resizes; single-chat/non-iOS exclusions remain.
   `ios-adaptive.css` owns the card input-size floor and outer toolbar top inset.
+  Its iOS phone-card text-size adjustment also prevents WebKit from inflating
+  replies in a wide pane and keeping them enlarged after it narrows. Saved
+  reading size and page zoom remain independent. See
+  [text sizing and evidence boundaries](client/adhd-ios-text-sizing-2026-11-14.md).
   Browser `adhd-keyboard` exercises the actual viewport controller with native-
   shaped events, lower rows, split resize, tall keyboards and input/Send hit tests;
   see [Duo/iPad pane repair](client/iphone-duo-scope-2026-11-10.md#adhd-pane-containment-and-device-limit-2026-11-12).

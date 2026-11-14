@@ -91,6 +91,10 @@
 :root[data-platform=ios] .workbench :is(.workbench-tabs, .workbench-tab-actions, .workbench-tab-strip) > button {
   min-height: 44px; min-width: 44px;
 }
+/* iPhone WebKit can inflate prose in a wide pane and retain that size after
+   another pane narrows it. Honor the chosen size throughout the card, including
+   quote previews and details. Keep iPad, ordinary chat and page zoom unchanged. */
+:root[data-platform=ios] .adhd-shell[data-adhd-device=phone] .adhd-card { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 /* ADHD's saved reading size must not override the iOS input-size floor.
    Only the outer toolbar touches the top edge; reserve that inset once,
    for touch and pointing devices alike, without padding each nested card. */
