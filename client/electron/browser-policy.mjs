@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto';
 // Policy for workbench web sessions. These sessions never receive the App's
 // protocols, preload, permission grants or network policy (`secureSession`).
 const EXTERNAL = new Set(['mailto:', 'tel:', 'sms:']);
+/** Google account/authorization pages must use the system browser, not an
+ * application-controlled Electron page. Match the origin, never a substring. */
+export function isGoogleSignInURL(raw) {
+  try {
+    const url = new URL(raw);
+    return url.origin === 'https://accounts.google.com' && !url.username && !url.password;
+  } catch { return false; }
+}
 const AUTOMATIC = new Set(['fullscreen', 'clipboard-sanitized-write']);
 const PROMPTED = new Set(['media', 'geolocation', 'notifications', 'clipboard-read', 'midi', 'idle-detection', 'storage-access', 'top-level-storage-access']);
 const LOOPBACK_FILTER = ['*://localhost/*', '*://*.localhost/*', '*://127.0.0.1/*', '*://[::1]/*', '*://0.0.0.0/*'];

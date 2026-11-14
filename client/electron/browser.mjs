@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { BROWSER_ACTIONS, BROWSER_EVENT, BROWSER_LIMITS, BROWSER_VERSION, BrowserError, MUTATING, NATIVE_INPUT, parseBrowserAction, parseBrowserLayout, parseBrowserReset } from './browser-contract.mjs';
 import { PAGE_WORLD, pageScript } from './browser-page.mjs';
-import { COMPAT_PROBE, UNLOAD_PROBE, classifyURL, navigationURL, partitionFor, permissionLabel, scopeKey, secureBrowserSession } from './browser-policy.mjs';
+import { COMPAT_PROBE, UNLOAD_PROBE, classifyURL, isGoogleSignInURL, navigationURL, partitionFor, permissionLabel, scopeKey, secureBrowserSession } from './browser-policy.mjs';
 import { EXTENSIONS_COMMAND, extensionsFor } from './browser-extensions.mjs';
 import { PERSONAL_BROWSER_SCOPE } from '../shared/personal-browser.mjs';
 import { executableName } from './files.mjs';
@@ -299,7 +299,11 @@ export class WorkbenchBrowser {
     const { args } = task, contents = tab.contents;
     switch (args.action) {
       case 'wake': return this.#wake(args, tab, task);
-      case 'navigate': return this.#navigate(args, tab, task, () => contents.loadURL(navigationURL(args.url)));
+      case 'navigate': {
+        const url = navigationURL(args.url);
+        if (isGoogleSignInURL(url)) return this.#googleNavigate(args, tab, task, url);
+        return this.#navigate(args, tab, task, () => contents.loadURL(url));
+      }
       case 'back': case 'forward': {
         const history = contents.navigationHistory;
         if (!(args.action === 'back' ? history.canGoBack() : history.canGoForward())) throw new BrowserError('no_history');
@@ -525,6 +529,11 @@ export class WorkbenchBrowser {
       if (this.#live(tab)) return this.#receipt(args, tab, 'ok', { existing: true });
       this.#install(tab, new this.electron.WebContentsView({ webPreferences: this.#preferences(this.#session(tab.scope)) }));
       tab.wakeOnShow = false;
+      if (isGoogleSignInURL(tab.url)) {
+        const url = tab.url; tab.url = 'about:blank';
+        const result = await this.#googleNavigate(args, tab, task, url);
+        this.#apply(); return result;
+      }
       const reloaded = tab.navigation > 0, result = await this.#navigate(args, tab, task, () => tab.contents.loadURL(tab.url));
       this.#apply();
       return { ...result, evidence: { ...result.evidence, reloaded } };
@@ -589,6 +598,12 @@ export class WorkbenchBrowser {
     this.#applyZoom(tab);
   }
   #guard(tab, event, url, main) {
+    if (isGoogleSignInURL(url)) {
+      event.preventDefault();
+      this.blocked(tab, 'navigation', 'google_sign_in_external', url);
+      if (main) void this.#openGoogleSignIn(tab, url);
+      return;
+    }
     const result = classifyURL(url);
     if (result.kind === 'web' || !main && /^(data|about):/i.test(url)) return;
     event.preventDefault();
@@ -661,6 +676,7 @@ export class WorkbenchBrowser {
   }
 
   #windowOpen(tab, details) {
+    if (isGoogleSignInURL(details.url)) { void this.#openGoogleSignIn(tab, details.url); return { action: 'deny' }; }
     const target = classifyURL(details.url || 'about:blank');
     if (target.kind === 'external') { void this.openExternal(tab, details.url, true); return { action: 'deny' }; }
     if (target.kind !== 'web' || this.#quitting || tab.revoked || resetting.has(tab.scope.host) || compatGates.has(tab.contents?.session)) { this.blocked(tab, 'window', target.reason ?? 'unavailable', details.url); return { action: 'deny' }; }
@@ -688,6 +704,7 @@ export class WorkbenchBrowser {
     const contents = child.webContents, id = contents.id;
     tab.popups.add(child); routes.set(id, { manager: this, tab, popup: true });
     contents.setWindowOpenHandler(details => {
+      if (isGoogleSignInURL(details.url)) { void this.#openGoogleSignIn(tab, details.url); return { action: 'deny' }; }
       const target = classifyURL(details.url || '');
       if (target.kind === 'web' && target.url !== 'about:blank') void this.#spawn(tab, target.url);
       else if (target.kind === 'external') void this.openExternal(tab, details.url, true);
@@ -1152,6 +1169,40 @@ export class WorkbenchBrowser {
     return true;
   }
   /** mailto/tel/sms only, after the person confirms in a native dialog. */
+  async #googleNavigate(args, tab, task, url) {
+    this.#check(tab, task);
+    const opened = await this.#openGoogleSignIn(tab, url, () => { this.#check(tab, task); }, () => { task.dispatched = true; });
+    this.#check(tab, task);
+    return this.#receipt(args, tab, 'needs_user', { error: 'google_sign_in_external', evidence: { externalOpened: opened, committed: false } });
+  }
+
+  async #openGoogleSignIn(tab, url, check = () => {}, dispatch = () => {}) {
+    this.blocked(tab, 'navigation', 'google_sign_in_external', url);
+    const contents = tab.contents, navigation = tab.navigation, generation = this.#generation;
+    const current = () => !this.#disposed && !this.#quitting && generation === this.#generation && this.#tabs.get(tab.id) === tab
+      && this.#live(tab) && tab.contents === contents && tab.navigation === navigation && !tab.revoked
+      && !resetting.has(tab.scope.host) && !compatGates.has(contents?.session) && !this.window.isDestroyed() && this.window.isVisible();
+    if (!isGoogleSignInURL(url) || !current() || this.now() - (tab.googleSignInAt ?? 0) < 3000) return false;
+    tab.googleSignInAt = this.now();
+    const english = this.english;
+    const ask = this.#prompts.then(async () => {
+      if (!current()) return false;
+      check();
+      const { response } = await this.electron.dialog.showMessageBox(this.window, { type: 'question', title: 'TaroBird',
+        message: english ? 'Continue Google sign-in in your default browser?' : '在默认浏览器中继续 Google 登录？',
+        detail: english ? 'Google requires an external browser for this sign-in. Continue using the website there; its sign-in session will not be copied into TaroBird. App authorization returns through its own callback.'
+          : 'Google 要求在外部浏览器中完成此登录。请在那里继续使用网页；网页登录状态不会复制回 TaroBird。应用授权会通过对应的回调完成。',
+        buttons: english ? ['Cancel', 'Open browser'] : ['取消', '打开浏览器'], defaultId: 0, cancelId: 0, noLink: true });
+      if (response !== 1 || !current()) return false;
+      check();
+      dispatch();
+      await this.electron.shell.openExternal(url);
+      return true;
+    });
+    this.#prompts = ask.catch(() => false);
+    return ask.catch(() => false);
+  }
+
   async openExternal(tab, raw, openHere = false) {
     const target = classifyURL(raw ?? '');
     if (target.kind !== 'external' || this.#quitting || !this.window.isVisible()) { this.blocked(tab, 'external', target.reason ?? 'unavailable', raw); return false; }

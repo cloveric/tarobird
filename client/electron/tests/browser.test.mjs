@@ -6,7 +6,7 @@ import { parseBrowserAction, parseBrowserLayout, parseBrowserReset, BROWSER_ACTI
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { classifyURL, installRequestFilter, navigationURL, partitionFor, privateHost, browserUserAgent, removeRequestFilter } from '../browser-policy.mjs';
+import { classifyURL, isGoogleSignInURL, installRequestFilter, navigationURL, partitionFor, privateHost, browserUserAgent, removeRequestFilter } from '../browser-policy.mjs';
 import { pageScript, PAGE_OPERATIONS } from '../browser-page.mjs';
 import { DESKTOP_COMMANDS, DESKTOP_EVENTS } from '../contract.mjs';
 import { DesktopServices } from '../desktop-services.mjs';
@@ -84,8 +84,71 @@ function fixture({ visible = true, zoom = 1, dialogs = [], options = {}, userAge
   let generation = 0;
   const call = (args, active = () => true) => browser.request('workbench_browser', { scope, ...args }, active);
   const layout = (views, extra = {}) => browser.request('workbench_browser_layout', { seq: ++generation, views, ...extra }, () => true);
-  return { browser, window, children, events, sessions, call, layout, setVisible: value => { visible = value; }, setFullScreen: value => { fullScreen = value; }, isFullScreen: () => fullScreen };
+  return { browser, electron, window, children, events, sessions, call, layout, setVisible: value => { visible = value; }, setFullScreen: value => { fullScreen = value; }, isFullScreen: () => fullScreen };
 }
+
+test('Google sign-in matches only the secure Google Accounts origin', () => {
+  assert.equal(isGoogleSignInURL('https://accounts.google.com/o/oauth2/v2/auth?client_id=public-example'), true);
+  for (const url of ['https://accounts.google.com.evil.example/', 'https://evil.example/?next=https://accounts.google.com/',
+    'http://accounts.google.com/', 'https://accounts.google.com:8443/', 'https://user@accounts.google.com/', 'https://mail.google.com/']) {
+    assert.equal(isGoogleSignInURL(url), false, url);
+  }
+});
+
+test('direct Google opens stay out of Electron and require a real user choice', async () => {
+  for (const accepted of [false, true]) {
+    const f = fixture({ dialogs: [accepted ? 1 : 0] }), opened = [];
+    f.electron.shell.openExternal = async url => opened.push(url);
+    const url = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=public-example';
+    const result = await f.call({ action: 'open', tab: 'google', url, source: 'user' });
+    assert.equal(result.status, 'needs_user');
+    assert.equal(result.evidence.externalOpened, accepted);
+    assert.equal(result.evidence.committed, false);
+    assert.deepEqual(opened, accepted ? [url] : []);
+    assert.ok(f.children.every(view => !isGoogleSignInURL(view.webContents.getURL())));
+    f.browser.dispose();
+  }
+});
+
+test('Google navigation, popup and redirect handoffs never create an embedded login', async () => {
+  for (const route of ['navigate', 'popup', 'redirect', 'frame']) {
+    const f = fixture({ dialogs: [1] }), opened = [];
+    f.electron.shell.openExternal = async url => opened.push(url);
+    await f.call({ action: 'open', tab: 't1', url: 'https://example.org', source: 'user' });
+    const contents = f.children[0].webContents, url = 'https://accounts.google.com/v3/signin/identifier';
+    if (route === 'navigate') {
+      const receipt = await f.call({ action: 'navigate', tab: 't1', url, source: 'user' });
+      assert.equal(receipt.status, 'needs_user');
+    } else if (route === 'popup') {
+      assert.deepEqual(contents.openHandler({ url, disposition: 'new-window' }), { action: 'deny' });
+    } else {
+      const event = { url, isMainFrame: route !== 'frame', preventDefault() { this.prevented = true; } };
+      contents.emit('will-redirect', event);
+      assert.equal(event.prevented, true);
+    }
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(contents.getURL(), 'https://example.org/');
+    assert.equal(opened.length, route === 'frame' ? 0 : 1);
+    f.browser.dispose();
+  }
+});
+
+test('a Google handoff cannot outlive navigation or a retired native document', async () => {
+  for (const retire of [false, true]) {
+    const f = fixture(), opened = [];
+    f.electron.shell.openExternal = async url => opened.push(url);
+    let answer;
+    f.electron.dialog.showMessageBox = () => new Promise(resolve => { answer = resolve; });
+    await f.call({ action: 'open', tab: 't1', url: 'https://example.org', source: 'user' });
+    const pending = f.call({ action: 'navigate', tab: 't1', url: 'https://accounts.google.com/', source: 'user' });
+    await new Promise(resolve => setImmediate(resolve));
+    if (retire) f.browser.dispose();
+    else await f.children[0].webContents.loadURL('https://example.org/next');
+    answer({ response: 1 }); await pending;
+    assert.deepEqual(opened, []);
+    if (!retire) f.browser.dispose();
+  }
+});
 
 test('desktop contract adds two browser commands and one event without changing the system-browser command', () => {
   assert.ok(DESKTOP_COMMANDS.includes('workbench_browser') && DESKTOP_COMMANDS.includes('workbench_browser_layout') && DESKTOP_COMMANDS.includes('desktop_open_url'));

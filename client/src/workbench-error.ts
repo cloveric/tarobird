@@ -51,6 +51,7 @@ export function workbenchErrorText(code: string, locale: Locale): string {
     navigation_failed: ["网页未能加载，请检查网址和连接后重试。", "The page could not load. Check its address and connection, then retry."],
     navigation_not_committed: ["尚未确认网页已打开，请查看当前页面后重试。", "The page has not confirmed navigation. Check the current page before retrying."],
     navigation_blocked: ["此地址无法在工作台中打开，请使用有效的网页地址。", "This address cannot open in the workbench. Use a valid web address."],
+    google_sign_in_external: ["Google 登录需要在系统浏览器中继续，网页登录状态不会同步回内置浏览器。", "Continue Google sign-in in your system browser. Website sign-in is not shared with the embedded browser."],
     invalid_url: ["网址格式无效，请检查输入。", "This address is invalid. Check what you entered."],
     unsupported_scheme: ["工作台只支持普通网页地址，请输入 HTTP 或 HTTPS 网址。", "Enter an HTTP or HTTPS web address for the workbench."],
     timeout: ["网页操作等待超时，请先查看当前页面，避免重复执行。", "The browser action timed out. Check the current page before repeating it."],

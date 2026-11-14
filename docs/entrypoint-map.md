@@ -4896,6 +4896,10 @@ Electron `browser.test.mjs` (URL/header bounds, per-session versions and filter
 restoration) and `browser-extensions.test.mjs`. Source-level Mac playback and
 native browser checks do not certify Windows installed-App acceptance. This is
 desktop page-session behavior; the headless Host/CLI contract is unchanged.
+Google account URLs use a cancel-first system-browser handoff, including direct
+navigation, redirects and popups; no login cookies are imported. Receipts keep
+external handoff distinct from page navigation or successful authorization.
+See [Google sign-in handoff](client/google-browser-handoff-2026-11-14.md).
 User takeover can only be resumed by trusted UI. `workbench-browser.ts` merges
 native layout across panels and hides pages behind dialogs/menus.
 `BrowserPageTools.tsx` and `workbench-browser-tools.ts` add trusted-user page
