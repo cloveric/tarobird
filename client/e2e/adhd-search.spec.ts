@@ -99,6 +99,12 @@ test("ADHD pane search locates older history, scopes every page and keeps drafts
     await expect(a.locator(".history-search-header")).toContainText("项目 1");
     await expect(a.getByLabel("搜索 Bot", { exact: true })).toHaveCount(0);
     await expect(a.getByRole("button", { name: "放大此面板", exact: true })).toBeVisible();
+    await a.locator(".search-results").evaluate(node => { node.scrollTop = 400; });
+    const reader = (await a.locator(".search-results").boundingBox())!;
+    const pager = (await a.getByRole("navigation", { name: "搜索翻页", exact: true }).boundingBox())!;
+    const card = (await a.boundingBox())!;
+    expect(reader.y + reader.height).toBeLessThanOrEqual(pager.y + 1);
+    expect(pager.y + pager.height).toBeLessThanOrEqual(card.y + card.height + 1);
     await a.getByRole("button", { name: "下一页", exact: true }).click(); await expect(hits(a)).toHaveCount(5);
     await expect(a.locator(".search-results")).not.toContainText("项目 2独有内容");
     await expect(hits(a).first().locator("mark")).toHaveText("共同记录");

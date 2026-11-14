@@ -1440,6 +1440,11 @@ and the existing network/run/delete suites listed in that audit.
   `SearchExcerpt.tsx` / `search-highlight.ts` mark literal matches using the
   applied query, not unsubmitted filter edits. Preview cleanup falls back to
   the original excerpt if it would hide a match; only React text nodes are used.
+  Pagination is a separate flex row below the scrolling results, so long
+  excerpts cannot pass behind the controls. Phone safe-area padding stays on
+  that row; ADHD panes consume no additional device inset. Browser `search`
+  and `adhd-search` cover scrolling, small English layouts and page navigation.
+  See [pagination containment](client/history-search-pagination-2026-11-14.md).
   Tests: `client-search-highlight`, browser `search` / `deletion-result-sync`.
   Existing `search` and `mobile-im` journeys check result navigation and return
   behavior. [Original context fix](client/search-context-2026-10-12.md),

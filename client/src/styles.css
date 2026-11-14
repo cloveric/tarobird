@@ -183,7 +183,16 @@
 @media(max-width:760px){.composer-hint{display:none}.composer-steer{margin-left:auto}}
 @media(max-width:360px){.composer-toolbar .composer-steer{width:44px;min-width:44px;flex-shrink:0}.composer-steer>span{display:none}}
 
-.search-pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:1;background:var(--bg);padding:10px 0;border-bottom:1px solid var(--border);font-size:12px}.search-pagination button{min-height:40px;min-width:72px;padding:8px 12px;border:1px solid var(--border);background:var(--raised)}
+/* Pagination owns a separate flex row, outside the scrolling reader. Long
+   excerpts must never pass behind the navigation controls. */
+.search-results{min-height:0}
+.search-pagination{display:flex;flex:0 0 auto;min-width:0;align-items:center;justify-content:space-between;gap:12px;background:var(--bg);padding:10px 24px;border-top:1px solid var(--border);font-size:12px}
+.search-pagination>span{white-space:nowrap}
+.search-pagination button{min-height:44px;min-width:72px;padding:8px 12px;border:1px solid var(--border);background:var(--raised)}
+@media(max-width:760px),(hover:none) and (pointer:coarse){.conversation-main>.search-pagination{padding:8px max(16px,var(--app-safe-right)) max(8px,var(--app-safe-bottom)) max(16px,var(--app-safe-left))}}
+@media(min-width:761px) and (hover:none) and (pointer:coarse){.conversation-main>.search-pagination{padding-left:max(24px,var(--app-safe-left));padding-right:max(24px,var(--app-safe-right))}}
+/* A pane's grid owns the device edges; don't apply the phone's inset twice. */
+.adhd-card .conversation-main>.search-pagination{gap:8px;padding:8px 12px}
 
 .file-media-preview{flex:1;min-height:0;overflow:auto;display:flex;align-items:center;justify-content:center}.file-media-preview img,.file-media-preview video{max-width:100%;max-height:100%;object-fit:contain}.file-media-preview audio{width:min(480px,100%)}
 

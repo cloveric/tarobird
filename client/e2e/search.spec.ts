@@ -2,6 +2,7 @@ import { preparePairing } from "./fixtures/pairing-invite.js";
 import { showDisconnectedBots, openMobileSearch } from "./fixtures/mobile.js";
 import { test, expect, type Page } from "@playwright/test";
 import { mobileHome } from "./fixtures/mobile.js";
+import { openSettings, closeSettings } from "./fixtures/settings.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +29,85 @@ function holdSearch(page: Page, keyword: string, cursor?: boolean) {
   return { installed, ready, release, finished };
 }
 
+for (const scenario of [
+  { name: "Android phone", width: 480, height: 900, touch: true, platform: "android", english: false },
+  { name: "iPhone narrow English", width: 320, height: 740, touch: true, platform: "ios", english: true },
+  { name: "iPad touch", width: 1024, height: 768, touch: true, platform: "ios", english: false },
+  { name: "desktop English", width: 1360, height: 900, touch: false, platform: "web", english: true },
+]) test(`history pagination never covers long results (${scenario.name})`, async ({ browser }, info) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "search-pager-layout-"));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+  const context = await browser.newContext({ viewport: { width: scenario.width, height: scenario.height }, hasTouch: scenario.touch, serviceWorkers: "block", reducedMotion: "reduce" });
+  const page = await context.newPage(), errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  try {
+    await hub.profile.update({ name: "Sample host", revision: (await hub.profile.read()).revision });
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','Archive assistant','fixture')");
+    const chat = await hub.store.createConversation("owner", ["alpha"], "Archive notes", "pager-layout");
+    for (let i = 0; i < 55; i++) await hub.store.publishBotMessage("alpha", { conversationId: chat.id, blocks: [{ type: "text", text: `Archive ${i}: ${"长段落和 English text should remain readable while scrolling. ".repeat(16)}` }] });
+    await pair(page, hub);
+    if (scenario.english) {
+      await openSettings(page, "general");
+      await page.locator("#font-size").focus();
+      await page.locator("#font-size").press("End");
+      await expect(page.locator("#font-size")).toHaveValue("20");
+      await page.locator("#language").selectOption("en");
+      await closeSettings(page, true);
+    }
+    if (!scenario.english) await search(page, "Archive");
+    else if (scenario.width <= 760) {
+      await mobileHome(page).getByRole("navigation", { name: "Main navigation", exact: true }).getByRole("button", { name: /^Message/ }).click();
+      await mobileHome(page).getByRole("button", { name: "Search conversations or Bots", exact: true }).click();
+      await mobileHome(page).getByLabel("Find chats or bots", { exact: true }).fill("Archive");
+      await mobileHome(page).getByRole("button", { name: "Search message history", exact: true }).click();
+    } else {
+      const field = page.getByRole("textbox", { name: "Search message history", exact: true });
+      await field.fill("Archive"); await field.press("Enter");
+    }
+    // Browser layout coverage only: platform skin and safe-area tokens do not
+    // claim a native device or keyboard run.
+    await page.evaluate(({ platform, touch }) => {
+      document.documentElement.dataset.platform = platform;
+      if (touch) document.documentElement.style.setProperty("--app-safe-bottom", "24px");
+    }, scenario);
+    const results = page.locator(".search-results"), items = results.locator(":scope > button");
+    const pager = page.getByRole("navigation", { name: scenario.english ? "Search pages" : "搜索翻页", exact: true });
+    await expect(items).toHaveCount(50);
+    await results.evaluate(node => { node.scrollTop = 650; });
+    await page.screenshot({ path: info.outputPath("long-results-pagination.png"), animations: "disabled" });
+    const checkLayout = async () => {
+      const content = (await results.boundingBox())!, controls = (await pager.boundingBox())!;
+      // The reader and the control strip own disjoint space; no excerpt can
+      // pass behind a floating pager, including part-way down a long card.
+      expect(content.y + content.height).toBeLessThanOrEqual(controls.y + 1);
+      expect(controls.y + controls.height).toBeLessThanOrEqual((page.viewportSize()?.height ?? 0) + 1);
+      const card = (await items.first().boundingBox())!;
+      const previous = (await pager.locator("button").first().boundingBox())!;
+      const next = (await pager.locator("button").last().boundingBox())!;
+      expect(Math.abs(previous.x - card.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(next.x + next.width - card.x - card.width)).toBeLessThanOrEqual(1);
+      for (const button of await pager.locator("button").all()) {
+        const box = (await button.boundingBox())!;
+        expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
+        expect(await button.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); })).toBe(true);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    };
+    await checkLayout();
+    await results.evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await expect(items.last()).toBeInViewport(); await checkLayout();
+    await pager.getByRole("button", { name: scenario.english ? "Next" : "下一页", exact: true }).click();
+    await expect(items).toHaveCount(5); await expect.poll(() => results.evaluate(node => node.scrollTop)).toBe(0);
+    await pager.getByRole("button", { name: scenario.english ? "Previous" : "上一页", exact: true }).click();
+    await expect(items).toHaveCount(50);
+    if (scenario.touch) {
+      await page.setViewportSize({ width: scenario.width, height: 420 });
+      await checkLayout();
+    }
+    expect(errors).toEqual([]);
+  } finally { await context.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 for (const width of [390, 1360]) test(`search highlights literal applied matches safely in light and dark themes (${width})`, async ({ browser }, info) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "search-highlight-"));
   const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
@@ -50,14 +130,17 @@ for (const width of [390, 1360]) test(`search highlights literal applied matches
     expect(await items.locator("p").evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); return r.toString(); })).toBe(text);
     for (const palette of ["white-violet", "white-orange", "mono", "sage", "cli"]) for (const theme of ["light", "dark"]) {
       await page.evaluate(({ palette, theme }) => { document.documentElement.dataset.palette = palette; document.documentElement.dataset.theme = theme; }, { palette, theme });
-      const colors = await items.locator("mark").first().evaluate(el => {
+      const readColors = () => items.locator("mark").first().evaluate(el => {
         const style = getComputedStyle(el), rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
         const luminance = (s: string) => rgb(s).slice(0, 3).map(v => { const n = v / 255; return n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i]!, 0);
         const fg = luminance(style.color), bg = luminance(style.backgroundColor);
         return { background: style.backgroundColor, row: getComputedStyle(el.closest("button")!).backgroundColor, contrast: (Math.max(fg, bg) + .05) / (Math.min(fg, bg) + .05) };
       });
+      // Result buttons transition inherited text color. Measure the settled
+      // palette, not the previous theme's foreground over the new background.
+      await expect.poll(async () => (await readColors()).contrast, `${palette}/${theme}`).toBeGreaterThanOrEqual(4.5);
+      const colors = await readColors();
       expect(colors.background, `${palette}/${theme}`).not.toBe(colors.row);
-      expect(colors.contrast, `${palette}/${theme}`).toBeGreaterThanOrEqual(4.5);
       if (palette === "white-orange" || palette === "mono") await page.screenshot({ path: info.outputPath(`highlight-${width}-${palette}-${theme}.png`), animations: "disabled" });
     }
     await input.fill("abc");
@@ -183,7 +266,7 @@ test("desktop and phone page through older history, retain results on failure an
     for (const mobile of [false, true]) {
       const context = await browser.newContext({ viewport: { width: mobile ? 390 : 1360, height: mobile ? 844 : 900 }, isMobile: mobile, hasTouch: mobile, serviceWorkers: "block" }); contexts.push(context);
       const page = await context.newPage(); await pair(page, hub); await search(page, "归档检索");
-      const results = page.locator(".search-results"), items = results.locator(":scope > button"), pager = results.getByRole("navigation", { name: "搜索翻页", exact: true });
+      const results = page.locator(".search-results"), items = results.locator(":scope > button"), pager = page.getByRole("navigation", { name: "搜索翻页", exact: true });
       await expect(items).toHaveCount(50); await expect(items.first().locator("mark")).toHaveText("归档检索"); await expect(pager.getByRole("button", { name: "上一页", exact: true })).toBeDisabled();
       // Editing a field alone must not change the applied query while paging.
       await results.getByRole("textbox", { name: "搜索关键词", exact: true }).fill("单独查询的结果");
@@ -253,7 +336,7 @@ test("desktop conversation search scopes every page, supports keyboard navigatio
     await expect(results.getByLabel("搜索 Bot", { exact: true })).toHaveCount(0);
     await input.fill("共同记录"); await input.press("Enter");
     await expect(items).toHaveCount(50); await expect(results).not.toContainText("其他会话独有内容");
-    await results.getByRole("button", { name: "下一页", exact: true }).click();
+    await page.getByRole("navigation", { name: "搜索翻页", exact: true }).getByRole("button", { name: "下一页", exact: true }).click();
     await expect(items).toHaveCount(5); await expect(items.first().locator("mark")).toHaveText("共同记录"); await expect(results).not.toContainText("其他会话独有内容");
     await page.screenshot({ path: info.outputPath("conversation-search-results.png"), animations: "disabled" });
     await items.last().click(); await expect(page.locator(`[data-message-id="${oldest}"].focused-message`)).toBeVisible();
