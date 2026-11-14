@@ -135,7 +135,7 @@ test.describe("Duo ADHD keyboard", () => {
 
 for (const device of ["Duo touch", "iPad touch", "iPad pointer"]) test.describe(device, () => {
   test.use({ userAgent: device.startsWith("Duo") ? IPHONE : IPAD, hasTouch: !device.endsWith("pointer"), viewport: { width: 1000, height: 834 } });
-  test("iOS ADHD controls respect the input-size floor and top safe area", async ({ page }) => {
+  test("iOS ADHD controls respect reading size, the input-size floor and top safe area", async ({ page, browserName }) => {
     const close = await setup(page, 2);
     try {
       const input = page.locator(".adhd-card").first().getByRole("textbox");
@@ -143,6 +143,29 @@ for (const device of ["Duo touch", "iPad touch", "iPad pointer"]) test.describe(
       expect.soft(await input.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThanOrEqual(16);
       // Only the editor has the input floor, not the user's reading-size choice.
       await expect(page.locator(".adhd-grid")).toHaveCSS("font-size", "11px");
+      const prose = page.locator(".adhd-card .message .markdown p").first();
+      // Desktop WebKit has no iOS text autosizer and does not expose this CSS
+      // property. Chromium locks the scope/inheritance contract; a native iOS
+      // WKWebView probe separately checks the actual 12 -> 20 px failure.
+      if (browserName === "chromium") {
+        const adjustment = device.startsWith("Duo") ? "100%" : "auto";
+        await expect(prose).toHaveCSS("text-size-adjust", adjustment);
+        await expect(page.locator(".adhd-card").first()).toHaveCSS("text-size-adjust", adjustment);
+        await expect(page.locator(".adhd-toolbar")).toHaveCSS("text-size-adjust", "auto");
+        await expect(page.locator("body")).toHaveCSS("text-size-adjust", "auto");
+      }
+      for (const size of ["12", "16", "11"]) {
+        await page.getByLabel("ADHD 窗口字号", { exact: true }).selectOption(size);
+        await expect(prose).toHaveCSS("font-size", `${size}px`);
+        await expect(input).toHaveCSS("font-size", "16px");
+      }
+      const secondPane = page.getByRole("checkbox", { name: /^加入面板：.*对话 2$/ });
+      await secondPane.uncheck();
+      await expect(page.locator(".adhd-card")).toHaveCount(1);
+      await expect(prose).toHaveCSS("font-size", "11px");
+      await secondPane.check();
+      await expect(page.locator(".adhd-card")).toHaveCount(2);
+      await expect(prose).toHaveCSS("font-size", "11px");
       await page.evaluate(() => document.documentElement.style.setProperty("--safe-area-inset-top", "24px"));
       expect.soft(await page.getByRole("button", { name: "返回聊天", exact: true }).evaluate(node => node.getBoundingClientRect().top)).toBeGreaterThanOrEqual(24);
       // The iOS-scoped corrections must disappear for desktop/Android styles.
@@ -150,6 +173,8 @@ for (const device of ["Duo touch", "iPad touch", "iPad pointer"]) test.describe(
         await page.evaluate(value => document.documentElement.dataset.platform = value, platform);
         await expect(input).toHaveCSS("font-size", "11px");
         await expect(page.locator(".adhd-toolbar")).toHaveCSS("padding-top", "8px");
+        await expect(prose).toHaveCSS("font-size", "11px");
+        if (browserName === "chromium") await expect(prose).toHaveCSS("text-size-adjust", "auto");
       }
     } finally { await close(); }
   });
