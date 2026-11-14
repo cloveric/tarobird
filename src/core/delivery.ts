@@ -376,9 +376,11 @@ export async function deliverCoreResponse(input: {
   const claimedArtifactPaths = new Set<string>();
   for (const match of toolMatches) {
     let toolName = "unknown";
+    let payloadParsed = false;
     try {
       const parsed = parseCoreToolTagPayload(match.payload);
       toolName = parsed.name;
+      payloadParsed = true;
       const toolOk = await executeCoreToolTag({
         ...input,
         name: parsed.name,
@@ -389,12 +391,14 @@ export async function deliverCoreResponse(input: {
       ok = toolOk && ok;
     } catch (error) {
       ok = false;
-      if (!(error instanceof SyntaxError)) {
+      // Widget script validation can throw SyntaxError after valid JSON parsed.
+      const invalidJson = !payloadParsed && error instanceof SyntaxError;
+      if (!invalidJson) {
         await appendCoreToolErrorTimeline(input, toolName, error);
       }
       // A Feishu-native tool (lark.doc / lark.card / …) that failed because the app lacks a
       // permission scope becomes an actionable "go authorize" card instead of a raw error.
-      const handledAsScope = !(error instanceof SyntaxError) && await maybeSendLarkScopeAuthCard({
+      const handledAsScope = !invalidJson && await maybeSendLarkScopeAuthCard({
         channel: input.channel,
         chatId: input.chatId,
         appId: input.runtime.appInfo?.appId,
@@ -404,7 +408,12 @@ export async function deliverCoreResponse(input: {
       }, error);
       if (!handledAsScope) {
         await input.channel.send(input.chatId, {
-          text: renderCoreToolTagParseError(error, locale),
+          text: invalidJson ? renderCoreToolTagParseError(error, locale)
+            : input.channel.profile === "gateway" && toolName === "send.widget"
+              ? locale === "en"
+                ? "Widget publication was not confirmed. Ask the Bot to check the content and delivery status before retrying. Details were recorded in logs."
+                : "图形未能确认发布。请让 Bot 检查图形内容和交付状态后再处理，详细原因已记录到日志。"
+              : renderCoreUserFacingError(error, "tool", locale),
         }, replyOptions);
       }
     }

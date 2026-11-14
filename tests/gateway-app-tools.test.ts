@@ -13,9 +13,9 @@ import { larkAgentInstructions } from "../src/core/agent-instructions.js";
 import { withChannelProfile } from "../src/gateway/platform-profile.js";
 import { extractCoreToolTagMatches, parseCoreToolTagPayload } from "../src/core/shared/tool-tags.js";
 
-// Standing per-turn contract budget. Raised once from 1400 for the 2026-10-23
-// native task guidance (worst case ~1575); keep further growth deliberate.
-const APP_INSTRUCTION_BUDGET = 1600;
+// Compatibility standing budget: +100 for the complete widget envelope instead
+// of payload-only shorthand. Native-widget budgets stay at 1600 in widget-format-policy.
+const APP_INSTRUCTION_BUDGET = 1700;
 
 describe("App platform contract", () => {
   it("routes routine Bot follow-ups through durable messages and forbids ambiguous steering fallback", () => {

@@ -18,7 +18,8 @@ describe("Claude Chrome recovery guidance", () => {
       expect(standing).toContain("Before browser work or drafting a browser subtask");
       expect(standing).toContain("read app_capability topic=browser");
       expect(standing).toContain("Children without this tool use the parent-supplied steps");
-      expect(standing.length).toBeLessThan(CLAUDE_NATIVE_INSTRUCTION_BUDGET);
+      // Only compatibility widgets need the additional complete envelope.
+      expect(standing.length).toBeLessThan(CLAUDE_NATIVE_INSTRUCTION_BUDGET + (widgetsEnabled && !nativeWidgets ? 100 : 0));
       }
     }
     // The publishing request that previously bypassed the keyword-based hint.

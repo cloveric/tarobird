@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { appAgentInstructions, appCapabilityInstructions, appTurnInstructions } from '../src/gateway/agent-instructions.js';
+import { validateWidget } from '../src/runtime/widget.js';
+import { parseTimelineEvents } from '../src/state/timeline-log.js';
 import { widgetFormatPolicy } from '../src/gateway/widget-guidance.js';
 import { createAppPlatformTools } from '../src/gateway/app-tools.js';
 import { GatewayReceipts } from '../src/gateway/receipts.js';
@@ -24,9 +26,10 @@ it('uses one HTML-default policy for all engines, native tools, compatibility fe
       const options = { engine, nativeWidgets, widgetsEnabled: true };
       const standing = appAgentInstructions(options);
       expect(standing).toContain(widgetFormatPolicy);
-      expect(standing).toContain('{title,summary,html}');
+      if (nativeWidgets) expect(standing).toContain('app_show_widget({title,summary,html})');
+      else expect(standing).toMatch(/"payload":\{"title":"[^"]+","summary":"[^"]+","html":"[^"]+"\}/);
       expect(standing).not.toContain('html|report');
-      expect(standing.length).toBeLessThan(1600);
+      expect(standing.length).toBeLessThan(nativeWidgets ? 1600 : 1700);
       const guide = appCapabilityInstructions('widgets', options);
       expect(guide).toContain(widgetFormatPolicy);
       expect(guide.indexOf('Publish with app_show_widget')).toBeLessThan(guide.indexOf('Report schema'));
@@ -122,4 +125,104 @@ it.each([
   expect(result.ok).toBe(true);
   expect(send).toHaveBeenCalledOnce();
   expect(send.mock.calls[0]?.slice(0, 2)).toEqual(['chat', { widget }]);
+});
+
+it.each(['antigravity', 'kimi'] as const)('%s receives a complete executable widget envelope even without topic guidance', async engine => {
+  const guide = appAgentInstructions({ engine, nativeWidgets: false, widgetsEnabled: true });
+  const fence = guide.match(/```tool-call\r?\n([\s\S]*?)\r?\n```/);
+  expect(fence, 'Standing guidance must not omit the name/payload envelope').not.toBeNull();
+  const envelope = JSON.parse(fence![1]!);
+  expect(envelope.name).toBe('send.widget');
+  expect(envelope.payload).toMatchObject({ title: expect.any(String), summary: expect.any(String), html: expect.any(String) });
+  const root = await mkdtemp(path.join(os.tmpdir(), 'widget-guide-')); roots.push(root);
+  const send = vi.fn(async () => ({ messageId: 'guide-widget' }));
+  const result = await deliverCoreResponse({ channel: { profile: 'gateway', send } as unknown as CoreChannelLike,
+    runtime: createCoreServiceRuntime(), chatId: 'chat', text: fence![0], stateDir: root });
+  expect(result.ok).toBe(true);
+  expect(send).toHaveBeenCalledExactlyOnceWith('chat', { widget: envelope.payload }, undefined);
+});
+
+it.each(['antigravity', 'kimi'] as const)('%s receives visual authoring instructions for ordinary drawing requests', engine => {
+  for (const text of ['画个图', '这个结构能画图给我看吗？', '请画一张示意图', '画个架构图', '做个对比图', '画一个封装结构的图', 'draw a diagram of these layers']) {
+    expect(appTurnInstructions(text, { engine, nativeWidgets: false, widgetsEnabled: true }), text).toContain('Only tool-call fences execute');
+  }
+  for (const text of ['修复画图按钮', '审计示意图组件的代码', '修复绘制结构图的代码', '这段 send 代码是什么意思', 'explain this send code block', '画一张图片：一只猫', '帮我画图片', 'Windows 画图软件打不开', '这张结构图是谁画的', '示意图里第三层是什么材料', '生成一张图片', '生成图片：赛博朋克城市', '画一张猫的图片', '画一张猫的图', '帮我生成一张海报图', '做个图片压缩工具', '展示一下这张截图']) {
+    expect(appTurnInstructions(text, { engine, nativeWidgets: false, widgetsEnabled: true }) ?? '', text).not.toContain('128 KiB');
+  }
+  expect(appTurnInstructions('画个图', { engine, nativeWidgets: false, widgetsEnabled: false })).not.toContain('send.widget');
+});
+
+it.each(['send', 'send.widget', 'html', 'json'])('keeps a %s fence as text instead of publishing it', async language => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'widget-example-')); roots.push(root);
+  const send = vi.fn(async () => ({ messageId: 'example-text' }));
+  const payload = { title: 'Example', summary: 'Example only', html: '<p>Example</p>' };
+  for (const content of [payload, { name: 'send.widget', payload }]) {
+    send.mockClear();
+    const text = `\`\`\`${language}\n${JSON.stringify(content)}\n\`\`\``;
+    const result = await deliverCoreResponse({ channel: { profile: 'gateway', send } as unknown as CoreChannelLike,
+      runtime: createCoreServiceRuntime(), chatId: 'chat', text, stateDir: root });
+    expect(result.ok).toBe(true); // Text delivery is not a widget publication receipt.
+    expect(send).toHaveBeenCalledExactlyOnceWith('chat', { markdown: text }, undefined);
+  }
+});
+
+it('does not execute widget examples inside quotes or enclosing code fences', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'widget-quoted-')); roots.push(root);
+  const send = vi.fn(async () => ({ messageId: 'quoted-example' }));
+  const example = '```tool-call\n' + JSON.stringify({ name: 'send.widget', payload: {
+    title: 'Example', summary: 'Example only', html: '<p>Example</p>' } }) + '\n```';
+  for (const text of [example.split('\n').map(line => `> ${line}`).join('\n'), `\`\`\`\`markdown\n${example}\n\`\`\`\``]) {
+    send.mockClear();
+    const result = await deliverCoreResponse({ channel: { profile: 'gateway', send } as unknown as CoreChannelLike,
+      runtime: createCoreServiceRuntime(), chatId: 'chat', text, stateDir: root });
+    expect(result.ok).toBe(true);
+    expect(send).toHaveBeenCalledExactlyOnceWith('chat', { markdown: text }, undefined);
+  }
+});
+
+it.each(['zh', 'en'])('distinguishes widget execution and JSON syntax failures (%s)', async locale => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'widget-failure-')); roots.push(root);
+  await writeFile(path.join(root, 'config.json'), JSON.stringify({ locale }));
+  const published: unknown[] = [];
+  const send = vi.fn(async (_chatId: string, content: any) => {
+    if (content.widget) published.push(validateWidget(content.widget));
+    return { messageId: 'error-notice' };
+  });
+  for (const html of ['<script>let = ;</script>', '<meta name="example">']) {
+    send.mockClear();
+    const text = '```tool-call\n' + JSON.stringify({ name: 'send.widget', payload: {
+      title: 'Invalid widget', summary: 'Readable summary', html } }) + '\n```';
+    const result = await deliverCoreResponse({ channel: { profile: 'gateway', send } as unknown as CoreChannelLike,
+      runtime: createCoreServiceRuntime(), chatId: 'chat', text, stateDir: root });
+    expect(result.ok).toBe(false);
+    expect(published).toEqual([]);
+    const notices = send.mock.calls.map(call => call[1]?.text).filter(Boolean).join('\n');
+    expect(notices).not.toMatch(/JSON|飞书|Lark/);
+    expect(notices).toContain(locale === 'en' ? 'Widget publication' : '图形');
+    const events = parseTimelineEvents(await readFile(path.join(root, 'timeline.log.jsonl'), 'utf8'));
+    expect(events.at(-1)).toMatchObject({ type: 'service.error', metadata: { tool: 'send.widget' } });
+  }
+  send.mockClear();
+  const result = await deliverCoreResponse({ channel: { profile: 'gateway', send } as unknown as CoreChannelLike,
+    runtime: createCoreServiceRuntime(), chatId: 'chat', text: '```tool-call\n{"name":"send.widget",\n```', stateDir: root });
+  expect(result.ok).toBe(false);
+  expect(send.mock.calls.map(call => call[1]?.text).join('\n')).toContain('JSON');
+  expect(published).toEqual([]);
+});
+
+it('reports an uncertain widget transport failure without replaying the widget', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'widget-transport-')); roots.push(root);
+  await writeFile(path.join(root, 'config.json'), JSON.stringify({ locale: 'en' }));
+  const send = vi.fn(async (_chatId: string, content: any) => {
+    if (content.widget) throw new Error('request timed out');
+    return { messageId: 'notice' };
+  });
+  const text = '```tool-call\n' + JSON.stringify({ name: 'send.widget', payload: {
+    title: 'Diagram', summary: 'Three nodes', html: '<p>A → B → C</p>' } }) + '\n```';
+  const result = await deliverCoreResponse({ channel: { profile: 'gateway', send } as unknown as CoreChannelLike,
+    runtime: createCoreServiceRuntime(), chatId: 'chat', text, stateDir: root });
+  expect(result.ok).toBe(false);
+  expect(send.mock.calls.filter(call => call[1]?.widget)).toHaveLength(1);
+  expect(send.mock.calls.filter(call => call[1]?.text)).toHaveLength(1);
+  expect(send.mock.calls.at(-1)?.[1].text).toContain('delivery status before retrying');
 });

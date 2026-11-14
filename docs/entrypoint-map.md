@@ -3736,7 +3736,10 @@ visuals; structured report requires an explicit user request. Native tools v8
 carry this advice; persisted v1-v7 contracts retain exact hashes and receive the
 current policy through standing/on-demand guidance. Existing report messages,
 validation and rendering remain unchanged. CLI help follows the same policy. See [HTML-default policy and compatibility
-verification](client/widget-html-default-2026-10-31.md).
+verification](client/widget-html-default-2026-10-31.md). Compatibility standing
+guidance contains the complete executable envelope; ordinary drawing requests
+select the detailed recipe without making plain/quoted code executable. See
+[compatibility delivery coverage](client/widget-compatibility-delivery-2026-11-15.md).
 Frozen Codex tools remain stable;
 Claude and DeepSeek expose the new native tool. `host-cli/widgets.ts` and the Hub's
 conversation widget route share validation and transactional user publication.

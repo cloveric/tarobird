@@ -1,7 +1,7 @@
 import { workbenchDesignGuidance, workbenchPptRouting } from "./design-guidance.js";
 import { workbenchContextSchema, workbenchOpenerOnly } from "../client-protocol/workbench.js";
 import { widgetsEnabled } from "../runtime/widget-policy.js";
-import { widgetGuidance, reportCompatibilityGuidance, widgetFormatPolicy } from "./widget-guidance.js";
+import { widgetGuidance, reportCompatibilityGuidance, widgetFormatPolicy, widgetCompatibilityFence } from "./widget-guidance.js";
 import type { InstanceEngine } from "../state/instance-config.js";
 
 export interface AppInstructionOptions {
@@ -37,7 +37,7 @@ export function appAgentInstructions(options: AppInstructionOptions = {}): strin
       : undefined,
     canDeliver && (options.widgetsEnabled ?? widgetsEnabled()) ? options.nativeWidgets
       ? `${widgetFormatPolicy} Use app_show_widget({title,summary,html}) proactively; text when clearer. Read app_capability topic=widgets.`
-      : `${widgetFormatPolicy} send.widget tool-call fence: {title,summary,html}. No network/host APIs; use theme colors, inherit fonts; fit 280px. No autofocus/vh.` : undefined,
+      : `${widgetFormatPolicy} Chart/diagram widget: publish once, exactly:\n${widgetCompatibilityFence}\nNo network/host APIs; theme colors, inherit fonts; fit 280px; no autofocus/vh.` : undefined,
     context === "cron" ? "This scheduled run must not create, remove, or modify schedules." : context === "discussion" ? "This discussion turn must not create, remove, or modify schedules." : "Create or change schedules only when the user asks.",
   ].filter(Boolean).join("\n");
 }
@@ -213,7 +213,11 @@ export function appTurnInstructions(text: string, options: AppInstructionOptions
   // asking to draw/show one; the short standing capability remains available.
   const implementation = /(?:修复|修一下|修好|调试|报错|代码|源码|审计|\b(?:bugs?|fix|debug|refactor|audit|code)\b)/iu.test(text);
   const publishVisual = /(?:画|绘制|展示|生成|做个|做一[个张份]).{0,18}(?:图|趋势|时间线|可视化|计算器|模拟器|交互组件)|\b(?:show|draw|plot|visualize|generate|create)\b.{0,40}\b(?:charts?|plots?|graphs?|timeline|dashboard|diagrams?|trend|calculator|simulator|interactive widget|parameter explorer)\b/iu.test(text);
-  if (options.widgetsEnabled && !options.nativeWidgets && visual && (!implementation || publishVisual)) topics.push("widgets");
+  // Ordinary drawing requests do not always name a chart type. Keep this
+  // additional route out of implementation discussions such as "修复画图按钮".
+  const drawing = /(?:画|绘制|做)(?:一?[个张幅份])?图(?![片像标纸板]|软件|工具)/u.test(text)
+    || /(?:画|绘制|生成|做)(?:一?[个张幅份])?[\p{Script=Han}A-Za-z\d· -]{0,12}(?:示意|结构|剖面|架构|对比)(?:的)?图(?![片像标纸板]|软件|工具)/u.test(text);
+  if (options.widgetsEnabled && !options.nativeWidgets && (visual && (!implementation || publishVisual) || drawing && !implementation)) topics.push("widgets");
   // Claude sessions on the non-native fallback cannot fetch app_capability. Keep the same recovery
   // contract available even for continuation/publishing prompts without browser keywords.
   if (options.engine === "claude" && options.claudeChrome && !options.nativeDelivery && !topics.includes("browser")) {
