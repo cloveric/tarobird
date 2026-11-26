@@ -1469,6 +1469,21 @@ export class HubConnection {
     return source;
   }
   get downloadCheckpoints() { return this.cache.downloadCheckpoints(this.identity); }
+  canvasAgentBaseUrl(): string | undefined { return this.state.route?.url; }
+  issueCanvasAgentToken(conversationId: string, tabId: string, clientId: string): Promise<{ token: string; expiresAt: number; protocolVersion: number; clientId: string; conversationId: string; tabId: string }> {
+    return this.httpRequest("/api/canvas-agent/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId, tabId, clientId }),
+    });
+  }
+  revokeCanvasAgentToken(conversationId?: string, clientId?: string): Promise<{ ok: boolean }> {
+    return this.httpRequest("/api/canvas-agent/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...(conversationId ? { conversationId } : {}), ...(clientId ? { clientId } : {}) }),
+    });
+  }
   private async acceptRevocation(): Promise<void> {
     this.deviceRevoked = true;
     if (this.networkPin) this.networkBlocked = true;

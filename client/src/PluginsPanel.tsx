@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -49,6 +49,7 @@ function capabilityLabel(cap: PluginCapability): string {
     case "clipboard.write": return t("写入剪贴板");
     case "workbench.canvas": return t("工作台画布扩展");
     case "chat.draft": return t("向输入框插入草稿");
+    case "canvas.agent": return t("画布 Agent 与当前对话 Bot 桥接");
   }
 }
 
@@ -66,15 +67,18 @@ function displayDescription(manifest: PluginManifest, locale: string): string {
 
 export function PluginsView({
   platform,
+  initialInstallId,
   onOpenContribution,
 }: {
   platform: PluginPlatform;
+  initialInstallId?: string;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
 }) {
   const locale = useLocale();
   const state = useSyncExternalStore(pluginRegistry.subscribe, pluginRegistry.getSnapshot);
   const [query, setQuery] = useState("");
   const [reviewEntry, setReviewEntry] = useState<PluginCatalogEntry>();
+  const [uninstallTarget, setUninstallTarget] = useState<InstalledPluginRecord>();
   const [confirmThirdParty, setConfirmThirdParty] = useState(false);
   const [busyId, setBusyId] = useState<string>();
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
@@ -86,6 +90,14 @@ export function PluginsView({
     () => Object.values(state.installed).filter((item) => item.sourceKind === "local-dev" && item.manifest.platforms.includes(platform)),
     [state.installed, platform],
   );
+
+  useEffect(() => {
+    if (!initialInstallId) return;
+    const match = catalog.find((item) => item.manifest.id === initialInstallId);
+    if (match && !state.installed[match.manifest.id]) {
+      setReviewEntry(match);
+    }
+  }, [initialInstallId, catalog, state.installed]);
 
   const needle = query.trim().toLowerCase();
   const matches = (manifest: PluginManifest) => {
@@ -111,13 +123,26 @@ export function PluginsView({
         ? t("校验失败：插件构建产物的 SHA-256 哈希不匹配，已阻止安装。")
         : code === "plugin_signature_invalid"
           ? t("校验失败：官方插件签名无效，已阻止安装。")
-          : code === "plugin_third_party_disabled"
-            ? t("请先开启「允许第三方插件」后再安装。")
-            : t("插件安装失败：{0}", code);
+          : code === "plugin_download_failed"
+            ? t("下载插件失败，请检查网络连接或构建产物后重试。")
+            : code === "plugin_third_party_disabled"
+              ? t("请先开启「允许第三方插件」后再安装。")
+              : t("插件安装失败：{0}", code);
       setFeedback({ text: message, error: true });
     } finally {
       setBusyId(undefined);
     }
+  };
+
+  const performUninstall = async (record: InstalledPluginRecord, keepData: boolean) => {
+    const title = displayTitle(record.manifest, locale);
+    await pluginRegistry.uninstall(record.manifest.id, { keepData });
+    setUninstallTarget(undefined);
+    setFeedback({
+      text: keepData
+        ? t("已卸载插件「{0}」，本地扩展数据已保留。", title)
+        : t("已卸载插件「{0}」，并清除其本地扩展数据。", title),
+    });
   };
 
   const handleLocalFolderFiles = async (files: FileList | null) => {
@@ -170,8 +195,14 @@ export function PluginsView({
                 : installed?.sourceKind === "local-dev" ? <span className="plugin-badge is-dev"><Code2 size={12}/>{t("本地开发")}</span>
                   : <span className="plugin-badge is-third">{t("第三方")}</span>}
               {installed && <span className={`plugin-badge ${installed.enabled ? "is-enabled" : "is-disabled"}`}>{installed.enabled ? t("已启用") : t("已停用")}</span>}
+              {manifest.artifact.url && !installed && <span className="plugin-badge">{t("按需下载")}</span>}
             </div>
             <p className="plugin-card-desc">{description}</p>
+            {manifest.attribution && (
+              <p className="plugin-card-attribution">
+                {t("原作者：{0} · {1}", manifest.attribution.author, manifest.attribution.license)}
+              </p>
+            )}
           </div>
         </div>
 
@@ -198,7 +229,7 @@ export function PluginsView({
               disabled={isBusy || thirdPartyBlocked}
               onClick={() => setReviewEntry(entry)}
             >
-              <Download size={14}/>{t("安装")}
+              <Download size={14}/>{entry.manifest.artifact.url ? t("下载并安装") : t("安装")}
             </button>
           )}
           {installed && (
@@ -237,10 +268,7 @@ export function PluginsView({
               <button
                 type="button"
                 className="text-danger"
-                onClick={() => {
-                  pluginRegistry.uninstall(manifest.id);
-                  setFeedback({ text: t("已卸载插件「{0}」", title) });
-                }}
+                onClick={() => setUninstallTarget(installed)}
               >
                 <Trash2 size={14}/>{t("卸载")}
               </button>
@@ -297,12 +325,32 @@ export function PluginsView({
             <li><strong>{t("所需能力")}：</strong>{reviewEntry.manifest.capabilities.length ? reviewEntry.manifest.capabilities.map(capabilityLabel).join("、") : t("无额外能力")}</li>
             <li><strong>{t("网络域名")}：</strong>{reviewEntry.manifest.domains.length ? reviewEntry.manifest.domains.join(", ") : t("无外部网络访问")}</li>
             <li><strong>{t("源码位置")}：</strong><code>{reviewEntry.manifest.source.repository}@{reviewEntry.manifest.source.commit}</code></li>
+            {reviewEntry.manifest.attribution && (
+              <li><strong>{t("原作者与协议")}：</strong>{reviewEntry.manifest.attribution.author} ({reviewEntry.manifest.attribution.license})</li>
+            )}
           </ul>
           <div className="plugin-consent-actions">
             <button type="button" className="secondary" onClick={() => setReviewEntry(undefined)}>{t("取消")}</button>
             <button type="button" className="primary" disabled={busyId === reviewEntry.manifest.id} onClick={() => void performInstall(reviewEntry)}>
-              <Download size={14}/>{t("确认并安装")}
+              <Download size={14}/>{busyId === reviewEntry.manifest.id ? t("正在下载并校验…") : t("确认并安装")}
             </button>
+          </div>
+        </section>
+      )}
+
+      {uninstallTarget && (
+        <section className="plugin-consent-box" role="alertdialog" aria-label={t("卸载确认")}>
+          <header>
+            <strong>{t("卸载「{0}」？", displayTitle(uninstallTarget.manifest, locale))}</strong>
+            <button type="button" className="icon-button" aria-label={t("取消")} onClick={() => setUninstallTarget(undefined)}><X size={16}/></button>
+          </header>
+          <p className="muted">
+            {t("请选择是否同时删除该扩展在当前设备保存的本地数据（画布内容、素材与本地隔离 API Key）。")}
+          </p>
+          <div className="plugin-consent-actions">
+            <button type="button" className="secondary" onClick={() => setUninstallTarget(undefined)}>{t("取消")}</button>
+            <button type="button" className="secondary" onClick={() => void performUninstall(uninstallTarget, true)}>{t("仅卸载，保留数据")}</button>
+            <button type="button" className="text-danger" onClick={() => void performUninstall(uninstallTarget, false)}>{t("卸载并删除数据")}</button>
           </div>
         </section>
       )}
@@ -410,10 +458,12 @@ export function PluginsView({
 
 export function PluginsModal({
   platform,
+  initialInstallId,
   close,
   onOpenContribution,
 }: {
   platform: PluginPlatform;
+  initialInstallId?: string;
   close: () => void;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
 }) {
@@ -429,7 +479,7 @@ export function PluginsModal({
           <button type="button" className="icon-button" aria-label={t("关闭插件页")} onClick={close}><X size={18}/></button>
         </header>
         <div className="plugins-modal-body">
-          <PluginsView platform={platform} onOpenContribution={(pluginId, contributionId, kind, title) => {
+          <PluginsView platform={platform} initialInstallId={initialInstallId} onOpenContribution={(pluginId, contributionId, kind, title) => {
             close();
             onOpenContribution?.(pluginId, contributionId, kind, title);
           }}/>

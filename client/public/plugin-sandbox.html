@@ -7,7 +7,7 @@
     const data = event.data;
     if (!data || typeof data !== "object") return;
     if (event.source === parent) {
-      if (data.type === "tarobird-plugin-init" && !initialized && typeof data.document === "string" && data.document.length < 4194304) {
+      if (data.type === "tarobird-plugin-init" && !initialized && typeof data.document === "string" && data.document.length < 16777216) {
         initialized = true;
         if (typeof data.title === "string" && data.title.length <= 200) guest.title = data.title;
         guest.srcdoc = data.document;

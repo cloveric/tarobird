@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   PLUGIN_HOST_PROTOCOL,
   canonicalPluginSignaturePayload,
@@ -41,10 +43,11 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
 
   it("installs, enables, disables, updates and uninstalls Infinite Canvas end-to-end with verified hash & signature", async () => {
     const store = memoryStorage();
-    const registry = new PluginRegistry({ storage: store });
     const infiniteCanvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
+    const builtHtml = readFileSync(path.resolve(process.cwd(), "dist/plugins/tarobird.infinite-canvas/1.0.0/bundle.html"), "utf8");
+    const registry = new PluginRegistry({ storage: store, fetcher: async () => builtHtml });
 
-    expect(await verifyPluginArtifactHash(infiniteCanvas.bundleHtml, infiniteCanvas.manifest.artifact.sha256)).toBe(true);
+    expect(await verifyPluginArtifactHash(builtHtml, infiniteCanvas.manifest.artifact.sha256)).toBe(true);
     expect(await verifyOfficialPluginSignature(infiniteCanvas.manifest, OFFICIAL_PLUGIN_PUBLIC_KEY)).toBe(true);
 
     const installed = await registry.install(infiniteCanvas);
@@ -65,7 +68,7 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     expect(reloaded.getPlugin("tarobird.infinite-canvas")?.enabled).toBe(true);
 
     // Uninstall removes it cleanly
-    reloaded.uninstall("tarobird.infinite-canvas");
+    await reloaded.uninstall("tarobird.infinite-canvas", { keepData: false });
     expect(reloaded.getPlugin("tarobird.infinite-canvas")).toBeUndefined();
     expect(reloaded.enabledContributions("desktop", "workbench-item")).toEqual([]);
   });

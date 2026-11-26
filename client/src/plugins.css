@@ -228,6 +228,12 @@
   line-height: 1.45;
 }
 
+.plugin-card-attribution {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
 .plugin-meta-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

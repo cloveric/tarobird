@@ -1,3 +1,4 @@
+import { openDB, type IDBPDatabase } from "idb";
 import {
   comparePluginVersions,
   pluginManifestSchema,
@@ -11,18 +12,17 @@ import {
 } from "../../src/client-protocol/plugins.js";
 import {
   FOCUS_TIMER_BUNDLE_HTML,
-  INFINITE_CANVAS_BUNDLE_HTML,
   QUICK_SCRATCHPAD_BUNDLE_HTML,
 } from "./plugin-bundles.js";
 
 export const PLUGIN_STORE_KEY = "tarobird.plugins.v1";
 
 /** Ed25519 SPKI public key (base64) used to verify official TaroBird plugin manifests. */
-export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA0H7DlTxUhFEsBaUBWjWIrLaBSAFC4dgJt5zklBRO99o=";
+export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA020xOc64IjhAdWFcOtnXaqkDHImZxepj6cDZ2mD1Kzw=";
 
 export type PluginCatalogEntry = {
   manifest: PluginManifest;
-  bundleHtml: string;
+  bundleHtml?: string;
 };
 
 export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
@@ -33,26 +33,32 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       name: "Infinite Canvas",
       nameZh: "无限画布",
       version: "1.0.0",
-      description: "Zoomable, pannable infinite canvas workspace for architecture notes, diagrams and visual thinking.",
-      descriptionZh: "支持缩放与拖拽的无限画布工作区，适合架构草图、便签与自由排版。",
+      description: "Full Infinite Canvas workbench (canvas, image/video create, prompts, assets, bundled node plugins, and TaroBird Bot Canvas Agent).",
+      descriptionZh: "完整无限画布工作台（画布编排、生图/生视频、提示词库、素材库、内置官方节点插件与对话 Bot Agent 联动）。",
       icon: "canvas",
-      source: { repository: "cloveric/tarobird", commit: "636ada65833c" },
+      source: { repository: "basketikun/infinite-canvas", commit: "4c67f1e" },
       artifact: {
-        sha256: "7ccc0ef039bd2113b0d416bb1fe8e2b401e219872460ef6315e943e49cd0e5d2",
-        sizeBytes: 7663,
-        signature: "WYfJSdu2hTEeiywGgvC4c/OdCb48Q4nL07YAjsGmlDcX7Jhq+44S3rdW3q4tBghKXbVxfJLk79FbM90p794LCQ==",
+        sha256: "614c0ac66c1fd6fcdc11a2bb7e6a670f10003204e4a1107d43a4a31deccbf7af",
+        sizeBytes: 278542,
+        url: "/api/plugins/artifacts/tarobird.infinite-canvas/1.0.0/bundle.html",
+        signature: "C7w3VC5PsGFo1CmUv5pXeaw/7ADiGzAPovAa3MOlrPV5Kinyoh2jC4iYkageB0QheQ4/EOPNDViPVn0YspxYCw==",
+      },
+      attribution: {
+        author: "basketikun",
+        license: "MIT",
+        homepage: "https://github.com/basketikun/infinite-canvas",
+        notice: "MIT License — Copyright (c) 2026 basketikun",
       },
       entry: "dist/index.html",
       platforms: ["desktop"],
       contributions: [
         { kind: "workbench-item", id: "infinite-canvas", title: "Infinite Canvas", titleZh: "无限画布", icon: "canvas" },
       ],
-      domains: [],
-      capabilities: ["theme.read", "storage.device", "workbench.canvas"],
-      requiresHost: false,
+      domains: ["api.openai.com", "generativelanguage.googleapis.com", "raw.githubusercontent.com"],
+      capabilities: ["theme.read", "storage.device", "clipboard.write", "workbench.canvas", "canvas.agent"],
+      requiresHost: true,
       official: true,
     }),
-    bundleHtml: INFINITE_CANVAS_BUNDLE_HTML,
   },
   {
     manifest: pluginManifestSchema.parse({
@@ -68,7 +74,7 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       artifact: {
         sha256: "f463130202743a3c2e9ec5cc3280069123bfd3d578e4f90c645613d05be0eaa9",
         sizeBytes: 2837,
-        signature: "qoFad4q6Uv7Yl5jpQSPa5OKx29U4oLrC/8ibUVAmZUaU1VDeNhzB3Vy5JbmN3FFXH9uXk8IzhCbUf+VD6SZQBg==",
+        signature: "NDX3TY7laYLQvdyvG8kFvEDQMZoZkwa2vhyiHQPUjJ/sUypOOw5YF9G6HGB1xJeaCKJrDgjoJUVISQ6MlE1XDQ==",
       },
       entry: "dist/index.html",
       platforms: ["desktop", "phone"],
@@ -134,7 +140,31 @@ export type PluginStorageAdapter = {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  keys?(): string[];
 };
+
+export type PluginCredentialVault = {
+  getSecret(scopeId: string, pluginId: string, key: string): Promise<string | null>;
+  setSecret(scopeId: string, pluginId: string, key: string, value: string): Promise<void>;
+  removeSecret(scopeId: string, pluginId: string, key: string): Promise<void>;
+  clearPluginSecrets(scopeId: string, pluginId: string): Promise<void>;
+};
+
+export type PluginArtifactFetcher = (url: string) => Promise<string>;
+
+export function pluginScopeId(hostPublicKey?: string | null, userId?: string | null, deviceId?: string | null): string {
+  const h = (hostPublicKey ?? "").trim();
+  const u = (userId ?? "").trim();
+  const d = (deviceId ?? "").trim();
+  if (!h && !u && !d) return "default";
+  return [d || "device", h.slice(0, 16) || "host", u || "user"].join(":");
+}
+
+export function pluginDataPrefix(scopeId: string, pluginId: string): string {
+  return scopeId === "default"
+    ? `tarobird.plugin.data.${pluginId}.`
+    : `tarobird.plugin.data.${scopeId}.${pluginId}.`;
+}
 
 function defaultStorage(): PluginStorageAdapter {
   const mem = new Map<string, string>();
@@ -150,29 +180,130 @@ function defaultStorage(): PluginStorageAdapter {
       mem.delete(key);
       try { globalThis.localStorage?.removeItem(key); } catch { /* ignore */ }
     },
+    keys() {
+      try {
+        if (globalThis.localStorage) {
+          const out: string[] = [];
+          for (let i = 0; i < globalThis.localStorage.length; i++) {
+            const k = globalThis.localStorage.key(i);
+            if (k) out.push(k);
+          }
+          return out;
+        }
+      } catch { /* ignore */ }
+      return [...mem.keys()];
+    },
   };
 }
 
+/** Isolated credential vault stored in IndexedDB (never localStorage, never Hub, never synced). */
+function defaultCredentialVault(): PluginCredentialVault {
+  const mem = new Map<string, string>();
+  let dbPromise: Promise<IDBPDatabase> | null = null;
+  const getDb = async (): Promise<IDBPDatabase | null> => {
+    if (typeof indexedDB === "undefined") return null;
+    if (!dbPromise) {
+      dbPromise = openDB("tarobird.plugin.credentials.v1", 1, {
+        upgrade(db) {
+          if (!db.objectStoreNames.contains("secrets")) db.createObjectStore("secrets");
+        },
+      }).catch(() => null as unknown as IDBPDatabase);
+    }
+    return dbPromise;
+  };
+  const compound = (scopeId: string, pluginId: string, key: string) => `${scopeId}\0${pluginId}\0${key}`;
+  return {
+    async getSecret(scopeId, pluginId, key) {
+      const k = compound(scopeId, pluginId, key);
+      const db = await getDb();
+      if (db) {
+        const val = await db.get("secrets", k);
+        if (typeof val === "string") {
+          mem.set(k, val);
+          return val;
+        }
+      }
+      return mem.get(k) ?? null;
+    },
+    async setSecret(scopeId, pluginId, key, value) {
+      const k = compound(scopeId, pluginId, key);
+      mem.set(k, value);
+      const db = await getDb();
+      if (db) await db.put("secrets", value, k);
+    },
+    async removeSecret(scopeId, pluginId, key) {
+      const k = compound(scopeId, pluginId, key);
+      mem.delete(k);
+      const db = await getDb();
+      if (db) await db.delete("secrets", k);
+    },
+    async clearPluginSecrets(scopeId, pluginId) {
+      const prefix = `${scopeId}\0${pluginId}\0`;
+      for (const k of [...mem.keys()]) {
+        if (k.startsWith(prefix)) mem.delete(k);
+      }
+      const db = await getDb();
+      if (db) {
+        const allKeys = await db.getAllKeys("secrets");
+        for (const k of allKeys) {
+          if (typeof k === "string" && k.startsWith(prefix)) await db.delete("secrets", k);
+        }
+      }
+    },
+  };
+}
+
+async function defaultArtifactFetcher(url: string): Promise<string> {
+  const res = await fetch(url, { cache: "no-store", credentials: "omit" });
+  if (!res.ok) throw new Error("plugin_download_failed");
+  return res.text();
+}
+
 export class PluginRegistry {
-  private readonly storage: PluginStorageAdapter;
+  readonly storage: PluginStorageAdapter;
+  readonly credentialVault: PluginCredentialVault;
   private readonly officialPublicKey: string;
   private readonly catalog: PluginCatalogEntry[];
+  private readonly fetcher: PluginArtifactFetcher;
+  private scopeId: string;
   private state: PluginStoreState;
   private listeners = new Set<() => void>();
 
   constructor(options?: {
     storage?: PluginStorageAdapter;
+    credentialVault?: PluginCredentialVault;
+    scopeId?: string;
     officialPublicKey?: string;
     catalog?: readonly PluginCatalogEntry[];
+    fetcher?: PluginArtifactFetcher;
   }) {
     this.storage = options?.storage ?? defaultStorage();
+    this.credentialVault = options?.credentialVault ?? defaultCredentialVault();
+    this.scopeId = options?.scopeId ?? "default";
     this.officialPublicKey = options?.officialPublicKey ?? OFFICIAL_PLUGIN_PUBLIC_KEY;
     this.catalog = [...(options?.catalog ?? [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG])];
+    this.fetcher = options?.fetcher ?? defaultArtifactFetcher;
     this.state = this.load();
   }
 
+  private storeKey(): string {
+    return this.scopeId === "default" ? PLUGIN_STORE_KEY : `${PLUGIN_STORE_KEY}.${this.scopeId}`;
+  }
+
+  getScopeId(): string {
+    return this.scopeId;
+  }
+
+  setScope(scopeId: string): void {
+    const clean = scopeId.trim() || "default";
+    if (this.scopeId === clean) return;
+    this.scopeId = clean;
+    this.state = this.load();
+    for (const listener of this.listeners) listener();
+  }
+
   private load(): PluginStoreState {
-    const raw = this.storage.getItem(PLUGIN_STORE_KEY);
+    const raw = this.storage.getItem(this.storeKey());
     if (!raw) return { allowThirdParty: false, developerMode: false, installed: {} };
     try {
       const parsed = JSON.parse(raw) as Partial<PluginStoreState>;
@@ -203,7 +334,7 @@ export class PluginRegistry {
   }
 
   private save(): void {
-    this.storage.setItem(PLUGIN_STORE_KEY, JSON.stringify(this.state));
+    this.storage.setItem(this.storeKey(), JSON.stringify(this.state));
     this.state = { ...this.state, installed: { ...this.state.installed } };
     for (const listener of this.listeners) listener();
   }
@@ -257,12 +388,25 @@ export class PluginRegistry {
     this.save();
   }
 
-  async install(entry: PluginCatalogEntry): Promise<InstalledPluginRecord> {
+  async install(entry: PluginCatalogEntry, options?: { fetcher?: PluginArtifactFetcher }): Promise<InstalledPluginRecord> {
     const manifest = pluginManifestSchema.parse(entry.manifest);
     if (!manifest.official && !this.state.allowThirdParty) {
       throw new Error("plugin_third_party_disabled");
     }
-    const hashOk = await verifyPluginArtifactHash(entry.bundleHtml, manifest.artifact.sha256);
+    let bundleHtml = entry.bundleHtml;
+    if (bundleHtml === undefined) {
+      if (!manifest.artifact.url) {
+        throw new Error("plugin_artifact_missing");
+      }
+      const fetchFn = options?.fetcher ?? this.fetcher;
+      try {
+        bundleHtml = await fetchFn(manifest.artifact.url);
+      } catch (err) {
+        if (err instanceof Error && err.message === "plugin_download_failed") throw err;
+        throw new Error("plugin_download_failed");
+      }
+    }
+    const hashOk = await verifyPluginArtifactHash(bundleHtml, manifest.artifact.sha256);
     if (!hashOk) {
       throw new Error("plugin_hash_mismatch");
     }
@@ -274,7 +418,7 @@ export class PluginRegistry {
     }
     const record: InstalledPluginRecord = {
       manifest,
-      bundleHtml: entry.bundleHtml,
+      bundleHtml,
       enabled: true,
       installedAt: Date.now(),
       sourceKind: manifest.official ? "official" : "third-party",
@@ -337,12 +481,29 @@ export class PluginRegistry {
     this.save();
   }
 
-  uninstall(pluginId: string): void {
-    if (!this.state.installed[pluginId]) return;
-    const next = { ...this.state.installed };
-    delete next[pluginId];
-    this.state = { ...this.state, installed: next };
-    this.save();
+  async uninstall(pluginId: string, options?: { keepData?: boolean }): Promise<void> {
+    if (this.state.installed[pluginId]) {
+      const next = { ...this.state.installed };
+      delete next[pluginId];
+      this.state = { ...this.state, installed: next };
+      this.save();
+    }
+    if (options?.keepData === false) {
+      const prefix = pluginDataPrefix(this.scopeId, pluginId);
+      const legacyPrefix = `tarobird.plugin.data.${pluginId}.`;
+      const maybeData = (this.storage as unknown as { data?: Map<string, string> }).data;
+      const allKeys = this.storage.keys
+        ? this.storage.keys()
+        : maybeData instanceof Map
+          ? [...maybeData.keys()]
+          : [];
+      for (const key of allKeys) {
+        if (key.startsWith(prefix) || (this.scopeId === "default" && key.startsWith(legacyPrefix))) {
+          this.storage.removeItem(key);
+        }
+      }
+      await this.credentialVault.clearPluginSecrets(this.scopeId, pluginId);
+    }
   }
 
   getPlugin(pluginId: string): InstalledPluginRecord | undefined {

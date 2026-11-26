@@ -12,6 +12,7 @@ export const pluginCapabilitySchema = z.enum([
   "clipboard.write",
   "workbench.canvas",
   "chat.draft",
+  "canvas.agent",
 ]);
 export type PluginCapability = z.infer<typeof pluginCapabilitySchema>;
 
@@ -51,7 +52,17 @@ export const pluginManifestSchema = z.object({
     sha256: z.string().trim().regex(/^[0-9a-f]{64}$/i),
     sizeBytes: z.number().int().positive().max(64 * 1024 * 1024),
     signature: z.string().trim().min(16).max(512).optional(),
+    url: z.string().trim().min(1).max(1024).refine(
+      (value) => value.startsWith("/") || /^https?:\/\//i.test(value),
+      "artifact_url_invalid",
+    ).optional(),
   }).strict(),
+  attribution: z.object({
+    author: z.string().trim().min(1).max(120),
+    license: z.string().trim().min(1).max(64),
+    homepage: z.string().trim().max(256).optional(),
+    notice: z.string().trim().max(512).optional(),
+  }).strict().optional(),
   entry: z.string().trim().min(1).max(160).refine(
     (value) => !value.startsWith("/") && !value.includes("..") && !/^[a-zA-Z]+:/.test(value),
     "entry_must_be_relative",
@@ -69,10 +80,20 @@ export const pluginHostRequestSchema = z.discriminatedUnion("method", [
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("host.hello") }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("theme.get") }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.get"), key: z.string().min(1).max(128) }).strict(),
-  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.set"), key: z.string().min(1).max(128), value: z.string().max(256 * 1024) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.set"), key: z.string().min(1).max(128), value: z.string().max(4 * 1024 * 1024) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.remove"), key: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.list") }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.clear") }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("credentials.get"), key: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("credentials.set"), key: z.string().min(1).max(128), value: z.string().max(16 * 1024) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("credentials.remove"), key: z.string().min(1).max(128) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("clipboard.write"), text: z.string().max(64 * 1024) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("workbench.status") }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.connect"), clientId: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.disconnect"), clientId: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.state"), clientId: z.string().min(1).max(128), snapshot: z.object({ projectId: z.string().max(128), title: z.string().max(256) }).nullable() }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.activate"), clientId: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.result"), clientId: z.string().min(1).max(128), requestId: z.string().min(1).max(128), result: z.unknown().optional(), error: z.object({ code: z.string().max(128), message: z.string().max(512) }).optional() }).strict(),
 ]);
 export type PluginHostRequest = z.infer<typeof pluginHostRequestSchema>;
 
@@ -94,11 +115,22 @@ export function requiredCapabilityForMethod(method: PluginHostRequest["method"])
     case "storage.get":
     case "storage.set":
     case "storage.remove":
+    case "storage.list":
+    case "storage.clear":
+    case "credentials.get":
+    case "credentials.set":
+    case "credentials.remove":
       return "storage.device";
     case "clipboard.write":
       return "clipboard.write";
     case "workbench.status":
       return "workbench.canvas";
+    case "canvas.agent.connect":
+    case "canvas.agent.disconnect":
+    case "canvas.agent.state":
+    case "canvas.agent.activate":
+    case "canvas.agent.result":
+      return "canvas.agent";
   }
 }
 

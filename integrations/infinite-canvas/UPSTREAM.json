@@ -1,0 +1,8 @@
+{
+  "name": "infinite-canvas",
+  "repository": "https://github.com/basketikun/infinite-canvas",
+  "commit": "4c67f1e",
+  "author": "basketikun",
+  "license": "MIT",
+  "description": "TaroBird on-demand Workbench extension integrating basketikun/infinite-canvas with host-bridged Canvas Agent MCP compatibility, offline bundled official node plugins, and isolated credential storage."
+}

@@ -4,6 +4,8 @@ import { hubEngineQuotas } from "./engine-quota.js";
 import { ENGINE_QUOTA_CAPABILITY, ENGINE_QUOTA_HUB_REFRESH_MS } from "../client-protocol/engine-quota.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "./workbench-design-sharing.js";
 import { DESIGN_SHARE_CLIENT_CAPABILITY } from "../client-protocol/workbench-design-sharing.js";
+import { CanvasAgentBroker } from "./canvas-agent.js";
+import { canvasAgentTokenRequestSchema } from "../client-protocol/infinite-canvas.js";
 import { HubRemoteScreen } from "./remote-screen.js";
 import { RemoteScreenSockets } from "./remote-screen-sockets.js";
 import { signedScreenConfigureSchema, screenStopSchema, SCREEN_MAX_CONTROL_BYTES } from "../client-protocol/remote-screen.js";
@@ -153,7 +155,7 @@ function gatewayWorkbenchMetadata<T extends { workbench?: WorkbenchContext }>(me
 type BotConnection = { botSteer: boolean; engineQuota: boolean; contextUsage: boolean; history: boolean; designOpen: boolean; nativeInput: boolean; nativeReviewInput: boolean; engineTasks: boolean; piSession: boolean; ws: WebSocket; botId: string; queueCapable: boolean; queuePull: boolean; queueAdvertised: boolean; botMessages: boolean; agentBus: boolean; groupDiscussion: boolean; voicePolicy: boolean; widgetPolicy: boolean; replayQueue: boolean; ready: boolean };
 type Rpc = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; ws: WebSocket };
 export interface HubTlsListener { exposure?: ListenerExposure; host: string; port: number; tls: TlsOptions; managed?: boolean }
-export interface HubServerOptions { voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; relaySources?: RelaySources; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
+export interface HubServerOptions { pluginArtifactsDir?: string; voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; relaySources?: RelaySources; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
 export class HubServer {
   private readonly relaySources: RelaySources;
   private readonly fragmentSockets = new WeakSet<WebSocket>();
@@ -195,6 +197,7 @@ export class HubServer {
   private stopping = false;
   private readonly workbench: WorkbenchBroker;
   private readonly designSharing: DesignShareBroker;
+  readonly canvasAgent: CanvasAgentBroker;
   /** /steer calls awaiting their Bot, by steering record. A review turn may
    * begin once, only while its own call is in flight on the same socket. */
   private readonly steersInFlight = new Map<string, { botId: string; conversationId: string; connection: BotConnection; calls: number; begun: boolean; ended: boolean }>();
@@ -343,6 +346,8 @@ export class HubServer {
     const screenTick = setInterval(() => this.remoteScreen.tick(), 250); screenTick.unref(); this.disposers.push(() => clearInterval(screenTick));
     this.workbench = new WorkbenchBroker(store);
     this.designSharing = new DesignShareBroker({repository:metaDesignShareRepository(store.db),requireMember:(userId,conversationId)=>store.db.serial(()=>store.requireMember(userId,conversationId)),userName:async userId=>(await store.user(userId))?.name});
+    this.canvasAgent = new CanvasAgentBroker(store);
+    this.disposers.push(() => this.canvasAgent.dispose());
     this.runChanges = new HubRunChanges(store);
     this.relaySources = options.relaySources ?? new RelaySources();
     this.engineSettings = new HubEngineSettings(options.stateDir, () => options.managedBots?.env ?? process.env);
@@ -454,6 +459,19 @@ export class HubServer {
       void task.finally(() => this.httpTasks.delete(task)).catch(() => this.options.onWarning?.("request_failed"));
     });
     server.on("upgrade", (req, socket, head) => {
+      if (!this.stopping && (req.url ?? "").startsWith("/api/canvas-agent/events")) {
+        const parsedUrl = new URL(req.url ?? "/", "http://hub");
+        const clientId = parsedUrl.searchParams.get("clientId") ?? "";
+        const token = parsedUrl.searchParams.get("token") ?? undefined;
+        const origin = req.headers.origin;
+        const originOk = !origin || origin === "null" || [...this.urls, ...NATIVE_ORIGINS, ...(this.options.origins ?? [])].includes(origin);
+        if (!originOk || !clientId) { socket.destroy(); return; }
+        void this.canvasAgent.verifyToken(token, clientId).then((grant) => {
+          if (this.stopping) { socket.destroy(); return; }
+          this.sockets.handleUpgrade(req, socket, head, (ws) => this.canvasAgent.openEvents(grant, ws));
+        }, () => { socket.destroy(); });
+        return;
+      }
       if (!this.stopping && this.originAllowed(req) && this.screenSockets.handles(req.url ?? "")) {
         this.screenSockets.upgrade(req, socket, head, instance && !tls && isLoopback(req.socket.remoteAddress ?? ""), isLocalNetworkAddress(req.socket.remoteAddress ?? "")); return;
       }
@@ -1493,6 +1511,31 @@ export class HubServer {
     if (method === "agentBus.event") { await this.agentBuses.event(botId, params); return null; }
     if (method === "groupDiscussion.report") { await this.groupDiscussions.report(botId, params); return null; }
     if (method === "reaction" || method === "turn.state") { const p = z.object({ conversationId: idSchema, payload: z.json() }).parse(params); await this.store.appendBotEvent(botId, p.conversationId, method, p.payload); return null; }
+    if (method === "canvas.agent.status") {
+      const { conversationId } = z.object({ conversationId: idSchema }).strict().parse(params);
+      await this.store.db.serial(() => this.store.requireBot(botId, conversationId));
+      return this.canvasAgent.statusForConversation(conversationId);
+    }
+    if (method === "canvas.agent.tools") {
+      const { conversationId } = z.object({ conversationId: idSchema }).strict().parse(params);
+      await this.store.db.serial(() => this.store.requireBot(botId, conversationId));
+      return this.canvasAgent.listMcpTools();
+    }
+    if (method === "canvas.agent.call") {
+      const input = z.object({
+        conversationId: idSchema,
+        name: z.string().min(1).max(128),
+        arguments: z.unknown().optional(),
+        projectId: z.string().min(1).max(128).optional(),
+      }).strict().parse(params);
+      return this.canvasAgent.callToolForBot({
+        botId,
+        conversationId: input.conversationId,
+        name: input.name,
+        args: input.arguments ?? {},
+        projectId: input.projectId,
+      });
+    }
     throw new HubError("unknown_method");
   }
   /** The committed receipt/publication is already durable. A settlement error
@@ -1529,14 +1572,64 @@ export class HubServer {
   }
   private async request(req: IncomingMessage, res: ServerResponse, instanceAllowed: boolean): Promise<void> {
     const source = this.relaySources.source(req.socket);
-    if (!this.originAllowed(req)) throw new HubError("origin_forbidden", 403);
+    const url = new URL(req.url ?? "/", this.url); const route = url.pathname;
+    const isCanvasAgentBridgeRoute = /^\/api\/canvas-agent\/(?:health|config|state|activate|result)$/.test(route);
+    if (isCanvasAgentBridgeRoute && req.headers.origin === "null") {
+      // Sandboxed plugin iframes have an opaque origin ("null"); only scoped CanvasAgent tokens may use these endpoints.
+    } else if (!this.originAllowed(req)) {
+      throw new HubError("origin_forbidden", 403);
+    }
     if (req.headers.origin) { res.setHeader("Access-Control-Allow-Origin", req.headers.origin); res.setHeader("Vary", "Origin"); }
     res.setHeader("Access-Control-Expose-Headers", "ETag, Content-Range, Accept-Ranges, Date");
-    if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type, Range, If-Range", "Access-Control-Max-Age": "600" }); res.end(); return; }
-    const url = new URL(req.url ?? "/", this.url); const route = url.pathname;
+    if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type, Range, If-Range, x-tarobird-conversation-id", "Access-Control-Max-Age": "600" }); res.end(); return; }
     // Worker-only, one-use browser downloads must never fall back to HTML when
     // a worker has expired or a browser retries the navigation on the network.
     if (route.startsWith("/__tarocub_download/")) { res.writeHead(204, { "Cache-Control": "no-store" }); res.end(); return; }
+    if (route.startsWith("/api/plugins/artifacts/")) {
+      const pluginArtifact = route.match(/^\/api\/plugins\/artifacts\/([a-z0-9][a-z0-9._-]{1,78}[a-z0-9])\/([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)\/(bundle\.html|manifest\.json)$/);
+      if (!pluginArtifact || req.method !== "GET") throw new HubError("not_found", 404);
+      const root = path.resolve(this.options.pluginArtifactsDir ?? path.resolve(process.cwd(), "dist/plugins"));
+      const file = path.resolve(root, pluginArtifact[1]!, pluginArtifact[2]!, pluginArtifact[3]!);
+      if (!file.startsWith(root + path.sep)) throw new HubError("not_found", 404);
+      const info = await stat(file).catch(() => undefined);
+      if (!info?.isFile()) throw new HubError("not_found", 404);
+      const mime = pluginArtifact[3] === "manifest.json" ? "application/json; charset=utf-8" : "text/html; charset=utf-8";
+      res.writeHead(200, { "Content-Type": mime, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      res.end(await readFile(file)); return;
+    }
+    if (isCanvasAgentBridgeRoute) {
+      const caToken = req.headers.authorization?.match(/^CanvasAgent\s+(\S+)$/)?.[1];
+      const clientId = url.searchParams.get("clientId") ?? undefined;
+      const grant = await this.canvasAgent.verifyToken(caToken, clientId);
+      if (route === "/api/canvas-agent/health" && req.method === "GET") { this.json(res, 200, this.canvasAgent.health(grant)); return; }
+      if (route === "/api/canvas-agent/config" && req.method === "GET") { this.json(res, 200, { ok: true, protocolVersion: 12, conversationId: grant.conversationId, clientId: grant.clientId }); return; }
+      if (route === "/api/canvas-agent/state" && req.method === "POST") {
+        const body = z.object({ snapshot: z.unknown().nullable().optional() }).passthrough().parse(await this.jsonBody(req));
+        this.canvasAgent.updateState(grant, body.snapshot ?? null);
+        this.json(res, 200, { ok: true }); return;
+      }
+      if (route === "/api/canvas-agent/activate" && req.method === "POST") {
+        this.canvasAgent.activateClient(grant);
+        this.json(res, 200, { ok: true }); return;
+      }
+      if (route === "/api/canvas-agent/result" && req.method === "POST") {
+        const ok = this.canvasAgent.resolveResult(grant, await this.jsonBody(req));
+        this.json(res, ok ? 200 : 409, { ok }); return;
+      }
+      throw new HubError("method_not_allowed", 405);
+    }
+    if (route === "/api/canvas-agent/mcp" && req.method === "POST") {
+      const credentials = req.headers.authorization?.match(/^Instance ([A-Za-z0-9_-]+):([A-Za-z0-9_-]{8,256})$/);
+      const botId = credentials?.[1];
+      const record = botId ? await this.store.db.serial(() => this.store.db.get<{ secret_hash: string }>("SELECT secret_hash FROM bots WHERE id=? AND deleted_at IS NULL", [botId])) : undefined;
+      if (!record || !credentials || !botId || !timingSafeEqual(Buffer.from(record.secret_hash, "hex"), Buffer.from(hashSecret(credentials[2]!), "hex"))) {
+        throw new HubError("instance_unauthorized", 401);
+      }
+      const conversationId = typeof req.headers["x-tarobird-conversation-id"] === "string" ? req.headers["x-tarobird-conversation-id"] : "";
+      if (!conversationId) throw new HubError("invalid_request", 400);
+      const replyMcp = await this.canvasAgent.handleMcpRequest({ botId, conversationId, body: await this.jsonBody(req) });
+      this.json(res, replyMcp.status, replyMcp.body); return;
+    }
     if (route === "/health" && req.method === "GET") { this.json(res, 200, { ok: true, protocol: 1, pairingInvites: 1, publicKey: this.auth.publicKey }); return; }
     if (route === "/api/tls-identity" && req.method === "GET") {
       // The proof is bound to this listener's actual local leaf certificate,
@@ -1609,6 +1702,22 @@ export class HubServer {
       if (route === "/api/workbench/admit" && req.method === "POST") {
         const input = z.object({ dispatchId: idSchema }).strict().parse(await this.jsonBody(req, 2048));
         await reply(200, await this.workbench.admit(session, input.dispatchId)); return;
+      }
+      if (route === "/api/canvas-agent/token" && req.method === "POST") {
+        const input = canvasAgentTokenRequestSchema.parse(await this.jsonBody(req, 2048));
+        const issued = await this.canvasAgent.issueToken({
+          userId,
+          deviceId: session.deviceId,
+          conversationId: input.conversationId,
+          tabId: input.tabId,
+          clientId: input.clientId,
+        });
+        await reply(200, issued); return;
+      }
+      if (route === "/api/canvas-agent/revoke" && req.method === "POST") {
+        const input = z.object({ conversationId: idSchema.optional(), clientId: idSchema.optional() }).strict().parse(await this.jsonBody(req, 2048));
+        this.canvasAgent.revoke({ userId, deviceId: session.deviceId, conversationId: input.conversationId, clientId: input.clientId });
+        await reply(200, { ok: true }); return;
       }
       const workbenchRoute = route.match(/^\/api\/conversations\/([A-Za-z0-9_-]+)\/workbench\/(targets|commands|context)$/);
       if (workbenchRoute) {
