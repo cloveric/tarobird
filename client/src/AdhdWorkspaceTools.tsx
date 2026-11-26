@@ -18,6 +18,7 @@ import { CapabilityHelpDialog, type CapabilityHelpRequest } from "./CapabilityHe
 import { OperationsPanel } from "./OperationsPanel.js";
 import { ScheduledTasks } from "./ScheduledTasks.js";
 import { ArchivedConversations } from "./ArchivedConversations.js";
+import { PluginsModal } from "./PluginsPanel.js";
 import { useLocale } from "./i18n.js";
 
 export type AdhdToolActions = { manageHosts: OpenNetwork; manageConnections: OpenNetwork; addHost: () => void; createBot: (hostId: string) => void };
@@ -48,6 +49,7 @@ export function AdhdWorkspaceTools({ host, connection, preferences, updatePrefer
     {view === "operations" && <OperationsPanel connection={connection} close={close}/>}
     {view === "schedules" && <ScheduledTasks connection={connection} bots={bots} conversations={listed} close={close} openConversation={openConversation} newBot={() => { close(); actions.createBot(host.host.id); }}/>}
     {view === "archives" && <ArchivedConversations connection={connection} conversations={listed} close={close} open={openConversation}/>}
+    {view === "plugins" && <PluginsModal platform="desktop" close={close}/>}
     </>, document.body)}
   </BotReferences></AvatarProvider></RuntimeHostContext.Provider></DesktopMenuPortalContext.Provider>;
 }
