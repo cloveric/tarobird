@@ -16,6 +16,11 @@ import {
   type PluginStorageAdapter,
 } from "../client/src/plugin-registry.js";
 import { handlePluginHostMessage } from "../client/src/PluginSandboxFrame.js";
+import {
+  matchesPluginMarketplaceQuery,
+  pluginMarketplaceCategory,
+  pluginPublisherLabel,
+} from "../client/src/PluginsPanel.js";
 
 function memoryStorage(): PluginStorageAdapter & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -189,5 +194,25 @@ describe("Plugin sandbox Host API capability gating (#101)", () => {
     );
     expect(grantedStorage).toMatchObject({ ok: true });
     expect(store.data.get("tarobird.plugin.data.community.focus-timer.note")).toBe("hello");
+  });
+});
+
+describe("Plugin Marketplace categorization and filtering (#101)", () => {
+  it("classifies official workbench, productivity and community plugins and matches search queries", () => {
+    const canvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!.manifest;
+    const notes = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.quick-scratchpad")!.manifest;
+    const community = THIRD_PARTY_PLUGIN_CATALOG[0]!.manifest;
+
+    expect(pluginMarketplaceCategory(canvas)).toBe("workbench");
+    expect(pluginMarketplaceCategory(notes)).toBe("productivity");
+    expect(pluginMarketplaceCategory(community)).toBe("community");
+
+    expect(pluginPublisherLabel(canvas)).toBe("TaroBird");
+    expect(pluginPublisherLabel(community)).toBe("tarobird-community");
+
+    expect(matchesPluginMarketplaceQuery(canvas, "无限画布")).toBe(true);
+    expect(matchesPluginMarketplaceQuery(canvas, "tarobird")).toBe(true);
+    expect(matchesPluginMarketplaceQuery(canvas, "pomodoro")).toBe(false);
+    expect(matchesPluginMarketplaceQuery(community, "番茄钟")).toBe(true);
   });
 });

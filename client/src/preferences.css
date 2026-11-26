@@ -1,4 +1,5 @@
 .preferences-dialog{width:min(820px,calc(100vw - 48px));height:min(690px,calc(100dvh - 48px));max-width:none;max-height:none;padding:0;border:1px solid var(--border);border-radius:14px;background:var(--bg);color:var(--text);box-shadow:0 20px 70px #0003;overflow:hidden}
+.preferences-dialog.preferences-plugins-section{width:min(980px,calc(100vw - 48px));height:min(760px,calc(100dvh - 48px))}
 .preferences-dialog[open]{display:flex;flex-direction:column}
 .preferences-dialog.preferences-single-section{width:min(620px,calc(100vw - 48px))}
 .preferences-single-section .settings-content>section>h3{display:none}

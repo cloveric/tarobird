@@ -1,11 +1,11 @@
 import type { RefObject } from "react";
-import { Activity, Archive, CalendarClock, ChevronsUpDown, FolderOpen, Monitor, MonitorCog, PanelsTopLeft, Plug, Plus, Settings, Wifi } from "lucide-react";
+import { Activity, Archive, CalendarClock, ChevronsUpDown, FolderOpen, Monitor, MonitorCog, PanelsTopLeft, Plug, Plus, Puzzle, Settings, Wifi } from "lucide-react";
 import { Avatar } from "./Avatar.js";
 import { DesktopMenu } from "./DesktopMenu.js";
 import { t, useLocale } from "./i18n.js";
 import { hasScreenViewer } from "./mobile-screen-viewer-transport.js";
 
-export type WorkspaceTool = "profile" | "settings" | "connection" | "screen" | "files" | "capabilities" | "schedules" | "operations" | "archives";
+export type WorkspaceTool = "profile" | "settings" | "connection" | "screen" | "files" | "capabilities" | "schedules" | "operations" | "archives" | "plugins";
 type Props = {
   hostName: string; status: string; userId?: string; archivedCount: number;
   menuId: string; menuOpen: boolean; trigger: RefObject<HTMLButtonElement | null>;
@@ -25,6 +25,7 @@ export function WorkspaceFooter({ hostName, status, userId, archivedCount, menuI
       {openAdhd && <button disabled={adhdBlocked} onClick={openAdhd}><PanelsTopLeft size={16}/><span className="desktop-menu-label">{t("ADHD 多对话面板")}</span></button>}
       <button onClick={() => open("files")}><FolderOpen size={16}/><span className="desktop-menu-label">{t("文件中心")}</span></button>
       <button onClick={() => open("capabilities")}><Plug size={16}/><span className="desktop-menu-label">{t("Skills 与 MCP")}</span></button>
+      <button onClick={() => open("plugins")}><Puzzle size={16}/><span className="desktop-menu-label">{t("插件市场")}</span></button>
       <button onClick={() => open("schedules")}><CalendarClock size={16}/><span className="desktop-menu-label">{t("定时任务")}</span></button>
       <button onClick={() => open("operations")}><Activity size={16}/><span className="desktop-menu-label">{t("运行状态")}</span></button>
       <button onClick={() => open("archives")}><Archive size={16}/><span className="desktop-menu-label">{t("已归档对话")}</span>{archivedCount > 0 && <span className="desktop-menu-value">{archivedCount}</span>}</button>

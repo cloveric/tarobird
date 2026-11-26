@@ -711,7 +711,7 @@ function MePane({ hosts, activeHost, selectHost, open }: PaneProps) {
       <section>
         <ul className="mh-group">
           <Cell icon={<Bell size={20}/>} label={t('消息通知')} description={notificationSummary(activeHost)} disabled={!activeHost} onClick={() => open('notifications')} />
-          <Cell icon={<Puzzle size={20}/>} label={t('插件管理')} description={t('浏览、安装与管理扩展插件')} onClick={() => open('plugins')} />
+          <Cell icon={<Puzzle size={20}/>} label={t('插件市场')} description={t('探索、安装与管理扩展插件')} onClick={() => open('plugins')} />
           <Cell settingsEntry="settings" icon={<SlidersIcon />} label={t('设置')} onClick={() => open('settings')} />
         </ul>
       </section>
