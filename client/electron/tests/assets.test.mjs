@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink, rm, access, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { assetPath, assetHandler, APP_CSP } from '../assets.mjs';
+import { assetPath, assetHandler, APP_CSP, PLUGIN_CSP } from '../assets.mjs';
 import { developmentPaths, isolatedRoot } from '../isolation.mjs';
 import { internalResource, secureContents, secureSession, secureWebPreferences, widgetNetworkRequest } from '../security.mjs';
 import { EventEmitter } from 'node:events';
@@ -14,6 +14,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'dist')); await writeFile(path.join(root, 'dist/index.html'), 'app');
   await writeFile(path.join(root, 'dist/widget-sandbox.html'), 'widget');
+  await writeFile(path.join(root, 'dist/plugin-sandbox.html'), 'plugin');
   await writeFile(path.join(root, 'dist/design-loader.html'), 'trusted design trampoline');
   await writeFile(path.join(root, 'outside.txt'), 'outside');
   return { root, dist: path.join(root, 'dist') };
@@ -22,9 +23,11 @@ test('asset serving confines physical paths and gives Widget a separate origin',
   const { root, dist } = await fixture(t);
   assert.equal(await assetPath(dist, 'tarobot://app/index.html'), await realpath(path.join(dist, 'index.html')));
   assert.equal(await assetPath(dist, 'tarobot-widget://sandbox/widget-sandbox.html', { widget: true }), await realpath(path.join(dist, 'widget-sandbox.html')));
+  assert.equal(await assetPath(dist, 'tarobot-widget://sandbox/plugin-sandbox.html', { widget: true }), await realpath(path.join(dist, 'plugin-sandbox.html')));
   await symlink(path.join(root, 'outside.txt'), path.join(dist, 'linked.txt'));
   await symlink(path.join(dist, 'widget-sandbox.html'), path.join(dist, 'widget-alias.html'));
-  for (const url of ['tarobot://app/linked.txt', 'tarobot://app/%2e%2e%2foutside.txt', 'tarobot://app/%5c..%5coutside.txt', 'tarobot://app/%00', 'tarobot://app/.env', 'tarobot://app/widget-sandbox.html', 'tarobot://app/WIDGET-SANDBOX.HTML', 'tarobot://app/widget-alias.html', 'tarobot://user@app/index.html', 'tarobot://app:90/index.html']) await assert.rejects(assetPath(dist, url), undefined, url);
+  await symlink(path.join(dist, 'plugin-sandbox.html'), path.join(dist, 'plugin-alias.html'));
+  for (const url of ['tarobot://app/linked.txt', 'tarobot://app/%2e%2e%2foutside.txt', 'tarobot://app/%5c..%5coutside.txt', 'tarobot://app/%00', 'tarobot://app/.env', 'tarobot://app/widget-sandbox.html', 'tarobot://app/WIDGET-SANDBOX.HTML', 'tarobot://app/widget-alias.html', 'tarobot://app/plugin-sandbox.html', 'tarobot://app/PLUGIN-SANDBOX.HTML', 'tarobot://app/plugin-alias.html', 'tarobot://user@app/index.html', 'tarobot://app:90/index.html']) await assert.rejects(assetPath(dist, url), undefined, url);
   await assert.rejects(assetPath(dist, 'tarobot-widget://sandbox/index.html', { widget: true }));
 });
 test('static handler sets CSP/nosniff and denies untrusted initiators and writes', async t => {
@@ -125,4 +128,40 @@ test('design loader stays off the App origin and only its fixed path can load', 
  const response=await assetHandler(dist,async()=>new Response('trusted'),{widget:true})({url:'tarobot-widget://sandbox/design-loader.html',method:'GET',initiatorOrigin:'tarobot://app'});
  assert.equal(response.status,200);assert.equal(response.headers.get('Content-Security-Policy'),'frame-ancestors tarobot://app');
  assert.ok(APP_CSP.includes("script-src 'self'"));assert.ok(!APP_CSP.includes('unsafe-eval'));
+});
+
+test('plugin sandbox stays off the App origin and is permitted on the sandbox scheme', async t => {
+  const { dist } = await fixture(t);
+  await assert.rejects(assetPath(dist, 'tarobot://app/plugin-sandbox.html'));
+  await assert.rejects(assetPath(dist, 'tarobot-widget://sandbox/plugin-sandbox.html?x=1', { widget: true }));
+  assert.equal(await assetPath(dist, 'tarobot-widget://sandbox/plugin-sandbox.html', { widget: true }), await realpath(path.join(dist, 'plugin-sandbox.html')));
+  assert.equal(internalResource('tarobot-widget://sandbox/plugin-sandbox.html'), true);
+  const response = await assetHandler(dist, async () => new Response('plugin'), { widget: true })({
+    url: 'tarobot-widget://sandbox/plugin-sandbox.html',
+    method: 'GET',
+    initiatorOrigin: 'tarobot://app',
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Security-Policy'), PLUGIN_CSP);
+  assert.ok(PLUGIN_CSP.includes("worker-src 'none'"));
+  assert.ok(PLUGIN_CSP.includes('child-src about:'));
+  assert.equal(response.headers.get('X-DNS-Prefetch-Control'), 'off');
+  const contents = new EventEmitter();
+  contents.setWindowOpenHandler = () => ({ action: 'deny' });
+  secureContents(contents);
+  const app = { url: 'tarobot://app/index.html', parent: null };
+  const relay = { url: 'tarobot-widget://sandbox/plugin-sandbox.html', parent: app };
+  const guest = { url: 'about:srcdoc', parent: relay };
+  const nested = { url: 'about:blank', parent: guest };
+  const blocked = (url, frame, initiator) => {
+    let prevented = false;
+    contents.emit('will-frame-navigate', { isMainFrame: false, url, frame, initiator, preventDefault: () => { prevented = true; } });
+    return prevented;
+  };
+  assert.equal(blocked(relay.url, relay, app), false);
+  assert.equal(blocked(guest.url, guest, relay), false);
+  assert.equal(blocked(relay.url, nested, guest), true);
+  assert.equal(blocked(guest.url, nested, guest), true);
+  assert.equal(blocked(guest.url, guest, guest), true);
+  assert.equal(blocked('tarobot://app/plugin-sandbox.html', relay, app), true);
 });

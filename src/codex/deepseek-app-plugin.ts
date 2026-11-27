@@ -9,7 +9,7 @@ import { deepseekGoalUsageDefinition } from "./deepseek-goal-usage.js";
 
 export const name = "tarocub-native-app-tools";
 export const inject = ["tools", "agents", "sessionProjections"];
-const installSchema = z.object({ sessionId: z.string().min(1), definitions: z.array(z.object({ name: z.enum(["app_send_file", "app_send_batch", "app_capability", "app_show_widget", "app_workbench"]), description: z.string(), inputSchema: z.record(z.string(), z.unknown()) }).strict()).min(1).max(5) }).strict();
+const installSchema = z.object({ sessionId: z.string().min(1), definitions: z.array(z.object({ name: z.enum(["app_send_file", "app_send_batch", "app_capability", "app_show_widget", "app_workbench", "app_canvas_agent"]), description: z.string(), inputSchema: z.record(z.string(), z.unknown()) }).strict()).min(1).max(6) }).strict();
 type Event = { type: string; seq: number; data: Record<string, unknown> };
 type InboxMessage = { id: string; source: { kind?: unknown; rpcId?: unknown; targetTurn?: unknown; targetRpcId?: unknown; goalId?: unknown; round?: unknown } };
 type SteerMessage = InboxMessage & { role: "user"; content: readonly { type: "text"; text: string }[] };

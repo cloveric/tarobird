@@ -21,7 +21,9 @@ import { FontSizeSlider } from "./FontSizeSlider.js";
 import { LayoutDensityPicker } from "./LayoutDensityPicker.js";
 import { useBackAction } from "./back-navigation.js";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
-import { AudioLines, Bell, Database, FolderOpen, Check, ChevronLeft, ChevronRight, Globe, Info, Link, Monitor, MonitorCog, Plus, QrCode, ScanLine, Settings2, ShieldCheck, Gauge, X } from "lucide-react";
+import { AudioLines, Bell, Database, FolderOpen, Check, ChevronLeft, ChevronRight, Globe, Info, Link, Monitor, MonitorCog, Plus, Puzzle, QrCode, ScanLine, Settings2, ShieldCheck, Gauge, X } from "lucide-react";
+import { PluginsView } from "./PluginsPanel.js";
+import { getPluginRegistry, resolvePluginScopeId } from "./plugin-registry.js";
 import { ConnectionPanel } from "./ConnectionPanel.js";
 import { ScreenControlPanel } from "./ScreenControlPanel.js";
 import { hasScreenViewer } from "./mobile-screen-viewer-transport.js";
@@ -50,7 +52,7 @@ import { BotMessageGrants } from "./BotMessageGrants.js";
 import { AboutSettings, type AboutNavigationState } from "./AboutSettings.js";
 import { LoadBalancingSettings } from "./LoadBalancingSettings.js";
 
-type Section = "workbench" | "backups" | "general" | "network" | "notifications" | "devices" | "botMessages" | "voice" | "engines" | "quota" | "about";
+type Section = "workbench" | "plugins" | "backups" | "general" | "network" | "notifications" | "devices" | "botMessages" | "voice" | "engines" | "quota" | "about";
 /** `created_at`/`last_seen` come from the host; 0 or missing means never recorded. */
 type Device = { id: string; name: string; nameSource?: "host"; platform: string; revoked: number; created_at?: number | string | null; last_seen?: number | string | null };
 /** Messages appear beside the control that produced them, not at the page end. */
@@ -113,10 +115,11 @@ function FlowDialog({ title, closeLabel, busy, back, close, returnFocus, classNa
   </dialog>;
 }
 
-export function PreferencesPanel({ connection, preferences, update, close, forget, manageNetwork, manageConnections, openWorkbenchFile, returnFocus, initialSection = "general", backLabel, initialPairingStep, singleSection = false }: { openWorkbenchFile?: (file: WorkbenchFileTarget) => Promise<void>; initialPairingStep?: 0 | 1; singleSection?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSection?: Section; backLabel?: string; connection: HubConnection; preferences: Preferences; update: (next: Preferences) => void; close: () => void; forget: () => Promise<void>; manageNetwork?: OpenNetwork; manageConnections?: OpenNetwork }) {
+export function PreferencesPanel({ connection, preferences, update, close, forget, manageNetwork, manageConnections, openWorkbenchFile, onOpenPluginContribution, returnFocus, initialSection = "general", backLabel, initialPairingStep, singleSection = false }: { openWorkbenchFile?: (file: WorkbenchFileTarget) => Promise<void>; onOpenPluginContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void; initialPairingStep?: 0 | 1; singleSection?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSection?: Section; backLabel?: string; connection: HubConnection; preferences: Preferences; update: (next: Preferences) => void; close: () => void; forget: () => Promise<void>; manageNetwork?: OpenNetwork; manageConnections?: OpenNetwork }) {
   const activeLocale = useLocale(); const hostName = useContext(RuntimeHostContext);
   const state = useSyncExternalStore((notify) => connection.subscribe(notify), () => connection.state);
   const intentionalClose = useRef(false);
+  const pluginsBackRef = useRef<(() => boolean) | null>(null);
   const dialog = useRef<HTMLDialogElement>(null), content = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null), header = useRef<HTMLElement>(null);
   useDialogDrag(dialog, header, true);
   const phone = useSyncExternalStore(subscribePhone, phoneLayout);
@@ -170,6 +173,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
     ...(quotaPage ? [{ id: "quota" as const, title: t("模型额度"), detail: t("原生剩余额度与重置时间"), icon: Gauge }] : []),
     { id: "network" as const, title: t("网络与连接"), detail: t("连接线路、VPS 与主机组网"), icon: Globe },
     { id: "workbench" as const, title: t("工作台文件"), detail: t("集中管理白板、笔记与设计"), icon: FolderOpen },
+    { id: "plugins" as const, title: t("插件市场"), detail: t("探索、安装与管理隔离沙箱插件"), icon: Puzzle },
     { id: "backups" as const, title: t("数据与备份"), detail: t("自动备份、保留天数与空间占用"), icon: Database },
     { id: "voice" as const, title: t("语音转写"), detail: t("本地语音与通义长录音转写"), icon: AudioLines },
     { id: "notifications" as const, title: t("通知"), detail: t("此设备的提醒与勿扰时段"), icon: Bell },
@@ -214,6 +218,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
     : (page || backLabel && !overview ? pageTitle : t("设置"));
   const goBack = () => {
     if (settingsBusy || busy) return;
+    if (section === "plugins" && (!phone || !overview) && pluginsBackRef.current?.()) return;
     if (aboutActive && aboutBackRef.current?.()) return;
     if (upToCategories) setOverview(true);
     else requestClose();
@@ -412,7 +417,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
       <div><dt>{t("设备 ID")}</dt><dd><code>…{idTail(device.id)}</code></dd></div>
     </dl>;
   };
-  return <>{initialPairingStep === undefined && <dialog ref={dialog} className={`preferences-dialog is-movable ${overview ? "settings-overview" : "settings-detail"}${singleSection ? " preferences-single-section" : ""}`} aria-label={backLabel && !overview ? pageTitle : t("设置")} onClose={(event) => {
+  return <>{initialPairingStep === undefined && <dialog ref={dialog} className={`preferences-dialog is-movable ${overview ? "settings-overview" : "settings-detail"}${singleSection ? " preferences-single-section" : ""}${section === "plugins" ? " preferences-plugins-section" : ""}`} aria-label={backLabel && !overview ? pageTitle : t("设置")} onClose={(event) => {
     if (event.target !== event.currentTarget || intentionalClose.current || event.currentTarget.open) return;
     // A repeated Escape can close a dialog without firing cancel; unwind sub-views first.
     if (aboutActive && aboutBackRef.current?.()) {
@@ -463,6 +468,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
         <section hidden={section !== "engines"} aria-label={t("引擎程序")}><h3>{t("引擎程序")}</h3><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "engines" && (!phone || !overview)} onDirty={setEngineDirty} onBusy={setEngineBusy}/></section>
         {quotaPage && <section hidden={section !== "quota"} aria-label={t("模型额度")}><h3>{t("模型额度")}</h3><EngineQuota key={connection.identity.hubPublicKey} connection={connection} active={section === "quota" && (!phone || !overview)}/></section>}
         <section hidden={section !== "workbench"} aria-label={t("工作台文件")}><h3>{t("工作台文件")}</h3><WorkbenchLibrary connection={connection} active={section === "workbench" && (!phone || !overview)} onBusy={setLibraryBusy} onOpened={close} openLocalFile={openWorkbenchFile}/></section>
+        <section hidden={section !== "plugins"} aria-label={t("插件市场")}><h3>{t("插件市场")}</h3><PluginsView platform={phone ? "phone" : "desktop"} registry={(() => { const scope = resolvePluginScopeId(connection.identity.hubPublicKey, state.user?.id, connection.identity.deviceId); return scope ? getPluginRegistry(scope) : null; })()} connection={connection} backActionRef={pluginsBackRef} onOpenContribution={onOpenPluginContribution ? (pluginId, contributionId, kind, title) => { close(); onOpenPluginContribution(pluginId, contributionId, kind, title); } : undefined}/></section>
         <section hidden={section !== "backups"} aria-label={t("数据与备份")}><h3>{t("数据与备份")}</h3><BackupSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "backups" && (!phone || !overview)} onDirty={setBackupDirty} onBusy={setBackupBusy}/></section>
         <section hidden={section !== "voice"} aria-label={t("语音转写")}><h3>{t("语音转写")}</h3><VoiceSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "voice" && (!phone || !overview)} onDirty={setVoiceDirty} onBusy={setVoiceBusy}/></section>
         <section hidden={section !== "botMessages"} aria-label={t("Bot 消息授权")}>
@@ -535,6 +541,19 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
             </div>)}
           </fieldset>
           <DesktopPreferences/><DesktopUpdates/><AndroidUpdates/>
+          <SettingsGroupHeading scope="device">{t("扩展与插件")}</SettingsGroupHeading>
+          <div className="settings-group">
+            <div className="settings-row">
+              <div className="settings-row-text">
+                <label>{t("插件市场")}</label>
+                <small>{t("探索、安装与管理隔离沙箱插件")}</small>
+              </div>
+              <button type="button" className="secondary" onClick={() => select("plugins")}>
+                <Puzzle size={15} aria-hidden="true"/>
+                {t("打开插件市场")}
+              </button>
+            </div>
+          </div>
         </section>
         <section hidden={section !== "notifications"} aria-label={t("通知")}><NotificationSettings connection={connection} dirtyChange={setNotificationDirty} busyChange={setNotificationBusy}/></section>
         <section hidden={section !== "devices"} aria-label={t("设备与安全")}>

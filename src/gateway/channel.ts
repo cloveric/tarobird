@@ -36,7 +36,7 @@ import type { AgentBusDispatch } from "../client-protocol/agent-bus.js";
 import { groupDiscussionPrompt } from "./group-discussion.js";
 import type { CronExecutor } from "../runtime/cron-scheduler.js";
 
-const context = new AsyncLocalStorage<{ conversationId: string; messageId?: string; workbench?: WorkbenchContext; workbenchContextOmitted?: WorkbenchContextOmitted; queueSlot?: boolean; ticket?: Conversation["ticket"]; botSource?: Message["botSource"]; ticketNotice?: boolean; groupDiscussion?: GroupDiscussionDispatch; groupSession?: GroupLocalSessionDispatch; admit?: () => void }>();
+const context = new AsyncLocalStorage<{ conversationId: string; messageId?: string; workbench?: WorkbenchContext; workbenchContextOmitted?: WorkbenchContextOmitted; queueSlot?: boolean; canvasConnected?: boolean; ticket?: Conversation["ticket"]; botSource?: Message["botSource"]; ticketNotice?: boolean; groupDiscussion?: GroupDiscussionDispatch; groupSession?: GroupLocalSessionDispatch; admit?: () => void }>();
 const inputSchema = z.object({ widget: z.unknown().optional(), text: z.string().optional(), markdown: z.string().optional(), card: z.unknown().optional(), post: z.unknown().optional(), image: z.unknown().optional(), file: z.unknown().optional(), audio: z.unknown().optional(), video: z.unknown().optional() });
 /** Upload failed before any publish request. Safe to repair with a new call ID. */
 export class GatewayArtifactUploadError extends Error {
@@ -77,7 +77,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
   private scopedRunWriter: GatewayRunWriter;
   private readonly updates = new Map<string, Promise<void>>();
   private readonly tasks = new Set<Promise<void>>();
-  private receiveMessage!: (message: Message, conversation: Conversation, agentBus?: AgentBusDispatch, groupDiscussion?: GroupDiscussionDispatch, queueSlot?: boolean, workbench?: WorkbenchContext, workbenchContextOmitted?: WorkbenchContextOmitted, ticketNotice?: boolean, groupSession?: GroupLocalSessionDispatch) => Promise<void>;
+  private receiveMessage!: (message: Message, conversation: Conversation, agentBus?: AgentBusDispatch, groupDiscussion?: GroupDiscussionDispatch, queueSlot?: boolean, workbench?: WorkbenchContext, workbenchContextOmitted?: WorkbenchContextOmitted, ticketNotice?: boolean, groupSession?: GroupLocalSessionDispatch, canvasConnected?: boolean) => Promise<void>;
   prepareConversation?: (chatId: string) => Promise<void>;
   canSteerConversation?: (chatId: string) => Promise<boolean>;
   /** A replayed Agent Bus input can carry a stop issued while it was running. */
@@ -94,7 +94,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     this.receipts = new GatewayReceipts(transport.options.stateDir);
     this.runWriter = new GatewayRunWriter(input => transport.request("run.write", input));
     this.scopedRunWriter = new GatewayRunWriter(input => transport.request("run.scope.write", input));
-    this.receiveMessage = async (message, conversation, agentBus, groupDiscussion, queueSlot = false, workbench, workbenchContextOmitted, ticketNotice, groupSession) => {
+    this.receiveMessage = async (message, conversation, agentBus, groupDiscussion, queueSlot = false, workbench, workbenchContextOmitted, ticketNotice, groupSession, canvasConnected) => {
       if (this.processing.has(message.id)) { if (agentBus?.stopRequested) this.onAgentBusStopRequested?.(agentBus.runId); return; }
       this.processing.add(message.id); this.processingConversations.set(message.id, conversation.id); if (agentBus) this.processingAgentBus.set(message.id, agentBus.runId); this.rememberMessage(message); this.conversations.set(conversation.id, conversation);
       const previous = this.admissions.get(conversation.id);
@@ -111,7 +111,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       const resolvedTicketNotice = typeof ticketNotice === "boolean"
         ? ticketNotice
         : message.authorType === "user" && !!message.botSource && /^tn_/.test(message.clientMsgId ?? "") && /^tk_/.test(message.botSource.requestId);
-      const task = withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, workbench: workbenchContextOmitted ? undefined : workbench, workbenchContextOmitted, queueSlot, ticket: conversation.ticket, botSource: message.botSource, ticketNotice: resolvedTicketNotice, ...(discussion ? { groupDiscussion: discussion } : {}), ...(groupSession ? { groupSession } : {}), admit }, async () => {
+      const task = withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, workbench: workbenchContextOmitted ? undefined : workbench, workbenchContextOmitted, queueSlot, canvasConnected, ticket: conversation.ticket, botSource: message.botSource, ticketNotice: resolvedTicketNotice, ...(discussion ? { groupDiscussion: discussion } : {}), ...(groupSession ? { groupSession } : {}), admit }, async () => {
         try {
           await previous;
           let executed = false;
@@ -165,7 +165,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       void task.finally(() => this.tasks.delete(task)).catch(() => undefined);
       return task;
     };
-    transport.onMessage = async (message, conversation, agentBus, groupDiscussion, workbench, workbenchContextOmitted, ticketNotice, groupSession) => { void this.receiveMessage(message, conversation, agentBus, groupDiscussion, false, workbench, workbenchContextOmitted, ticketNotice, groupSession).catch(() => transport.reconnectAfterDeliveryFailure()); };
+    transport.onMessage = async (message, conversation, agentBus, groupDiscussion, workbench, workbenchContextOmitted, ticketNotice, groupSession, canvasConnected) => { void this.receiveMessage(message, conversation, agentBus, groupDiscussion, false, workbench, workbenchContextOmitted, ticketNotice, groupSession, canvasConnected).catch(() => transport.reconnectAfterDeliveryFailure()); };
     transport.onCall = async (method, params) => withChannelProfile("gateway", async () => {
       const p = z.record(z.string(), z.json()).parse(params);
       if (method === "interaction") {
@@ -222,6 +222,27 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       throw error;
     }
   }
+  hasCanvasForTurn(): boolean {
+    const turn = context.getStore();
+    return !!turn?.canvasConnected && !!turn.messageId && !turn.botSource && !turn.groupDiscussion
+      && !turn.workbenchContextOmitted && !this.processingAgentBus.has(turn.messageId);
+  }
+  async canvasAgentTools(signal?: AbortSignal): Promise<unknown> {
+    const turn = context.getStore();
+    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion || turn.workbenchContextOmitted || this.processingAgentBus.has(turn.messageId)) throw new Error("canvas_agent_user_turn_required");
+    return this.transport.requestLive("canvas.agent.tools", { conversationId: turn.conversationId, contextMessageId: turn.messageId }, signal);
+  }
+  async canvasAgentCall(name: string, args: Record<string, unknown>, projectId?: string, signal?: AbortSignal): Promise<unknown> {
+    const turn = context.getStore();
+    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion || turn.workbenchContextOmitted || this.processingAgentBus.has(turn.messageId)) throw new Error("canvas_agent_user_turn_required");
+    return this.transport.requestLive("canvas.agent.call", {
+      contextMessageId: turn.messageId,
+      conversationId: turn.conversationId,
+      name,
+      arguments: args,
+      ...(projectId ? { projectId } : {}),
+    }, signal);
+  }
   async workbenchImage(image: { bytes: Buffer; mime: string; name: string }, signal?: AbortSignal): Promise<string> {
     const turn = context.getStore(); if (!turn?.messageId || turn.botSource || turn.groupDiscussion) throw new Error("workbench_user_turn_required");
     if (turn.workbenchContextOmitted) throw new Error("workbench_context_unavailable");
@@ -272,12 +293,12 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     const designOpen = this.transport.capabilities.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY), lease = { conversationId: conversation.id, messageId: message.id };
     const begin = async () => {
       if (!designOpen) return undefined;
-      try { return z.object({ workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional() }).parse(await this.transport.requestLive("workbench.turn.begin", lease, AbortSignal.timeout(5_000))); }
+      try { return z.object({ workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional(), canvasConnected: z.literal(true).optional() }).parse(await this.transport.requestLive("workbench.turn.begin", lease, AbortSignal.timeout(5_000))); }
       catch { return undefined; }
     };
     // Also after an uncertain begin; before the turn releases its slot.
     const end = async () => { if (designOpen) await this.transport.requestLive("workbench.turn.end", lease, AbortSignal.timeout(2_000)).catch(() => undefined); };
-    const task = begin().then(turn => withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, admit, ...(turn?.workbenchContextOmitted ? { workbenchContextOmitted: turn.workbenchContextOmitted } : turn?.workbench ? { workbench: turn.workbench } : {}) }, async () => {
+    const task = begin().then(turn => withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, admit, canvasConnected: turn?.canvasConnected, ...(turn?.workbenchContextOmitted ? { workbenchContextOmitted: turn.workbenchContextOmitted } : turn?.workbench ? { workbench: turn.workbench } : {}) }, async () => {
       try {
         await previous;
         await this.receipts.run(`native-turn:${message.id}`, async () => {
@@ -296,7 +317,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     const next = await this.transport.takeQueued(conversationId);
     if (!next) return false;
     if (next.conversation.id !== conversationId || next.message.conversationId !== conversationId) throw new Error("gateway_queue_scope_mismatch");
-    await this.receiveMessage(next.message, next.conversation, undefined, undefined, true, next.workbench, next.workbenchContextOmitted, next.ticketNotice, next.groupSession);
+    await this.receiveMessage(next.message, next.conversation, undefined, undefined, true, next.workbench, next.workbenchContextOmitted, next.ticketNotice, next.groupSession, next.canvasConnected);
     return true;
   }
   async disconnect(): Promise<void> {

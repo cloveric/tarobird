@@ -70,6 +70,8 @@ export function workbenchErrorText(code: string, _locale?: Locale): string {
     markdown_still_referenced: t("笔记仍有标签引用，请先关闭相关标签。"),
     workbench_chart_updating: t("图表正在更新，请稍后再试。"),
     browser_clear_failed: t("网站数据清理未完成。请重试；部分数据可能已被清理。"),
+    workbench_identity_unavailable: t("请先选择一个活跃对话后再使用工作台。"),
+    workbench_unavailable: t("工作台暂时不可用，请先选择一个活跃对话后重试。"),
   };
   return entries[code] ?? t("操作未完成：{0}", code);
 }

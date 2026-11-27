@@ -6,6 +6,9 @@ import { ENGINE_QUOTA_CAPABILITY, ENGINE_QUOTA_HUB_REFRESH_MS } from "../client-
 import { ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY, quotaAccountProofReplySchema } from "../runtime/engine-quota-scope.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "./workbench-design-sharing.js";
 import { DESIGN_SHARE_CLIENT_CAPABILITY } from "../client-protocol/workbench-design-sharing.js";
+import { readCanvasArtifact } from "./canvas-artifact.js";
+import { CanvasAgentBroker } from "./canvas-agent.js";
+import { CANVAS_AGENT_HOST_CAPABILITY, canvasAgentTokenRequestSchema } from "../client-protocol/infinite-canvas.js";
 import { HubRemoteScreen } from "./remote-screen.js";
 import { RemoteScreenSockets } from "./remote-screen-sockets.js";
 import { signedScreenConfigureSchema, screenStopSchema, SCREEN_MAX_CONTROL_BYTES } from "../client-protocol/remote-screen.js";
@@ -177,10 +180,10 @@ function gatewayWorkbenchMetadata<T extends { workbench?: WorkbenchContext }>(me
   const { workbench, ...rest } = metadata, { openTarget: _opener, ...context } = workbench;
   return (workbenchOpenerOnly(workbench) ? rest : { ...rest, workbench: context }) as T;
 }
-type BotConnection = { audioRecording: boolean; botSteer: boolean; engineQuota: boolean; engineQuotaAccountMatch: boolean; contextUsage: boolean; history: boolean; designOpen: boolean; nativeInput: boolean; nativeReviewInput: boolean; engineTasks: boolean; piSession: boolean; ws: WebSocket; botId: string; queueCapable: boolean; queuePull: boolean; queueAdvertised: boolean; botMessages: boolean; agentBus: boolean; groupDiscussion: boolean; voicePolicy: boolean; widgetPolicy: boolean; replayQueue: boolean; ready: boolean };
+type BotConnection = { canvasAgent: boolean; audioRecording: boolean; botSteer: boolean; engineQuota: boolean; engineQuotaAccountMatch: boolean; contextUsage: boolean; history: boolean; designOpen: boolean; nativeInput: boolean; nativeReviewInput: boolean; engineTasks: boolean; piSession: boolean; ws: WebSocket; botId: string; queueCapable: boolean; queuePull: boolean; queueAdvertised: boolean; botMessages: boolean; agentBus: boolean; groupDiscussion: boolean; voicePolicy: boolean; widgetPolicy: boolean; replayQueue: boolean; ready: boolean };
 type Rpc = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; ws: WebSocket };
 export interface HubTlsListener { exposure?: ListenerExposure; host: string; port: number; tls: TlsOptions; managed?: boolean }
-export interface HubServerOptions { voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; /** Max silence before a foreground client socket stops suppressing pushes. */ foregroundTimeoutMs?: number; relaySources?: RelaySources; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; hostResourcesSampler?: () => Promise<OsProcessSample[]>; hostResourcesBotPids?: () => Map<string, number>; hostResourcesTurnPids?: (botId: string) => ReadonlyMap<string, readonly number[]> | undefined; hostResourcesKillPid?: (pid: number) => Promise<void>; hostResourcesStopBotTurn?: (botId: string, conversationId: string, userId: string) => Promise<boolean>; hostResourcesDesktopAppPid?: number | (() => number | undefined); hostResourcesSampleCacheTtlMs?: number; hostResourcesNow?: () => number; hostTerminalSpawner?: (options: { cwd: string; cols: number; rows: number }) => Promise<TerminalProcessHandle>; hostTerminalDefaultWorkspace?: string; hostTerminalIdleTimeoutMs?: number; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; edgePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
+export interface HubServerOptions { pluginArtifactsDir?: string; voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; /** Max silence before a foreground client socket stops suppressing pushes. */ foregroundTimeoutMs?: number; relaySources?: RelaySources; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; hostResourcesSampler?: () => Promise<OsProcessSample[]>; hostResourcesBotPids?: () => Map<string, number>; hostResourcesTurnPids?: (botId: string) => ReadonlyMap<string, readonly number[]> | undefined; hostResourcesKillPid?: (pid: number) => Promise<void>; hostResourcesStopBotTurn?: (botId: string, conversationId: string, userId: string) => Promise<boolean>; hostResourcesDesktopAppPid?: number | (() => number | undefined); hostResourcesSampleCacheTtlMs?: number; hostResourcesNow?: () => number; hostTerminalSpawner?: (options: { cwd: string; cols: number; rows: number }) => Promise<TerminalProcessHandle>; hostTerminalDefaultWorkspace?: string; hostTerminalIdleTimeoutMs?: number; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; edgePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
 export class HubServer {
   private readonly relaySources: RelaySources;
   private readonly fragmentSockets = new WeakSet<WebSocket>();
@@ -235,6 +238,7 @@ export class HubServer {
   private stopping = false;
   private readonly workbench: WorkbenchBroker;
   private readonly designSharing: DesignShareBroker;
+  readonly canvasAgent: CanvasAgentBroker;
   /** /steer calls awaiting their Bot, by steering record. A review turn may
    * begin once, only while its own call is in flight on the same socket. */
   private readonly steersInFlight = new Map<string, { botId: string; conversationId: string; connection: BotConnection; calls: number; begun: boolean; ended: boolean }>();
@@ -408,6 +412,8 @@ export class HubServer {
     const screenTick = setInterval(() => this.remoteScreen.tick(), 250); screenTick.unref(); this.disposers.push(() => clearInterval(screenTick));
     this.workbench = new WorkbenchBroker(store);
     this.designSharing = new DesignShareBroker({repository:metaDesignShareRepository(store.db),requireMember:(userId,conversationId)=>store.db.serial(()=>store.requireMember(userId,conversationId)),userName:async userId=>(await store.user(userId))?.name});
+    this.canvasAgent = new CanvasAgentBroker(store);
+    this.disposers.push(() => this.canvasAgent.dispose());
     this.runChanges = new HubRunChanges(store);
     this.relaySources = options.relaySources ?? new RelaySources();
     this.engineSettings = new HubEngineSettings(options.stateDir, () => options.managedBots?.env ?? process.env);
@@ -654,6 +660,7 @@ export class HubServer {
     this.disposers.push(auth.onRevoke((deviceId) => { this.trackTask(this.hostTerminal.revokeDevice(deviceId)); for (const c of this.clients) if (c.session?.deviceId === deviceId) this.endClientSession(c, "device_revoked"); }));
     this.disposers.push(auth.onRevoke((deviceId) => {
       this.sideSessions.revoke(deviceId);
+      this.canvasAgent.revokeForDevice(deviceId);
       for (const [controller, session] of this.downloads) if (session.deviceId === deviceId) controller.abort(new HubError("device_revoked", 401));
     }));
     // A separate CLI process can revoke a device or enqueue maintenance work.
@@ -903,6 +910,7 @@ export class HubServer {
   }
   private async sweep(): Promise<void> {
     await this.remoteScreen.sweep();
+    await this.canvasAgent.sweepRevokedDevices();
     await this.hostTerminal.sweep();
     for (const client of this.clients) if (client.session) {
       try { await this.auth.validateSession(client.session); }
@@ -963,7 +971,7 @@ export class HubServer {
   private endClientSession(client: Client, code: "device_revoked" | "session_expired"): void {
     if (client.rejected) return;
     client.rejected = code;
-    if (client.session) { this.workbench.unregister(this.workbenchPeer(client));this.designSharing.disconnect(this.designSharePeer(client)); }
+    if (client.session) { this.workbench.unregister(this.workbenchPeer(client)); this.designSharing.disconnect(this.designSharePeer(client)); this.canvasAgent.detachForOwner(client); }
     void this.store.audit("socket.rejected", client.session?.deviceId ?? null, { code }).catch(() => undefined);
     void this.send(client.ws, { v: 1, type: "notice", code }).finally(() => client.ws.close(4001, code)).catch(() => undefined);
   }
@@ -1333,7 +1341,7 @@ export class HubServer {
       this.trackTask(tail);
     });
     ws.on("error", () => { this.options.onWarning?.("client_socket_error"); });
-    ws.on("close", () => { if (client.session) { this.workbench.unregister(this.workbenchPeer(client));this.designSharing.disconnect(this.designSharePeer(client)); } clearTimeout(timeout); client.pendingPublications.length = 0; this.auth.forgetConnection(id); this.clients.delete(client); });
+    ws.on("close", () => { if (client.session) { this.workbench.unregister(this.workbenchPeer(client)); this.designSharing.disconnect(this.designSharePeer(client)); this.canvasAgent.detachForOwner(client); } clearTimeout(timeout); client.pendingPublications.length = 0; this.auth.forgetConnection(id); this.clients.delete(client); });
   }
   private async conversationForUser(userId: string, conversation: Conversation): Promise<Conversation> {
     if (!conversation.workspacePath) return conversation;
@@ -1432,6 +1440,30 @@ export class HubServer {
     const bot = await this.store.db.serial(() => this.store.db.get<{name:string}>("SELECT name FROM bots WHERE id=?",[botId]));
     return { actor:{kind:"bot",id:botId,name:bot?.name?.slice(0,128) ?? botId}, sourceMessageId: messageId, userId: source.authorId, conversationId, validate, validateInQueue, context: await this.workbench.contextForMessage(source.authorId, messageId, conversationId) };
   }
+  private canvasTurnHint(connection: BotConnection, message: Message, metadata: { workbench?: WorkbenchContext; workbenchContextOmitted?: string }) {
+    if (!connection.canvasAgent || message.authorType !== "user" || message.botSource || message.groupDiscussion || message.forwardedFrom || metadata.workbenchContextOmitted) return {};
+    return this.canvasAgent.hasConnectedCanvas({ userId: message.authorId, conversationId: message.conversationId, context: metadata.workbench })
+      ? { canvasConnected: true } : {};
+  }
+
+  private async canvasBotActor(botId: string, conversationId: string, messageId: string, socket?: WebSocket): Promise<WorkbenchActor> {
+    const connection = this.bots.get(botId);
+    if (socket && connection?.ws !== socket) throw new HubError("workbench_bot_disconnected", 409);
+    const actor = await this.workbenchBotActor(botId, conversationId, messageId);
+    const validate = () => this.store.db.serial(async () => {
+      await actor.validateInQueue();
+      await this.store.requireOwner(actor.userId);
+      const scheduled = await this.store.db.get(
+        "SELECT 1 FROM agent_bus_runs WHERE message_id=? UNION ALL SELECT 1 FROM group_discussion_turns WHERE input_message_id=? LIMIT 1", [messageId, messageId],
+      );
+      if (scheduled) throw new HubError("workbench_context_forbidden", 403);
+      if (!connection || this.bots.get(botId) !== connection || connection.ws.readyState !== WebSocket.OPEN) {
+        throw new HubError("workbench_bot_disconnected", 409);
+      }
+    });
+    await validate();
+    return { ...actor, validate };
+  }
   private async clientFrame(client: Client, frame: ClientFrame): Promise<void> {
     if (this.stopping) throw new HubError("hub_stopping", 503);
     const userId = client.session!.userId;
@@ -1447,6 +1479,30 @@ export class HubServer {
         if (frame.type === "workbench.register") await this.workbench.register(peer, frame.registration);
         else if (frame.type === "workbench.unregister") this.workbench.unregister(peer, frame.windowId);
         else await this.workbench.receive(peer, frame.dispatchId, frame.receipt);
+        break;
+      }
+      case "canvas.agent.attach": {
+        const grant = await this.canvasAgent.verifyToken(frame.token, frame.clientId);
+        if (grant.deviceId !== client.session!.deviceId || grant.userId !== userId) {
+          throw new HubError("canvas_agent_forbidden", 403);
+        }
+        const session = client.session!;
+        this.canvasAgent.attachClientSink(grant, {
+          ownerKey: client,
+          isOpen: () => !this.stopping && !client.rejected && client.session === session && client.ws.readyState === WebSocket.OPEN,
+          send: (event, data) => {
+            if (this.stopping || client.rejected || client.session !== session || client.ws.readyState !== WebSocket.OPEN) return;
+            this.publishClient(client, { v: 1, type: "canvas.agent.event", clientId: grant.clientId, event, data });
+          },
+          close: (reason) => {
+            if (this.stopping || client.rejected || client.session !== session || client.ws.readyState !== WebSocket.OPEN) return;
+            this.publishClient(client, { v: 1, type: "canvas.agent.event", clientId: grant.clientId, event: "closed", data: { reason } });
+          },
+        });
+        break;
+      }
+      case "canvas.agent.detach": {
+        this.canvasAgent.detachForOwner(client, frame.clientId, frame.token);
         break;
       }
       case "presence": client.foreground = frame.foreground; break;
@@ -1572,7 +1628,7 @@ export class HubServer {
           const groupDiscussion = connection.groupDiscussion ? await this.groupDiscussions.dispatch(id, message.id) : undefined;
           if (!active()) { connection.replayQueue = true; break; }
           const workbenchMetadata = gatewayWorkbenchMetadata(await this.store.db.serial(() => readWorkbenchTurnMetadata(this.store.db, message.id)), connection.designOpen);
-          await this.send(connection.ws, { v: 1, type: "instance.message", message, conversation, ...workbenchMetadata, ...(message.botSource ? { ticketNotice: this.isHostTicketNotice(message) } : {}), ...(agentBus ? { agentBus } : {}), ...(groupDiscussion ? { groupDiscussion } : {}), ...(localBinding.blocked === false && localBinding.groupSession ? { groupSession: localBinding.groupSession } : {}) });
+          await this.send(connection.ws, { v: 1, type: "instance.message", message, conversation, ...workbenchMetadata, ...(!agentBus && !groupDiscussion && this.canvasTurnHint(connection, message, workbenchMetadata)), ...(message.botSource ? { ticketNotice: this.isHostTicketNotice(message) } : {}), ...(agentBus ? { agentBus } : {}), ...(groupDiscussion ? { groupDiscussion } : {}), ...(localBinding.blocked === false && localBinding.groupSession ? { groupSession: localBinding.groupSession } : {}) });
           if (localBinding.blocked === false && localBinding.historyIncluded) {
             const { scopeConversationId, memberKey, sessionId } = localBinding.historyIncluded;
             this.trackTask(this.crossHostGroups.markLocalHistoryBackfilled(scopeConversationId, memberKey, sessionId).catch(() => undefined));
@@ -1656,7 +1712,7 @@ export class HubServer {
           botId = frame.botId; if (frame.capabilities?.includes(FRAGMENT_CAPABILITY)) this.fragmentSockets.add(ws); clearTimeout(timeout); this.bots.get(botId)?.ws.close(4000, "replaced");
           const queueAdvertised = frame.capabilities?.includes(PROMPT_QUEUE_CAPABILITY) ?? false;
           const queueCapable = queueAdvertised && supportsPromptQueueEngine(frame.engine);
-          const connection: BotConnection = { audioRecording: frame.capabilities?.includes(AUDIO_RECORDING_CAPABILITY) ?? false, botSteer: frame.capabilities?.includes(BOT_MESSAGE_STEER_CAPABILITY) ?? false, engineQuota: frame.capabilities?.includes(ENGINE_QUOTA_CAPABILITY) ?? false, engineQuotaAccountMatch: frame.capabilities?.includes(ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY) ?? false, contextUsage: frame.capabilities?.includes(CONTEXT_USAGE_CAPABILITY) ?? false, history: frame.capabilities?.includes(CONVERSATION_HISTORY_CAPABILITY) ?? false, designOpen: frame.capabilities?.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY) ?? false, nativeInput: frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) ?? false, nativeReviewInput: (frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) && frame.capabilities.includes(NATIVE_REVIEW_INPUT_CAPABILITY)) ?? false, engineTasks: frame.capabilities?.includes(ENGINE_TASKS_CAPABILITY) ?? false, piSession: frame.engine === "pi" && (frame.capabilities?.includes(PI_SESSION_CAPABILITY) ?? false), ws, botId, widgetPolicy: frame.capabilities?.includes(WIDGET_POLICY_CAPABILITY) ?? false, voicePolicy: frame.capabilities?.includes(VOICE_POLICY_CAPABILITY) ?? false, queueAdvertised, queueCapable, queuePull: frame.capabilities?.includes(PROMPT_QUEUE_PULL_CAPABILITY) ?? false, botMessages: frame.capabilities?.includes("bot-messages.v1") ?? false, agentBus: frame.capabilities?.includes(AGENT_BUS_WORKER_CAPABILITY) ?? false, groupDiscussion: frame.capabilities?.includes(GROUP_DISCUSSION_WORKER_CAPABILITY) ?? false, replayQueue: true, ready: false };
+          const connection: BotConnection = { canvasAgent: frame.capabilities?.includes(CANVAS_AGENT_HOST_CAPABILITY) ?? false, audioRecording: frame.capabilities?.includes(AUDIO_RECORDING_CAPABILITY) ?? false, botSteer: frame.capabilities?.includes(BOT_MESSAGE_STEER_CAPABILITY) ?? false, engineQuota: frame.capabilities?.includes(ENGINE_QUOTA_CAPABILITY) ?? false, engineQuotaAccountMatch: frame.capabilities?.includes(ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY) ?? false, contextUsage: frame.capabilities?.includes(CONTEXT_USAGE_CAPABILITY) ?? false, history: frame.capabilities?.includes(CONVERSATION_HISTORY_CAPABILITY) ?? false, designOpen: frame.capabilities?.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY) ?? false, nativeInput: frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) ?? false, nativeReviewInput: (frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) && frame.capabilities.includes(NATIVE_REVIEW_INPUT_CAPABILITY)) ?? false, engineTasks: frame.capabilities?.includes(ENGINE_TASKS_CAPABILITY) ?? false, piSession: frame.engine === "pi" && (frame.capabilities?.includes(PI_SESSION_CAPABILITY) ?? false), ws, botId, widgetPolicy: frame.capabilities?.includes(WIDGET_POLICY_CAPABILITY) ?? false, voicePolicy: frame.capabilities?.includes(VOICE_POLICY_CAPABILITY) ?? false, queueAdvertised, queueCapable, queuePull: frame.capabilities?.includes(PROMPT_QUEUE_PULL_CAPABILITY) ?? false, botMessages: frame.capabilities?.includes("bot-messages.v1") ?? false, agentBus: frame.capabilities?.includes(AGENT_BUS_WORKER_CAPABILITY) ?? false, groupDiscussion: frame.capabilities?.includes(GROUP_DISCUSSION_WORKER_CAPABILITY) ?? false, replayQueue: true, ready: false };
           // Reserve socket ownership before awaiting SQLite. Concurrent hellos
           // must replace this exact socket, not both replace its predecessor.
           this.bots.set(botId, connection);
@@ -1710,11 +1766,11 @@ export class HubServer {
           if (frame.error) pending.reject(new HubError("bot_request_failed", 502)); else pending.resolve(frame.result ?? null); return;
         }
         if (frame.type === "instance.request") {
-          if (frame.method.startsWith("workbench.")) {
+          if (frame.method.startsWith("workbench.") || frame.method.startsWith("canvas.agent.")) {
             // Waiting for an App receipt must not block this Bot's other turns,
             // heartbeat/status or a user's stop acknowledgement.
             const owner = botId;
-            this.trackTask(this.instanceRequest(owner, frame.method, frame.params).then(
+            this.trackTask(this.instanceRequest(owner, frame.method, frame.params, ws).then(
               result => this.send(ws, {v: 1, type: "instance.result", id: frame.id, result}),
               error => this.send(ws, {v: 1, type: "instance.result", id: frame.id, error: error instanceof HubError ? error.code : "invalid_request"})
             ).catch(() => undefined)); return;
@@ -1790,7 +1846,7 @@ export class HubServer {
     return bot?.engine === "pi" && !bot.role && conversation.type === "direct" && !conversation.hidden;
   }
 
-  private async instanceRequest(botId: string, method: string, params: unknown): Promise<unknown> {
+  private async instanceRequest(botId: string, method: string, params: unknown, socket?: WebSocket): Promise<unknown> {
     if (method.startsWith("history.")) {
       if (!this.bots.get(botId)?.history) throw new HubError("history_unsupported", 409);
       if (method === "history.authorize") return this.conversationHistory.authorizeWorker(botId, params);
@@ -1826,7 +1882,7 @@ export class HubServer {
       const metadata = await this.store.db.serial(() => readWorkbenchTurnMetadata(this.store.db, input.messageId));
       if (flight.ended || flight.calls <= 0 || this.steersInFlight.get(input.messageId) !== flight || this.bots.get(botId) !== connection || connection.ws.readyState !== WebSocket.OPEN || this.stopping) throw new HubError("workbench_turn_unavailable", 409);
       this.nativeTurns.set(input.messageId, { botId, conversationId: input.conversationId, connection });
-      return metadata;
+      return { ...metadata, ...this.canvasTurnHint(connection, record, metadata) };
     }
     if (["workbench.command", "workbench.cancel", "workbench.context", "workbench.targets"].includes(method)) {
       const input = z.object({ conversationId: idSchema, contextMessageId: idSchema, requestId: idSchema.optional(), request: workbenchRequestSchema.optional() }).strict().parse(params);
@@ -1857,7 +1913,7 @@ export class HubServer {
           this.trackTask(this.crossHostGroups.markLocalHistoryBackfilled(scopeConversationId, memberKey, sessionId).catch(() => undefined));
         }
         const workbenchMetadata = gatewayWorkbenchMetadata(await this.store.db.serial(() => readWorkbenchTurnMetadata(this.store.db, message.id)), connection.designOpen);
-        return { message, conversation, ...workbenchMetadata, ...(message.botSource ? { ticketNotice: this.isHostTicketNotice(message) } : {}), ...(localBinding.blocked === false && localBinding.groupSession ? { groupSession: localBinding.groupSession } : {}) };
+        return { message, conversation, ...workbenchMetadata, ...this.canvasTurnHint(connection, message, workbenchMetadata), ...(message.botSource ? { ticketNotice: this.isHostTicketNotice(message) } : {}), ...(localBinding.blocked === false && localBinding.groupSession ? { groupSession: localBinding.groupSession } : {}) };
       }
     }
     if (method === "run.recover") { const input = z.object({ before: z.number().int().nonnegative().max(Date.now()) }).strict().parse(params); await this.store.recoverOrphanRuns(botId, input.before); await this.store.retireNativeInputs(botId, input.before); await this.settleDiscussion(() => this.groupDiscussions.settleBot(botId)); return null; }
@@ -1886,6 +1942,20 @@ export class HubServer {
     if (method === "agentBus.event") { await this.agentBuses.event(botId, params); return null; }
     if (method === "groupDiscussion.report") { await this.groupDiscussions.report(botId, params); return null; }
     if (method === "reaction" || method === "turn.state") { const p = z.object({ conversationId: idSchema, payload: z.json() }).parse(params); await this.store.appendBotEvent(botId, p.conversationId, method, p.payload); return null; }
+    if (method === "canvas.agent.status" || method === "canvas.agent.tools") {
+      const input = z.object({ conversationId: idSchema, contextMessageId: idSchema }).strict().parse(params);
+      const actor = await this.canvasBotActor(botId, input.conversationId, input.contextMessageId, socket);
+      return method === "canvas.agent.tools" ? this.canvasAgent.listMcpTools() : this.canvasAgent.statusForConversation(actor);
+    }
+    if (method === "canvas.agent.call") {
+      const input = z.object({
+        conversationId: idSchema, contextMessageId: idSchema,
+        name: z.string().min(1).max(128), arguments: z.unknown().optional(),
+        projectId: z.string().min(1).max(128).optional(),
+      }).strict().parse(params);
+      const actor = await this.canvasBotActor(botId, input.conversationId, input.contextMessageId, socket);
+      return this.canvasAgent.callToolForBot({ actor, name: input.name, args: input.arguments ?? {}, projectId: input.projectId });
+    }
     throw new HubError("unknown_method");
   }
   /** The committed receipt/publication is already durable. A settlement error
@@ -1922,14 +1992,56 @@ export class HubServer {
   }
   private async request(req: IncomingMessage, res: ServerResponse, instanceAllowed: boolean, edgeProxy = false): Promise<void> {
     const source = this.requestSource(req, edgeProxy);
-    if (!this.originAllowed(req)) throw new HubError("origin_forbidden", 403);
+    const url = new URL(req.url ?? "/", this.url); const route = url.pathname;
+    const isCanvasAgentBridgeRoute = /^\/api\/canvas-agent\/(?:state|activate|result)$/.test(route);
+    if (!this.originAllowed(req) || route.startsWith("/api/canvas-agent/") && req.headers.origin === "null") throw new HubError("origin_forbidden", 403);
     if (req.headers.origin) { res.setHeader("Access-Control-Allow-Origin", req.headers.origin); res.setHeader("Vary", "Origin"); }
     res.setHeader("Access-Control-Expose-Headers", "ETag, Content-Range, Accept-Ranges, Date");
     if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type, Range, If-Range", "Access-Control-Max-Age": "600" }); res.end(); return; }
-    const url = new URL(req.url ?? "/", this.url); const route = url.pathname;
     // Worker-only, one-use browser downloads must never fall back to HTML when
     // a worker has expired or a browser retries the navigation on the network.
     if (route.startsWith("/__tarocub_download/")) { res.writeHead(204, { "Cache-Control": "no-store" }); res.end(); return; }
+    if (isCanvasAgentBridgeRoute) {
+      const caToken = req.headers.authorization?.match(/^CanvasAgent\s+(\S+)$/)?.[1];
+      const clientId = url.searchParams.get("clientId") ?? undefined;
+      if (!caToken || !clientId) throw new HubError("canvas_agent_unauthorized", 401);
+      if (route === "/api/canvas-agent/state" && req.method === "POST") {
+        const body = z.object({ snapshot: z.unknown().nullable().optional() }).strict().parse(await this.jsonBody(req));
+        const grant = await this.canvasAgent.verifyToken(caToken, clientId);
+        this.canvasAgent.updateState(grant, body.snapshot ?? null);
+        this.json(res, 200, { ok: true }); return;
+      }
+      if (route === "/api/canvas-agent/activate" && req.method === "POST") {
+        const grant = await this.canvasAgent.verifyToken(caToken, clientId);
+        this.canvasAgent.activateClient(grant);
+        this.json(res, 200, { ok: true }); return;
+      }
+      if (route === "/api/canvas-agent/result" && req.method === "POST") {
+        const body = await this.jsonBody(req);
+        const grant = await this.canvasAgent.verifyToken(caToken, clientId);
+        const ok = this.canvasAgent.resolveResult(grant, body);
+        this.json(res, ok ? 200 : 409, { ok }); return;
+      }
+      throw new HubError("method_not_allowed", 405);
+    }
+    if (route === "/api/canvas-agent/mcp" && req.method === "POST") {
+      if (!instanceAllowed || !isLoopback(req.socket.remoteAddress ?? "")) {
+        throw new HubError("instance_unauthorized", 401);
+      }
+      const credentials = req.headers.authorization?.match(/^Instance ([A-Za-z0-9_-]+):([A-Za-z0-9_-]{32,256})$/);
+      const botId = credentials?.[1];
+      const record = botId ? await this.store.db.serial(() => this.store.db.get<{ secret_hash: string }>("SELECT secret_hash FROM bots WHERE id=? AND deleted_at IS NULL", [botId])) : undefined;
+      const storedHash = record && /^[0-9a-f]{64}$/i.test(record.secret_hash) ? Buffer.from(record.secret_hash, "hex") : undefined;
+      const candidateHash = credentials ? Buffer.from(hashSecret(credentials[2]!), "hex") : undefined;
+      if (!storedHash || !candidateHash || !botId || storedHash.length !== 32 || candidateHash.length !== 32 || !timingSafeEqual(storedHash, candidateHash)) {
+        throw new HubError("instance_unauthorized", 401);
+      }
+      const conversationId = typeof req.headers["x-tarobird-conversation-id"] === "string" ? req.headers["x-tarobird-conversation-id"] : "";
+      const messageId = idSchema.parse(req.headers["x-tarobird-context-message"]);
+      const actor = await this.canvasBotActor(botId, idSchema.parse(conversationId), messageId);
+      const replyMcp = await this.canvasAgent.handleMcpRequest({ actor, body: await this.jsonBody(req) });
+      this.json(res, replyMcp.status, replyMcp.body); return;
+    }
     if (route === "/health" && req.method === "GET") { this.json(res, 200, { ok: true, protocol: 1, pairingInvites: 1, publicKey: this.auth.publicKey }); return; }
     if (route === "/api/tls-identity" && req.method === "GET") {
       // The proof is bound to this listener's actual local leaf certificate,
@@ -2041,6 +2153,16 @@ export class HubServer {
     const reply = async (status: number, value: unknown) => { await validate(); this.json(res, status, value); };
     this.requestGuards.set(req, validate);
     try {
+      if (route.startsWith("/api/plugins/artifacts/")) {
+        if (req.method !== "GET" || url.search || route !== "/api/plugins/artifacts/tarobird.infinite-canvas/1.0.0/bundle.html") throw new HubError("not_found", 404);
+        await requireOwner();
+        const data = await readCanvasArtifact(this.options.pluginArtifactsDir ?? path.resolve("dist/plugins"));
+        await validate();
+        res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Content-Disposition": 'attachment; filename="bundle.html"',
+          "Content-Length": data.byteLength, "Content-Security-Policy": "default-src 'none'; sandbox",
+          "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+        res.end(data); return;
+      }
       const quotaRoute = route.match(/^\/api\/engine-quotas(?:\/([A-Za-z0-9_-]+))?$/);
       if (quotaRoute && req.method === "GET") {
         await requireOwner();
@@ -2068,6 +2190,24 @@ export class HubServer {
       if (route === "/api/workbench/admit" && req.method === "POST") {
         const input = z.object({ dispatchId: idSchema }).strict().parse(await this.jsonBody(req, 2048));
         await reply(200, await this.workbench.admit(session, input.dispatchId)); return;
+      }
+      if (route === "/api/canvas-agent/token" && req.method === "POST") {
+        await requireOwner();
+        const input = canvasAgentTokenRequestSchema.parse(await this.jsonBody(req, 2048));
+        const issued = await this.canvasAgent.issueToken({
+          userId,
+          deviceId: session.deviceId,
+          conversationId: input.conversationId,
+          windowId: input.windowId,
+          tabId: input.tabId,
+          clientId: input.clientId,
+        }, validateInQueue, input.renewToken);
+        await reply(200, issued); return;
+      }
+      if (route === "/api/canvas-agent/revoke" && req.method === "POST") {
+        const input = z.object({ conversationId: idSchema.optional(), clientId: idSchema.optional(), token: z.string().min(1).max(256).optional() }).strict().parse(await this.jsonBody(req, 2048));
+        await serial(async () => this.canvasAgent.revoke({ userId, deviceId: session.deviceId, ...input }));
+        await reply(200, { ok: true }); return;
       }
       const workbenchRoute = route.match(/^\/api\/conversations\/([A-Za-z0-9_-]+)\/workbench\/(targets|commands|context)$/);
       if (workbenchRoute) {
@@ -3421,6 +3561,17 @@ export class HubServer {
     if (relative === "widget-sandbox.html") {
       res.writeHead(200, { "Content-Type": "text/html", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
         "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; style-src 'unsafe-inline' https:; img-src data: https:; media-src https:; font-src data: https:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts" });
+      res.end(await readFile(file)); return;
+    }
+    if (relative === "plugin-sandbox.html") {
+      res.setHeader("X-DNS-Prefetch-Control", "off");
+      res.writeHead(200, { "Content-Type": "text/html", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src https: wss:; child-src about:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts" });
+      res.end(await readFile(file)); return;
+    }
+    if (/^assets\/canvas-node\.worker-[A-Za-z0-9_-]+\.js$/.test(relative)) {
+      res.writeHead(200, { "Content-Type": mime, "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'none'; worker-src 'none'" });
       res.end(await readFile(file)); return;
     }
     const localConnect = this.options.tls ? "" : " http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*";

@@ -22,3 +22,6 @@ client/vendor/workbench-slides/** -text whitespace=-blank-at-eol linguist-vendor
 skills/baoyu-*/references/** -text whitespace=-blank-at-eol
 skills/baoyu-*/NOTICE.md -text whitespace=-blank-at-eol
 skills/baoyu-*/LICENSE -text whitespace=-blank-at-eol
+
+# The pinned Infinite Canvas artifact includes these upstream notice bytes.
+integrations/infinite-canvas/notices/BUNDLED_DEPENDENCIES.txt -text whitespace=cr-at-eol

@@ -373,6 +373,23 @@ describe("Gateway shared-runtime contracts", () => {
       expect((await hub.store.snapshot("owner", c.id)).messages.flatMap((message) => message.blocks).some((block) => block.type === "file")).toBe(false);
     } finally { fetchSpy.mockRestore(); }
   });
+  it("starts turns with the delivered canvas hint and never requests canvas status", async () => {
+    const attached = await hub.store.createConversation("owner", ["alpha"], "Canvas attached", "canvas_active");
+    const ordinary = await hub.store.createConversation("owner", ["alpha"], "Ordinary chat", "canvas_absent");
+    const requests = vi.spyOn(GatewayTransport.prototype, "requestLive");
+    const connected = vi.spyOn(hub.canvasAgent, "hasConnectedCanvas").mockImplementation(target => target.conversationId === attached.id);
+    const engine = vi.fn<CoreBridgeLike["handleAuthorizedMessage"]>(async () => ({ text: "Done" }));
+    try {
+      await attach({ handleAuthorizedMessage: engine });
+      for (const chat of [ordinary, attached]) {
+        await hub.store.sendMessage("owner", { conversationId: chat.id, clientMsgId: chat.id, text: "Continue", attachments: [] });
+        await until(async () => engine.mock.calls.some(([input]) => input.conversationKey === buildCoreConversationKey(chat.id)));
+        const turn = engine.mock.calls.find(([input]) => input.conversationKey === buildCoreConversationKey(chat.id))![0];
+        expect(Boolean(turn.turnInstructions?.includes("Infinite Canvas Agent is connected"))).toBe(chat === attached);
+      }
+      expect(requests.mock.calls.filter(([method]) => method === "canvas.agent.status")).toHaveLength(0);
+    } finally { connected.mockRestore(); requests.mockRestore(); }
+  });
   it("reuses the real handler and renders a 50k-character answer and 10 tables without Feishu SDK/CLI", async () => {
     const answer = "长文内容".repeat(12_500) + "\n" + Array.from({ length: 10 }, (_, i) => `\n| A${i} | B |\n|---|---|\n| 1 | 2 |\n`).join("\n") + "\nCOMPLETE-END";
     const forbidden = vi.fn(async (): Promise<never> => { throw new Error("real_feishu_forbidden"); });

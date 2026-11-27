@@ -2,6 +2,7 @@ import type { HOST_EN } from "./host-en.js";
 
 /** Japanese Host/Gateway/Core message catalog (Chinese source key -> Japanese text). */
 export const HOST_JA: Record<keyof typeof HOST_EN, string> = {
+  "用法：{0}": "使い方：{0}",
   // src/core/locale.ts
   "已停止。": "停止しました。",
   "当前没有正在运行的任务。": "実行中のタスクはありません。",

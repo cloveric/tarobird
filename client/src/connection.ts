@@ -1,3 +1,4 @@
+import canvasArtifact from "./infinite-canvas-artifact.json";
 import { HOST_BALANCE_RESOURCES_CAPABILITY } from "../../src/client-protocol/host-balance-resources.js";
 import { WORKSPACE_FILES_CAPABILITY } from "../../src/client-protocol/workspace-files.js";
 import { CONVERSATION_HISTORY_CAPABILITY, HISTORY_SIDE_REASON_QUERY, historyClientSnapshotSchema, historyAnchorPageSchema, historyChangeSchema, historyClientOperationSchema, type HistoryChange, type HistoryClientOperation } from "../../src/client-protocol/conversation-history.js";
@@ -44,6 +45,7 @@ import { routeTrust } from "./route-trust.js";
 import { PAIRING_INVITES_CAPABILITY } from "../../src/client-protocol/pairing-invites.js";
 import { SAVED_WORKSPACES_CAPABILITY } from "../../src/client-protocol/saved-workspaces.js";
 import { WORKBENCH_MARKDOWN_CAPABILITY, WORKBENCH_CAPABILITY, workbenchCommandFrameSchema, workbenchCancelFrameSchema, type WorkbenchCommandFrame, type WorkbenchCancelFrame } from "../../src/client-protocol/workbench.js";
+import { CANVAS_AGENT_HOST_CAPABILITY, canvasAgentEventFrameSchema, type CanvasAgentEventFrame } from "../../src/client-protocol/infinite-canvas.js";
 import { CONVERSATION_BATCH_CAPABILITY, conversationBatchResultSchema, type ConversationBatch } from '../../src/client-protocol/conversation-batch.js';
 import { groupReplyWireFrame, changedGroupReply } from "./group-reply-guard.js";
 import { rememberGroupReplyCapabilities } from "./group-reply-mode-cache.js";
@@ -109,7 +111,7 @@ const botSchema = z.object({ id: z.string(), name: z.string(), engine: z.string(
 const readySchema = z.object({ serverCapabilities: z.array(z.string()).default([]), conversationFolders: conversationFoldersSchema.optional(), conversationPins: conversationPinsSchema.optional(), crossHostFolderOrder: crossHostFolderOrderSchema.optional(), uploadLimits: uploadLimitsSchema.optional(), user: profileUserSchema, avatars: z.array(avatarSchema).default([]), sessionToken: z.string(), expiresAt: z.number(), serverTime: z.number().optional(), bots: z.array(botSchema), conversations: z.array(conversationSchema) });
 export type RouteSyncSource = "host" | "network";
 export type RouteSyncResult = { limited: boolean };
-export type ConnectionState = ProfileCache & { /** Host accepts UI locales other than "zh"/"en" in requests. */ requestLocalesAvailable?: boolean; hostResourcesAvailable?: boolean;hostTerminalAvailable?: boolean; savedWorkspacesAvailable?: boolean; audioRecordingMarkerAvailable?: boolean; dispatchAvailable?: boolean; crossHostDispatchAvailable?: boolean; screenAvailable?: boolean; /** Host accepts `screenOpen({ flight })` and an `ack` with `heldMs`. */ screenFlightAvailable?: boolean; /** Host accepts `screenOpen({ quality })`; the target may still refuse (`screen_quality_unsupported`). */ screenQualityAvailable?: boolean; /** Host accepts `screenConfigure({ udpBoost })` and `includeUdpStatus=1`. */ screenUdpBoostAvailable?: boolean; workbenchAvailable?: boolean; workbenchMarkdownAvailable?: boolean; workbenchDesignAvailable?: boolean; workbenchDesignOpenAvailable?: boolean; workbenchSlidesAvailable?: boolean; workbenchDesignCommentsAvailable?: boolean; workbenchDesignHistoryAvailable?: boolean; workbenchDesignShareAvailable?:boolean; pairingInvitesAvailable?: boolean; conversationBatchAvailable?: boolean; routeSync?: Partial<Record<RouteSyncSource, RouteSyncResult>>; engineTasksAvailable?: boolean; botCommsAvailable?: boolean; historyAvailable?: boolean; piSessionAvailable?: boolean; sideAvailable?: boolean; syncProgress?: { completed: number; total: number; indeterminate?: boolean }; groupDiscussionAvailable?: boolean; groupDiscussionComposerAvailable?: boolean; groupDiscussionRecoveryAvailable?: boolean; groupReplyGuardAvailable?: boolean; groupParallelAvailable?: boolean; crossHostGroupsAvailable?: boolean; voiceSettingsAvailable?: boolean; widgetSettingsAvailable?: boolean; engineSettingsAvailable?: boolean; engineQuotaAvailable?: boolean; engineQuotaCurrencyAvailable?: boolean; /** Host serves a conversation's context usage. */ contextUsageAvailable?: boolean; backupSettingsAvailable?: boolean; routeSelection?: { reason: "initial" | "reconnected" | "failover" | "quality"; changedAt: number }; hostRoutesAvailable?: boolean; hostBalanceResourcesAvailable?: boolean; hostLanSelectionAvailable?: boolean; cloudflareRoutesAvailable?: boolean; /** Host serves owner File Center › 附件管理 (`attachments.admin.v1`). */ attachmentAdminAvailable?: boolean; /** Bumped when this device deleted host attachments. */ attachmentDeletions?: number; workspaceDiffAvailable?: boolean; workspaceFilesAvailable?: boolean; runChangesAvailable?: boolean; asrSetupAvailable?: boolean; navigationGraceUntil?: number; serverTimeOffset?: number; network?: NetworkView; networkChange?: NetworkView; networkAvailable?: boolean; networkRecoveryAvailable?: boolean; hostProfile?: HostProfileState; conversationFolders?: ConversationFoldersState; foldersAvailable?: boolean; conversationPins?: ConversationPinsState; pinsAvailable?: boolean; crossHostFolderOrder?: CrossHostFolderOrderState; crossHostFolderOrderAvailable?: boolean; runScopesAvailable?: boolean; runGroupsAvailable?: boolean; runTailAvailable?: boolean; folderReorderAvailable?: boolean; folderPinAvailable?: boolean; conversationAvatarsAvailable?: boolean; cacheRevision: number; notifications?: NotificationState; routeHealth?: RouteHealth[]; routeDiagnosis?: RouteDiagnosis; maxFileBytes?: number; status: "offline" | "connecting" | "online"; route?: Route; latency?: number; error?: string; awaitingApproval?: boolean; bots: Bot[]; deletedBots?: Bot[]; /** A dispatcher's hidden engine workers: named in their ticket chats, never listed. */ dispatchWorkers?: Bot[]; botDeletionAvailable?: boolean; promptQueueAvailable?: boolean; messageDeletionAvailable?: boolean; messageClearAvailable?: boolean; outbox: number };
+export type ConnectionState = ProfileCache & { canvasAgentAvailable?: boolean; /** Host accepts UI locales other than "zh"/"en" in requests. */ requestLocalesAvailable?: boolean; hostResourcesAvailable?: boolean;hostTerminalAvailable?: boolean; savedWorkspacesAvailable?: boolean; audioRecordingMarkerAvailable?: boolean; dispatchAvailable?: boolean; crossHostDispatchAvailable?: boolean; screenAvailable?: boolean; /** Host accepts `screenOpen({ flight })` and an `ack` with `heldMs`. */ screenFlightAvailable?: boolean; /** Host accepts `screenOpen({ quality })`; the target may still refuse (`screen_quality_unsupported`). */ screenQualityAvailable?: boolean; /** Host accepts `screenConfigure({ udpBoost })` and `includeUdpStatus=1`. */ screenUdpBoostAvailable?: boolean; workbenchAvailable?: boolean; workbenchMarkdownAvailable?: boolean; workbenchDesignAvailable?: boolean; workbenchDesignOpenAvailable?: boolean; workbenchSlidesAvailable?: boolean; workbenchDesignCommentsAvailable?: boolean; workbenchDesignHistoryAvailable?: boolean; workbenchDesignShareAvailable?:boolean; pairingInvitesAvailable?: boolean; conversationBatchAvailable?: boolean; routeSync?: Partial<Record<RouteSyncSource, RouteSyncResult>>; engineTasksAvailable?: boolean; botCommsAvailable?: boolean; historyAvailable?: boolean; piSessionAvailable?: boolean; sideAvailable?: boolean; syncProgress?: { completed: number; total: number; indeterminate?: boolean }; groupDiscussionAvailable?: boolean; groupDiscussionComposerAvailable?: boolean; groupDiscussionRecoveryAvailable?: boolean; groupReplyGuardAvailable?: boolean; groupParallelAvailable?: boolean; crossHostGroupsAvailable?: boolean; voiceSettingsAvailable?: boolean; widgetSettingsAvailable?: boolean; engineSettingsAvailable?: boolean; engineQuotaAvailable?: boolean; engineQuotaCurrencyAvailable?: boolean; /** Host serves a conversation's context usage. */ contextUsageAvailable?: boolean; backupSettingsAvailable?: boolean; routeSelection?: { reason: "initial" | "reconnected" | "failover" | "quality"; changedAt: number }; hostRoutesAvailable?: boolean; hostBalanceResourcesAvailable?: boolean; hostLanSelectionAvailable?: boolean; cloudflareRoutesAvailable?: boolean; /** Host serves owner File Center › 附件管理 (`attachments.admin.v1`). */ attachmentAdminAvailable?: boolean; /** Bumped when this device deleted host attachments. */ attachmentDeletions?: number; workspaceDiffAvailable?: boolean; workspaceFilesAvailable?: boolean; runChangesAvailable?: boolean; asrSetupAvailable?: boolean; navigationGraceUntil?: number; serverTimeOffset?: number; network?: NetworkView; networkChange?: NetworkView; networkAvailable?: boolean; networkRecoveryAvailable?: boolean; hostProfile?: HostProfileState; conversationFolders?: ConversationFoldersState; foldersAvailable?: boolean; conversationPins?: ConversationPinsState; pinsAvailable?: boolean; crossHostFolderOrder?: CrossHostFolderOrderState; crossHostFolderOrderAvailable?: boolean; runScopesAvailable?: boolean; runGroupsAvailable?: boolean; runTailAvailable?: boolean; folderReorderAvailable?: boolean; folderPinAvailable?: boolean; conversationAvatarsAvailable?: boolean; cacheRevision: number; notifications?: NotificationState; routeHealth?: RouteHealth[]; routeDiagnosis?: RouteDiagnosis; maxFileBytes?: number; status: "offline" | "connecting" | "online"; route?: Route; latency?: number; error?: string; awaitingApproval?: boolean; bots: Bot[]; deletedBots?: Bot[]; /** A dispatcher's hidden engine workers: named in their ticket chats, never listed. */ dispatchWorkers?: Bot[]; botDeletionAvailable?: boolean; promptQueueAvailable?: boolean; messageDeletionAvailable?: boolean; messageClearAvailable?: boolean; outbox: number };
 class RouteDiagnosisError extends Error {
   constructor(readonly diagnosis: RouteDiagnosis) {
     super(diagnosis.message);
@@ -301,6 +303,21 @@ export class HubConnection {
   subscribeWorkbench(listener: (frame: WorkbenchCommandFrame | WorkbenchCancelFrame) => void): () => void {
     this.workbenchListeners.add(listener); return () => { this.workbenchListeners.delete(listener); };
   }
+  private readonly canvasAgentSessions = new Map<string, {
+    conversationId: string;
+    windowId: string;
+    tabId: string;
+    clientId: string;
+    token: string;
+    expiresAt: number;
+    protocolVersion: number;
+    onEvent: (event: CanvasAgentEventFrame) => void;
+    renewTimer?: ReturnType<typeof setTimeout>;
+    closed: boolean;
+    renewing?: boolean;
+  }>();
+  private readonly canvasAgentStarts = new Map<string, { cancelled: boolean }>();
+  private readonly canvasAgentHelloWaiters = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   constructor(readonly identity: Identity, readonly cache: ClientCache = legacyCache, private readonly hostName?: () => string | undefined) { rememberRouteTrust(identity.routes, identity.hubPublicKey); }
   private authenticatedSessionEpoch = 0;
   /** Monotonic local identity for each successfully authenticated WS session.
@@ -647,6 +664,9 @@ export class HubConnection {
           if (ws.readyState !== WebSocket.OPEN) return;
           if (this.handshake) clearTimeout(this.handshake);
           const ready = readySchema.parse(frame);
+          const canvasAgentAvailable = ready.serverCapabilities.includes(CANVAS_AGENT_HOST_CAPABILITY);
+          this.update({ canvasAgentAvailable });
+          if (!canvasAgentAvailable) this.closeCanvasAgentSessions("canvas_agent_unavailable");
           this.independentSync = ready.serverCapabilities.includes(CONVERSATION_SYNC_CAPABILITY);
           lineageCapable = ready.serverCapabilities.includes(SYNC_LINEAGE_CAPABILITY);
           this.update({ savedWorkspacesAvailable: ready.serverCapabilities.includes(SAVED_WORKSPACES_CAPABILITY), screenFlightAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_FLIGHT_CAPABILITY), workbenchDesignShareAvailable:ready.serverCapabilities.includes(WORKBENCH_DESIGN_SHARE_CAPABILITY), workbenchDesignCommentsAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_COMMENTS_CAPABILITY), workbenchDesignHistoryAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_HISTORY_CAPABILITY), workbenchSlidesAvailable: ready.serverCapabilities.includes(WORKBENCH_SLIDES_CAPABILITY), screenQualityAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_QUALITY_CAPABILITY), workbenchDesignOpenAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY), workbenchDesignAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_CAPABILITY), workbenchAvailable: ready.serverCapabilities.includes(WORKBENCH_CAPABILITY), workbenchMarkdownAvailable: ready.serverCapabilities.includes(WORKBENCH_MARKDOWN_CAPABILITY), historyAvailable: ready.serverCapabilities.includes(CONVERSATION_HISTORY_CAPABILITY), sideAvailable: ready.serverCapabilities.includes("conversations.side.v1"), engineTasksAvailable: ready.serverCapabilities.includes("conversations.tasks.v1"), botCommsAvailable: ready.serverCapabilities.includes(CONVERSATION_BOT_COMMS_CAPABILITY), piSessionAvailable: ready.serverCapabilities.includes("pi.session.v1") });screenUdpBoostAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_UDP_BOOST_CAPABILITY), 
@@ -672,7 +692,7 @@ export class HubConnection {
           if (this.lastConnectedUrl !== chosen.route.url) this.lastRouteChange = Date.now();
           this.lastConnectedUrl = chosen.route.url;
           this.update({ routeSelection: { reason, changedAt: Date.now() } });
-          this.update({ requestLocalesAvailable: ready.serverCapabilities.includes(REQUEST_LOCALES_CAPABILITY), hostResourcesAvailable: ready.serverCapabilities.includes(HOST_RESOURCES_CAPABILITY),hostTerminalAvailable: ready.serverCapabilities.includes(HOST_TERMINAL_CAPABILITY), audioRecordingMarkerAvailable: ready.serverCapabilities.includes(AUDIO_RECORDING_CAPABILITY), dispatchAvailable: ready.serverCapabilities.includes(DISPATCH_CAPABILITY), crossHostDispatchAvailable: ready.serverCapabilities.includes(DISPATCH_CROSS_HOST_CAPABILITY), screenAvailable: ready.serverCapabilities.includes("desktop.screen.v1"), pairingInvitesAvailable: ready.serverCapabilities.includes(PAIRING_INVITES_CAPABILITY), conversationBatchAvailable: ready.serverCapabilities.includes(CONVERSATION_BATCH_CAPABILITY), groupReplyGuardAvailable: ready.serverCapabilities.includes("groups.reply-guard.v1"), groupDiscussionAvailable: ready.serverCapabilities.includes("groups.discussion.v1"), groupDiscussionComposerAvailable: ready.serverCapabilities.includes("groups.discussion.composer.v1"), groupDiscussionRecoveryAvailable: ready.serverCapabilities.includes("groups.discussion.recovery.v1"), groupParallelAvailable: ready.serverCapabilities.includes("groups.parallel.v1"), crossHostGroupsAvailable: ready.serverCapabilities.includes(CROSS_HOST_GROUPS_CAPABILITY), voiceSettingsAvailable: ready.serverCapabilities.includes("integrations.voice.v2"), widgetSettingsAvailable: ready.serverCapabilities.includes("widgets.settings.v1"), engineSettingsAvailable: ready.serverCapabilities.includes("engines.settings.v1"), engineQuotaAvailable: ready.serverCapabilities.includes(ENGINE_QUOTA_CAPABILITY), engineQuotaCurrencyAvailable: ready.serverCapabilities.includes(ENGINE_QUOTA_CURRENCY_CAPABILITY), contextUsageAvailable: ready.serverCapabilities.includes(CONTEXT_USAGE_CAPABILITY), backupSettingsAvailable: ready.serverCapabilities.includes("backups.settings.v1"), hostRoutesAvailable: ready.serverCapabilities.includes("host-routes.v1"), hostBalanceResourcesAvailable: ready.serverCapabilities.includes(HOST_BALANCE_RESOURCES_CAPABILITY), hostLanSelectionAvailable: ready.serverCapabilities.includes("host-routes.select-lan.v1"), cloudflareRoutesAvailable: ready.serverCapabilities.includes(HOST_CLOUDFLARE_CAPABILITY), attachmentAdminAvailable: ready.serverCapabilities.includes("attachments.admin.v1"), asrSetupAvailable: ready.serverCapabilities.includes("integrations.asr.v1"), workspaceDiffAvailable: ready.serverCapabilities.includes("workspace.diff.v1"), workspaceFilesAvailable: ready.serverCapabilities.includes(WORKSPACE_FILES_CAPABILITY), runChangesAvailable: ready.serverCapabilities.includes("runs.changes.v1"), runScopesAvailable: ready.serverCapabilities.includes(RUN_SCOPES_CAPABILITY), runGroupsAvailable: ready.serverCapabilities.includes(BACKGROUND_TASK_GROUP_CAPABILITY), runTailAvailable: ready.serverCapabilities.includes(RUN_TAIL_CAPABILITY), serverTimeOffset, networkAvailable: ready.serverCapabilities.includes(PRIVATE_NETWORK_CAPABILITY), networkRecoveryAvailable: ready.serverCapabilities.includes(PRIVATE_NETWORK_RECOVERY_CAPABILITY), folderReorderAvailable: ready.serverCapabilities.includes("conversation-folders.reorder.v1"), folderPinAvailable: ready.serverCapabilities.includes("conversation-folders.pin.v1"), conversationAvatarsAvailable: ready.serverCapabilities.includes("conversation-avatars.v1"), foldersAvailable: !!ready.conversationFolders, pinsAvailable: ready.serverCapabilities.includes(CONVERSATION_PINS_CAPABILITY) && !!ready.conversationPins, crossHostFolderOrderAvailable: ready.serverCapabilities.includes(CROSS_HOST_FOLDER_ORDER_CAPABILITY) && !!ready.crossHostFolderOrder, user: ready.user, avatars: ready.avatars, status: "online", bots: ready.bots.filter(bot => !bot.deletedAt && bot.role !== "worker"), deletedBots: ready.bots.filter(bot => !!bot.deletedAt && bot.role !== "worker"), dispatchWorkers: ready.bots.filter(bot => !bot.deletedAt && bot.role === "worker"), botDeletionAvailable: ready.serverCapabilities.includes("bots.delete.v1"), promptQueueAvailable: ready.serverCapabilities.includes("prompt-queue.v1"), messageDeletionAvailable: ready.serverCapabilities.includes(MESSAGE_DELETE_CAPABILITY), messageClearAvailable: ready.serverCapabilities.includes(MESSAGE_CLEAR_CAPABILITY), maxFileBytes: ready.uploadLimits?.maxFileBytes ?? MAX_FILE_BYTES, error: undefined, routeDiagnosis: undefined }, true); void rememberGroupReplyCapabilities(this).catch(() => undefined); void syncShareUploadLimit(this.state.maxFileBytes ?? MAX_FILE_BYTES).catch(() => console.warn("share_limit_cache_failed")); this.lastPong = performance.now(); this.presence(); void this.refreshNotificationPreferences().catch(() => undefined);
+          this.update({ requestLocalesAvailable: ready.serverCapabilities.includes(REQUEST_LOCALES_CAPABILITY), hostResourcesAvailable: ready.serverCapabilities.includes(HOST_RESOURCES_CAPABILITY),hostTerminalAvailable: ready.serverCapabilities.includes(HOST_TERMINAL_CAPABILITY), audioRecordingMarkerAvailable: ready.serverCapabilities.includes(AUDIO_RECORDING_CAPABILITY), dispatchAvailable: ready.serverCapabilities.includes(DISPATCH_CAPABILITY), crossHostDispatchAvailable: ready.serverCapabilities.includes(DISPATCH_CROSS_HOST_CAPABILITY), screenAvailable: ready.serverCapabilities.includes("desktop.screen.v1"), pairingInvitesAvailable: ready.serverCapabilities.includes(PAIRING_INVITES_CAPABILITY), conversationBatchAvailable: ready.serverCapabilities.includes(CONVERSATION_BATCH_CAPABILITY), groupReplyGuardAvailable: ready.serverCapabilities.includes("groups.reply-guard.v1"), groupDiscussionAvailable: ready.serverCapabilities.includes("groups.discussion.v1"), groupDiscussionComposerAvailable: ready.serverCapabilities.includes("groups.discussion.composer.v1"), groupDiscussionRecoveryAvailable: ready.serverCapabilities.includes("groups.discussion.recovery.v1"), groupParallelAvailable: ready.serverCapabilities.includes("groups.parallel.v1"), crossHostGroupsAvailable: ready.serverCapabilities.includes(CROSS_HOST_GROUPS_CAPABILITY), voiceSettingsAvailable: ready.serverCapabilities.includes("integrations.voice.v2"), widgetSettingsAvailable: ready.serverCapabilities.includes("widgets.settings.v1"), engineSettingsAvailable: ready.serverCapabilities.includes("engines.settings.v1"), engineQuotaAvailable: ready.serverCapabilities.includes(ENGINE_QUOTA_CAPABILITY), engineQuotaCurrencyAvailable: ready.serverCapabilities.includes(ENGINE_QUOTA_CURRENCY_CAPABILITY), contextUsageAvailable: ready.serverCapabilities.includes(CONTEXT_USAGE_CAPABILITY), backupSettingsAvailable: ready.serverCapabilities.includes("backups.settings.v1"), hostRoutesAvailable: ready.serverCapabilities.includes("host-routes.v1"), hostBalanceResourcesAvailable: ready.serverCapabilities.includes(HOST_BALANCE_RESOURCES_CAPABILITY), hostLanSelectionAvailable: ready.serverCapabilities.includes("host-routes.select-lan.v1"), cloudflareRoutesAvailable: ready.serverCapabilities.includes(HOST_CLOUDFLARE_CAPABILITY), attachmentAdminAvailable: ready.serverCapabilities.includes("attachments.admin.v1"), asrSetupAvailable: ready.serverCapabilities.includes("integrations.asr.v1"), workspaceDiffAvailable: ready.serverCapabilities.includes("workspace.diff.v1"), workspaceFilesAvailable: ready.serverCapabilities.includes(WORKSPACE_FILES_CAPABILITY), runChangesAvailable: ready.serverCapabilities.includes("runs.changes.v1"), runScopesAvailable: ready.serverCapabilities.includes(RUN_SCOPES_CAPABILITY), runGroupsAvailable: ready.serverCapabilities.includes(BACKGROUND_TASK_GROUP_CAPABILITY), runTailAvailable: ready.serverCapabilities.includes(RUN_TAIL_CAPABILITY), serverTimeOffset, networkAvailable: ready.serverCapabilities.includes(PRIVATE_NETWORK_CAPABILITY), networkRecoveryAvailable: ready.serverCapabilities.includes(PRIVATE_NETWORK_RECOVERY_CAPABILITY), folderReorderAvailable: ready.serverCapabilities.includes("conversation-folders.reorder.v1"), folderPinAvailable: ready.serverCapabilities.includes("conversation-folders.pin.v1"), conversationAvatarsAvailable: ready.serverCapabilities.includes("conversation-avatars.v1"), foldersAvailable: !!ready.conversationFolders, pinsAvailable: ready.serverCapabilities.includes(CONVERSATION_PINS_CAPABILITY) && !!ready.conversationPins, crossHostFolderOrderAvailable: ready.serverCapabilities.includes(CROSS_HOST_FOLDER_ORDER_CAPABILITY) && !!ready.crossHostFolderOrder, user: ready.user, avatars: ready.avatars, status: "online", bots: ready.bots.filter(bot => !bot.deletedAt && bot.role !== "worker"), deletedBots: ready.bots.filter(bot => !!bot.deletedAt && bot.role !== "worker"), dispatchWorkers: ready.bots.filter(bot => !bot.deletedAt && bot.role === "worker"), botDeletionAvailable: ready.serverCapabilities.includes("bots.delete.v1"), promptQueueAvailable: ready.serverCapabilities.includes("prompt-queue.v1"), messageDeletionAvailable: ready.serverCapabilities.includes(MESSAGE_DELETE_CAPABILITY), messageClearAvailable: ready.serverCapabilities.includes(MESSAGE_CLEAR_CAPABILITY), maxFileBytes: ready.uploadLimits?.maxFileBytes ?? MAX_FILE_BYTES, error: undefined, routeDiagnosis: undefined }, true); void rememberGroupReplyCapabilities(this).catch(() => undefined); void syncShareUploadLimit(this.state.maxFileBytes ?? MAX_FILE_BYTES).catch(() => console.warn("share_limit_cache_failed")); this.lastPong = performance.now(); this.presence(); void this.refreshNotificationPreferences().catch(() => undefined); if (canvasAgentAvailable && this.canvasAgentSessions.size > 0) void this.reattachCanvasAgentSessions();
           if (ready.conversationPins && ready.serverCapabilities.includes(CONVERSATION_PINS_CAPABILITY)) void this.syncPinsWithHost(generation);
           const timing = connectionTiming(chosen.route, usesPinnedTransport());
           let heartbeatAt = performance.now();
@@ -707,6 +727,32 @@ export class HubConnection {
         if (frame.type === "workbench.command" || frame.type === "workbench.cancel") {
           const incoming = frame.type === "workbench.command" ? workbenchCommandFrameSchema.parse(frame) : workbenchCancelFrameSchema.parse(frame);
           for (const listener of this.workbenchListeners) listener(incoming);
+          return;
+        }
+        if (frame.type === "canvas.agent.event") {
+          const incoming = canvasAgentEventFrameSchema.parse(frame);
+          const session = this.canvasAgentSessions.get(incoming.clientId);
+          if (incoming.event === "closed" && incoming.data?.reason === "CANVAS_TOKEN_REPLACED") return;
+          const waiter = this.canvasAgentHelloWaiters.get(incoming.clientId);
+          if (waiter) {
+            if (incoming.event === "hello") {
+              clearTimeout(waiter.timer);
+              this.canvasAgentHelloWaiters.delete(incoming.clientId);
+              waiter.resolve();
+            } else if (incoming.event === "closed") {
+              clearTimeout(waiter.timer);
+              this.canvasAgentHelloWaiters.delete(incoming.clientId);
+              waiter.reject(new Error("canvas_agent_closed"));
+            }
+          }
+          if (session && !session.closed) {
+            if (incoming.event === "closed") {
+              session.closed = true;
+              clearTimeout(session.renewTimer);
+              this.canvasAgentSessions.delete(incoming.clientId);
+            }
+            session.onEvent(incoming);
+          }
           return;
         }
         if (frame.type === "event") {
@@ -883,7 +929,10 @@ export class HubConnection {
     if (this.reconnect) clearTimeout(this.reconnect); this.reconnect = undefined;
     if (this.outboxRetry) clearTimeout(this.outboxRetry);
     if (!preserveHttp) { this.httpEpoch.abort(); this.httpEpoch = new AbortController(); }
-    if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.token = undefined; this.update({ status: "offline", syncProgress: undefined });
+    if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.token = undefined;
+    for (const session of this.canvasAgentSessions.values()) { clearTimeout(session.renewTimer); session.renewTimer = undefined; }
+    for (const [cid, waiter] of this.canvasAgentHelloWaiters) { clearTimeout(waiter.timer); waiter.reject(new Error("canvas_agent_offline")); this.canvasAgentHelloWaiters.delete(cid); }
+    this.update({ status: "offline", syncProgress: undefined });
     if (!this.closed && scheduleReconnect && !this.cacheFull) this.reconnect = setTimeout(() => { void this.connect(); }, this.identity.pendingPairing ? 5500 : this.retry++ === 0 ? 0 : Math.min(10_000, 250 * 2 ** Math.min(this.retry - 2, 5)));
   }
   private async pollPreferredRoute(generation: number, wake = false): Promise<void> {
@@ -1920,11 +1969,216 @@ export class HubConnection {
     return source;
   }
   get downloadCheckpoints() { return this.cache.downloadCheckpoints(this.identity); }
+  async fetchInfiniteCanvasArtifact(): Promise<string> {
+    const { route } = this.state;
+    const token = this.token;
+    if (!route || !token || this.closed) throw new Error("plugin_download_failed");
+    if (!this.state.canvasAgentAvailable) throw new Error("canvas_agent_unavailable");
+    const response = await hubFetch(route.url, "/api/plugins/artifacts/tarobird.infinite-canvas/1.0.0/bundle.html", this.identity.hubPublicKey, {
+      headers: { Authorization: `Bearer ${token}` }, signal: this.httpEpoch.signal, cache: "no-store",
+    });
+    const reader = response.body?.getReader();
+    if (!response.ok || !reader) {
+      await reader?.cancel();
+      throw new Error(response.status === 404 ? "canvas_agent_unavailable" : "plugin_download_failed");
+    }
+    const { size } = canvasArtifact;
+    const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+    const chunks: string[] = [];
+    let bytes = 0;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > size) throw new Error("plugin_size_mismatch");
+        chunks.push(decoder.decode(value, { stream: true }));
+      }
+      if (bytes !== size) throw new Error("plugin_size_mismatch");
+      chunks.push(decoder.decode());
+      return chunks.join("");
+    } finally { await reader.cancel().catch(() => undefined); }
+  }
+  issueCanvasAgentToken(conversationId: string, windowId: string, tabId: string, clientId: string, renewToken?: string): Promise<{ token: string; expiresAt: number; protocolVersion: number; clientId: string; conversationId: string; windowId: string; tabId: string }> {
+    return this.httpRequest("/api/canvas-agent/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId, windowId, tabId, clientId, ...(renewToken ? { renewToken } : {}) }),
+    });
+  }
+  revokeCanvasAgentToken(conversationId: string, clientId: string, token: string): Promise<{ ok: boolean }> {
+    return this.httpRequest("/api/canvas-agent/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId, clientId, token }),
+    });
+  }
+  private scheduleCanvasAgentRenewal(clientId: string): void {
+    const session = this.canvasAgentSessions.get(clientId);
+    if (!session || session.closed) return;
+    clearTimeout(session.renewTimer);
+    const remaining = Math.max(0, session.expiresAt - Date.now());
+    const delay = Math.max(5_000, Math.min(Math.max(5_000, remaining - 60_000), Math.floor(remaining * 0.75)));
+    session.renewTimer = setTimeout(() => {
+      void this.renewCanvasAgentSession(clientId);
+    }, delay);
+  }
+  private async renewCanvasAgentSession(clientId: string): Promise<void> {
+    const session = this.canvasAgentSessions.get(clientId), ws = this.ws;
+    if (!session || session.closed || session.renewing || this.closed || !this.state.canvasAgentAvailable || this.state.status !== "online" || ws?.readyState !== WebSocket.OPEN) return;
+    session.renewing = true;
+    try {
+      const issued = await this.issueCanvasAgentToken(session.conversationId, session.windowId, session.tabId, clientId, session.token);
+      if (this.canvasAgentSessions.get(clientId) !== session || session.closed || this.closed || this.ws !== ws || ws.readyState !== WebSocket.OPEN) {
+        await this.revokeCanvasAgentToken(session.conversationId, clientId, issued.token).catch(() => undefined);
+        return;
+      }
+      session.token = issued.token;
+      session.expiresAt = issued.expiresAt;
+      session.protocolVersion = issued.protocolVersion;
+      ws.send(JSON.stringify({ v: 1, type: "canvas.agent.attach", token: issued.token, clientId }));
+      this.scheduleCanvasAgentRenewal(clientId);
+    } catch (error) {
+      if (this.canvasAgentSessions.get(clientId) === session && !session.closed && !this.closed && this.state.status === "online") {
+        if (error instanceof HubHttpError && (error.status === 404 || error.code === "canvas_agent_unauthorized")) {
+          session.closed = true;
+          clearTimeout(session.renewTimer);
+          this.canvasAgentSessions.delete(clientId);
+          session.onEvent({ v: 1, type: "canvas.agent.event", clientId, event: "closed" });
+        } else {
+          session.renewTimer = setTimeout(() => { void this.renewCanvasAgentSession(clientId); }, 10_000);
+        }
+      }
+    } finally { session.renewing = false; }
+  }
+  private async reattachCanvasAgentSessions(): Promise<void> {
+    for (const clientId of [...this.canvasAgentSessions.keys()]) {
+      await this.renewCanvasAgentSession(clientId);
+    }
+  }
+  async canvasAgentAttach(
+    conversationId: string,
+    windowId: string,
+    tabId: string,
+    clientId: string,
+    onEvent: (event: CanvasAgentEventFrame) => void,
+  ): Promise<{ protocolVersion: number; conversationId: string; clientId: string }> {
+    const ws = this.ws;
+    if (this.closed || this.state.status !== "online" || !this.token || !this.state.route || ws?.readyState !== WebSocket.OPEN) {
+      throw new Error("canvas_agent_offline");
+    }
+    if (!this.state.canvasAgentAvailable) throw new Error("canvas_agent_unavailable");
+    if (this.canvasAgentStarts.has(clientId) || this.canvasAgentSessions.has(clientId)) throw new Error("canvas_agent_already_attached");
+    const start = { cancelled: false };
+    this.canvasAgentStarts.set(clientId, start);
+    let issued: Awaited<ReturnType<HubConnection["issueCanvasAgentToken"]>>;
+    try {
+      issued = await this.issueCanvasAgentToken(conversationId, windowId, tabId, clientId);
+      if (start.cancelled || this.closed || this.state.status !== "online" || this.ws !== ws || ws.readyState !== WebSocket.OPEN) {
+        await this.revokeCanvasAgentToken(conversationId, clientId, issued.token).catch(() => undefined);
+        throw new Error("canvas_agent_offline");
+      }
+    } catch (error) {
+      if (error instanceof HubHttpError && error.status === 404) throw new Error("canvas_agent_unavailable");
+      throw error;
+    } finally { this.canvasAgentStarts.delete(clientId); }
+    const session = {
+      conversationId,
+      windowId,
+      tabId,
+      clientId,
+      token: issued.token,
+      expiresAt: issued.expiresAt,
+      protocolVersion: issued.protocolVersion,
+      onEvent,
+      renewTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+      closed: false,
+    };
+    this.canvasAgentSessions.set(clientId, session);
+    const oldWaiter = this.canvasAgentHelloWaiters.get(clientId);
+    if (oldWaiter) {
+      clearTimeout(oldWaiter.timer);
+      oldWaiter.reject(new Error("canvas_agent_superseded"));
+      this.canvasAgentHelloWaiters.delete(clientId);
+    }
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.canvasAgentHelloWaiters.delete(clientId);
+          reject(new Error("canvas_agent_attach_timeout"));
+        }, 10_000);
+        this.canvasAgentHelloWaiters.set(clientId, { resolve, reject, timer });
+        ws.send(JSON.stringify({ v: 1, type: "canvas.agent.attach", token: issued.token, clientId }));
+      });
+    } catch (error) {
+      if (this.canvasAgentSessions.get(clientId) === session) {
+        session.closed = true;
+        clearTimeout(session.renewTimer);
+        this.canvasAgentSessions.delete(clientId);
+      }
+      await this.revokeCanvasAgentToken(conversationId, clientId, issued.token).catch(() => undefined);
+      throw error;
+    }
+    this.scheduleCanvasAgentRenewal(clientId);
+    return { protocolVersion: issued.protocolVersion, conversationId, clientId };
+  }
+  async canvasAgentDetach(clientId: string, revoke = true): Promise<boolean> {
+    const start = this.canvasAgentStarts.get(clientId);
+    if (start) start.cancelled = true;
+    const session = this.canvasAgentSessions.get(clientId);
+    if (session) {
+      session.closed = true;
+      clearTimeout(session.renewTimer);
+      this.canvasAgentSessions.delete(clientId);
+    }
+    const waiter = this.canvasAgentHelloWaiters.get(clientId);
+    if (waiter) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error("canvas_agent_detached"));
+      this.canvasAgentHelloWaiters.delete(clientId);
+    }
+    if (session && !this.closed && this.state.canvasAgentAvailable && this.ws?.readyState === WebSocket.OPEN) {
+      try { this.ws.send(JSON.stringify({ v: 1, type: "canvas.agent.detach", clientId, token: session.token })); } catch { /* ignore */ }
+    }
+    if (revoke && session && !this.closed && this.state.canvasAgentAvailable && this.token && this.state.route) {
+      await this.revokeCanvasAgentToken(session.conversationId, clientId, session.token).catch(() => undefined);
+    }
+    return true;
+  }
+  async canvasAgentRequest(clientId: string, operation: "state" | "activate" | "result", init: RequestInit = {}): Promise<Response> {
+    if (!this.state.canvasAgentAvailable) throw new Error("canvas_agent_unavailable");
+    const session = this.canvasAgentSessions.get(clientId);
+    if (!session || session.closed || this.closed || !this.state.route) {
+      throw new Error("canvas_agent_offline");
+    }
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `CanvasAgent ${session.token}`);
+    const route = `/api/canvas-agent/${operation}?clientId=${encodeURIComponent(clientId)}`;
+    return hubFetch(this.state.route.url, route, this.identity.hubPublicKey, {
+      ...init,
+      headers,
+      signal: init.signal ?? this.httpEpoch.signal,
+    });
+  }
   private async acceptRevocation(): Promise<void> {
     this.deviceRevoked = true;
     if (this.networkPin) this.networkBlocked = true;
     this.close(true); this.update({ error: t("此设备已被吊销，请重新配对"), routeDiagnosis: undefined });
     await this.cache.markIdentityRevoked(this.identity).catch(() => console.warn("device_revocation_cache_failed"));
   }
-  close(preserveDeparture = false): void { clearRememberedPendingPreviews(this); this.clearForegroundProbe(); this.livePinChanges.clear(); this.probeAbort?.abort(); if (!preserveDeparture) this.departureRequest?.abort(); this.inflightEntry = undefined; this.globalCleanups.forEach(fn => fn()); this.globalCleanups = []; window.removeEventListener(NATIVE_ACTIVE_EVENT, this.presence); this.started = false; this.starting = undefined; ++this.lifecycle; this.closed = true; this.passiveAttachments.cancelAll(new Error(t("连接已关闭，下载已停止。"))); if (this.outboxRetry) clearTimeout(this.outboxRetry); this.httpEpoch.abort(); this.update({ status: "offline", syncProgress: undefined, routeSync: undefined }); ++this.generation; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.ws?.close(); }
+  private closeCanvasAgentSessions(reason: string): void {
+    for (const start of this.canvasAgentStarts.values()) start.cancelled = true;
+    for (const [cid, waiter] of this.canvasAgentHelloWaiters) { clearTimeout(waiter.timer); waiter.reject(new Error(reason)); this.canvasAgentHelloWaiters.delete(cid); }
+    const sessions = [...this.canvasAgentSessions.values()];
+    this.canvasAgentSessions.clear();
+    for (const session of sessions) {
+      clearTimeout(session.renewTimer);
+      session.closed = true;
+      try { session.onEvent({ v: 1, type: "canvas.agent.event", clientId: session.clientId, event: "closed" }); } catch { /* ignore */ }
+    }
+  }
+  close(preserveDeparture = false): void {
+    this.closeCanvasAgentSessions("canvas_agent_closed");
+    clearRememberedPendingPreviews(this); this.clearForegroundProbe(); this.livePinChanges.clear(); this.probeAbort?.abort(); if (!preserveDeparture) this.departureRequest?.abort(); this.inflightEntry = undefined; this.globalCleanups.forEach(fn => fn()); this.globalCleanups = []; window.removeEventListener(NATIVE_ACTIVE_EVENT, this.presence); this.started = false; this.starting = undefined; ++this.lifecycle; this.closed = true; this.passiveAttachments.cancelAll(new Error(t("连接已关闭，下载已停止。"))); if (this.outboxRetry) clearTimeout(this.outboxRetry); this.httpEpoch.abort(); this.update({ status: "offline", syncProgress: undefined, routeSync: undefined }); ++this.generation; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.ws?.close();
+  }
 }

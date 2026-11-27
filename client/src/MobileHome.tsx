@@ -25,11 +25,12 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
-import { CalendarClock, Archive as ArchiveIcon, ArrowLeft, Cpu, Settings, Bell, ShieldCheck, Wifi, WifiOff, RefreshCw, MonitorCog } from 'lucide-react';
+import { CalendarClock, Archive as ArchiveIcon, ArrowLeft, Cpu, Settings, Bell, ShieldCheck, Wifi, WifiOff, RefreshCw, MonitorCog, Puzzle } from 'lucide-react';
 import type { Conversation } from '../../src/client-protocol/index.js';
 import { Avatar, AvatarProvider, ConversationAvatar } from './Avatar.js';
 import { BotReferences, ReferencePreview } from './BotReferences.js';
@@ -42,6 +43,7 @@ import { useBackAction } from './back-navigation.js';
 import { useConversationHold } from './useConversationHold.js';
 import { MobileConversationActions } from './MobileConversationActions.js';
 import { mobileListAvatarSizes, type LayoutDensity } from './layout-density.js';
+import { getPluginRegistry, resolvePluginScopeId, type PluginStoreState } from './plugin-registry.js';
 
 const ListAvatarSize = createContext(48);
 
@@ -55,7 +57,7 @@ type BotScope = { hostId: string; botId: string };
 export type MobileInboxState = { query: string; filter: MobileFilter; botScope?: BotScope; botQuery?: string };
 export type MobileScrollPositions = Record<MobileTab, number>;
 export type MobileCreateKind = 'bot' | 'group' | 'direct' | 'schedule';
-export type MobileOpenTarget = 'settings' | 'connection' | 'screen' | 'devices' | 'notifications' | 'files' | 'capabilities' | 'operations' | 'resources' | 'schedules' | 'hosts' | 'archives';
+export type MobileOpenTarget = 'settings' | 'connection' | 'screen' | 'devices' | 'notifications' | 'files' | 'capabilities' | 'operations' | 'resources' | 'schedules' | 'hosts' | 'archives' | 'plugins';
 type Locale = ReturnType<typeof useLocale>;
 
 export type MobileHomeProps = {
@@ -78,6 +80,7 @@ export type MobileHomeProps = {
   create: (kind: MobileCreateKind) => void;
   selectHost: (hostId: string) => void;
   open: (kind: MobileOpenTarget) => void;
+  openPluginContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
   searchHistory: (query: string) => void;
   inbox?: MobileInboxState;
   updateInbox?: (value: MobileInboxState) => void;
@@ -629,9 +632,22 @@ function notificationSummary(host: MobileHost | undefined): string {
   return state.notifications.preferences.enabled ? t('已请求提醒 · 点此检查接收状态') : t('未开启 · 点此设置');
 }
 
-function MePane({ hosts, activeHost, selectHost, open }: PaneProps) {
+const EMPTY_MOBILE_PLUGIN_STORE: PluginStoreState = { allowThirdParty: false, developerMode: false, installed: {} };
+const noopMobilePluginSubscribe = () => () => {};
+const emptyMobilePluginSnapshot = () => EMPTY_MOBILE_PLUGIN_STORE;
+
+function MePane({ hosts, activeHost, selectHost, open, openPluginContribution, locale }: PaneProps) {
   const resourcesAvailable = useAnyHostResourcesAvailable(hosts);
   const userId = activeHost?.connection.state.user?.id;
+  const pluginScope = activeHost
+    ? resolvePluginScopeId(activeHost.connection.identity.hubPublicKey, userId, activeHost.connection.identity.deviceId)
+    : null;
+  const activePluginRegistry = useMemo(() => (pluginScope ? getPluginRegistry(pluginScope) : null), [pluginScope]);
+  useSyncExternalStore(
+    activePluginRegistry ? activePluginRegistry.subscribe : noopMobilePluginSubscribe,
+    activePluginRegistry ? activePluginRegistry.getSnapshot : emptyMobilePluginSnapshot,
+  );
+  const phoneSidePlugins = activePluginRegistry ? activePluginRegistry.enabledContributions('phone', 'side-panel') : [];
   const computerNames = hosts.map((host) => {
     const state = host.connection.state;
     // Shared names identify the computer; older pairings may only have the
@@ -722,6 +738,20 @@ function MePane({ hosts, activeHost, selectHost, open }: PaneProps) {
       <section>
         <ul className="mh-group">
           <Cell icon={<Bell size={20}/>} label={t('消息通知')} description={notificationSummary(activeHost)} disabled={!activeHost} onClick={() => open('notifications')} />
+          <Cell icon={<Puzzle size={20}/>} label={t('插件市场')} description={t('探索、安装与管理扩展插件')} onClick={() => open('plugins')} />
+          {openPluginContribution && phoneSidePlugins.map(({ plugin, contribution }) => {
+            const label = locale === 'zh' ? contribution.titleZh ?? contribution.title : contribution.title;
+            const name = locale === 'zh' ? plugin.manifest.nameZh ?? plugin.manifest.name : plugin.manifest.name;
+            return (
+              <Cell
+                key={`${plugin.manifest.id}:${contribution.id}`}
+                icon={<Puzzle size={20}/>}
+                label={label}
+                description={name !== label ? name : t('已安装插件')}
+                onClick={() => openPluginContribution(plugin.manifest.id, contribution.id, contribution.kind, label)}
+              />
+            );
+          })}
           <Cell settingsEntry="settings" icon={<SlidersIcon />} label={t('设置')} onClick={() => open('settings')} />
         </ul>
       </section>

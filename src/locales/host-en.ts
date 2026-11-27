@@ -1,5 +1,6 @@
 /** English Host/Gateway/Core message catalog (Chinese source key -> English text). */
 export const HOST_EN = {
+  "用法：{0}": "Usage: {0}",
   // src/core/locale.ts
   "已停止。": "Stopped.",
   "当前没有正在运行的任务。": "No active task.",

@@ -1077,6 +1077,41 @@ guard remains uncertain; do not automatically replay it. Workspace equivalence
 uses physical identity and Windows case comparison, while Windows launch cwd
 keeps its logical junction path and its native ancestor-resource semantics.
 
+## Sandboxed plugin system
+
+Desktop Chromium and Electron can run the reviewed HTML artifacts in the compiled
+catalog. The client checks the catalog digest and size when installing Infinite
+Canvas and when restoring its stored HTML. For an inline catalog plugin it also
+compares the manifest and executable HTML with the compiled entry before
+mounting. Unreviewed folder and third-party HTML receive no execution frame.
+The launcher also refuses mobile browsers, native iOS/Android WebViews and
+non-Chromium browsers. These restrictions apply to both new and saved installs.
+
+A trusted relay hosts the opaque plugin document. Both frames use
+`sandbox="allow-scripts"` without same-origin access. The relay's
+`child-src about:` and `frame-src about:` permit the inner document.
+The guest uses `frame-src 'none'`, `child-src 'none'`, `worker-src 'none'`,
+`object-src 'none'`, `base-uri 'none'`, and `form-action 'none'`. The
+wrapper removes nested frame markup and speculative resource hints, disables
+DNS prefetch, and runs its WebRTC-global lockdown before guest scripts.
+The Electron session also filters guest requests. These controls were checked
+using harmless local documents, inert workers and resource hints. No live
+WebRTC transport or external DNS traffic was used to certify a network firewall.
+
+Calls to the App use a capability-checked message bridge. Its hello reply
+contains the plugin ID, theme, language, and granted capabilities and domains.
+The registry and storage remain scoped to the device, full Host identity and
+user. Clipboard and export requests need individual trusted App confirmations.
+The action runs in the accepting click and the same request cannot be replayed.
+
+Infinite Canvas receives no network domains in its guest CSP. Trusted App
+code brokers the supported network operations and checks their destinations.
+Third-party *nodes* use a separate mechanism from HTML plugins. They are off
+by default. Enabling them and installing each pinned source require separate
+confirmations. Each execution uses a fresh trusted Worker hosting QuickJS
+with constrained inputs and outputs. The guest cannot create that Worker.
+Browser-frame code and CSS have no per-plugin OS CPU or memory quota.
+
 ## Host terminal
 
 Host Terminal (`host.terminal.v1`) is disabled by default (`terminal-policy:v1`).

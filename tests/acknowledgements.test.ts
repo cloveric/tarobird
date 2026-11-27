@@ -13,15 +13,25 @@ import {
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const DIR_SYMLINK_TYPE: "junction" | "dir" = process.platform === "win32" ? "junction" : "dir";
 
+function copyCuratedNotices(target: string): void {
+  cpSync(path.join(REPO_ROOT, "third-party"), path.join(target, "third-party"), { recursive: true });
+  cpSync(path.join(REPO_ROOT, "client", "public", "licenses"), path.join(target, "client", "public", "licenses"), { recursive: true });
+  cpSync(path.join(REPO_ROOT, "client", "licenses"), path.join(target, "client", "licenses"), { recursive: true });
+  cpSync(path.join(REPO_ROOT, "client", "vendor"), path.join(target, "client", "vendor"), { recursive: true });
+  cpSync(path.join(REPO_ROOT, "assets", "product", "fonts"), path.join(target, "assets", "product", "fonts"), { recursive: true });
+  for (const license of [
+    "deepseek-harness-plugin/LICENSE",
+    "integrations/infinite-canvas/LICENSE",
+    "integrations/infinite-canvas/notices/BUNDLED_DEPENDENCIES.txt",
+    "LICENSING.md",
+  ]) {
+    cpSync(path.join(REPO_ROOT, license), path.join(target, license));
+  }
+}
+
 function createIsolatedRepoCopy(): string {
   const tmp = mkdtempSync(path.join(os.tmpdir(), "ack-check-"));
-  cpSync(path.join(REPO_ROOT, "third-party"), path.join(tmp, "third-party"), { recursive: true });
-  cpSync(path.join(REPO_ROOT, "client", "public", "licenses"), path.join(tmp, "client", "public", "licenses"), { recursive: true });
-  cpSync(path.join(REPO_ROOT, "client", "licenses"), path.join(tmp, "client", "licenses"), { recursive: true });
-  cpSync(path.join(REPO_ROOT, "client", "vendor"), path.join(tmp, "client", "vendor"), { recursive: true });
-  cpSync(path.join(REPO_ROOT, "assets", "product", "fonts"), path.join(tmp, "assets", "product", "fonts"), { recursive: true });
-  cpSync(path.join(REPO_ROOT, "deepseek-harness-plugin", "LICENSE"), path.join(tmp, "deepseek-harness-plugin", "LICENSE"));
-  cpSync(path.join(REPO_ROOT, "LICENSING.md"), path.join(tmp, "LICENSING.md"));
+  copyCuratedNotices(tmp);
   cpSync(path.join(REPO_ROOT, "package.json"), path.join(tmp, "package.json"));
   cpSync(path.join(REPO_ROOT, "package-lock.json"), path.join(tmp, "package-lock.json"));
   cpSync(path.join(REPO_ROOT, "client", "package.json"), path.join(tmp, "client", "package.json"));
@@ -94,6 +104,17 @@ describe("third-party acknowledgements manifest and build check", () => {
     ]) {
       expect(byId.has(requiredId), `Expected entry ${requiredId}`).toBe(true);
     }
+    expect(byId.get("infinite-canvas")?.licenseText).toContain("Copyright (c) 2026 basketikun");
+    const canvasDependencies = byId.get("infinite-canvas-dependencies")?.licenseText;
+    for (const cssDependency of ["shadcn", "tailwindcss", "tw-animate-css"]) {
+      expect(canvasDependencies).toContain(cssDependency + "@");
+    }
+    for (const id of ["quickjs-emscripten-core", "quickjs-ffi-types", "quickjs-singlefile-browser-release-sync"]) {
+      expect(byId.get(id)).toMatchObject({ version: "0.32.0", license: "MIT" });
+      expect(byId.get(id)?.licenseText).toContain("Jake Teton-Landis");
+    }
+    expect(byId.get("quickjs-singlefile-browser-release-sync")?.licenseText).toContain("Fabrice Bellard");
+
     // Multi-version transitive packages (e.g. pako 1.x + 2.x) are preserved with distinct name@version IDs.
     expect(built.entries.filter((entry: AcknowledgementEntry) => entry.name === "pako").length).toBeGreaterThanOrEqual(2);
 
@@ -205,13 +226,7 @@ describe("third-party acknowledgements manifest and build check", () => {
       // An npm package with only a package.json license field / 2-line README / LICENSE.spdx fails instead of synthesizing a stub.
       const fakeRoot = mkdtempSync(path.join(os.tmpdir(), "ack-npm-nolicense-"));
       try {
-        cpSync(path.join(REPO_ROOT, "third-party"), path.join(fakeRoot, "third-party"), { recursive: true });
-        cpSync(path.join(REPO_ROOT, "client", "public", "licenses"), path.join(fakeRoot, "client", "public", "licenses"), { recursive: true });
-        cpSync(path.join(REPO_ROOT, "client", "licenses"), path.join(fakeRoot, "client", "licenses"), { recursive: true });
-        cpSync(path.join(REPO_ROOT, "client", "vendor"), path.join(fakeRoot, "client", "vendor"), { recursive: true });
-        cpSync(path.join(REPO_ROOT, "assets", "product", "fonts"), path.join(fakeRoot, "assets", "product", "fonts"), { recursive: true });
-        cpSync(path.join(REPO_ROOT, "deepseek-harness-plugin", "LICENSE"), path.join(fakeRoot, "deepseek-harness-plugin", "LICENSE"));
-        cpSync(path.join(REPO_ROOT, "LICENSING.md"), path.join(fakeRoot, "LICENSING.md"));
+        copyCuratedNotices(fakeRoot);
         writeFileSync(path.join(fakeRoot, "package.json"), JSON.stringify({
           name: "fake-root",
           dependencies: { "stub-only-pkg": "1.0.0" },

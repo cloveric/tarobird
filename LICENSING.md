@@ -24,6 +24,11 @@ plus bundled npm runtime dependencies via `npm run acknowledgements:generate`.
 <!-- acknowledgements:table:start -->
 | Component | Version / commit | License | Location & usage |
 | --- | --- | --- | --- |
+| [Infinite Canvas (basketikun)](https://github.com/basketikun/infinite-canvas) | `4c67f1ece4f4edaef81e58e964eb78abb1e9809d` | MIT | `integrations/infinite-canvas/` — Optional Workbench editor built from pinned upstream source |
+| [Dependencies bundled in Infinite Canvas](https://github.com/basketikun/infinite-canvas) | `4c67f1ece4f4edaef81e58e964eb78abb1e9809d` | Various (see complete notices) | `integrations/infinite-canvas/notices/` — Dependency notices generated from the inputs to the optional editor bundle |
+| [quickjs-emscripten-core](https://github.com/justjake/quickjs-emscripten) | `0.32.0` | MIT | `client/package-lock.json` — Host-side adapter for the isolated third-party canvas node interpreter |
+| [@jitl/quickjs-ffi-types](https://github.com/justjake/quickjs-emscripten) | `0.32.0` | MIT | `client/package-lock.json` — Foreign-function interface types for the QuickJS interpreter |
+| [@jitl/quickjs-singlefile-browser-release-sync](https://github.com/justjake/quickjs-emscripten) | `0.32.0` | MIT | `client/package-lock.json` — QuickJS WASM interpreter compiled into the dedicated canvas node worker |
 | [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) | `2.x` | OFL-1.1 | `client/src/assets/fonts/jetbrains-mono/` — Monospace code and terminal font bundled in the App |
 | [Sarasa Term SC](https://github.com/be5invis/Sarasa-Gothic) | `1.x` | OFL-1.1 | `client/src/assets/fonts/sarasa-term-sc/` — CJK monospace font used for code blocks and terminal views |
 | [Assistant (Excalidraw bundled font)](https://github.com/hafontia/Assistant) | `Excalidraw 0.18.1` | OFL-1.1 | `client/dist/excalidraw/0.18.1/fonts/Assistant/` — Sans-serif typeface bundled locally with the Excalidraw whiteboard |

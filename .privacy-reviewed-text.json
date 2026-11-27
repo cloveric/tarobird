@@ -1880,6 +1880,42 @@
           "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
         }
       ]
+    },
+    {
+      "path": "integrations/infinite-canvas/notices/BUNDLED_DEPENDENCIES.txt",
+      "sha256": "a63d6596543dbbc91b03d92a7b2fc3c5667f1c351ad69d50c1f95fb598cb0a03",
+      "reviewer": "codex",
+      "note": "Reviewed all seven exact fingerprints against the public pinned npm package MIT copyright lines and the retained upstream react-remove-scroll-bar MIT notice. No project owner, deployment, or private contact information.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "fe333eac30d08732e7ab5744d91ed42ab47cace977ab9bdd2f7a58957d64b645"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "106a6c8669149a6395be25bbb8280adfc7252d58fb2de92d15a686a1e8a5f7dc"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "97f7b9150be37699192361c0d15e1436464be9f161b2f7b99f2dadacdaeaa2f3"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "295dee0d3dbb93aac67e72ae4af40f728f050e5fd18417ad60d1ed19186ae03b"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "ba822a4a0ffc8df004606941d9fce04b6ab34d2e72904f44d2e4317c49a4eafc"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "6e13be8b3eb67489f0f0a6585a310a4e3d2f56db869e9f7ea5cb4ed9452c9ec8"
+        }
+      ]
     }
   ]
 }

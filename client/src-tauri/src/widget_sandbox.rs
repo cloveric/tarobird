@@ -1,15 +1,31 @@
-/// Fixed, credential-free shell on a separate origin. No user content is served
+/// Fixed, credential-free shells on a separate origin. No user content is served
 /// through this handler. User code runs in an opaque about:srcdoc guest; the
-/// relay never forwards guest requests to native commands.
+/// relays never forward guest requests to native commands.
 pub fn response(path: &str) -> tauri::http::Response<Vec<u8>> {
-    let found = path == "/widget-sandbox.html";
+    let (status, csp, body): (u16, &str, Vec<u8>) = match path {
+        "/widget-sandbox.html" => (
+            200,
+            "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; style-src 'unsafe-inline' https:; img-src data: https:; media-src https:; font-src data: https:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
+            include_bytes!("../../public/widget-sandbox.html").to_vec(),
+        ),
+        "/plugin-sandbox.html" => (
+            200,
+            "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
+            include_bytes!("../../public/plugin-sandbox.html").to_vec(),
+        ),
+        _ => (
+            404,
+            "default-src 'none'; base-uri 'none'; form-action 'none'; sandbox",
+            Vec::new(),
+        ),
+    };
     tauri::http::Response::builder()
-        .status(if found { 200 } else { 404 })
+        .status(status)
         .header("Content-Type", "text/html; charset=utf-8")
         .header("X-Content-Type-Options", "nosniff")
         .header("Referrer-Policy", "no-referrer")
-        .header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; style-src 'unsafe-inline' https:; img-src data: https:; media-src https:; font-src data: https:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; sandbox allow-scripts")
-        .body(if found { include_bytes!("../../public/widget-sandbox.html").to_vec() } else { Vec::new() })
+        .header("Content-Security-Policy", csp)
+        .body(body)
         .expect("static widget response")
 }
 
@@ -17,11 +33,23 @@ pub fn response(path: &str) -> tauri::http::Response<Vec<u8>> {
 mod tests {
     use super::*;
     #[test]
-    fn only_serves_the_fixed_sandbox_shell() {
+    fn only_serves_the_fixed_sandbox_shells() {
         assert_eq!(response("/widget-sandbox.html").status(), 200);
+        assert_eq!(response("/plugin-sandbox.html").status(), 200);
         assert_eq!(response("/api/credentials").status(), 404);
-        let html = String::from_utf8(response("/widget-sandbox.html").into_body()).unwrap();
-        assert!(html.contains("sandbox=\"allow-scripts\""));
-        assert!(!html.contains("allow-same-origin"));
+        for path in ["/widget-sandbox.html", "/plugin-sandbox.html"] {
+            let html = String::from_utf8(response(path).into_body()).unwrap();
+            assert!(html.contains("sandbox=\"allow-scripts\""), "{path}");
+            assert!(!html.contains("allow-same-origin"), "{path}");
+        }
+        let plugin_csp = response("/plugin-sandbox.html")
+            .headers()
+            .get("Content-Security-Policy")
+            .and_then(|value| value.to_str().ok())
+            .unwrap()
+            .to_string();
+        assert!(plugin_csp.contains("connect-src https: wss:"));
+        assert!(plugin_csp.contains("worker-src 'none'"));
+        assert!(!plugin_csp.contains("'unsafe-eval'"));
     }
 }

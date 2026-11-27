@@ -19,6 +19,8 @@ import { OperationsPanel } from "./OperationsPanel.js";
 import { ResourcesManagerDialog, useAnyHostResourcesAvailable } from "./ResourcesPanel.js";
 import { ScheduledTasks } from "./ScheduledTasks.js";
 import { ArchivedConversations } from "./ArchivedConversations.js";
+import { PluginsModal } from "./PluginsPanel.js";
+import { getPluginRegistry, resolvePluginScopeId } from "./plugin-registry.js";
 import { useLocale } from "./i18n.js";
 
 export type AdhdToolActions = { manageHosts: OpenNetwork; manageConnections: OpenNetwork; addHost: () => void; createBot: (hostId: string) => void };
@@ -54,6 +56,7 @@ export function AdhdWorkspaceTools({ host, hosts, connection, preferences, updat
     {view === "resources" && <ResourcesManagerDialog hosts={resourceHosts} activeHostId={host.host.id} visible onClose={close} returnFocus={trigger}/>}
     {view === "schedules" && <ScheduledTasks connection={connection} bots={bots} conversations={listed} close={close} openConversation={openConversation} newBot={() => { close(); actions.createBot(host.host.id); }}/>}
     {view === "archives" && <ArchivedConversations connection={connection} conversations={listed} close={close} open={openConversation}/>}
+    {view === "plugins" && <PluginsModal platform="desktop" registry={(() => { const scope = resolvePluginScopeId(connection.identity.hubPublicKey, state.user?.id, connection.identity.deviceId); return scope ? getPluginRegistry(scope) : null; })()} connection={connection} close={close}/>}
     </>, document.body)}
   </BotReferences></AvatarProvider></RuntimeHostContext.Provider></DesktopMenuPortalContext.Provider>;
 }

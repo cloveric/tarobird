@@ -13,6 +13,61 @@
   },
   "entries": [
     {
+      "id": "infinite-canvas",
+      "name": "Infinite Canvas (basketikun)",
+      "category": "vendored",
+      "repository": "https://github.com/basketikun/infinite-canvas",
+      "version": "4c67f1ece4f4edaef81e58e964eb78abb1e9809d",
+      "license": "MIT",
+      "licenseFile": "integrations/infinite-canvas/LICENSE",
+      "usage": "Optional Workbench editor built from pinned upstream source",
+      "location": "integrations/infinite-canvas/"
+    },
+    {
+      "id": "infinite-canvas-dependencies",
+      "name": "Dependencies bundled in Infinite Canvas",
+      "category": "vendored",
+      "repository": "https://github.com/basketikun/infinite-canvas",
+      "version": "4c67f1ece4f4edaef81e58e964eb78abb1e9809d",
+      "license": "Various (see complete notices)",
+      "licenseFile": "integrations/infinite-canvas/notices/BUNDLED_DEPENDENCIES.txt",
+      "usage": "Dependency notices generated from the inputs to the optional editor bundle",
+      "location": "integrations/infinite-canvas/notices/"
+    },
+    {
+      "id": "quickjs-emscripten-core",
+      "name": "quickjs-emscripten-core",
+      "category": "npm",
+      "repository": "https://github.com/justjake/quickjs-emscripten",
+      "version": "0.32.0",
+      "license": "MIT",
+      "licenseFile": "third-party/licenses/quickjs-emscripten-mit.txt",
+      "usage": "Host-side adapter for the isolated third-party canvas node interpreter",
+      "location": "client/package-lock.json"
+    },
+    {
+      "id": "quickjs-ffi-types",
+      "name": "@jitl/quickjs-ffi-types",
+      "category": "npm",
+      "repository": "https://github.com/justjake/quickjs-emscripten",
+      "version": "0.32.0",
+      "license": "MIT",
+      "licenseFile": "third-party/licenses/quickjs-emscripten-mit.txt",
+      "usage": "Foreign-function interface types for the QuickJS interpreter",
+      "location": "client/package-lock.json"
+    },
+    {
+      "id": "quickjs-singlefile-browser-release-sync",
+      "name": "@jitl/quickjs-singlefile-browser-release-sync",
+      "category": "npm",
+      "repository": "https://github.com/justjake/quickjs-emscripten",
+      "version": "0.32.0",
+      "license": "MIT",
+      "licenseFile": "third-party/licenses/quickjs-singlefile-browser-release-sync-mit.txt",
+      "usage": "QuickJS WASM interpreter compiled into the dedicated canvas node worker",
+      "location": "client/package-lock.json"
+    },
+    {
       "id": "jetbrains-mono",
       "name": "JetBrains Mono",
       "category": "asset",

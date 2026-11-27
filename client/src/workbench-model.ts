@@ -4,9 +4,11 @@ import { workbenchSourceSchema, type WorkbenchSource } from "../../src/client-pr
 
 const id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/);
 export const workbenchTabSchema = z.object({
-  id, kind: z.enum(["whiteboard", "chart", "browser", "markdown", "design"]), title: z.string().trim().min(1).max(128),
+  id, kind: z.enum(["whiteboard", "chart", "browser", "markdown", "design", "plugin"]), title: z.string().trim().min(1).max(128),
   designFormat: designFormatSchema.optional(),
   source: workbenchSourceSchema.optional(), url: z.string().max(8192).optional(),
+  pluginId: z.string().min(1).max(128).optional(),
+  contributionId: z.string().min(1).max(128).optional(),
 }).strict();
 export type WorkbenchTab = z.infer<typeof workbenchTabSchema>;
 export const workbenchLayoutSchema = z.object({

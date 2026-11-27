@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "tarobird.infinite-canvas",
+  "name": "Infinite Canvas",
+  "nameZh": "无限画布",
+  "version": "1.0.0",
+  "description": "Full Infinite Canvas workbench (canvas, image/video create, prompts, assets, bundled node plugins, and TaroBird Bot Canvas Agent).",
+  "descriptionZh": "完整无限画布工作台（画布编排、生图/生视频、提示词库、素材库、内置官方节点插件与对话 Bot Agent 联动）。",
+  "icon": "canvas",
+  "source": {
+    "repository": "basketikun/infinite-canvas",
+    "commit": "4c67f1ece4f4edaef81e58e964eb78abb1e9809d"
+  },
+  "attribution": {
+    "author": "basketikun",
+    "license": "MIT",
+    "homepage": "https://github.com/basketikun/infinite-canvas",
+    "notice": "MIT License — Copyright (c) 2026 basketikun"
+  },
+  "entry": "dist/index.html",
+  "platforms": [
+    "desktop"
+  ],
+  "contributions": [
+    {
+      "kind": "workbench-item",
+      "id": "infinite-canvas",
+      "title": "Infinite Canvas",
+      "titleZh": "无限画布",
+      "icon": "canvas"
+    }
+  ],
+  "domains": [
+    "api.openai.com",
+    "raw.githubusercontent.com"
+  ],
+  "capabilities": [
+    "theme.read",
+    "storage.device",
+    "credentials.device",
+    "files.export",
+    "network.domains",
+    "clipboard.write",
+    "workbench.canvas",
+    "canvas.agent"
+  ],
+  "requiresHost": true,
+  "official": true
+}

@@ -216,13 +216,13 @@ export class WorkbenchController {
     const layout = this.committedChartLayout ?? this.snapshot.layout;
     return { windowId: this.snapshot.windowId, conversationId: this.conversationId, generation: this.snapshot.generation,
       capabilities: [...(this.connection.state.workbenchDesignCommentsAvailable ? ["design.comments.v1" as const] : []), ...(this.connection.state.workbenchDesignHistoryAvailable ? ["design.history.v1" as const] : []), ...(this.connection.state.workbenchSlidesAvailable ? ["design.slides.v1" as const] : []), ...(this.connection.state.workbenchDesignAvailable && this.connection.state.workbenchSlidesAvailable ? ["design.v1" as const] : []), "whiteboard.v1", "charts.v1", ...(this.connection.state.workbenchMarkdownAvailable ? ["markdown.v1" as const] : []), ...(this.snapshot.browser ? ["browser.v1" as const] : [])],
-      tabs: layout.tabs.filter(tab => (tab.kind !== "design" || tab.designFormat === "slides" && this.connection.state.workbenchSlidesAvailable) && (tab.kind !== "markdown" || this.connection.state.workbenchMarkdownAvailable)).map(tab => ({ id: tab.id, kind: tab.kind, title: tab.title, ...(tab.designFormat && this.connection.state.workbenchSlidesAvailable ? {designFormat: tab.designFormat} : {}), ...(tab.source ? { source: tab.source } : {}), ...(tab.kind === "design" && this.designSessions.has(tab.id) ? { revision: this.designSessions.get(tab.id)!.document.revision } : {}), ...(tab.kind === "markdown" && this.snapshot.notes.has(tab.id) ? { revision: this.snapshot.notes.get(tab.id)!.revision, readOnly: this.noteSessions.get(tab.id)?.readOnly } : {}), ...(tab.kind === "whiteboard" && this.snapshot.boards.has(tab.id) ? { revision: this.snapshot.boards.get(tab.id)!.revision } : {}) })),
-      ...(layout.active && (layout.tabs.find(tab => tab.id === layout.active)?.kind !== "design" || layout.tabs.find(tab => tab.id === layout.active)?.designFormat === "slides" && this.connection.state.workbenchSlidesAvailable) && (this.connection.state.workbenchMarkdownAvailable || layout.tabs.find(tab => tab.id === layout.active)?.kind !== "markdown") ? { activeTabId: layout.active } : {}), visible: this.isVisible };
+      tabs: layout.tabs.filter((tab): tab is WorkbenchTab & { kind: Exclude<WorkbenchTab["kind"], "plugin"> } => Boolean(tab.kind !== "plugin" && (tab.kind !== "design" || tab.designFormat === "slides" && this.connection.state.workbenchSlidesAvailable) && (tab.kind !== "markdown" || this.connection.state.workbenchMarkdownAvailable))).map(tab => ({ id: tab.id, kind: tab.kind, title: tab.title, ...(tab.designFormat && this.connection.state.workbenchSlidesAvailable ? {designFormat: tab.designFormat} : {}), ...(tab.source ? { source: tab.source } : {}), ...(tab.kind === "design" && this.designSessions.has(tab.id) ? { revision: this.designSessions.get(tab.id)!.document.revision } : {}), ...(tab.kind === "markdown" && this.snapshot.notes.has(tab.id) ? { revision: this.snapshot.notes.get(tab.id)!.revision, readOnly: this.noteSessions.get(tab.id)?.readOnly } : {}), ...(tab.kind === "whiteboard" && this.snapshot.boards.has(tab.id) ? { revision: this.snapshot.boards.get(tab.id)!.revision } : {}) })),
+      ...(layout.active && layout.tabs.find(tab => tab.id === layout.active)?.kind !== "plugin" && (layout.tabs.find(tab => tab.id === layout.active)?.kind !== "design" || layout.tabs.find(tab => tab.id === layout.active)?.designFormat === "slides" && this.connection.state.workbenchSlidesAvailable) && (this.connection.state.workbenchMarkdownAvailable || layout.tabs.find(tab => tab.id === layout.active)?.kind !== "markdown") ? { activeTabId: layout.active } : {}), visible: this.isVisible };
   }
   async context(): Promise<WorkbenchContext | undefined> {
     if (this.chartApplying) throw new Error("workbench_chart_updating");
     this.check(); const tab = this.snapshot.layout.tabs.find(tab => tab.id === this.snapshot.layout.active);
-    if (!tab || !this.isVisible || tab.kind === "design" && (tab.designFormat !== "slides" || !this.connection.state.workbenchSlidesAvailable)) return;
+    if (!tab || !this.isVisible || tab.kind === "plugin" || tab.kind === "design" && (tab.designFormat !== "slides" || !this.connection.state.workbenchSlidesAvailable)) return;
     let revision: number | undefined, selection: string[] | undefined;
     if (tab.kind === "whiteboard") {
       const board = await this.waitBoard(tab.id); await board.flush();
@@ -448,6 +448,12 @@ export class WorkbenchController {
       await this.connection.cache.createWorkbenchDesignAndLayout(this.scope, document, old.revision, layout, importedBackup);
       this.check(); this.publish({ layout }); assertActive?.(); await this.ensureDesign(id);
     });
+    return id;
+  }
+  async openPlugin(pluginId: string, contributionId: string, title: string): Promise<string> {
+    await this.initialize(); this.check();
+    const id = stableId("plugin", `${pluginId}:${contributionId}`);
+    await this.change({ type: "open", tab: { id, kind: "plugin", title: title.trim() || pluginId, pluginId, contributionId } });
     return id;
   }
   async exportDesign(id:string,title:string):Promise<string> {

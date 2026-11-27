@@ -8,7 +8,7 @@ const versions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 export class ClaudeAppMcpInitializationError extends Error {
   constructor(message: string, readonly reason: "rejected" | "timeout") { super(message); }
 }
-export const claudeAppInstructions = (text: string) => text.replace(/\b(app_send_file|app_send_batch|app_capability|app_show_widget)\b/g, `${prefix}$1`);
+export const claudeAppInstructions = (text: string) => text.replace(/\b(app_send_file|app_send_batch|app_capability|app_show_widget|app_canvas_agent)\b/g, `${prefix}$1`);
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) =>
   item && typeof item === "object" && !Array.isArray(item)
     ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { canvasNetworkRequest } from './canvas-network.mjs';
 import { z } from 'zod';
 import { DESKTOP_EVENT } from './contract.mjs';
 import { DesktopFiles, FILE_COMMANDS } from './files.mjs';
@@ -79,6 +80,7 @@ export class DesktopServices {
   emit(name, payload) { if (!this.window.isDestroyed()) this.window.webContents.send(DESKTOP_EVENT, { name, payload }); }
   async request(command, input, active) {
     if (!active()) throw new Error('native_document_retired');
+    if (command === 'desktop_canvas_network') return canvasNetworkRequest(input, active);
     if (command === 'desktop_clipboard_image') return readClipboardImage(this.window, this.electron.clipboard, input, active);
     if (UPDATE_COMMANDS.includes(command)) {
       if (this.migration && !this.migration.ready && ['github_update_install', 'restart_client'].includes(command)) throw new Error('migration_not_complete');
