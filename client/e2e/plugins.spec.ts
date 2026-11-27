@@ -38,7 +38,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await expect(page.getByRole("heading", { name: "欢迎回来", level: 1 })).toBeVisible();
 
       // Open Marketplace and verify no fabricated community.focus-timer exists, and third-party category stays clean
-      await page.locator(".conversation-header .plugins-trigger").click();
+      await page.locator(".sidebar-plugins-entry").click();
       const modal = page.locator("dialog.plugins-modal-dialog[open]");
       await expect(modal).toBeVisible();
       await expect(modal.locator('[data-plugin-id="community.focus-timer"]')).toHaveCount(0);
@@ -58,7 +58,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await expect(modal).toHaveCount(0);
 
       // Install Infinite Canvas on Welcome screen and click Open -> clean localized prompt (never raw error code)
-      await page.locator(".conversation-header .plugins-trigger").click();
+      await page.locator(".sidebar-plugins-entry").click();
       await expect(modal).toBeVisible();
       const canvasCard = modal.locator('[data-plugin-id="tarobird.infinite-canvas"]').first();
       await canvasCard.getByRole("button", { name: "下载并安装" }).click();
@@ -91,7 +91,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
       await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
       await expect(page.getByRole("heading", { name: "插件验收对话", level: 1 })).toBeVisible();
-      await page.locator(".conversation-header .plugins-trigger").click();
+      await page.locator(".sidebar-plugins-entry").click();
       const modal = page.locator("dialog.plugins-modal-dialog[open]");
       await modal.getByRole("tab", { name: "开发者" }).click();
       await modal.getByRole("checkbox", { name: "启用开发者模式" }).check();
@@ -127,8 +127,8 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       // Explicit Light mode while OS colorScheme is dark
       await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
 
-      // Install Quick Scratchpad and verify header trigger button geometry (no 32px icon-button clipping)
-      await page.locator(".conversation-header .plugins-trigger").click();
+      // Install Quick Scratchpad from the sidebar marketplace entry and verify the header panel trigger geometry (no 32px icon-button clipping)
+      await page.locator(".sidebar-plugins-entry").click();
       const modal = page.locator("dialog.plugins-modal-dialog[open]");
       await expect(modal).toBeVisible();
       const scratchCard = modal.locator('[data-plugin-id="tarobird.quick-scratchpad"]').first();
@@ -196,7 +196,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await switchPluginTestLocale(page, "zh");
 
       // Disabling Quick Scratchpad cleanly closes the active side panel
-      await page.locator(".conversation-header .plugins-trigger").click();
+      await page.locator(".sidebar-plugins-entry").click();
       await modal.getByRole("button", { name: /查看插件详情：速记面板/ }).first().click();
       await modal.locator(".plugin-detail-actions").getByRole("button", { name: "停用" }).click();
       await page.keyboard.press("Escape");
@@ -395,7 +395,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await expect(page.getByRole("heading", { name: "无限画布联调", level: 1 })).toBeVisible();
 
       // Install Infinite Canvas on demand from Hub artifacts and open it in Workbench
-      await page.locator(".conversation-header .plugins-trigger").click();
+      await page.locator(".sidebar-plugins-entry").click();
       const modal = page.locator("dialog.plugins-modal-dialog[open]");
       await expect(modal).toBeVisible();
       const canvasCard = modal.locator('[data-plugin-id="tarobird.infinite-canvas"]').first();
@@ -494,7 +494,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
         await shot("01-workbench-entry-uninstalled.png");
         await toInstall.click();
       } else {
-        await page.locator(".conversation-header .plugins-trigger").click();
+        await page.locator(".sidebar-plugins-entry").click();
       }
       const marketplace = page.locator("dialog.plugins-modal-dialog[open]");
       const card = marketplace.locator('[data-plugin-id="tarobird.infinite-canvas"]').first();

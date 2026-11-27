@@ -1048,30 +1048,7 @@ dialog.plugins-modal-dialog::backdrop {
   word-break: break-all;
 }
 
-/* Entry buttons in Desktop Header & Sidebar Footer */
-.plugins-trigger {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  flex: 0 0 auto;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 7px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--grey, var(--muted));
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.plugins-trigger:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--text);
-}
-
+/* Plugin panel entry buttons in the desktop header */
 .plugin-panel-trigger {
   position: relative;
   display: inline-flex;
@@ -1110,20 +1087,6 @@ dialog.plugins-modal-dialog::backdrop {
 
 .plugin-panel-trigger:is(.is-active, [aria-expanded="true"]):hover:not(:disabled) {
   background: color-mix(in srgb, var(--panel-entry-accent) 25%, transparent);
-}
-
-.plugins-trigger-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  background: var(--selected);
-  color: var(--accent, var(--blue));
 }
 
 .sidebar-plugins-strip {
@@ -1302,11 +1265,9 @@ dialog.plugin-mobile-sheet::backdrop {
 }
 
 @media (max-width: 960px) {
-  .plugins-trigger-label,
   .plugin-panel-trigger-label {
     display: none;
   }
-  .plugins-trigger,
   .plugin-panel-trigger {
     padding: 0 7px;
   }
