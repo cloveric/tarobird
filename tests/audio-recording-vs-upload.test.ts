@@ -121,7 +121,11 @@ describe("audio recording vs uploaded file distinction", () => {
     return { transcribe, fetchImpl };
   }
 
-  it("delivers uploaded audio files to Pi without transcription while transcribing recordings", async () => {
+  // Five full turns through a real Hub, Gateway socket and Pi adapter. No
+  // timer paces them: most of the time waits on about 245 fsyncs (mostly the
+  // Gateway's durable request journal), which a loaded disk stretches. The
+  // limit is the two 10 s delivery waits below, not the default per-test 5 s.
+  it("delivers uploaded audio files to Pi without transcription while transcribing recordings", { timeout: 20_000 }, async () => {
     const stateDir = path.join(root, "pi-bot");
     const workspace = path.join(stateDir, "workspace");
     await mkdir(workspace, { recursive: true });
