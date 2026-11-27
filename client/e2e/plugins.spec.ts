@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { createHash } from "node:crypto";
 import WebSocket from "ws";
 import { build } from "esbuild";
@@ -7,7 +7,21 @@ import os from "node:os";
 import path from "node:path";
 import { HubServer } from "../../src/hub/server.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
-import { mobileHome } from "./fixtures/mobile.js";
+import { mobileHome, openWorkspacePage } from "./fixtures/mobile.js";
+import { openSettings } from "./fixtures/settings.js";
+
+async function switchPluginTestLocale(page: Page, locale: "zh" | "ja") {
+  if (locale === "ja") await openSettings(page, "general");
+  else {
+    await openWorkspacePage(page, "設定");
+    await page.getByRole("navigation", { name: "設定カテゴリ" }).getByRole("button", { name: /^一般/ }).click();
+  }
+  await page.locator("#language").selectOption(locale);
+  await expect(page.locator("html")).toHaveAttribute("lang", locale === "zh" ? "zh-CN" : "ja");
+  const back = page.getByRole("button", { name: locale === "ja" ? "設定カテゴリに戻る" : "返回设置分类", exact: true });
+  if (await back.isVisible()) await back.click();
+  await page.getByRole("button", { name: locale === "ja" ? "設定を閉じる" : "关闭设置", exact: true }).click();
+}
 
 test.describe("Plugin System E2E Regressions (#101)", () => {
   test("desktop welcome screen: Escape step-back, clean third-party section, and localized prompt when opening workbench plugin without active conversation", async ({ page }) => {
@@ -98,6 +112,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "plugins-desktop-"));
     const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist"), pluginArtifactsDir: path.resolve("../dist/plugins") });
     try {
+      await hub.profile.update({ name: "速记演示主机", revision: 0 });
       await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','助手','fixture')");
       await hub.store.createConversation("owner", ["alpha"], "插件测试对话", "plugins-chat");
 
@@ -164,6 +179,21 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await wsButton.click();
       await expect(wsButton).toHaveAttribute("aria-expanded", "false");
       await expect(sidePanel).toBeVisible();
+
+      await trigger.click();
+      await expect(sidePanel).toHaveCount(0);
+      await switchPluginTestLocale(page, "ja");
+      await trigger.click();
+      const japaneseCopy = scratchpad.getByRole("button", { name: "コピー", exact: true });
+      await expect(japaneseCopy).toBeVisible();
+      await expect(scratchpad.locator("#pad")).toHaveValue("验收用速记");
+      await japaneseCopy.click();
+      const japaneseConsent = page.getByRole("dialog", { name: /クリップボードに書き込むことを許可しますか/ });
+      await expect(japaneseConsent).toContainText("验收用速记");
+      await expect(japaneseConsent.getByRole("button", { name: "今回だけコピー", exact: true })).toBeVisible();
+      await japaneseConsent.getByRole("button", { name: "キャンセル", exact: true }).click();
+      await expect(japaneseConsent).toHaveCount(0);
+      await switchPluginTestLocale(page, "zh");
 
       // Disabling Quick Scratchpad cleanly closes the active side panel
       await page.locator(".conversation-header .plugins-trigger").click();
@@ -422,7 +452,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
   });
 
   test("Infinite Canvas third-party nodes require consent and run the selected input in isolation", async ({ page }) => {
-    test.setTimeout(75_000);
+    test.setTimeout(105_000);
     await page.setViewportSize({ width: 1600, height: 900 });
     const shotDirectory = process.env.TAROBOT_CANVAS_SHOT_DIR;
     if (shotDirectory) await mkdir(shotDirectory, { recursive: true });
@@ -559,6 +589,23 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await expect(node.getByText("第三方节点已停用", { exact: true })).toBeVisible();
       await expect(node.getByRole("button", { name: "运行节点", exact: true })).toHaveCount(0);
       await expect(node.getByText("Fixture rendered: ONLY THIS NODE", { exact: true })).toHaveCount(0);
+
+      await switchPluginTestLocale(page, "ja");
+      settings = await openSettings();
+      const japaneseAllow = settings.getByRole("checkbox", { name: "サードパーティノードのインストールを許可" });
+      await expect(japaneseAllow).not.toBeChecked();
+      await expect(settings.getByText("サードパーティノードは無効です。インストール済みのプラグインは保持されます。", { exact: true })).toBeVisible();
+      await japaneseAllow.click();
+      const japaneseReview = guest.getByRole("alertdialog", { name: "サードパーティノードの操作を確認" });
+      await expect(japaneseReview).toBeVisible();
+      await japaneseReview.getByRole("button", { name: "キャンセル", exact: true }).click();
+      await expect(japaneseAllow).not.toBeChecked();
+      await settings.getByRole("button", { name: "关闭", exact: true }).click();
+      await guest.getByRole("button", { name: "Agent", exact: true }).click();
+      await guest.getByText("MCP", { exact: true }).click();
+      await expect(guest.getByText("この会話の TaroBird Bot を接続すると、現在のキャンバスを操作できるようになります。", { exact: true })).toBeVisible();
+      await expect(guest.getByRole("button", { name: "接続する", exact: true })).toBeVisible();
+
     } finally {
       await page.close();
       await hub.close();

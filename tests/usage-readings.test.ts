@@ -472,8 +472,34 @@ describe("shared quota store across restart, conversation battery and Settings p
     unsub();
     expect(readStoredQuota(conn, "bot_a", now)).toBeUndefined();
     expect(mem.get(SAVED_QUOTA_KEY) ?? "{}").not.toContain("bot_a");
+    // Settings still owns staleDir: projection must also retire its old login's reading.
+    const retired = projectQuotaDirectory(conn, staleDir, now);
+    expect(retired.directory.scopes[0]).toMatchObject({ revision: "r_new", reason: "auth_changed", observedAt: undefined, pools: [] });
+    expect(retired.cachedScopeIds.size).toBe(0);
     const afterAuth = projectQuotaDirectory(conn, { generatedAt: iso(0), scopes: [authChanged], truncated: false }, now);
     expect(afterAuth.directory.scopes[0]).toMatchObject({ id: "bot_a", state: "unknown", reason: "auth_changed", observedAt: undefined });
+  });
+
+  it("projects a conversation's new login reading without letting a Hub no-answer retire it", () => {
+    const conn = fakeConnection("host-login-project");
+    const old = reading("bot_a", -10, 50);
+    const directory = { generatedAt: iso(-10), scopes: [old], truncated: false };
+    ingestQuotaDirectory(conn, directory, now);
+    const current = { ...reading("bot_a", -1, 20), revision: "new_login" };
+    applyHostQuotaScope(conn, "bot_a", current, now);
+    for (const reason of ["offline", "timeout", "invalid_response", "host_upgrade_required"] as const) {
+      const fallback = { ...current, revision: reason, reason, state: "unavailable" as const, observedAt: undefined, pools: [] };
+      applyHostQuotaScope(conn, "bot_a", fallback, now);
+      const projected = projectQuotaDirectory(conn, directory, now);
+      expect(projected.directory.scopes[0]).toEqual(current);
+      expect(projected.cachedScopeIds.size).toBe(0);
+      // The fallback's own availability/Refresh boundary is still respected.
+      expect(projectQuotaDirectory(conn, { ...directory, scopes: [fallback] }, now).directory.scopes[0])
+        .toMatchObject({ revision: reason, reason });
+    }
+    clearStoredQuotaHost(conn);
+    // Revocation discards in-memory worker answers as well as readings.
+    expect(projectQuotaDirectory(conn, directory, now).directory.scopes[0]).toEqual(old);
   });
 
   it("keeps fromCache=true after adopting a persisted reading on not_loaded even if refresh fails", () => {

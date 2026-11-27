@@ -10,6 +10,7 @@ import {
   readStoredQuota,
   resetQuotaStoreForTests,
 } from "../src/quota-store.js";
+import { groupQuotaScopesByAccount } from "../src/quota-ui.js";
 import { useEngineQuota } from "../src/use-engine-quota.js";
 import {
   resetUsageReadingsForTests,
@@ -419,6 +420,95 @@ describe("useUsageReadings and useEngineQuota hook regression tests (#137)", () 
     }
     return { result, element: createElement(Harness) };
   }
+
+  it.each(["auth_changed", "login_required", "mode_not_supported", "not_adapted", "scope_unverifiable"] as const)(
+    "retires the Settings reading when a conversation reports %s, then shows the new login", async reason => {
+      const conn = makeConnection("host-settings-retired");
+      const initial = makeScope(BASE_NOW, 40);
+      conn.readEngineQuotas.mockResolvedValue({ generatedAt: isoAt(BASE_NOW), scopes: [initial], truncated: false });
+      const { result, element } = settingsHarness(conn);
+      await act(async () => { root!.render(element); });
+      expect(result.value?.directory?.scopes[0]?.observedAt).toBe(initial.observedAt);
+
+      // The conversation's worker invalidates this login without a new observedAt.
+      // Settings keeps its original directory and only re-renders through the store subscriber.
+      const retired = { ...initial, reason, observedAt: undefined, pools: [], state: "unknown" as const };
+      await act(async () => { applyHostQuotaScope(conn, "alpha", retired, BASE_NOW); });
+      expect(readStoredQuota(conn, "alpha", BASE_NOW)).toBeUndefined();
+      expect(mem.get(SAVED_QUOTA_KEY) ?? "{}").not.toContain('"alpha"');
+      expect(result.value?.directory?.scopes[0]).toEqual(retired);
+      expect(result.value?.cachedScopeIds.size).toBe(0);
+      // The same login retired: a store notification must not issue a directory/native refresh or feed itself back.
+      expect(conn.readEngineQuotas).toHaveBeenCalledTimes(1);
+
+      // Another login: the list is read once more, and the Host now lists that login.
+      const current = makeScope(BASE_NOW + 10_000, 12, { revision: "new_login" });
+      conn.readEngineQuotas.mockResolvedValue({ generatedAt: isoAt(BASE_NOW + 10_000), scopes: [current], truncated: false });
+      await act(async () => { applyHostQuotaScope(conn, "alpha", current, BASE_NOW + 10_000); });
+      expect(result.value?.directory?.scopes[0]).toEqual(current);
+      expect(result.value?.cachedScopeIds.size).toBe(0);
+      expect(conn.readEngineQuotas).toHaveBeenCalledTimes(2);
+      expect(conn.refreshEngineQuota).not.toHaveBeenCalled();
+    },
+  );
+
+  it("Refresh still reaches the Host for a card showing a conversation's new login while the list holds the old one", async () => {
+    const conn = makeConnection("host-settings-new-login-refresh");
+    const initial = makeScope(BASE_NOW, 40);
+    conn.readEngineQuotas.mockResolvedValueOnce({ generatedAt: isoAt(BASE_NOW), scopes: [initial], truncated: false });
+    const { result, element } = settingsHarness(conn);
+    await act(async () => { root!.render(element); });
+
+    // The list is read again for the new login, but that read fails: the page keeps the old list.
+    conn.readEngineQuotas.mockRejectedValueOnce(new Error("network"));
+    const moved = { ...initial, revision: "rev_2", reason: "auth_changed", observedAt: undefined, pools: [], state: "unknown" as const };
+    await act(async () => { applyHostQuotaScope(conn, "alpha", moved, BASE_NOW); });
+    const shown = result.value!.directory!.scopes[0]!;
+    expect(shown.revision).toBe("rev_2");
+
+    const fresh = makeScope(BASE_NOW + 1_000, 5, { revision: "rev_2" });
+    conn.refreshEngineQuota.mockResolvedValueOnce(fresh);
+    await act(async () => { await result.value!.refresh(shown, [shown.id]); });
+    expect(conn.refreshEngineQuota).toHaveBeenCalledTimes(1);
+    expect(conn.refreshEngineQuota.mock.calls[0]?.[0]).toMatchObject({ id: "alpha", revision: "rev_2" });
+    expect(result.value?.directory?.scopes[0]).toMatchObject({ revision: "rev_2", observedAt: fresh.observedAt });
+  });
+
+  it("reads the list once per reported login and does not repeat it while the Host still lists the old one", async () => {
+    const conn = makeConnection("host-settings-new-login-once");
+    const initial = makeScope(BASE_NOW, 40);
+    conn.readEngineQuotas.mockResolvedValue({ generatedAt: isoAt(BASE_NOW), scopes: [initial], truncated: false });
+    const { result, element } = settingsHarness(conn);
+    await act(async () => { root!.render(element); });
+    const moved = makeScope(BASE_NOW + 1_000, 5, { revision: "rev_2" });
+    await act(async () => { applyHostQuotaScope(conn, "alpha", moved, BASE_NOW + 1_000); });
+    expect(conn.readEngineQuotas).toHaveBeenCalledTimes(2);
+    // The same report arrives again: no further read, and nothing feeds back on later renders.
+    await act(async () => { applyHostQuotaScope(conn, "alpha", moved, BASE_NOW + 2_000); });
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(result.value?.directory?.scopes[0]?.revision).toBe("rev_2");
+    expect(conn.readEngineQuotas).toHaveBeenCalledTimes(2);
+    expect(conn.refreshEngineQuota).not.toHaveBeenCalled();
+  });
+
+  it("shows each Bot in one card after one of two Bots sharing a login changes login in a conversation", async () => {
+    const conn = makeConnection("host-settings-shared-split");
+    const shared = { sharing: "verified" as const, botIds: ["alpha", "beta"] };
+    const alpha = makeScope(BASE_NOW, 40, shared);
+    const beta = makeScope(BASE_NOW, 40, { ...shared, id: "beta", label: "Beta Bot" });
+    conn.readEngineQuotas.mockResolvedValueOnce({ generatedAt: isoAt(BASE_NOW), scopes: [alpha, beta], truncated: false });
+    const { result, element } = settingsHarness(conn);
+    await act(async () => { root!.render(element); });
+
+    const moved = makeScope(BASE_NOW + 1_000, 5, { revision: "rev_2", sharing: "unverified", botIds: ["alpha"] });
+    const betaAlone = { ...beta, sharing: "unverified" as const, botIds: ["beta"] };
+    conn.readEngineQuotas.mockResolvedValueOnce({ generatedAt: isoAt(BASE_NOW + 1_000), scopes: [moved, betaAlone], truncated: false });
+    await act(async () => { applyHostQuotaScope(conn, "alpha", moved, BASE_NOW + 1_000); });
+    expect(conn.readEngineQuotas).toHaveBeenCalledTimes(2);
+    const cards = groupQuotaScopesByAccount(result.value!.directory!.scopes, { now: BASE_NOW + 1_000 });
+    for (const id of ["alpha", "beta"]) expect(cards.filter(card => card.bots.some(bot => bot.id === id))).toHaveLength(1);
+    expect(cards.find(card => card.bots.some(bot => bot.id === "alpha"))?.primary.revision).toBe("rev_2");
+  });
 
   it("reads a card shared by two Bots once, and the reading reaches the other Bot through the shared store (#77 with #137)", async () => {
     const conn = makeConnection("host-settings-shared");

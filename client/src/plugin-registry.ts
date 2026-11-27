@@ -55,8 +55,8 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       icon: "notes",
       source: { repository: "cloveric/tarobird", commit: "636ada65833c" },
       artifact: {
-        sha256: "f463130202743a3c2e9ec5cc3280069123bfd3d578e4f90c645613d05be0eaa9",
-        sizeBytes: 2837,
+        sha256: "5b171ea0343ea0298813a6cf055aaa875a3b40a39dde3b119a1f421b0905d3b8",
+        sizeBytes: 3519,
       },
       entry: "dist/index.html",
       platforms: ["desktop", "phone"],

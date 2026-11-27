@@ -1,6 +1,6 @@
 // Sandboxed HTML entry bundles for lightweight built-in catalog plugins.
 // Heavy optional extensions (such as Infinite Canvas) are NOT inlined here;
-// they are downloaded on demand from their signed artifact URLs.
+// the host delivers them on demand using the size and digest compiled into the App.
 // Each bundle runs inside <iframe sandbox="allow-scripts"> with an opaque origin
 // and communicates exclusively via the tarobird.plugin.v1 postMessage host API.
 
@@ -40,7 +40,9 @@ export const QUICK_SCRATCHPAD_BUNDLE_HTML = `<!doctype html>
   }
   window.addEventListener("message", (event) => {
     const data = event.data;
-    if (!data || data.protocol !== PROTOCOL || !pending.has(data.id)) return;
+    if (event.source !== window.parent || !data || data.protocol !== PROTOCOL) return;
+    if (data.type === "host.context") { applyContext(data); return; }
+    if (!pending.has(data.id)) return;
     const { resolve, reject } = pending.get(data.id);
     pending.delete(data.id);
     if (data.ok) resolve(data.result);
@@ -49,13 +51,24 @@ export const QUICK_SCRATCHPAD_BUNDLE_HTML = `<!doctype html>
   const pad = document.getElementById("pad");
   pad.addEventListener("input", () => { void callHost("storage.set", { key: "text", value: pad.value }).catch(() => {}); });
   document.getElementById("copy-btn").addEventListener("click", () => { void callHost("clipboard.write", { text: pad.value }).catch(() => {}); });
+  const labels = {
+    en: ["Quick Scratchpad", "Copy", "Jot down quick notes (saved locally inside plugin sandbox)..."],
+    zh: ["速记面板", "复制", "随手记录想法（仅保存在插件沙箱本地存储）…"],
+    ja: ["Quick Scratchpad", "コピー", "メモを入力（この端末のプラグイン専用ストレージに保存されます）…"]
+  };
+  function applyContext(info) {
+    if (!info) return;
+    if (info.theme) document.body.dataset.theme = info.theme === "dark" ? "dark" : "light";
+    if (!info.locale) return;
+    const lang = info.locale === "zh" || info.locale === "ja" ? info.locale : "en";
+    document.documentElement.lang = lang;
+    const [heading, copy, placeholder] = labels[lang];
+    document.getElementById("heading").textContent = heading;
+    document.getElementById("copy-btn").textContent = copy;
+    pad.placeholder = placeholder;
+  }
   callHost("host.hello").then((info) => {
-    if (info && info.theme === "dark") document.body.dataset.theme = "dark";
-    if (info && info.locale === "zh") {
-      document.getElementById("heading").textContent = "速记面板";
-      document.getElementById("copy-btn").textContent = "复制";
-      pad.placeholder = "随手记录想法（仅保存在插件沙箱本地存储）…";
-    }
+    applyContext(info);
     return callHost("storage.get", { key: "text" });
   }).then((text) => { if (typeof text === "string") pad.value = text; }).catch(() => {});
 })();

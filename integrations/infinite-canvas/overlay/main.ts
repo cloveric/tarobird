@@ -6,6 +6,7 @@ import { initializeNetwork } from "@workbench/services/network/runtime";
 import { initializeChannels } from "@workbench/services/channels/runtime";
 import { initializeModels } from "@workbench/services/api/models/runtime";
 import { hostBridge, subscribeHostContextEvents } from "./host-bridge";
+import { getCanvasMessages, initializeCanvasLocale } from "./locale";
 import { createEmbeddedStorage } from "./storage";
 import { installPreferences } from "./preferences";
 import { activateBundledPlugins, initializeEmbeddedPlugins } from "./plugins";
@@ -22,6 +23,7 @@ const safeErrors = new Set([
 async function start() {
     const host = await hostBridge.hello();
     if (host.pluginId !== "tarobird.infinite-canvas") throw Error("CANVAS_HOST_REQUIRED");
+    initializeCanvasLocale(host.locale);
     startupPhase = "preferences";
     await installPreferences();
     startupPhase = "crypto";
@@ -71,5 +73,5 @@ void start().catch((failure: unknown) => {
     const code = safeErrors.has(message) ? message
         : ["TypeError", "ReferenceError", "SecurityError", "SyntaxError", "NotSupportedError"].includes(name) ? name : "startup_failed";
     const root = document.getElementById("root");
-    if (root) root.textContent = `无法打开无限画布。请重试。 (${startupPhase}/${code})`;
+    if (root) root.textContent = `${getCanvasMessages().startupError} (${startupPhase}/${code})`;
 });

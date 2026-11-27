@@ -14,11 +14,18 @@ import { canvasNetworkRequest, type CanvasNetworkInput } from "../electron/canva
 import { isDesktop, isElectron, invoke } from "./desktop-bridge.js";
 
 /** Launch reviewed HTML only in the validated desktop engine families. */
+export function supportsPluginEngine(runtime: "electron" | "native-desktop" | "native-mobile" | "web", userAgent: string): boolean {
+  if (runtime !== "web") return runtime === "electron";
+  return /\b(?:Chrome|Chromium|HeadlessChrome)\/\d+\b/.test(userAgent)
+    && !/\b(?:Mobile|Android|iPhone|iPad|CriOS)\b/.test(userAgent);
+}
+
 export function isPluginSandboxSupported(): boolean {
-  if (typeof navigator === "undefined" || Capacitor.isNativePlatform()) return false;
-  if (isDesktop()) return isElectron();
-  const ua = navigator.userAgent;
-  return /\b(?:Chrome|Chromium|HeadlessChrome)\/\d+\b/.test(ua) && !/\b(?:Mobile|Android|iPhone|iPad|CriOS)\b/.test(ua);
+  if (typeof navigator === "undefined") return false;
+  const runtime = Capacitor.isNativePlatform() ? "native-mobile"
+    : isElectron() ? "electron"
+      : isDesktop() ? "native-desktop" : "web";
+  return supportsPluginEngine(runtime, navigator.userAgent);
 }
 
 /** Unambiguous per-plugin KV storage key (`/` is forbidden in pluginId). */

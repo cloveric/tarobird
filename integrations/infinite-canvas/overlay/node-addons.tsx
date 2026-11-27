@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { getCanvasMessages, subscribeCanvasLocale } from "./locale";
 import { Blocks } from "lucide-react";
 import { contribute, definePlugin, type CanvasNodeContentProps, type CanvasNodeDefinition, type CanvasNodePanelProps } from "@infinite-canvas/plugin-sdk";
 import { nodes } from "@infinite-canvas/plugin-sdk/builtin";
@@ -58,6 +59,7 @@ function CanvasAcknowledgements() {
 }
 
 export function ConfigPlugins() {
+    const copy = useSyncExternalStore(subscribeCanvasLocale, getCanvasMessages);
     const state = useAddons();
     const [url, setUrl] = useState("");
     const [confirmation, setConfirmation] = useState<{ kind: "enable" } | { kind: "install"; url: string } | { kind: "remove"; id: string; title: string }>();
@@ -75,44 +77,44 @@ export function ConfigPlugins() {
         }
     };
     return <section className="grid max-w-2xl gap-4">
-        <h2 className="text-base font-semibold">第三方节点</h2>
+        <h2 className="text-base font-semibold">{copy.thirdPartyNodes}</h2>
         <div className="flex flex-wrap items-center gap-3">
             <label className="flex items-center gap-2">
                 <input type="checkbox" checked={state.enabled} disabled={state.busy} onChange={event => {
                     if (event.currentTarget.checked) setConfirmation({ kind: "enable" });
                     else { setConfirmation(undefined); void changeState(() => nodeAddonsApi.enable(false)); }
                 }} />
-                允许安装第三方节点
+                {copy.enableNodes}
             </label>
-            <Button type="button" variant="ghost" disabled={state.busy} onClick={() => void changeState(nodeAddonsApi.list)}>刷新</Button>
+            <Button type="button" variant="ghost" disabled={state.busy} onClick={() => void changeState(nodeAddonsApi.list)}>{copy.refresh}</Button>
         </div>
-        {state.error && <p role="status">第三方节点操作未完成。请确认权限后重试。</p>}
+        {state.error && <p role="status">{copy.operationError}</p>}
         {state.enabled && <div className="flex flex-wrap items-end gap-2">
-            <label className="grid min-w-64 flex-1 gap-1">源文件 URL
+            <label className="grid min-w-64 flex-1 gap-1">{copy.sourceUrl}
                 <Input type="url" maxLength={1024} value={url} onChange={event => setUrl(event.target.value)}
                     onKeyDown={event => {
                         if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); reviewSource(); }
                     }} placeholder="https://raw.githubusercontent.com/…" />
             </label>
-            <Button type="button" disabled={!source || state.busy} onClick={reviewSource}>检查并安装</Button>
-            {url && !source && <p className="w-full text-sm" role="status">请输入包含完整提交 SHA 的 GitHub Raw JavaScript 文件地址。</p>}
+            <Button type="button" disabled={!source || state.busy} onClick={reviewSource}>{copy.reviewInstall}</Button>
+            {url && !source && <p className="w-full text-sm" role="status">{copy.invalidSource}</p>}
         </div>}
-        {confirmation && <section role="alertdialog" aria-label="确认第三方节点操作" className="grid gap-3 rounded-md border p-3">
-            {confirmation.kind === "enable" && <p>第三方代码会处理你主动交给节点的文本，在独立运行环境中执行，无法使用 App 或网络或读取密钥。请只安装来源可信的节点。每个文件安装前还会显示来源与 SHA-256，供你确认。</p>}
-            {confirmation.kind === "install" && <p>检查并下载此源文件？宿主会校验地址并显示 SHA-256。确认安装前，文件不会运行。<code className="mt-2 block break-all">{confirmation.url}</code></p>}
-            {confirmation.kind === "remove" && <p>卸载「{confirmation.title}」？画布保留节点和文本，重新选择已安装插件后可继续使用。</p>}
+        {confirmation && <section role="alertdialog" aria-label={copy.confirmNodeAction} className="grid gap-3 rounded-md border p-3">
+            {confirmation.kind === "enable" && <p>{copy.enableWarning}</p>}
+            {confirmation.kind === "install" && <p>{copy.installWarning}<code className="mt-2 block break-all">{confirmation.url}</code></p>}
+            {confirmation.kind === "remove" && <p>{copy.removeWarning(confirmation.title)}</p>}
             <div className="flex gap-2">
-                <Button type="button" disabled={state.busy} onClick={() => void confirm()}>继续</Button>
-                <Button type="button" variant="ghost" onClick={() => setConfirmation(undefined)}>取消</Button>
+                <Button type="button" disabled={state.busy} onClick={() => void confirm()}>{copy.continue}</Button>
+                <Button type="button" variant="ghost" onClick={() => setConfirmation(undefined)}>{copy.cancel}</Button>
             </div>
         </section>}
-        {!state.enabled && state.plugins.length > 0 && <p className="text-sm">已停用第三方节点。安装记录仍保留。</p>}
+        {!state.enabled && state.plugins.length > 0 && <p className="text-sm">{copy.disabledNotice}</p>}
         {!!state.plugins.length && <ul className="grid gap-2">
             {state.plugins.map(plugin => <li key={plugin.id} className="grid gap-1 rounded-md border p-3">
-                <p><strong>{plugin.title}</strong> <span className="text-sm">第三方 · Third-party</span></p>
+                <p><strong>{plugin.title}</strong> <span className="text-sm">{copy.thirdParty}</span></p>
                 <code className="break-all text-xs">{plugin.url}</code>
                 <code className="break-all text-xs">SHA-256 {plugin.sha256}</code>
-                <Button type="button" variant="ghost" className="justify-self-start" disabled={state.busy} onClick={() => setConfirmation({ kind: "remove", id: plugin.id, title: plugin.title })}>卸载</Button>
+                <Button type="button" variant="ghost" className="justify-self-start" disabled={state.busy} onClick={() => setConfirmation({ kind: "remove", id: plugin.id, title: plugin.title })}>{copy.uninstall}</Button>
             </li>)}
         </ul>}
         <CanvasAcknowledgements />
@@ -125,6 +127,7 @@ function nodePluginId(ctx: CanvasNodeContentProps["ctx"]) {
 }
 
 function NodeContent({ ctx }: CanvasNodeContentProps) {
+    const copy = useSyncExternalStore(subscribeCanvasLocale, getCanvasMessages);
     const state = useAddons();
     const id = nodePluginId(ctx);
     const content = ctx.node.metadata?.content ?? "";
@@ -163,14 +166,15 @@ function NodeContent({ ctx }: CanvasNodeContentProps) {
     const output = state.enabled && plugin && rendered?.key === key ? rendered.value : undefined;
     return <div className="grid h-full content-start gap-2 overflow-auto p-3" data-canvas-no-zoom>
         <p className="whitespace-pre-wrap break-words" style={{ color: output?.color ?? ctx.theme.node.text }}>
-            {output?.text ?? (!state.enabled ? "第三方节点已停用" : plugin ? "选择节点后运行" : "双击选择已安装的第三方插件")}
+            {output?.text ?? (!state.enabled ? copy.nodeDisabled : plugin ? copy.selectToRun : copy.chooseByDoubleClick)}
         </p>
-        {state.enabled && plugin && ctx.isSelected && <Button type="button" size="sm" variant="outline" disabled={busy} onMouseDown={event => event.stopPropagation()} onClick={() => void run()}>运行节点</Button>}
-        {errorKey === key && state.enabled && <p role="status">运行失败。请确认节点已启用并重试。</p>}
+        {state.enabled && plugin && ctx.isSelected && <Button type="button" size="sm" variant="outline" disabled={busy} onMouseDown={event => event.stopPropagation()} onClick={() => void run()}>{copy.runNode}</Button>}
+        {errorKey === key && state.enabled && <p role="status">{copy.runError}</p>}
     </div>;
 }
 
 function NodePanel({ ctx, onClose }: CanvasNodePanelProps) {
+    const copy = useSyncExternalStore(subscribeCanvasLocale, getCanvasMessages);
     const state = useAddons();
     const [error, setError] = useState(false);
     const [pendingWrites, setPendingWrites] = useState(0);
@@ -185,28 +189,28 @@ function NodePanel({ ctx, onClose }: CanvasNodePanelProps) {
         });
     };
     return <div className="grid gap-3" data-canvas-no-zoom>
-        <label className="grid gap-1">第三方插件
+        <label className="grid gap-1">{copy.thirdPartyPlugin}
             <select value={nodePluginId(ctx)} onChange={event => save({ isolatedAddonId: event.target.value })}>
-                <option value="">选择插件</option>
-                {state.plugins.map(plugin => <option key={plugin.id} value={plugin.id}>{plugin.title}（第三方）</option>)}
+                <option value="">{copy.choosePlugin}</option>
+                {state.plugins.map(plugin => <option key={plugin.id} value={plugin.id}>{copy.thirdPartyOption(plugin.title)}</option>)}
             </select>
         </label>
-        <label className="grid gap-1">节点文本
+        <label className="grid gap-1">{copy.nodeText}
             <Textarea maxLength={NODE_TEXT_LIMIT} value={text} onChange={event => {
                 setText(event.target.value);
                 save({ content: event.target.value });
             }} />
         </label>
-        {error && <p role="status">保存节点失败，请重试。</p>}
-        <Button type="button" variant="ghost" disabled={pendingWrites > 0} onClick={onClose}>完成</Button>
+        {error && <p role="status">{copy.saveError}</p>}
+        <Button type="button" variant="ghost" disabled={pendingWrites > 0} onClick={onClose}>{copy.done}</Button>
     </div>;
 }
 
 const isolatedNode: CanvasNodeDefinition = {
     type: "third-party-nodes:isolated",
-    title: "第三方节点",
+    title: getCanvasMessages().thirdPartyNode,
     icon: <Blocks size={16} />,
-    description: "使用隔离环境运行已安装的第三方文本插件",
+    description: getCanvasMessages().nodeDescription,
     defaultSize: { width: 260, height: 160 },
     defaultMetadata: { content: "", isolatedAddonId: "" },
     hasSourceHandle: false,

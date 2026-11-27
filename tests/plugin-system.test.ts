@@ -26,6 +26,7 @@ import {
   PLUGIN_SANDBOX_BOOTSTRAP_SCRIPT,
   PLUGIN_SANDBOX_WEBRTC_GLOBALS,
   buildPluginCsp,
+  supportsPluginEngine,
   handlePluginHostMessage,
   pluginStorageBucketKey,
   resolvePluginTheme,
@@ -572,6 +573,21 @@ describe("Plugin sandbox Host API capability gating, storage isolation and error
 });
 
 describe("Plugin CSP wrapping, WebRTC hardening, domain filtering and theme resolution (#101)", () => {
+  it.each([
+    ["native-desktop", "Mozilla Windows Chrome/156.0 Safari/537.36 Edg/156.0", false],
+    ["native-mobile", "Mozilla iPhone Version/18.0 Mobile Safari/604.1", false],
+    ["native-mobile", "Mozilla Android Chrome/156.0 Mobile Safari/537.36", false],
+    ["web", "Mozilla Firefox/151.0", false],
+    ["web", "Mozilla Macintosh Version/18.0 Safari/605.1.15", false],
+    ["web", "Mozilla Android Chrome/156.0 Mobile Safari/537.36", false],
+    ["web", "Mozilla iPhone CriOS/156.0 Mobile Safari/537.36", false],
+    ["web", "Mozilla Macintosh Chrome/156.0 Safari/537.36", true],
+    ["web", "Mozilla Macintosh HeadlessChrome/158.0 Safari/537.36", true],
+    ["electron", "Mozilla Macintosh Chrome/156.0", true],
+  ] as const)("uses the reviewed-plugin policy for %s (%s)", (runtime, ua, expected) => {
+    expect(supportsPluginEngine(runtime, ua)).toBe(expected);
+  });
+
   it("rejects loopback, private LAN, CGNAT, link-local, and local hostnames while allowing public HTTPS domains", () => {
     for (const bad of [
       "localhost",

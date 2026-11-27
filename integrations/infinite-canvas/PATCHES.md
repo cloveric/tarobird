@@ -25,8 +25,8 @@ The release manifest and compiled installer catalog use the same
 actual artifact bytes for the digest and size. The installer pins them from
 `client/src/infinite-canvas-artifact.json`.
 
-The verified asset is 15,465,105 bytes with SHA-256
-`074c2ffe6e64fac41220bbc7b114d5e6969a5fc47f65f41eafd8242387979f0d`.
+The verified asset is 15,474,355 bytes with SHA-256
+`2a2880c343c8d740865f48a6fadf63aa2392cc1f308256505b4a7a5d81605fcb`.
 
 `patch-upstream.mjs` records the changes to the imported source. It uses the
 native upstream routes, views and canvas commands. The `overlay` contains the
