@@ -112,7 +112,6 @@
     "dist/src",
     "dist/deepseek-harness-plugin/src",
     "dist/relay-runtime.mjs",
-    "dist/plugins",
     "dist/licenses/claude-agent-sdk",
     "dist/standalone-graph.json",
     "client/dist",

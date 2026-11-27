@@ -106,3 +106,11 @@ it("makes direct npm pack and installed-package verification enforce the same la
   const folder = await fixture();
   await expect(promisify(execFile)(process.execPath, [path.join(root, "scripts/verify-standalone-package.mjs"), folder])).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("host_package_windows_launcher_missing") });
 });
+
+it("never ships a locally built Infinite Canvas bundle in the Host package", async () => {
+  // The extension is installed on demand; without dist/plugins the Host downloads the pinned release asset.
+  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const covers = (entry: string) => ["dist/plugins/tarobird.infinite-canvas/1.0.0/bundle.html"].some(file => file === entry || file.startsWith(`${entry.replace(/\/$/, "")}/`));
+  expect((manifest.files as string[]).filter(covers)).toEqual([]);
+  expect(await readFile(path.join(root, "scripts/package-standalone.mjs"), "utf8")).not.toMatch(/dist\/plugins|\.\/dist['"]|cp\(['"]dist['"]/);
+});
