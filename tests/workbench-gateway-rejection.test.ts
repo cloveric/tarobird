@@ -13,8 +13,18 @@ import { GatewayReceipts } from '../src/gateway/receipts.js';
 // never existed. Errors that can follow an App execution stay unknown.
 describe('Host rejections before dispatch are reported as not executed', () => {
   let directory: string, store: HubStore, broker: WorkbenchBroker, conversationId: string, commands: WorkbenchCommandFrame[];
+  // Requests a test leaves in flight. They settle before the database closes,
+  // even when an assertion failed first: a request still running would write
+  // its journal into a closed database (an unhandled SQLITE_MISUSE).
+  let inFlight: Promise<unknown>[], waiters: Array<{ count: number; resolve(): void }>;
+  // Resolves once that many commands were dispatched, however slow the
+  // machine: each dispatch is a serialized SQLite write transaction.
+  const dispatched = (count: number) => commands.length >= count ? Promise.resolve() : new Promise<void>(resolve => { waiters.push({ count, resolve }); });
   const owner = (): WorkbenchActor => ({ userId: 'owner', conversationId, validate: async () => {} });
-  const peerFor = (deviceId: string): WorkbenchPeer => ({ key: {}, userId: 'owner', deviceId, active: () => true, validate: async () => {}, send: async frame => { if (frame.type === 'workbench.command') commands.push(frame); } });
+  const peerFor = (deviceId: string): WorkbenchPeer => ({ key: {}, userId: 'owner', deviceId, active: () => true, validate: async () => {}, send: async frame => {
+    if (frame.type !== 'workbench.command') return;
+    commands.push(frame); for (const waiter of waiters) if (commands.length >= waiter.count) waiter.resolve();
+  } });
   const window = (windowId: string, capabilities: WorkbenchRegistration['capabilities'] = ['design.slides.v1']): WorkbenchRegistration =>
     ({ windowId, generation: 'gen', conversationId, capabilities, tabs: [{ id: 'design-a', kind: 'design', designFormat: 'slides', title: 'A', revision: 0 }], activeTabId: 'design-a', visible: true });
   const read = (requestId: string, target?: object) => ({ requestId, operation: 'design.read' as const, payload: {}, ...(target ? { target } : {}) });
@@ -27,11 +37,13 @@ describe('Host rejections before dispatch are reported as not executed', () => {
 
   beforeEach(async () => {
     directory = await mkdtemp(path.join(os.tmpdir(), 'workbench-gateway-rejection-'));
-    store = await HubStore.open(directory); broker = new WorkbenchBroker(store, 1000);
+    // The default command deadline: held commands must stay held for the whole
+    // test. A short one let them expire on a loaded machine, freeing slots.
+    store = await HubStore.open(directory); broker = new WorkbenchBroker(store);
     await store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('bot','Bot','fixture')");
-    conversationId = (await store.createConversation('owner', ['bot'], 'Design', 'gateway-rejection')).id; commands = [];
+    conversationId = (await store.createConversation('owner', ['bot'], 'Design', 'gateway-rejection')).id; commands = []; inFlight = []; waiters = [];
   });
-  afterEach(async () => { broker.close(); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
+  afterEach(async () => { broker.close(); await Promise.allSettled(inFlight); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
 
   it('the Host throws these codes only before recording or dispatching the command', async () => {
     const peer = peerFor('device'); await broker.register(peer, window('w'));
@@ -43,7 +55,8 @@ describe('Host rejections before dispatch are reported as not executed', () => {
     expect(commands).toEqual([]);
     // Eight held commands fill this user's slots; the ninth is refused unrecorded.
     const held = Array.from({ length: 8 }, (_, n) => broker.request(owner(), read(`held-${n}`, { deviceId: 'device', windowId: 'w', tabId: 'design-a' })));
-    for (let n = 0; n < 100 && commands.length < 8; n++) await new Promise(r => setTimeout(r, 2));
+    inFlight.push(...held);
+    await dispatched(8);
     expect(commands).toHaveLength(8);
     expect(await rejected(broker.request(owner(), read('ninth', { deviceId: 'device', windowId: 'w', tabId: 'design-a' })), 'ninth')).toBe('workbench_busy');
     expect(commands).toHaveLength(8);
