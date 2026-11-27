@@ -2,7 +2,8 @@ import { open } from "node:fs/promises";
 import path from "node:path";
 import { HubError } from "./store.js";
 
-const releaseAsset = "https://github.com/cloveric/tarobird/releases/download/infinite-canvas-v1.0.0/infinite-canvas-1.0.0.html";
+// Extension files are published in the plugins repository, apart from App and Host releases.
+const releaseAsset = "https://github.com/cloveric/tarobird-plugins/releases/download/infinite-canvas-v1.0.0/infinite-canvas-1.0.0.html";
 const maximum = 64 * 1024 * 1024;
 let pendingDownload: Promise<Buffer> | undefined;
 
