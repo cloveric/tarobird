@@ -598,20 +598,22 @@ describe("Host Canvas Agent bridge handshake, auth, security & Bot tool wiring (
     expect((await socket.next("instance.ready")).capabilities).toContain("canvas.agent.v1");
   });
 
-  it("rate-limits the canvas bridge routes per source before reading the token, counting wrong tokens", async () => {
+  it("counts only rejected canvas bridge requests per source and then refuses that source before reading the token", async () => {
     const { hub, chat } = await startHub();
     const owner = await app(hub, "rate_owner");
     const canvas = await grant(hub, owner, chat.id, "window_r", "tab_r", "client_r", "project_r");
     const wrong = { clientId: canvas.clientId, token: "wrong-token" };
-    expect((await canvasPost(hub, "activate", canvas)).status).toBe(200);
-    // Setup and the call above already used part of the 600-request budget of this source.
+    // Accepted requests are never counted: far more than the rejection budget go through.
+    for (let i = 0; i < 150; i++) expect((await canvasPost(hub, "activate", canvas)).status).toBe(200);
+    // Rejections are counted: 60 are answered 401, after that the source is refused.
     const statuses: number[] = [];
-    for (let i = 0; i < 600; i++) statuses.push((await canvasPost(hub, i % 2 ? "activate" : "result", wrong, { requestId: "fixture" })).status);
+    for (let i = 0; i < 70; i++) statuses.push((await canvasPost(hub, i % 2 ? "activate" : "result", wrong, { requestId: "fixture" })).status);
     const limited = statuses.indexOf(429);
-    expect(limited).toBeGreaterThan(590);
+    expect(limited).toBeGreaterThanOrEqual(60);
+    expect(limited).toBeLessThanOrEqual(61);
     expect(statuses.slice(0, limited).every(status => status === 401)).toBe(true);
     expect(statuses.slice(limited).every(status => status === 429)).toBe(true);
-    // The budget is per source, so the valid token from the same source is refused too.
+    // The refusal is per source and comes before the token is read, so the valid token is refused too.
     expect((await canvasPost(hub, "activate", canvas)).status).toBe(429);
   });
 

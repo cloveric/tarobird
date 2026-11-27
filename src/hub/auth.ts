@@ -21,6 +21,8 @@ const PAIRING_MS = 5 * 60_000;
 const INVITE_ERA_KEY = "pairing-invites:v1";
 const TOKEN_MS = 15 * 60_000;
 const CHALLENGE_MS = 30_000;
+/** Rejected canvas bridge requests one source may make per limiter window. */
+const CANVAS_BRIDGE_REJECTIONS = 60;
 const identitySchema = z.object({ publicKey: z.string(), privateKey: z.string() });
 export const hashSecret = (value: string): string => createHash("sha256").update(value).digest("hex");
 export const deviceProof = (deviceId: string, nonce: string, clientNonce: string): Buffer => Buffer.from(`tarocub/device/v1\0${deviceId}\0${nonce}\0${clientNonce}`);
@@ -425,11 +427,20 @@ export class HubAuth {
     return structuredClone(s);
   }
   /** Canvas bridge routes (`/api/canvas-agent/state|activate|result`) are
-   * authenticated only by a CanvasAgent token, before any session check. Count
-   * every request per source before the token is read, so wrong tokens are
-   * counted too. The budget leaves room for a canvas answering a busy Bot turn. */
-  canvasBridgeAttempt(source: string): void {
-    this.rate(`canvas-bridge:${rateSource(source)}`, 600, isLoopback(source) ? "trusted" : "anonymous");
+   * authenticated only by a CanvasAgent token, before any session check. Only
+   * REJECTED requests are counted per source, so a canvas posting state during a
+   * busy Bot turn is never throttled. Once a source has too many rejections in
+   * the window, `canvasBridgeRefused` turns its requests away before the token
+   * is looked at. */
+  canvasBridgeRefused(source: string): void {
+    this.prune();
+    const limits = isLoopback(source) ? this.trustedLimits : this.limits;
+    const entry = limits.get(`canvas-bridge:${rateSource(source)}`);
+    if (entry && entry.count > CANVAS_BRIDGE_REJECTIONS) throw new HubError("rate_limited", 429);
+  }
+  canvasBridgeRejected(source: string): void {
+    // `rate` throws once the budget is spent; the caller reports its own 401.
+    try { this.rate(`canvas-bridge:${rateSource(source)}`, CANVAS_BRIDGE_REJECTIONS, isLoopback(source) ? "trusted" : "anonymous"); } catch { /* counted */ }
   }
   tlsIdentity(nonce: string, certificate: Buffer, source: string): TlsIdentity {
     this.rate(`tls-identity:${rateSource(source)}`, 60, isLoopback(source) ? "trusted" : "anonymous");

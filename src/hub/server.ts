@@ -2002,24 +2002,30 @@ export class HubServer {
     // a worker has expired or a browser retries the navigation on the network.
     if (route.startsWith("/__tarocub_download/")) { res.writeHead(204, { "Cache-Control": "no-store" }); res.end(); return; }
     if (isCanvasAgentBridgeRoute) {
-      this.auth.canvasBridgeAttempt(source);
+      // A source with too many rejected requests is refused before its token is read.
+      // Accepted requests are not counted: a canvas may post state many times in a turn.
+      this.auth.canvasBridgeRefused(source);
       const caToken = req.headers.authorization?.match(/^CanvasAgent\s+(\S+)$/)?.[1];
       const clientId = url.searchParams.get("clientId") ?? undefined;
-      if (!caToken || !clientId) throw new HubError("canvas_agent_unauthorized", 401);
+      if (!caToken || !clientId) { this.auth.canvasBridgeRejected(source); throw new HubError("canvas_agent_unauthorized", 401); }
+      const verifyGrant = async () => {
+        try { return await this.canvasAgent.verifyToken(caToken, clientId); }
+        catch (error) { this.auth.canvasBridgeRejected(source); throw error; }
+      };
       if (route === "/api/canvas-agent/state" && req.method === "POST") {
         const body = z.object({ snapshot: z.unknown().nullable().optional() }).strict().parse(await this.jsonBody(req));
-        const grant = await this.canvasAgent.verifyToken(caToken, clientId);
+        const grant = await verifyGrant();
         this.canvasAgent.updateState(grant, body.snapshot ?? null);
         this.json(res, 200, { ok: true }); return;
       }
       if (route === "/api/canvas-agent/activate" && req.method === "POST") {
-        const grant = await this.canvasAgent.verifyToken(caToken, clientId);
+        const grant = await verifyGrant();
         this.canvasAgent.activateClient(grant);
         this.json(res, 200, { ok: true }); return;
       }
       if (route === "/api/canvas-agent/result" && req.method === "POST") {
         const body = await this.jsonBody(req);
-        const grant = await this.canvasAgent.verifyToken(caToken, clientId);
+        const grant = await verifyGrant();
         const ok = this.canvasAgent.resolveResult(grant, body);
         this.json(res, ok ? 200 : 409, { ok }); return;
       }
