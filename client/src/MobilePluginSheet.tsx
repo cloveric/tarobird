@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { ChevronLeft, Puzzle, X } from "lucide-react";
-import type { InstalledPluginRecord } from "./plugin-registry.js";
+import type { InstalledPluginRecord, PluginRegistry } from "./plugin-registry.js";
 import { PluginSandboxFrame } from "./PluginSandboxFrame.js";
 import { useBackAction } from "./back-navigation.js";
 import { t, useLocale } from "./i18n.js";
@@ -11,10 +11,12 @@ import "./plugins.css";
 export function MobilePluginSheet({
   plugin,
   title,
+  registry,
   close,
 }: {
   plugin: InstalledPluginRecord;
   title: string;
+  registry?: PluginRegistry;
   close: () => void;
 }) {
   useLocale();
@@ -64,7 +66,7 @@ export function MobilePluginSheet({
         </button>
       </header>
       <div className="plugin-mobile-sheet-body">
-        <PluginSandboxFrame plugin={plugin} title={title}/>
+        <PluginSandboxFrame plugin={plugin} title={title} registry={registry}/>
       </div>
     </dialog>
   );

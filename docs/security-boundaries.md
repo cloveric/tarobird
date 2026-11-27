@@ -1032,3 +1032,67 @@ model write followed by a failed state read, a timed-out write, or a lost sessio
 guard remains uncertain; do not automatically replay it. Workspace equivalence
 uses physical identity and Windows case comparison, while Windows launch cwd
 keeps its logical junction path and its native ancestor-resource semantics.
+
+## Sandboxed plugin system
+
+Installed plugins execute inside two nested opaque sandbox frames
+(`plugin-sandbox.html` on the isolated sandbox origin/scheme, hosting an inner
+`about:srcdoc` `<iframe sandbox="allow-scripts">` without `allow-same-origin`).
+Plugins do not share the App origin and cannot read App cookies, App
+`localStorage`/`IndexedDB`, device private keys, Hub session tokens, or call Hub
+HTTP/WebSocket routes directly. Communication with the App happens solely through
+the schema-validated `tarobird.plugin.v1` `postMessage` bridge, where every
+method checks the plugin's explicitly granted capabilities.
+
+Every install — catalog official plugins, opt-in third-party plugins, and
+desktop developer local-folder loads — goes through the same pre-install
+permission and network-domain review modal before anything is persisted or
+granted. Manifests are schema-validated; artifact byte size and SHA-256 are
+verified on every install, and official plugins additionally verify an Ed25519
+signature against the canonical `OFFICIAL_PLUGIN_PUBLIC_KEY` constant in
+`src/client-protocol/plugins.ts`. Third-party plugin installation is disabled by
+default behind an explicit warning confirmation, and the built-in third-party
+catalog ships empty rather than bundling fabricated community entries. Local
+developer plugins cannot claim reserved `tarobird.*` or official plugin IDs.
+
+Plugin registry metadata and per-plugin KV buckets are scoped per
+`(deviceId, hostPublicKey, userId)` (`tarobird.plugins.v1.<scopeId>` with bundle
+and KV storage in IndexedDB `tarobird.plugin.store.v1`, plus one-way migration
+from legacy unscoped `tarobird.plugins.v1`). Declared network domains are
+filtered to canonical public hostnames only — schemes, paths, credentials,
+wildcards, loopback, private LAN, CGNAT, link-local, and local names
+(`localhost`, `*.local`, `*.internal`, `*.lan`, `*.home.arpa`, single labels)
+are rejected before grant and before building `connect-src`.
+
+`wrapSandboxedDocument` strips untrusted plugin CSP/referrer `<meta>` tags,
+`<base>` tags, and root `on*` handlers, prepends host-owned
+`Referrer-Policy: no-referrer` and per-plugin CSP (`default-src 'none'`,
+`script-src 'unsafe-inline'`, `worker-src 'none'`, `frame-src 'none'`,
+`object-src 'none'`, `base-uri 'none'`, `form-action 'none'`, and
+`connect-src` limited to approved public `https:`/`wss:` hosts or `'none'`), and
+prepends a trusted bootstrap script that removes and locks down
+`RTCPeerConnection`, `webkitRTCPeerConnection`, `mozRTCPeerConnection`,
+`RTCDataChannel`, and related WebRTC constructors non-configurably before plugin
+code executes. The outer `plugin-sandbox.html` relay disables those WebRTC
+constructors as well.
+
+### Residual exposure
+
+- **Not an OS sandbox or network firewall.** Unlike inline widgets (whose
+  authored scripts run inside a DOM-less dedicated Worker), plugin scripts run
+  directly in the guest document's DOM so interactive plugin UIs work. Because
+  CSP alone does not block WebRTC ICE/STUN/UDP, removing WebRTC constructors in
+  the trusted bootstrap is defense-in-depth rather than an engine-level or
+  OS-level firewall: an adversarial plugin script with DOM access may still be
+  able to obtain a fresh blank sub-frame realm or trigger browser networking
+  side channels (such as DNS prefetch) depending on the browser/WebView engine.
+  Only install third-party or local-dev plugins from sources you trust.
+- **Approved external domains.** Any data a plugin holds can be sent to its
+  approved public `domains`. Outside Electron's session checks, DNS resolution
+  and HTTP redirects from an approved public hostname to private/loopback
+  addresses are not inspected by the browser CSP.
+- **Resource exhaustion.** Browser-frame isolation does not impose OS process,
+  CPU, or memory quotas on plugin scripts or CSS.
+- **Mobile native guard.** On Capacitor native builds, plugin frames refuse to
+  mount unless the bundled WebView isolation guard (`tarobot-widget-guard`) is
+  present and active.

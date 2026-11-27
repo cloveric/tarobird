@@ -1,8 +1,8 @@
 import type { DesignBotDraft } from "./workbench-design-comments.js";
 import { workbenchErrorText } from "./workbench-error.js";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent } from "react";
 import { ArrowLeft, ChevronDown, Columns2, FileText, FolderOpen, Globe, LayoutGrid, Presentation, List, Maximize2, Minimize2, MoreHorizontal, Plus, Puzzle, RotateCw, Square, SquarePen, Trash2, Users, X } from "lucide-react";
-import { pluginRegistry } from "./plugin-registry.js";
+import { getPluginRegistry, pluginRegistry as defaultPluginRegistry, resolvePluginScopeId, type PluginRegistry } from "./plugin-registry.js";
 import { PluginSandboxFrame } from "./PluginSandboxFrame.js";
 import { useLocale } from "./i18n.js";
 import { WorkbenchSplitPicker } from "./WorkbenchSplitPicker.js";
@@ -27,13 +27,19 @@ const WorkbenchCanvas = lazy(() => import("./WorkbenchCanvas.js"));
 const Widget = lazy(() => import("./Widget.js").then(module => ({ default: module.Widget })));
 export { workbenchErrorText } from "./workbench-error.js";
 
-export type WorkbenchProps = { id?: string; compact?: boolean; controller: WorkbenchController; visible: boolean; phone: boolean; onClose(): void; onManageFiles?(): void; onOpenPlugins?(): void; onAnnotate?(value: BoardAnnotation): Promise<void> | void; onExpandedChange?(expanded: boolean): void; onDesignCompose?(draft: DesignBotDraft): Promise<"opened"|"declined">; onCompose?(message: Message, text: string): boolean };
-export function Workbench({ id = "conversation-workbench", compact = false, controller, visible, phone, onClose, onManageFiles, onOpenPlugins, onAnnotate, onExpandedChange, onDesignCompose, onCompose }: WorkbenchProps) {
+export type WorkbenchProps = { id?: string; compact?: boolean; controller: WorkbenchController; pluginRegistry?: PluginRegistry; visible: boolean; phone: boolean; onClose(): void; onManageFiles?(): void; onOpenPlugins?(): void; onAnnotate?(value: BoardAnnotation): Promise<void> | void; onExpandedChange?(expanded: boolean): void; onDesignCompose?(draft: DesignBotDraft): Promise<"opened"|"declined">; onCompose?(message: Message, text: string): boolean };
+export function Workbench({ id = "conversation-workbench", compact = false, controller, pluginRegistry: pluginRegistryProp, visible, phone, onClose, onManageFiles, onOpenPlugins, onAnnotate, onExpandedChange, onDesignCompose, onCompose }: WorkbenchProps) {
   useEffect(()=>controller.setDesignComposer(onDesignCompose),[controller,onDesignCompose]);
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot), locale = useLocale();
-  const pluginState = useSyncExternalStore(pluginRegistry.subscribe, pluginRegistry.getSnapshot);
-  const workbenchPlugins = pluginRegistry.enabledContributions(phone ? "phone" : "desktop", "workbench-item");
   const connection = controller.connection, subscribeConnection = useCallback((listener: () => void) => connection.subscribe(listener), [connection]);
+  const connectionUserId = useSyncExternalStore(subscribeConnection, () => connection.state.user?.id);
+  const resolvedPluginScope = resolvePluginScopeId(connection.identity.hubPublicKey, connectionUserId, connection.identity.deviceId);
+  const activePluginRegistry = useMemo(
+    () => pluginRegistryProp ?? (resolvedPluginScope ? getPluginRegistry(resolvedPluginScope) : defaultPluginRegistry),
+    [pluginRegistryProp, resolvedPluginScope],
+  );
+  const pluginState = useSyncExternalStore(activePluginRegistry.subscribe, activePluginRegistry.getSnapshot);
+  const workbenchPlugins = activePluginRegistry.enabledContributions(phone ? "phone" : "desktop", "workbench-item");
   const sharingAvailable = useSyncExternalStore(subscribeConnection, () => !!connection.state.workbenchDesignShareAvailable);
   const word = (zh: string, en: string) => locale === "en" ? en : zh;
   const panel = useRef<HTMLElement>(null), grid = useRef<HTMLDivElement>(null), tabbar = useRef<HTMLDivElement>(null);
@@ -264,7 +270,7 @@ export function Workbench({ id = "conversation-workbench", compact = false, cont
               : tab.kind === "design" ? controller.designSession(tab.id) ? <Suspense fallback={<p role="status">{word("正在打开设计…", "Opening design…")}</p>}><WorkbenchDesign controller={controller} session={controller.designSession(tab.id)!} active={active} title={tab.title} botAvailable={tab.designFormat === "slides" ? controller.connection.state.workbenchSlidesAvailable === true : controller.connection.state.workbenchDesignAvailable === true} onActivate={() => { if (controller.getSnapshot().layout.active !== tab.id) action(() => controller.change({ type: "select", id: tab.id })); }}/></Suspense> : <p>{word("正在打开设计…", "Opening design…")}</p>
               : tab.kind === "markdown" ? active && controller.markdownSession(tab.id) ? <Suspense fallback={<p role="status">{word("正在打开笔记…", "Opening note…")}</p>}><WorkbenchMarkdown session={controller.markdownSession(tab.id)!} title={tab.title} botAvailable={controller.connection.state.workbenchMarkdownAvailable === true}/></Suspense> : <p>{word("正在打开笔记…", "Opening note…")}</p>
                 : tab.kind === "chart" ? <ChartPane controller={controller} tab={tab} active={active} compact={shown.length > 2} version={state.chartVersion} onCompose={onCompose}/>
-                : tab.kind === "plugin" ? (tab.pluginId && pluginState.installed[tab.pluginId]?.enabled ? <PluginSandboxFrame plugin={pluginState.installed[tab.pluginId]!} title={tab.title}/> : <p className="workbench-unavailable" role="status">{word("此插件已停用或已卸载，请在插件页重新启用。", "This plugin is disabled or uninstalled. Enable it from Plugins.")}</p>)
+                : tab.kind === "plugin" ? (tab.pluginId && pluginState.installed[tab.pluginId]?.enabled ? <PluginSandboxFrame plugin={pluginState.installed[tab.pluginId]!} title={tab.title} registry={activePluginRegistry}/> : <p className="workbench-unavailable" role="status">{word("此插件已停用或已卸载，请在插件页重新启用。", "This plugin is disabled or uninstalled. Enable it from Plugins.")}</p>)
                 : <BrowserPane controller={controller} tab={tab} active={active}/>}
           </div>
         </section>;

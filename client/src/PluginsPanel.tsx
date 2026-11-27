@@ -30,10 +30,14 @@ import {
   type PluginPlatform,
 } from "../../src/client-protocol/plugins.js";
 import {
-  pluginRegistry,
+  pluginRegistry as defaultPluginRegistry,
   type InstalledPluginRecord,
   type PluginCatalogEntry,
+  type PluginRegistry,
+  type PluginStoreState,
+  type PreparedLocalDevPlugin,
 } from "./plugin-registry.js";
+import { sanitizePluginDomain } from "./plugin-sandbox-runtime.js";
 import {
   matchesPluginMarketplaceQuery,
   pluginMarketplaceCategory,
@@ -154,22 +158,58 @@ type MarketplaceEntry = {
   installed?: InstalledPluginRecord;
 };
 
+type PendingInstallReview =
+  | {
+      kind: "catalog";
+      entry: PluginCatalogEntry;
+      sanitizedDomains: string[];
+      blockedDomains: string[];
+    }
+  | {
+      kind: "local-dev";
+      prepared: PreparedLocalDevPlugin;
+    };
+
+const EMPTY_PLUGIN_STORE: PluginStoreState = { allowThirdParty: false, developerMode: false, installed: {} };
+const noopSubscribe = () => () => {};
+const emptySnapshot = () => EMPTY_PLUGIN_STORE;
+
+function splitDeclaredDomains(domains: readonly string[]): {
+  sanitizedDomains: string[];
+  blockedDomains: string[];
+} {
+  const sanitized = new Set<string>();
+  const blocked = new Set<string>();
+  for (const raw of domains) {
+    const clean = sanitizePluginDomain(raw);
+    if (clean) sanitized.add(clean);
+    else if (raw.trim()) blocked.add(raw.trim());
+  }
+  return { sanitizedDomains: [...sanitized], blockedDomains: [...blocked] };
+}
+
 export function PluginsView({
   platform,
+  registry,
   onOpenContribution,
   backActionRef,
 }: {
   platform: PluginPlatform;
+  registry?: PluginRegistry | null;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
   backActionRef?: RefObject<(() => boolean) | null>;
 }) {
+  const activeRegistry = registry === undefined ? defaultPluginRegistry : registry;
   const locale = useLocale();
-  const state = useSyncExternalStore(pluginRegistry.subscribe, pluginRegistry.getSnapshot);
+  const state = useSyncExternalStore(
+    activeRegistry ? activeRegistry.subscribe : noopSubscribe,
+    activeRegistry ? activeRegistry.getSnapshot : emptySnapshot,
+  );
   const [tab, setTab] = useState<MarketplaceTab>("discover");
   const [category, setCategory] = useState<MarketplaceCategory>("all");
   const [query, setQuery] = useState("");
   const [selectedPluginId, setSelectedPluginId] = useState<string>();
-  const [reviewEntry, setReviewEntry] = useState<PluginCatalogEntry>();
+  const [reviewTarget, setReviewTarget] = useState<PendingInstallReview>();
   const [consentError, setConsentError] = useState<string>();
   const [confirmThirdParty, setConfirmThirdParty] = useState(false);
   const [busyId, setBusyId] = useState<string>();
@@ -180,8 +220,8 @@ export function PluginsView({
   useEffect(() => {
     if (!backActionRef) return;
     backActionRef.current = () => {
-      if (reviewEntry) {
-        setReviewEntry(undefined);
+      if (reviewTarget) {
+        setReviewTarget(undefined);
         setConsentError(undefined);
         return true;
       }
@@ -194,10 +234,10 @@ export function PluginsView({
     return () => {
       if (backActionRef.current) backActionRef.current = null;
     };
-  }, [backActionRef, reviewEntry, selectedPluginId]);
+  }, [backActionRef, reviewTarget, selectedPluginId]);
 
-  const catalog = useMemo(() => pluginRegistry.catalogForPlatform(platform), [platform]);
-  const installedList = useMemo(() => pluginRegistry.installedForPlatform(platform), [state.installed, platform]);
+  const catalog = useMemo(() => (activeRegistry ?? defaultPluginRegistry).catalogForPlatform(platform), [activeRegistry, platform]);
+  const installedList = useMemo(() => (activeRegistry ? activeRegistry.installedForPlatform(platform) : []), [activeRegistry, state.installed, platform]);
   const localDevInstalled = useMemo(
     () => installedList.filter((item) => item.sourceKind === "local-dev"),
     [installedList],
@@ -227,9 +267,10 @@ export function PluginsView({
   const availableCategories = useMemo<MarketplaceCategory[]>(() => {
     const cats = new Set(allEntries.map((item) => pluginMarketplaceCategory(item.manifest)));
     const ordered: MarketplaceCategory[] = ["all"];
-    for (const candidate of ["workbench", "productivity", "community"] as const) {
+    for (const candidate of ["workbench", "productivity"] as const) {
       if (cats.has(candidate)) ordered.push(candidate);
     }
+    ordered.push("community");
     return ordered;
   }, [allEntries]);
 
@@ -269,23 +310,44 @@ export function PluginsView({
 
   const openReview = (entry: PluginCatalogEntry) => {
     setConsentError(undefined);
-    setReviewEntry(entry);
+    const { sanitizedDomains, blockedDomains } = splitDeclaredDomains(entry.manifest.domains);
+    setReviewTarget({ kind: "catalog", entry, sanitizedDomains, blockedDomains });
   };
 
   const closeReview = () => {
     setConsentError(undefined);
-    setReviewEntry(undefined);
+    setReviewTarget(undefined);
   };
 
-  const performInstall = async (entry: PluginCatalogEntry) => {
-    setBusyId(entry.manifest.id);
+  const performInstall = async (target: PendingInstallReview) => {
+    if (!activeRegistry) {
+      const msg = t("正在同步当前账号信息，请稍后再安装插件。");
+      setConsentError(msg);
+      setFeedback({ text: msg, error: true });
+      return;
+    }
+    const manifest = target.kind === "catalog" ? target.entry.manifest : target.prepared.manifest;
+    setBusyId(manifest.id);
     setConsentError(undefined);
     setFeedback(undefined);
     try {
-      await pluginRegistry.install(entry);
-      setReviewEntry(undefined);
-      setConsentError(undefined);
-      setFeedback({ text: t("已安装插件「{0}」", displayTitle(entry.manifest, locale)) });
+      if (target.kind === "catalog") {
+        await activeRegistry.install(target.entry, {
+          grantedCapabilities: manifest.capabilities,
+          grantedDomains: target.sanitizedDomains,
+        });
+        setReviewTarget(undefined);
+        setConsentError(undefined);
+        setFeedback({ text: t("已安装插件「{0}」", displayTitle(manifest, locale)) });
+      } else {
+        const installed = await activeRegistry.installPreparedLocalDev(target.prepared, {
+          grantedCapabilities: target.prepared.manifest.capabilities,
+          grantedDomains: target.prepared.sanitizedDomains,
+        });
+        setReviewTarget(undefined);
+        setConsentError(undefined);
+        setFeedback({ text: t("已从本地目录加载开发插件「{0}」", displayTitle(installed.manifest, locale)) });
+      }
     } catch (error) {
       const code = error instanceof Error ? error.message : "install_failed";
       const message = code === "plugin_size_mismatch"
@@ -296,7 +358,11 @@ export function PluginsView({
             ? t("校验失败：官方插件签名无效，已阻止安装。")
             : code === "plugin_third_party_disabled"
               ? t("请先开启「允许第三方插件」后再安装。")
-              : t("插件安装失败：{0}", code);
+              : code === "plugin_developer_mode_disabled"
+                ? t("请先开启开发者模式后再加载本地插件。")
+                : code === "plugin_official_id_reserved"
+                  ? t("本地开发插件不能使用官方保留的插件 ID。")
+                  : t("插件安装失败：{0}", code);
       setConsentError(message);
       setFeedback({ text: message, error: true });
     } finally {
@@ -305,8 +371,9 @@ export function PluginsView({
   };
 
   const handleLocalFolderFiles = async (files: FileList | null) => {
-    if (!files || !files.length) return;
+    if (!files || !files.length || !activeRegistry) return;
     setFeedback(undefined);
+    setConsentError(undefined);
     const list = [...files];
     const manifestFile = selectLocalManifestFile(list);
     if (!manifestFile) {
@@ -322,15 +389,17 @@ export function PluginsView({
         return;
       }
       const html = await entryFile.text();
-      const installed = await pluginRegistry.installLocalDev(manifestText, html);
-      setFeedback({ text: t("已从本地目录加载开发插件「{0}」", displayTitle(installed.manifest, locale)) });
+      const prepared = await activeRegistry.prepareLocalDev(manifestText, html);
+      setReviewTarget({ kind: "local-dev", prepared });
     } catch (error) {
       const code = error instanceof Error ? error.message : "invalid_local_plugin";
       const message = code === "plugin_hash_mismatch"
         ? t("校验失败：本地插件哈希与 manifest 不一致。")
         : code === "plugin_official_id_reserved"
           ? t("本地开发插件不能使用官方保留的插件 ID。")
-          : t("无法加载本地插件：{0}", code);
+          : code === "plugin_developer_mode_disabled"
+            ? t("请先开启开发者模式后再加载本地插件。")
+            : t("无法加载本地插件：{0}", code);
       setFeedback({ text: message, error: true });
     }
   };
@@ -349,7 +418,7 @@ export function PluginsView({
     const isBusy = busyId === manifest.id;
     const thirdPartyBlocked = !manifest.official && installed?.sourceKind !== "local-dev" && !state.allowThirdParty;
     const primaryContribution = manifest.contributions[0];
-    const updateEntry = installed ? pluginRegistry.hasUpdate(manifest.id) : undefined;
+    const updateEntry = installed && activeRegistry ? activeRegistry.hasUpdate(manifest.id) : undefined;
 
     if (!installed && catalogEntry) {
       return (
@@ -383,7 +452,7 @@ export function PluginsView({
         <button
           type="button"
           className={installed.enabled ? "secondary" : "primary"}
-          onClick={() => pluginRegistry.setEnabled(manifest.id, !installed.enabled)}
+          onClick={() => activeRegistry?.setEnabled(manifest.id, !installed.enabled)}
         >
           {installed.enabled ? t("停用") : t("启用")}
         </button>
@@ -404,7 +473,7 @@ export function PluginsView({
         <button
           type="button"
           className={installed.enabled ? "secondary" : "primary"}
-          onClick={() => pluginRegistry.setEnabled(manifest.id, !installed.enabled)}
+          onClick={() => activeRegistry?.setEnabled(manifest.id, !installed.enabled)}
         >
           {installed.enabled ? t("停用") : t("启用")}
         </button>
@@ -422,7 +491,7 @@ export function PluginsView({
           type="button"
           className="text-danger"
           onClick={() => {
-            pluginRegistry.uninstall(manifest.id);
+            void activeRegistry?.uninstall(manifest.id);
             setFeedback({ text: t("已卸载插件「{0}」", displayTitle(manifest, locale)) });
           }}
         >
@@ -439,7 +508,7 @@ export function PluginsView({
     const description = displayDescription(manifest, locale);
     const publisher = pluginPublisherLabel(manifest, installed?.sourceKind);
     const cat = pluginMarketplaceCategory(manifest);
-    const updateEntry = installed ? pluginRegistry.hasUpdate(manifest.id) : undefined;
+    const updateEntry = installed && activeRegistry ? activeRegistry.hasUpdate(manifest.id) : undefined;
 
     if (variant === "featured") {
       return (
@@ -552,7 +621,7 @@ export function PluginsView({
         <AlertTriangle size={18}/>
         <div>
           <strong>{t("开启第三方插件前的安全提示")}</strong>
-          <p>{t("第三方插件不由 TaroBird 签名审核。虽然它们运行在独立沙箱中、无法读取 App 令牌或调用主机 API，但仍可能访问其声明的外部域名。请只安装你信任来源的插件。")}</p>
+          <p>{t("第三方插件不由 TaroBird 签名审核。它们运行在独立 opaque-origin iframe 沙箱中，无法读取 App 令牌或调用主机 API，但仍可能访问已批准的外部域名，且浏览器框架隔离不等同于系统级防火墙。请只安装你信任来源的插件。")}</p>
         </div>
       </div>
       <div className="plugin-consent-actions">
@@ -561,7 +630,7 @@ export function PluginsView({
           type="button"
           className="primary"
           onClick={() => {
-            pluginRegistry.setAllowThirdParty(true);
+            activeRegistry?.setAllowThirdParty(true);
             setConfirmThirdParty(false);
           }}
         >
@@ -577,7 +646,7 @@ export function PluginsView({
         <Puzzle size={17} aria-hidden="true"/>
         <div>
           <strong>{t("第三方插件默认关闭")}</strong>
-          <p>{t("社区扩展不由 TaroBird 签名审核。开启后可安装来自第三方社区仓库的插件。")}</p>
+          <p>{t("社区扩展不由 TaroBird 签名审核。开启后可安装受信任的第三方目录插件。")}</p>
         </div>
       </div>
       <button type="button" className="secondary" onClick={() => setConfirmThirdParty(true)}>
@@ -586,23 +655,47 @@ export function PluginsView({
     </div>
   );
 
-  const consentOverlay = reviewEntry && (
+  const reviewManifest = reviewTarget
+    ? (reviewTarget.kind === "catalog" ? reviewTarget.entry.manifest : reviewTarget.prepared.manifest)
+    : undefined;
+  const reviewSanitizedDomains = reviewTarget
+    ? (reviewTarget.kind === "catalog" ? reviewTarget.sanitizedDomains : reviewTarget.prepared.sanitizedDomains)
+    : [];
+  const reviewBlockedDomains = reviewTarget
+    ? (reviewTarget.kind === "catalog" ? reviewTarget.blockedDomains : reviewTarget.prepared.blockedDomains)
+    : [];
+
+  const consentOverlay = reviewTarget && reviewManifest && (
     <div className="plugin-consent-backdrop" role="presentation">
-      <section className="plugin-consent-box" aria-label={t("安装前权限确认")}>
+      <section className="plugin-consent-box" role="alertdialog" aria-label={t("安装前权限确认")}>
         <header>
-          <strong>{t("确认安装「{0}」v{1}", displayTitle(reviewEntry.manifest, locale), reviewEntry.manifest.version)}</strong>
+          <strong>
+            {t("确认安装「{0}」v{1}", displayTitle(reviewManifest, locale), reviewManifest.version)}
+            {reviewTarget.kind === "local-dev" && (
+              <>{" "}<span className="plugin-badge is-dev">{t("本地开发")}</span></>
+            )}
+          </strong>
           <button type="button" className="icon-button" aria-label={t("取消")} onClick={closeReview}><X size={16}/></button>
         </header>
         <p className="muted">
-          {t("安装前会校验构建产物的 SHA-256（{0}…）{1}。插件运行在独立沙箱中，无法读取 App 令牌或调用主机 API。",
-            reviewEntry.manifest.artifact.sha256.slice(0, 12),
-            reviewEntry.manifest.official ? t("与官方签名") : "",
-          )}
+          {reviewTarget.kind === "local-dev"
+            ? t("安装前会校验本地入口文件的 SHA-256（{0}…）。本地开发插件不由 TaroBird 签名，运行在独立 opaque-origin iframe 沙箱中，无法读取 App 令牌或调用主机 API；启动脚本会禁用 WebRTC 构造器并用 CSP 限制常规网络请求（非系统级防火墙）。请仅加载你信任的本地目录。", reviewManifest.artifact.sha256.slice(0, 12))
+            : t("安装前会校验构建产物的 SHA-256（{0}…）{1}。插件运行在独立 opaque-origin iframe 沙箱中，无法读取 App 令牌或调用主机 API；启动脚本会禁用 WebRTC 构造器并用 CSP 限制常规网络请求（非系统级防火墙）。",
+                reviewManifest.artifact.sha256.slice(0, 12),
+                reviewManifest.official ? t("与官方签名") : "",
+              )}
         </p>
         <ul>
-          <li><strong>{t("所需能力：")}</strong>{reviewEntry.manifest.capabilities.length ? formatList(reviewEntry.manifest.capabilities.map(capabilityLabel)) : t("无额外能力")}</li>
-          <li><strong>{t("网络域名：")}</strong>{reviewEntry.manifest.domains.length ? reviewEntry.manifest.domains.join(", ") : t("无外部网络访问")}</li>
-          <li><strong>{t("源码位置：")}</strong><code>{reviewEntry.manifest.source.repository}@{reviewEntry.manifest.source.commit}</code></li>
+          <li><strong>{t("所需能力：")}</strong>{reviewManifest.capabilities.length ? formatList(reviewManifest.capabilities.map(capabilityLabel)) : t("无额外能力")}</li>
+          <li><strong>{t("网络域名：")}</strong>{reviewSanitizedDomains.length ? reviewSanitizedDomains.join(", ") : t("无外部网络访问")}</li>
+          {reviewBlockedDomains.length > 0 && (
+            <li>
+              <strong>{t("已拦截域名：")}</strong>
+              <code>{reviewBlockedDomains.join(", ")}</code>
+              {" "}({t("本地、内网或非法域名不会被授予")})
+            </li>
+          )}
+          <li><strong>{t("源码位置：")}</strong><code>{reviewManifest.source.repository}@{reviewManifest.source.commit}</code></li>
         </ul>
         {consentError && (
           <div className="plugins-feedback is-error" role="alert">
@@ -612,7 +705,7 @@ export function PluginsView({
         )}
         <div className="plugin-consent-actions">
           <button type="button" className="secondary" onClick={closeReview}>{t("取消")}</button>
-          <button type="button" className="primary" disabled={busyId === reviewEntry.manifest.id} onClick={() => void performInstall(reviewEntry)}>
+          <button type="button" className="primary" disabled={busyId === reviewManifest.id} onClick={() => void performInstall(reviewTarget)}>
             <Download size={14}/>{t("确认并安装")}
           </button>
         </div>
@@ -734,8 +827,8 @@ export function PluginsView({
                   <li className="plugin-detail-row">
                     <span className="plugin-detail-row-icon"><Globe size={16}/></span>
                     <div className="plugin-detail-row-text">
-                      <strong>{manifest.domains.length ? manifest.domains.join(", ") : t("无外部网络访问")}</strong>
-                      <small>{manifest.domains.length ? t("沙箱 CSP 仅放行以上声明域名") : t("已通过 CSP connect-src 'none' 禁止外部网络请求")}</small>
+                      <strong>{(installed ? installed.grantedDomains : splitDeclaredDomains(manifest.domains).sanitizedDomains).length ? (installed ? installed.grantedDomains : splitDeclaredDomains(manifest.domains).sanitizedDomains).join(", ") : t("无外部网络访问")}</strong>
+                      <small>{(installed ? installed.grantedDomains : splitDeclaredDomains(manifest.domains).sanitizedDomains).length ? t("通过 CSP 仅放行以上公网域名，并在启动脚本中禁用 WebRTC 构造器（非系统级防火墙）") : t("通过 CSP connect-src 'none' 限制常规网络请求，并在启动脚本中禁用 WebRTC 构造器（非系统级防火墙）")}</small>
                     </div>
                   </li>
                   {manifest.requiresHost && (
@@ -920,7 +1013,7 @@ export function PluginsView({
                       if (e.target.checked) setConfirmThirdParty(true);
                       else {
                         setConfirmThirdParty(false);
-                        pluginRegistry.setAllowThirdParty(false);
+                        activeRegistry?.setAllowThirdParty(false);
                       }
                     }}
                   />
@@ -947,7 +1040,7 @@ export function PluginsView({
                       if (e.target.checked) setConfirmThirdParty(true);
                       else {
                         setConfirmThirdParty(false);
-                        pluginRegistry.setAllowThirdParty(false);
+                        activeRegistry?.setAllowThirdParty(false);
                       }
                     }}
                   />
@@ -961,7 +1054,11 @@ export function PluginsView({
               </div>
             ) : (
               <div className="plugins-empty-card">
-                <p>{t("没有找到匹配的插件。")}</p>
+                <p>
+                  {activeCategory === "community" && !needle
+                    ? t("当前目录暂无已上架的第三方插件。开启开关后可安装受信任的第三方目录插件，或在桌面端「开发者」标签中加载本地插件并审查权限。")
+                    : t("没有找到匹配的插件。")}
+                </p>
                 {(needle || activeCategory !== "all") && (
                   <button
                     type="button"
@@ -1023,7 +1120,7 @@ export function PluginsView({
               <input
                 type="checkbox"
                 checked={state.developerMode}
-                onChange={(e) => pluginRegistry.setDeveloperMode(e.target.checked)}
+                onChange={(e) => activeRegistry?.setDeveloperMode(e.target.checked)}
               />
               <span>{t("启用开发者模式")}</span>
             </label>
@@ -1044,7 +1141,7 @@ export function PluginsView({
               <button type="button" className="secondary" onClick={() => folderInputRef.current?.click()}>
                 <FolderOpen size={15}/>{t("从本地文件夹加载插件")}
               </button>
-              <small className="muted">{t("目录中需包含符合规范的 manifest.json 与入口 HTML 文件。")}</small>
+              <small className="muted">{t("目录中需包含符合规范的 manifest.json 与入口 HTML 文件，加载前仍会展示权限与域名确认弹窗。")}</small>
             </div>
           ) : (
             <div className="plugins-off-banner">
@@ -1052,7 +1149,7 @@ export function PluginsView({
                 <Code2 size={17} aria-hidden="true"/>
                 <div>
                   <strong>{t("开启开发者模式后可加载本地插件")}</strong>
-                  <p>{t("本地加载的插件同样运行在独立 opaque-origin iframe 沙箱中，并受 manifest 声明的能力约束。")}</p>
+                  <p>{t("本地加载的插件需先通过同样的权限与网络域名确认弹窗，并运行在独立 opaque-origin iframe 沙箱中（非系统级防火墙）。")}</p>
                 </div>
               </div>
             </div>
@@ -1073,10 +1170,12 @@ export function PluginsView({
 
 export function PluginsModal({
   platform,
+  registry,
   close,
   onOpenContribution,
 }: {
   platform: PluginPlatform;
+  registry?: PluginRegistry | null;
   close: () => void;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
 }) {
@@ -1131,6 +1230,7 @@ export function PluginsModal({
       <div className="plugins-modal-body">
         <PluginsView
           platform={platform}
+          registry={registry}
           backActionRef={viewBackRef}
           onOpenContribution={onOpenContribution ? (pluginId, contributionId, kind, title) => {
             close();

@@ -143,6 +143,7 @@ test('plugin sandbox stays off the App origin and is permitted on the sandbox sc
   });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('Content-Security-Policy'), PLUGIN_CSP);
+  assert.ok(PLUGIN_CSP.includes("worker-src 'none'"));
   const contents = new EventEmitter();
   contents.setWindowOpenHandler = () => ({ action: 'deny' });
   secureContents(contents);

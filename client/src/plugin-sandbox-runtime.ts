@@ -9,12 +9,51 @@ import { writeClipboardText } from "./clipboard-write.js";
 import { isDesktop, isElectron } from "./desktop-bridge.js";
 
 /** Unambiguous per-plugin KV storage key (`/` is forbidden in pluginId). */
-export function pluginStorageBucketKey(pluginId: string): string {
-  return `tarobird.plugin.kv/${encodeURIComponent(pluginId)}`;
+export function pluginStorageBucketKey(pluginId: string, scopeId?: string): string {
+  const cleanScope = scopeId?.trim();
+  if (!cleanScope || cleanScope === "default") {
+    return `tarobird.plugin.kv/${encodeURIComponent(pluginId)}`;
+  }
+  return `tarobird.plugin.kv/${encodeURIComponent(cleanScope)}/${encodeURIComponent(pluginId)}`;
 }
+
+export type PluginKvStore = {
+  get(scopeId: string, pluginId: string, key: string): Promise<string | null>;
+  set(scopeId: string, pluginId: string, key: string, value: string): Promise<void>;
+  remove(scopeId: string, pluginId: string, key: string): Promise<void>;
+  list(scopeId: string, pluginId: string): Promise<Record<string, string>>;
+  clear(scopeId: string, pluginId: string): Promise<void>;
+};
 
 export const MAX_PLUGIN_STORAGE_KEYS = 64;
 export const MAX_PLUGIN_STORAGE_BYTES = 512 * 1024;
+
+/** WebRTC globals disabled non-configurably before plugin code runs.
+ * CSP alone does not block WebRTC ICE/STUN/UDP networking, so the trusted
+ * bootstrap removes these constructors as defense-in-depth. */
+export const PLUGIN_SANDBOX_WEBRTC_GLOBALS = [
+  "RTCPeerConnection",
+  "webkitRTCPeerConnection",
+  "mozRTCPeerConnection",
+  "RTCDataChannel",
+  "RTCSessionDescription",
+  "RTCIceCandidate",
+  "RTCRtpSender",
+  "RTCRtpReceiver",
+  "RTCRtpTransceiver",
+  "RTCDtlsTransport",
+  "RTCIceTransport",
+  "RTCSctpTransport",
+  "RTCCertificate",
+  "RTCStatsReport",
+  "RTCDataChannelEvent",
+  "RTCPeerConnectionIceEvent",
+  "RTCTrackEvent",
+  "RTCEncodedAudioFrame",
+  "RTCEncodedVideoFrame",
+] as const;
+
+export const PLUGIN_SANDBOX_BOOTSTRAP_SCRIPT = `(()=>{const names=${JSON.stringify(PLUGIN_SANDBOX_WEBRTC_GLOBALS)};const seen=new Set();for(const root of [globalThis,window,self]){for(let obj=root;obj&&obj!==Object.prototype;obj=Object.getPrototypeOf(obj)){if(seen.has(obj))continue;seen.add(obj);for(const name of names){if(obj===root||Object.prototype.hasOwnProperty.call(obj,name)){try{Object.defineProperty(obj,name,{value:undefined,writable:false,configurable:false});}catch{}}}}}})();`;
 
 function isQuotaError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -58,10 +97,13 @@ export async function handlePluginHostMessage(
   raw: unknown,
   context: {
     pluginId: string;
+    scopeId?: string;
     grantedCapabilities: readonly PluginCapability[];
+    grantedDomains?: readonly string[];
     theme: "light" | "dark";
     locale: string;
     storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
+    kvStore?: PluginKvStore;
     writeClipboard?: (text: string) => Promise<void>;
   },
 ): Promise<PluginHostResponse | null> {
@@ -77,7 +119,8 @@ export async function handlePluginHostMessage(
   if (required && !context.grantedCapabilities.includes(required)) {
     return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "capability_denied" };
   }
-  const bucketKey = pluginStorageBucketKey(context.pluginId);
+  const scopeId = context.scopeId?.trim() || "default";
+  const bucketKey = pluginStorageBucketKey(context.pluginId, scopeId);
   switch (req.method) {
     case "host.hello":
       return {
@@ -86,15 +129,21 @@ export async function handlePluginHostMessage(
         ok: true,
         result: {
           pluginId: context.pluginId,
+          scopeId,
           theme: context.theme,
           locale: context.locale,
           grantedCapabilities: [...context.grantedCapabilities],
+          grantedDomains: [...(context.grantedDomains ?? [])],
         },
       };
     case "theme.get":
       return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: { theme: context.theme } };
     case "storage.get":
       try {
+        if (context.kvStore) {
+          const val = await context.kvStore.get(scopeId, context.pluginId, req.key);
+          if (val !== null) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: val };
+        }
         const bucket = readPluginBucket(context.storage, bucketKey);
         return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: bucket.get(req.key) ?? null };
       } catch {
@@ -102,6 +151,10 @@ export async function handlePluginHostMessage(
       }
     case "storage.set":
       try {
+        if (context.kvStore) {
+          await context.kvStore.set(scopeId, context.pluginId, req.key, req.value);
+          return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
+        }
         const bucket = readPluginBucket(context.storage, bucketKey);
         if (!bucket.has(req.key) && bucket.size >= MAX_PLUGIN_STORAGE_KEYS) {
           return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "storage_quota_exceeded" };
@@ -123,12 +176,16 @@ export async function handlePluginHostMessage(
       }
     case "storage.remove":
       try {
+        if (context.kvStore) {
+          await context.kvStore.remove(scopeId, context.pluginId, req.key);
+        }
         const bucket = readPluginBucket(context.storage, bucketKey);
-        bucket.delete(req.key);
-        if (bucket.size === 0) {
-          context.storage.removeItem(bucketKey);
-        } else {
-          context.storage.setItem(bucketKey, serializePluginBucket(bucket));
+        if (bucket.delete(req.key)) {
+          if (bucket.size === 0) {
+            context.storage.removeItem(bucketKey);
+          } else {
+            context.storage.setItem(bucketKey, serializePluginBucket(bucket));
+          }
         }
         return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
       } catch (error) {
@@ -227,6 +284,7 @@ export function buildPluginCsp(grantedDomains: readonly string[]): string {
   return [
     "default-src 'none'",
     "script-src 'unsafe-inline'",
+    "worker-src 'none'",
     "style-src 'unsafe-inline'",
     "img-src data: blob:",
     "font-src data:",
@@ -242,7 +300,12 @@ function stripDisallowedMetaAndBase(root: ParentNode): void {
   const metas = [...root.querySelectorAll("meta")];
   for (const meta of metas) {
     const httpEquiv = meta.getAttribute("http-equiv")?.trim().toLowerCase();
-    if (httpEquiv === "content-security-policy" || httpEquiv === "content-security-policy-report-only") {
+    const name = meta.getAttribute("name")?.trim().toLowerCase();
+    if (
+      httpEquiv === "content-security-policy"
+      || httpEquiv === "content-security-policy-report-only"
+      || name === "referrer"
+    ) {
       meta.remove();
     }
   }
@@ -256,18 +319,18 @@ function stripDisallowedMetaAndBase(root: ParentNode): void {
 
 /** Token-aware HTML fallback used only in non-DOM runtimes (Node tests).
  * Skips comments and rawtext tags so `<!-- <head> -->` or pre-head `<script>`
- * can never bypass host CSP injection. */
-function wrapSandboxedDocumentWithoutDom(bundleHtml: string, cspTag: string): string {
+ * can never bypass host CSP or WebRTC hardening bootstrap injection. */
+function wrapSandboxedDocumentWithoutDom(bundleHtml: string, headPrefix: string): string {
   const stripped = stripCommentsAndUntrustedCsp(bundleHtml);
   const headMatch = findRealHeadOpenTag(stripped);
   if (headMatch) {
     const before = stripped.slice(0, headMatch.start);
     const hasScriptOrBodyBeforeHead = /<(?:script|body|iframe|img|link|style|svg|object|embed)\b/i.test(before);
     if (!hasScriptOrBodyBeforeHead) {
-      return `${stripped.slice(0, headMatch.start)}<head><meta charset="utf-8">${cspTag}${stripped.slice(headMatch.end)}`;
+      return `${stripped.slice(0, headMatch.start)}<head>${headPrefix}${stripped.slice(headMatch.end)}`;
     }
   }
-  return `<!doctype html><html><head><meta charset="utf-8">${cspTag}</head><body>${stripped}</body></html>`;
+  return `<!doctype html><html><head>${headPrefix}</head><body>${stripped}</body></html>`;
 }
 
 function stripCommentsAndUntrustedCsp(html: string): string {
@@ -301,7 +364,10 @@ function stripCommentsAndUntrustedCsp(html: string): string {
       const tag = html.slice(i, tagEnd);
       if (
         /^<meta\b/i.test(tag)
-        && /\bhttp-equiv\s*=\s*(?:"[^"]*content-security-policy[^"]*"|'[^']*content-security-policy[^']*'|content-security-policy(?:-report-only)?)/i.test(tag)
+        && (
+          /\bhttp-equiv\s*=\s*(?:"[^"]*content-security-policy[^"]*"|'[^']*content-security-policy[^']*'|content-security-policy(?:-report-only)?)/i.test(tag)
+          || /\bname\s*=\s*(?:"referrer"|'referrer'|referrer)/i.test(tag)
+        )
       ) {
         i = tagEnd;
         continue;
@@ -369,27 +435,36 @@ function findRealHeadOpenTag(html: string): { start: number; end: number } | nul
   return null;
 }
 
-/** Safely wraps untrusted plugin HTML with a host-owned CSP `<meta>` tag as the
- * first policy in a real `<head>`, stripping any plugin-supplied CSP `<meta>`. */
+/** Safely wraps untrusted plugin HTML with host-owned referrer/CSP `<meta>` tags
+ * and the WebRTC-disabling bootstrap `<script>` as the first elements in `<head>`,
+ * stripping any plugin-supplied CSP/referrer `<meta>` or `<base>`. */
 export function wrapSandboxedDocument(bundleHtml: string, grantedDomains: readonly string[]): string {
   const csp = buildPluginCsp(grantedDomains);
-  const cspTag = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
+  const headPrefix = `<meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="${csp}"><script>${PLUGIN_SANDBOX_BOOTSTRAP_SCRIPT}</script>`;
   if (typeof DOMParser !== "undefined") {
     const doc = new DOMParser().parseFromString(bundleHtml, "text/html");
     stripDisallowedMetaAndBase(doc);
-    // Clear any untrusted attributes on <head> so serialization begins cleanly with <head>.
+    // Clear any untrusted attributes on <head> and inline event handlers on <html>.
     for (const attr of [...doc.head.attributes]) {
       doc.head.removeAttribute(attr.name);
     }
+    for (const attr of [...doc.documentElement.attributes]) {
+      if (/^on/i.test(attr.name)) doc.documentElement.removeAttribute(attr.name);
+    }
     const charsetMeta = doc.createElement("meta");
     charsetMeta.setAttribute("charset", "utf-8");
+    const referrerMeta = doc.createElement("meta");
+    referrerMeta.setAttribute("name", "referrer");
+    referrerMeta.setAttribute("content", "no-referrer");
     const cspMeta = doc.createElement("meta");
     cspMeta.setAttribute("http-equiv", "Content-Security-Policy");
     cspMeta.setAttribute("content", csp);
-    doc.head.prepend(charsetMeta, cspMeta);
+    const bootstrapScript = doc.createElement("script");
+    bootstrapScript.textContent = PLUGIN_SANDBOX_BOOTSTRAP_SCRIPT;
+    doc.head.prepend(charsetMeta, referrerMeta, cspMeta, bootstrapScript);
     return `<!doctype html>${doc.documentElement.outerHTML}`;
   }
-  return wrapSandboxedDocumentWithoutDom(bundleHtml, cspTag);
+  return wrapSandboxedDocumentWithoutDom(bundleHtml, headPrefix);
 }
 
 /** Resolves the effective App light/dark theme without letting OS dark mode

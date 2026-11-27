@@ -3,6 +3,12 @@ import { z } from "zod";
 export const PLUGIN_MANIFEST_VERSION = 1 as const;
 export const PLUGIN_HOST_PROTOCOL = "tarobird.plugin.v1" as const;
 
+/** Canonical Ed25519 SPKI public key (base64) used to verify official TaroBird plugin manifests.
+ * Single source of truth shared between protocol, client registry, and tests.
+ * When #176 replaces the placeholder Infinite Canvas stub with its on-demand build artifact,
+ * update this single constant alongside the re-signed official catalog entries. */
+export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA7/nusIR2Ti+6dCmyfncq80Vgcxmlx4Cp751ViG3P7vk=";
+
 export const pluginPlatformSchema = z.enum(["desktop", "phone"]);
 export type PluginPlatform = z.infer<typeof pluginPlatformSchema>;
 
@@ -51,6 +57,10 @@ export const pluginManifestSchema = z.object({
     sha256: z.string().trim().regex(/^[0-9a-f]{64}$/i),
     sizeBytes: z.number().int().positive().max(64 * 1024 * 1024),
     signature: z.string().trim().min(16).max(512).optional(),
+    url: z.string().trim().min(1).max(1024).refine(
+      (value) => value.startsWith("/") || /^https?:\/\//i.test(value),
+      "artifact_url_invalid",
+    ).optional(),
   }).strict(),
   entry: z.string().trim().min(1).max(160).refine(
     (value) => !value.startsWith("/") && !value.includes("..") && !/^[a-zA-Z]+:/.test(value),

@@ -1,5 +1,7 @@
 import "./plugin-crypto.js";
+import { openDB, type IDBPDatabase } from "idb";
 import {
+  OFFICIAL_PLUGIN_PUBLIC_KEY,
   comparePluginVersions,
   pluginManifestSchema,
   sha256Hex,
@@ -11,20 +13,23 @@ import {
   type PluginPlatform,
 } from "../../src/client-protocol/plugins.js";
 import {
-  FOCUS_TIMER_BUNDLE_HTML,
   INFINITE_CANVAS_BUNDLE_HTML,
   QUICK_SCRATCHPAD_BUNDLE_HTML,
 } from "./plugin-bundles.js";
-import { pluginStorageBucketKey } from "./plugin-sandbox-runtime.js";
+import {
+  pluginStorageBucketKey,
+  sanitizePluginDomain,
+  type PluginKvStore,
+} from "./plugin-sandbox-runtime.js";
+
+export { OFFICIAL_PLUGIN_PUBLIC_KEY };
+export type { PluginKvStore };
 
 export const PLUGIN_STORE_KEY = "tarobird.plugins.v1";
 
-/** Ed25519 SPKI public key (base64) used to verify official TaroBird plugin manifests. */
-export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA7/nusIR2Ti+6dCmyfncq80Vgcxmlx4Cp751ViG3P7vk=";
-
 export type PluginCatalogEntry = {
   manifest: PluginManifest;
-  bundleHtml: string;
+  bundleHtml?: string;
 };
 
 export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
@@ -86,35 +91,9 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
   },
 ];
 
-export const THIRD_PARTY_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
-  {
-    manifest: pluginManifestSchema.parse({
-      schemaVersion: 1,
-      id: "community.focus-timer",
-      name: "Focus Timer",
-      nameZh: "专注计时器",
-      version: "1.0.0",
-      description: "Simple 25-minute Pomodoro timer in an isolated side panel.",
-      descriptionZh: "运行在独立沙箱侧边栏里的 25 分钟番茄钟计时器。",
-      icon: "clock",
-      source: { repository: "tarobird-community/focus-timer", commit: "a1b2c3d" },
-      artifact: {
-        sha256: "300e7f06445862b1bfe55812011380221b71c0fd7bc750ff27ff6b989f19307f",
-        sizeBytes: 2821,
-      },
-      entry: "dist/index.html",
-      platforms: ["desktop", "phone"],
-      contributions: [
-        { kind: "side-panel", id: "focus-timer", title: "Focus Timer", titleZh: "专注计时器", icon: "clock" },
-      ],
-      domains: [],
-      capabilities: ["theme.read"],
-      requiresHost: false,
-      official: false,
-    }),
-    bundleHtml: FOCUS_TIMER_BUNDLE_HTML,
-  },
-];
+/** Clean empty third-party catalog — no fabricated public community listings.
+ * Tests inject explicit test-only catalog fixtures via PluginRegistry options. */
+export const THIRD_PARTY_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [];
 
 export type InstalledPluginRecord = {
   manifest: PluginManifest;
@@ -124,6 +103,18 @@ export type InstalledPluginRecord = {
   sourceKind: "official" | "third-party" | "local-dev";
   grantedCapabilities: PluginCapability[];
   grantedDomains: string[];
+};
+
+export type PreparedLocalDevPlugin = {
+  manifest: PluginManifest;
+  bundleHtml: string;
+  sanitizedDomains: string[];
+  blockedDomains: string[];
+};
+
+export type PluginInstallGrantOptions = {
+  grantedCapabilities?: readonly PluginCapability[];
+  grantedDomains?: readonly string[];
 };
 
 export type PluginStoreState = {
@@ -136,56 +127,365 @@ export type PluginStorageAdapter = {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+  keys?(): string[];
 };
 
-function defaultStorage(): PluginStorageAdapter {
+export type PluginArtifactFetcher = (url: string) => Promise<string>;
+
+export function pluginScopeId(hostPublicKey?: string | null, userId?: string | null, deviceId?: string | null): string {
+  const h = (hostPublicKey ?? "").trim();
+  const u = (userId ?? "").trim();
+  const d = (deviceId ?? "").trim();
+  if (!h && !u && !d) return "default";
+  return [d || "device", h.slice(0, 16) || "host", u || "user"].join(":");
+}
+
+/** Returns null when host/device identity is known but `userId` has not hydrated yet,
+ * so multi-host startup never reads or writes under a synthetic `"user"` scope. */
+export function resolvePluginScopeId(hostPublicKey?: string | null, userId?: string | null, deviceId?: string | null): string | null {
+  const h = (hostPublicKey ?? "").trim();
+  const u = (userId ?? "").trim();
+  const d = (deviceId ?? "").trim();
+  if (!h && !u && !d) return "default";
+  if (!u) return null;
+  return pluginScopeId(h, u, d);
+}
+
+export function pluginDataPrefix(scopeId: string, pluginId: string): string {
+  return scopeId === "default"
+    ? `tarobird.plugin.data.${pluginId}.`
+    : `tarobird.plugin.data.${scopeId}.${pluginId}.`;
+}
+
+export function createDefaultPluginStorage(): PluginStorageAdapter {
   const mem = new Map<string, string>();
   return {
     getItem(key) {
-      try { return globalThis.localStorage?.getItem(key) ?? mem.get(key) ?? null; } catch { return mem.get(key) ?? null; }
+      if (typeof globalThis.localStorage !== "undefined") {
+        try { return globalThis.localStorage.getItem(key); } catch { return mem.get(key) ?? null; }
+      }
+      return mem.get(key) ?? null;
     },
     setItem(key, value) {
+      if (typeof globalThis.localStorage !== "undefined") {
+        // Propagate QuotaExceededError / SecurityError instead of masking storage failures.
+        globalThis.localStorage.setItem(key, value);
+        mem.set(key, value);
+        return;
+      }
       mem.set(key, value);
-      try { globalThis.localStorage?.setItem(key, value); } catch { /* ignore */ }
     },
     removeItem(key) {
       mem.delete(key);
-      try { globalThis.localStorage?.removeItem(key); } catch { /* ignore */ }
+      if (typeof globalThis.localStorage !== "undefined") {
+        try { globalThis.localStorage.removeItem(key); } catch { /* ignore */ }
+      }
+    },
+    keys() {
+      if (typeof globalThis.localStorage !== "undefined") {
+        try {
+          const out: string[] = [];
+          for (let i = 0; i < globalThis.localStorage.length; i++) {
+            const k = globalThis.localStorage.key(i);
+            if (k) out.push(k);
+          }
+          return out;
+        } catch { /* fall through */ }
+      }
+      return [...mem.keys()];
     },
   };
 }
 
+export type PluginBundleStore = {
+  getBundle(scopeId: string, pluginId: string): Promise<string | null>;
+  putBundle(scopeId: string, pluginId: string, html: string): Promise<boolean>;
+  deleteBundle(scopeId: string, pluginId: string): Promise<void>;
+  kv: PluginKvStore;
+};
+
+let sharedStoreDbPromise: Promise<IDBPDatabase | null> | null = null;
+function getPluginStoreDb(): Promise<IDBPDatabase | null> {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  if (!sharedStoreDbPromise) {
+    sharedStoreDbPromise = openDB("tarobird.plugin.store.v1", 1, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains("bundles")) db.createObjectStore("bundles");
+        if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+      },
+    }).catch(() => null);
+  }
+  return sharedStoreDbPromise;
+}
+
+function createIdbPluginBundleStore(): PluginBundleStore {
+  const bundleKey = (scopeId: string, pluginId: string) => `${scopeId}\0${pluginId}`;
+  const kvKey = (scopeId: string, pluginId: string, key: string) => `${scopeId}\0${pluginId}\0${key}`;
+  const kvPrefix = (scopeId: string, pluginId: string) => `${scopeId}\0${pluginId}\0`;
+  return {
+    async getBundle(scopeId, pluginId) {
+      const db = await getPluginStoreDb();
+      if (!db) return null;
+      const val = await db.get("bundles", bundleKey(scopeId, pluginId));
+      return typeof val === "string" ? val : null;
+    },
+    async putBundle(scopeId, pluginId, html) {
+      const db = await getPluginStoreDb();
+      if (!db) return false;
+      await db.put("bundles", html, bundleKey(scopeId, pluginId));
+      return true;
+    },
+    async deleteBundle(scopeId, pluginId) {
+      const db = await getPluginStoreDb();
+      if (!db) return;
+      await db.delete("bundles", bundleKey(scopeId, pluginId));
+    },
+    kv: {
+      async get(scopeId, pluginId, key) {
+        const db = await getPluginStoreDb();
+        if (!db) return null;
+        const val = await db.get("kv", kvKey(scopeId, pluginId, key));
+        return typeof val === "string" ? val : null;
+      },
+      async set(scopeId, pluginId, key, value) {
+        const db = await getPluginStoreDb();
+        if (!db) throw new Error("storage_unavailable");
+        await db.put("kv", value, kvKey(scopeId, pluginId, key));
+      },
+      async remove(scopeId, pluginId, key) {
+        const db = await getPluginStoreDb();
+        if (!db) return;
+        await db.delete("kv", kvKey(scopeId, pluginId, key));
+      },
+      async list(scopeId, pluginId) {
+        const db = await getPluginStoreDb();
+        if (!db) return {};
+        const prefix = kvPrefix(scopeId, pluginId);
+        const tx = db.transaction("kv", "readonly");
+        const store = tx.objectStore("kv");
+        const keys = await store.getAllKeys();
+        const out: Record<string, string> = {};
+        for (const k of keys) {
+          if (typeof k === "string" && k.startsWith(prefix)) {
+            const val = await store.get(k);
+            if (typeof val === "string") out[k.slice(prefix.length)] = val;
+          }
+        }
+        return out;
+      },
+      async clear(scopeId, pluginId) {
+        const db = await getPluginStoreDb();
+        if (!db) return;
+        const prefix = kvPrefix(scopeId, pluginId);
+        const keys = await db.getAllKeys("kv");
+        for (const k of keys) {
+          if (typeof k === "string" && k.startsWith(prefix)) await db.delete("kv", k);
+        }
+      },
+    },
+  };
+}
+
+async function defaultArtifactFetcher(url: string): Promise<string> {
+  const res = await fetch(url, { cache: "no-store", credentials: "omit" });
+  if (!res.ok) throw new Error("plugin_download_failed");
+  return res.text();
+}
+
+type PersistedInstalledPluginRecord = InstalledPluginRecord & {
+  bundleStoredInIdb?: boolean;
+};
+
+function partitionDeclaredDomains(domains: readonly string[]): {
+  sanitizedDomains: string[];
+  blockedDomains: string[];
+} {
+  const sanitizedSet = new Set<string>();
+  const blockedSet = new Set<string>();
+  for (const raw of domains) {
+    const clean = sanitizePluginDomain(raw);
+    if (clean) sanitizedSet.add(clean);
+    else if (raw.trim()) blockedSet.add(raw.trim());
+  }
+  return {
+    sanitizedDomains: [...sanitizedSet],
+    blockedDomains: [...blockedSet],
+  };
+}
+
+function intersectReviewedCapabilities(
+  manifestCapabilities: readonly PluginCapability[],
+  reviewed?: readonly PluginCapability[],
+): PluginCapability[] {
+  const allowed = new Set(manifestCapabilities);
+  const source = reviewed ?? manifestCapabilities;
+  const out: PluginCapability[] = [];
+  const seen = new Set<PluginCapability>();
+  for (const cap of source) {
+    if (allowed.has(cap) && !seen.has(cap)) {
+      seen.add(cap);
+      out.push(cap);
+    }
+  }
+  return out;
+}
+
+function intersectReviewedDomains(
+  manifestDomains: readonly string[],
+  reviewed?: readonly string[],
+): string[] {
+  const allowed = new Set(partitionDeclaredDomains(manifestDomains).sanitizedDomains);
+  const source = reviewed ?? [...allowed];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of source) {
+    const clean = sanitizePluginDomain(raw);
+    if (clean && allowed.has(clean) && !seen.has(clean)) {
+      seen.add(clean);
+      out.push(clean);
+    }
+  }
+  return out;
+}
+
 export class PluginRegistry {
-  private readonly storage: PluginStorageAdapter;
+  readonly storage: PluginStorageAdapter;
+  readonly kvStore?: PluginKvStore;
+  private readonly bundleStore?: PluginBundleStore;
   private readonly officialPublicKey: string;
   private readonly catalog: PluginCatalogEntry[];
+  private readonly fetcher: PluginArtifactFetcher;
+  private scopeId: string;
+  private idbStoredIds = new Set<string>();
   private state: PluginStoreState;
   private listeners = new Set<() => void>();
 
   constructor(options?: {
     storage?: PluginStorageAdapter;
+    kvStore?: PluginKvStore;
+    bundleStore?: PluginBundleStore;
+    scopeId?: string;
     officialPublicKey?: string;
     catalog?: readonly PluginCatalogEntry[];
+    fetcher?: PluginArtifactFetcher;
   }) {
-    this.storage = options?.storage ?? defaultStorage();
+    const usesBrowserIdb = !options?.storage && !options?.bundleStore && typeof indexedDB !== "undefined";
+    this.storage = options?.storage ?? createDefaultPluginStorage();
+    if (options?.bundleStore) {
+      this.bundleStore = options.bundleStore;
+      this.kvStore = options?.kvStore ?? options.bundleStore.kv;
+    } else if (usesBrowserIdb) {
+      this.bundleStore = createIdbPluginBundleStore();
+      this.kvStore = options?.kvStore ?? this.bundleStore.kv;
+    } else {
+      this.kvStore = options?.kvStore;
+    }
+    this.scopeId = options?.scopeId?.trim() || "default";
     this.officialPublicKey = options?.officialPublicKey ?? OFFICIAL_PLUGIN_PUBLIC_KEY;
     this.catalog = [...(options?.catalog ?? [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG])];
+    this.fetcher = options?.fetcher ?? defaultArtifactFetcher;
     this.state = this.load();
+    if (this.bundleStore) {
+      void this.hydrateBundles();
+    }
   }
 
-  private load(): PluginStoreState {
-    const raw = this.storage.getItem(PLUGIN_STORE_KEY);
-    if (!raw) return { allowThirdParty: false, developerMode: false, installed: {} };
+  private storeKey(): string {
+    return this.scopeId === "default" ? PLUGIN_STORE_KEY : `${PLUGIN_STORE_KEY}.${this.scopeId}`;
+  }
+
+  getScopeId(): string {
+    return this.scopeId;
+  }
+
+  setScope(scopeId: string): void {
+    const clean = scopeId.trim() || "default";
+    if (this.scopeId === clean) return;
+    this.scopeId = clean;
+    this.state = this.load();
+    for (const listener of this.listeners) listener();
+    if (this.bundleStore) {
+      void this.hydrateBundles();
+    }
+  }
+
+  private async hydrateBundles(): Promise<void> {
+    if (!this.bundleStore) return;
+    const scope = this.scopeId;
+    const records = Object.values(this.state.installed);
+    if (!records.length) return;
+
+    let changed = false;
+    let migratedToIdb = false;
+    const nextInstalled = { ...this.state.installed };
+
+    for (const current of records) {
+      const id = current.manifest.id;
+      if (current.bundleHtml && !this.idbStoredIds.has(id)) {
+        const stored = await this.bundleStore.putBundle(scope, id, current.bundleHtml).catch(() => false);
+        if (this.scopeId !== scope) return;
+        if (stored && this.state.installed[id]?.installedAt === current.installedAt) {
+          this.idbStoredIds.add(id);
+          migratedToIdb = true;
+        }
+        continue;
+      }
+      if (!current.bundleHtml) {
+        let html = await this.bundleStore.getBundle(scope, id).catch(() => null);
+        if (!html) {
+          const inlineCatalog = this.catalog.find((entry) => entry.manifest.id === id && entry.bundleHtml);
+          if (inlineCatalog?.bundleHtml && inlineCatalog.manifest.artifact.sha256 === current.manifest.artifact.sha256) {
+            html = inlineCatalog.bundleHtml;
+          }
+        }
+        if (this.scopeId !== scope) return;
+        if (html && this.state.installed[id]?.installedAt === current.installedAt) {
+          nextInstalled[id] = { ...current, bundleHtml: html };
+          changed = true;
+        }
+      }
+    }
+
+    if (this.scopeId !== scope) return;
+    if (changed) {
+      this.state = { ...this.state, installed: nextInstalled };
+      for (const listener of this.listeners) listener();
+    }
+    if (migratedToIdb) {
+      try {
+        this.storage.setItem(this.storeKey(), this.serializeStateForStorage(this.state));
+      } catch {
+        // Ignore compaction errors; bundles are already safe in memory & IDB.
+      }
+    }
+  }
+
+  private parseStoreJson(raw: string): { state: PluginStoreState; idbIds: Set<string> } | null {
     try {
-      const parsed = JSON.parse(raw) as Partial<PluginStoreState>;
+      const parsed = JSON.parse(raw) as {
+        allowThirdParty?: unknown;
+        developerMode?: unknown;
+        installed?: Record<string, Partial<PersistedInstalledPluginRecord>>;
+      };
       const installed: Record<string, InstalledPluginRecord> = {};
+      const idbIds = new Set<string>();
       if (parsed.installed && typeof parsed.installed === "object") {
         for (const [id, item] of Object.entries(parsed.installed)) {
           const manifest = pluginManifestSchema.safeParse(item?.manifest);
-          if (!manifest.success || manifest.data.id !== id || typeof item?.bundleHtml !== "string") continue;
+          if (!manifest.success || manifest.data.id !== id) continue;
+          const hasStoredBundle = item?.bundleStoredInIdb === true;
+          if (!hasStoredBundle && typeof item?.bundleHtml !== "string") continue;
+          let bundleHtml = typeof item?.bundleHtml === "string" ? item.bundleHtml : "";
+          if (!bundleHtml && !this.bundleStore) {
+            const inlineCatalog = this.catalog.find((entry) => entry.manifest.id === id && entry.bundleHtml);
+            if (inlineCatalog?.bundleHtml && inlineCatalog.manifest.artifact.sha256 === manifest.data.artifact.sha256) {
+              bundleHtml = inlineCatalog.bundleHtml;
+            }
+          }
+          if (hasStoredBundle) idbIds.add(id);
           installed[id] = {
             manifest: manifest.data,
-            bundleHtml: item.bundleHtml,
+            bundleHtml,
             enabled: item.enabled !== false,
             installedAt: typeof item.installedAt === "number" ? item.installedAt : Date.now(),
             sourceKind: item.sourceKind === "local-dev" ? "local-dev" : manifest.data.official ? "official" : "third-party",
@@ -195,17 +495,85 @@ export class PluginRegistry {
         }
       }
       return {
-        allowThirdParty: parsed.allowThirdParty === true,
-        developerMode: parsed.developerMode === true,
-        installed,
+        state: {
+          allowThirdParty: parsed.allowThirdParty === true,
+          developerMode: parsed.developerMode === true,
+          installed,
+        },
+        idbIds,
       };
     } catch {
-      return { allowThirdParty: false, developerMode: false, installed: {} };
+      return null;
     }
   }
 
+  private load(): PluginStoreState {
+    const key = this.storeKey();
+    let raw = this.storage.getItem(key);
+    let migratedFromLegacy = false;
+    if (!raw && this.scopeId !== "default") {
+      const legacyRaw = this.storage.getItem(PLUGIN_STORE_KEY);
+      if (legacyRaw) {
+        raw = legacyRaw;
+        migratedFromLegacy = true;
+      }
+    }
+    this.idbStoredIds = new Set<string>();
+    if (!raw) return { allowThirdParty: false, developerMode: false, installed: {} };
+    const parsed = this.parseStoreJson(raw);
+    if (!parsed) return { allowThirdParty: false, developerMode: false, installed: {} };
+    this.idbStoredIds = parsed.idbIds;
+
+    if (migratedFromLegacy) {
+      // Crash-safe one-way migration from legacy unscoped `tarobird.plugins.v1`
+      // into this scope's key + scoped KV buckets so upgrades never lose installs
+      // and never leak legacy state into a second user/host scope.
+      try {
+        this.storage.setItem(key, this.serializeStateForStorage(parsed.state));
+        for (const id of Object.keys(parsed.state.installed)) {
+          const legacyBucketKey = pluginStorageBucketKey(id);
+          const scopedBucketKey = pluginStorageBucketKey(id, this.scopeId);
+          if (legacyBucketKey !== scopedBucketKey) {
+            const legacyBucket = this.storage.getItem(legacyBucketKey);
+            if (legacyBucket !== null && this.storage.getItem(scopedBucketKey) === null) {
+              this.storage.setItem(scopedBucketKey, legacyBucket);
+              this.storage.removeItem(legacyBucketKey);
+            }
+          }
+        }
+        this.storage.removeItem(PLUGIN_STORE_KEY);
+      } catch {
+        // Keep legacy data untouched if writing the migrated key fails (e.g. quota).
+      }
+    }
+    return parsed.state;
+  }
+
+  private serializeStateForStorage(state: PluginStoreState): string {
+    if (!this.bundleStore) {
+      return JSON.stringify(state);
+    }
+    const serializedInstalled: Record<string, PersistedInstalledPluginRecord> = {};
+    for (const [id, record] of Object.entries(state.installed)) {
+      if (this.idbStoredIds.has(id)) {
+        serializedInstalled[id] = {
+          ...record,
+          bundleHtml: "",
+          bundleStoredInIdb: true,
+        };
+      } else {
+        serializedInstalled[id] = { ...record };
+      }
+    }
+    return JSON.stringify({
+      allowThirdParty: state.allowThirdParty,
+      developerMode: state.developerMode,
+      installed: serializedInstalled,
+    });
+  }
+
   private save(): void {
-    this.storage.setItem(PLUGIN_STORE_KEY, JSON.stringify(this.state));
+    this.storage.setItem(this.storeKey(), this.serializeStateForStorage(this.state));
     this.state = { ...this.state, installed: { ...this.state.installed } };
     for (const listener of this.listeners) listener();
   }
@@ -244,31 +612,78 @@ export class PluginRegistry {
     if (!current || current.sourceKind === "local-dev") return undefined;
     const entry = this.catalog.find((item) => item.manifest.id === pluginId);
     if (!entry) return undefined;
-    return comparePluginVersions(entry.manifest.version, current.manifest.version) > 0 ? entry : undefined;
+    const cmp = comparePluginVersions(entry.manifest.version, current.manifest.version);
+    if (cmp > 0) return entry;
+    if (
+      cmp === 0
+      && entry.manifest.official
+      && entry.manifest.artifact.sha256.toLowerCase() !== current.manifest.artifact.sha256.toLowerCase()
+    ) {
+      return entry;
+    }
+    return undefined;
   }
 
   setAllowThirdParty(allow: boolean): void {
     if (this.state.allowThirdParty === allow) return;
+    const prev = this.state;
     this.state = { ...this.state, allowThirdParty: allow };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prev;
+      throw error;
+    }
   }
 
   setDeveloperMode(enabled: boolean): void {
     if (this.state.developerMode === enabled) return;
+    const prev = this.state;
     this.state = { ...this.state, developerMode: enabled };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prev;
+      throw error;
+    }
   }
 
-  async install(entry: PluginCatalogEntry): Promise<InstalledPluginRecord> {
+  private assertNotReservedOfficialId(pluginId: string): void {
+    if (
+      pluginId.startsWith("tarobird.")
+      || this.catalog.some((item) => item.manifest.official && item.manifest.id === pluginId)
+      || this.state.installed[pluginId]?.sourceKind === "official"
+    ) {
+      throw new Error("plugin_official_id_reserved");
+    }
+  }
+
+  async install(
+    entry: PluginCatalogEntry,
+    options?: PluginInstallGrantOptions & { fetcher?: PluginArtifactFetcher },
+  ): Promise<InstalledPluginRecord> {
     const manifest = pluginManifestSchema.parse(entry.manifest);
     if (!manifest.official && !this.state.allowThirdParty) {
       throw new Error("plugin_third_party_disabled");
     }
-    const actualSizeBytes = new TextEncoder().encode(entry.bundleHtml).byteLength;
+    let bundleHtml = entry.bundleHtml;
+    if (bundleHtml === undefined) {
+      if (!manifest.artifact.url) {
+        throw new Error("plugin_artifact_missing");
+      }
+      const fetchFn = options?.fetcher ?? this.fetcher;
+      try {
+        bundleHtml = await fetchFn(manifest.artifact.url);
+      } catch (err) {
+        if (err instanceof Error && err.message === "plugin_download_failed") throw err;
+        throw new Error("plugin_download_failed");
+      }
+    }
+    const actualSizeBytes = new TextEncoder().encode(bundleHtml).byteLength;
     if (actualSizeBytes !== manifest.artifact.sizeBytes) {
       throw new Error("plugin_size_mismatch");
     }
-    const hashOk = await verifyPluginArtifactHash(entry.bundleHtml, manifest.artifact.sha256);
+    const hashOk = await verifyPluginArtifactHash(bundleHtml, manifest.artifact.sha256);
     if (!hashOk) {
       throw new Error("plugin_hash_mismatch");
     }
@@ -279,24 +694,46 @@ export class PluginRegistry {
       }
     }
     const previous = this.state.installed[manifest.id];
+    const reviewedCapabilities = intersectReviewedCapabilities(manifest.capabilities, options?.grantedCapabilities);
+    const reviewedDomains = intersectReviewedDomains(manifest.domains, options?.grantedDomains);
+    const preservedDomains = previous
+      ? [...new Set([...reviewedDomains, ...previous.grantedDomains.filter((d) => sanitizePluginDomain(d) !== null)])]
+      : reviewedDomains;
     const record: InstalledPluginRecord = {
       manifest,
-      bundleHtml: entry.bundleHtml,
+      bundleHtml,
       enabled: true,
       installedAt: Math.max(Date.now(), (previous?.installedAt ?? 0) + 1),
       sourceKind: manifest.official ? "official" : "third-party",
-      grantedCapabilities: [...manifest.capabilities],
-      grantedDomains: [...manifest.domains],
+      grantedCapabilities: reviewedCapabilities,
+      grantedDomains: preservedDomains,
     };
+    const prevIdbStored = this.idbStoredIds.has(manifest.id);
+    if (this.bundleStore) {
+      const stored = await this.bundleStore.putBundle(this.scopeId, manifest.id, bundleHtml).catch(() => false);
+      if (stored) this.idbStoredIds.add(manifest.id);
+      else this.idbStoredIds.delete(manifest.id);
+    }
+    const prevState = this.state;
     this.state = {
       ...this.state,
       installed: { ...this.state.installed, [manifest.id]: record },
     };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prevState;
+      if (prevIdbStored) this.idbStoredIds.add(manifest.id);
+      else this.idbStoredIds.delete(manifest.id);
+      throw error;
+    }
     return record;
   }
 
-  async installLocalDev(manifestJson: string, bundleHtml: string): Promise<InstalledPluginRecord> {
+  /** Validates a local development folder's manifest and bundle without installing
+   * or granting any permissions/domains, so UI callers must present the pre-install
+   * permission & domain confirmation modal before calling `installPreparedLocalDev`. */
+  async prepareLocalDev(manifestJson: string, bundleHtml: string): Promise<PreparedLocalDevPlugin> {
     if (!this.state.developerMode) {
       throw new Error("plugin_developer_mode_disabled");
     }
@@ -317,48 +754,131 @@ export class PluginRegistry {
         sizeBytes: Math.max(1, sizeBytes),
       },
     });
-    if (
-      manifest.id.startsWith("tarobird.")
-      || this.catalog.some((item) => item.manifest.official && item.manifest.id === manifest.id)
-      || this.state.installed[manifest.id]?.sourceKind === "official"
-    ) {
-      throw new Error("plugin_official_id_reserved");
+    this.assertNotReservedOfficialId(manifest.id);
+    const { sanitizedDomains, blockedDomains } = partitionDeclaredDomains(manifest.domains);
+    return {
+      manifest,
+      bundleHtml,
+      sanitizedDomains,
+      blockedDomains,
+    };
+  }
+
+  /** Installs a previously prepared local development plugin after explicit user review,
+   * re-verifying digest/size and granting only the reviewed capabilities and valid public domains. */
+  async installPreparedLocalDev(
+    prepared: PreparedLocalDevPlugin,
+    options?: PluginInstallGrantOptions,
+  ): Promise<InstalledPluginRecord> {
+    if (!this.state.developerMode) {
+      throw new Error("plugin_developer_mode_disabled");
     }
+    const manifest = pluginManifestSchema.parse({
+      ...prepared.manifest,
+      official: false,
+    });
+    this.assertNotReservedOfficialId(manifest.id);
+    const actualSizeBytes = Math.max(1, new TextEncoder().encode(prepared.bundleHtml).byteLength);
+    if (actualSizeBytes !== manifest.artifact.sizeBytes) {
+      throw new Error("plugin_size_mismatch");
+    }
+    const hashOk = await verifyPluginArtifactHash(prepared.bundleHtml, manifest.artifact.sha256);
+    if (!hashOk) {
+      throw new Error("plugin_hash_mismatch");
+    }
+    const grantedCapabilities = intersectReviewedCapabilities(manifest.capabilities, options?.grantedCapabilities);
+    const grantedDomains = intersectReviewedDomains(manifest.domains, options?.grantedDomains);
     const previous = this.state.installed[manifest.id];
     const record: InstalledPluginRecord = {
       manifest,
-      bundleHtml,
+      bundleHtml: prepared.bundleHtml,
       enabled: true,
       installedAt: Math.max(Date.now(), (previous?.installedAt ?? 0) + 1),
       sourceKind: "local-dev",
-      grantedCapabilities: [...manifest.capabilities],
-      grantedDomains: [...manifest.domains],
+      grantedCapabilities,
+      grantedDomains,
     };
+    const prevIdbStored = this.idbStoredIds.has(manifest.id);
+    if (this.bundleStore) {
+      const stored = await this.bundleStore.putBundle(this.scopeId, manifest.id, prepared.bundleHtml).catch(() => false);
+      if (stored) this.idbStoredIds.add(manifest.id);
+      else this.idbStoredIds.delete(manifest.id);
+    }
+    const prevState = this.state;
     this.state = {
       ...this.state,
       installed: { ...this.state.installed, [manifest.id]: record },
     };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prevState;
+      if (prevIdbStored) this.idbStoredIds.add(manifest.id);
+      else this.idbStoredIds.delete(manifest.id);
+      throw error;
+    }
     return record;
+  }
+
+  async installLocalDev(
+    manifestJson: string,
+    bundleHtml: string,
+    options?: PluginInstallGrantOptions,
+  ): Promise<InstalledPluginRecord> {
+    const prepared = await this.prepareLocalDev(manifestJson, bundleHtml);
+    return this.installPreparedLocalDev(prepared, options);
   }
 
   setEnabled(pluginId: string, enabled: boolean): void {
     const existing = this.state.installed[pluginId];
     if (!existing || existing.enabled === enabled) return;
+    const prev = this.state;
     this.state = {
       ...this.state,
       installed: { ...this.state.installed, [pluginId]: { ...existing, enabled } },
     };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prev;
+      throw error;
+    }
   }
 
-  uninstall(pluginId: string): void {
-    if (!this.state.installed[pluginId]) return;
-    const next = { ...this.state.installed };
-    delete next[pluginId];
-    this.state = { ...this.state, installed: next };
-    this.storage.removeItem(pluginStorageBucketKey(pluginId));
-    this.save();
+  async uninstall(pluginId: string, options?: { keepData?: boolean }): Promise<void> {
+    if (this.state.installed[pluginId]) {
+      const next = { ...this.state.installed };
+      delete next[pluginId];
+      this.state = { ...this.state, installed: next };
+      this.idbStoredIds.delete(pluginId);
+      this.save();
+    }
+    const shouldWipe = options?.keepData !== true;
+    if (shouldWipe) {
+      this.storage.removeItem(pluginStorageBucketKey(pluginId, this.scopeId));
+      if (this.scopeId === "default") {
+        this.storage.removeItem(pluginStorageBucketKey(pluginId));
+      }
+      const prefix = pluginDataPrefix(this.scopeId, pluginId);
+      const legacyPrefix = `tarobird.plugin.data.${pluginId}.`;
+      const maybeData = (this.storage as unknown as { data?: Map<string, string> }).data;
+      const allKeys = this.storage.keys
+        ? this.storage.keys()
+        : maybeData instanceof Map
+          ? [...maybeData.keys()]
+          : [];
+      for (const key of allKeys) {
+        if (key.startsWith(prefix) || (this.scopeId === "default" && key.startsWith(legacyPrefix))) {
+          this.storage.removeItem(key);
+        }
+      }
+    }
+    if (this.bundleStore) {
+      await this.bundleStore.deleteBundle(this.scopeId, pluginId).catch(() => undefined);
+    }
+    if (shouldWipe && this.kvStore) {
+      await this.kvStore.clear(this.scopeId, pluginId).catch(() => undefined);
+    }
   }
 
   getPlugin(pluginId: string): InstalledPluginRecord | undefined {
@@ -366,4 +886,18 @@ export class PluginRegistry {
   }
 }
 
-export const pluginRegistry = new PluginRegistry();
+const scopedRegistries = new Map<string, PluginRegistry>();
+
+/** Returns an isolated, cached PluginRegistry bound strictly to `scopeId` so
+ * concurrent multi-host windows/panes never mutate shared global state. */
+export function getPluginRegistry(scopeId?: string): PluginRegistry {
+  const clean = scopeId?.trim() || "default";
+  let instance = scopedRegistries.get(clean);
+  if (!instance) {
+    instance = new PluginRegistry({ scopeId: clean });
+    scopedRegistries.set(clean, instance);
+  }
+  return instance;
+}
+
+export const pluginRegistry = getPluginRegistry("default");

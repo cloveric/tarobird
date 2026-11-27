@@ -41,7 +41,7 @@ import { useBackAction } from './back-navigation.js';
 import { useConversationHold } from './useConversationHold.js';
 import { MobileConversationActions } from './MobileConversationActions.js';
 import { mobileListAvatarSizes, type LayoutDensity } from './layout-density.js';
-import { pluginRegistry } from './plugin-registry.js';
+import { getPluginRegistry, resolvePluginScopeId, type PluginStoreState } from './plugin-registry.js';
 
 const ListAvatarSize = createContext(48);
 
@@ -623,10 +623,21 @@ function notificationSummary(host: MobileHost | undefined): string {
   return state.notifications.preferences.enabled ? t('已请求提醒 · 点此检查接收状态') : t('未开启 · 点此设置');
 }
 
+const EMPTY_MOBILE_PLUGIN_STORE: PluginStoreState = { allowThirdParty: false, developerMode: false, installed: {} };
+const noopMobilePluginSubscribe = () => () => {};
+const emptyMobilePluginSnapshot = () => EMPTY_MOBILE_PLUGIN_STORE;
+
 function MePane({ hosts, activeHost, selectHost, open, openPluginContribution, locale }: PaneProps) {
-  useSyncExternalStore(pluginRegistry.subscribe, pluginRegistry.getSnapshot);
-  const phoneSidePlugins = pluginRegistry.enabledContributions('phone', 'side-panel');
   const userId = activeHost?.connection.state.user?.id;
+  const pluginScope = activeHost
+    ? resolvePluginScopeId(activeHost.connection.identity.hubPublicKey, userId, activeHost.connection.identity.deviceId)
+    : null;
+  const activePluginRegistry = useMemo(() => (pluginScope ? getPluginRegistry(pluginScope) : null), [pluginScope]);
+  useSyncExternalStore(
+    activePluginRegistry ? activePluginRegistry.subscribe : noopMobilePluginSubscribe,
+    activePluginRegistry ? activePluginRegistry.getSnapshot : emptyMobilePluginSnapshot,
+  );
+  const phoneSidePlugins = activePluginRegistry ? activePluginRegistry.enabledContributions('phone', 'side-panel') : [];
   const computerNames = hosts.map((host) => {
     const state = host.connection.state;
     // Shared names identify the computer; older pairings may only have the

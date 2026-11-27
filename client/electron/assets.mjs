@@ -5,7 +5,7 @@ import { APP_ORIGIN } from './contract.mjs';
 
 export const APP_CSP = "default-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src blob: data: tarobot-widget://sandbox; font-src 'self' data:";
 export const WIDGET_CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src about:; base-uri 'none'; form-action 'none'";
-export const PLUGIN_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors tarobot://app";
+export const PLUGIN_CSP = "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors tarobot://app";
 const SANDBOX_PATHS = ['/widget-sandbox.html', '/plugin-sandbox.html', '/design-loader.html'];
 const SANDBOX_FILES = ['widget-sandbox.html', 'plugin-sandbox.html', 'design-loader.html'];
 export const SCHEMES = [
