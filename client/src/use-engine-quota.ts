@@ -66,6 +66,15 @@ export function shouldAutoRefreshScope(scope: QuotaScope, now: number): boolean 
   return !scope.observedAt || scope.state === "unknown" || scope.state === "stale" || quotaReadingExpired(scope, now);
 }
 
+/** Whether the page holds this card: its own list has it, or shows a newer answer from the Bot's worker over it
+ * (a conversation reported another login before the list was read again). */
+function showsScope(connection: HubConnection, directory: QuotaDirectory | undefined, scope: QuotaScope): boolean {
+  const item = directory?.scopes.find(value => value.id === scope.id);
+  if (!directory || !item) return false;
+  if (item.revision === scope.revision) return true;
+  return projectQuotaDirectory(connection, { ...directory, scopes: [item] }).directory.scopes[0]?.revision === scope.revision;
+}
+
 /** Decide what one cache-only poll in `watchLateAnswer` means for a slow Claude refresh.
  * Real `ClaudeStreamAdapter` leaves `get_usage` in flight after its initial 7 s timeout
  * and returns `"not_loaded"` (no prior reading) or the prior reading (same `observedAt`,
@@ -161,6 +170,7 @@ export function useEngineQuota(connection: HubConnection, options: {
   const viewRef = useRef(view); viewRef.current = view;
   const version = useRef(0), directoryRequest = useRef<Request>(undefined), scopes = useRef(new Map<string, Request>());
   const latePolls = useRef(new Map<string, LatePoll>());
+  const reread = useRef<{ connection?: HubConnection; userId?: string; logins: Set<string> }>({ logins: new Set() });
   const canShow = owner && !unsupported && active && visible;
   const allowed = owner && online && supported && active && visible;
   const current = useRef({ connection, userId, allowed }); current.current = { connection, userId, allowed };
@@ -289,7 +299,7 @@ export function useEngineQuota(connection: HubConnection, options: {
     const memberIds = groupScopeIds?.length ? [...new Set([scope.id, ...groupScopeIds])] : [scope.id];
     if (!current.current.allowed || directoryRequest.current || memberIds.some(id => scopes.current.has(id)) || scopes.current.size >= MAX_CONCURRENT_QUOTA_REFRESH) return;
     const before = viewRef.current;
-    if (before.connection !== connection || before.userId !== userId || before.error === "permission" || before.directory?.scopes.find(value => value.id === scope.id)?.revision !== scope.revision) return;
+    if (before.connection !== connection || before.userId !== userId || before.error === "permission" || !showsScope(connection, before.directory, scope)) return;
     for (const id of memberIds) clearLatePoll(id);
     const generation = version.current, operation = request(); scopes.current.set(scope.id, operation);
     setView(previous => {
@@ -310,7 +320,7 @@ export function useEngineQuota(connection: HubConnection, options: {
         return;
       }
       if ((wasMerged && (value.state === "login_required" || membershipChanged)) || (!wasMerged && nowMerged)) {
-        setView(previous => previous.directory?.scopes.find(item => item.id === scope.id)?.revision !== scope.revision ? previous
+        setView(previous => !previous.directory || !showsScope(connection, previous.directory, scope) ? previous
           : { ...previous, directory: { ...previous.directory, scopes: previous.directory.scopes.map(item => item.id === scope.id ? value : item) } });
         void readDirectory();
         return;
@@ -318,7 +328,7 @@ export function useEngineQuota(connection: HubConnection, options: {
       const peerIds = new Set(memberIds.filter(id => id !== scope.id));
       // A directory refresh or authorization change can retire this exact card.
       const held = viewRef.current.directory;
-      if (held?.scopes.find(item => item.id === scope.id)?.revision === scope.revision) {
+      if (held && showsScope(connection, held, scope)) {
         // The other Bots of a shared card take the same reading. It goes through the shared store, so each of
         // their conversations shows it too, and into this list for the page.
         const copies = new Map<string, QuotaScope>();
@@ -328,7 +338,7 @@ export function useEngineQuota(connection: HubConnection, options: {
         const now = Date.now();
         for (const [id, copy] of copies) applyHostQuotaScope(connection, id, copy, now);
         setView(previous => {
-          if (previous.directory?.scopes.find(item => item.id === scope.id)?.revision !== scope.revision) return previous;
+          if (!previous.directory || !showsScope(connection, previous.directory, scope)) return previous;
           return {
             ...previous,
             directory: {
@@ -365,12 +375,19 @@ export function useEngineQuota(connection: HubConnection, options: {
   const same = view.connection === connection && view.userId === userId && canShow;
   let directory: QuotaDirectory | undefined;
   let cachedScopeIds: ReadonlySet<string> = EMPTY_CACHED;
+  let changedLogins = "";
   if (same && view.error !== "permission" && view.error !== "upgrade") {
     const now = Date.now();
     if (view.directory) {
       const projected = projectQuotaDirectory(connection, view.directory, now);
       directory = projected.directory;
       cachedScopeIds = projected.cachedScopeIds;
+      // A conversation's worker reported another login than the list holds: its card and any shared card it
+      // was part of are only right after the Host lists them again.
+      changedLogins = projected.directory.scopes
+        .filter((scope, index) => scope.revision !== view.directory?.scopes[index]?.revision)
+        .map(scope => `${scope.id}\n${scope.revision}`)
+        .join("\n\n");
     } else {
       const cached = cachedQuotaDirectory(connection, now);
       if (cached) {
@@ -379,5 +396,17 @@ export function useEngineQuota(connection: HubConnection, options: {
       }
     }
   }
+  // Read the list again once per reported login, and only while the page could read it anyway. If the Host still
+  // lists the old login, that is its answer: the same report does not ask again.
+  const busyNow = same && (view.loading || view.busy.length > 0);
+  useEffect(() => {
+    if (!changedLogins || !allowed || busyNow) return;
+    const asked = reread.current;
+    if (asked.connection !== connection || asked.userId !== userId) reread.current = { connection, userId, logins: new Set() };
+    const logins = reread.current.logins, fresh = changedLogins.split("\n\n").filter(login => !logins.has(login));
+    if (!fresh.length) return;
+    for (const login of fresh) logins.add(login);
+    void readDirectory("changed");
+  }, [changedLogins, allowed, busyNow, connection, userId, readDirectory]);
   return { directory, cachedScopeIds, loading: same && view.loading, busy: same ? view.busy : [], waitingLate: same ? view.waitingLate : [], errors: same ? view.errors : {}, error: same ? view.error : undefined, notice: same ? view.notice : undefined, visible, readDirectory, refresh };
 }
