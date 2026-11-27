@@ -197,9 +197,14 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       await this.transport.requestLive("canvas.agent.status", { conversationId: turn.conversationId }, signal),
     );
   }
+  async canvasAgentTools(signal?: AbortSignal): Promise<unknown> {
+    const turn = context.getStore();
+    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion) throw new Error("canvas_agent_user_turn_required");
+    return this.transport.requestLive("canvas.agent.tools", { conversationId: turn.conversationId }, signal);
+  }
   async canvasAgentCall(name: string, args: Record<string, unknown>, projectId?: string, signal?: AbortSignal): Promise<unknown> {
     const turn = context.getStore();
-    if (!turn?.conversationId || turn.botSource || turn.groupDiscussion) throw new Error("canvas_agent_user_turn_required");
+    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion) throw new Error("canvas_agent_user_turn_required");
     return this.transport.requestLive("canvas.agent.call", {
       conversationId: turn.conversationId,
       name,

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -30,44 +30,33 @@ import {
   type PluginPlatform,
 } from "../../src/client-protocol/plugins.js";
 import {
-  pluginRegistry,
+  pluginRegistry as defaultPluginRegistry,
   type InstalledPluginRecord,
   type PluginCatalogEntry,
+  type PluginRegistry,
+  type PluginStoreState,
 } from "./plugin-registry.js";
-import { t, useLocale } from "./i18n.js";
+import type { HubConnection } from "./connection.js";
+import {
+  matchesPluginMarketplaceQuery,
+  pluginMarketplaceCategory,
+  pluginPublisherLabel,
+  selectLocalEntryFile,
+  selectLocalManifestFile,
+  type MarketplaceCategory,
+  type MarketplaceTab,
+} from "./plugin-marketplace.js";
+import { useBackAction } from "./back-navigation.js";
+import { formatList, t, useLocale } from "./i18n.js";
 import "./plugins.css";
 
-export type MarketplaceTab = "discover" | "installed" | "developer";
-export type MarketplaceCategory = "all" | "workbench" | "productivity" | "community";
-
-export function pluginMarketplaceCategory(manifest: PluginManifest): Exclude<MarketplaceCategory, "all"> {
-  if (!manifest.official) return "community";
-  if (manifest.contributions.some((item) => item.kind === "workbench-item")) return "workbench";
-  return "productivity";
-}
-
-export function pluginPublisherLabel(
-  manifest: PluginManifest,
-  sourceKind?: InstalledPluginRecord["sourceKind"],
-): string {
-  if (manifest.official) return "TaroBird";
-  if (sourceKind === "local-dev") return t("本地开发");
-  return manifest.source.repository.split("/")[0] || manifest.source.repository;
-}
-
-export function matchesPluginMarketplaceQuery(manifest: PluginManifest, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return [
-    manifest.id,
-    manifest.name,
-    manifest.nameZh ?? "",
-    manifest.description,
-    manifest.descriptionZh ?? "",
-    manifest.source.repository,
-    manifest.official ? "tarobird official" : "community",
-  ].some((value) => value.toLowerCase().includes(needle));
-}
+export {
+  matchesPluginMarketplaceQuery,
+  pluginMarketplaceCategory,
+  pluginPublisherLabel,
+  type MarketplaceCategory,
+  type MarketplaceTab,
+} from "./plugin-marketplace.js";
 
 function PluginGlyph({ icon, size = 18 }: { icon: PluginIcon; size?: number }) {
   switch (icon) {
@@ -169,31 +158,69 @@ type MarketplaceEntry = {
   installed?: InstalledPluginRecord;
 };
 
+const EMPTY_PLUGIN_STORE: PluginStoreState = { allowThirdParty: false, developerMode: false, installed: {} };
+const noopSubscribe = () => () => {};
+const emptySnapshot = () => EMPTY_PLUGIN_STORE;
+
 export function PluginsView({
   platform,
+  registry,
+  connection,
   initialInstallId,
   onOpenContribution,
+  backActionRef,
 }: {
   platform: PluginPlatform;
+  registry?: PluginRegistry | null;
+  connection?: HubConnection;
   initialInstallId?: string;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
+  backActionRef?: RefObject<(() => boolean) | null>;
 }) {
+  const activeRegistry = registry === undefined ? defaultPluginRegistry : registry;
   const locale = useLocale();
-  const state = useSyncExternalStore(pluginRegistry.subscribe, pluginRegistry.getSnapshot);
+  const state = useSyncExternalStore(
+    activeRegistry ? activeRegistry.subscribe : noopSubscribe,
+    activeRegistry ? activeRegistry.getSnapshot : emptySnapshot,
+  );
   const [tab, setTab] = useState<MarketplaceTab>("discover");
   const [category, setCategory] = useState<MarketplaceCategory>("all");
   const [query, setQuery] = useState("");
   const [selectedPluginId, setSelectedPluginId] = useState<string>();
   const [reviewEntry, setReviewEntry] = useState<PluginCatalogEntry>();
   const [uninstallTarget, setUninstallTarget] = useState<InstalledPluginRecord>();
+  const [consentError, setConsentError] = useState<string>();
   const [confirmThirdParty, setConfirmThirdParty] = useState(false);
   const [busyId, setBusyId] = useState<string>();
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
   const folderInputRef = useRef<HTMLInputElement>(null);
   const searchId = useId();
 
-  const catalog = useMemo(() => pluginRegistry.catalogForPlatform(platform), [platform]);
-  const installedList = useMemo(() => pluginRegistry.installedForPlatform(platform), [state.installed, platform]);
+  useEffect(() => {
+    if (!backActionRef) return;
+    backActionRef.current = () => {
+      if (uninstallTarget) {
+        setUninstallTarget(undefined);
+        return true;
+      }
+      if (reviewEntry) {
+        setReviewEntry(undefined);
+        setConsentError(undefined);
+        return true;
+      }
+      if (selectedPluginId) {
+        setSelectedPluginId(undefined);
+        return true;
+      }
+      return false;
+    };
+    return () => {
+      if (backActionRef.current) backActionRef.current = null;
+    };
+  }, [backActionRef, uninstallTarget, reviewEntry, selectedPluginId]);
+
+  const catalog = useMemo(() => (activeRegistry ?? defaultPluginRegistry).catalogForPlatform(platform), [activeRegistry, platform]);
+  const installedList = useMemo(() => (activeRegistry ? activeRegistry.installedForPlatform(platform) : []), [activeRegistry, state.installed, platform]);
   const localDevInstalled = useMemo(
     () => installedList.filter((item) => item.sourceKind === "local-dev"),
     [installedList],
@@ -210,10 +237,11 @@ export function PluginsView({
   const allEntries = useMemo<MarketplaceEntry[]>(() => {
     const map = new Map<string, MarketplaceEntry>();
     for (const entry of catalog) {
+      const installed = state.installed[entry.manifest.id];
       map.set(entry.manifest.id, {
-        manifest: entry.manifest,
+        manifest: installed ? installed.manifest : entry.manifest,
         catalogEntry: entry,
-        installed: state.installed[entry.manifest.id],
+        installed,
       });
     }
     for (const record of installedList) {
@@ -270,24 +298,47 @@ export function PluginsView({
     ? allEntries.find((entry) => entry.manifest.id === selectedPluginId)
     : undefined;
 
+  const openReview = (entry: PluginCatalogEntry) => {
+    setConsentError(undefined);
+    setReviewEntry(entry);
+  };
+
+  const closeReview = () => {
+    setConsentError(undefined);
+    setReviewEntry(undefined);
+  };
+
   const performInstall = async (entry: PluginCatalogEntry) => {
+    if (!activeRegistry) {
+      const msg = t("正在同步当前账号信息，请稍后再安装插件。");
+      setConsentError(msg);
+      setFeedback({ text: msg, error: true });
+      return;
+    }
     setBusyId(entry.manifest.id);
+    setConsentError(undefined);
     setFeedback(undefined);
     try {
-      await pluginRegistry.install(entry);
+      await activeRegistry.install(entry, {
+        fetcher: connection ? (url) => connection.fetchPluginArtifact(url) : undefined,
+      });
       setReviewEntry(undefined);
+      setConsentError(undefined);
       setFeedback({ text: t("已安装插件「{0}」", displayTitle(entry.manifest, locale)) });
     } catch (error) {
       const code = error instanceof Error ? error.message : "install_failed";
-      const message = code === "plugin_hash_mismatch"
-        ? t("校验失败：插件构建产物的 SHA-256 哈希不匹配，已阻止安装。")
-        : code === "plugin_signature_invalid"
-          ? t("校验失败：官方插件签名无效，已阻止安装。")
-          : code === "plugin_download_failed"
-            ? t("下载插件失败，请检查网络连接或构建产物后重试。")
-            : code === "plugin_third_party_disabled"
-              ? t("请先开启「允许第三方插件」后再安装。")
-              : t("插件安装失败：{0}", code);
+      const message = code === "plugin_size_mismatch"
+        ? t("校验失败：插件构建产物的体积与声明不符，已阻止安装。")
+        : code === "plugin_hash_mismatch"
+          ? t("校验失败：插件构建产物的 SHA-256 哈希不匹配，已阻止安装。")
+          : code === "plugin_signature_invalid"
+            ? t("校验失败：官方插件签名无效，已阻止安装。")
+            : code === "plugin_download_failed"
+              ? t("下载插件失败，请检查网络连接或构建产物后重试。")
+              : code === "plugin_third_party_disabled"
+                ? t("请先开启「允许第三方插件」后再安装。")
+                : t("插件安装失败：{0}", code);
+      setConsentError(message);
       setFeedback({ text: message, error: true });
     } finally {
       setBusyId(undefined);
@@ -295,8 +346,9 @@ export function PluginsView({
   };
 
   const performUninstall = async (record: InstalledPluginRecord, keepData: boolean) => {
+    if (!activeRegistry) return;
     const title = displayTitle(record.manifest, locale);
-    await pluginRegistry.uninstall(record.manifest.id, { keepData });
+    await activeRegistry.uninstall(record.manifest.id, { keepData });
     setUninstallTarget(undefined);
     setFeedback({
       text: keepData
@@ -306,10 +358,10 @@ export function PluginsView({
   };
 
   const handleLocalFolderFiles = async (files: FileList | null) => {
-    if (!files || !files.length) return;
+    if (!files || !files.length || !activeRegistry) return;
     setFeedback(undefined);
     const list = [...files];
-    const manifestFile = list.find((file) => file.name === "manifest.json" || file.webkitRelativePath.endsWith("/manifest.json"));
+    const manifestFile = selectLocalManifestFile(list);
     if (!manifestFile) {
       setFeedback({ text: t("未在所选目录中找到 manifest.json。"), error: true });
       return;
@@ -317,20 +369,22 @@ export function PluginsView({
     try {
       const manifestText = await manifestFile.text();
       const parsed = JSON.parse(manifestText) as { entry?: string };
-      const entryPath = typeof parsed.entry === "string" ? parsed.entry.replace(/^\.\//, "") : "index.html";
-      const entryFile = list.find((file) =>
-        file.webkitRelativePath.endsWith(`/${entryPath}`) || file.name === entryPath || file.name === entryPath.split("/").pop(),
-      );
+      const { entryPath, file: entryFile } = selectLocalEntryFile(list, manifestFile, parsed.entry);
       if (!entryFile) {
         setFeedback({ text: t("未在所选目录中找到入口文件：{0}", entryPath), error: true });
         return;
       }
       const html = await entryFile.text();
-      const installed = await pluginRegistry.installLocalDev(manifestText, html);
+      const installed = await activeRegistry.installLocalDev(manifestText, html);
       setFeedback({ text: t("已从本地目录加载开发插件「{0}」", displayTitle(installed.manifest, locale)) });
     } catch (error) {
       const code = error instanceof Error ? error.message : "invalid_local_plugin";
-      setFeedback({ text: code === "plugin_hash_mismatch" ? t("校验失败：本地插件哈希与 manifest 不一致。") : t("无法加载本地插件：{0}", code), error: true });
+      const message = code === "plugin_hash_mismatch"
+        ? t("校验失败：本地插件哈希与 manifest 不一致。")
+        : code === "plugin_official_id_reserved"
+          ? t("本地开发插件不能使用官方保留的插件 ID。")
+          : t("无法加载本地插件：{0}", code);
+      setFeedback({ text: message, error: true });
     }
   };
 
@@ -348,7 +402,7 @@ export function PluginsView({
     const isBusy = busyId === manifest.id;
     const thirdPartyBlocked = !manifest.official && installed?.sourceKind !== "local-dev" && !state.allowThirdParty;
     const primaryContribution = manifest.contributions[0];
-    const updateEntry = installed ? pluginRegistry.hasUpdate(manifest.id) : undefined;
+    const updateEntry = installed && activeRegistry ? activeRegistry.hasUpdate(manifest.id) : undefined;
 
     if (!installed && catalogEntry) {
       return (
@@ -356,7 +410,7 @@ export function PluginsView({
           type="button"
           className="primary"
           disabled={isBusy || thirdPartyBlocked}
-          onClick={() => setReviewEntry(catalogEntry)}
+          onClick={() => openReview(catalogEntry)}
         >
           <Download size={14}/>
           {catalogEntry.manifest.artifact.url ? t("下载并安装") : t("安装")}
@@ -382,7 +436,7 @@ export function PluginsView({
         <button
           type="button"
           className={installed.enabled ? "secondary" : "primary"}
-          onClick={() => pluginRegistry.setEnabled(manifest.id, !installed.enabled)}
+          onClick={() => activeRegistry?.setEnabled(manifest.id, !installed.enabled)}
         >
           {installed.enabled ? t("停用") : t("启用")}
         </button>
@@ -403,7 +457,7 @@ export function PluginsView({
         <button
           type="button"
           className={installed.enabled ? "secondary" : "primary"}
-          onClick={() => pluginRegistry.setEnabled(manifest.id, !installed.enabled)}
+          onClick={() => activeRegistry?.setEnabled(manifest.id, !installed.enabled)}
         >
           {installed.enabled ? t("停用") : t("启用")}
         </button>
@@ -412,7 +466,7 @@ export function PluginsView({
             type="button"
             className="secondary"
             disabled={isBusy}
-            onClick={() => setReviewEntry(updateEntry)}
+            onClick={() => openReview(updateEntry)}
           >
             <RefreshCw size={14}/>{t("更新到 v{0}", updateEntry.manifest.version)}
           </button>
@@ -430,10 +484,12 @@ export function PluginsView({
 
   const renderCard = (entry: MarketplaceEntry, variant: "featured" | "grid" = "grid") => {
     const { manifest, installed } = entry;
+    const isOfficial = installed ? installed.sourceKind === "official" : manifest.official;
     const title = displayTitle(manifest, locale);
     const description = displayDescription(manifest, locale);
     const publisher = pluginPublisherLabel(manifest, installed?.sourceKind);
     const cat = pluginMarketplaceCategory(manifest);
+    const updateEntry = installed && activeRegistry ? activeRegistry.hasUpdate(manifest.id) : undefined;
 
     if (variant === "featured") {
       return (
@@ -467,7 +523,7 @@ export function PluginsView({
                       {title}
                     </button>
                   </h4>
-                  {manifest.official && (
+                  {isOfficial && (
                     <BadgeCheck className="plugin-verified-mark" size={15} aria-label={t("官方插件")}/>
                   )}
                 </div>
@@ -509,7 +565,7 @@ export function PluginsView({
                   {title}
                 </button>
               </h4>
-              {manifest.official ? (
+              {isOfficial ? (
                 <BadgeCheck className="plugin-verified-mark" size={14} aria-label={t("官方插件")}/>
               ) : installed?.sourceKind === "local-dev" ? (
                 <span className="plugin-badge is-dev">{t("本地开发")}</span>
@@ -539,6 +595,11 @@ export function PluginsView({
                 {installed.enabled ? t("已启用") : t("已停用")}
               </span>
             )}
+            {updateEntry && (
+              <span className="plugin-badge is-official">
+                {t("可更新 v{0}", updateEntry.manifest.version)}
+              </span>
+            )}
           </div>
           <div className="plugin-card-action-slot">
             {renderPrimaryAction(entry, true)}
@@ -563,7 +624,7 @@ export function PluginsView({
           type="button"
           className="primary"
           onClick={() => {
-            pluginRegistry.setAllowThirdParty(true);
+            activeRegistry?.setAllowThirdParty(true);
             setConfirmThirdParty(false);
           }}
         >
@@ -593,7 +654,7 @@ export function PluginsView({
       <section className="plugin-consent-box" aria-label={t("安装前权限确认")}>
         <header>
           <strong>{t("确认安装「{0}」v{1}", displayTitle(reviewEntry.manifest, locale), reviewEntry.manifest.version)}</strong>
-          <button type="button" className="icon-button" aria-label={t("取消")} onClick={() => setReviewEntry(undefined)}><X size={16}/></button>
+          <button type="button" className="icon-button" aria-label={t("取消")} onClick={closeReview}><X size={16}/></button>
         </header>
         <p className="muted">
           {t("安装前会校验构建产物的 SHA-256（{0}…）{1}。插件运行在独立沙箱中，无法读取 App 令牌或调用主机 API。",
@@ -602,15 +663,21 @@ export function PluginsView({
           )}
         </p>
         <ul>
-          <li><strong>{t("所需能力")}：</strong>{reviewEntry.manifest.capabilities.length ? reviewEntry.manifest.capabilities.map(capabilityLabel).join("、") : t("无额外能力")}</li>
-          <li><strong>{t("网络域名")}：</strong>{reviewEntry.manifest.domains.length ? reviewEntry.manifest.domains.join(", ") : t("无外部网络访问")}</li>
-          <li><strong>{t("源码位置")}：</strong><code>{reviewEntry.manifest.source.repository}@{reviewEntry.manifest.source.commit}</code></li>
+          <li><strong>{t("所需能力：")}</strong>{reviewEntry.manifest.capabilities.length ? formatList(reviewEntry.manifest.capabilities.map(capabilityLabel)) : t("无额外能力")}</li>
+          <li><strong>{t("网络域名：")}</strong>{reviewEntry.manifest.domains.length ? reviewEntry.manifest.domains.join(", ") : t("无外部网络访问")}</li>
+          <li><strong>{t("源码位置：")}</strong><code>{reviewEntry.manifest.source.repository}@{reviewEntry.manifest.source.commit}</code></li>
           {reviewEntry.manifest.attribution && (
-            <li><strong>{t("原作者与协议")}：</strong>{reviewEntry.manifest.attribution.author} ({reviewEntry.manifest.attribution.license})</li>
+            <li><strong>{t("原作者与协议：")}</strong>{reviewEntry.manifest.attribution.author} ({reviewEntry.manifest.attribution.license})</li>
           )}
         </ul>
+        {consentError && (
+          <div className="plugins-feedback is-error" role="alert">
+            <AlertTriangle size={15}/>
+            <span>{consentError}</span>
+          </div>
+        )}
         <div className="plugin-consent-actions">
-          <button type="button" className="secondary" onClick={() => setReviewEntry(undefined)}>{t("取消")}</button>
+          <button type="button" className="secondary" onClick={closeReview}>{t("取消")}</button>
           <button type="button" className="primary" disabled={busyId === reviewEntry.manifest.id} onClick={() => void performInstall(reviewEntry)}>
             <Download size={14}/>{busyId === reviewEntry.manifest.id ? t("正在下载并校验…") : t("确认并安装")}
           </button>
@@ -640,6 +707,7 @@ export function PluginsView({
 
   if (selectedEntry) {
     const { manifest, installed } = selectedEntry;
+    const isOfficial = installed ? installed.sourceKind === "official" : manifest.official;
     const title = displayTitle(manifest, locale);
     const description = displayDescription(manifest, locale);
     const publisher = pluginPublisherLabel(manifest, installed?.sourceKind);
@@ -666,7 +734,7 @@ export function PluginsView({
             <div className="plugin-detail-hero-copy">
               <div className="plugin-detail-title-row">
                 <h3>{title}</h3>
-                {manifest.official ? (
+                {isOfficial ? (
                   <span className="plugin-badge is-official"><BadgeCheck size={13}/>{t("官方")}</span>
                 ) : installed?.sourceKind === "local-dev" ? (
                   <span className="plugin-badge is-dev"><Code2 size={13}/>{t("本地开发")}</span>
@@ -773,7 +841,7 @@ export function PluginsView({
                 <dl className="plugin-detail-facts">
                   <div>
                     <dt>{t("校验方式")}</dt>
-                    <dd>{manifest.official ? t("SHA-256 + Ed25519 官方签名") : t("SHA-256 完整性校验")}</dd>
+                    <dd>{isOfficial ? t("SHA-256 + Ed25519 官方签名") : t("SHA-256 完整性校验")}</dd>
                   </div>
                   <div>
                     <dt>{t("来源")}</dt>
@@ -944,7 +1012,7 @@ export function PluginsView({
                       if (e.target.checked) setConfirmThirdParty(true);
                       else {
                         setConfirmThirdParty(false);
-                        pluginRegistry.setAllowThirdParty(false);
+                        activeRegistry?.setAllowThirdParty(false);
                       }
                     }}
                   />
@@ -971,7 +1039,7 @@ export function PluginsView({
                       if (e.target.checked) setConfirmThirdParty(true);
                       else {
                         setConfirmThirdParty(false);
-                        pluginRegistry.setAllowThirdParty(false);
+                        activeRegistry?.setAllowThirdParty(false);
                       }
                     }}
                   />
@@ -1047,7 +1115,7 @@ export function PluginsView({
               <input
                 type="checkbox"
                 checked={state.developerMode}
-                onChange={(e) => pluginRegistry.setDeveloperMode(e.target.checked)}
+                onChange={(e) => activeRegistry?.setDeveloperMode(e.target.checked)}
               />
               <span>{t("启用开发者模式")}</span>
             </label>
@@ -1098,34 +1166,80 @@ export function PluginsView({
 
 export function PluginsModal({
   platform,
+  registry,
+  connection,
   initialInstallId,
   close,
   onOpenContribution,
 }: {
   platform: PluginPlatform;
+  registry?: PluginRegistry | null;
+  connection?: HubConnection;
   initialInstallId?: string;
   close: () => void;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
 }) {
   const locale = useLocale();
   const modalTitle = locale === "en" ? "Plugin Marketplace" : "插件市场";
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const closingRef = useRef(false);
+  const viewBackRef = useRef<(() => boolean) | null>(null);
+
+  const handleStepBack = () => {
+    if (viewBackRef.current?.()) return;
+    close();
+  };
+
+  useBackAction(dialogRef, handleStepBack, 120);
+
+  useLayoutEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    const node = dialogRef.current;
+    closingRef.current = false;
+    node?.showModal();
+    return () => {
+      closingRef.current = true;
+      node?.close();
+      if (before?.isConnected) before.focus({ preventScroll: true });
+    };
+  }, []);
+
   return (
-    <div className="plugins-modal-backdrop" role="dialog" aria-modal="true" aria-label={modalTitle}>
-      <div className="plugins-modal">
-        <header className="plugins-modal-header">
-          <div className="plugins-modal-title">
-            <Puzzle size={19}/>
-            <h2>{modalTitle}</h2>
-          </div>
-          <button type="button" className="icon-button" aria-label={t("关闭插件页")} onClick={close}><X size={18}/></button>
-        </header>
-        <div className="plugins-modal-body">
-          <PluginsView platform={platform} initialInstallId={initialInstallId} onOpenContribution={(pluginId, contributionId, kind, title) => {
-            close();
-            onOpenContribution?.(pluginId, contributionId, kind, title);
-          }}/>
+    <dialog
+      ref={dialogRef}
+      className="plugins-modal-dialog"
+      aria-label={modalTitle}
+      onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
+        event.preventDefault();
+        handleStepBack();
+      }}
+      onClose={(event) => {
+        if (event.target !== event.currentTarget || closingRef.current || event.currentTarget.open) return;
+        event.currentTarget.showModal();
+        handleStepBack();
+      }}
+    >
+      <header className="plugins-modal-header">
+        <div className="plugins-modal-title">
+          <Puzzle size={19}/>
+          <h2>{modalTitle}</h2>
         </div>
+        <button type="button" className="icon-button" aria-label={t("关闭插件页")} onClick={close}><X size={18}/></button>
+      </header>
+      <div className="plugins-modal-body">
+        <PluginsView
+          platform={platform}
+          registry={registry}
+          connection={connection}
+          initialInstallId={initialInstallId}
+          backActionRef={viewBackRef}
+          onOpenContribution={onOpenContribution ? (pluginId, contributionId, kind, title) => {
+            close();
+            onOpenContribution(pluginId, contributionId, kind, title);
+          } : undefined}
+        />
       </div>
-    </div>
+    </dialog>
   );
 }

@@ -168,7 +168,7 @@ export async function attachGateway(options: GatewayServiceOptions): Promise<Gat
       const workbenchOmitted = channel.workbenchContextOmitted();
       const workbenchGuide = conversationId && channel.currentMessageId() && (workbenchOmitted || frozenWorkbench || /白板|画板|工作台|workbench|whiteboard|内置浏览器/iu.test(input.text)) ? workbenchInstructions(conversationId, channel.currentMessageId()!, frozenWorkbench, workbenchOmitted, instructionOptions) : undefined;
       const canvasAgentState = conversationId && channel.currentMessageId() && !discussionTurn ? await channel.canvasAgentStatus(AbortSignal.timeout(1_500)).catch(() => undefined) : undefined;
-      const canvasAgentGuide = canvasAgentState?.connected ? infiniteCanvasInstructions(canvasAgentState) : undefined;
+      const canvasAgentGuide = canvasAgentState?.connected ? infiniteCanvasInstructions(canvasAgentState, conversationId, channel.currentMessageId()) : undefined;
       const botContext = discussionTurn ? groupDiscussionInstructions(discussionTurn) : mergeTurnInstructions(
         config.role === "dispatcher" ? dispatcherInstructions(channel.currentMessageId(), dispatcherContext) : undefined,
         workerInstructions,

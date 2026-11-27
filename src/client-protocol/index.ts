@@ -6,6 +6,7 @@ import { designShareRequestFrameSchema, WORKBENCH_DESIGN_SHARE_CAPABILITY, DESIG
 import { WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_DESIGN_COMMENTS_CAPABILITY, WORKBENCH_DESIGN_HISTORY_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY } from "./workbench-design.js";
 import { WORKBENCH_CAPABILITY, WORKBENCH_MARKDOWN_CAPABILITY, workbenchContextSchema, workbenchRegisterFrameSchema, workbenchUnregisterFrameSchema, workbenchReceiptFrameSchema } from "./workbench.js";
 export * from "./workbench.js";
+import { canvasAgentAttachFrameSchema, canvasAgentDetachFrameSchema } from "./infinite-canvas.js";
 import { nativeInputProgressSchema } from "./native-input.js";
 import { steeringApplicationSchema } from "./steering-outcome.js";
 import { botSourceSchema } from "./bot-messages.js";
@@ -90,6 +91,7 @@ export const groupReplyGuardSchema = z.object({ mode: z.enum(["mentions", "paral
 export type GroupReplyGuard = z.infer<typeof groupReplyGuardSchema>;
 export const clientFrameSchema = z.discriminatedUnion("type", [
   designShareRequestFrameSchema, workbenchRegisterFrameSchema, workbenchUnregisterFrameSchema, workbenchReceiptFrameSchema,
+  canvasAgentAttachFrameSchema, canvasAgentDetachFrameSchema,
   z.object({ ...envelope, type: z.literal("hello"), deviceId: idSchema, protocolVersions: z.array(z.number().int()).min(1).max(16), capabilities: z.array(z.string().max(64)).max(64), cursors: z.record(idSchema, z.number().int().nonnegative()), syncLineages: z.record(idSchema, z.string().uuid()).optional(), preferredConversationId: idSchema.optional(), nonce: z.string().min(32).max(128) }),
   z.object({ ...envelope, type: z.literal("auth"), signature: z.string().max(256) }),
   z.object({ ...envelope, type: z.literal("snapshot.ack"), id: idSchema, count: z.number().int().nonnegative().safe() }),

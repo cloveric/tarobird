@@ -426,6 +426,7 @@ export class HubServer {
     this.disposers.push(auth.onRevoke((deviceId) => { for (const c of this.clients) if (c.session?.deviceId === deviceId) this.endClientSession(c, "device_revoked"); }));
     this.disposers.push(auth.onRevoke((deviceId) => {
       this.sideSessions.revoke(deviceId);
+      this.canvasAgent.revokeForDevice(deviceId);
       for (const [controller, session] of this.downloads) if (session.deviceId === deviceId) controller.abort(new HubError("device_revoked", 401));
     }));
     // A separate CLI process can revoke a device or enqueue maintenance work.
@@ -459,18 +460,22 @@ export class HubServer {
       void task.finally(() => this.httpTasks.delete(task)).catch(() => this.options.onWarning?.("request_failed"));
     });
     server.on("upgrade", (req, socket, head) => {
-      if (!this.stopping && (req.url ?? "").startsWith("/api/canvas-agent/events")) {
-        const parsedUrl = new URL(req.url ?? "/", "http://hub");
-        const clientId = parsedUrl.searchParams.get("clientId") ?? "";
-        const token = parsedUrl.searchParams.get("token") ?? undefined;
-        const origin = req.headers.origin;
-        const originOk = !origin || origin === "null" || [...this.urls, ...NATIVE_ORIGINS, ...(this.options.origins ?? [])].includes(origin);
-        if (!originOk || !clientId) { socket.destroy(); return; }
-        void this.canvasAgent.verifyToken(token, clientId).then((grant) => {
-          if (this.stopping) { socket.destroy(); return; }
-          this.sockets.handleUpgrade(req, socket, head, (ws) => this.canvasAgent.openEvents(grant, ws));
-        }, () => { socket.destroy(); });
-        return;
+      if (!this.stopping) {
+        let parsedUrl: URL;
+        try { parsedUrl = new URL(req.url ?? "/", "http://hub"); }
+        catch { socket.destroy(); return; }
+        if (parsedUrl.pathname === "/api/canvas-agent/events") {
+          const clientId = parsedUrl.searchParams.get("clientId") ?? "";
+          const token = parsedUrl.searchParams.get("token") ?? undefined;
+          const origin = req.headers.origin;
+          const originOk = !origin || origin === "null" || [...this.urls, ...NATIVE_ORIGINS, ...(this.options.origins ?? [])].includes(origin);
+          if (!originOk || !clientId) { socket.destroy(); return; }
+          void this.canvasAgent.verifyToken(token, clientId).then((grant) => {
+            if (this.stopping) { socket.destroy(); return; }
+            this.sockets.handleUpgrade(req, socket, head, (ws) => this.canvasAgent.openEvents(grant, ws));
+          }, () => { socket.destroy(); });
+          return;
+        }
       }
       if (!this.stopping && this.originAllowed(req) && this.screenSockets.handles(req.url ?? "")) {
         this.screenSockets.upgrade(req, socket, head, instance && !tls && isLoopback(req.socket.remoteAddress ?? ""), isLocalNetworkAddress(req.socket.remoteAddress ?? "")); return;
@@ -657,6 +662,7 @@ export class HubServer {
   }
   private async sweep(): Promise<void> {
     await this.remoteScreen.sweep();
+    await this.canvasAgent.sweepRevokedDevices();
     for (const client of this.clients) if (client.session) {
       try { await this.auth.validateSession(client.session); }
       catch (error) { this.endClientSession(client, error instanceof HubError && error.code === "device_revoked" ? "device_revoked" : "session_expired"); }
@@ -690,7 +696,7 @@ export class HubServer {
   private endClientSession(client: Client, code: "device_revoked" | "session_expired"): void {
     if (client.rejected) return;
     client.rejected = code;
-    if (client.session) { this.workbench.unregister(this.workbenchPeer(client));this.designSharing.disconnect(this.designSharePeer(client)); }
+    if (client.session) { this.workbench.unregister(this.workbenchPeer(client)); this.designSharing.disconnect(this.designSharePeer(client)); this.canvasAgent.detachForOwner(client); }
     void this.store.audit("socket.rejected", client.session?.deviceId ?? null, { code }).catch(() => undefined);
     void this.send(client.ws, { v: 1, type: "notice", code }).finally(() => client.ws.close(4001, code)).catch(() => undefined);
   }
@@ -1046,7 +1052,7 @@ export class HubServer {
       this.trackTask(tail);
     });
     ws.on("error", () => { this.options.onWarning?.("client_socket_error"); });
-    ws.on("close", () => { if (client.session) { this.workbench.unregister(this.workbenchPeer(client));this.designSharing.disconnect(this.designSharePeer(client)); } clearTimeout(timeout); client.pendingPublications.length = 0; this.auth.forgetConnection(id); this.clients.delete(client); });
+    ws.on("close", () => { if (client.session) { this.workbench.unregister(this.workbenchPeer(client)); this.designSharing.disconnect(this.designSharePeer(client)); this.canvasAgent.detachForOwner(client); } clearTimeout(timeout); client.pendingPublications.length = 0; this.auth.forgetConnection(id); this.clients.delete(client); });
   }
   private async createConversation(userId: string, frame: Extract<ClientFrame, { type: "conversation.create" | "topic.create" }>, validate: () => Promise<unknown>) {
     const conversation = frame.type === "topic.create"
@@ -1107,6 +1113,30 @@ export class HubServer {
         if (frame.type === "workbench.register") await this.workbench.register(peer, frame.registration);
         else if (frame.type === "workbench.unregister") this.workbench.unregister(peer, frame.windowId);
         else await this.workbench.receive(peer, frame.dispatchId, frame.receipt);
+        break;
+      }
+      case "canvas.agent.attach": {
+        const grant = await this.canvasAgent.verifyToken(frame.token, frame.clientId);
+        if (grant.deviceId !== client.session!.deviceId || grant.userId !== userId) {
+          throw new HubError("canvas_agent_forbidden", 403);
+        }
+        const session = client.session!;
+        this.canvasAgent.attachClientSink(grant, {
+          ownerKey: client,
+          isOpen: () => !this.stopping && !client.rejected && client.session === session && client.ws.readyState === WebSocket.OPEN,
+          send: (event, data) => {
+            if (this.stopping || client.rejected || client.session !== session || client.ws.readyState !== WebSocket.OPEN) return;
+            this.publishClient(client, { v: 1, type: "canvas.agent.event", clientId: grant.clientId, event, data });
+          },
+          close: (reason) => {
+            if (this.stopping || client.rejected || client.session !== session || client.ws.readyState !== WebSocket.OPEN) return;
+            this.publishClient(client, { v: 1, type: "canvas.agent.event", clientId: grant.clientId, event: "closed", data: { reason } });
+          },
+        });
+        break;
+      }
+      case "canvas.agent.detach": {
+        this.canvasAgent.detachForOwner(client, frame.clientId);
         break;
       }
       case "presence": client.foreground = frame.foreground; break;
@@ -1349,7 +1379,7 @@ export class HubServer {
           if (frame.error) pending.reject(new HubError("bot_request_failed", 502)); else pending.resolve(frame.result ?? null); return;
         }
         if (frame.type === "instance.request") {
-          if (frame.method.startsWith("workbench.")) {
+          if (frame.method.startsWith("workbench.") || frame.method.startsWith("canvas.agent.")) {
             // Waiting for an App receipt must not block this Bot's other turns,
             // heartbeat/status or a user's stop acknowledgement.
             const owner = botId;
@@ -1593,8 +1623,16 @@ export class HubServer {
       if (!file.startsWith(root + path.sep)) throw new HubError("not_found", 404);
       const info = await stat(file).catch(() => undefined);
       if (!info?.isFile()) throw new HubError("not_found", 404);
-      const mime = pluginArtifact[3] === "manifest.json" ? "application/json; charset=utf-8" : "text/html; charset=utf-8";
-      res.writeHead(200, { "Content-Type": mime, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+      const filename = pluginArtifact[3]!;
+      const mime = filename === "manifest.json" ? "application/json; charset=utf-8" : "text/plain; charset=utf-8";
+      res.writeHead(200, {
+        "Content-Type": mime,
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+      });
       res.end(await readFile(file)); return;
     }
     if (isCanvasAgentBridgeRoute) {
@@ -1619,10 +1657,15 @@ export class HubServer {
       throw new HubError("method_not_allowed", 405);
     }
     if (route === "/api/canvas-agent/mcp" && req.method === "POST") {
-      const credentials = req.headers.authorization?.match(/^Instance ([A-Za-z0-9_-]+):([A-Za-z0-9_-]{8,256})$/);
+      if (!instanceAllowed || !isLoopback(req.socket.remoteAddress ?? "")) {
+        throw new HubError("instance_unauthorized", 401);
+      }
+      const credentials = req.headers.authorization?.match(/^Instance ([A-Za-z0-9_-]+):([A-Za-z0-9_-]{32,256})$/);
       const botId = credentials?.[1];
       const record = botId ? await this.store.db.serial(() => this.store.db.get<{ secret_hash: string }>("SELECT secret_hash FROM bots WHERE id=? AND deleted_at IS NULL", [botId])) : undefined;
-      if (!record || !credentials || !botId || !timingSafeEqual(Buffer.from(record.secret_hash, "hex"), Buffer.from(hashSecret(credentials[2]!), "hex"))) {
+      const storedHash = record && /^[0-9a-f]{64}$/i.test(record.secret_hash) ? Buffer.from(record.secret_hash, "hex") : undefined;
+      const candidateHash = credentials ? Buffer.from(hashSecret(credentials[2]!), "hex") : undefined;
+      if (!storedHash || !candidateHash || !botId || storedHash.length !== 32 || candidateHash.length !== 32 || !timingSafeEqual(storedHash, candidateHash)) {
         throw new HubError("instance_unauthorized", 401);
       }
       const conversationId = typeof req.headers["x-tarobird-conversation-id"] === "string" ? req.headers["x-tarobird-conversation-id"] : "";
@@ -2767,7 +2810,7 @@ export class HubServer {
     }
     if (relative === "plugin-sandbox.html") {
       res.writeHead(200, { "Content-Type": "text/html", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts" });
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob: https:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts" });
       res.end(await readFile(file)); return;
     }
     const localConnect = this.options.tls ? "" : " http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*";

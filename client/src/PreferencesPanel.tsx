@@ -22,6 +22,7 @@ import { useBackAction } from "./back-navigation.js";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { AudioLines, Bell, Database, FolderOpen, Check, ChevronLeft, ChevronRight, Globe, Link, Monitor, MonitorCog, Plus, Puzzle, QrCode, ScanLine, Settings2, ShieldCheck, Gauge, X } from "lucide-react";
 import { PluginsView } from "./PluginsPanel.js";
+import { getPluginRegistry, resolvePluginScopeId } from "./plugin-registry.js";
 import { ConnectionPanel } from "./ConnectionPanel.js";
 import { ScreenControlPanel } from "./ScreenControlPanel.js";
 import { hasScreenViewer } from "./mobile-screen-viewer-transport.js";
@@ -114,6 +115,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   useLocale(); const hostName = useContext(RuntimeHostContext);
   const state = useSyncExternalStore((notify) => connection.subscribe(notify), () => connection.state);
   const intentionalClose = useRef(false);
+  const pluginsBackRef = useRef<(() => boolean) | null>(null);
   const dialog = useRef<HTMLDialogElement>(null), content = useRef<HTMLDivElement>(null), heading = useRef<HTMLHeadingElement>(null), header = useRef<HTMLElement>(null);
   useDialogDrag(dialog, header, true);
   const phone = useSyncExternalStore(subscribePhone, phoneLayout);
@@ -200,6 +202,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   const pageTitle = sections.find(({ id }) => id === section)?.title;
   const goBack = () => {
     if (settingsBusy || busy) return;
+    if (section === "plugins" && (!phone || !overview) && pluginsBackRef.current?.()) return;
     if (upToCategories) setOverview(true);
     else requestClose();
   };
@@ -442,7 +445,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
         <section hidden={section !== "engines"} aria-label={t("引擎程序")}><h3>{t("引擎程序")}</h3><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "engines" && (!phone || !overview)} onDirty={setEngineDirty} onBusy={setEngineBusy}/></section>
         {quotaPage && <section hidden={section !== "quota"} aria-label={t("模型额度")}><h3>{t("模型额度")}</h3><EngineQuota key={connection.identity.hubPublicKey} connection={connection} active={section === "quota" && (!phone || !overview)}/></section>}
         <section hidden={section !== "workbench"} aria-label={t("工作台文件")}><h3>{t("工作台文件")}</h3><WorkbenchLibrary connection={connection} active={section === "workbench" && (!phone || !overview)} onBusy={setLibraryBusy} onOpened={close} openLocalFile={openWorkbenchFile}/></section>
-        <section hidden={section !== "plugins"} aria-label={t("插件市场")}><h3>{t("插件市场")}</h3><PluginsView platform={phone ? "phone" : "desktop"} onOpenContribution={(pluginId, contributionId, kind, title) => { close(); onOpenPluginContribution?.(pluginId, contributionId, kind, title); }}/></section>
+        <section hidden={section !== "plugins"} aria-label={t("插件市场")}><h3>{t("插件市场")}</h3><PluginsView platform={phone ? "phone" : "desktop"} registry={(() => { const scope = resolvePluginScopeId(connection.identity.hubPublicKey, state.user?.id, connection.identity.deviceId); return scope ? getPluginRegistry(scope) : null; })()} connection={connection} backActionRef={pluginsBackRef} onOpenContribution={onOpenPluginContribution ? (pluginId, contributionId, kind, title) => { close(); onOpenPluginContribution(pluginId, contributionId, kind, title); } : undefined}/></section>
         <section hidden={section !== "backups"} aria-label={t("数据与备份")}><h3>{t("数据与备份")}</h3><BackupSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "backups" && (!phone || !overview)} onDirty={setBackupDirty} onBusy={setBackupBusy}/></section>
         <section hidden={section !== "voice"} aria-label={t("语音转写")}><h3>{t("语音转写")}</h3><VoiceSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "voice" && (!phone || !overview)} onDirty={setVoiceDirty} onBusy={setVoiceBusy}/></section>
         <section hidden={section !== "botMessages"} aria-label={t("Bot 消息授权")}>

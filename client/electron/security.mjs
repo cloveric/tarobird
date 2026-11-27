@@ -6,7 +6,7 @@ export function internalResource(raw) {
     const url = new URL(raw);
     return !url.username && !url.password && !url.port && (
       url.protocol === 'tarobot:' && url.hostname === 'app'
-      || url.protocol === 'tarobot-widget:' && url.hostname === 'sandbox' && ['/widget-sandbox.html', '/design-loader.html'].includes(url.pathname)
+      || url.protocol === 'tarobot-widget:' && url.hostname === 'sandbox' && ['/widget-sandbox.html', '/plugin-sandbox.html', '/design-loader.html'].includes(url.pathname)
       || ['blob:', 'data:', 'about:'].includes(url.protocol));
   } catch { return false; }
 }
@@ -15,6 +15,7 @@ export function internalResource(raw) {
 // https/wss only, without URL credentials or hosts written as loopback,
 // private, link-local or local names. The App document itself stays offline.
 const WIDGET_RELAY = 'tarobot-widget://sandbox/widget-sandbox.html';
+const PLUGIN_RELAY = 'tarobot-widget://sandbox/plugin-sandbox.html';
 export function localHost(name) {
   const host = String(name).toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (host === 'localhost' || /\.(?:localhost|local|internal|lan|home\.arpa)$/.test(host) || !host.includes('.') && !host.includes(':')) return true;
@@ -25,16 +26,27 @@ export function localHost(name) {
 export function widgetNetworkURL(raw) {
   try { const url = new URL(raw); return ['https:', 'wss:'].includes(url.protocol) && !url.username && !url.password && !localHost(url.hostname); } catch { return false; }
 }
+function guestUnderRelay(frame, relayUrl) {
+  if (!frame) return false;
+  try { for (; frame; frame = frame.parent) { if (frame.url === relayUrl) return true; if (frame.url !== 'about:srcdoc') return false; } } catch { /* A detached frame is not trusted. */ }
+  return false;
+}
 /** A widget guest is an about:srcdoc frame under the fixed widget relay; its
  * Workers' requests carry that frame too (Electron 45). Frameless requests, such
  * as App SharedWorkers or main-process fetches, are never widget traffic. */
 export function widgetNetworkRequest(details) {
   if (!widgetNetworkURL(details?.url)) return false;
   if (['mainFrame', 'subFrame'].includes(details.resourceType)) return false;
-  let frame = details.frame;
-  if (!frame) return false;
-  try { for (; frame; frame = frame.parent) { if (frame.url === WIDGET_RELAY) return true; if (frame.url !== 'about:srcdoc') return false; } } catch { /* A detached frame is not trusted. */ }
-  return false;
+  return guestUnderRelay(details.frame, WIDGET_RELAY);
+}
+/** An installed plugin guest runs as an about:srcdoc child of plugin-sandbox.html.
+ * Its per-plugin injected CSP enforces user-approved grantedDomains; main-process
+ * enforcement still blocks non-https/wss schemes, credentials in URLs, and all
+ * loopback/private/LAN/local hostnames so plugins can never reach the Hub or LAN. */
+export function pluginNetworkRequest(details) {
+  if (!widgetNetworkURL(details?.url)) return false;
+  if (['mainFrame', 'subFrame'].includes(details.resourceType)) return false;
+  return guestUnderRelay(details.frame, PLUGIN_RELAY);
 }
 const withoutHeaders = (headers, pattern) => Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !pattern.test(name)));
 
@@ -77,13 +89,16 @@ export function secureSession(session, { owns = () => false, systemPreferences, 
   });
   session.setDevicePermissionHandler(() => false);
   session.on('will-download', event => event.preventDefault());
-  // Widgets have no network (1.5.1 policy, restored 2026-11-23): every request that is not one of the App's own
-  // resources is cancelled here, outside the page. widgetNetworkRequest above is kept, unused, for a later design.
-  session.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !internalResource(details.url) }));
-  // Widget requests never carry or receive cookies or HTTP credentials. Every
-  // allowed external request is a widget request, but its frame can detach
-  // after onBeforeRequest (details.frame becomes null), so strip by URL alone.
-  session.webRequest.onBeforeSendHeaders((details, callback) => callback(!internalResource(details.url) ? { requestHeaders: withoutHeaders(details.requestHeaders, /^(?:cookie|authorization|proxy-authorization)$/i) } : {}));
+  // Widgets have no network (1.5.1 policy, restored 2026-11-23). Sandboxed plugins under
+  // plugin-sandbox.html may reach public https/wss endpoints within their injected guest CSP
+  // (never loopback/LAN/private hosts). All other non-internal requests stay cancelled.
+  session.webRequest.onBeforeRequest((details, callback) => callback({ cancel: !(internalResource(details.url) || pluginNetworkRequest(details)) }));
+  // External requests never carry cookies or proxy credentials. Widget and detached external
+  // requests also strip Authorization; live plugin guest requests to public HTTPS APIs keep
+  // their user-configured API Authorization header while stripping Cookie/Proxy-Authorization.
+  session.webRequest.onBeforeSendHeaders((details, callback) => callback(!internalResource(details.url)
+    ? { requestHeaders: withoutHeaders(details.requestHeaders, pluginNetworkRequest(details) ? /^(?:cookie|proxy-authorization)$/i : /^(?:cookie|authorization|proxy-authorization)$/i) }
+    : {}));
   session.webRequest.onHeadersReceived((details, callback) => callback(!internalResource(details.url) ? { responseHeaders: withoutHeaders(details.responseHeaders, /^set-cookie2?$/i) } : {}));
 }
 
@@ -93,7 +108,7 @@ export function secureContents(contents) {
   contents.on('will-navigate', (event, url) => { if (!isEntryURL(url ?? event.url)) event.preventDefault(); });
   contents.on('will-frame-navigate', event => {
     if (event.isMainFrame ? !isEntryURL(event.url)
-      : !['tarobot-widget://sandbox/widget-sandbox.html', 'tarobot-widget://sandbox/design-loader.html', 'about:blank', 'about:srcdoc'].includes(event.url) && !event.url.startsWith('data:text/html;charset=utf-8,')) event.preventDefault();
+      : !['tarobot-widget://sandbox/widget-sandbox.html', 'tarobot-widget://sandbox/plugin-sandbox.html', 'tarobot-widget://sandbox/design-loader.html', 'about:blank', 'about:srcdoc'].includes(event.url) && !event.url.startsWith('data:text/html;charset=utf-8,')) event.preventDefault();
   });
 }
 

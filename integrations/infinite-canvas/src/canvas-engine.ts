@@ -9,7 +9,8 @@ export type CanvasNodeType =
   | "panorama"
   | "sticky-note"
   | "svg"
-  | "template";
+  | "template"
+  | "third-party";
 
 export type CanvasNode = {
   id: string;
@@ -178,14 +179,18 @@ export async function executeCanvasAgentTool(
       const ids = Array.isArray(input.ids) ? new Set(input.ids.map(String)) : null;
       const types = Array.isArray(input.types) ? new Set(input.types.map(String)) : null;
       const selectedOnly = input.selectedOnly === true;
+      const groupId = typeof input.groupId === "string" && input.groupId.trim() ? input.groupId.trim() : null;
       const keyword = typeof input.keyword === "string" ? input.keyword.toLowerCase() : "";
+      const offset = typeof input.offset === "number" && Number.isFinite(input.offset) && input.offset > 0 ? Math.floor(input.offset) : 0;
       const selectedSet = new Set(project.selectedIds);
-      const nodes = project.nodes
-        .filter((n) => (!ids || ids.has(n.id))
-          && (!types || types.has(n.type))
-          && (!selectedOnly || selectedSet.has(n.id))
-          && (!keyword || n.title.toLowerCase().includes(keyword) || String(n.metadata.content ?? "").toLowerCase().includes(keyword)))
-        .slice(0, 200)
+      const filtered = project.nodes.filter((n) => (!ids || ids.has(n.id))
+        && (!types || types.has(n.type))
+        && (!selectedOnly || selectedSet.has(n.id))
+        && (!groupId || n.groupId === groupId || n.id === groupId)
+        && (!keyword || n.title.toLowerCase().includes(keyword) || String(n.metadata.content ?? n.metadata.prompt ?? "").toLowerCase().includes(keyword)));
+      const pageLimit = 200;
+      const nodes = filtered
+        .slice(offset, offset + pageLimit)
         .map((n) => ({
           id: n.id,
           type: n.type,
@@ -195,7 +200,11 @@ export async function executeCanvasAgentTool(
           width: n.width,
           height: n.height,
           groupId: n.groupId,
-          preview: typeof n.metadata.content === "string" ? n.metadata.content.slice(0, 120) : undefined,
+          preview: typeof n.metadata.content === "string"
+            ? n.metadata.content.slice(0, 120)
+            : typeof n.metadata.prompt === "string"
+              ? n.metadata.prompt.slice(0, 120)
+              : undefined,
           status: n.metadata.status,
         }));
       return {
@@ -203,6 +212,9 @@ export async function executeCanvasAgentTool(
         title: project.title,
         viewport: project.viewport,
         selectedIds: project.selectedIds,
+        offset,
+        total: filtered.length,
+        hasMore: offset + nodes.length < filtered.length,
         nodes,
         connections: input.includeConnections === false ? [] : project.connections,
       };
@@ -221,13 +233,18 @@ export async function executeCanvasAgentTool(
 
     case "canvas_list_models": {
       const ch = env.getChannel();
-      return {
-        models: [
-          { id: ch.imageModel || "gpt-image-1", capability: "image", channel: ch.name },
-          { id: ch.videoModel || "sora-2", capability: "video", channel: ch.name },
-          { id: ch.textModel || "gpt-4o-mini", capability: "text", channel: ch.name },
-        ],
-      };
+      const capability = typeof input.capability === "string" ? input.capability.toLowerCase() : "";
+      const keyword = typeof input.keyword === "string" ? input.keyword.toLowerCase() : "";
+      const allModels = [
+        { id: ch.imageModel || "gpt-image-1", capability: "image", channel: ch.name },
+        { id: ch.videoModel || "sora-2", capability: "video", channel: ch.name },
+        { id: ch.textModel || "gpt-4o-mini", capability: "text", channel: ch.name },
+      ];
+      const models = allModels.filter((m) =>
+        (!capability || m.capability === capability)
+        && (!keyword || m.id.toLowerCase().includes(keyword) || m.capability.includes(keyword) || m.channel.toLowerCase().includes(keyword)),
+      );
+      return { models };
     }
 
     case "canvas_apply_ops": {
@@ -235,6 +252,7 @@ export async function executeCanvasAgentTool(
       const createdIds: string[] = [];
       const submittedNodeIds: string[] = [];
       const pendingGenerations: Array<{ nodeId: string; mode?: "image" | "video" | "text" | "audio"; prompt?: string }> = [];
+      let updatedNodesSnapshot: CanvasNode[] = project.nodes;
 
       env.updateProject((curr) => {
         let nodes = [...curr.nodes];
@@ -255,7 +273,7 @@ export async function executeCanvasAgentTool(
               y: typeof op.y === "number" ? op.y : typeof pos.y === "number" ? pos.y : 80 + nodes.length * 30,
               width: typeof op.width === "number" ? op.width : 260,
               height: typeof op.height === "number" ? op.height : 160,
-              metadata: (op.metadata && typeof op.metadata === "object" ? op.metadata : {}) as Record<string, unknown>,
+              metadata: (op.metadata && typeof op.metadata === "object" ? { ...(op.metadata as Record<string, unknown>) } : {}),
             };
             nodes.push(node);
             createdIds.push(id);
@@ -314,6 +332,33 @@ export async function executeCanvasAgentTool(
             nodes.push({ id: gid, type: "group", title: typeof op.title === "string" ? op.title : "Group", x: minX, y: minY, width: maxX - minX, height: maxY - minY, metadata: { memberIds: [...memberIds] } });
             nodes = nodes.map((n) => memberIds.has(n.id) ? { ...n, groupId: gid } : n);
             createdIds.push(gid);
+          } else if (type === "set_group_members" && typeof op.groupId === "string" && Array.isArray(op.nodeIds)) {
+            const gid = op.groupId;
+            const memberIds = new Set(op.nodeIds.map(String).filter((id) => id !== gid));
+            const groupExists = nodes.some((n) => n.id === gid && n.type === "group");
+            if (groupExists) {
+              const members = nodes.filter((n) => memberIds.has(n.id));
+              const bounds = members.length
+                ? {
+                    x: Math.min(...members.map((m) => m.x)) - 20,
+                    y: Math.min(...members.map((m) => m.y)) - 40,
+                    width: Math.max(...members.map((m) => m.x + m.width)) - Math.min(...members.map((m) => m.x)) + 40,
+                    height: Math.max(...members.map((m) => m.y + m.height)) - Math.min(...members.map((m) => m.y)) + 60,
+                  }
+                : null;
+              nodes = nodes.map((n) => {
+                if (n.id === gid) {
+                  return {
+                    ...n,
+                    ...(bounds ?? {}),
+                    metadata: { ...n.metadata, memberIds: members.map((m) => m.id) },
+                  };
+                }
+                if (memberIds.has(n.id)) return { ...n, groupId: gid };
+                if (n.groupId === gid) return { ...n, groupId: undefined };
+                return n;
+              });
+            }
           } else if (type === "ungroup_nodes" && Array.isArray(op.ids)) {
             const gids = new Set(op.ids.map(String));
             nodes = nodes.filter((n) => !(n.type === "group" && gids.has(n.id))).map((n) => n.groupId && gids.has(n.groupId) ? { ...n, groupId: undefined } : n);
@@ -323,19 +368,31 @@ export async function executeCanvasAgentTool(
           } else if (type === "select_nodes" && Array.isArray(op.ids)) {
             selectedIds = op.ids.map(String);
           } else if (type === "run_generation" && typeof op.nodeId === "string") {
+            const targetNode = nodes.find((n) => n.id === op.nodeId);
+            const fallbackPrompt = targetNode
+              ? String(targetNode.metadata.prompt ?? targetNode.metadata.content ?? "").trim() || undefined
+              : undefined;
+            const inferredMode = typeof op.mode === "string"
+              ? op.mode as "image" | "video" | "text" | "audio"
+              : targetNode?.type === "video" || targetNode?.type === "audio" || targetNode?.type === "text" || targetNode?.type === "image"
+                ? targetNode.type
+                : undefined;
             pendingGenerations.push({
               nodeId: op.nodeId,
-              mode: typeof op.mode === "string" ? op.mode as "image" | "video" | "text" | "audio" : undefined,
-              prompt: typeof op.prompt === "string" ? op.prompt : undefined,
+              mode: inferredMode,
+              prompt: typeof op.prompt === "string" ? op.prompt : fallbackPrompt,
             });
             submittedNodeIds.push(op.nodeId);
           }
         }
+        updatedNodesSnapshot = nodes;
         return { ...curr, updatedAt: Date.now(), nodes, connections, viewport, selectedIds };
       });
 
       for (const job of pendingGenerations) {
-        void env.triggerGeneration(job.nodeId, job.prompt, job.mode).catch(() => undefined);
+        const latestNode = updatedNodesSnapshot.find((n) => n.id === job.nodeId);
+        const resolvedPrompt = job.prompt ?? (latestNode ? String(latestNode.metadata.prompt ?? latestNode.metadata.content ?? "").trim() || undefined : undefined);
+        void env.triggerGeneration(job.nodeId, resolvedPrompt, job.mode).catch(() => undefined);
       }
 
       return { projectId: project.id, applied: true, createdIds, submittedNodeIds };
@@ -372,6 +429,7 @@ export async function executeCanvasAgentTool(
     case "canvas_create_generation_flow": {
       const prompt = String(input.prompt ?? "");
       const mode = (typeof input.mode === "string" ? input.mode : "image") as "image" | "video" | "text" | "audio";
+      const nodeType: CanvasNodeType = mode === "video" ? "video" : mode === "audio" ? "audio" : mode === "text" ? "text" : "image";
       const nodeId = `gen_${Date.now()}`;
       env.updateProject((curr) => ({
         ...curr,
@@ -380,7 +438,7 @@ export async function executeCanvasAgentTool(
           ...curr.nodes,
           {
             id: nodeId,
-            type: mode === "video" ? "video" : mode === "text" ? "text" : "image",
+            type: nodeType,
             title: typeof input.title === "string" ? input.title : `${mode.toUpperCase()} Generation`,
             x: typeof input.x === "number" ? input.x : 120 + curr.nodes.length * 40,
             y: typeof input.y === "number" ? input.y : 120,
@@ -407,7 +465,11 @@ export async function executeCanvasAgentTool(
     }
 
     case "canvas_insert_media": {
-      const asset = typeof input.assetId === "string" ? env.getAssets().find((a) => a.id === input.assetId) : undefined;
+      const asset = typeof input.assetId === "string"
+        ? env.getAssets().find((a) => a.id === input.assetId)
+        : typeof input.storageKey === "string"
+          ? env.getAssets().find((a) => a.id === input.storageKey || a.source === input.storageKey)
+          : undefined;
       const nodeId = `media_${Date.now()}`;
       env.updateProject((curr) => ({
         ...curr,
@@ -439,33 +501,72 @@ export async function executeCanvasAgentTool(
     }
 
     case "canvas_view_image": {
-      const node = typeof input.nodeId === "string" ? project.nodes.find((n) => n.id === input.nodeId) : undefined;
+      const storageKey = typeof input.storageKey === "string" && input.storageKey.trim() ? input.storageKey.trim() : undefined;
+      let node = typeof input.nodeId === "string" ? project.nodes.find((n) => n.id === input.nodeId) : undefined;
+      if (!node && storageKey) {
+        node = project.nodes.find((n) => n.metadata.storageKey === storageKey || n.metadata.assetId === storageKey);
+      }
+      const asset = storageKey
+        ? env.getAssets().find((a) => a.id === storageKey || a.source === storageKey)
+        : undefined;
       return {
         nodeId: node?.id,
-        storageKey: input.storageKey,
-        imageUrl: node?.metadata.imageUrl,
+        storageKey: storageKey ?? (typeof node?.metadata.storageKey === "string" ? node.metadata.storageKey : undefined),
+        imageUrl: typeof node?.metadata.imageUrl === "string" ? node.metadata.imageUrl : asset?.imageUrl,
+        assetId: asset?.id ?? (typeof node?.metadata.assetId === "string" ? node.metadata.assetId : undefined),
       };
     }
 
     case "generation_get_status": {
-      return { tasks: env.getGenerations().slice(0, typeof input.limit === "number" ? input.limit : 20) };
+      const scope = typeof input.scope === "string" ? input.scope : "all";
+      const taskId = typeof input.taskId === "string" ? input.taskId : undefined;
+      const nodeIds = Array.isArray(input.nodeIds) ? new Set(input.nodeIds.map(String)) : null;
+      const limit = typeof input.limit === "number" && input.limit > 0 ? Math.floor(input.limit) : 20;
+      const tasks = env.getGenerations()
+        .filter((g) =>
+          (!taskId || g.id === taskId)
+          && (!nodeIds || (g.nodeId !== undefined && nodeIds.has(g.nodeId)))
+          && (scope === "all" || (scope === "canvas" ? Boolean(g.nodeId) : g.mode === scope)),
+        )
+        .slice(0, limit);
+      return { tasks };
     }
 
     case "prompts_search": {
       const kw = typeof input.keyword === "string" ? input.keyword.toLowerCase() : "";
-      const items = env.getPrompts().filter((p) => !kw || p.title.toLowerCase().includes(kw) || p.prompt.toLowerCase().includes(kw));
-      return { items, total: items.length };
+      const category = typeof input.category === "string" ? input.category.toLowerCase() : "";
+      const tags = Array.isArray(input.tags) ? input.tags.map((tag) => String(tag).toLowerCase()) : [];
+      const page = typeof input.page === "number" && input.page > 0 ? Math.floor(input.page) : 1;
+      const pageSize = typeof input.pageSize === "number" && input.pageSize > 0 ? Math.floor(input.pageSize) : 50;
+      const matched = env.getPrompts().filter((p) =>
+        (!kw || p.title.toLowerCase().includes(kw) || p.prompt.toLowerCase().includes(kw))
+        && (!category || p.category.toLowerCase() === category)
+        && (!tags.length || tags.every((tag) => p.tags.some((item) => item.toLowerCase() === tag))),
+      );
+      const start = (page - 1) * pageSize;
+      return { items: matched.slice(start, start + pageSize), total: matched.length, page, pageSize };
     }
 
     case "assets_list": {
-      const items = env.getAssets().map((a) => ({
+      const ids = Array.isArray(input.ids) ? new Set(input.ids.map(String)) : null;
+      const kind = typeof input.kind === "string" ? input.kind : "all";
+      const kw = typeof input.keyword === "string" ? input.keyword.toLowerCase() : "";
+      const page = typeof input.page === "number" && input.page > 0 ? Math.floor(input.page) : 1;
+      const pageSize = typeof input.pageSize === "number" && input.pageSize > 0 ? Math.floor(input.pageSize) : 50;
+      const matched = env.getAssets().filter((a) =>
+        (!ids || ids.has(a.id))
+        && (kind === "all" || a.kind === kind)
+        && (!kw || a.title.toLowerCase().includes(kw) || (a.content ?? "").toLowerCase().includes(kw) || (a.note ?? "").toLowerCase().includes(kw)),
+      );
+      const start = (page - 1) * pageSize;
+      const items = matched.slice(start, start + pageSize).map((a) => ({
         id: a.id,
         kind: a.kind,
         title: a.title,
         ...(input.includeContent ? { content: a.content, imageUrl: a.imageUrl } : {}),
         createdAt: a.createdAt,
       }));
-      return { items, total: items.length };
+      return { items, total: matched.length, page, pageSize };
     }
 
     case "assets_add": {

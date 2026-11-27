@@ -6,7 +6,19 @@ export const CANVAS_AGENT_PROTOCOL_VERSION = 12 as const;
 const recordSchema = z.record(z.string(), z.unknown());
 const positionSchema = z.object({ x: z.number(), y: z.number() });
 const viewportSchema = z.object({ x: z.number(), y: z.number(), k: z.number() });
-const nodeTypeSchema = z.enum(["image", "text", "video", "audio", "group"]);
+const nodeTypeSchema = z.enum([
+  "image",
+  "text",
+  "video",
+  "audio",
+  "group",
+  "html",
+  "markdown",
+  "panorama",
+  "sticky-note",
+  "svg",
+  "template",
+]);
 const nodePatchSchema = z.object({
   title: z.string().optional(),
   position: positionSchema.optional(),
@@ -135,3 +147,25 @@ export const canvasAgentTokenRequestSchema = z.object({
   clientId: z.string().min(1).max(128),
 }).strict();
 export type CanvasAgentTokenRequest = z.infer<typeof canvasAgentTokenRequestSchema>;
+
+export const canvasAgentAttachFrameSchema = z.object({
+  v: z.literal(1),
+  type: z.literal("canvas.agent.attach"),
+  token: z.string().min(1).max(256),
+  clientId: z.string().min(1).max(128),
+}).strict();
+
+export const canvasAgentDetachFrameSchema = z.object({
+  v: z.literal(1),
+  type: z.literal("canvas.agent.detach"),
+  clientId: z.string().min(1).max(128),
+}).strict();
+
+export const canvasAgentEventFrameSchema = z.object({
+  v: z.literal(1),
+  type: z.literal("canvas.agent.event"),
+  clientId: z.string().min(1).max(128),
+  event: z.enum(["hello", "tool_call", "tool_cancel", "closed"]),
+  data: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+export type CanvasAgentEventFrame = z.infer<typeof canvasAgentEventFrameSchema>;

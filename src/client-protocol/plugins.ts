@@ -89,6 +89,8 @@ export const pluginHostRequestSchema = z.discriminatedUnion("method", [
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("credentials.remove"), key: z.string().min(1).max(128) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("clipboard.write"), text: z.string().max(64 * 1024) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("workbench.status") }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("workspace.export"), filename: z.string().trim().min(1).max(200), content: z.string().max(16 * 1024 * 1024), mime: z.string().trim().min(1).max(128).optional() }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("domains.request"), domain: z.string().trim().min(1).max(256), reason: z.string().trim().max(256).optional() }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.connect"), clientId: z.string().min(1).max(128) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.disconnect"), clientId: z.string().min(1).max(128) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.state"), clientId: z.string().min(1).max(128), snapshot: z.object({ projectId: z.string().max(128), title: z.string().max(256) }).nullable() }).strict(),
@@ -120,6 +122,8 @@ export function requiredCapabilityForMethod(method: PluginHostRequest["method"])
     case "credentials.get":
     case "credentials.set":
     case "credentials.remove":
+    case "workspace.export":
+    case "domains.request":
       return "storage.device";
     case "clipboard.write":
       return "clipboard.write";
@@ -135,21 +139,50 @@ export function requiredCapabilityForMethod(method: PluginHostRequest["method"])
 }
 
 export function canonicalPluginSignaturePayload(manifest: PluginManifest): string {
+  const canonicalContributions = [...manifest.contributions]
+    .map((item) => [
+      item.kind,
+      item.id,
+      item.title,
+      item.titleZh ?? null,
+      item.icon ?? null,
+    ] as const)
+    .sort((a, b) => (a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0])));
   return JSON.stringify([
     "tarobird/plugin-manifest/v1",
+    manifest.schemaVersion,
     manifest.id,
+    manifest.name,
+    manifest.nameZh ?? null,
     manifest.version,
+    manifest.description,
+    manifest.descriptionZh ?? null,
+    manifest.icon,
     manifest.source.repository,
     manifest.source.commit.toLowerCase(),
     manifest.artifact.sha256.toLowerCase(),
     manifest.artifact.sizeBytes,
     manifest.entry,
     [...manifest.platforms].sort(),
+    canonicalContributions,
     [...manifest.domains].sort(),
     [...manifest.capabilities].sort(),
     manifest.requiresHost,
     manifest.official,
   ]);
+}
+
+const ED25519_SPKI_PREFIX = [0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
+
+export type PluginCryptoBackend = {
+  sha256(bytes: Uint8Array): Uint8Array | Promise<Uint8Array>;
+  verifyEd25519(publicKeySpkiBase64: string, signatureBase64: string, payload: Uint8Array): boolean | Promise<boolean>;
+};
+
+let registeredCryptoBackend: PluginCryptoBackend | undefined;
+
+export function registerPluginCryptoBackend(backend: PluginCryptoBackend | undefined): void {
+  registeredCryptoBackend = backend;
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -173,6 +206,12 @@ function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
 
 export async function sha256Hex(content: string | Uint8Array): Promise<string> {
   const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
+  if (registeredCryptoBackend) {
+    return bytesToHex(await registeredCryptoBackend.sha256(bytes));
+  }
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("plugin_crypto_unavailable");
+  }
   const copy = new Uint8Array(new ArrayBuffer(bytes.byteLength));
   copy.set(bytes);
   const digest = await globalThis.crypto.subtle.digest("SHA-256", copy);
@@ -186,21 +225,35 @@ export async function verifyPluginArtifactHash(content: string | Uint8Array, exp
 
 export async function verifyOfficialPluginSignature(manifest: PluginManifest, publicKeySpkiBase64: string): Promise<boolean> {
   if (!manifest.artifact.signature) return false;
+  const payload = new TextEncoder().encode(canonicalPluginSignaturePayload(manifest));
+  if (registeredCryptoBackend) {
+    try {
+      return Boolean(await registeredCryptoBackend.verifyEd25519(publicKeySpkiBase64, manifest.artifact.signature, payload));
+    } catch {
+      return false;
+    }
+  }
+  if (!globalThis.crypto?.subtle) return false;
   try {
+    const spki = base64ToBytes(publicKeySpkiBase64.trim());
+    if (spki.length !== 44 || ED25519_SPKI_PREFIX.some((byte, index) => spki[index] !== byte)) {
+      return false;
+    }
+    const sig = base64ToBytes(manifest.artifact.signature.trim());
+    if (sig.length !== 64) return false;
     const key = await globalThis.crypto.subtle.importKey(
       "spki",
-      base64ToBytes(publicKeySpkiBase64),
+      spki,
       { name: "Ed25519" },
       false,
       ["verify"],
     );
-    const payload = new TextEncoder().encode(canonicalPluginSignaturePayload(manifest));
     const payloadCopy = new Uint8Array(new ArrayBuffer(payload.byteLength));
     payloadCopy.set(payload);
     return await globalThis.crypto.subtle.verify(
       "Ed25519",
       key,
-      base64ToBytes(manifest.artifact.signature),
+      sig,
       payloadCopy,
     );
   } catch {

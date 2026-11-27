@@ -1,6 +1,7 @@
 import { readWorkbenchImage } from "../runtime/workbench-image.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { workbenchRequestSchema, workbenchOperations, workbenchRequestShapeError } from "../client-protocol/workbench.js";
+import { CANVAS_TOOL_NAMES, isCanvasToolName, parseCanvasToolInput } from "../client-protocol/infinite-canvas.js";
 import { widgetsEnabled } from "../runtime/widget-policy.js";
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -100,12 +101,35 @@ const toolVersionV13 = hash(JSON.stringify(workbenchDefinitionsV13)), minimalToo
 // Without widgets the minimal contract is unchanged and stays v13; older contracts stay frozen.
 const workbenchDefinitionsV14 = [...widgetDefinitions.slice(0, -1), networkWidgetDefinition, workbenchDefinitionV13];
 const toolVersionV14 = hash(JSON.stringify(workbenchDefinitionsV14));
+// v15 adds app_canvas_agent for Infinite Canvas tabs in the active user turn; v1-v14 stay frozen.
+const canvasAgentDefinition: AppPlatformTools["definitions"][number] = {
+  name: "app_canvas_agent",
+  description: "Read or edit the user's connected Infinite Canvas tab in this conversation via TaroBird Host Canvas Agent (protocol v12). Pass tool (one of the 13 Infinite Canvas tools or canvas_list_tools), optional arguments, and optional projectId. Requires an active user turn.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      tool: { type: "string", enum: [...CANVAS_TOOL_NAMES, "canvas_list_tools"] },
+      arguments: { type: "object" },
+      projectId: { type: "string", description: "Optional target canvas project ID returned by canvas_get_state." },
+    },
+    required: ["tool"],
+    additionalProperties: false,
+  },
+};
+const canvasAgentArgsSchema = z.object({
+  tool: z.string().min(1).max(128),
+  arguments: z.record(z.string(), z.unknown()).optional(),
+  projectId: z.string().min(1).max(128).optional(),
+}).strict();
+const workbenchDefinitionsV15 = [...workbenchDefinitionsV13, canvasAgentDefinition];
+const minimalWorkbenchDefinitionsV15 = [...minimalWorkbenchDefinitionsV13, canvasAgentDefinition];
+const toolVersionV15 = hash(JSON.stringify(workbenchDefinitionsV15)), minimalToolVersionV15 = hash(JSON.stringify(minimalWorkbenchDefinitionsV15));
 const reportToolVersion = hash(JSON.stringify(definitions));
 const toolVersion = hash(JSON.stringify(workbenchDefinitions)), batchToolVersion = hash(JSON.stringify(batchDefinitions)), legacyToolVersion = hash(JSON.stringify(legacyDefinitions));
 const result = (value: unknown, isError = false) => ({ text: JSON.stringify(value), ...(isError ? { isError: true } : {}) });
 
 export function createAppPlatformTools(input: {
-  channel: Pick<GatewayChannel, "sendArtifact" | "sendArtifactBatch"> & Partial<Pick<GatewayChannel, "sendWidget" | "workbench" | "workbenchScreenshot" | "workbenchImage" | "workbenchContext" | "workbenchContextOmitted">>;
+  channel: Pick<GatewayChannel, "sendArtifact" | "sendArtifactBatch"> & Partial<Pick<GatewayChannel, "sendWidget" | "workbench" | "workbenchScreenshot" | "workbenchImage" | "workbenchContext" | "workbenchContextOmitted" | "canvasAgentStatus" | "canvasAgentTools" | "canvasAgentCall">>;
   stateDir: string;
   conversationId: string;
   replyTo?: string;
@@ -130,25 +154,54 @@ export function createAppPlatformTools(input: {
   const publications = input.deliveryCache ?? new Map<string, Promise<Json>>();
   const registration = (id: string) => appToolRegistration(input.stateDir, id);
   const versionFor = async (id: string) => (await registration(id).read(null).catch(() => null))?.toolVersion;
-  const makeTools = (version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14, minimal = false): AppPlatformTools => {
+  const makeTools = (version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15, minimal = false): AppPlatformTools => {
     const batch = version !== 1;
     const options = { ...input.options, nativeDelivery: true, nativeBatchDelivery: batch, nativeWidgets: version >= 4 && !minimal, nativeReports: version >= 5 && !minimal, widgetsEnabled: enabled };
     return {
-      definitions: version === 14 ? minimal ? minimalWorkbenchDefinitionsV13 : workbenchDefinitionsV14 : version === 13 ? minimal ? minimalWorkbenchDefinitionsV13 : workbenchDefinitionsV13 : version === 12 ? minimal ? minimalWorkbenchDefinitionsV12 : workbenchDefinitionsV12 : version === 11 ? minimal ? minimalWorkbenchDefinitionsV11 : workbenchDefinitionsV11 : version === 10 ? minimal ? minimalWorkbenchDefinitionsV10 : workbenchDefinitionsV10 : version === 9 ? minimal ? minimalWorkbenchDefinitionsV9 : workbenchDefinitionsV9 : version === 8 ? workbenchDefinitionsV8 : version === 7 ? minimal ? minimalWorkbenchDefinitionsV7 : workbenchDefinitionsV7 : version === 6 ? minimal ? minimalWorkbenchDefinitions : workbenchDefinitions : version === 5 ? definitions : version === 4 ? widgetDefinitions : version === 3 ? permissionDefinitions : batch ? batchDefinitions : legacyDefinitions,
+      definitions: version === 15 ? minimal ? minimalWorkbenchDefinitionsV15 : workbenchDefinitionsV15 : version === 14 ? minimal ? minimalWorkbenchDefinitionsV13 : workbenchDefinitionsV14 : version === 13 ? minimal ? minimalWorkbenchDefinitionsV13 : workbenchDefinitionsV13 : version === 12 ? minimal ? minimalWorkbenchDefinitionsV12 : workbenchDefinitionsV12 : version === 11 ? minimal ? minimalWorkbenchDefinitionsV11 : workbenchDefinitionsV11 : version === 10 ? minimal ? minimalWorkbenchDefinitionsV10 : workbenchDefinitionsV10 : version === 9 ? minimal ? minimalWorkbenchDefinitionsV9 : workbenchDefinitionsV9 : version === 8 ? workbenchDefinitionsV8 : version === 7 ? minimal ? minimalWorkbenchDefinitionsV7 : workbenchDefinitionsV7 : version === 6 ? minimal ? minimalWorkbenchDefinitions : workbenchDefinitions : version === 5 ? definitions : version === 4 ? widgetDefinitions : version === 3 ? permissionDefinitions : batch ? batchDefinitions : legacyDefinitions,
       instructions: [appAgentInstructions(options), input.suppressDelivery ? "This scheduled run is muted: keep artifacts locally; do not publish attachments or emit delivery directives." : undefined].filter(Boolean).join("\n"),
       turnInstructions: [input.turnInstructions, input.turnText ? appTurnInstructions(input.turnText, options) : undefined].filter(Boolean).join("\n\n") || undefined,
       executionInstructions: input.executionInstructions,
       // Codex persists dynamic tools with NEW threads. /resume of an older thread
       // must keep the compatible contract; never reset history to install tools.
-      isRegistered: async (id) => [toolVersionV14, toolVersionV13, minimalToolVersionV13, toolVersionV12, minimalToolVersionV12, toolVersionV11, minimalToolVersionV11, toolVersionV10, minimalToolVersionV10, toolVersionV9, minimalToolVersionV9, toolVersionV8, toolVersionV7, minimalToolVersionV7, toolVersion, minimalWorkbenchToolVersion, reportToolVersion, widgetToolVersion, permissionToolVersion, batchToolVersion, legacyToolVersion].includes(await versionFor(id) ?? ""),
+      isRegistered: async (id) => [toolVersionV15, minimalToolVersionV15, toolVersionV14, toolVersionV13, minimalToolVersionV13, toolVersionV12, minimalToolVersionV12, toolVersionV11, minimalToolVersionV11, toolVersionV10, minimalToolVersionV10, toolVersionV9, minimalToolVersionV9, toolVersionV8, toolVersionV7, minimalToolVersionV7, toolVersion, minimalWorkbenchToolVersion, reportToolVersion, widgetToolVersion, permissionToolVersion, batchToolVersion, legacyToolVersion].includes(await versionFor(id) ?? ""),
       forSession: async (id) => {
         const version = await versionFor(id);
-        return version === toolVersionV14 ? makeTools(14) : version === toolVersionV13 ? makeTools(13) : version === minimalToolVersionV13 ? makeTools(13, true) : version === toolVersionV12 ? makeTools(12) : version === minimalToolVersionV12 ? makeTools(12, true) : version === toolVersionV11 ? makeTools(11) : version === minimalToolVersionV11 ? makeTools(11, true) : version === toolVersionV10 ? makeTools(10) : version === minimalToolVersionV10 ? makeTools(10, true) : version === toolVersionV9 ? makeTools(9) : version === minimalToolVersionV9 ? makeTools(9, true) : version === toolVersionV8 ? makeTools(8) : version === minimalToolVersionV7 ? makeTools(7, true) : version === toolVersionV7 ? makeTools(7) : version === minimalWorkbenchToolVersion ? makeTools(6, true) : version === toolVersion ? makeTools(6) : version === reportToolVersion ? makeTools(5) : version === widgetToolVersion ? makeTools(4) : version === permissionToolVersion ? makeTools(3) : version === batchToolVersion ? makeTools(2) : version === legacyToolVersion ? makeTools(1) : undefined;
+        return version === toolVersionV15 ? makeTools(15) : version === minimalToolVersionV15 ? makeTools(15, true) : version === toolVersionV14 ? makeTools(14) : version === toolVersionV13 ? makeTools(13) : version === minimalToolVersionV13 ? makeTools(13, true) : version === toolVersionV12 ? makeTools(12) : version === minimalToolVersionV12 ? makeTools(12, true) : version === toolVersionV11 ? makeTools(11) : version === minimalToolVersionV11 ? makeTools(11, true) : version === toolVersionV10 ? makeTools(10) : version === minimalToolVersionV10 ? makeTools(10, true) : version === toolVersionV9 ? makeTools(9) : version === minimalToolVersionV9 ? makeTools(9, true) : version === toolVersionV8 ? makeTools(8) : version === minimalToolVersionV7 ? makeTools(7, true) : version === toolVersionV7 ? makeTools(7) : version === minimalWorkbenchToolVersion ? makeTools(6, true) : version === toolVersion ? makeTools(6) : version === reportToolVersion ? makeTools(5) : version === widgetToolVersion ? makeTools(4) : version === permissionToolVersion ? makeTools(3) : version === batchToolVersion ? makeTools(2) : version === legacyToolVersion ? makeTools(1) : undefined;
       },
-      register: async (id) => registration(id).write({ toolVersion: version === 14 ? minimal ? minimalToolVersionV13 : toolVersionV14 : version === 13 ? minimal ? minimalToolVersionV13 : toolVersionV13 : version === 12 ? minimal ? minimalToolVersionV12 : toolVersionV12 : version === 11 ? minimal ? minimalToolVersionV11 : toolVersionV11 : version === 10 ? minimal ? minimalToolVersionV10 : toolVersionV10 : version === 9 ? minimal ? minimalToolVersionV9 : toolVersionV9 : version === 8 ? toolVersionV8 : version === 7 ? minimal ? minimalToolVersionV7 : toolVersionV7 : version === 6 ? minimal ? minimalWorkbenchToolVersion : toolVersion : version === 5 ? reportToolVersion : version === 4 ? widgetToolVersion : version === 3 ? permissionToolVersion : batch ? batchToolVersion : legacyToolVersion }),
+      register: async (id) => registration(id).write({ toolVersion: version === 15 ? minimal ? minimalToolVersionV15 : toolVersionV15 : version === 14 ? minimal ? minimalToolVersionV13 : toolVersionV14 : version === 13 ? minimal ? minimalToolVersionV13 : toolVersionV13 : version === 12 ? minimal ? minimalToolVersionV12 : toolVersionV12 : version === 11 ? minimal ? minimalToolVersionV11 : toolVersionV11 : version === 10 ? minimal ? minimalToolVersionV10 : toolVersionV10 : version === 9 ? minimal ? minimalToolVersionV9 : toolVersionV9 : version === 8 ? toolVersionV8 : version === 7 ? minimal ? minimalToolVersionV7 : toolVersionV7 : version === 6 ? minimal ? minimalWorkbenchToolVersion : toolVersion : version === 5 ? reportToolVersion : version === 4 ? widgetToolVersion : version === 3 ? permissionToolVersion : batch ? batchToolVersion : legacyToolVersion }),
       call: async (call) => inTurn(() => withChannelProfile("gateway", async () => {
         const signal = AbortSignal.any([input.signal, call.abortSignal]);
         if (signal.aborted) return result({ error: "turn_ended" }, true);
+        if (version >= 15 && call.name === "app_canvas_agent") {
+          if (input.suppressDelivery || input.ephemeral) return result({ error: "canvas_agent_user_turn_required" }, true);
+          const parsed = canvasAgentArgsSchema.safeParse(call.arguments);
+          if (!parsed.success) return result({ error: "invalid_canvas_agent_request" }, true);
+          const { tool, arguments: toolArgs, projectId } = parsed.data;
+          if (tool === "canvas_list_tools") {
+            if (!input.channel.canvasAgentTools) return result({ error: "canvas_agent_unavailable" }, true);
+            try {
+              const tools = await input.channel.canvasAgentTools(signal);
+              return result({ ok: true, tool, result: tools });
+            } catch (error) {
+              return result({ ok: false, tool, error: error instanceof Error ? error.message : "canvas_agent_failed" }, true);
+            }
+          }
+          if (!input.channel.canvasAgentCall) return result({ error: "canvas_agent_unavailable" }, true);
+          if (!isCanvasToolName(tool)) return result({ error: "canvas_unknown_tool" }, true);
+          let validatedArgs: Record<string, unknown>;
+          try {
+            validatedArgs = parseCanvasToolInput(tool, toolArgs ?? {}) as Record<string, unknown>;
+          } catch {
+            return result({ error: "invalid_canvas_tool_arguments", tool }, true);
+          }
+          try {
+            const output = await input.channel.canvasAgentCall(tool, validatedArgs, projectId, signal);
+            return result({ ok: true, tool, result: output });
+          } catch (error) {
+            return result({ ok: false, tool, error: error instanceof Error ? error.message : "canvas_agent_failed" }, true);
+          }
+        }
         if (version >= 6 && call.name === "app_workbench") {
           if (input.suppressDelivery || input.ephemeral) return result({ error: "workbench_user_turn_required" }, true);
           if (!input.channel.workbench) return result({ error: "workbench_unavailable" }, true);
@@ -284,7 +337,7 @@ export function createAppPlatformTools(input: {
       })),
     };
   };
-  // New sessions get v13 again: its widget description says "No network or host APIs", which is what the App
-  // enforces since 2026-11-23. A session registered with v14 between 2026-11-21 and then keeps that contract.
-  return makeTools(13, !enabled);
+  // New sessions with Canvas Agent channel wiring get v15; legacy callers without
+  // canvasAgentCall keep v13, and sessions registered with v1-v14 stay resumable.
+  return makeTools(typeof input.channel.canvasAgentCall === "function" ? 15 : 13, !enabled);
 }

@@ -11,12 +11,18 @@ import {
   type GenerationRecord,
   type ModelChannelConfig,
 } from "./canvas-engine.js";
-import { hostBridge, subscribeCanvasAgentEvents, type HostHelloInfo } from "./host-bridge.js";
+import {
+  hostBridge,
+  subscribeCanvasAgentEvents,
+  subscribeHostContextEvents,
+  type HostHelloInfo,
+} from "./host-bridge.js";
 import {
   BUNDLED_OFFICIAL_NODE_PLUGINS,
   NodePluginManager,
   type NodePluginsState,
   type OfficialNodePluginId,
+  type ThirdPartyNodePlugin,
 } from "./node-plugins-state.js";
 
 type ViewId = "home" | "canvas" | "create" | "prompts" | "assets" | "settings";
@@ -33,6 +39,108 @@ function makeId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+function extractHttpsHost(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl.trim());
+    if (parsed.protocol !== "https:") return null;
+    return parsed.host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Renders SVG safely as an image/svg+xml Blob URL so scripts and inline event
+ * handlers (onload/onerror/animate) can never execute in the canvas DOM. */
+function SvgNodePreview({ content, title }: { content: string; title: string }) {
+  const [blobUrl, setBlobUrl] = useState<string>("");
+  useEffect(() => {
+    const svgText = content.trim().startsWith("<svg")
+      ? content
+      : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 90">${content}</svg>`;
+    const url = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
+    setBlobUrl(url);
+    return () => { URL.revokeObjectURL(url); };
+  }, [content]);
+
+  return (
+    <div className="ic-node-body">
+      <div style={{ padding: 6, borderRadius: 6, background: "var(--ic-bg)", textAlign: "center", flex: 1, display: "grid", placeItems: "center" }}>
+        {blobUrl && <img src={blobUrl} alt={title} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />}
+      </div>
+    </div>
+  );
+}
+
+function ThirdPartyNodeBody({
+  node,
+  grantedDomains,
+  onAuthorizeDomain,
+  word,
+}: {
+  node: CanvasNode;
+  grantedDomains: readonly string[];
+  onAuthorizeDomain: (host: string, reason: string) => Promise<boolean>;
+  word: (zhText: string, enText: string) => string;
+}) {
+  const url = typeof node.metadata.pluginUrl === "string" ? node.metadata.pluginUrl : "";
+  const host = extractHttpsHost(url);
+  const authorized = Boolean(host && grantedDomains.includes(host));
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [loadError, setLoadError] = useState("");
+
+  const loadDescriptor = async () => {
+    if (!url || !host) return;
+    setLoadState("loading");
+    setLoadError("");
+    try {
+      const res = await fetch(url, { mode: "cors", credentials: "omit" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      const escaped = text.slice(0, 4000).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      setPreviewHtml(`<!doctype html><html><body style="margin:8px;font:12px/1.4 monospace;color:#0f172a;background:#fff"><div style="font-weight:700;margin-bottom:6px">${node.title.replace(/</g, "&lt;")}</div><pre style="white-space:pre-wrap;margin:0">${escaped}</pre></body></html>`);
+      setLoadState("loaded");
+    } catch (err) {
+      setLoadState("error");
+      setLoadError(err instanceof Error ? err.message : "fetch_failed");
+    }
+  };
+
+  return (
+    <div className="ic-node-body">
+      <div style={{ fontSize: 11.5, color: "var(--ic-muted)", wordBreak: "break-all" }}>{url || word("未配置插件地址", "No plugin URL")}</div>
+      {!authorized && host ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 11.5, color: "var(--ic-muted)" }}>
+            {word("受沙箱 CSP 约束：加载外部插件前需由宿主确认放行域名。", "Sandbox CSP boundary: authorize this domain in the host before fetching.")}
+          </span>
+          <button
+            type="button"
+            className="ic-btn"
+            onClick={() => void onAuthorizeDomain(host, word(`加载第三方节点插件 ${node.title}`, `Load third-party node plugin ${node.title}`))}
+          >
+            {word(`授权域名 ${host}`, `Authorize ${host}`)}
+          </button>
+        </div>
+      ) : previewHtml ? (
+        <iframe
+          title={node.title}
+          sandbox=""
+          srcDoc={previewHtml}
+          style={{ width: "100%", flex: 1, minHeight: 72, border: "1px solid var(--ic-border)", borderRadius: 6, background: "#fff" }}
+        />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button type="button" className="ic-btn" disabled={loadState === "loading" || !url} onClick={() => void loadDescriptor()}>
+            {loadState === "loading" ? word("加载中…", "Loading…") : word("拉取并隔离预览", "Fetch & Preview (Sandboxed)")}
+          </button>
+          {loadError && <span style={{ fontSize: 11, color: "var(--ic-danger)" }}>{loadError}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function InfiniteCanvasApp() {
   const [hello, setHello] = useState<HostHelloInfo>({
     pluginId: "tarobird.infinite-canvas",
@@ -40,6 +148,7 @@ export function InfiniteCanvasApp() {
     theme: "light",
     locale: "zh",
     grantedCapabilities: [],
+    grantedDomains: ["api.openai.com", "generativelanguage.googleapis.com", "raw.githubusercontent.com"],
   });
   const [view, setView] = useState<ViewId>("canvas");
   const [projects, setProjects] = useState<CanvasProject[]>(() => [createStarterProject()]);
@@ -75,53 +184,130 @@ export function InfiniteCanvasApp() {
 
   const zh = hello.locale !== "en";
   const word = (zhText: string, enText: string) => (zh ? zhText : enText);
+  const grantedDomains = useMemo(() => (hello.grantedDomains ?? []).map((d) => d.toLowerCase()), [hello.grantedDomains]);
 
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeProjectId) ?? projects[0]!,
     [projects, activeProjectId],
   );
 
-  // Latest state refs for Canvas Agent tool callbacks
-  const stateRef = useRef({ activeProject, channel, assets, prompts, generations });
-  stateRef.current = { activeProject, channel, assets, prompts, generations };
+  // Latest state refs kept synchronously up to date so Canvas Agent callbacks and
+  // batched operations never read stale closures or pre-commit React state.
+  const stateRef = useRef({ projects, activeProjectId, activeProject, channel, assets, prompts, generations, createPrompt, grantedDomains, zh });
+  stateRef.current = { projects, activeProjectId, activeProject, channel, assets, prompts, generations, createPrompt, grantedDomains, zh };
 
   const persist = (key: string, value: unknown) => {
-    void hostBridge.storageSet(key, JSON.stringify(value)).catch(() => undefined);
-  };
-
-  const updateActiveProject = (updater: (project: CanvasProject) => CanvasProject) => {
-    setProjects((prev) => {
-      const next = prev.map((p) => (p.id === activeProject.id ? updater(p) : p));
-      persist("ic:projects:v1", next);
-      return next;
+    void hostBridge.storageSet(key, JSON.stringify(value)).catch((err) => {
+      if (err instanceof Error && err.message === "storage_quota_exceeded") {
+        setStatusMsg(stateRef.current.zh ? "本机存储空间不足，部分更改未能保存。" : "Local storage quota exceeded; some changes were not saved.");
+      }
     });
   };
 
-  const runGeneration = async (nodeId: string, promptOverride?: string, mode: "image" | "video" | "text" | "audio" = "image"): Promise<GenerationRecord> => {
-    const ch = stateRef.current.channel;
-    const node = stateRef.current.activeProject.nodes.find((n) => n.id === nodeId);
-    const prompt = promptOverride ?? String(node?.metadata.prompt ?? node?.metadata.content ?? createPrompt ?? "").trim();
+  const updateProject = (updater: (project: CanvasProject) => CanvasProject, targetProjectId?: string) => {
+    const pid = targetProjectId ?? stateRef.current.activeProject.id;
+    const baseProjects = stateRef.current.projects;
+    const nextProjects = baseProjects.map((p) => (p.id === pid ? updater(p) : p));
+    stateRef.current.projects = nextProjects;
+    if (pid === stateRef.current.activeProject.id) {
+      stateRef.current.activeProject = nextProjects.find((p) => p.id === pid) ?? nextProjects[0]!;
+    }
+    setProjects(nextProjects);
+    persist("ic:projects:v1", nextProjects);
+  };
+
+  const authorizeDomain = async (host: string, reason: string): Promise<boolean> => {
+    try {
+      const res = await hostBridge.requestDomain(host, reason);
+      if (res.grantedDomains) {
+        setHello((prev) => ({ ...prev, grantedDomains: res.grantedDomains }));
+      }
+      if (res.granted) {
+        setStatusMsg(word(`已授权访问域名 ${res.domain ?? host}。`, `Authorized domain ${res.domain ?? host}.`));
+        return true;
+      }
+      setStatusMsg(word(`未授权域名 ${host}。`, `Domain ${host} was not authorized.`));
+      return false;
+    } catch (err) {
+      setStatusMsg(err instanceof Error ? err.message : "domain_authorization_failed");
+      return false;
+    }
+  };
+
+  const runGeneration = async (
+    nodeId: string,
+    promptOverride?: string,
+    mode: "image" | "video" | "text" | "audio" = "image",
+    targetProjectId?: string,
+  ): Promise<GenerationRecord> => {
+    const current = stateRef.current;
+    const ch = current.channel;
+    const targetProject = (targetProjectId ? current.projects.find((p) => p.id === targetProjectId) : undefined) ?? current.activeProject;
+    const node = targetProject.nodes.find((n) => n.id === nodeId);
+    const prompt = (promptOverride ?? String(node?.metadata.prompt ?? node?.metadata.content ?? current.createPrompt ?? "")).trim();
     const record: GenerationRecord = {
       id: makeId("gen"),
       mode,
       prompt,
-      model: mode === "video" ? ch.videoModel : ch.imageModel,
+      model: mode === "video" ? ch.videoModel : mode === "text" ? ch.textModel : ch.imageModel,
       status: "running",
       nodeId,
       createdAt: Date.now(),
     };
-    setGenerations((prev) => {
-      const next = [record, ...prev];
-      persist("ic:generations:v1", next);
-      return next;
-    });
+    const nextWithRunning = [record, ...stateRef.current.generations];
+    stateRef.current.generations = nextWithRunning;
+    setGenerations(nextWithRunning);
+    persist("ic:generations:v1", nextWithRunning);
 
     try {
+      if (mode === "audio") {
+        throw new Error(current.zh
+          ? "当前配置的图片/视频/文本渠道暂不支持音频生成模式 (audio_generation_not_supported)。"
+          : "Audio generation mode is not supported by the configured channel (audio_generation_not_supported).");
+      }
       const key = await hostBridge.credentialsGet("channel:default:apiKey");
       if (!ch.baseUrl || !key) {
-        throw new Error(word("请先在「设置 → 模型渠道」配置 Base URL 和 API Key。", "Configure Base URL and API Key in Settings → Model Channels first."));
+        throw new Error(current.zh
+          ? "请先在「设置 → 模型渠道」配置 Base URL 和 API Key。"
+          : "Configure Base URL and API Key in Settings → Model Channels first.");
+      }
+      const baseHost = extractHttpsHost(ch.baseUrl);
+      if (!baseHost) {
+        throw new Error(current.zh ? "Base URL 必须是有效的 https:// 地址。" : "Base URL must be a valid https:// URL.");
+      }
+      if (!stateRef.current.grantedDomains.includes(baseHost)) {
+        const granted = await authorizeDomain(baseHost, current.zh ? "调用用户配置的模型渠道 API" : "Call user-configured model channel API");
+        if (!granted) {
+          throw new Error(current.zh
+            ? `尚未授权访问模型接口域名 ${baseHost}，请在设置中确认授权后重试。`
+            : `Domain ${baseHost} is not authorized in sandbox CSP. Authorize it in Settings and retry.`);
+        }
       }
       const cleanBase = ch.baseUrl.replace(/\/+$/, "");
+
+      if (mode === "text") {
+        const res = await fetch(`${cleanBase}/v1/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify({ model: record.model, messages: [{ role: "user", content: prompt }] }),
+        });
+        if (!res.ok) throw new Error(`API HTTP ${res.status}`);
+        const json = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+        const outputText = json.choices?.[0]?.message?.content?.trim() ?? "";
+        if (!outputText) throw new Error("Empty model response");
+
+        const done: GenerationRecord = { ...record, status: "succeeded", outputText };
+        const updated = stateRef.current.generations.map((g) => (g.id === record.id ? done : g));
+        stateRef.current.generations = updated;
+        setGenerations(updated);
+        persist("ic:generations:v1", updated);
+        updateProject((proj) => ({
+          ...proj,
+          nodes: proj.nodes.map((n) => n.id === nodeId ? { ...n, metadata: { ...n.metadata, status: "succeeded", content: outputText } } : n),
+        }), targetProject.id);
+        return done;
+      }
+
       const endpoint = mode === "video" ? `${cleanBase}/v1/videos/generations` : `${cleanBase}/v1/images/generations`;
       const res = await fetch(endpoint, {
         method: "POST",
@@ -135,15 +321,14 @@ export function InfiniteCanvasApp() {
       if (!outputUrl) throw new Error("Empty model response");
 
       const done: GenerationRecord = { ...record, status: "succeeded", outputUrl };
-      setGenerations((prev) => {
-        const next = prev.map((g) => (g.id === record.id ? done : g));
-        persist("ic:generations:v1", next);
-        return next;
-      });
-      updateActiveProject((proj) => ({
+      const updated = stateRef.current.generations.map((g) => (g.id === record.id ? done : g));
+      stateRef.current.generations = updated;
+      setGenerations(updated);
+      persist("ic:generations:v1", updated);
+      updateProject((proj) => ({
         ...proj,
         nodes: proj.nodes.map((n) => n.id === nodeId ? { ...n, metadata: { ...n.metadata, status: "succeeded", imageUrl: outputUrl } } : n),
-      }));
+      }), targetProject.id);
       return done;
     } catch (err) {
       const failed: GenerationRecord = {
@@ -151,18 +336,20 @@ export function InfiniteCanvasApp() {
         status: "failed",
         error: err instanceof Error ? err.message : "generation_failed",
       };
-      setGenerations((prev) => {
-        const next = prev.map((g) => (g.id === record.id ? failed : g));
-        persist("ic:generations:v1", next);
-        return next;
-      });
-      updateActiveProject((proj) => ({
+      const updated = stateRef.current.generations.map((g) => (g.id === record.id ? failed : g));
+      stateRef.current.generations = updated;
+      setGenerations(updated);
+      persist("ic:generations:v1", updated);
+      updateProject((proj) => ({
         ...proj,
         nodes: proj.nodes.map((n) => n.id === nodeId ? { ...n, metadata: { ...n.metadata, status: "failed", error: failed.error } } : n),
-      }));
+      }), targetProject.id);
       return failed;
     }
   };
+
+  const runGenerationRef = useRef(runGeneration);
+  runGenerationRef.current = runGeneration;
 
   // Boot: handshake with TaroBird Host, load scoped storage + isolated API key, and connect Canvas Agent
   useEffect(() => {
@@ -174,11 +361,12 @@ export function InfiniteCanvasApp() {
         setHello(info);
         document.body.dataset.theme = info.theme;
 
-        const [rawProj, rawAssets, rawPrompts, rawChannel, rawPlugins, savedKey] = await Promise.all([
+        const [rawProj, rawAssets, rawPrompts, rawChannel, rawGenerations, rawPlugins, savedKey] = await Promise.all([
           hostBridge.storageGet("ic:projects:v1"),
           hostBridge.storageGet("ic:assets:v1"),
           hostBridge.storageGet("ic:prompts:v1"),
           hostBridge.storageGet("ic:channel:v1"),
+          hostBridge.storageGet("ic:generations:v1"),
           hostBridge.storageGet("ic:node-plugins:v1"),
           hostBridge.credentialsGet("channel:default:apiKey").catch(() => null),
         ]);
@@ -186,13 +374,30 @@ export function InfiniteCanvasApp() {
         if (rawProj) {
           const parsed = JSON.parse(rawProj) as CanvasProject[];
           if (Array.isArray(parsed) && parsed.length) {
+            stateRef.current.projects = parsed;
+            stateRef.current.activeProjectId = parsed[0]!.id;
+            stateRef.current.activeProject = parsed[0]!;
             setProjects(parsed);
             setActiveProjectId(parsed[0]!.id);
           }
         }
-        if (rawAssets) setAssets(JSON.parse(rawAssets) as CanvasAsset[]);
-        if (rawPrompts) setPrompts(JSON.parse(rawPrompts) as CanvasPromptItem[]);
-        if (rawChannel) setChannel({ ...DEFAULT_CHANNEL, ...(JSON.parse(rawChannel) as Partial<ModelChannelConfig>) });
+        if (rawAssets) {
+          const parsedAssets = JSON.parse(rawAssets) as CanvasAsset[];
+          if (Array.isArray(parsedAssets)) { stateRef.current.assets = parsedAssets; setAssets(parsedAssets); }
+        }
+        if (rawPrompts) {
+          const parsedPrompts = JSON.parse(rawPrompts) as CanvasPromptItem[];
+          if (Array.isArray(parsedPrompts)) { stateRef.current.prompts = parsedPrompts; setPrompts(parsedPrompts); }
+        }
+        if (rawChannel) {
+          const nextCh = { ...DEFAULT_CHANNEL, ...(JSON.parse(rawChannel) as Partial<ModelChannelConfig>) };
+          stateRef.current.channel = nextCh;
+          setChannel(nextCh);
+        }
+        if (rawGenerations) {
+          const parsedGens = JSON.parse(rawGenerations) as GenerationRecord[];
+          if (Array.isArray(parsedGens)) { stateRef.current.generations = parsedGens; setGenerations(parsedGens); }
+        }
         if (rawPlugins) {
           const parsedPlugins = JSON.parse(rawPlugins) as Partial<NodePluginsState>;
           const hydrated = new NodePluginManager({ ...parsedPlugins, scopeId: info.scopeId ?? "default" });
@@ -215,6 +420,19 @@ export function InfiniteCanvasApp() {
     return () => { alive = false; };
   }, []);
 
+  // Receive live host theme/locale/domain updates without tearing down Canvas Agent
+  useEffect(() => {
+    return subscribeHostContextEvents((ev) => {
+      if (ev.theme) document.body.dataset.theme = ev.theme;
+      setHello((prev) => ({
+        ...prev,
+        ...(ev.theme ? { theme: ev.theme } : {}),
+        ...(ev.locale ? { locale: ev.locale } : {}),
+        ...(ev.grantedDomains ? { grantedDomains: ev.grantedDomains } : {}),
+      }));
+    });
+  }, []);
+
   // Push active canvas presence to TaroBird Host Canvas Agent
   useEffect(() => {
     if (!agentConnected) return;
@@ -231,23 +449,25 @@ export function InfiniteCanvasApp() {
         setAgentConnected(false);
       } else if (ev.type === "canvas.agent.tool_call") {
         setAgentLogs((prev) => [`Bot tool: ${ev.name}`, ...prev.slice(0, 19)]);
+        const targetId = ev.projectId && stateRef.current.projects.some((p) => p.id === ev.projectId)
+          ? ev.projectId
+          : stateRef.current.activeProject.id;
         void executeCanvasAgentTool(ev.name, ev.input ?? {}, {
-          getProject: () => stateRef.current.activeProject,
-          updateProject: updateActiveProject,
+          getProject: () => stateRef.current.projects.find((p) => p.id === targetId) ?? stateRef.current.activeProject,
+          updateProject: (updater) => updateProject(updater, targetId),
           getChannel: () => stateRef.current.channel,
           getAssets: () => stateRef.current.assets,
           addAsset: (assetInput) => {
             const created: CanvasAsset = { ...assetInput, id: makeId("asset"), createdAt: Date.now() };
-            setAssets((prev) => {
-              const next = [created, ...prev];
-              persist("ic:assets:v1", next);
-              return next;
-            });
+            const next = [created, ...stateRef.current.assets];
+            stateRef.current.assets = next;
+            setAssets(next);
+            persist("ic:assets:v1", next);
             return created;
           },
           getPrompts: () => stateRef.current.prompts,
           getGenerations: () => stateRef.current.generations,
-          triggerGeneration: runGeneration,
+          triggerGeneration: (nodeId, promptOverride, mode) => runGenerationRef.current(nodeId, promptOverride, mode, targetId),
         })
           .then((result) => hostBridge.agentResult(clientId, ev.requestId, { result }))
           .catch((err) => hostBridge.agentResult(clientId, ev.requestId, {
@@ -257,55 +477,122 @@ export function InfiniteCanvasApp() {
     });
   }, [clientId]);
 
-  const addNode = (type: CanvasNodeType, title?: string, content?: string) => {
+  const addNode = (
+    type: CanvasNodeType,
+    title?: string,
+    content?: string,
+    metadataOverrides?: Record<string, unknown>,
+  ): string => {
     const id = makeId("node");
     const bundled = BUNDLED_OFFICIAL_NODE_PLUGINS.find((p) => p.id === type);
+    const currNodes = stateRef.current.activeProject.nodes;
     const node: CanvasNode = {
       id,
       type,
       title: title ?? (bundled ? (zh ? bundled.nameZh : bundled.name) : type.toUpperCase()),
-      x: 90 + (activeProject.nodes.length % 5) * 44,
-      y: 90 + (activeProject.nodes.length % 4) * 38,
-      width: type === "image" ? 260 : 240,
-      height: type === "image" ? 220 : 155,
-      metadata: { content: content ?? bundled?.defaultContent ?? "" },
+      x: 90 + (currNodes.length % 5) * 44,
+      y: 90 + (currNodes.length % 4) * 38,
+      width: type === "image" || type === "video" ? 260 : 240,
+      height: type === "image" || type === "video" ? 220 : 155,
+      metadata: {
+        ...(content !== undefined || bundled?.defaultContent !== undefined ? { content: content ?? bundled?.defaultContent ?? "" } : {}),
+        ...(metadataOverrides ?? {}),
+      },
     };
-    updateActiveProject((p) => ({ ...p, updatedAt: Date.now(), nodes: [...p.nodes, node], selectedIds: [id] }));
+    updateProject((p) => ({ ...p, updatedAt: Date.now(), nodes: [...p.nodes, node], selectedIds: [id] }));
+    return id;
+  };
+
+  const addThirdPartyNode = (tp: ThirdPartyNodePlugin) => {
+    addNode("third-party", tp.name, "", { pluginId: tp.id, pluginName: tp.name, pluginUrl: tp.url });
   };
 
   const handleExportWorkspace = async () => {
-    const all = await hostBridge.storageList().catch(() => ({}));
-    const payload = {
-      app: "infinite-canvas",
-      upstream: "basketikun/infinite-canvas@4c67f1e",
-      scopeId: hello.scopeId ?? "default",
-      exportedAt: new Date().toISOString(),
-      data: all,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `infinite-canvas-backup-${activeProject.id}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const all = await hostBridge.storageList().catch(() => ({}));
+      const payload = {
+        app: "infinite-canvas",
+        upstream: "basketikun/infinite-canvas@4c67f1e",
+        scopeId: hello.scopeId ?? "default",
+        exportedAt: new Date().toISOString(),
+        data: all,
+      };
+      const filename = `infinite-canvas-backup-${activeProject.id}.json`;
+      const saved = await hostBridge.exportWorkspace(filename, JSON.stringify(payload, null, 2), "application/json");
+      setStatusMsg(saved
+        ? word("画布备份已导出。", "Workspace backup exported.")
+        : word("已取消导出。", "Workspace export cancelled."));
+    } catch (err) {
+      setStatusMsg(word(
+        `导出画布备份失败：${err instanceof Error ? err.message : "export_failed"}`,
+        `Failed to export workspace backup: ${err instanceof Error ? err.message : "export_failed"}`,
+      ));
+    }
   };
 
   const handleImportWorkspace = async (file: File) => {
-    const text = await file.text();
-    const parsed = JSON.parse(text) as { data?: Record<string, string> };
-    if (!parsed.data || typeof parsed.data !== "object") return;
-    for (const [k, v] of Object.entries(parsed.data)) {
-      if (typeof v === "string" && k.startsWith("ic:")) {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as { data?: Record<string, unknown> };
+      if (!parsed || typeof parsed !== "object" || !parsed.data || typeof parsed.data !== "object" || Array.isArray(parsed.data)) {
+        throw new Error(word("备份文件格式无效：缺少 data 对象。", "Invalid backup format: missing data object."));
+      }
+      const sanitizedEntries: Record<string, string> = {};
+      for (const [k, v] of Object.entries(parsed.data)) {
+        if (typeof v !== "string" || !k.startsWith("ic:")) continue;
+        if (k === "ic:node-plugins:v1") {
+          // Security gate: imported backups MUST NEVER enable third-party node plugins without explicit user confirmation.
+          const rawNodePlugins = JSON.parse(v) as Partial<NodePluginsState>;
+          const safeMgr = new NodePluginManager({
+            ...rawNodePlugins,
+            allowThirdParty: false,
+            scopeId: hello.scopeId ?? "default",
+          });
+          const safeState = safeMgr.getState();
+          Object.assign(pluginMgr, safeMgr);
+          setNodePlugins(safeState);
+          sanitizedEntries[k] = JSON.stringify(safeState);
+        } else {
+          sanitizedEntries[k] = v;
+        }
+      }
+      for (const [k, v] of Object.entries(sanitizedEntries)) {
         await hostBridge.storageSet(k, v);
       }
+      if (sanitizedEntries["ic:projects:v1"]) {
+        const list = JSON.parse(sanitizedEntries["ic:projects:v1"]) as CanvasProject[];
+        if (Array.isArray(list) && list.length) {
+          stateRef.current.projects = list;
+          stateRef.current.activeProjectId = list[0]!.id;
+          stateRef.current.activeProject = list[0]!;
+          setProjects(list);
+          setActiveProjectId(list[0]!.id);
+        }
+      }
+      if (sanitizedEntries["ic:assets:v1"]) {
+        const nextAssets = JSON.parse(sanitizedEntries["ic:assets:v1"]) as CanvasAsset[];
+        if (Array.isArray(nextAssets)) { stateRef.current.assets = nextAssets; setAssets(nextAssets); }
+      }
+      if (sanitizedEntries["ic:prompts:v1"]) {
+        const nextPrompts = JSON.parse(sanitizedEntries["ic:prompts:v1"]) as CanvasPromptItem[];
+        if (Array.isArray(nextPrompts)) { stateRef.current.prompts = nextPrompts; setPrompts(nextPrompts); }
+      }
+      if (sanitizedEntries["ic:channel:v1"]) {
+        const nextChannel = { ...DEFAULT_CHANNEL, ...(JSON.parse(sanitizedEntries["ic:channel:v1"]) as Partial<ModelChannelConfig>) };
+        stateRef.current.channel = nextChannel;
+        setChannel(nextChannel);
+      }
+      if (sanitizedEntries["ic:generations:v1"]) {
+        const nextGens = JSON.parse(sanitizedEntries["ic:generations:v1"]) as GenerationRecord[];
+        if (Array.isArray(nextGens)) { stateRef.current.generations = nextGens; setGenerations(nextGens); }
+      }
+      setStatusMsg(word("已导入画布备份数据（第三方节点插件默认保持关闭）。", "Workspace backup imported (third-party node plugins kept off for safety)."));
+    } catch (err) {
+      setStatusMsg(word(
+        `导入画布备份失败：${err instanceof Error ? err.message : "invalid_backup"}`,
+        `Failed to import workspace backup: ${err instanceof Error ? err.message : "invalid_backup"}`,
+      ));
     }
-    if (parsed.data["ic:projects:v1"]) {
-      const list = JSON.parse(parsed.data["ic:projects:v1"]) as CanvasProject[];
-      if (Array.isArray(list) && list.length) { setProjects(list); setActiveProjectId(list[0]!.id); }
-    }
-    if (parsed.data["ic:assets:v1"]) setAssets(JSON.parse(parsed.data["ic:assets:v1"]) as CanvasAsset[]);
-    setStatusMsg(word("已导入画布备份数据。", "Workspace backup imported."));
   };
 
   const saveNodePluginsState = (next: NodePluginsState) => {
@@ -325,10 +612,16 @@ export function InfiniteCanvasApp() {
   const renderNodeBody = (node: CanvasNode) => {
     const content = String(node.metadata.content ?? "");
     if (node.type === "svg") {
+      return <SvgNodePreview content={content} title={node.title} />;
+    }
+    if (node.type === "third-party") {
       return (
-        <div className="ic-node-body">
-          <div style={{ padding: 6, borderRadius: 6, background: "var(--ic-bg)", textAlign: "center" }} dangerouslySetInnerHTML={{ __html: content.replace(/<script[\s\S]*?<\/script>/gi, "") }} />
-        </div>
+        <ThirdPartyNodeBody
+          node={node}
+          grantedDomains={grantedDomains}
+          onAuthorizeDomain={authorizeDomain}
+          word={word}
+        />
       );
     }
     if (node.type === "html") {
@@ -347,20 +640,20 @@ export function InfiniteCanvasApp() {
         </div>
       );
     }
-    if (node.type === "image") {
+    if (node.type === "image" || node.type === "video") {
       const imageUrl = typeof node.metadata.imageUrl === "string" ? node.metadata.imageUrl : "";
       const promptVal = String(node.metadata.prompt ?? "");
       return (
         <div className="ic-node-body">
-          {imageUrl ? <img className="ic-node-img" src={imageUrl} alt={node.title} /> : <div style={{ padding: 14, textAlign: "center", borderRadius: 7, background: "var(--ic-surface-2)", color: "var(--ic-muted)" }}>{word("等待生成或插入图片", "Ready to generate image")}</div>}
+          {imageUrl ? <img className="ic-node-img" src={imageUrl} alt={node.title} /> : <div style={{ padding: 14, textAlign: "center", borderRadius: 7, background: "var(--ic-surface-2)", color: "var(--ic-muted)" }}>{node.type === "video" ? word("等待生成视频", "Ready to generate video") : word("等待生成或插入图片", "Ready to generate image")}</div>}
           <input
-            aria-label={word("生图提示词", "Image prompt")}
+            aria-label={word("生图提示词", "Generation prompt")}
             placeholder={word("输入提示词…", "Prompt…")}
             value={promptVal}
-            onChange={(e) => updateActiveProject((p) => ({ ...p, nodes: p.nodes.map((n) => n.id === node.id ? { ...n, metadata: { ...n.metadata, prompt: e.target.value } } : n) }))}
+            onChange={(e) => updateProject((p) => ({ ...p, nodes: p.nodes.map((n) => n.id === node.id ? { ...n, metadata: { ...n.metadata, prompt: e.target.value } } : n) }))}
           />
-          <button type="button" className="ic-btn is-primary" onClick={() => void runGeneration(node.id, promptVal, "image")}>
-            {word("生成图片", "Generate")}
+          <button type="button" className="ic-btn is-primary" onClick={() => void runGeneration(node.id, promptVal, node.type === "video" ? "video" : "image")}>
+            {node.type === "video" ? word("生成视频", "Generate Video") : word("生成图片", "Generate")}
           </button>
         </div>
       );
@@ -372,12 +665,18 @@ export function InfiniteCanvasApp() {
           value={content}
           onChange={(e) => {
             const val = e.target.value;
-            updateActiveProject((p) => ({ ...p, nodes: p.nodes.map((n) => n.id === node.id ? { ...n, metadata: { ...n.metadata, content: val } } : n) }));
+            updateProject((p) => ({ ...p, nodes: p.nodes.map((n) => n.id === node.id ? { ...n, metadata: { ...n.metadata, content: val } } : n) }));
           }}
         />
       </div>
     );
   };
+
+  const configuredBaseHost = extractHttpsHost(channel.baseUrl);
+  const configuredBaseAuthorized = Boolean(configuredBaseHost && grantedDomains.includes(configuredBaseHost));
+  const enabledThirdPartyPlugins = nodePlugins.allowThirdParty
+    ? nodePlugins.thirdParty.filter((tp) => tp.enabled)
+    : [];
 
   return (
     <div className="ic-shell">
@@ -425,10 +724,10 @@ export function InfiniteCanvasApp() {
           <div className="ic-topbar-group">
             {view === "canvas" && (
               <>
-                <button type="button" className="ic-btn" onClick={() => updateActiveProject((p) => ({ ...p, viewport: { ...p.viewport, k: Math.max(0.4, +(p.viewport.k - 0.15).toFixed(2)) } }))}>-</button>
+                <button type="button" className="ic-btn" onClick={() => updateProject((p) => ({ ...p, viewport: { ...p.viewport, k: Math.max(0.4, +(p.viewport.k - 0.15).toFixed(2)) } }))}>-</button>
                 <span style={{ fontSize: 12, minWidth: 42, textAlign: "center" }}>{Math.round(activeProject.viewport.k * 100)}%</span>
-                <button type="button" className="ic-btn" onClick={() => updateActiveProject((p) => ({ ...p, viewport: { ...p.viewport, k: Math.min(2, +(p.viewport.k + 0.15).toFixed(2)) } }))}>+</button>
-                <button type="button" className="ic-btn" onClick={() => updateActiveProject((p) => ({ ...p, viewport: { x: 48, y: 48, k: 1 } }))}>{word("重置", "Reset")}</button>
+                <button type="button" className="ic-btn" onClick={() => updateProject((p) => ({ ...p, viewport: { ...p.viewport, k: Math.min(2, +(p.viewport.k + 0.15).toFixed(2)) } }))}>+</button>
+                <button type="button" className="ic-btn" onClick={() => updateProject((p) => ({ ...p, viewport: { x: 48, y: 48, k: 1 } }))}>{word("重置", "Reset")}</button>
               </>
             )}
             <button
@@ -455,18 +754,36 @@ export function InfiniteCanvasApp() {
             <div
               className="ic-viewport"
               onPointerDown={(e) => {
-                if (e.target !== e.currentTarget) return;
+                if (e.target !== e.currentTarget || e.button !== 0) return;
+                const el = e.currentTarget;
+                const pointerId = e.pointerId;
+                try { el.setPointerCapture(pointerId); } catch { /* ignore */ }
                 const startX = e.clientX, startY = e.clientY;
-                const orig = activeProject.viewport;
+                const orig = stateRef.current.activeProject.viewport;
+                let active = true;
                 const onMove = (ev: PointerEvent) => {
-                  updateActiveProject((p) => ({ ...p, viewport: { ...p.viewport, x: orig.x + (ev.clientX - startX), y: orig.y + (ev.clientY - startY) } }));
+                  if (!active || ev.pointerId !== pointerId) return;
+                  updateProject((p) => ({ ...p, viewport: { ...p.viewport, x: orig.x + (ev.clientX - startX), y: orig.y + (ev.clientY - startY) } }));
                 };
-                const onUp = () => {
+                const finish = (ev?: PointerEvent) => {
+                  if (!active || (ev && ev.pointerId !== undefined && ev.pointerId !== pointerId)) return;
+                  active = false;
+                  el.removeEventListener("pointermove", onMove);
+                  el.removeEventListener("pointerup", finish);
+                  el.removeEventListener("pointercancel", finish);
+                  el.removeEventListener("lostpointercapture", finish);
                   window.removeEventListener("pointermove", onMove);
-                  window.removeEventListener("pointerup", onUp);
+                  window.removeEventListener("pointerup", finish);
+                  window.removeEventListener("pointercancel", finish);
+                  try { if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId); } catch { /* ignore */ }
                 };
+                el.addEventListener("pointermove", onMove);
+                el.addEventListener("pointerup", finish);
+                el.addEventListener("pointercancel", finish);
+                el.addEventListener("lostpointercapture", finish);
                 window.addEventListener("pointermove", onMove);
-                window.addEventListener("pointerup", onUp);
+                window.addEventListener("pointerup", finish);
+                window.addEventListener("pointercancel", finish);
               }}
             >
               <div
@@ -498,26 +815,45 @@ export function InfiniteCanvasApp() {
                 {activeProject.nodes.map((node) => (
                   <div
                     key={node.id}
+                    data-ic-node-id={node.id}
                     className={`ic-node${node.type === "group" ? " is-group" : ""}${activeProject.selectedIds.includes(node.id) ? " is-selected" : ""}`}
                     style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
                     onPointerDown={(e) => {
-                      if ((e.target as HTMLElement).closest("textarea,input,button")) return;
+                      if ((e.target as HTMLElement).closest("textarea,input,button") || e.button !== 0) return;
                       e.stopPropagation();
+                      const el = e.currentTarget;
+                      const pointerId = e.pointerId;
+                      try { el.setPointerCapture(pointerId); } catch { /* ignore */ }
                       const startX = e.clientX, startY = e.clientY, origX = node.x, origY = node.y;
-                      const zoom = activeProject.viewport.k;
-                      updateActiveProject((p) => ({ ...p, selectedIds: [node.id] }));
+                      const zoom = stateRef.current.activeProject.viewport.k;
+                      updateProject((p) => ({ ...p, selectedIds: [node.id] }));
+                      let active = true;
                       const onMove = (ev: PointerEvent) => {
-                        updateActiveProject((p) => ({
+                        if (!active || ev.pointerId !== pointerId) return;
+                        updateProject((p) => ({
                           ...p,
                           nodes: p.nodes.map((n) => n.id === node.id ? { ...n, x: origX + (ev.clientX - startX) / zoom, y: origY + (ev.clientY - startY) / zoom } : n),
                         }));
                       };
-                      const onUp = () => {
+                      const finish = (ev?: PointerEvent) => {
+                        if (!active || (ev && ev.pointerId !== undefined && ev.pointerId !== pointerId)) return;
+                        active = false;
+                        el.removeEventListener("pointermove", onMove);
+                        el.removeEventListener("pointerup", finish);
+                        el.removeEventListener("pointercancel", finish);
+                        el.removeEventListener("lostpointercapture", finish);
                         window.removeEventListener("pointermove", onMove);
-                        window.removeEventListener("pointerup", onUp);
+                        window.removeEventListener("pointerup", finish);
+                        window.removeEventListener("pointercancel", finish);
+                        try { if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId); } catch { /* ignore */ }
                       };
+                      el.addEventListener("pointermove", onMove);
+                      el.addEventListener("pointerup", finish);
+                      el.addEventListener("pointercancel", finish);
+                      el.addEventListener("lostpointercapture", finish);
                       window.addEventListener("pointermove", onMove);
-                      window.addEventListener("pointerup", onUp);
+                      window.addEventListener("pointerup", finish);
+                      window.addEventListener("pointercancel", finish);
                     }}
                   >
                     <div className="ic-node-head">
@@ -535,6 +871,11 @@ export function InfiniteCanvasApp() {
                 {BUNDLED_OFFICIAL_NODE_PLUGINS.filter((p) => nodePlugins.officialEnabled.includes(p.id)).map((p) => (
                   <button key={p.id} type="button" className="ic-btn" onClick={() => addNode(p.id as CanvasNodeType)}>
                     + {zh ? p.nameZh : p.name}
+                  </button>
+                ))}
+                {enabledThirdPartyPlugins.map((tp) => (
+                  <button key={tp.id} type="button" className="ic-btn" onClick={() => addThirdPartyNode(tp)}>
+                    + {tp.name}
                   </button>
                 ))}
               </div>
@@ -606,6 +947,31 @@ export function InfiniteCanvasApp() {
               <div className="ic-topbar-group">
                 <button type="button" className="ic-btn is-primary" onClick={() => setView("canvas")}>{word("打开当前画布", "Open Canvas")}</button>
                 <button type="button" className="ic-btn" onClick={() => setView("create")}>{word("前往生图 / 视频台", "Open Create Workbench")}</button>
+                <button
+                  type="button"
+                  className="ic-btn"
+                  onClick={() => {
+                    const created: CanvasProject = {
+                      id: makeId("proj"),
+                      title: word(`画布项目 ${projects.length + 1}`, `Canvas Project ${projects.length + 1}`),
+                      updatedAt: Date.now(),
+                      viewport: { x: 48, y: 48, k: 1 },
+                      selectedIds: [],
+                      nodes: [],
+                      connections: [],
+                    };
+                    const next = [...stateRef.current.projects, created];
+                    stateRef.current.projects = next;
+                    stateRef.current.activeProjectId = created.id;
+                    stateRef.current.activeProject = created;
+                    setProjects(next);
+                    setActiveProjectId(created.id);
+                    persist("ic:projects:v1", next);
+                    setView("canvas");
+                  }}
+                >
+                  {word("+ 新建项目", "+ New Project")}
+                </button>
               </div>
             </div>
             <div className="ic-grid">
@@ -613,7 +979,18 @@ export function InfiniteCanvasApp() {
                 <div key={proj.id} className="ic-card">
                   <h4>{proj.title}</h4>
                   <p>{word("{0} 个节点 · {1} 条连线", "{0} nodes · {1} edges").replace("{0}", String(proj.nodes.length)).replace("{1}", String(proj.connections.length))}</p>
-                  <button type="button" className="ic-btn" onClick={() => { setActiveProjectId(proj.id); setView("canvas"); }}>{word("进入画布", "Open")}</button>
+                  <button
+                    type="button"
+                    className="ic-btn"
+                    onClick={() => {
+                      stateRef.current.activeProjectId = proj.id;
+                      stateRef.current.activeProject = proj;
+                      setActiveProjectId(proj.id);
+                      setView("canvas");
+                    }}
+                  >
+                    {word("进入画布", "Open")}
+                  </button>
                 </div>
               ))}
             </div>
@@ -640,10 +1017,15 @@ export function InfiniteCanvasApp() {
                   className="ic-btn is-primary"
                   disabled={createBusy || !createPrompt.trim()}
                   onClick={() => {
+                    const promptText = createPrompt.trim();
                     setCreateBusy(true);
-                    const newNodeId = makeId("gen");
-                    addNode(createMode === "video" ? "video" : "image", createPrompt.slice(0, 24), createPrompt);
-                    void runGeneration(newNodeId, createPrompt, createMode).finally(() => setCreateBusy(false));
+                    const createdNodeId = addNode(
+                      createMode === "video" ? "video" : "image",
+                      promptText.slice(0, 24),
+                      "",
+                      { prompt: promptText, status: "running" },
+                    );
+                    void runGeneration(createdNodeId, promptText, createMode).finally(() => setCreateBusy(false));
                   }}
                 >
                   {createBusy ? word("生成中…", "Generating…") : word("立即生成并添加到画布", "Generate & Add to Canvas")}
@@ -691,7 +1073,10 @@ export function InfiniteCanvasApp() {
                 className="ic-btn is-primary"
                 onClick={() => {
                   const created: CanvasAsset = { id: makeId("asset"), kind: "text", title: word("新文本素材", "New Text Asset"), content: word("示例参考文本", "Sample reference text"), createdAt: Date.now() };
-                  setAssets((prev) => { const next = [created, ...prev]; persist("ic:assets:v1", next); return next; });
+                  const next = [created, ...stateRef.current.assets];
+                  stateRef.current.assets = next;
+                  setAssets(next);
+                  persist("ic:assets:v1", next);
                 }}
               >
                 {word("+ 新建文本素材", "+ Add Text Asset")}
@@ -703,7 +1088,24 @@ export function InfiniteCanvasApp() {
                   <h4>{a.title}</h4>
                   <p>{a.content ?? a.note ?? a.kind}</p>
                   {a.imageUrl && <img className="ic-node-img" src={a.imageUrl} alt={a.title} />}
-                  <button type="button" className="ic-btn" onClick={() => { addNode(a.kind === "image" ? "image" : "text", a.title, a.content ?? ""); setView("canvas"); }}>{word("插入画布", "Insert to Canvas")}</button>
+                  <button
+                    type="button"
+                    className="ic-btn"
+                    onClick={() => {
+                      addNode(
+                        a.kind === "image" ? "image" : a.kind === "video" ? "video" : "text",
+                        a.title,
+                        a.content ?? "",
+                        {
+                          assetId: a.id,
+                          ...(a.imageUrl ? { imageUrl: a.imageUrl } : {}),
+                        },
+                      );
+                      setView("canvas");
+                    }}
+                  >
+                    {word("插入画布", "Insert to Canvas")}
+                  </button>
                 </div>
               )) : <p>{word("暂无素材。", "No assets saved yet.")}</p>}
             </div>
@@ -717,7 +1119,31 @@ export function InfiniteCanvasApp() {
               <p>{word("不预置任何非官方中转渠道。API Key 仅保存在本机隔离凭据存储，绝不写入 localStorage、日志、Hub 或同步到其他设备。", "No unofficial channels preset. Your API Key stays strictly in local isolated credential storage — never in localStorage, logs, Hub, or other devices.")}</p>
               <div className="ic-form-row">
                 <label>Base URL</label>
-                <input placeholder="https://api.openai.com" value={channel.baseUrl} onChange={(e) => { const next = { ...channel, baseUrl: e.target.value }; setChannel(next); persist("ic:channel:v1", next); }} />
+                <div className="ic-topbar-group">
+                  <input
+                    style={{ flex: 1 }}
+                    placeholder="https://api.openai.com"
+                    value={channel.baseUrl}
+                    onChange={(e) => {
+                      const next = { ...channel, baseUrl: e.target.value };
+                      stateRef.current.channel = next;
+                      setChannel(next);
+                      persist("ic:channel:v1", next);
+                    }}
+                  />
+                  {configuredBaseHost && !configuredBaseAuthorized && (
+                    <button
+                      type="button"
+                      className="ic-btn"
+                      onClick={() => void authorizeDomain(configuredBaseHost, word("允许模型渠道访问自定义 Base URL", "Allow model channel custom Base URL"))}
+                    >
+                      {word(`授权域名 ${configuredBaseHost}`, `Authorize ${configuredBaseHost}`)}
+                    </button>
+                  )}
+                  {configuredBaseHost && configuredBaseAuthorized && (
+                    <span className="ic-pill is-online">{word("域名已放行", "Authorized")}</span>
+                  )}
+                </div>
               </div>
               <div className="ic-form-row">
                 <label>API Key {hasSavedApiKey ? `(${word("已保存", "Saved")})` : ""}</label>
@@ -732,11 +1158,11 @@ export function InfiniteCanvasApp() {
               <div className="ic-grid">
                 <div className="ic-form-row">
                   <label>{word("生图模型", "Image Model")}</label>
-                  <input value={channel.imageModel} onChange={(e) => { const next = { ...channel, imageModel: e.target.value }; setChannel(next); persist("ic:channel:v1", next); }} />
+                  <input value={channel.imageModel} onChange={(e) => { const next = { ...channel, imageModel: e.target.value }; stateRef.current.channel = next; setChannel(next); persist("ic:channel:v1", next); }} />
                 </div>
                 <div className="ic-form-row">
                   <label>{word("视频模型", "Video Model")}</label>
-                  <input value={channel.videoModel} onChange={(e) => { const next = { ...channel, videoModel: e.target.value }; setChannel(next); persist("ic:channel:v1", next); }} />
+                  <input value={channel.videoModel} onChange={(e) => { const next = { ...channel, videoModel: e.target.value }; stateRef.current.channel = next; setChannel(next); persist("ic:channel:v1", next); }} />
                 </div>
               </div>
             </section>
@@ -745,7 +1171,7 @@ export function InfiniteCanvasApp() {
               <div className="ic-topbar-group" style={{ justifyContent: "space-between" }}>
                 <div>
                   <h3>{word("画布节点插件", "Canvas Node Plugins")}</h3>
-                  <p>{word("官方插件已随扩展打包内置，离线可用；第三方插件默认关闭。", "Official node plugins are bundled offline; third-party plugins are off by default.")}</p>
+                  <p>{word("官方插件已随扩展打包内置，离线可用；第三方插件默认关闭，安装后可通过画布底部工具栏添加并受沙箱 CSP 域名约束。", "Official node plugins are bundled offline; third-party plugins are off by default, can be added from the canvas toolbar once enabled, and remain bounded by sandbox CSP domain authorization.")}</p>
                 </div>
                 <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
                   <input
@@ -767,7 +1193,7 @@ export function InfiniteCanvasApp() {
               {showThirdPartyWarning && !nodePlugins.allowThirdParty && (
                 <div className="ic-warning-box" role="alert">
                   <strong>{word("安全警告：启用第三方节点插件", "Security Warning: Enable Third-Party Node Plugins")}</strong>
-                  <p>{word("第三方节点插件代码会直接运行在画布页面内，可以读取画布内容与你在画布中配置的 API Key，并可访问外部网络。请只安装来自完全信任来源的插件。", "Third-party plugin code runs directly in the canvas page, can read canvas content and the API Key configured in the canvas, and can access the network. Only install from sources you trust.")}</p>
+                  <p>{word("第三方节点插件来自外部 HTTPS 地址，需要由宿主显式放行其域名后才可拉取并在隔离预览框中展示。请只安装来自完全信任来源的插件。", "Third-party node plugins come from external HTTPS origins and require explicit host domain authorization before fetching inside a sandboxed preview frame. Only install from sources you trust.")}</p>
                   <div className="ic-topbar-group" style={{ justifyContent: "flex-end" }}>
                     <button type="button" className="ic-btn" onClick={() => setShowThirdPartyWarning(false)}>{word("保持关闭", "Keep Off")}</button>
                     <button
@@ -832,7 +1258,7 @@ export function InfiniteCanvasApp() {
                       <p style={{ wordBreak: "break-all" }}>{tp.url}</p>
                       <div className="ic-topbar-group">
                         <button type="button" className="ic-btn" disabled={!nodePlugins.allowThirdParty} onClick={() => saveNodePluginsState(pluginMgr.toggleThirdParty(tp.id, !tp.enabled))}>
-                          {tp.enabled ? word("停用", "Disable") : word("已停用", "Disabled")}
+                          {tp.enabled ? word("停用", "Disable") : word("启用", "Enable")}
                         </button>
                         <button type="button" className="ic-btn is-danger" onClick={() => saveNodePluginsState(pluginMgr.removeThirdParty(tp.id))}>
                           {word("删除", "Delete")}
@@ -868,7 +1294,7 @@ export function InfiniteCanvasApp() {
         <div className="ic-modal-backdrop" role="dialog" aria-modal="true">
           <div className="ic-modal">
             <strong>{word("确认安装第三方节点插件", "Confirm Third-Party Node Plugin URL")}</strong>
-            <p style={{ margin: 0, fontSize: 12.5 }}>{word("即将从以下地址加载并执行第三方插件代码：", "You are about to load and execute third-party plugin code from:")}</p>
+            <p style={{ margin: 0, fontSize: 12.5 }}>{word("即将登记并允许从以下地址拉取第三方节点插件预览：", "You are about to register and allow fetching a sandboxed third-party node plugin from:")}</p>
             <code style={{ wordBreak: "break-all", fontSize: 12 }}>{pendingThirdPartyConfirm.url}</code>
             <div className="ic-topbar-group" style={{ justifyContent: "flex-end" }}>
               <button type="button" className="ic-btn" onClick={() => setPendingThirdPartyConfirm(null)}>{word("取消", "Cancel")}</button>
@@ -877,15 +1303,21 @@ export function InfiniteCanvasApp() {
                 className="ic-btn is-primary"
                 onClick={() => {
                   try {
+                    const targetUrl = pendingThirdPartyConfirm.url;
+                    const targetName = pendingThirdPartyConfirm.name;
                     saveNodePluginsState(pluginMgr.installThirdParty({
                       id: makeId("tp"),
-                      name: pendingThirdPartyConfirm.name,
-                      url: pendingThirdPartyConfirm.url,
+                      name: targetName,
+                      url: targetUrl,
                       confirmedUrl: true,
                     }));
                     setThirdPartyNameInput("");
                     setThirdPartyUrlInput("");
                     setPendingThirdPartyConfirm(null);
+                    const host = extractHttpsHost(targetUrl);
+                    if (host && !stateRef.current.grantedDomains.includes(host)) {
+                      void authorizeDomain(host, word(`授权第三方节点插件 ${targetName}`, `Authorize third-party node plugin ${targetName}`));
+                    }
                   } catch (err) {
                     setStatusMsg(err instanceof Error ? err.message : "install_failed");
                     setPendingThirdPartyConfirm(null);

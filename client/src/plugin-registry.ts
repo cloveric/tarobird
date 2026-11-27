@@ -1,3 +1,4 @@
+import "./plugin-crypto.js";
 import { openDB, type IDBPDatabase } from "idb";
 import {
   comparePluginVersions,
@@ -14,11 +15,19 @@ import {
   FOCUS_TIMER_BUNDLE_HTML,
   QUICK_SCRATCHPAD_BUNDLE_HTML,
 } from "./plugin-bundles.js";
+import {
+  pluginStorageBucketKey,
+  sanitizePluginDomain,
+  type PluginCredentialVault,
+  type PluginKvStore,
+} from "./plugin-sandbox-runtime.js";
+
+export type { PluginCredentialVault, PluginKvStore } from "./plugin-sandbox-runtime.js";
 
 export const PLUGIN_STORE_KEY = "tarobird.plugins.v1";
 
 /** Ed25519 SPKI public key (base64) used to verify official TaroBird plugin manifests. */
-export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA020xOc64IjhAdWFcOtnXaqkDHImZxepj6cDZ2mD1Kzw=";
+export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEAotkoRWkrqqQU1eLiYvFwm8A2EbBip1Ma5DMq5gd9wOA=";
 
 export type PluginCatalogEntry = {
   manifest: PluginManifest;
@@ -38,10 +47,10 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       icon: "canvas",
       source: { repository: "basketikun/infinite-canvas", commit: "4c67f1e" },
       artifact: {
-        sha256: "614c0ac66c1fd6fcdc11a2bb7e6a670f10003204e4a1107d43a4a31deccbf7af",
-        sizeBytes: 278542,
+        sha256: "bc742274dab93c72c757f2d853da97b83bb831b6fd764afc2e82f3a5193cf748",
+        sizeBytes: 293860,
         url: "/api/plugins/artifacts/tarobird.infinite-canvas/1.0.0/bundle.html",
-        signature: "C7w3VC5PsGFo1CmUv5pXeaw/7ADiGzAPovAa3MOlrPV5Kinyoh2jC4iYkageB0QheQ4/EOPNDViPVn0YspxYCw==",
+        signature: "nxxo4Vhs7B/k63XDkPhG6ihjxechHEbD8mekKoeZsmeAmXIsXcaXMihz9E25ySqMt1+quIUGDis/ul6l0V3JDA==",
       },
       attribution: {
         author: "basketikun",
@@ -74,7 +83,7 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       artifact: {
         sha256: "f463130202743a3c2e9ec5cc3280069123bfd3d578e4f90c645613d05be0eaa9",
         sizeBytes: 2837,
-        signature: "NDX3TY7laYLQvdyvG8kFvEDQMZoZkwa2vhyiHQPUjJ/sUypOOw5YF9G6HGB1xJeaCKJrDgjoJUVISQ6MlE1XDQ==",
+        signature: "o3If/tS0i7u4vt2m1o5MN05cCli32qWBEnAL0eGBGaSJoOmppUWofyfzhkikflB07N2NBqQ3cJM/emkD7sJTBg==",
       },
       entry: "dist/index.html",
       platforms: ["desktop", "phone"],
@@ -103,8 +112,8 @@ export const THIRD_PARTY_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       icon: "clock",
       source: { repository: "tarobird-community/focus-timer", commit: "a1b2c3d" },
       artifact: {
-        sha256: "68ff0c7b518adcd2ae573fbb353e2002ed233cec26308a7f5b43d47f3f489b2a",
-        sizeBytes: 2375,
+        sha256: "300e7f06445862b1bfe55812011380221b71c0fd7bc750ff27ff6b989f19307f",
+        sizeBytes: 2821,
       },
       entry: "dist/index.html",
       platforms: ["desktop", "phone"],
@@ -143,13 +152,6 @@ export type PluginStorageAdapter = {
   keys?(): string[];
 };
 
-export type PluginCredentialVault = {
-  getSecret(scopeId: string, pluginId: string, key: string): Promise<string | null>;
-  setSecret(scopeId: string, pluginId: string, key: string, value: string): Promise<void>;
-  removeSecret(scopeId: string, pluginId: string, key: string): Promise<void>;
-  clearPluginSecrets(scopeId: string, pluginId: string): Promise<void>;
-};
-
 export type PluginArtifactFetcher = (url: string) => Promise<string>;
 
 export function pluginScopeId(hostPublicKey?: string | null, userId?: string | null, deviceId?: string | null): string {
@@ -160,38 +162,147 @@ export function pluginScopeId(hostPublicKey?: string | null, userId?: string | n
   return [d || "device", h.slice(0, 16) || "host", u || "user"].join(":");
 }
 
+/** Returns null when host/device identity is known but `userId` has not hydrated yet,
+ * so multi-host startup never reads or writes under a synthetic `"user"` scope. */
+export function resolvePluginScopeId(hostPublicKey?: string | null, userId?: string | null, deviceId?: string | null): string | null {
+  const h = (hostPublicKey ?? "").trim();
+  const u = (userId ?? "").trim();
+  const d = (deviceId ?? "").trim();
+  if (!h && !u && !d) return "default";
+  if (!u) return null;
+  return pluginScopeId(h, u, d);
+}
+
 export function pluginDataPrefix(scopeId: string, pluginId: string): string {
   return scopeId === "default"
     ? `tarobird.plugin.data.${pluginId}.`
     : `tarobird.plugin.data.${scopeId}.${pluginId}.`;
 }
 
-function defaultStorage(): PluginStorageAdapter {
+export function createDefaultPluginStorage(): PluginStorageAdapter {
   const mem = new Map<string, string>();
   return {
     getItem(key) {
-      try { return globalThis.localStorage?.getItem(key) ?? mem.get(key) ?? null; } catch { return mem.get(key) ?? null; }
+      if (typeof globalThis.localStorage !== "undefined") {
+        try { return globalThis.localStorage.getItem(key); } catch { return mem.get(key) ?? null; }
+      }
+      return mem.get(key) ?? null;
     },
     setItem(key, value) {
+      if (typeof globalThis.localStorage !== "undefined") {
+        // Propagate QuotaExceededError / SecurityError instead of masking storage failures.
+        globalThis.localStorage.setItem(key, value);
+        mem.set(key, value);
+        return;
+      }
       mem.set(key, value);
-      try { globalThis.localStorage?.setItem(key, value); } catch { /* ignore */ }
     },
     removeItem(key) {
       mem.delete(key);
-      try { globalThis.localStorage?.removeItem(key); } catch { /* ignore */ }
+      if (typeof globalThis.localStorage !== "undefined") {
+        try { globalThis.localStorage.removeItem(key); } catch { /* ignore */ }
+      }
     },
     keys() {
-      try {
-        if (globalThis.localStorage) {
+      if (typeof globalThis.localStorage !== "undefined") {
+        try {
           const out: string[] = [];
           for (let i = 0; i < globalThis.localStorage.length; i++) {
             const k = globalThis.localStorage.key(i);
             if (k) out.push(k);
           }
           return out;
-        }
-      } catch { /* ignore */ }
+        } catch { /* fall through */ }
+      }
       return [...mem.keys()];
+    },
+  };
+}
+
+type PluginBundleStore = {
+  getBundle(scopeId: string, pluginId: string): Promise<string | null>;
+  putBundle(scopeId: string, pluginId: string, html: string): Promise<void>;
+  deleteBundle(scopeId: string, pluginId: string): Promise<void>;
+  kv: PluginKvStore;
+};
+
+let sharedStoreDbPromise: Promise<IDBPDatabase | null> | null = null;
+function getPluginStoreDb(): Promise<IDBPDatabase | null> {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  if (!sharedStoreDbPromise) {
+    sharedStoreDbPromise = openDB("tarobird.plugin.store.v1", 1, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains("bundles")) db.createObjectStore("bundles");
+        if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+      },
+    }).catch(() => null);
+  }
+  return sharedStoreDbPromise;
+}
+
+function createIdbPluginBundleStore(): PluginBundleStore {
+  const bundleKey = (scopeId: string, pluginId: string) => `${scopeId}\0${pluginId}`;
+  const kvKey = (scopeId: string, pluginId: string, key: string) => `${scopeId}\0${pluginId}\0${key}`;
+  const kvPrefix = (scopeId: string, pluginId: string) => `${scopeId}\0${pluginId}\0`;
+  return {
+    async getBundle(scopeId, pluginId) {
+      const db = await getPluginStoreDb();
+      if (!db) return null;
+      const val = await db.get("bundles", bundleKey(scopeId, pluginId));
+      return typeof val === "string" ? val : null;
+    },
+    async putBundle(scopeId, pluginId, html) {
+      const db = await getPluginStoreDb();
+      if (!db) return;
+      await db.put("bundles", html, bundleKey(scopeId, pluginId));
+    },
+    async deleteBundle(scopeId, pluginId) {
+      const db = await getPluginStoreDb();
+      if (!db) return;
+      await db.delete("bundles", bundleKey(scopeId, pluginId));
+    },
+    kv: {
+      async get(scopeId, pluginId, key) {
+        const db = await getPluginStoreDb();
+        if (!db) return null;
+        const val = await db.get("kv", kvKey(scopeId, pluginId, key));
+        return typeof val === "string" ? val : null;
+      },
+      async set(scopeId, pluginId, key, value) {
+        const db = await getPluginStoreDb();
+        if (!db) throw new Error("storage_unavailable");
+        await db.put("kv", value, kvKey(scopeId, pluginId, key));
+      },
+      async remove(scopeId, pluginId, key) {
+        const db = await getPluginStoreDb();
+        if (!db) return;
+        await db.delete("kv", kvKey(scopeId, pluginId, key));
+      },
+      async list(scopeId, pluginId) {
+        const db = await getPluginStoreDb();
+        if (!db) return {};
+        const prefix = kvPrefix(scopeId, pluginId);
+        const tx = db.transaction("kv", "readonly");
+        const store = tx.objectStore("kv");
+        const keys = await store.getAllKeys();
+        const out: Record<string, string> = {};
+        for (const k of keys) {
+          if (typeof k === "string" && k.startsWith(prefix)) {
+            const val = await store.get(k);
+            if (typeof val === "string") out[k.slice(prefix.length)] = val;
+          }
+        }
+        return out;
+      },
+      async clear(scopeId, pluginId) {
+        const db = await getPluginStoreDb();
+        if (!db) return;
+        const prefix = kvPrefix(scopeId, pluginId);
+        const keys = await db.getAllKeys("kv");
+        for (const k of keys) {
+          if (typeof k === "string" && k.startsWith(prefix)) await db.delete("kv", k);
+        }
+      },
     },
   };
 }
@@ -199,7 +310,7 @@ function defaultStorage(): PluginStorageAdapter {
 /** Isolated credential vault stored in IndexedDB (never localStorage, never Hub, never synced). */
 function defaultCredentialVault(): PluginCredentialVault {
   const mem = new Map<string, string>();
-  let dbPromise: Promise<IDBPDatabase> | null = null;
+  let dbPromise: Promise<IDBPDatabase | null> | null = null;
   const getDb = async (): Promise<IDBPDatabase | null> => {
     if (typeof indexedDB === "undefined") return null;
     if (!dbPromise) {
@@ -207,7 +318,7 @@ function defaultCredentialVault(): PluginCredentialVault {
         upgrade(db) {
           if (!db.objectStoreNames.contains("secrets")) db.createObjectStore("secrets");
         },
-      }).catch(() => null as unknown as IDBPDatabase);
+      }).catch(() => null);
     }
     return dbPromise;
   };
@@ -259,9 +370,15 @@ async function defaultArtifactFetcher(url: string): Promise<string> {
   return res.text();
 }
 
+type PersistedInstalledPluginRecord = InstalledPluginRecord & {
+  bundleStoredInIdb?: boolean;
+};
+
 export class PluginRegistry {
   readonly storage: PluginStorageAdapter;
   readonly credentialVault: PluginCredentialVault;
+  readonly kvStore?: PluginKvStore;
+  private readonly bundleStore?: PluginBundleStore;
   private readonly officialPublicKey: string;
   private readonly catalog: PluginCatalogEntry[];
   private readonly fetcher: PluginArtifactFetcher;
@@ -272,18 +389,29 @@ export class PluginRegistry {
   constructor(options?: {
     storage?: PluginStorageAdapter;
     credentialVault?: PluginCredentialVault;
+    kvStore?: PluginKvStore;
     scopeId?: string;
     officialPublicKey?: string;
     catalog?: readonly PluginCatalogEntry[];
     fetcher?: PluginArtifactFetcher;
   }) {
-    this.storage = options?.storage ?? defaultStorage();
+    const usesBrowserIdb = !options?.storage && typeof indexedDB !== "undefined";
+    this.storage = options?.storage ?? createDefaultPluginStorage();
     this.credentialVault = options?.credentialVault ?? defaultCredentialVault();
-    this.scopeId = options?.scopeId ?? "default";
+    if (usesBrowserIdb) {
+      this.bundleStore = createIdbPluginBundleStore();
+      this.kvStore = options?.kvStore ?? this.bundleStore.kv;
+    } else {
+      this.kvStore = options?.kvStore;
+    }
+    this.scopeId = options?.scopeId?.trim() || "default";
     this.officialPublicKey = options?.officialPublicKey ?? OFFICIAL_PLUGIN_PUBLIC_KEY;
     this.catalog = [...(options?.catalog ?? [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG])];
     this.fetcher = options?.fetcher ?? defaultArtifactFetcher;
     this.state = this.load();
+    if (this.bundleStore) {
+      void this.hydrateBundles();
+    }
   }
 
   private storeKey(): string {
@@ -300,21 +428,68 @@ export class PluginRegistry {
     this.scopeId = clean;
     this.state = this.load();
     for (const listener of this.listeners) listener();
+    if (this.bundleStore) {
+      void this.hydrateBundles();
+    }
+  }
+
+  private async hydrateBundles(): Promise<void> {
+    if (!this.bundleStore) return;
+    const scope = this.scopeId;
+    const missingIds = Object.values(this.state.installed)
+      .filter((record) => !record.bundleHtml)
+      .map((record) => record.manifest.id);
+    if (!missingIds.length) return;
+    let changed = false;
+    const nextInstalled = { ...this.state.installed };
+    for (const id of missingIds) {
+      const current = nextInstalled[id];
+      if (!current || current.bundleHtml) continue;
+      let html = await this.bundleStore.getBundle(scope, id).catch(() => null);
+      if (!html) {
+        const inlineCatalog = this.catalog.find((entry) => entry.manifest.id === id && entry.bundleHtml);
+        if (inlineCatalog?.bundleHtml && inlineCatalog.manifest.artifact.sha256 === current.manifest.artifact.sha256) {
+          html = inlineCatalog.bundleHtml;
+        }
+      }
+      if (this.scopeId !== scope) return;
+      if (html && this.state.installed[id]?.installedAt === current.installedAt) {
+        nextInstalled[id] = { ...current, bundleHtml: html };
+        changed = true;
+      }
+    }
+    if (changed && this.scopeId === scope) {
+      this.state = { ...this.state, installed: nextInstalled };
+      for (const listener of this.listeners) listener();
+    }
   }
 
   private load(): PluginStoreState {
     const raw = this.storage.getItem(this.storeKey());
     if (!raw) return { allowThirdParty: false, developerMode: false, installed: {} };
     try {
-      const parsed = JSON.parse(raw) as Partial<PluginStoreState>;
+      const parsed = JSON.parse(raw) as {
+        allowThirdParty?: unknown;
+        developerMode?: unknown;
+        installed?: Record<string, Partial<PersistedInstalledPluginRecord>>;
+      };
       const installed: Record<string, InstalledPluginRecord> = {};
       if (parsed.installed && typeof parsed.installed === "object") {
         for (const [id, item] of Object.entries(parsed.installed)) {
           const manifest = pluginManifestSchema.safeParse(item?.manifest);
-          if (!manifest.success || manifest.data.id !== id || typeof item?.bundleHtml !== "string") continue;
+          if (!manifest.success || manifest.data.id !== id) continue;
+          const hasStoredBundle = item?.bundleStoredInIdb === true;
+          if (!hasStoredBundle && typeof item?.bundleHtml !== "string") continue;
+          let bundleHtml = typeof item?.bundleHtml === "string" ? item.bundleHtml : "";
+          if (!bundleHtml && !this.bundleStore) {
+            const inlineCatalog = this.catalog.find((entry) => entry.manifest.id === id && entry.bundleHtml);
+            if (inlineCatalog?.bundleHtml && inlineCatalog.manifest.artifact.sha256 === manifest.data.artifact.sha256) {
+              bundleHtml = inlineCatalog.bundleHtml;
+            }
+          }
           installed[id] = {
             manifest: manifest.data,
-            bundleHtml: item.bundleHtml,
+            bundleHtml,
             enabled: item.enabled !== false,
             installedAt: typeof item.installedAt === "number" ? item.installedAt : Date.now(),
             sourceKind: item.sourceKind === "local-dev" ? "local-dev" : manifest.data.official ? "official" : "third-party",
@@ -333,8 +508,27 @@ export class PluginRegistry {
     }
   }
 
+  private serializeStateForStorage(state: PluginStoreState): string {
+    if (!this.bundleStore) {
+      return JSON.stringify(state);
+    }
+    const strippedInstalled: Record<string, PersistedInstalledPluginRecord> = {};
+    for (const [id, record] of Object.entries(state.installed)) {
+      strippedInstalled[id] = {
+        ...record,
+        bundleHtml: "",
+        bundleStoredInIdb: true,
+      };
+    }
+    return JSON.stringify({
+      allowThirdParty: state.allowThirdParty,
+      developerMode: state.developerMode,
+      installed: strippedInstalled,
+    });
+  }
+
   private save(): void {
-    this.storage.setItem(this.storeKey(), JSON.stringify(this.state));
+    this.storage.setItem(this.storeKey(), this.serializeStateForStorage(this.state));
     this.state = { ...this.state, installed: { ...this.state.installed } };
     for (const listener of this.listeners) listener();
   }
@@ -378,14 +572,52 @@ export class PluginRegistry {
 
   setAllowThirdParty(allow: boolean): void {
     if (this.state.allowThirdParty === allow) return;
+    const prev = this.state;
     this.state = { ...this.state, allowThirdParty: allow };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prev;
+      throw error;
+    }
   }
 
   setDeveloperMode(enabled: boolean): void {
     if (this.state.developerMode === enabled) return;
+    const prev = this.state;
     this.state = { ...this.state, developerMode: enabled };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prev;
+      throw error;
+    }
+  }
+
+  grantDomain(pluginId: string, rawDomain: string): string | null {
+    const clean = sanitizePluginDomain(rawDomain);
+    if (!clean) return null;
+    const existing = this.state.installed[pluginId];
+    if (!existing) return null;
+    if (existing.grantedDomains.includes(clean)) return clean;
+    const prev = this.state;
+    this.state = {
+      ...this.state,
+      installed: {
+        ...this.state.installed,
+        [pluginId]: {
+          ...existing,
+          grantedDomains: [...existing.grantedDomains, clean],
+        },
+      },
+    };
+    try {
+      this.save();
+      return clean;
+    } catch (error) {
+      this.state = prev;
+      throw error;
+    }
   }
 
   async install(entry: PluginCatalogEntry, options?: { fetcher?: PluginArtifactFetcher }): Promise<InstalledPluginRecord> {
@@ -406,6 +638,10 @@ export class PluginRegistry {
         throw new Error("plugin_download_failed");
       }
     }
+    const actualSizeBytes = new TextEncoder().encode(bundleHtml).byteLength;
+    if (actualSizeBytes !== manifest.artifact.sizeBytes) {
+      throw new Error("plugin_size_mismatch");
+    }
     const hashOk = await verifyPluginArtifactHash(bundleHtml, manifest.artifact.sha256);
     if (!hashOk) {
       throw new Error("plugin_hash_mismatch");
@@ -416,20 +652,33 @@ export class PluginRegistry {
         throw new Error("plugin_signature_invalid");
       }
     }
+    const previous = this.state.installed[manifest.id];
+    const preservedDomains = previous
+      ? [...new Set([...manifest.domains, ...previous.grantedDomains.filter((d) => sanitizePluginDomain(d) !== null)])]
+      : [...manifest.domains];
     const record: InstalledPluginRecord = {
       manifest,
       bundleHtml,
       enabled: true,
-      installedAt: Date.now(),
+      installedAt: Math.max(Date.now(), (previous?.installedAt ?? 0) + 1),
       sourceKind: manifest.official ? "official" : "third-party",
       grantedCapabilities: [...manifest.capabilities],
-      grantedDomains: [...manifest.domains],
+      grantedDomains: preservedDomains,
     };
+    if (this.bundleStore) {
+      await this.bundleStore.putBundle(this.scopeId, manifest.id, bundleHtml);
+    }
+    const prevState = this.state;
     this.state = {
       ...this.state,
       installed: { ...this.state.installed, [manifest.id]: record },
     };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prevState;
+      throw error;
+    }
     return record;
   }
 
@@ -454,31 +703,54 @@ export class PluginRegistry {
         sizeBytes: Math.max(1, sizeBytes),
       },
     });
+    if (
+      manifest.id.startsWith("tarobird.")
+      || this.catalog.some((item) => item.manifest.official && item.manifest.id === manifest.id)
+      || this.state.installed[manifest.id]?.sourceKind === "official"
+    ) {
+      throw new Error("plugin_official_id_reserved");
+    }
+    const previous = this.state.installed[manifest.id];
     const record: InstalledPluginRecord = {
       manifest,
       bundleHtml,
       enabled: true,
-      installedAt: Date.now(),
+      installedAt: Math.max(Date.now(), (previous?.installedAt ?? 0) + 1),
       sourceKind: "local-dev",
       grantedCapabilities: [...manifest.capabilities],
       grantedDomains: [...manifest.domains],
     };
+    if (this.bundleStore) {
+      await this.bundleStore.putBundle(this.scopeId, manifest.id, bundleHtml);
+    }
+    const prevState = this.state;
     this.state = {
       ...this.state,
       installed: { ...this.state.installed, [manifest.id]: record },
     };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prevState;
+      throw error;
+    }
     return record;
   }
 
   setEnabled(pluginId: string, enabled: boolean): void {
     const existing = this.state.installed[pluginId];
     if (!existing || existing.enabled === enabled) return;
+    const prev = this.state;
     this.state = {
       ...this.state,
       installed: { ...this.state.installed, [pluginId]: { ...existing, enabled } },
     };
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.state = prev;
+      throw error;
+    }
   }
 
   async uninstall(pluginId: string, options?: { keepData?: boolean }): Promise<void> {
@@ -488,7 +760,14 @@ export class PluginRegistry {
       this.state = { ...this.state, installed: next };
       this.save();
     }
-    if (options?.keepData === false) {
+    const shouldWipe = options?.keepData !== true;
+    if (shouldWipe) {
+      // Remove scoped isolated KV bucket synchronously so both sync and async callers observe immediate cleanup.
+      this.storage.removeItem(pluginStorageBucketKey(pluginId, this.scopeId));
+      if (this.scopeId === "default") {
+        this.storage.removeItem(pluginStorageBucketKey(pluginId));
+      }
+      // Clean up any legacy flat-prefix keys as well.
       const prefix = pluginDataPrefix(this.scopeId, pluginId);
       const legacyPrefix = `tarobird.plugin.data.${pluginId}.`;
       const maybeData = (this.storage as unknown as { data?: Map<string, string> }).data;
@@ -502,6 +781,14 @@ export class PluginRegistry {
           this.storage.removeItem(key);
         }
       }
+    }
+    if (this.bundleStore) {
+      await this.bundleStore.deleteBundle(this.scopeId, pluginId).catch(() => undefined);
+    }
+    if (shouldWipe) {
+      if (this.kvStore) {
+        await this.kvStore.clear(this.scopeId, pluginId).catch(() => undefined);
+      }
       await this.credentialVault.clearPluginSecrets(this.scopeId, pluginId);
     }
   }
@@ -511,4 +798,18 @@ export class PluginRegistry {
   }
 }
 
-export const pluginRegistry = new PluginRegistry();
+const scopedRegistries = new Map<string, PluginRegistry>();
+
+/** Returns an isolated, cached PluginRegistry bound strictly to `scopeId` so
+ * concurrent multi-host windows/panes never mutate shared global state. */
+export function getPluginRegistry(scopeId?: string): PluginRegistry {
+  const clean = scopeId?.trim() || "default";
+  let instance = scopedRegistries.get(clean);
+  if (!instance) {
+    instance = new PluginRegistry({ scopeId: clean });
+    scopedRegistries.set(clean, instance);
+  }
+  return instance;
+}
+
+export const pluginRegistry = getPluginRegistry("default");

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink, rm, access, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { assetPath, assetHandler, APP_CSP } from '../assets.mjs';
+import { assetPath, assetHandler, APP_CSP, PLUGIN_CSP } from '../assets.mjs';
 import { developmentPaths, isolatedRoot } from '../isolation.mjs';
-import { internalResource, secureContents, secureSession, secureWebPreferences, widgetNetworkRequest } from '../security.mjs';
+import { internalResource, pluginNetworkRequest, secureContents, secureSession, secureWebPreferences, widgetNetworkRequest } from '../security.mjs';
 import { EventEmitter } from 'node:events';
 
 async function fixture(t) {
@@ -14,6 +14,7 @@ async function fixture(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'dist')); await writeFile(path.join(root, 'dist/index.html'), 'app');
   await writeFile(path.join(root, 'dist/widget-sandbox.html'), 'widget');
+  await writeFile(path.join(root, 'dist/plugin-sandbox.html'), 'plugin');
   await writeFile(path.join(root, 'dist/design-loader.html'), 'trusted design trampoline');
   await writeFile(path.join(root, 'outside.txt'), 'outside');
   return { root, dist: path.join(root, 'dist') };
@@ -22,9 +23,11 @@ test('asset serving confines physical paths and gives Widget a separate origin',
   const { root, dist } = await fixture(t);
   assert.equal(await assetPath(dist, 'tarobot://app/index.html'), await realpath(path.join(dist, 'index.html')));
   assert.equal(await assetPath(dist, 'tarobot-widget://sandbox/widget-sandbox.html', { widget: true }), await realpath(path.join(dist, 'widget-sandbox.html')));
+  assert.equal(await assetPath(dist, 'tarobot-widget://sandbox/plugin-sandbox.html', { widget: true }), await realpath(path.join(dist, 'plugin-sandbox.html')));
   await symlink(path.join(root, 'outside.txt'), path.join(dist, 'linked.txt'));
   await symlink(path.join(dist, 'widget-sandbox.html'), path.join(dist, 'widget-alias.html'));
-  for (const url of ['tarobot://app/linked.txt', 'tarobot://app/%2e%2e%2foutside.txt', 'tarobot://app/%5c..%5coutside.txt', 'tarobot://app/%00', 'tarobot://app/.env', 'tarobot://app/widget-sandbox.html', 'tarobot://app/WIDGET-SANDBOX.HTML', 'tarobot://app/widget-alias.html', 'tarobot://user@app/index.html', 'tarobot://app:90/index.html']) await assert.rejects(assetPath(dist, url), undefined, url);
+  await symlink(path.join(dist, 'plugin-sandbox.html'), path.join(dist, 'plugin-alias.html'));
+  for (const url of ['tarobot://app/linked.txt', 'tarobot://app/%2e%2e%2foutside.txt', 'tarobot://app/%5c..%5coutside.txt', 'tarobot://app/%00', 'tarobot://app/.env', 'tarobot://app/widget-sandbox.html', 'tarobot://app/WIDGET-SANDBOX.HTML', 'tarobot://app/widget-alias.html', 'tarobot://app/plugin-sandbox.html', 'tarobot://app/PLUGIN-SANDBOX.HTML', 'tarobot://app/plugin-alias.html', 'tarobot://user@app/index.html', 'tarobot://app:90/index.html']) await assert.rejects(assetPath(dist, url), undefined, url);
   await assert.rejects(assetPath(dist, 'tarobot-widget://sandbox/index.html', { widget: true }));
 });
 test('static handler sets CSP/nosniff and denies untrusted initiators and writes', async t => {
@@ -125,4 +128,47 @@ test('design loader stays off the App origin and only its fixed path can load', 
  const response=await assetHandler(dist,async()=>new Response('trusted'),{widget:true})({url:'tarobot-widget://sandbox/design-loader.html',method:'GET',initiatorOrigin:'tarobot://app'});
  assert.equal(response.status,200);assert.equal(response.headers.get('Content-Security-Policy'),'frame-ancestors tarobot://app');
  assert.ok(APP_CSP.includes("script-src 'self'"));assert.ok(!APP_CSP.includes('unsafe-eval'));
+});
+
+test('plugin sandbox stays off the App origin and is permitted on the sandbox scheme', async t => {
+  const { dist } = await fixture(t);
+  await assert.rejects(assetPath(dist, 'tarobot://app/plugin-sandbox.html'));
+  await assert.rejects(assetPath(dist, 'tarobot-widget://sandbox/plugin-sandbox.html?x=1', { widget: true }));
+  assert.equal(await assetPath(dist, 'tarobot-widget://sandbox/plugin-sandbox.html', { widget: true }), await realpath(path.join(dist, 'plugin-sandbox.html')));
+  assert.equal(internalResource('tarobot-widget://sandbox/plugin-sandbox.html'), true);
+  const response = await assetHandler(dist, async () => new Response('plugin'), { widget: true })({
+    url: 'tarobot-widget://sandbox/plugin-sandbox.html',
+    method: 'GET',
+    initiatorOrigin: 'tarobot://app',
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Security-Policy'), PLUGIN_CSP);
+  assert.ok(PLUGIN_CSP.includes('img-src data: blob: https:'));
+  assert.ok(PLUGIN_CSP.includes('connect-src https: wss:'));
+  // Plugin guest requests may reach public https/wss endpoints (still blocking local/private hosts and stripping cookies),
+  // while widget guests remain completely offline.
+  const pluginRelay = { url: 'tarobot-widget://sandbox/plugin-sandbox.html', parent: { url: 'tarobot://app/index.html', parent: null } };
+  const pluginGuest = { url: 'about:srcdoc', parent: pluginRelay };
+  assert.equal(pluginNetworkRequest({ url: 'https://api.openai.com/v1/images/generations', resourceType: 'xhr', frame: pluginGuest }), true);
+  assert.equal(pluginNetworkRequest({ url: 'https://cdn.example.com/out.png', resourceType: 'image', frame: pluginGuest }), true);
+  assert.equal(pluginNetworkRequest({ url: 'https://127.0.0.1:8788/api/devices', resourceType: 'xhr', frame: pluginGuest }), false);
+  assert.equal(pluginNetworkRequest({ url: 'https://192.168.1.5/admin', resourceType: 'xhr', frame: pluginGuest }), false);
+  assert.equal(pluginNetworkRequest({ url: 'https://api.openai.com/', resourceType: 'subFrame', frame: pluginGuest }), false);
+  const pluginSession = new EventEmitter(); Object.assign(pluginSession, {
+    setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, setDevicePermissionHandler() {},
+    webRequest: { onBeforeRequest: fn => pluginSession.network = fn, onBeforeSendHeaders: fn => pluginSession.send = fn, onHeadersReceived: fn => pluginSession.receive = fn },
+  });
+  secureSession(pluginSession);
+  pluginSession.network({ url: 'https://api.openai.com/v1/images/generations', resourceType: 'xhr', frame: pluginGuest }, result => assert.deepEqual(result, { cancel: false }));
+  pluginSession.network({ url: 'https://127.0.0.1:8788/api/devices', resourceType: 'xhr', frame: pluginGuest }, result => assert.deepEqual(result, { cancel: true }));
+  pluginSession.send({ url: 'https://api.openai.com/v1/images/generations', resourceType: 'xhr', frame: pluginGuest, requestHeaders: { Cookie: 'a=1', Authorization: 'Bearer user-key', 'Proxy-Authorization': 'p', 'Content-Type': 'application/json' } }, result => assert.deepEqual(result, { requestHeaders: { Authorization: 'Bearer user-key', 'Content-Type': 'application/json' } }));
+  const contents = new EventEmitter();
+  contents.setWindowOpenHandler = () => ({ action: 'deny' });
+  secureContents(contents);
+  let allowedNavPrevented = 0;
+  contents.emit('will-frame-navigate', { isMainFrame: false, url: 'tarobot-widget://sandbox/plugin-sandbox.html', preventDefault: () => allowedNavPrevented++ });
+  assert.equal(allowedNavPrevented, 0);
+  let blockedNavPrevented = 0;
+  contents.emit('will-frame-navigate', { isMainFrame: false, url: 'tarobot://app/plugin-sandbox.html', preventDefault: () => blockedNavPrevented++ });
+  assert.equal(blockedNavPrevented, 1);
 });

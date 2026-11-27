@@ -91,26 +91,50 @@ export const FOCUS_TIMER_BUNDLE_HTML = `<!doctype html>
 <script>
 (() => {
   const PROTOCOL = "tarobird.plugin.v1";
-  let seconds = 1500, running = false, timer = null;
+  let seconds = 1500, running = false, timer = null, isZh = false;
   const clock = document.getElementById("clock");
   const toggle = document.getElementById("toggle");
+  const reset = document.getElementById("reset");
+  const heading = document.getElementById("heading");
+  function syncLabels() {
+    heading.textContent = isZh ? "专注计时器" : "Focus Timer";
+    toggle.textContent = running ? (isZh ? "暂停" : "Pause") : (isZh ? "开始" : "Start");
+    reset.textContent = isZh ? "重置" : "Reset";
+  }
+  function stopTimer() {
+    running = false;
+    if (timer) { clearInterval(timer); timer = null; }
+    syncLabels();
+  }
   function draw() { clock.textContent = String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0"); }
   toggle.addEventListener("click", () => {
-    running = !running;
-    toggle.textContent = running ? "Pause" : "Start";
-    if (running) timer = setInterval(() => { if (seconds > 0) { seconds--; draw(); } }, 1000);
-    else if (timer) { clearInterval(timer); timer = null; }
+    if (running) { stopTimer(); return; }
+    if (seconds <= 0) { seconds = 1500; draw(); }
+    running = true;
+    syncLabels();
+    timer = setInterval(() => {
+      if (seconds > 0) {
+        seconds--;
+        draw();
+      }
+      if (seconds <= 0) stopTimer();
+    }, 1000);
   });
-  document.getElementById("reset").addEventListener("click", () => {
-    running = false; if (timer) { clearInterval(timer); timer = null; }
-    seconds = 1500; toggle.textContent = "Start"; draw();
+  reset.addEventListener("click", () => {
+    stopTimer();
+    seconds = 1500;
+    draw();
   });
   window.parent.postMessage({ protocol: PROTOCOL, id: "ft_1", method: "host.hello" }, "*");
   window.addEventListener("message", (event) => {
     const info = event.data && event.data.result;
     if (info && info.theme === "dark") document.body.dataset.theme = "dark";
-    if (info && info.locale === "zh") document.getElementById("heading").textContent = "专注计时器";
+    if (info && typeof info.locale === "string") {
+      isZh = info.locale === "zh";
+      syncLabels();
+    }
   });
+  syncLabels();
   draw();
 })();
 </script>

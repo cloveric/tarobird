@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const entryFile = path.join(repoRoot, 'integrations/infinite-canvas/src/main.tsx');
@@ -91,7 +91,7 @@ export async function buildInfiniteCanvasPlugin() {
   return { sha256, sizeBytes, outDir };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const info = await buildInfiniteCanvasPlugin();
   console.log(JSON.stringify(info));
 }

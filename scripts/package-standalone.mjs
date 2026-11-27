@@ -12,6 +12,7 @@ for (const source of Object.keys(graph.inputs)) {
  await mkdir(path.dirname(to), { recursive: true }); await cp(from, to);
 }
 await cp('dist/relay-runtime.mjs', path.join(output, 'dist/relay-runtime.mjs'));
+await cp('dist/plugins', path.join(output, 'dist/plugins'), { recursive: true });
 await cp('dist/licenses/claude-agent-sdk', path.join(output, 'dist/licenses/claude-agent-sdk'), { recursive: true });
 await cp('dist/standalone-graph.json', path.join(output, 'standalone-graph.json'));
 await cp('client/dist', path.join(output, 'client/dist'), { recursive: true });

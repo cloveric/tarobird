@@ -15,7 +15,7 @@ import { HubError, type HubStore } from "./store.js";
 
 const DEFAULT_TOKEN_TTL_MS = 15 * 60 * 1000;
 const TOOL_TIMEOUT_MS = 30_000;
-const MAX_TOKENS = 512;
+const DEFAULT_MAX_TOKENS = 512;
 
 export type CanvasAgentGrant = {
   tokenHash: string;
@@ -27,15 +27,24 @@ export type CanvasAgentGrant = {
   expiresAt: number;
 };
 
+export type CanvasAgentEventSink = {
+  ownerKey?: unknown;
+  isOpen: () => boolean;
+  send: (type: "hello" | "tool_call" | "tool_cancel" | "closed", data: Record<string, unknown>) => void;
+  close: (reason: string) => void;
+};
+
 type ClientSession = {
+  key: string;
   grant: CanvasAgentGrant;
-  socket: WebSocket;
+  sink: CanvasAgentEventSink;
   snapshot: CanvasPresenceSnapshot | null;
   focusOrder: number;
 };
 
 type PendingToolCall = {
-  clientId: string;
+  sessionKey: string;
+  tokenHash: string;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -43,6 +52,10 @@ type PendingToolCall = {
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function sessionKey(grant: Pick<CanvasAgentGrant, "deviceId" | "conversationId" | "clientId">): string {
+  return `${grant.deviceId}\0${grant.conversationId}\0${grant.clientId}`;
 }
 
 function sendWsEvent(socket: WebSocket, type: string, data: unknown): void {
@@ -74,33 +87,48 @@ export class CanvasAgentBroker {
   constructor(
     private readonly store: HubStore,
     private readonly ttlMs = DEFAULT_TOKEN_TTL_MS,
+    private readonly maxTokens = DEFAULT_MAX_TOKENS,
   ) {}
+
+  private async assertDeviceActive(deviceId: string): Promise<void> {
+    const row = await this.store.db.serial(() =>
+      this.store.db.get<{ revoked: number }>("SELECT revoked FROM devices WHERE id=?", [deviceId]),
+    );
+    if (!row || row.revoked !== 0) {
+      throw new HubError("device_revoked", 401);
+    }
+  }
 
   private pruneExpired(): void {
     const now = Date.now();
     for (const [hash, grant] of this.grants) {
       if (grant.expiresAt <= now) {
         this.grants.delete(hash);
-        const session = this.sessions.get(grant.clientId);
+        const key = sessionKey(grant);
+        const session = this.sessions.get(key);
         if (session?.grant.tokenHash === hash) {
-          this.dropSession(grant.clientId, "CANVAS_TOKEN_EXPIRED");
+          this.dropSession(key, "CANVAS_TOKEN_EXPIRED");
         }
       }
     }
   }
 
-  private dropSession(clientId: string, reason: string): void {
-    const existing = this.sessions.get(clientId);
-    if (!existing) return;
-    this.sessions.delete(clientId);
+  private rejectPendingForSession(key: string, reason: string): void {
     for (const [reqId, req] of this.pending) {
-      if (req.clientId === clientId) {
+      if (req.sessionKey === key) {
         this.pending.delete(reqId);
         clearTimeout(req.timer);
         req.reject(new Error(reason));
       }
     }
-    try { existing.socket.close(4001, reason); } catch { /* ignore */ }
+  }
+
+  private dropSession(key: string, reason: string): void {
+    const existing = this.sessions.get(key);
+    if (!existing) return;
+    this.sessions.delete(key);
+    this.rejectPendingForSession(key, reason);
+    try { existing.sink.close(reason); } catch { /* ignore */ }
   }
 
   async issueToken(input: {
@@ -119,27 +147,30 @@ export class CanvasAgentBroker {
   }> {
     if (this.closed) throw new HubError("hub_stopping", 503);
     this.pruneExpired();
+    await this.assertDeviceActive(input.deviceId);
     await this.store.db.serial(() => this.store.requireMember(input.userId, input.conversationId));
 
+    const targetKey = sessionKey(input);
     // Replace any prior grant for the same device + conversation + clientId.
     for (const [hash, grant] of this.grants) {
-      if (
-        grant.deviceId === input.deviceId &&
-        grant.conversationId === input.conversationId &&
-        grant.clientId === input.clientId
-      ) {
+      if (sessionKey(grant) === targetKey) {
         this.grants.delete(hash);
-        const session = this.sessions.get(grant.clientId);
+        const session = this.sessions.get(targetKey);
         if (session?.grant.tokenHash === hash) {
-          this.dropSession(grant.clientId, "CANVAS_TOKEN_REPLACED");
+          this.dropSession(targetKey, "CANVAS_TOKEN_REPLACED");
         }
       }
     }
 
-    while (this.grants.size >= MAX_TOKENS) {
-      const oldest = this.grants.keys().next().value;
+    while (this.grants.size >= this.maxTokens) {
+      const oldest = this.grants.entries().next().value;
       if (!oldest) break;
-      this.grants.delete(oldest);
+      const [oldestHash, oldestGrant] = oldest;
+      this.grants.delete(oldestHash);
+      const oldestKey = sessionKey(oldestGrant);
+      if (this.sessions.get(oldestKey)?.grant.tokenHash === oldestHash) {
+        this.dropSession(oldestKey, "CANVAS_TOKEN_EVICTED");
+      }
     }
 
     const token = `ca_${randomBytes(32).toString("base64url")}`;
@@ -175,6 +206,7 @@ export class CanvasAgentBroker {
     if (expectedClientId && grant.clientId !== expectedClientId) {
       throw new HubError("canvas_agent_forbidden", 403);
     }
+    await this.assertDeviceActive(grant.deviceId);
     try {
       await this.store.db.serial(() => this.store.requireMember(grant.userId, grant.conversationId));
     } catch {
@@ -183,15 +215,32 @@ export class CanvasAgentBroker {
     return grant;
   }
 
+  async sweepRevokedDevices(): Promise<void> {
+    if (this.closed) return;
+    this.pruneExpired();
+    const deviceIds = new Set<string>();
+    for (const grant of this.grants.values()) deviceIds.add(grant.deviceId);
+    for (const session of this.sessions.values()) deviceIds.add(session.grant.deviceId);
+    for (const deviceId of deviceIds) {
+      const row = await this.store.db.serial(() =>
+        this.store.db.get<{ revoked: number }>("SELECT revoked FROM devices WHERE id=?", [deviceId]),
+      );
+      if (!row || row.revoked !== 0) {
+        this.revokeForDevice(deviceId);
+      }
+    }
+  }
+
   revoke(input: { userId: string; deviceId: string; conversationId?: string; clientId?: string }): void {
     for (const [hash, grant] of this.grants) {
       if (grant.userId !== input.userId || grant.deviceId !== input.deviceId) continue;
       if (input.conversationId && grant.conversationId !== input.conversationId) continue;
       if (input.clientId && grant.clientId !== input.clientId) continue;
       this.grants.delete(hash);
-      const session = this.sessions.get(grant.clientId);
+      const key = sessionKey(grant);
+      const session = this.sessions.get(key);
       if (session?.grant.tokenHash === hash) {
-        this.dropSession(grant.clientId, "CANVAS_DISCONNECTED");
+        this.dropSession(key, "CANVAS_DISCONNECTED");
       }
     }
   }
@@ -200,11 +249,47 @@ export class CanvasAgentBroker {
     for (const [hash, grant] of this.grants) {
       if (grant.deviceId !== deviceId) continue;
       this.grants.delete(hash);
-      const session = this.sessions.get(grant.clientId);
+      const key = sessionKey(grant);
+      const session = this.sessions.get(key);
       if (session?.grant.tokenHash === hash) {
-        this.dropSession(grant.clientId, "CANVAS_DISCONNECTED");
+        this.dropSession(key, "DEVICE_REVOKED");
       }
     }
+    for (const [key, session] of [...this.sessions.entries()]) {
+      if (session.grant.deviceId === deviceId) {
+        this.dropSession(key, "DEVICE_REVOKED");
+      }
+    }
+  }
+
+  detachForOwner(ownerKey: unknown, clientId?: string): void {
+    for (const [key, session] of [...this.sessions.entries()]) {
+      if (session.sink.ownerKey !== ownerKey) continue;
+      if (clientId && session.grant.clientId !== clientId) continue;
+      this.dropSession(key, "CANVAS_DISCONNECTED");
+    }
+  }
+
+  attachClientSink(grant: CanvasAgentGrant, sink: CanvasAgentEventSink): void {
+    if (this.closed) {
+      try { sink.close("hub_stopping"); } catch { /* ignore */ }
+      return;
+    }
+    const key = sessionKey(grant);
+    this.dropSession(key, "CANVAS_DISCONNECTED");
+    const session: ClientSession = {
+      key,
+      grant,
+      sink,
+      snapshot: null,
+      focusOrder: ++this.focusSeq,
+    };
+    this.sessions.set(key, session);
+    sink.send("hello", {
+      protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION,
+      clientId: grant.clientId,
+      conversationId: grant.conversationId,
+    });
   }
 
   openEvents(grant: CanvasAgentGrant, socket: WebSocket): void {
@@ -212,35 +297,23 @@ export class CanvasAgentBroker {
       socket.close(1012, "hub_stopping");
       return;
     }
-    this.dropSession(grant.clientId, "CANVAS_DISCONNECTED");
-    const session: ClientSession = {
-      grant,
-      socket,
-      snapshot: null,
-      focusOrder: ++this.focusSeq,
+    const key = sessionKey(grant);
+    const sink: CanvasAgentEventSink = {
+      isOpen: () => socket.readyState === WebSocket.OPEN,
+      send: (type, data) => sendWsEvent(socket, type, data),
+      close: (reason) => { try { socket.close(4001, reason); } catch { /* ignore */ } },
     };
-    this.sessions.set(grant.clientId, session);
-    sendWsEvent(socket, "hello", {
-      protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION,
-      clientId: grant.clientId,
-      conversationId: grant.conversationId,
-    });
+    this.attachClientSink(grant, sink);
     socket.on("close", () => {
-      const current = this.sessions.get(grant.clientId);
-      if (current?.socket !== socket) return;
-      this.sessions.delete(grant.clientId);
-      for (const [reqId, req] of this.pending) {
-        if (req.clientId === grant.clientId) {
-          this.pending.delete(reqId);
-          clearTimeout(req.timer);
-          req.reject(new Error("CANVAS_DISCONNECTED"));
-        }
-      }
+      const current = this.sessions.get(key);
+      if (current?.sink !== sink) return;
+      this.sessions.delete(key);
+      this.rejectPendingForSession(key, "CANVAS_DISCONNECTED");
     });
   }
 
   updateState(grant: CanvasAgentGrant, rawSnapshot: unknown): void {
-    const session = this.sessions.get(grant.clientId);
+    const session = this.sessions.get(sessionKey(grant));
     if (!session || session.grant.tokenHash !== grant.tokenHash) {
       throw new HubError("canvas_disconnected", 409);
     }
@@ -248,7 +321,7 @@ export class CanvasAgentBroker {
   }
 
   activateClient(grant: CanvasAgentGrant): void {
-    const session = this.sessions.get(grant.clientId);
+    const session = this.sessions.get(sessionKey(grant));
     if (!session || session.grant.tokenHash !== grant.tokenHash) {
       throw new HubError("canvas_disconnected", 409);
     }
@@ -262,7 +335,7 @@ export class CanvasAgentBroker {
       error: z.object({ code: z.string().max(128), message: z.string().max(512) }).optional(),
     }).parse(rawBody);
     const pending = this.pending.get(body.requestId);
-    if (!pending || pending.clientId !== grant.clientId) return false;
+    if (!pending || pending.sessionKey !== sessionKey(grant) || pending.tokenHash !== grant.tokenHash) return false;
     this.pending.delete(body.requestId);
     clearTimeout(pending.timer);
     if (body.error) pending.reject(new Error(body.error.code));
@@ -271,14 +344,16 @@ export class CanvasAgentBroker {
   }
 
   health(grant: CanvasAgentGrant) {
-    const active = this.sessions.get(grant.clientId);
-    const convClients = [...this.sessions.values()].filter((s) => s.grant.conversationId === grant.conversationId);
+    const active = this.sessions.get(sessionKey(grant));
+    const convClients = [...this.sessions.values()].filter(
+      (s) => s.grant.conversationId === grant.conversationId && this.grants.has(s.grant.tokenHash) && s.sink.isOpen(),
+    );
     return {
       ok: true,
       protocolVersion: CANVAS_AGENT_PROTOCOL_VERSION,
       conversationId: grant.conversationId,
       clients: convClients.length,
-      hasCanvas: Boolean(active?.snapshot),
+      hasCanvas: Boolean(active?.grant.tokenHash === grant.tokenHash && active?.snapshot),
     };
   }
 
@@ -292,8 +367,15 @@ export class CanvasAgentBroker {
   }
 
   private pickSessionForConversation(conversationId: string): ClientSession | undefined {
+    this.pruneExpired();
+    const now = Date.now();
     const candidates = [...this.sessions.values()]
-      .filter((s) => s.grant.conversationId === conversationId && s.socket.readyState === WebSocket.OPEN && s.grant.expiresAt > Date.now())
+      .filter((s) =>
+        s.grant.conversationId === conversationId
+        && this.grants.has(s.grant.tokenHash)
+        && s.sink.isOpen()
+        && s.grant.expiresAt > now,
+      )
       .sort((a, b) => b.focusOrder - a.focusOrder);
     return candidates[0];
   }
@@ -345,6 +427,7 @@ export class CanvasAgentBroker {
       throw new HubError("canvas_unknown_tool", 400);
     }
     const parsedArgs = parseCanvasToolInput(input.name, input.args);
+    await this.sweepRevokedDevices();
     const session = this.pickSessionForConversation(input.conversationId);
     if (!session) {
       throw new HubError("canvas_disconnected", 409);
@@ -361,7 +444,6 @@ export class CanvasAgentBroker {
   ): Promise<unknown> {
     signal?.throwIfAborted();
     const requestId = randomUUID();
-    const clientId = session.grant.clientId;
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timer);
@@ -370,23 +452,24 @@ export class CanvasAgentBroker {
       const onAbort = () => {
         this.pending.delete(requestId);
         cleanup();
-        sendWsEvent(session.socket, "tool_cancel", { requestId });
+        session.sink.send("tool_cancel", { requestId });
         reject(new Error("TOOL_CANCELLED"));
       };
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
         cleanup();
-        sendWsEvent(session.socket, "tool_cancel", { requestId });
+        session.sink.send("tool_cancel", { requestId });
         reject(new Error("CANVAS_TIMEOUT"));
       }, TOOL_TIMEOUT_MS);
       signal?.addEventListener("abort", onAbort, { once: true });
       this.pending.set(requestId, {
-        clientId,
+        sessionKey: session.key,
+        tokenHash: session.grant.tokenHash,
         timer,
         resolve: (value) => { cleanup(); resolve(value); },
         reject: (err) => { cleanup(); reject(err); },
       });
-      sendWsEvent(session.socket, "tool_call", { requestId, name, input, projectId });
+      session.sink.send("tool_call", { requestId, name, input, ...(projectId ? { projectId } : {}) });
     });
   }
 
@@ -479,8 +562,8 @@ export class CanvasAgentBroker {
 
   dispose(): void {
     this.closed = true;
-    for (const clientId of [...this.sessions.keys()]) {
-      this.dropSession(clientId, "CANVAS_DISCONNECTED");
+    for (const key of [...this.sessions.keys()]) {
+      this.dropSession(key, "CANVAS_DISCONNECTED");
     }
     this.grants.clear();
   }
