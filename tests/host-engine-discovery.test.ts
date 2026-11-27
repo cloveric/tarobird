@@ -368,6 +368,9 @@ it.runIf(process.platform !== "win32" && !!resolveEngineExecutable("/bin/zsh"))(
     await expect(readFile(engineSettingsFile(stateDir), "utf8")).rejects.toThrow();
     expect(storedEngineSettingsSchema.parse(readHostEngineSettings(stateDir)).paths).toEqual({});
 
+    // The catalog can use live discovery before the separate cache write finishes.
+    await expect.poll(() => readEngineDiscoveryCache(stateDir).paths.deepseek, { timeout: 5_000 }).toBe(realDsh);
+
     // hostEngineEnvironment includes the discovered bin dir and manual path bin dir in PATH.
     const hydrated = hostEngineEnvironment(stateDir, minimalEnv);
     expect(hydrated.DSH_EXECUTABLE).toBe(realDsh);
