@@ -591,6 +591,13 @@ describe("Host Canvas Agent bridge handshake, auth, security & Bot tool wiring (
     expect((await fetch(hub.url + "/api/host-profile", { headers: { Authorization: `Bearer ${canvas.token}` } })).status).toBe(401);
   });
 
+  it("announces the canvas agent methods to Bots in instance.ready", async () => {
+    const { hub } = await startHub();
+    const socket = await peer(hub.instanceUrl.replace(/^http/, "ws") + "/instance");
+    socket.send({ type: "instance.hello", botId: "canvas_bot", secret, engine: "codex", model: "", effort: "", capabilities: [] });
+    expect((await socket.next("instance.ready")).capabilities).toContain("canvas.agent.v1");
+  });
+
   it("carries the live canvas hint on the existing delivery only for its connected conversation", async () => {
     const { hub, chat } = await startHub();
     const owner = await app(hub, "hint_owner");

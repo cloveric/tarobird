@@ -129,7 +129,7 @@ const toolVersion = hash(JSON.stringify(workbenchDefinitions)), batchToolVersion
 const result = (value: unknown, isError = false) => ({ text: JSON.stringify(value), ...(isError ? { isError: true } : {}) });
 
 export function createAppPlatformTools(input: {
-  channel: Pick<GatewayChannel, "sendArtifact" | "sendArtifactBatch"> & Partial<Pick<GatewayChannel, "sendWidget" | "workbench" | "workbenchScreenshot" | "workbenchImage" | "workbenchContext" | "workbenchContextOmitted" | "canvasAgentTools" | "canvasAgentCall">>;
+  channel: Pick<GatewayChannel, "sendArtifact" | "sendArtifactBatch"> & Partial<Pick<GatewayChannel, "sendWidget" | "workbench" | "workbenchScreenshot" | "workbenchImage" | "workbenchContext" | "workbenchContextOmitted" | "canvasAgentTools" | "canvasAgentCall" | "supportsCanvasAgent">>;
   stateDir: string;
   conversationId: string;
   replyTo?: string;
@@ -339,7 +339,8 @@ export function createAppPlatformTools(input: {
       })),
     };
   };
-  // New sessions with Canvas Agent channel wiring get v15; legacy callers without
-  // canvasAgentCall keep v13, and sessions registered with v1-v14 stay resumable.
-  return makeTools(typeof input.channel.canvasAgentCall === "function" ? 15 : 13, !enabled);
+  // New sessions with Canvas Agent channel wiring on a Host that announces the
+  // canvas agent get v15; others keep v13 (an older Hub closes the Bot socket on
+  // canvas.agent.* requests), and sessions registered with v1-v14 stay resumable.
+  return makeTools(typeof input.channel.canvasAgentCall === "function" && input.channel.supportsCanvasAgent?.() === true ? 15 : 13, !enabled);
 }

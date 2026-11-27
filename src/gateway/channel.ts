@@ -1,6 +1,7 @@
 import { WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, isSlidesRequest, designOperationCapability, workbenchDesignError } from "../client-protocol/workbench-design.js";
 import { WORKBENCH_CAPABILITY, WORKBENCH_MARKDOWN_CAPABILITY, workbenchReceiptSchema, workbenchPublishedSource, workbenchContextSchema, workbenchContextOmittedSchema, type WorkbenchSource, type WorkbenchRequest, type WorkbenchContext, type WorkbenchContextOmitted } from "../client-protocol/workbench.js";
 import { widgetsEnabled } from "../runtime/widget-policy.js";
+import { CANVAS_AGENT_HOST_CAPABILITY } from "../client-protocol/infinite-canvas.js";
 import { backgroundTaskSchema } from "../client-protocol/background-task.js";
 import { BACKGROUND_TASK_GROUP_CAPABILITY, backgroundTaskGroupSourceSchema } from "../client-protocol/background-task-group.js";
 import { scopedTaskLabelSchema } from "../client-protocol/engine-tasks.js";
@@ -222,9 +223,11 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       throw error;
     }
   }
+  /** The Host announces the canvas agent methods in instance.ready; an older Hub closes the socket on them. */
+  supportsCanvasAgent(): boolean { return this.transport.capabilities.includes(CANVAS_AGENT_HOST_CAPABILITY); }
   hasCanvasForTurn(): boolean {
     const turn = context.getStore();
-    return !!turn?.canvasConnected && !!turn.messageId && !turn.botSource && !turn.groupDiscussion
+    return this.supportsCanvasAgent() && !!turn?.canvasConnected && !!turn.messageId && !turn.botSource && !turn.groupDiscussion
       && !turn.workbenchContextOmitted && !this.processingAgentBus.has(turn.messageId);
   }
   async canvasAgentTools(signal?: AbortSignal): Promise<unknown> {

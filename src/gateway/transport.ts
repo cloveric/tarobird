@@ -244,6 +244,8 @@ export class GatewayTransport {
   /** Workbench calls address ephemeral App windows: never persist or replay. */
   async requestLive(method: string, params: unknown, signal?: AbortSignal): Promise<Json> {
     this.throwIfStopped(); signal?.throwIfAborted();
+    // A Hub without the canvas agent methods closes the Bot socket on them.
+    if (method.startsWith("canvas.agent.") && !this.capabilities.includes(CANVAS_AGENT_HOST_CAPABILITY)) throw new Error("canvas_agent_unsupported");
     if (!this.ready || this.ws?.readyState !== WebSocket.OPEN) throw new Error("gateway_disconnected");
     const id = `live_${randomBytes(16).toString("hex")}`;
     const result = new Promise<Json>((resolve, reject) => { this.pending.set(id, { resolve, reject }); this.transient.add(id); });
@@ -281,6 +283,7 @@ export class GatewayTransport {
     if (method.startsWith("history.") && !["history.anchor", "history.result"].includes(method)) throw new Error("history_requires_live_request");
     if (method.startsWith("history.") && !this.capabilities.includes(CONVERSATION_HISTORY_CAPABILITY)) throw new Error("history_unsupported");
     if (method.startsWith("workbench.")) throw new Error("workbench_requires_live_request");
+    if (method.startsWith("canvas.agent.")) throw new Error("canvas_agent_requires_live_request");
     if (method === "queue.take") throw new Error("queue_pull_requires_live_slot");
     if (method === "run.scope.write" && !this.capabilities.includes(RUN_SCOPES_CAPABILITY)) throw new Error("run_scopes_unsupported");
     if (method === "input.progress" && !this.capabilities.includes(NATIVE_INPUT_CAPABILITY)) throw new Error("native_input_unsupported");
