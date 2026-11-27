@@ -4417,6 +4417,44 @@ it("keeps a nested detached Agent's late lifecycle with its parent request", asy
   } finally { await adapter.destroy(); }
 });
 
+// Claude Code builds system task_started/task_notification frames with
+// tool_use_id, parent_task_id and owned_by_subagent, but no parent_tool_use_id,
+// even when a background subagent launched the task.
+it.each([
+  ["the child ends before its parent", ["child-start", "child-end", "parent-end"]],
+  ["the child ends after its parent", ["child-start", "parent-end", "child-end"]],
+  ["the child starts after its parent ended", ["parent-end", "child-start", "child-end"]],
+])("ends a nested background Agent's row from top-level lifecycle frames when %s", async (_name, order) => {
+  const { children, spawnFn } = createSpawnHarness(); const events: EngineStreamEvent[] = [];
+  const adapter = new ClaudeStreamAdapter("claude", { spawnFn });
+  try {
+    const turn = adapter.sendUserMessage("telegram-nested-top-level", { text: "A", files: [], onEngineEvent: e => { events.push(e); } });
+    await waitFor(() => children[0]?.stdin.lines.length === 1);
+    const send = (frame: object) => children[0].stdout.emitData(JSON.stringify({ session_id: "nested-top-level", ...frame }) + "\n");
+    send({ type: "system", subtype: "init" });
+    send({ type: "assistant", message: { content: [{ type: "tool_use", name: "Agent", id: "parent-P", input: { description: "Parent check", run_in_background: true } }] } });
+    send({ type: "system", subtype: "task_started", task_id: "task-P", tool_use_id: "parent-P", task_type: "local_agent", is_backgrounded: true, spawn_depth: 1 });
+    send({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "parent-P", content: "Async agent launched" }] } });
+    send({ type: "result", result: "Both started" }); await turn;
+    send({ type: "assistant", parent_tool_use_id: "parent-P", message: { content: [{ type: "tool_use", name: "Agent", id: "nested-C", input: { description: "Nested check", run_in_background: true } }] } });
+    send({ type: "user", parent_tool_use_id: "parent-P", message: { content: [{ type: "tool_result", tool_use_id: "nested-C", content: "Async agent launched" }] } });
+    const frames: Record<string, object> = {
+      "child-start": { type: "system", subtype: "task_started", task_id: "task-C", tool_use_id: "nested-C", task_type: "local_agent", is_backgrounded: true, spawn_depth: 2, parent_task_id: "task-P", owned_by_subagent: true },
+      "child-end": { type: "system", subtype: "task_notification", task_id: "task-C", tool_use_id: "nested-C", status: "completed", owned_by_subagent: true, output_file: "", summary: "Nested check" },
+      "parent-end": { type: "system", subtype: "task_notification", task_id: "task-P", tool_use_id: "parent-P", status: "completed", output_file: "", summary: "Parent check" },
+    };
+    for (const step of order) send(frames[step]!);
+    await waitFor(() => events.some(e => e.type === "background_task_finished" && e.taskId === "task-P"));
+    const scoped = events.filter((e): e is Extract<EngineStreamEvent, { type: "scoped" }> => e.type === "scoped");
+    const child = scoped.find(e => e.scope.parentCallId === "nested-C")!, parent = scoped.find(e => e.scope.parentCallId === "parent-P")!;
+    expect(child.rootScope).toBeUndefined(); expect(child.scope.parentId).toBe(parent.scope.id);
+    expect(scoped.filter(e => e.scope.id === parent.scope.id && e.event.type === "scope_status" && e.event.status !== "running")).toEqual([expect.objectContaining({ event: { type: "scope_status", status: "done" } })]);
+    expect(scoped.filter(e => e.scope.id === child.scope.id && e.event.type === "scope_status" && e.event.status !== "running")).toEqual([expect.objectContaining({ event: { type: "scope_status", status: "done" } })]);
+    // The child's report went to its parent Agent; the main thread reviews nothing for it.
+    expect(events).toContainEqual(expect.objectContaining({ type: "task_notification", taskId: "task-C", suppressUserDelivery: true }));
+  } finally { await adapter.destroy(); }
+});
+
 it("keeps a no-ID late task unattributed and never borrows the newer prompt's approval", async () => {
   const { children, spawnFn } = createSpawnHarness(); const first: EngineStreamEvent[] = [], second: EngineStreamEvent[] = [];
   const approval = vi.fn().mockResolvedValue({ behavior: "allow" });

@@ -2206,6 +2206,15 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       }
     }
 
+    // Claude Code builds system task_started/task_notification frames without
+    // parent_tool_use_id, even for a task that a subagent launched. Recover the
+    // launching Agent from the call binding its own tool_use registered, so the
+    // nested task takes the child lifecycle path below, as it would with the id.
+    if (parsed.type === "system" && (parsed.subtype === "task_started" || parsed.subtype === "task_notification") && !parsed.parent_tool_use_id) {
+      const parent = this.nestedBackgroundCallParent(worker, parsed);
+      if (parent) parsed = { ...parsed, parent_tool_use_id: parent };
+    }
+
     // --forward-subagent-text marks child events with the parent Agent tool id.
     // Keep those events out of the main transcript and out of the parent's tool
     // completion accounting. Public steps have their own immutable scope;
@@ -3386,6 +3395,22 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     }
     return [...worker.backgroundToolOwners].filter(([key]) => worker.explicitBackgroundToolUseIds.has(key)
       && !registeredCalls.has(key)).map(([, owner]) => owner);
+  }
+
+  /** The parent Agent call of a subagent-launched background task, from its
+   * tracked task or its unique explicit call binding. A main-thread binding
+   * of the same call ID, or more than one parent, resolves nothing. */
+  private nestedBackgroundCallParent(worker: ClaudeWorker, frame: ClaudeStreamEvent): string | undefined {
+    const tracked = typeof frame.task_id === "string" ? worker.backgroundTasks.get(frame.task_id) : undefined;
+    if (tracked) return tracked.parentToolUseId;
+    const callId = frame.tool_use_id;
+    if (typeof callId !== "string" || !callId || worker.explicitBackgroundToolUseIds.has(callId)) return undefined;
+    const parents = new Set<string>();
+    for (const key of worker.explicitBackgroundToolUseIds) {
+      const owner = worker.backgroundToolOwners.get(key);
+      if (owner?.parentToolUseId && key === backgroundCallKey(callId, owner.parentToolUseId)) parents.add(owner.parentToolUseId);
+    }
+    return parents.size === 1 ? [...parents][0] : undefined;
   }
 
   private trackBackgroundTask(worker: ClaudeWorker, metadata: ClaudeTaskNotificationMetadata, childOwner?: ClaudeBackgroundTask): void {
