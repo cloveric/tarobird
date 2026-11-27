@@ -1,11 +1,9 @@
 import "./plugin-crypto.js";
 import { openDB, type IDBPDatabase } from "idb";
 import {
-  OFFICIAL_PLUGIN_PUBLIC_KEY,
   comparePluginVersions,
   pluginManifestSchema,
   sha256Hex,
-  verifyOfficialPluginSignature,
   verifyPluginArtifactHash,
   type PluginCapability,
   type PluginContribution,
@@ -22,7 +20,6 @@ import {
   type PluginKvStore,
 } from "./plugin-sandbox-runtime.js";
 
-export { OFFICIAL_PLUGIN_PUBLIC_KEY };
 export type { PluginKvStore };
 
 export const PLUGIN_STORE_KEY = "tarobird.plugins.v1";
@@ -47,7 +44,6 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       artifact: {
         sha256: "f85bd9adcb3ebe136bdd6b5085cc515812d0a2256de439434b194c22d39361e9",
         sizeBytes: 9825,
-        signature: "CrOt5mvsni3FJga92WxqhQN1Sz8/qBVw5x5+TgqSPuTYADuVZYE3/3jCgPJDtSsg8MoCOf97elk4f7wgnzcxDQ==",
       },
       entry: "dist/index.html",
       platforms: ["desktop"],
@@ -75,7 +71,6 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       artifact: {
         sha256: "f463130202743a3c2e9ec5cc3280069123bfd3d578e4f90c645613d05be0eaa9",
         sizeBytes: 2837,
-        signature: "re5J5vCLSFvJQ4RaRViNYqYcDq9F3TjbvIsxBuWG9OHtbAPeGGNXy5+acNplgr3SK/inA2ZjAsjlCDEM3l8yCQ==",
       },
       entry: "dist/index.html",
       platforms: ["desktop", "phone"],
@@ -130,7 +125,6 @@ export type PluginStorageAdapter = {
   keys?(): string[];
 };
 
-export type PluginArtifactFetcher = (url: string) => Promise<string>;
 
 export function pluginScopeId(hostPublicKey?: string | null, userId?: string | null, deviceId?: string | null): string {
   const h = (hostPublicKey ?? "").trim();
@@ -286,12 +280,6 @@ function createIdbPluginBundleStore(): PluginBundleStore {
   };
 }
 
-async function defaultArtifactFetcher(url: string): Promise<string> {
-  const res = await fetch(url, { cache: "no-store", credentials: "omit" });
-  if (!res.ok) throw new Error("plugin_download_failed");
-  return res.text();
-}
-
 type PersistedInstalledPluginRecord = InstalledPluginRecord & {
   bundleStoredInIdb?: boolean;
 };
@@ -352,9 +340,7 @@ export class PluginRegistry {
   readonly storage: PluginStorageAdapter;
   readonly kvStore?: PluginKvStore;
   private readonly bundleStore?: PluginBundleStore;
-  private readonly officialPublicKey: string;
   private readonly catalog: PluginCatalogEntry[];
-  private readonly fetcher: PluginArtifactFetcher;
   private scopeId: string;
   private idbStoredIds = new Set<string>();
   private state: PluginStoreState;
@@ -365,9 +351,7 @@ export class PluginRegistry {
     kvStore?: PluginKvStore;
     bundleStore?: PluginBundleStore;
     scopeId?: string;
-    officialPublicKey?: string;
     catalog?: readonly PluginCatalogEntry[];
-    fetcher?: PluginArtifactFetcher;
   }) {
     const usesBrowserIdb = !options?.storage && !options?.bundleStore && typeof indexedDB !== "undefined";
     this.storage = options?.storage ?? createDefaultPluginStorage();
@@ -381,9 +365,7 @@ export class PluginRegistry {
       this.kvStore = options?.kvStore;
     }
     this.scopeId = options?.scopeId?.trim() || "default";
-    this.officialPublicKey = options?.officialPublicKey ?? OFFICIAL_PLUGIN_PUBLIC_KEY;
     this.catalog = [...(options?.catalog ?? [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG])];
-    this.fetcher = options?.fetcher ?? defaultArtifactFetcher;
     this.state = this.load();
     if (this.bundleStore) {
       void this.hydrateBundles();
@@ -471,7 +453,12 @@ export class PluginRegistry {
       const idbIds = new Set<string>();
       if (parsed.installed && typeof parsed.installed === "object") {
         for (const [id, item] of Object.entries(parsed.installed)) {
-          const manifest = pluginManifestSchema.safeParse(item?.manifest);
+          const stored = item?.manifest;
+          // Earlier local catalogs persisted a signature and optional download address.
+          // Restore the installed metadata without treating either field as authority.
+          const manifest = pluginManifestSchema.safeParse(stored?.artifact ? {
+            ...stored, artifact: { sha256: stored.artifact.sha256, sizeBytes: stored.artifact.sizeBytes },
+          } : stored);
           if (!manifest.success || manifest.data.id !== id) continue;
           const hasStoredBundle = item?.bundleStoredInIdb === true;
           if (!hasStoredBundle && typeof item?.bundleHtml !== "string") continue;
@@ -660,25 +647,16 @@ export class PluginRegistry {
 
   async install(
     entry: PluginCatalogEntry,
-    options?: PluginInstallGrantOptions & { fetcher?: PluginArtifactFetcher },
+    options?: PluginInstallGrantOptions,
   ): Promise<InstalledPluginRecord> {
-    const manifest = pluginManifestSchema.parse(entry.manifest);
-    if (!manifest.official && !this.state.allowThirdParty) {
-      throw new Error("plugin_third_party_disabled");
-    }
-    let bundleHtml = entry.bundleHtml;
-    if (bundleHtml === undefined) {
-      if (!manifest.artifact.url) {
-        throw new Error("plugin_artifact_missing");
-      }
-      const fetchFn = options?.fetcher ?? this.fetcher;
-      try {
-        bundleHtml = await fetchFn(manifest.artifact.url);
-      } catch (err) {
-        if (err instanceof Error && err.message === "plugin_download_failed") throw err;
-        throw new Error("plugin_download_failed");
-      }
-    }
+    const requested = pluginManifestSchema.parse(entry.manifest);
+    const pinned = this.catalog.find(item => item.manifest.id === requested.id);
+    if (!pinned) throw new Error("plugin_catalog_mismatch");
+    const manifest = pluginManifestSchema.parse(pinned.manifest);
+    if (JSON.stringify(requested) !== JSON.stringify(manifest)) throw new Error("plugin_catalog_mismatch");
+    if (!manifest.official && !this.state.allowThirdParty) throw new Error("plugin_third_party_disabled");
+    const bundleHtml = entry.bundleHtml;
+    if (bundleHtml === undefined) throw new Error("plugin_artifact_missing");
     const actualSizeBytes = new TextEncoder().encode(bundleHtml).byteLength;
     if (actualSizeBytes !== manifest.artifact.sizeBytes) {
       throw new Error("plugin_size_mismatch");
@@ -686,12 +664,6 @@ export class PluginRegistry {
     const hashOk = await verifyPluginArtifactHash(bundleHtml, manifest.artifact.sha256);
     if (!hashOk) {
       throw new Error("plugin_hash_mismatch");
-    }
-    if (manifest.official) {
-      const sigOk = await verifyOfficialPluginSignature(manifest, this.officialPublicKey);
-      if (!sigOk) {
-        throw new Error("plugin_signature_invalid");
-      }
     }
     const previous = this.state.installed[manifest.id];
     const reviewedCapabilities = intersectReviewedCapabilities(manifest.capabilities, options?.grantedCapabilities);

@@ -129,7 +129,6 @@ export async function handlePluginHostMessage(
         ok: true,
         result: {
           pluginId: context.pluginId,
-          scopeId,
           theme: context.theme,
           locale: context.locale,
           grantedCapabilities: [...context.grantedCapabilities],

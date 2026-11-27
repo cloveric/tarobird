@@ -1,18 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
-  OFFICIAL_PLUGIN_PUBLIC_KEY as PROTOCOL_OFFICIAL_PUBLIC_KEY,
   PLUGIN_HOST_PROTOCOL,
-  canonicalPluginSignaturePayload,
   comparePluginVersions,
   pluginManifestSchema,
   sha256Hex,
-  verifyOfficialPluginSignature,
   verifyPluginArtifactHash,
 } from "../src/client-protocol/plugins.js";
 import {
   OFFICIAL_PLUGIN_CATALOG,
-  OFFICIAL_PLUGIN_PUBLIC_KEY,
   PLUGIN_STORE_KEY,
   PluginRegistry,
   THIRD_PARTY_PLUGIN_CATALOG,
@@ -139,7 +135,7 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
   it("lists Infinite Canvas as an official desktop-only plugin, hides it on phone, and keeps third-party catalog clean", () => {
     expect(THIRD_PARTY_PLUGIN_CATALOG).toEqual([]);
     expect(OFFICIAL_PLUGIN_CATALOG.some((item) => item.manifest.id === "community.focus-timer")).toBe(false);
-    expect(OFFICIAL_PLUGIN_PUBLIC_KEY).toBe(PROTOCOL_OFFICIAL_PUBLIC_KEY);
+    expect(OFFICIAL_PLUGIN_CATALOG.every(entry => !("signature" in entry.manifest.artifact))).toBe(true);
 
     const registry = new PluginRegistry({ storage: memoryStorage() });
     const desktopIds = registry.catalogForPlatform("desktop").map((item) => item.manifest.id);
@@ -152,13 +148,12 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     expect(phoneIds).toContain("tarobird.quick-scratchpad");
   });
 
-  it("installs, enables, disables, updates and uninstalls Infinite Canvas end-to-end with verified hash & signature", async () => {
+  it("installs, enables, disables, updates and uninstalls Infinite Canvas end-to-end with the catalog digest", async () => {
     const store = memoryStorage();
     const registry = new PluginRegistry({ storage: store });
     const infiniteCanvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
 
     expect(await verifyPluginArtifactHash(infiniteCanvas.bundleHtml!, infiniteCanvas.manifest.artifact.sha256)).toBe(true);
-    expect(await verifyOfficialPluginSignature(infiniteCanvas.manifest, OFFICIAL_PLUGIN_PUBLIC_KEY)).toBe(true);
 
     const installed = await registry.install(infiniteCanvas);
     expect(installed.enabled).toBe(true);
@@ -197,35 +192,22 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     expect(store.data.has(pluginStorageBucketKey("tarobird.infinite-canvas"))).toBe(false);
   });
 
-  it("verifies all catalog bundles including exact UTF-8 sizeBytes and full signed manifest metadata", async () => {
+  it("verifies all catalog bundles including exact UTF-8 sizeBytes and pinned hashes", async () => {
     const registry = new PluginRegistry({ storage: memoryStorage() });
     registry.setAllowThirdParty(true);
     for (const entry of [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG]) {
       expect(entry.bundleHtml).toBeDefined();
       expect(new TextEncoder().encode(entry.bundleHtml!).byteLength).toBe(entry.manifest.artifact.sizeBytes);
       expect(await verifyPluginArtifactHash(entry.bundleHtml!, entry.manifest.artifact.sha256)).toBe(true);
-      if (entry.manifest.official) {
-        expect(await verifyOfficialPluginSignature(entry.manifest, OFFICIAL_PLUGIN_PUBLIC_KEY)).toBe(true);
-      }
       await expect(registry.install(entry)).resolves.toMatchObject({ enabled: true });
     }
   });
 
-  it("blocks installation when sizeBytes, SHA-256 hash, or any signed official manifest field is tampered", async () => {
+  it("checks the byte count and pinned digest and rejects replacement catalog metadata", async () => {
     const registry = new PluginRegistry({ storage: memoryStorage() });
     const infiniteCanvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
 
-    // Wrong declared sizeBytes -> blocked before install!
-    await expect(registry.install({
-      manifest: {
-        ...infiniteCanvas.manifest,
-        artifact: {
-          ...infiniteCanvas.manifest.artifact,
-          sizeBytes: infiniteCanvas.manifest.artifact.sizeBytes + 1,
-        },
-      },
-      bundleHtml: infiniteCanvas.bundleHtml,
-    })).rejects.toThrow("plugin_size_mismatch");
+    await expect(registry.install({ ...infiniteCanvas, bundleHtml: infiniteCanvas.bundleHtml + "!" })).rejects.toThrow("plugin_size_mismatch");
 
     // Same byte length but tampered bundle payload -> hash mismatch blocked!
     const sameLenTampered = `<!--x-->${infiniteCanvas.bundleHtml!.slice(8)}`;
@@ -235,7 +217,7 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
       bundleHtml: sameLenTampered,
     })).rejects.toThrow("plugin_hash_mismatch");
 
-    // Valid hash & sizeBytes but forged/tampered official signature -> signature invalid blocked!
+    // A replacement bundle and its matching digest are still outside the compiled catalog.
     const alteredHtml = "<!doctype html><html><body>forged official</body></html>";
     const alteredHash = await sha256Hex(alteredHtml);
     await expect(registry.install({
@@ -244,13 +226,12 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
         artifact: {
           sha256: alteredHash,
           sizeBytes: new TextEncoder().encode(alteredHtml).byteLength,
-          signature: infiniteCanvas.manifest.artifact.signature,
         },
       },
       bundleHtml: alteredHtml,
-    })).rejects.toThrow("plugin_signature_invalid");
+    })).rejects.toThrow("plugin_catalog_mismatch");
 
-    // Tampering with name, description, icon, or contributions MUST invalidate the Ed25519 signature!
+    // Grants and labels must come from the same catalog entry as the digest.
     const tamperedManifests = [
       { ...infiniteCanvas.manifest, name: "Spoofed Canvas" },
       { ...infiniteCanvas.manifest, nameZh: "伪造画布" },
@@ -263,12 +244,11 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
       },
     ];
     for (const tampered of tamperedManifests) {
-      expect(await verifyOfficialPluginSignature(tampered, OFFICIAL_PLUGIN_PUBLIC_KEY)).toBe(false);
-      await expect(registry.install({ manifest: tampered, bundleHtml: infiniteCanvas.bundleHtml })).rejects.toThrow("plugin_signature_invalid");
+      await expect(registry.install({ manifest: tampered, bundleHtml: infiniteCanvas.bundleHtml })).rejects.toThrow("plugin_catalog_mismatch");
     }
   });
 
-  it("verifies SHA-256 and Ed25519 without globalThis.crypto.subtle (plain-HTTP LAN / legacy WebViews)", async () => {
+  it("verifies SHA-256 without globalThis.crypto.subtle (plain-HTTP LAN / legacy WebViews)", async () => {
     const infiniteCanvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
     const originalCrypto = globalThis.crypto;
@@ -276,7 +256,6 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
       Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true, writable: true });
       expect(globalThis.crypto.subtle).toBeUndefined();
       expect(await verifyPluginArtifactHash(infiniteCanvas.bundleHtml!, infiniteCanvas.manifest.artifact.sha256)).toBe(true);
-      expect(await verifyOfficialPluginSignature(infiniteCanvas.manifest, OFFICIAL_PLUGIN_PUBLIC_KEY)).toBe(true);
       const registry = new PluginRegistry({ storage: memoryStorage() });
       const installed = await registry.install(infiniteCanvas);
       expect(installed.sourceKind).toBe("official");
@@ -474,7 +453,6 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     expect(comparePluginVersions("1.1.0", "1.0.0")).toBe(1);
     expect(comparePluginVersions("1.0.0", "1.0.0")).toBe(0);
     expect(comparePluginVersions("1.0.0", "2.0.0")).toBe(-1);
-    expect(canonicalPluginSignaturePayload(OFFICIAL_PLUGIN_CATALOG[0]!.manifest)).toContain("tarobird/plugin-manifest/v1");
 
     const store = memoryStorage();
     const initial = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
@@ -488,7 +466,6 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
         artifact: {
           ...initial.manifest.artifact,
           sha256: "a".repeat(64),
-          url: "/api/plugins/artifacts/tarobird.infinite-canvas/1.0.0/bundle.html",
         },
       },
     };
@@ -516,6 +493,7 @@ describe("Plugin sandbox Host API capability gating, storage isolation and error
     };
 
     const hello = await handlePluginHostMessage({ protocol: PLUGIN_HOST_PROTOCOL, id: "1", method: "host.hello" }, baseCtx);
+    expect(hello?.result).not.toHaveProperty("scopeId");
     expect(hello).toMatchObject({ ok: true, result: { pluginId: "test.third-party-fixture", theme: "dark", locale: "zh" } });
     const theme = await handlePluginHostMessage({ protocol: PLUGIN_HOST_PROTOCOL, id: "2", method: "theme.get" }, baseCtx);
     expect(theme).toMatchObject({ ok: true, result: { theme: "dark" } });

@@ -330,6 +330,31 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     }
   });
 
+  test("a plugin cannot read the document of its empty descendant frame", async ({ page }) => {
+    const shell = await readFile(path.resolve("public/plugin-sandbox.html"), "utf8");
+    await page.route("https://app.test/**", route => route.fulfill({
+      contentType: "text/html",
+      body: new URL(route.request().url()).pathname === "/plugin-sandbox.html" ? shell :
+        '<iframe id="shell" sandbox="allow-scripts" src="/plugin-sandbox.html"></iframe>',
+    }));
+    const documentHtml = wrapSandboxedDocument("<main>Guest ready</main>", []);
+    await page.goto("https://app.test/");
+    await page.locator("#shell").evaluate((element, html) => {
+      (element as HTMLIFrameElement).contentWindow!.postMessage({ type: "tarobird-plugin-init", document: html }, "*");
+    }, documentHtml);
+    const guest = page.frameLocator("#shell").frameLocator("iframe");
+    await expect(guest.locator("main")).toHaveText("Guest ready");
+    const access = await guest.locator("main").evaluate(async main => {
+      const child = document.createElement("iframe");
+      main.append(child);
+      const immediately = { hasWindow: child.contentWindow !== null, documentHidden: child.contentDocument === null };
+      await new Promise(resolve => setTimeout(resolve, 0));
+      return { immediately, nextTask: { hasWindow: child.contentWindow !== null, documentHidden: child.contentDocument === null } };
+    });
+    const restricted = { hasWindow: true, documentHidden: true };
+    expect(access).toEqual({ immediately: restricted, nextTask: restricted });
+  });
+
   test("sandbox CSP & WebRTC hardening: comment-head attack cannot bypass guest CSP, granted domains work, and WebRTC/Worker are blocked", async ({ page }) => {
     const udp = createSocket("udp4");
     let udpPackets = 0;

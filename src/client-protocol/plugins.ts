@@ -3,12 +3,6 @@ import { z } from "zod";
 export const PLUGIN_MANIFEST_VERSION = 1 as const;
 export const PLUGIN_HOST_PROTOCOL = "tarobird.plugin.v1" as const;
 
-/** Canonical Ed25519 SPKI public key (base64) used to verify official TaroBird plugin manifests.
- * Single source of truth shared between protocol, client registry, and tests.
- * When #176 replaces the placeholder Infinite Canvas stub with its on-demand build artifact,
- * update this single constant alongside the re-signed official catalog entries. */
-export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA7/nusIR2Ti+6dCmyfncq80Vgcxmlx4Cp751ViG3P7vk=";
-
 export const pluginPlatformSchema = z.enum(["desktop", "phone"]);
 export type PluginPlatform = z.infer<typeof pluginPlatformSchema>;
 
@@ -56,11 +50,6 @@ export const pluginManifestSchema = z.object({
   artifact: z.object({
     sha256: z.string().trim().regex(/^[0-9a-f]{64}$/i),
     sizeBytes: z.number().int().positive().max(64 * 1024 * 1024),
-    signature: z.string().trim().min(16).max(512).optional(),
-    url: z.string().trim().min(1).max(1024).refine(
-      (value) => value.startsWith("/") || /^https?:\/\//i.test(value),
-      "artifact_url_invalid",
-    ).optional(),
   }).strict(),
   entry: z.string().trim().min(1).max(160).refine(
     (value) => !value.startsWith("/") && !value.includes("..") && !/^[a-zA-Z]+:/.test(value),
@@ -112,45 +101,8 @@ export function requiredCapabilityForMethod(method: PluginHostRequest["method"])
   }
 }
 
-export function canonicalPluginSignaturePayload(manifest: PluginManifest): string {
-  const canonicalContributions = [...manifest.contributions]
-    .map((item) => [
-      item.kind,
-      item.id,
-      item.title,
-      item.titleZh ?? null,
-      item.icon ?? null,
-    ] as const)
-    .sort((a, b) => (a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0])));
-  return JSON.stringify([
-    "tarobird/plugin-manifest/v1",
-    manifest.schemaVersion,
-    manifest.id,
-    manifest.name,
-    manifest.nameZh ?? null,
-    manifest.version,
-    manifest.description,
-    manifest.descriptionZh ?? null,
-    manifest.icon,
-    manifest.source.repository,
-    manifest.source.commit.toLowerCase(),
-    manifest.artifact.sha256.toLowerCase(),
-    manifest.artifact.sizeBytes,
-    manifest.entry,
-    [...manifest.platforms].sort(),
-    canonicalContributions,
-    [...manifest.domains].sort(),
-    [...manifest.capabilities].sort(),
-    manifest.requiresHost,
-    manifest.official,
-  ]);
-}
-
-const ED25519_SPKI_PREFIX = [0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
-
 export type PluginCryptoBackend = {
   sha256(bytes: Uint8Array): Uint8Array | Promise<Uint8Array>;
-  verifyEd25519(publicKeySpkiBase64: string, signatureBase64: string, payload: Uint8Array): boolean | Promise<boolean>;
 };
 
 let registeredCryptoBackend: PluginCryptoBackend | undefined;
@@ -163,19 +115,6 @@ function bytesToHex(bytes: Uint8Array): string {
   let out = "";
   for (let i = 0; i < bytes.length; i++) out += bytes[i]!.toString(16).padStart(2, "0");
   return out;
-}
-
-function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
-  if (typeof Buffer !== "undefined") {
-    const raw = Buffer.from(value, "base64");
-    const copy = new Uint8Array(new ArrayBuffer(raw.byteLength));
-    copy.set(raw);
-    return copy;
-  }
-  const binary = atob(value);
-  const copy = new Uint8Array(new ArrayBuffer(binary.length));
-  for (let i = 0; i < binary.length; i++) copy[i] = binary.charCodeAt(i);
-  return copy;
 }
 
 export async function sha256Hex(content: string | Uint8Array): Promise<string> {
@@ -195,44 +134,6 @@ export async function sha256Hex(content: string | Uint8Array): Promise<string> {
 export async function verifyPluginArtifactHash(content: string | Uint8Array, expectedSha256: string): Promise<boolean> {
   const actual = await sha256Hex(content);
   return actual.toLowerCase() === expectedSha256.trim().toLowerCase();
-}
-
-export async function verifyOfficialPluginSignature(manifest: PluginManifest, publicKeySpkiBase64: string): Promise<boolean> {
-  if (!manifest.artifact.signature) return false;
-  const payload = new TextEncoder().encode(canonicalPluginSignaturePayload(manifest));
-  if (registeredCryptoBackend) {
-    try {
-      return Boolean(await registeredCryptoBackend.verifyEd25519(publicKeySpkiBase64, manifest.artifact.signature, payload));
-    } catch {
-      return false;
-    }
-  }
-  if (!globalThis.crypto?.subtle) return false;
-  try {
-    const spki = base64ToBytes(publicKeySpkiBase64.trim());
-    if (spki.length !== 44 || ED25519_SPKI_PREFIX.some((byte, index) => spki[index] !== byte)) {
-      return false;
-    }
-    const sig = base64ToBytes(manifest.artifact.signature.trim());
-    if (sig.length !== 64) return false;
-    const key = await globalThis.crypto.subtle.importKey(
-      "spki",
-      spki,
-      { name: "Ed25519" },
-      false,
-      ["verify"],
-    );
-    const payloadCopy = new Uint8Array(new ArrayBuffer(payload.byteLength));
-    payloadCopy.set(payload);
-    return await globalThis.crypto.subtle.verify(
-      "Ed25519",
-      key,
-      sig,
-      payloadCopy,
-    );
-  } catch {
-    return false;
-  }
 }
 
 export function comparePluginVersions(a: string, b: string): number {

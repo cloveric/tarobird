@@ -354,8 +354,8 @@ export function PluginsView({
         ? t("校验失败：插件构建产物的体积与声明不符，已阻止安装。")
         : code === "plugin_hash_mismatch"
           ? t("校验失败：插件构建产物的 SHA-256 哈希不匹配，已阻止安装。")
-          : code === "plugin_signature_invalid"
-            ? t("校验失败：官方插件签名无效，已阻止安装。")
+          : code === "plugin_catalog_mismatch"
+            ? t("插件与内置目录不一致，已阻止安装。")
             : code === "plugin_third_party_disabled"
               ? t("请先开启「允许第三方插件」后再安装。")
               : code === "plugin_developer_mode_disabled"
@@ -680,9 +680,8 @@ export function PluginsView({
         <p className="muted">
           {reviewTarget.kind === "local-dev"
             ? t("安装前会校验本地入口文件的 SHA-256（{0}…）。本地开发插件不由 TaroBird 签名，运行在独立 opaque-origin iframe 沙箱中，无法读取 App 令牌或调用主机 API；启动脚本会禁用 WebRTC 构造器并用 CSP 限制常规网络请求（非系统级防火墙）。请仅加载你信任的本地目录。", reviewManifest.artifact.sha256.slice(0, 12))
-            : t("安装前会校验构建产物的 SHA-256（{0}…）{1}。插件运行在独立 opaque-origin iframe 沙箱中，无法读取 App 令牌或调用主机 API；启动脚本会禁用 WebRTC 构造器并用 CSP 限制常规网络请求（非系统级防火墙）。",
+            : t("安装前会校验构建产物的 大小和 SHA-256（{0}…）。插件运行在独立 opaque-origin iframe 沙箱中，无法读取 App 令牌或调用主机 API；启动脚本会禁用 WebRTC 构造器并用 CSP 限制常规网络请求（非系统级防火墙）。",
                 reviewManifest.artifact.sha256.slice(0, 12),
-                reviewManifest.official ? t("与官方签名") : "",
               )}
         </p>
         <ul>
@@ -849,7 +848,7 @@ export function PluginsView({
                 <dl className="plugin-detail-facts">
                   <div>
                     <dt>{t("校验方式")}</dt>
-                    <dd>{isOfficial ? t("SHA-256 + Ed25519 官方签名") : t("SHA-256 完整性校验")}</dd>
+                    <dd>{t("SHA-256 完整性校验")}</dd>
                   </div>
                   <div>
                     <dt>{t("来源")}</dt>
@@ -871,12 +870,6 @@ export function PluginsView({
                     <dt>SHA-256</dt>
                     <dd><code className="plugin-digest-code">{manifest.artifact.sha256}</code></dd>
                   </div>
-                  {manifest.artifact.signature && (
-                    <div className="is-stacked">
-                      <dt>Ed25519</dt>
-                      <dd><code className="plugin-digest-code">{manifest.artifact.signature}</code></dd>
-                    </div>
-                  )}
                 </dl>
               </section>
             </aside>
@@ -989,7 +982,7 @@ export function PluginsView({
               <header className="plugins-section-head">
                 <div>
                   <h4>{t("精选推荐")}</h4>
-                  <span className="muted">{t("官方签名校验 · 隔离沙箱运行")}</span>
+                  <span className="muted">{t("内置目录校验 · 隔离沙箱运行")}</span>
                 </div>
               </header>
               <div className="plugins-featured-grid">

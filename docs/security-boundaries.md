@@ -1048,9 +1048,9 @@ Every install — catalog official plugins, opt-in third-party plugins, and
 desktop developer local-folder loads — goes through the same pre-install
 permission and network-domain review modal before anything is persisted or
 granted. Manifests are schema-validated; artifact byte size and SHA-256 are
-verified on every install, and official plugins additionally verify an Ed25519
-signature against the canonical `OFFICIAL_PLUGIN_PUBLIC_KEY` constant in
-`src/client-protocol/plugins.ts`. Third-party plugin installation is disabled by
+verified on every install. Catalog metadata, including the expected digest, is
+compiled into the client. A caller cannot substitute a different artifact or
+grant list by supplying new metadata. Third-party plugin installation is disabled by
 default behind an explicit warning confirmation, and the built-in third-party
 catalog ships empty rather than bundling fabricated community entries. Local
 developer plugins cannot claim reserved `tarobird.*` or official plugin IDs.
