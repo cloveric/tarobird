@@ -91,22 +91,75 @@ export const INFINITE_CANVAS_BUNDLE_HTML = `<!doctype html>
       ta.addEventListener("input", () => { card.text = ta.value; save(); });
       el.append(h, ta);
       el.addEventListener("pointerdown", (e) => {
-        if (e.target === ta) return;
+        if (e.target === ta || e.button !== 0) return;
         e.stopPropagation();
+        const pointerId = e.pointerId;
+        try { el.setPointerCapture(pointerId); } catch {}
         const startX = e.clientX, startY = e.clientY, origX = card.x, origY = card.y;
-        const move = (ev) => { card.x = origX + (ev.clientX - startX) / state.zoom; card.y = origY + (ev.clientY - startY) / state.zoom; el.style.left = card.x + "px"; el.style.top = card.y + "px"; };
-        const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); save(); };
-        window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+        let active = true;
+        const move = (ev) => {
+          if (!active || ev.pointerId !== pointerId) return;
+          card.x = origX + (ev.clientX - startX) / state.zoom;
+          card.y = origY + (ev.clientY - startY) / state.zoom;
+          el.style.left = card.x + "px";
+          el.style.top = card.y + "px";
+        };
+        const finish = (ev) => {
+          if (!active || (ev && ev.pointerId !== undefined && ev.pointerId !== pointerId)) return;
+          active = false;
+          el.removeEventListener("pointermove", move);
+          el.removeEventListener("pointerup", finish);
+          el.removeEventListener("pointercancel", finish);
+          el.removeEventListener("lostpointercapture", finish);
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", finish);
+          window.removeEventListener("pointercancel", finish);
+          try { if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId); } catch {}
+          save();
+        };
+        el.addEventListener("pointermove", move);
+        el.addEventListener("pointerup", finish);
+        el.addEventListener("pointercancel", finish);
+        el.addEventListener("lostpointercapture", finish);
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", finish);
+        window.addEventListener("pointercancel", finish);
       });
       stage.appendChild(el);
     }
   }
   viewport.addEventListener("pointerdown", (e) => {
-    if (e.target !== viewport && e.target !== stage) return;
+    if ((e.target !== viewport && e.target !== stage) || e.button !== 0) return;
+    const pointerId = e.pointerId;
+    try { viewport.setPointerCapture(pointerId); } catch {}
     const startX = e.clientX, startY = e.clientY, origX = state.x, origY = state.y;
-    const move = (ev) => { state.x = origX + (ev.clientX - startX); state.y = origY + (ev.clientY - startY); stage.style.transform = "translate(" + state.x + "px," + state.y + "px) scale(" + state.zoom + ")"; };
-    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); save(); };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+    let active = true;
+    const move = (ev) => {
+      if (!active || ev.pointerId !== pointerId) return;
+      state.x = origX + (ev.clientX - startX);
+      state.y = origY + (ev.clientY - startY);
+      stage.style.transform = "translate(" + state.x + "px," + state.y + "px) scale(" + state.zoom + ")";
+    };
+    const finish = (ev) => {
+      if (!active || (ev && ev.pointerId !== undefined && ev.pointerId !== pointerId)) return;
+      active = false;
+      viewport.removeEventListener("pointermove", move);
+      viewport.removeEventListener("pointerup", finish);
+      viewport.removeEventListener("pointercancel", finish);
+      viewport.removeEventListener("lostpointercapture", finish);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      try { if (viewport.hasPointerCapture(pointerId)) viewport.releasePointerCapture(pointerId); } catch {}
+      save();
+    };
+    viewport.addEventListener("pointermove", move);
+    viewport.addEventListener("pointerup", finish);
+    viewport.addEventListener("pointercancel", finish);
+    viewport.addEventListener("lostpointercapture", finish);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
   });
   document.getElementById("add-card").addEventListener("click", () => {
     const n = state.cards.length + 1;
@@ -223,26 +276,50 @@ export const FOCUS_TIMER_BUNDLE_HTML = `<!doctype html>
 <script>
 (() => {
   const PROTOCOL = "tarobird.plugin.v1";
-  let seconds = 1500, running = false, timer = null;
+  let seconds = 1500, running = false, timer = null, isZh = false;
   const clock = document.getElementById("clock");
   const toggle = document.getElementById("toggle");
+  const reset = document.getElementById("reset");
+  const heading = document.getElementById("heading");
+  function syncLabels() {
+    heading.textContent = isZh ? "专注计时器" : "Focus Timer";
+    toggle.textContent = running ? (isZh ? "暂停" : "Pause") : (isZh ? "开始" : "Start");
+    reset.textContent = isZh ? "重置" : "Reset";
+  }
+  function stopTimer() {
+    running = false;
+    if (timer) { clearInterval(timer); timer = null; }
+    syncLabels();
+  }
   function draw() { clock.textContent = String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0"); }
   toggle.addEventListener("click", () => {
-    running = !running;
-    toggle.textContent = running ? "Pause" : "Start";
-    if (running) timer = setInterval(() => { if (seconds > 0) { seconds--; draw(); } }, 1000);
-    else if (timer) { clearInterval(timer); timer = null; }
+    if (running) { stopTimer(); return; }
+    if (seconds <= 0) { seconds = 1500; draw(); }
+    running = true;
+    syncLabels();
+    timer = setInterval(() => {
+      if (seconds > 0) {
+        seconds--;
+        draw();
+      }
+      if (seconds <= 0) stopTimer();
+    }, 1000);
   });
-  document.getElementById("reset").addEventListener("click", () => {
-    running = false; if (timer) { clearInterval(timer); timer = null; }
-    seconds = 1500; toggle.textContent = "Start"; draw();
+  reset.addEventListener("click", () => {
+    stopTimer();
+    seconds = 1500;
+    draw();
   });
   window.parent.postMessage({ protocol: PROTOCOL, id: "ft_1", method: "host.hello" }, "*");
   window.addEventListener("message", (event) => {
     const info = event.data && event.data.result;
     if (info && info.theme === "dark") document.body.dataset.theme = "dark";
-    if (info && info.locale === "zh") document.getElementById("heading").textContent = "专注计时器";
+    if (info && typeof info.locale === "string") {
+      isZh = info.locale === "zh";
+      syncLabels();
+    }
   });
+  syncLabels();
   draw();
 })();
 </script>

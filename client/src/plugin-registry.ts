@@ -1,3 +1,4 @@
+import "./plugin-crypto.js";
 import {
   comparePluginVersions,
   pluginManifestSchema,
@@ -14,11 +15,12 @@ import {
   INFINITE_CANVAS_BUNDLE_HTML,
   QUICK_SCRATCHPAD_BUNDLE_HTML,
 } from "./plugin-bundles.js";
+import { pluginStorageBucketKey } from "./plugin-sandbox-runtime.js";
 
 export const PLUGIN_STORE_KEY = "tarobird.plugins.v1";
 
 /** Ed25519 SPKI public key (base64) used to verify official TaroBird plugin manifests. */
-export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA0H7DlTxUhFEsBaUBWjWIrLaBSAFC4dgJt5zklBRO99o=";
+export const OFFICIAL_PLUGIN_PUBLIC_KEY = "MCowBQYDK2VwAyEA7/nusIR2Ti+6dCmyfncq80Vgcxmlx4Cp751ViG3P7vk=";
 
 export type PluginCatalogEntry = {
   manifest: PluginManifest;
@@ -38,9 +40,9 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       icon: "canvas",
       source: { repository: "cloveric/tarobird", commit: "636ada65833c" },
       artifact: {
-        sha256: "7ccc0ef039bd2113b0d416bb1fe8e2b401e219872460ef6315e943e49cd0e5d2",
-        sizeBytes: 7663,
-        signature: "WYfJSdu2hTEeiywGgvC4c/OdCb48Q4nL07YAjsGmlDcX7Jhq+44S3rdW3q4tBghKXbVxfJLk79FbM90p794LCQ==",
+        sha256: "f85bd9adcb3ebe136bdd6b5085cc515812d0a2256de439434b194c22d39361e9",
+        sizeBytes: 9825,
+        signature: "CrOt5mvsni3FJga92WxqhQN1Sz8/qBVw5x5+TgqSPuTYADuVZYE3/3jCgPJDtSsg8MoCOf97elk4f7wgnzcxDQ==",
       },
       entry: "dist/index.html",
       platforms: ["desktop"],
@@ -68,7 +70,7 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       artifact: {
         sha256: "f463130202743a3c2e9ec5cc3280069123bfd3d578e4f90c645613d05be0eaa9",
         sizeBytes: 2837,
-        signature: "qoFad4q6Uv7Yl5jpQSPa5OKx29U4oLrC/8ibUVAmZUaU1VDeNhzB3Vy5JbmN3FFXH9uXk8IzhCbUf+VD6SZQBg==",
+        signature: "re5J5vCLSFvJQ4RaRViNYqYcDq9F3TjbvIsxBuWG9OHtbAPeGGNXy5+acNplgr3SK/inA2ZjAsjlCDEM3l8yCQ==",
       },
       entry: "dist/index.html",
       platforms: ["desktop", "phone"],
@@ -97,8 +99,8 @@ export const THIRD_PARTY_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       icon: "clock",
       source: { repository: "tarobird-community/focus-timer", commit: "a1b2c3d" },
       artifact: {
-        sha256: "68ff0c7b518adcd2ae573fbb353e2002ed233cec26308a7f5b43d47f3f489b2a",
-        sizeBytes: 2375,
+        sha256: "300e7f06445862b1bfe55812011380221b71c0fd7bc750ff27ff6b989f19307f",
+        sizeBytes: 2821,
       },
       entry: "dist/index.html",
       platforms: ["desktop", "phone"],
@@ -262,6 +264,10 @@ export class PluginRegistry {
     if (!manifest.official && !this.state.allowThirdParty) {
       throw new Error("plugin_third_party_disabled");
     }
+    const actualSizeBytes = new TextEncoder().encode(entry.bundleHtml).byteLength;
+    if (actualSizeBytes !== manifest.artifact.sizeBytes) {
+      throw new Error("plugin_size_mismatch");
+    }
     const hashOk = await verifyPluginArtifactHash(entry.bundleHtml, manifest.artifact.sha256);
     if (!hashOk) {
       throw new Error("plugin_hash_mismatch");
@@ -272,11 +278,12 @@ export class PluginRegistry {
         throw new Error("plugin_signature_invalid");
       }
     }
+    const previous = this.state.installed[manifest.id];
     const record: InstalledPluginRecord = {
       manifest,
       bundleHtml: entry.bundleHtml,
       enabled: true,
-      installedAt: Date.now(),
+      installedAt: Math.max(Date.now(), (previous?.installedAt ?? 0) + 1),
       sourceKind: manifest.official ? "official" : "third-party",
       grantedCapabilities: [...manifest.capabilities],
       grantedDomains: [...manifest.domains],
@@ -310,11 +317,19 @@ export class PluginRegistry {
         sizeBytes: Math.max(1, sizeBytes),
       },
     });
+    if (
+      manifest.id.startsWith("tarobird.")
+      || this.catalog.some((item) => item.manifest.official && item.manifest.id === manifest.id)
+      || this.state.installed[manifest.id]?.sourceKind === "official"
+    ) {
+      throw new Error("plugin_official_id_reserved");
+    }
+    const previous = this.state.installed[manifest.id];
     const record: InstalledPluginRecord = {
       manifest,
       bundleHtml,
       enabled: true,
-      installedAt: Date.now(),
+      installedAt: Math.max(Date.now(), (previous?.installedAt ?? 0) + 1),
       sourceKind: "local-dev",
       grantedCapabilities: [...manifest.capabilities],
       grantedDomains: [...manifest.domains],
@@ -342,6 +357,7 @@ export class PluginRegistry {
     const next = { ...this.state.installed };
     delete next[pluginId];
     this.state = { ...this.state, installed: next };
+    this.storage.removeItem(pluginStorageBucketKey(pluginId));
     this.save();
   }
 

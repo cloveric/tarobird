@@ -67,6 +67,8 @@ export function workbenchErrorText(code: string, locale: Locale): string {
     markdown_still_referenced: ["笔记仍有标签引用，请先关闭相关标签。", "The note is still referenced by a tab. Close the relevant tab first."],
     workbench_chart_updating: ["图表正在更新，请稍后再试。", "The chart is updating. Try again shortly."],
     browser_clear_failed: ["网站数据清理未完成。请重试；部分数据可能已被清理。", "Website data clearing did not finish. Retry; some data may already have been cleared."],
+    workbench_identity_unavailable: ["请先选择一个活跃对话后再使用工作台。", "Select an active conversation first to use the workbench."],
+    workbench_unavailable: ["工作台暂时不可用，请先选择一个活跃对话后重试。", "Workbench is unavailable right now. Select an active conversation and try again."],
   };
   return entries[code]?.[locale === "en" ? 1 : 0] ?? (locale === "en" ? `Could not complete the action: ${code}` : `操作未完成：${code}`);
 }

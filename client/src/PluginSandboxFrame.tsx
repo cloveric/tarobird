@@ -1,140 +1,126 @@
-import { useEffect, useRef } from "react";
-import {
-  PLUGIN_HOST_PROTOCOL,
-  pluginHostRequestSchema,
-  requiredCapabilityForMethod,
-  type PluginCapability,
-  type PluginHostResponse,
-} from "../../src/client-protocol/plugins.js";
+import { Capacitor } from "@capacitor/core";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { PLUGIN_HOST_PROTOCOL } from "../../src/client-protocol/plugins.js";
 import type { InstalledPluginRecord } from "./plugin-registry.js";
-import { useLocale } from "./i18n.js";
-import { writeClipboardText } from "./clipboard-write.js";
+import { t, useLocale } from "./i18n.js";
+import {
+  handlePluginHostMessage,
+  resolvePluginSandboxSrc,
+  resolvePluginTheme,
+  wrapSandboxedDocument,
+} from "./plugin-sandbox-runtime.js";
 
-/** Pure sandbox host-API dispatcher so capability gating is directly unit-testable.
- * Never exposes App tokens, Hub credentials, or Hub HTTP/WebSocket APIs. */
-export async function handlePluginHostMessage(
-  raw: unknown,
-  context: {
-    pluginId: string;
-    grantedCapabilities: readonly PluginCapability[];
-    theme: "light" | "dark";
-    locale: string;
-    storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
-    writeClipboard?: (text: string) => Promise<void>;
-  },
-): Promise<PluginHostResponse | null> {
-  const parsed = pluginHostRequestSchema.safeParse(raw);
-  if (!parsed.success) {
-    if (raw && typeof raw === "object" && (raw as Record<string, unknown>).protocol === PLUGIN_HOST_PROTOCOL && typeof (raw as Record<string, unknown>).id === "string") {
-      return { protocol: PLUGIN_HOST_PROTOCOL, id: String((raw as Record<string, unknown>).id), ok: false, error: "method_not_allowed" };
+export { handlePluginHostMessage } from "./plugin-sandbox-runtime.js";
+
+export function isPluginSandboxSupported(): boolean {
+  if (!Capacitor.isNativePlatform()) return true;
+  let supported = !!document.querySelector('meta[name="tarobot-widget-guard"][content="1"]');
+  if (["android", "ios"].includes(Capacitor.getPlatform())) {
+    try {
+      supported &&= (window as unknown as { tarobotWidgetIsolation?: { supported(): boolean } }).tarobotWidgetIsolation?.supported() === true;
+    } catch {
+      supported = false;
     }
-    return null;
   }
-  const req = parsed.data;
-  const required = requiredCapabilityForMethod(req.method);
-  if (required && !context.grantedCapabilities.includes(required)) {
-    return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "capability_denied" };
-  }
-  const prefix = `tarobird.plugin.data.${context.pluginId}.`;
-  switch (req.method) {
-    case "host.hello":
-      return {
-        protocol: PLUGIN_HOST_PROTOCOL,
-        id: req.id,
-        ok: true,
-        result: {
-          pluginId: context.pluginId,
-          theme: context.theme,
-          locale: context.locale,
-          grantedCapabilities: [...context.grantedCapabilities],
-        },
-      };
-    case "theme.get":
-      return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: { theme: context.theme } };
-    case "storage.get":
-      return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: context.storage.getItem(prefix + req.key) };
-    case "storage.set":
-      context.storage.setItem(prefix + req.key, req.value);
-      return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
-    case "storage.remove":
-      context.storage.removeItem(prefix + req.key);
-      return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
-    case "clipboard.write":
-      await (context.writeClipboard ? context.writeClipboard(req.text) : writeClipboardText(req.text));
-      return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
-    case "workbench.status":
-      return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: { isolated: true, sandbox: "opaque-origin" } };
-  }
+  return supported;
 }
 
-function wrapSandboxedDocument(bundleHtml: string, grantedDomains: readonly string[]): string {
-  const connectSources = grantedDomains
-    .map((domain) => domain.trim())
-    .filter((domain) => /^[a-z0-9.-]+(?::\d+)?$/i.test(domain))
-    .map((domain) => `https://${domain}`)
-    .join(" ");
-  const csp = [
-    "default-src 'none'",
-    "script-src 'unsafe-inline'",
-    "style-src 'unsafe-inline'",
-    "img-src data: blob:",
-    "font-src data:",
-    `connect-src ${connectSources || "'none'"}`,
-    "base-uri 'none'",
-    "form-action 'none'",
-  ].join("; ");
-  const cspTag = `<meta http-equiv="Content-Security-Policy" content="${csp}">`;
-  return /<head[^>]*>/i.test(bundleHtml)
-    ? bundleHtml.replace(/<head[^>]*>/i, (match) => `${match}${cspTag}`)
-    : `<!doctype html><html><head>${cspTag}</head><body>${bundleHtml}</body></html>`;
-}
-
-/** Isolated iframe runtime for an installed plugin. Loads `/plugin-sandbox.html`
- * inside `sandbox="allow-scripts"` WITHOUT `allow-same-origin` (unique opaque origin)
- * and injects a per-plugin CSP scoped strictly to `grantedDomains`, so the plugin
- * cannot access App tokens, cookies, IndexedDB, localStorage, or the Hub API. */
+/** Isolated iframe runtime for an installed plugin. Loads the runtime-appropriate
+ * `plugin-sandbox.html` shell inside `sandbox="allow-scripts"` WITHOUT `allow-same-origin`
+ * (unique opaque origin) and injects a per-plugin CSP scoped strictly to validated
+ * `grantedDomains`, so the plugin cannot access App tokens, cookies, IndexedDB,
+ * localStorage, native bridges, or the Hub API. */
 export function PluginSandboxFrame({ plugin, title }: { plugin: InstalledPluginRecord; title?: string }) {
   const locale = useLocale();
+  const supported = isPluginSandboxSupported();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const frameTitle = title ?? (locale === "zh" ? plugin.manifest.nameZh ?? plugin.manifest.name : plugin.manifest.name);
-  const wrappedDoc = wrapSandboxedDocument(plugin.bundleHtml, plugin.grantedDomains);
+  const frameKey = `${plugin.manifest.id}:${plugin.manifest.version}:${plugin.manifest.artifact.sha256}:${plugin.installedAt}`;
+  const sandboxSrc = resolvePluginSandboxSrc();
+  const wrappedDoc = useMemo(
+    () => wrapSandboxedDocument(plugin.bundleHtml, plugin.grantedDomains),
+    [plugin.bundleHtml, plugin.grantedDomains],
+  );
+  const initializedKeyRef = useRef<string>("");
+  const latestInitRef = useRef({ title: frameTitle, document: wrappedDoc });
+  latestInitRef.current = { title: frameTitle, document: wrappedDoc };
+  const latestContextRef = useRef({
+    pluginId: plugin.manifest.id,
+    grantedCapabilities: plugin.grantedCapabilities,
+    locale,
+  });
+  latestContextRef.current = {
+    pluginId: plugin.manifest.id,
+    grantedCapabilities: plugin.grantedCapabilities,
+    locale,
+  };
 
-  useEffect(() => {
+  const initialize = useCallback(() => {
+    const frameWindow = iframeRef.current?.contentWindow;
+    if (!frameWindow || initializedKeyRef.current === frameKey) return;
+    initializedKeyRef.current = frameKey;
+    frameWindow.postMessage(
+      {
+        type: "tarobird-plugin-init",
+        title: latestInitRef.current.title,
+        document: latestInitRef.current.document,
+      },
+      "*",
+    );
+  }, [frameKey]);
+
+  useLayoutEffect(() => {
+    if (!supported) return;
     const onMessage = (event: MessageEvent) => {
       const frameWindow = iframeRef.current?.contentWindow;
       if (!frameWindow || event.source !== frameWindow) return;
       if (event.data && typeof event.data === "object" && (event.data as Record<string, unknown>).type === "tarobird-plugin-shell-ready") {
-        frameWindow.postMessage({ type: "tarobird-plugin-init", title: frameTitle, document: wrappedDoc }, "*");
+        initialize();
         return;
       }
-      const dark = document.documentElement.dataset.theme === "dark"
-        || document.documentElement.classList.contains("dark")
-        || window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+      const ctx = latestContextRef.current;
       void handlePluginHostMessage(event.data, {
-        pluginId: plugin.manifest.id,
-        grantedCapabilities: plugin.grantedCapabilities,
-        theme: dark ? "dark" : "light",
-        locale,
+        pluginId: ctx.pluginId,
+        grantedCapabilities: ctx.grantedCapabilities,
+        theme: resolvePluginTheme(),
+        locale: ctx.locale,
         storage: window.localStorage,
-      }).then((response) => {
-        if (response && iframeRef.current?.contentWindow === frameWindow) {
-          frameWindow.postMessage(response, "*");
-        }
-      });
+      })
+        .then((response) => {
+          if (response && iframeRef.current?.contentWindow === frameWindow) {
+            frameWindow.postMessage(response, "*");
+          }
+        })
+        .catch(() => {
+          const raw = event.data as Record<string, unknown> | null;
+          if (raw && typeof raw === "object" && raw.protocol === PLUGIN_HOST_PROTOCOL && typeof raw.id === "string" && iframeRef.current?.contentWindow === frameWindow) {
+            frameWindow.postMessage({ protocol: PLUGIN_HOST_PROTOCOL, id: raw.id, ok: false, error: "host_error" }, "*");
+          }
+        });
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [plugin.manifest.id, plugin.grantedCapabilities, locale, frameTitle, wrappedDoc]);
+  }, [supported, frameKey, initialize]);
+
+  if (!supported) {
+    return (
+      <div className="plugin-sandbox-unavailable" role="status">
+        {t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。")}
+      </div>
+    );
+  }
 
   return (
     <iframe
-      key={`${plugin.manifest.id}:${plugin.manifest.version}`}
+      key={frameKey}
       ref={iframeRef}
       className="plugin-sandbox-frame"
       title={frameTitle}
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
-      src="/plugin-sandbox.html"
+      allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
+      src={sandboxSrc}
+      onLoad={initialize}
     />
   );
 }

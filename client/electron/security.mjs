@@ -6,7 +6,7 @@ export function internalResource(raw) {
     const url = new URL(raw);
     return !url.username && !url.password && !url.port && (
       url.protocol === 'tarobot:' && url.hostname === 'app'
-      || url.protocol === 'tarobot-widget:' && url.hostname === 'sandbox' && ['/widget-sandbox.html', '/design-loader.html'].includes(url.pathname)
+      || url.protocol === 'tarobot-widget:' && url.hostname === 'sandbox' && ['/widget-sandbox.html', '/plugin-sandbox.html', '/design-loader.html'].includes(url.pathname)
       || ['blob:', 'data:', 'about:'].includes(url.protocol));
   } catch { return false; }
 }
@@ -93,7 +93,7 @@ export function secureContents(contents) {
   contents.on('will-navigate', (event, url) => { if (!isEntryURL(url ?? event.url)) event.preventDefault(); });
   contents.on('will-frame-navigate', event => {
     if (event.isMainFrame ? !isEntryURL(event.url)
-      : !['tarobot-widget://sandbox/widget-sandbox.html', 'tarobot-widget://sandbox/design-loader.html', 'about:blank', 'about:srcdoc'].includes(event.url) && !event.url.startsWith('data:text/html;charset=utf-8,')) event.preventDefault();
+      : !['tarobot-widget://sandbox/widget-sandbox.html', 'tarobot-widget://sandbox/plugin-sandbox.html', 'tarobot-widget://sandbox/design-loader.html', 'about:blank', 'about:srcdoc'].includes(event.url) && !event.url.startsWith('data:text/html;charset=utf-8,')) event.preventDefault();
   });
 }
 

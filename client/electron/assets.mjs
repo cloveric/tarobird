@@ -5,6 +5,9 @@ import { APP_ORIGIN } from './contract.mjs';
 
 export const APP_CSP = "default-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-src blob: data: tarobot-widget://sandbox; font-src 'self' data:";
 export const WIDGET_CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-src about:; base-uri 'none'; form-action 'none'";
+export const PLUGIN_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors tarobot://app";
+const SANDBOX_PATHS = ['/widget-sandbox.html', '/plugin-sandbox.html', '/design-loader.html'];
+const SANDBOX_FILES = ['widget-sandbox.html', 'plugin-sandbox.html', 'design-loader.html'];
 export const SCHEMES = [
   { scheme: 'tarobot', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true } },
   { scheme: 'tarobot-widget', privileges: { standard: true, secure: true } },
@@ -23,10 +26,10 @@ export async function assetPath(root, raw, { widget = false } = {}) {
   let pathname;
   try { pathname = decodeURIComponent(url.pathname); } catch { throw new Error('invalid_asset_url'); }
   if (pathname.includes('\0') || pathname.includes('\\') || pathname.split('/').some(part => part === '..' || part.startsWith('.'))
-    || widget && !['/widget-sandbox.html', '/design-loader.html'].includes(pathname) || !widget && ['/widget-sandbox.html','/design-loader.html'].includes(pathname.toLowerCase())) throw new Error('invalid_asset_url');
+    || widget && !SANDBOX_PATHS.includes(pathname) || !widget && SANDBOX_PATHS.includes(pathname.toLowerCase())) throw new Error('invalid_asset_url');
   const physicalRoot = await realpath(root);
   const file = await realpath(path.resolve(physicalRoot, '.' + pathname));
-  if (!inside(physicalRoot, file) || !widget && ['widget-sandbox.html','design-loader.html'].includes(path.basename(file).toLowerCase())
+  if (!inside(physicalRoot, file) || !widget && SANDBOX_FILES.includes(path.basename(file).toLowerCase())
     || !(await stat(file)).isFile()) throw new Error('invalid_asset_url');
   return file;
 }
@@ -44,7 +47,10 @@ export function assetHandler(root, fetchFile, { widget = false } = {}) {
       if (!result.ok) return new Response(null, { status: 404 });
       const headers = new Headers(result.headers);
       headers.set('Content-Type', mimeTypes[path.extname(file).toLowerCase()] ?? 'application/octet-stream');
-      headers.set('Content-Security-Policy', widget ? (path.basename(file) === 'design-loader.html' ? "frame-ancestors tarobot://app" : WIDGET_CSP) : APP_CSP);
+      const base = path.basename(file);
+      headers.set('Content-Security-Policy', widget
+        ? (base === 'design-loader.html' ? "frame-ancestors tarobot://app" : base === 'plugin-sandbox.html' ? PLUGIN_CSP : WIDGET_CSP)
+        : APP_CSP);
       headers.set('X-Content-Type-Options', 'nosniff');
       headers.set('Referrer-Policy', 'no-referrer');
       headers.set('Cache-Control', 'no-cache');

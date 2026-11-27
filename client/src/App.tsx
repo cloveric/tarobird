@@ -125,6 +125,8 @@ import { CalendarClock, Activity, Archive, ArrowLeft, AtSign, FolderInput, Folde
 import { pluginRegistry } from "./plugin-registry.js";
 import { PluginsModal } from "./PluginsPanel.js";
 import { PluginSandboxFrame } from "./PluginSandboxFrame.js";
+import { MobilePluginSheet } from "./MobilePluginSheet.js";
+import { SidePanelResize } from "./SidePanelResize.js";
 import { BrandName } from "./BrandScenes.js";
 import { DirectEmpty, WelcomeHome } from "./ChatEmpty.js";
 import { blocksText, messageSchema, type Conversation, type Message } from "../../src/client-protocol/index.js";
@@ -454,10 +456,14 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   }, [rightModeScope]);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [activePluginPanel, setActivePluginPanel] = useState<{ pluginId: string; contributionId: string; title: string }>();
+  const [mobilePluginPanel, setMobilePluginPanel] = useState<{ pluginId: string; contributionId: string; title: string }>();
+  const pluginSidePanelRef = useRef<HTMLElement>(null);
+  const pluginSidePanelId = `plugin-side-panel-${useId()}`;
   const pluginStore = useSyncExternalStore(pluginRegistry.subscribe, pluginRegistry.getSnapshot);
   const sidePanelPlugins = pluginRegistry.enabledContributions(phone ? "phone" : "desktop", "side-panel");
   const installedPluginCount = pluginRegistry.installedForPlatform(phone ? "phone" : "desktop").length;
   const activePluginRecord = activePluginPanel ? pluginStore.installed[activePluginPanel.pluginId] : undefined;
+  const mobilePluginRecord = mobilePluginPanel ? pluginStore.installed[mobilePluginPanel.pluginId] : undefined;
   const pluginSideVisible = !pane && !phone && rightMode === "plugin" && !!activePluginRecord?.enabled && visible && !details && searchResults === undefined;
   const [screenOpened, setScreenOpened] = useState(false);
   const screenVisible = screenOpened && rightMode === "screen" && visible && (!phone || isMobileScreenApp()) && (!pane || !isMobileScreenApp() && pane.expanded) && !details && searchResults === undefined && !settings;
@@ -525,8 +531,8 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     // Opening can finish after navigation. Its error belongs to the originating
     // Host/user/conversation, never the interface the user switched to.
     if (current.connection === connection && current.selected === selected && connection.state.user?.id === state.user?.id)
-      setError(cause instanceof Error ? cause.message : "workbench_unavailable");
-  }, [connection, selected, state.user?.id]);
+      setError(workbenchErrorText(cause instanceof Error ? cause.message : "workbench_unavailable", locale));
+  }, [connection, selected, state.user?.id, locale]);
   // ADHD panes are manual-only: a Bot must not expand a card or replace the
   // multi-conversation layout. Existing visible content targets remain usable.
   const designOpener = useWorkbenchDesignOpener(connection, selected,
@@ -577,26 +583,53 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const workspaceNeedsApproval = workspaceComms.data?.summary.needsApproval ?? 0;
   const workspaceActiveComms = workspaceComms.data?.summary.active ?? 0;
   // What the rail was put in front of, per conversation, so closing the rail shows that panel again.
-  const workspaceCovers = useRef(new Map<string, "side" | "workbench" | "screen">());
+  const workspaceCovers = useRef(new Map<string, "side" | "workbench" | "screen" | "plugin">());
+  useEffect(() => {
+    if (activePluginPanel && !pluginStore.installed[activePluginPanel.pluginId]?.enabled) {
+      setActivePluginPanel(undefined);
+      setRightModes(previous => {
+        let changed = false;
+        const next = new Map(previous);
+        for (const [scope, mode] of next) {
+          if (mode === "plugin") { next.delete(scope); changed = true; }
+        }
+        return changed ? next : previous;
+      });
+      for (const [scope, covered] of workspaceCovers.current) {
+        if (covered === "plugin") workspaceCovers.current.delete(scope);
+      }
+    }
+    if (mobilePluginPanel && !pluginStore.installed[mobilePluginPanel.pluginId]?.enabled) {
+      setMobilePluginPanel(undefined);
+    }
+  }, [activePluginPanel, mobilePluginPanel, pluginStore.installed]);
   const closeWorkspace = useCallback(() => {
     setDesktopWorkspaceOpen(false);
     // Whatever the rail was in front of shows again.
     const covered = workspaceCovers.current.get(rightModeScope); workspaceCovers.current.delete(rightModeScope);
-    if (rightMode === "workspace") setRightMode(covered === "screen" && !screenOpened ? "side" : covered ?? "side");
-  }, [rightMode, rightModeScope, screenOpened, setRightMode, setDesktopWorkspaceOpen]);
+    const restored = covered === "screen" && !screenOpened
+      ? "side"
+      : covered === "plugin" && !activePluginRecord?.enabled
+        ? "side"
+        : covered ?? "side";
+    if (rightMode === "workspace") setRightMode(restored);
+  }, [rightMode, rightModeScope, screenOpened, activePluginRecord?.enabled, setRightMode, setDesktopWorkspaceOpen]);
   const toggleWorkspace = useCallback(() => {
     if (workspaceVisible) { closeWorkspace(); return; }
     if (details) setDetails(false);
     // Another panel is showing: the rail goes in front of it and closes nothing. A side conversation keeps its
     // session, draft and attachments, and the remote screen stays connected.
     if (workbenchVisible) designOpener.revoke();
-    if (workbenchVisible || sideVisible || screenVisible) {
-      workspaceCovers.current.set(rightModeScope, workbenchVisible ? "workbench" : screenVisible ? "screen" : "side");
+    if (workbenchVisible || sideVisible || screenVisible || pluginSideVisible) {
+      workspaceCovers.current.set(
+        rightModeScope,
+        workbenchVisible ? "workbench" : screenVisible ? "screen" : pluginSideVisible ? "plugin" : "side",
+      );
       setRightMode("workspace");
     }
     workspaceTakesFocus.current = true;
     setDesktopWorkspaceOpen(true);
-  }, [workspaceVisible, workbenchVisible, sideVisible, screenVisible, details, designOpener, rightModeScope, setRightMode, closeWorkspace, setDesktopWorkspaceOpen]);
+  }, [workspaceVisible, workbenchVisible, sideVisible, screenVisible, pluginSideVisible, details, designOpener, rightModeScope, setRightMode, closeWorkspace, setDesktopWorkspaceOpen]);
   const toggleSide = useCallback(() => {
     if (sideVisible) { void side.close(); sideTrigger.current?.focus(); }
     else { setRightMode("side"); setDetails(false); closeSearch(); void side.open(); }
@@ -1231,7 +1264,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const recording = voice.busy;
   const backRoot = useRef<HTMLDivElement>(null);
   // ADHD expands only its owning card, never the shared native window.
-  const sideWindowLayout = useSideWindowExpansion(backRoot, !pane && (sideVisible || screenVisible || workbenchVisible && !phone));
+  const sideWindowLayout = useSideWindowExpansion(backRoot, !pane && (sideVisible || screenVisible || pluginSideVisible || workbenchVisible && !phone));
   // Native expansion can finish before IndexedDB or the lazy Workbench chunk.
   // Reserve the same column in both stages; late loading after Close stays hidden.
   const workbenchLoading = workbenchVisible ? <aside className={`workbench-loading ${!phone && !pane ? "conversation-side-panel" : ""}`} hidden={!phone && sideWindowLayout === "pending"} aria-label={t("工作台")}>
@@ -1740,18 +1773,30 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const pluginsButton = !pane && !phone && <button type="button" className="plugins-trigger" aria-label={t("插件市场")} title={t("插件市场")} onClick={() => setPluginsOpen(true)}><Puzzle size={16} aria-hidden="true"/><span className="plugins-trigger-label">{t("插件市场")}</span>{installedPluginCount > 0 && <span className="plugins-trigger-count">{installedPluginCount}</span>}</button>;
   const openPluginContribution = (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => {
     if (kind === "workbench-item") {
+      if (!workbenchEligible) {
+        setError(
+          current?.archived
+            ? t("对话已归档，恢复后才能在工作台打开插件。")
+            : connection.isReadOnly
+              ? t("当前为只读模式，无法在工作台打开插件。")
+              : t("请先选择一个活跃对话，再打开工作台插件。"),
+        );
+        return;
+      }
       void openWorkbench().then((controller) => controller.openPlugin(pluginId, contributionId, title)).catch(reportWorkbenchOpenError);
-    } else if (!phone) {
+    } else if (phone) {
+      setDetails(false); closeSearch(); setMobilePluginPanel({ pluginId, contributionId, title });
+    } else {
       setDetails(false); closeSearch(); setActivePluginPanel({ pluginId, contributionId, title }); setRightMode("plugin");
     }
   };
   const pluginPanelButtons = !pane && !phone && sidePanelPlugins.map(({ plugin, contribution }) => {
     const label = locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title;
     const isOpen = pluginSideVisible && activePluginPanel?.pluginId === plugin.manifest.id && activePluginPanel?.contributionId === contribution.id;
-    return <button key={`${plugin.manifest.id}:${contribution.id}`} className={`icon-button plugin-panel-trigger${isOpen ? " is-active" : ""}`} aria-label={label} title={label} aria-expanded={isOpen} onClick={() => {
+    return <button key={`${plugin.manifest.id}:${contribution.id}`} type="button" className={`plugin-panel-trigger${isOpen ? " is-active" : ""}`} aria-label={label} title={label} aria-expanded={isOpen} onClick={() => {
       if (isOpen) { setRightMode("side"); setActivePluginPanel(undefined); }
       else { setDetails(false); closeSearch(); setActivePluginPanel({ pluginId: plugin.manifest.id, contributionId: contribution.id, title: label }); setRightMode("plugin"); }
-    }}><Puzzle size={16}/><span>{label}</span></button>;
+    }}><Puzzle size={16} aria-hidden="true"/><span className="plugin-panel-trigger-label">{label}</span></button>;
   });
   const screenButton = !pane && !phone && isElectron() && <button className="icon-button screen-trigger" aria-label={t("查看屏幕")} title={`${t("查看屏幕")} · ${hostName}`} aria-expanded={screenVisible} onClick={() => { if (screenVisible) closeScreen(); else openScreen(); }}><MonitorPlay size={18}/></button>;
   const sideButton = sideCanOpen && <button ref={sideTrigger} className="icon-button side-trigger" aria-label={t("侧边对话")} title={t("侧边对话") + " (⌘⇧K / Ctrl+Shift+K)"} aria-expanded={sideVisible} aria-controls="side-conversation" disabled={!side.shown && (state.status !== "online" || !activeBot?.online)} onClick={toggleSide}><PanelRight size={18}/></button>;
@@ -1760,6 +1805,10 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const phoneTurnActions = chatActions && (
     <div className="mobile-chat-action-list">
       {current?.botIds.length === 1 && !current.archived && !group?.archived && searchResults === undefined && state.engineTasksAvailable && <button onClick={() => { setChatActions(false); setTaskListRequest({ conversationId: selected, id: Date.now() }); }}><ListOrdered size={20}/><span>{t("子代理与后台任务")}</span></button>}
+      {sidePanelPlugins.map(({ plugin, contribution }) => {
+        const label = locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title;
+        return <button key={`${plugin.manifest.id}:${contribution.id}`} onClick={() => { setChatActions(false); openPluginContribution(plugin.manifest.id, contribution.id, contribution.kind, label); }}><Puzzle size={20}/><span>{label}</span></button>;
+      })}
       {immediateAvailable && <button aria-label={t("立即发送")} className="action-with-note" disabled={!draft.trim() || steeringBusy || sending} onClick={() => { setChatActions(false); report(sendImmediately()); }}><ArrowUp size={20}/><span className="action-text"><span>{t("立即发送")}</span><small>{t("由 CLI 后台继续工具或中断当前输出，再读入消息")}</small></span></button>}
       {continueCurrent && <button aria-label={t("作为下一轮发送")} className="action-with-note" disabled={!draft.trim() || steeringBusy || sending} onClick={() => { setChatActions(false); report(send(true)); }}><ListOrdered size={20}/><span className="action-text"><span>{t("作为下一轮发送")}</span><small>{t("等待当前任务结束后再处理")}</small></span></button>}
       {steeringAvailable && !nativeInput && <button className="action-with-note" aria-label={t("引导当前任务")} aria-describedby={`${chatActionNote}-steer`} disabled={connection.isReadOnly || !richDraftReady || steeringBusy || uploadProgress !== undefined || recording} onClick={() => { setChatActions(false); report(steer()); }}><Compass size={20}/><span className="action-text"><span>{t("引导当前任务")}</span><small id={`${chatActionNote}-steer`}>{t("补充到当前任务，不改变待执行顺序")}</small></span></button>}
@@ -1788,6 +1837,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     create={(kind) => { if (shell) shell.create(kind); else if (kind === "bot") setNewBot(true); else if (kind === "schedule") setScheduledTasks("create"); else setNewChat({ kind }); }}
     selectHost={(hostId) => shell?.mobileSelect(hostId, { kind: "home" })}
     open={(kind) => { if (kind === "plugins") setPluginsOpen(true); else if (kind === "settings" || kind === "notifications" || kind === "devices" || kind === "connection" || kind === "screen") { setSettingsFromMenu(false); setSettingsSection(kind === "notifications" ? "notifications" : kind === "devices" ? "devices" : kind === "connection" ? "connection" : kind === "screen" ? "screen" : "general"); setSettings(true); } else if (kind === "files") setFileCenter(true); else if (kind === "capabilities") { setDetailBot(undefined); setCapabilities(true); } else if (kind === "schedules") setScheduledTasks("list"); else if (kind === "operations") setOperations(true); else if (kind === "archives") setArchives(true); else if (kind === "hosts") shell?.manageHosts(); }}
+    openPluginContribution={openPluginContribution}
     searchHistory={(text) => { setSearchConversation(undefined); setQuery(text); setSearchBot(""); setSearchFrom(""); setSearchTo(""); setSearchFiles(false); setSidebar(false); setFocusTarget(undefined); historySearch.start(new URLSearchParams({ q: text }).toString(), ""); }}/></Suspense>}
   <main ref={attachmentDrop.ref} className={`conversation-main${attachmentDrop.hover ? " is-file-drop-target" : ""}`} {...attachmentDrop.events}>{searching ? <header className="conversation-header history-search-header">
     {phone ? <button className="icon-button" aria-label={t("打开会话列表")} onClick={exitHistorySearch}><ChevronLeft size={24}/></button> : <Search className="history-search-symbol" size={20} aria-hidden="true"/>}
@@ -1890,7 +1940,8 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   </main>
   {screenOpened && <RemoteScreenPanel connection={connection} hostName={hostName} visible={screenVisible && (!!pane || sideWindowLayout !== "pending")} close={closeScreen} openSettings={() => { setSettingsFromMenu(false); setSettingsSection("screen"); setSettings(true); }}/> }
   {workbench.controller ? <Suspense fallback={workbenchLoading}><Workbench id={workbenchId} compact={!!pane && paneWorkbenchCompact} controller={workbench.controller} visible={workbenchVisible && (phone || sideWindowLayout !== "pending")} phone={phone} onManageFiles={() => { setSettingsFromMenu(false); setSettingsSection("workbench"); setSettings(true); }} onOpenPlugins={() => setPluginsOpen(true)} onAnnotate={annotateWorkbench} onDesignCompose={composeDesign} onCompose={dispatchWidgetCompose} onClose={() => { designOpener.revoke(); setRightMode("side"); workbenchTrigger.current?.focus({preventScroll:true}); }}/></Suspense> : !phone && !pane ? workbenchLoading : null}
-  {pluginSideVisible && activePluginRecord && activePluginPanel && <aside className="plugin-side-panel" aria-label={activePluginPanel.title}><header className="plugin-side-panel-header"><span className="plugin-side-panel-title"><Puzzle size={16}/><strong>{activePluginPanel.title}</strong></span><button type="button" className="icon-button" aria-label={t("关闭侧边面板")} onClick={() => { setRightMode("side"); setActivePluginPanel(undefined); }}><X size={16}/></button></header><div className="plugin-side-panel-body"><PluginSandboxFrame plugin={activePluginRecord} title={activePluginPanel.title}/></div></aside>}
+  {pluginSideVisible && activePluginRecord && activePluginPanel && <aside id={pluginSidePanelId} ref={pluginSidePanelRef} className="conversation-side-panel plugin-side-panel" hidden={sideWindowLayout === "pending"} aria-label={activePluginPanel.title}><SidePanelResize panel={pluginSidePanelRef} visible={pluginSideVisible && sideWindowLayout !== "pending"} controls={pluginSidePanelId} label={t("调整插件面板宽度")}/><header className="plugin-side-panel-header"><span className="plugin-side-panel-title"><Puzzle size={16}/><strong>{activePluginPanel.title}</strong></span><button type="button" className="icon-button" aria-label={t("关闭侧边面板")} onClick={() => { setRightMode("side"); setActivePluginPanel(undefined); }}><X size={16}/></button></header><div className="plugin-side-panel-body"><PluginSandboxFrame plugin={activePluginRecord} title={activePluginPanel.title}/></div></aside>}
+  {phone && !pane && visible && mobilePluginPanel && mobilePluginRecord?.enabled && <MobilePluginSheet plugin={mobilePluginRecord} title={mobilePluginPanel.title} close={() => setMobilePluginPanel(undefined)}/>}
   {pluginsOpen && <PluginsModal platform={phone ? "phone" : "desktop"} close={() => setPluginsOpen(false)} onOpenContribution={openPluginContribution}/>}
   {side.shown && sideEligible && <SideConversation key={side.scope} side={side} appearance={`${preferences.palette}:${preferences.fontSize}`} mainRecording={recording} recordingChanged={setSideRecording} online={state.status === "online" && !!activeBot?.online} visible={sideVisible && sideWindowLayout !== "pending"} trigger={sideTrigger} close={() => { void side.close(); }} returnToComposer={() => composer.current?.focus({ preventScroll: true })} insert={text => { changeDraft(`${draft}${draft ? "\n\n" : ""}${text.split("\n").map(line => `> ${line}`).join("\n")}`); composer.current?.focus({ preventScroll: true }); }}/>}
   {workspaceVisible && current && <ConversationWorkspace id={workspaceId} connection={connection} conversation={current} group={group} bots={state.bots} botLabels={labels} hostName={hostName} connectionSummary={connectionSummary} streamingBots={streamingBots} messages={messages} comms={workspaceComms.data} commsLoading={workspaceComms.loading} commsError={workspaceComms.error} onRefreshComms={() => { void workspaceComms.refresh(); }} returnFocus={workspaceRailTrigger} takeFocus={workspaceTakesFocus} onClose={closeWorkspace} onJumpConversation={(conversationId, messageId) => {

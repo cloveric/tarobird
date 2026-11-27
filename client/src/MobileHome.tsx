@@ -25,6 +25,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -40,6 +41,7 @@ import { useBackAction } from './back-navigation.js';
 import { useConversationHold } from './useConversationHold.js';
 import { MobileConversationActions } from './MobileConversationActions.js';
 import { mobileListAvatarSizes, type LayoutDensity } from './layout-density.js';
+import { pluginRegistry } from './plugin-registry.js';
 
 const ListAvatarSize = createContext(48);
 
@@ -74,6 +76,7 @@ export type MobileHomeProps = {
   create: (kind: MobileCreateKind) => void;
   selectHost: (hostId: string) => void;
   open: (kind: MobileOpenTarget) => void;
+  openPluginContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
   searchHistory: (query: string) => void;
   inbox?: MobileInboxState;
   updateInbox?: (value: MobileInboxState) => void;
@@ -620,7 +623,9 @@ function notificationSummary(host: MobileHost | undefined): string {
   return state.notifications.preferences.enabled ? t('已请求提醒 · 点此检查接收状态') : t('未开启 · 点此设置');
 }
 
-function MePane({ hosts, activeHost, selectHost, open }: PaneProps) {
+function MePane({ hosts, activeHost, selectHost, open, openPluginContribution, locale }: PaneProps) {
+  useSyncExternalStore(pluginRegistry.subscribe, pluginRegistry.getSnapshot);
+  const phoneSidePlugins = pluginRegistry.enabledContributions('phone', 'side-panel');
   const userId = activeHost?.connection.state.user?.id;
   const computerNames = hosts.map((host) => {
     const state = host.connection.state;
@@ -712,6 +717,19 @@ function MePane({ hosts, activeHost, selectHost, open }: PaneProps) {
         <ul className="mh-group">
           <Cell icon={<Bell size={20}/>} label={t('消息通知')} description={notificationSummary(activeHost)} disabled={!activeHost} onClick={() => open('notifications')} />
           <Cell icon={<Puzzle size={20}/>} label={t('插件市场')} description={t('探索、安装与管理扩展插件')} onClick={() => open('plugins')} />
+          {openPluginContribution && phoneSidePlugins.map(({ plugin, contribution }) => {
+            const label = locale === 'zh' ? contribution.titleZh ?? contribution.title : contribution.title;
+            const name = locale === 'zh' ? plugin.manifest.nameZh ?? plugin.manifest.name : plugin.manifest.name;
+            return (
+              <Cell
+                key={`${plugin.manifest.id}:${contribution.id}`}
+                icon={<Puzzle size={20}/>}
+                label={label}
+                description={name !== label ? name : t('已安装插件')}
+                onClick={() => openPluginContribution(plugin.manifest.id, contribution.id, contribution.kind, label)}
+              />
+            );
+          })}
           <Cell settingsEntry="settings" icon={<SlidersIcon />} label={t('设置')} onClick={() => open('settings')} />
         </ul>
       </section>
