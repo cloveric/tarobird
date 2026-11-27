@@ -2002,6 +2002,7 @@ export class HubServer {
     // a worker has expired or a browser retries the navigation on the network.
     if (route.startsWith("/__tarocub_download/")) { res.writeHead(204, { "Cache-Control": "no-store" }); res.end(); return; }
     if (isCanvasAgentBridgeRoute) {
+      this.auth.canvasBridgeAttempt(source);
       const caToken = req.headers.authorization?.match(/^CanvasAgent\s+(\S+)$/)?.[1];
       const clientId = url.searchParams.get("clientId") ?? undefined;
       if (!caToken || !clientId) throw new HubError("canvas_agent_unauthorized", 401);

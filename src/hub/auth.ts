@@ -424,6 +424,13 @@ export class HubAuth {
     }
     return structuredClone(s);
   }
+  /** Canvas bridge routes (`/api/canvas-agent/state|activate|result`) are
+   * authenticated only by a CanvasAgent token, before any session check. Count
+   * every request per source before the token is read, so wrong tokens are
+   * counted too. The budget leaves room for a canvas answering a busy Bot turn. */
+  canvasBridgeAttempt(source: string): void {
+    this.rate(`canvas-bridge:${rateSource(source)}`, 600, isLoopback(source) ? "trusted" : "anonymous");
+  }
   tlsIdentity(nonce: string, certificate: Buffer, source: string): TlsIdentity {
     this.rate(`tls-identity:${rateSource(source)}`, 60, isLoopback(source) ? "trusted" : "anonymous");
     tlsIdentityNonceSchema.parse(nonce);
