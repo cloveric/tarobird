@@ -13,7 +13,10 @@ import { handleCanvasDataRequest, requireCanvasStorageAccess } from "./canvas-da
 import { canvasNetworkRequest, type CanvasNetworkInput } from "../electron/canvas-network.mjs";
 import { isDesktop, isElectron, invoke } from "./desktop-bridge.js";
 
-/** Launch reviewed HTML only in the validated desktop engine families. */
+/** Launch reviewed HTML only in the validated desktop engine families. Only the
+ * two built-in SHA-256-pinned plugins pass `isReviewedPlugin` in
+ * PluginSandboxFrame.tsx; see the note there on what admitting another plugin
+ * would need. */
 export function supportsPluginEngine(runtime: "electron" | "native-desktop" | "native-mobile" | "web", userAgent: string): boolean {
   if (runtime !== "web") return runtime === "electron";
   return /\b(?:Chrome|Chromium|HeadlessChrome)\/\d+\b/.test(userAgent)

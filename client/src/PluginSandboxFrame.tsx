@@ -23,7 +23,12 @@ import {
 export { handlePluginHostMessage, isPluginSandboxSupported } from "./plugin-sandbox-runtime.js";
 
 /** Until arbitrary HTML has an independently verified runtime, only the known
- * reviewed artifacts may be executable. Folder imports receive no guest frame. */
+ * reviewed artifacts may be executable. Folder imports receive no guest frame.
+ * Today that is the two built-in SHA-256-pinned plugins, in desktop Chromium and
+ * Electron only. This gate is the only barrier: a child frame the guest creates
+ * runs in an unpatched realm, and WebRTC to a TURN server has not been proven
+ * blocked. Before admitting any other HTML plugin, add an Electron WebRTC
+ * policy, refuse guest frame creation and run a real TURN probe. */
 function isReviewedPlugin(plugin: InstalledPluginRecord): boolean {
   if (isPinnedCanvas(plugin)) return true;
   return plugin.enabled && plugin.sourceKind === "official" && OFFICIAL_PLUGIN_CATALOG.some(entry =>

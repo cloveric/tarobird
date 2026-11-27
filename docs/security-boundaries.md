@@ -1098,6 +1098,15 @@ The Electron session also filters guest requests. These controls were checked
 using harmless local documents, inert workers and resource hints. No live
 WebRTC transport or external DNS traffic was used to certify a network firewall.
 
+Today only the two built-in plugins whose bytes are pinned by SHA-256 (Quick
+Scratchpad and Infinite Canvas) get an execution frame, and only in desktop
+Chromium and Electron. That App-side gate is what keeps the following gap
+closed: a child frame the guest creates at runtime runs in a realm the
+WebRTC-global lockdown has not patched, and WebRTC to a TURN server from such
+a frame has not been shown to be blocked. Before any other HTML plugin is
+admitted, three things are needed: an Electron WebRTC policy, refusal of
+guest-created frames, and a real TURN probe.
+
 Calls to the App use a capability-checked message bridge. Its hello reply
 contains the plugin ID, theme, language, and granted capabilities and domains.
 The registry and storage remain scoped to the device, full Host identity and
