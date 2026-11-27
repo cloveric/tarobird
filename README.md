@@ -2,7 +2,7 @@
   <img src="assets/tarobot-cover.png" width="100%" alt="TaroBird — Your agents. One conversation away.">
 </p>
 
-<h3 align="center">An open-source ADE for the AI agents on your own computers.<br>The same conversations on desktop and phone.</h3>
+<h3 align="center">An open-source ADE that works like a messaging app.<br>Chat with the AI agents on your computer, from desktop or phone. Built for developers and everyday people.</h3>
 
 <p align="center">
   Codex · Claude Code · Kimi Code · DeepSeek Harness · Antigravity · Pi · oh-my-pi (omp)
@@ -24,7 +24,7 @@ https://github.com/user-attachments/assets/6cd6e2a9-92c9-47e5-96f1-8b0a02df69a7
 
 <p align="center"><sub>57-second product overview · <a href="https://www.youtube.com/watch?v=R0WvfGiIFiw">YouTube</a> · <a href="assets/product/demo-en.gif">Animated overview</a></sub></p>
 
-TaroBird is an open-source, self-hosted ADE (agentic development environment) for AI agents. It brings command-line agents such as Codex and Claude Code, running on your computers or servers, into a single conversation interface: assign tasks, answer questions, follow each run and receive deliverables from desktop or phone. Bots, conversations and files stay on your own hosts.
+TaroBird is an open-source, self-hosted ADE (agentic development environment) that works like a messaging app, built for developers and everyday people alike. It brings command-line agents such as Codex and Claude Code, running on your computers or servers, into a single conversation interface: assign tasks, answer questions, follow each run and receive deliverables from desktop or phone. Bots, conversations and files stay on your own hosts.
 
 <table>
   <tr>
