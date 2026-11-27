@@ -420,6 +420,34 @@ describe("useUsageReadings and useEngineQuota hook regression tests (#137)", () 
     return { result, element: createElement(Harness) };
   }
 
+  it.each(["auth_changed", "login_required", "mode_not_supported", "not_adapted", "scope_unverifiable"] as const)(
+    "retires the Settings reading when a conversation reports %s, then shows the new login", async reason => {
+      const conn = makeConnection("host-settings-retired");
+      const initial = makeScope(BASE_NOW, 40);
+      conn.readEngineQuotas.mockResolvedValue({ generatedAt: isoAt(BASE_NOW), scopes: [initial], truncated: false });
+      const { result, element } = settingsHarness(conn);
+      await act(async () => { root!.render(element); });
+      expect(result.value?.directory?.scopes[0]?.observedAt).toBe(initial.observedAt);
+
+      // The conversation's worker invalidates this login without a new observedAt.
+      // Settings keeps its original directory and only re-renders through the store subscriber.
+      const retired = { ...initial, reason, observedAt: undefined, pools: [], state: "unknown" as const };
+      await act(async () => { applyHostQuotaScope(conn, "alpha", retired, BASE_NOW); });
+      expect(readStoredQuota(conn, "alpha", BASE_NOW)).toBeUndefined();
+      expect(mem.get(SAVED_QUOTA_KEY) ?? "{}").not.toContain('"alpha"');
+      expect(result.value?.directory?.scopes[0]).toEqual(retired);
+      expect(result.value?.cachedScopeIds.size).toBe(0);
+
+      const current = makeScope(BASE_NOW + 10_000, 12, { revision: "new_login" });
+      await act(async () => { applyHostQuotaScope(conn, "alpha", current, BASE_NOW + 10_000); });
+      expect(result.value?.directory?.scopes[0]).toEqual(current);
+      expect(result.value?.cachedScopeIds.size).toBe(0);
+      // A store notification must not issue a directory/native refresh or feed itself back.
+      expect(conn.readEngineQuotas).toHaveBeenCalledTimes(1);
+      expect(conn.refreshEngineQuota).not.toHaveBeenCalled();
+    },
+  );
+
   it("reads a card shared by two Bots once, and the reading reaches the other Bot through the shared store (#77 with #137)", async () => {
     const conn = makeConnection("host-settings-shared");
     const shared = { sharing: "verified" as const, botIds: ["alpha", "beta"] };

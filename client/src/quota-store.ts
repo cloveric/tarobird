@@ -25,6 +25,8 @@ export type ProjectedQuotaDirectory = {
 type StoreEntry = {
   held: Map<string, StoredQuota>;
   saved: Map<string, QuotaScope>;
+  /** Latest worker answers, including login invalidations with no reading. Never persisted. */
+  answered: Map<string, QuotaScope>;
   hydrated: boolean;
   listeners: Set<() => void>;
 };
@@ -39,7 +41,7 @@ const storage = {
 function entryFor(connection: HubConnection, now = Date.now()): StoreEntry {
   let entry = stores.get(connection);
   if (!entry) {
-    entry = { held: new Map(), saved: new Map(), hydrated: false, listeners: new Set() };
+    entry = { held: new Map(), saved: new Map(), answered: new Map(), hydrated: false, listeners: new Set() };
     stores.set(connection, entry);
   }
   const host = connection.identity.hubPublicKey;
@@ -63,6 +65,8 @@ function notify(entry: StoreEntry): void {
 }
 
 function reconcileScope(entry: StoreEntry, botId: string, scope: QuotaScope): StoredQuota | undefined {
+  // A Hub no-answer cannot confirm or retire a login.
+  if (workerAnswered(scope)) entry.answered.set(botId, scope);
   const prevHeld = entry.held.get(botId);
   const earlier = entry.saved.get(botId);
   const fate = earlier && !prevHeld ? savedQuotaAfter(earlier, scope) : "drop";
@@ -130,9 +134,10 @@ export function clearStoredQuotaHost(connection: HubConnection): void {
   if (existing) {
     existing.held.clear();
     existing.saved.clear();
+    existing.answered.clear();
     existing.hydrated = true;
   } else {
-    stores.set(connection, { held: new Map(), saved: new Map(), hydrated: true, listeners: new Set() });
+    stores.set(connection, { held: new Map(), saved: new Map(), answered: new Map(), hydrated: true, listeners: new Set() });
   }
   const host = connection.identity.hubPublicKey;
   if (host) forgetSavedQuotaHost(host);
@@ -243,9 +248,15 @@ function projectQuotaScope(scope: QuotaScope, stored: StoredQuota | undefined, n
 /** Pure, side-effect-free projection of the shared store onto a live Hub directory.
  * Never mutates store state, writes storage, or notifies listeners — safe to call during render or subscription callbacks. */
 export function projectQuotaDirectory(connection: HubConnection, directory: QuotaDirectory, now = Date.now()): ProjectedQuotaDirectory {
+  const entry = entryFor(connection, now);
   const cachedScopeIds = new Set<string>();
   const scopes = directory.scopes.map((scope) => {
-    const projected = projectQuotaScope(scope, readStoredQuota(connection, scope.id, now), now);
+    const stored = readStoredQuota(connection, scope.id, now);
+    const answered = entry.answered.get(scope.id);
+    // Settings can still hold a directory for a login retired by a conversation's worker.
+    // Replace that snapshot even when its reading was cleared, but preserve Hub fallback state.
+    const current = workerAnswered(scope) && answered && (!stored || answered.revision !== scope.revision) ? answered : scope;
+    const projected = projectQuotaScope(current, stored, now);
     if (projected.fromCache) cachedScopeIds.add(scope.id);
     return projected.scope;
   });
