@@ -162,15 +162,28 @@ test("phone details offer group settings while inside a topic", async ({ page },
 test("designated reply mode saves cleanly, displays responder accurately, and Add Member keeps unsaved edits without 409 conflicts", async ({ page }) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "group-designated-"));
   const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+  const releaseSettings = Promise.withResolvers<void>();
+  let initialSettingsRequested = false;
   try {
     await seed(hub);
     await pair(page, hub);
     await workspace(page).locator(".group-tree-heading .conversation-row").click();
+    await page.route("**/api/groups/same_group/settings", async route => {
+      if (route.request().method() !== "GET" || initialSettingsRequested) return route.continue();
+      initialSettingsRequested = true;
+      await releaseSettings.promise;
+      await route.continue();
+    });
     await open(page);
 
-    // 1. Editing title then switching Bot dropdown in Add Member MUST NOT wipe unsaved title edits!
+    // Keep the first settings response pending while the user edits the title.
+    await expect.poll(() => initialSettingsRequested).toBe(true);
     const titleField = dialog(page).getByLabel("群组名称", { exact: true });
+    await expect(titleField).toBeEnabled();
     await titleField.fill("未保存的新群名");
+    releaseSettings.resolve();
+    await expect(dialog(page).getByText("正在读取群聊方式…", { exact: true })).toBeHidden();
+    await expect(titleField).toHaveValue("未保存的新群名");
     const botPicker = dialog(page).locator(".group-add-member-box label", { hasText: /^Bot/ }).locator("select");
     await expect(botPicker).toBeVisible();
     await botPicker.selectOption("beta");
@@ -199,5 +212,64 @@ test("designated reply mode saves cleanly, displays responder accurately, and Ad
     await expect(workspace(page).getByRole("region", { name: "群聊方式与讨论状态" })).toContainText("指定 Bot 回复");
     await expect(workspace(page).getByRole("region", { name: "群聊方式与讨论状态" })).toContainText("默认 研究助手 回复");
     await expect(workspace(page).getByRole("button", { name: /让谁回复：默认：研究助手/ })).toBeVisible();
-  } finally { await page.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+  } finally {
+    releaseSettings.resolve();
+    await page.close(); await hub.close(); await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a delayed settings response updates untouched fields and keeps local member and policy edits", async ({ page }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "group-settings-draft-"));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+  const releaseSettings = Promise.withResolvers<void>();
+  try {
+    await seed(hub);
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('gamma','本机助手','fixture'),('delta','新增助手','fixture')");
+    await hub.store.updateGroup("owner", "same_group", { title: "产品群", botIds: ["alpha", "beta"], expectedTitle: "产品群", expectedBotIds: ["alpha"] });
+    await pair(page, hub);
+    let requested = false;
+    await page.route("**/api/groups/same_group/settings", async route => {
+      if (route.request().method() !== "GET" || requested) return route.continue();
+      requested = true;
+      await releaseSettings.promise;
+      await route.continue();
+    });
+    await open(page);
+    await expect.poll(() => requested).toBe(true);
+    const settings = dialog(page);
+    const localBot = settings.getByRole("checkbox", { name: "本机助手", exact: true });
+    const addedBot = settings.getByRole("checkbox", { name: "新增助手", exact: true });
+    const sequential = settings.getByRole("radio", { name: /^轮流讨论/ });
+    const maxRounds = settings.getByLabel("最多讨论轮数", { exact: true });
+    const order = settings.locator(".group-discussion-order .group-order-name");
+    await localBot.check();
+    await sequential.check();
+    await maxRounds.selectOption("4");
+    await settings.getByRole("button", { name: "上移 写作助手", exact: true }).click();
+    await expect(order).toHaveText(["写作助手", "研究助手", "本机助手"]);
+    await expect(addedBot).not.toBeChecked();
+
+    const previous = await hub.store.groupSettings("owner", "same_group");
+    await hub.store.updateGroup("owner", "same_group", {
+      title: "其他设备的群名", botIds: ["alpha", "beta", "delta"],
+      expectedTitle: previous.group.title, expectedBotIds: previous.group.botIds, expectedRevision: previous.revision,
+      policy: { mode: "independent", maxRounds: 2, botOrder: ["delta", "alpha", "beta"] },
+    });
+    releaseSettings.resolve();
+    await expect(settings.getByLabel("群组名称", { exact: true })).toHaveValue("其他设备的群名");
+    await expect(localBot).toBeChecked();
+    await expect(addedBot).toBeChecked();
+    await expect(sequential).toBeChecked();
+    await expect(maxRounds).toHaveValue("4");
+    await expect(order).toHaveText(["写作助手", "研究助手", "本机助手", "新增助手"]);
+    await settings.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(settings).toHaveCount(0);
+    expect(await hub.store.groupSettings("owner", "same_group")).toMatchObject({
+      group: { title: "其他设备的群名", botIds: ["alpha", "beta", "delta", "gamma"] },
+      policy: { mode: "sequential", maxRounds: 4, botOrder: ["beta", "alpha", "gamma", "delta"] },
+    });
+  } finally {
+    releaseSettings.resolve();
+    await page.close(); await hub.close(); await rm(root, { recursive: true, force: true });
+  }
 });
