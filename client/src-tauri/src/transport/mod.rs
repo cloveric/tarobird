@@ -251,6 +251,8 @@ pub struct HttpInput {
     origin: String,
     hub_key: Option<String>,
     certificate_authority: Option<String>,
+    #[serde(default)]
+    edge_tls: Option<bool>,
     path: String,
     method: String,
     headers: Vec<(String, String)>,
@@ -325,7 +327,7 @@ pub async fn net_http_open(
         }
         let route = state
             .network
-            .prepare_with_ca(&input.origin, input.hub_key.as_deref(), input.certificate_authority.as_deref())
+            .prepare_route(&input.origin, input.hub_key.as_deref(), input.certificate_authority.as_deref(), input.edge_tls.unwrap_or(false))
             .await?;
         let mut request = route
             .client
@@ -341,12 +343,12 @@ pub async fn net_http_open(
         }
         let response = match request.send().await {
             Ok(value) => value,
-            Err(_) => {
+            Err(err) => {
                 state
                     .network
                     .forget(&input.origin, input.hub_key.as_deref())
                     .await;
-                return Err("native_request_failed".into());
+                return Err(core::classify_reqwest_error(&err, "native_request_failed").into());
             }
         };
         let head = HttpHead {
@@ -433,6 +435,7 @@ pub fn net_socket_open(
     origin: String,
     hub_key: Option<String>,
     certificate_authority: Option<String>,
+    edge_tls: Option<bool>,
     events: Channel<SocketEvent>,
     window: WebviewWindow,
     state: State<'_, Transport>,
@@ -450,7 +453,7 @@ pub fn net_socket_open(
         .map_err(|_| "native_transport_unavailable")? = Some(sender);
     tauri::async_runtime::spawn(async move {
         let result = cancellable(&slot, async {
-            let route = network.prepare_with_ca(&origin, hub_key.as_deref(), certificate_authority.as_deref()).await?;
+            let route = network.prepare_route(&origin, hub_key.as_deref(), certificate_authority.as_deref(), edge_tls.unwrap_or(false)).await?;
             let socket = match core::websocket(&route).await {
                 Ok(socket) => socket,
                 Err(error) => {

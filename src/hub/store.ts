@@ -1,3 +1,4 @@
+import { hostT } from "../locales/index.js";
 import { workbenchContextSchema, type WorkbenchContext } from "../client-protocol/workbench.js";
 import { reserveWorkbenchHistory, workbenchContextDigest, type WorkbenchContextReceipt } from "./workbench-history.js";
 import { BOT_AVATAR_DEFAULT_PREFIX } from "./bot-avatar-default.js";
@@ -8,13 +9,16 @@ import { steeringApplicationSchema } from "../client-protocol/steering-outcome.j
 import { deletedMessage, deleteMessagesSchema, personalMessageEvent, messageEventId } from "../client-protocol/message-deletion.js";
 import { MAX_CLEAR_MESSAGES, MESSAGE_CLEAR_ACTIVE, clearMessagesInputSchema, hasPendingCardAction, type ClearMessagesInput, type ClearMessagesPlan, type ClearMessagesResult } from "../client-protocol/message-clear.js";
 import { isRunActive, anyRun, runSummarySchema } from "../client-protocol/run.js";
+import { runPlanPreview } from "../client-protocol/run-plan.js";
 import { backgroundTaskGroup } from "../client-protocol/background-task-group.js";
 import { answerFollowup, activeAnswerFollowup } from "../client-protocol/answer-followup.js";
 import { queueNotice } from "../client-protocol/queue-notice.js";
+import { transcriptionState } from "../client-protocol/voice-presentation.js";
 import { SEARCH_EXCERPT_CHARS, SEARCH_PAGE_SIZE, searchCursorSchema, searchPageSchema, type SearchFilters, type SearchPage } from "../client-protocol/search.js";
 import { steerResultSchema, type SteerResult } from "../client-protocol/steering.js";
 import { extractLinks, normalizedLink, linkPreviewSchema, linkPreviewStyleSchema, type LinkPreview, type LinkPreviewStyle } from "../client-protocol/links.js";
 import { forwardedBlocks, messageAttachmentIds } from "../client-protocol/forwarding.js";
+import { isGeneratedVoiceFilename } from "../client-protocol/voice-presentation.js";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { MAX_FRAME_BYTES, idSchema, blocksText, conversationSchema, eventSchema, messageSchema, type Block, type CardElement, type ClientFrame, type Conversation, type HubEvent, type Json, type Message } from "../client-protocol/index.js";
@@ -34,8 +38,8 @@ export { HubError } from "./errors.js";
 export type User = { id: string; name: string; role: "owner" | "member" };
 export type Device = { id: string; user_id: string; name: string; platform: string; public_key: string; revoked: number; created_at: number; last_seen: number };
 export type DeviceSummary = Omit<Device, "public_key"> & { nameSource?: "host" };
-export type Bot = { id: string; name: string; engine: string; model: string; effort: string; online: number; managed?: number; deletedAt?: number; defaultAvatar?: string; role?: BotRole };
-type ConversationRow = { history_origin_json?: string | null; id: string; type: "direct" | "group"; title: string; owner_id: string; parent_id: string | null; session_id: string | null; binding_id: string | null; archived: number; created_at: number; hidden: number; ticket_json: string | null };
+export type Bot = { id: string; name: string; engine: string; model: string; effort: string; online: number; managed?: number; deletedAt?: number; defaultAvatar?: string; role?: BotRole; workspacePath?: string };
+type ConversationRow = { history_origin_json?: string | null; id: string; type: "direct" | "group"; title: string; owner_id: string; parent_id: string | null; session_id: string | null; binding_id: string | null; workspace_path?: string | null; archived: number; created_at: number; hidden: number; ticket_json: string | null };
 type MessageRow = { history_json?: string | null; workbench_receipt_json?: string | null; discussion_json?: string | null; bot_source_json?: string | null; preview_style: string | null; preview_url: string | null; link_preview_json: string | null; forwarded_json: string | null; mentions_json: string; id: string; conversation_id: string; author_id: string; author_type: "user" | "bot" | "system"; blocks_json: string; status: Message["status"]; version: number; client_msg_id: string | null; reply_to: string | null; created_at: number };
 type MessageHeader = Pick<MessageRow, "id" | "conversation_id" | "author_id" | "author_type" | "created_at" | "version" | "client_msg_id">;
 function deletedMessageRow(row: MessageHeader): Message {
@@ -51,7 +55,20 @@ export type TransactionGuard = () => Promise<unknown>;
 /** Frozen-context digest, plus (on a run source) later inputs that may have reached that run. */
 type SteeringInputReceipt = Partial<WorkbenchContextReceipt> & { inputs?: string[]; inputsTruncated?: true };
 const MAX_RUN_INPUTS = 8;
-export type SendMessageInput = { workbench?: WorkbenchContext; groupReplyGuard?: import("../client-protocol/index.js").GroupReplyGuard; parallelCapable?: boolean; groupDiscussion?: Message["groupDiscussion"]; botSource?: Message["botSource"]; conversationId: string; clientMsgId: string; text: string; attachments: string[]; replyTo?: string; mentions?: string[]; previewUrl?: string | null; previewStyle?: LinkPreviewStyle };
+export type SendMessageInput = { workbench?: WorkbenchContext; groupReplyGuard?: import("../client-protocol/index.js").GroupReplyGuard; parallelCapable?: boolean; designatedCapable?: boolean; groupDiscussion?: Message["groupDiscussion"]; botSource?: Message["botSource"]; conversationId: string; clientMsgId: string; text: string; attachments: string[]; replyTo?: string; mentions?: string[]; previewUrl?: string | null; previewStyle?: LinkPreviewStyle };
+export type RemoteGroupDispatch = { userId: string; groupId: string; conversationId: string; message: Message; questionIds: string[] };
+/** Downgraded settings revision returned to pre-1.7 (1.6.0) clients that do not
+ * understand `mode: "designated"` and parse discussion modes with a closed enum. */
+export function groupSettingsCompatRevision(revision: string): string {
+  return `${revision}_compat`;
+}
+/** Projects `designated` as `mentions` with a distinct compat revision for clients
+ * without `groups.cross-host.v1`, keeping their strict Zod parsers & composer usable
+ * for explicit @-mentions while preventing unmentioned sends or silent policy overwrites. */
+export function compatGroupSettings(settings: GroupSettingsSnapshot, designatedCapable: boolean): GroupSettingsSnapshot {
+  if (designatedCapable || settings.policy.mode !== "designated") return settings;
+  return { ...settings, policy: { ...settings.policy, mode: "mentions" }, revision: groupSettingsCompatRevision(settings.revision) };
+}
 export type BotPublishInput = { id?: string; conversationId: string; blocks: Block[]; status?: Message["status"]; replyTo?: string; version?: number };
 export function newId(prefix: string): string { return `${prefix}_${randomUUID().replaceAll("-", "")}`; }
 const historyCursorSchema = z.object({ v: z.literal(1), scope: z.string().regex(/^[a-f0-9]{64}$/), at: z.number().int().safe(), id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/) }).strict();
@@ -77,6 +94,7 @@ function historySearchWhere(userId: string, query: string, filters: SearchFilter
 }
 export class HubStore {
   private listeners = new Set<(event: HubEvent) => void>();
+  private remoteDispatchListeners = new Set<(dispatch: RemoteGroupDispatch) => void>();
   private searchTail: Promise<unknown> = Promise.resolve();
   private readonly auditLog: HubAudit;
   constructor(readonly db: HubDatabase) { this.auditLog = new HubAudit(db); }
@@ -91,6 +109,8 @@ export class HubStore {
   }
   subscribe(listener: (event: HubEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private emit(event: HubEvent): void { for (const listener of this.listeners) { try { listener(event); } catch { /* A socket failure cannot roll back a committed event. */ } } }
+  onRemoteDispatch(listener: (dispatch: RemoteGroupDispatch) => void): () => void { this.remoteDispatchListeners.add(listener); return () => this.remoteDispatchListeners.delete(listener); }
+  private emitRemoteDispatch(dispatch: RemoteGroupDispatch): void { for (const listener of this.remoteDispatchListeners) { try { listener(dispatch); } catch { /* A listener error cannot roll back committed work. */ } } }
   async audit(kind: string, actor: string | null, detail: Record<string, string | number | boolean> = {}): Promise<void> {
     await this.auditLog.write(kind, actor, detail);
   }
@@ -104,8 +124,12 @@ export class HubStore {
     if (!await this.db.get("SELECT 1 FROM conversation_members WHERE conversation_id=? AND member_type='bot' AND member_id=?", [conversationId, botId])) throw new HubError("bot_forbidden", 403);
   }
   async requireOwner(userId: string): Promise<void> {
-    if ((await this.db.get<User>("SELECT * FROM users WHERE id=?", [userId]))?.role !== "owner") throw new HubError("owner_required", 403);
+    if (!await this.isOwnerInTransaction(userId)) throw new HubError("owner_required", 403);
   }
+  private async isOwnerInTransaction(userId: string): Promise<boolean> {
+    return (await this.db.get<Pick<User, "role">>("SELECT role FROM users WHERE id=?", [userId]))?.role === "owner";
+  }
+  isOwner(userId: string): Promise<boolean> { return this.db.serial(() => this.isOwnerInTransaction(userId)); }
   user(userId: string): Promise<User | undefined> { return this.db.serial(() => this.db.get<User>("SELECT * FROM users WHERE id=?", [userId])); }
   device(deviceId: string): Promise<Device | undefined> { return this.db.serial(() => this.db.get<Device>("SELECT * FROM devices WHERE id=?", [deviceId])); }
   devices(userId: string): Promise<DeviceSummary[]> {
@@ -118,15 +142,21 @@ export class HubStore {
   }
   bots(userId: string, includeDeleted = false): Promise<Bot[]> {
     return this.db.serial(async () => {
-      const rows = await this.db.all<Omit<Bot, "role"> & { role: string; deleted_at: number | null; assigned_avatar: string | null }>(`SELECT id,name,engine,model,effort,online,role,deleted_at,(SELECT value FROM meta WHERE key=?||bots.id) AS assigned_avatar,EXISTS(SELECT 1 FROM managed_bots m WHERE m.bot_id=bots.id) AS managed FROM bots WHERE (? OR deleted_at IS NULL) AND (EXISTS(SELECT 1 FROM users WHERE id=? AND role='owner') OR id IN (SELECT bot_id FROM bot_grants WHERE user_id=?)) ORDER BY id`, [BOT_AVATAR_DEFAULT_PREFIX, Number(includeDeleted), userId, userId]);
-      return rows.map(({ deleted_at, assigned_avatar, role, ...bot }) => {
+      const owner = await this.isOwnerInTransaction(userId);
+      const rows = await this.db.all<Omit<Bot, "role" | "workspacePath"> & { role: string; deleted_at: number | null; assigned_avatar: string | null; workspace_path: string | null }>(`SELECT id,name,engine,model,effort,online,role,deleted_at,workspace_path,(SELECT value FROM meta WHERE key=?||bots.id) AS assigned_avatar,EXISTS(SELECT 1 FROM managed_bots m WHERE m.bot_id=bots.id) AS managed FROM bots WHERE (? OR deleted_at IS NULL) AND (EXISTS(SELECT 1 FROM users WHERE id=? AND role='owner') OR (role NOT IN ('dispatcher','worker') AND id IN (SELECT bot_id FROM bot_grants WHERE user_id=?))) ORDER BY id`, [BOT_AVATAR_DEFAULT_PREFIX, Number(includeDeleted), userId, userId]);
+      return rows.map(({ deleted_at, assigned_avatar, role, workspace_path, ...bot }) => {
         const assigned = botAvatarById(assigned_avatar), known = botRoleSchema.safeParse(role);
-        return { ...bot, ...(known.success ? { role: known.data } : {}), ...(assigned ? { defaultAvatar: assigned.id } : {}), ...(deleted_at ? { online: 0, managed: 0, deletedAt: deleted_at } : {}) };
+        return { ...bot, ...(known.success ? { role: known.data } : {}), ...(owner && workspace_path ? { workspacePath: workspace_path } : {}), ...(assigned ? { defaultAvatar: assigned.id } : {}), ...(deleted_at ? { online: 0, managed: 0, deletedAt: deleted_at } : {}) };
       });
     });
   }
-  async botStatus(id: string, status: Partial<Pick<Bot, "engine" | "model" | "effort" | "online">>): Promise<void> {
-    await this.db.serial(async () => { if (!await this.db.get("SELECT 1 FROM bots WHERE id=? AND deleted_at IS NULL", [id])) throw new HubError("bot_deleted", 410); for (const field of ["engine", "model", "effort", "online"] as const) if (status[field] !== undefined) await this.db.run(`UPDATE bots SET ${field}=? WHERE id=?`, [status[field]!, id]); });
+  async botStatus(id: string, status: Partial<Pick<Bot, "engine" | "model" | "effort" | "online" | "workspacePath">>, validate?: TransactionGuard): Promise<void> {
+    await this.db.serial(async () => {
+      await validate?.();
+      if (!await this.db.get("SELECT 1 FROM bots WHERE id=? AND deleted_at IS NULL", [id])) throw new HubError("bot_deleted", 410);
+      for (const field of ["engine", "model", "effort", "online"] as const) if (status[field] !== undefined) await this.db.run(`UPDATE bots SET ${field}=? WHERE id=?`, [status[field]!, id]);
+      if (status.workspacePath !== undefined) await this.db.run("UPDATE bots SET workspace_path=? WHERE id=?", [status.workspacePath || null, id]);
+    });
   }
   botName(userId: string, id: string): Promise<{ name: string }> {
     return this.db.serial(async () => {
@@ -166,7 +196,8 @@ export class HubStore {
         AND (status IN ('pending','streaming') OR blocks_json LIKE '%"actionId"%' OR EXISTS
           (SELECT 1 FROM json_each(blocks_json) b WHERE json_extract(b.value,'$.extra.nativeRun.phase') IN (${activeRunPhaseParams})
             OR json_extract(b.value,'$.extra.scopedRun.phase') IN (${activeRunPhaseParams})
-            OR json_extract(b.value,'$.extra.answerFollowup.phase') IN ('queued','processing')))`, [botId, ...activeRunPhases, ...activeRunPhases]);
+            OR json_extract(b.value,'$.extra.answerFollowup.phase') IN ('queued','processing')
+            OR json_type(b.value,'$.extra.appTranscription.active')='true'))`, [botId, ...activeRunPhases, ...activeRunPhases]);
       const events: HubEvent[] = [];
       const actionable = (elements: CardElement[]): boolean => elements.some(e => !!e.actionId || actionable(e.children ?? []));
       const disable = (element: CardElement): CardElement => {
@@ -178,7 +209,7 @@ export class HubStore {
       };
       for (const row of rows) {
         const old = this.decodeMessage(row);
-        const running = ["pending", "streaming"].includes(old.status) || old.blocks.some(b => b.type === "card" && ((anyRun(b) && isRunActive(anyRun(b)!.phase)) || activeAnswerFollowup(answerFollowup(b)) || ["queued", "started"].includes(queueNotice(b, old)?.state ?? "")));
+        const running = ["pending", "streaming"].includes(old.status) || old.blocks.some(b => b.type === "card" && ((anyRun(b) && isRunActive(anyRun(b)!.phase)) || activeAnswerFollowup(answerFollowup(b)) || ["queued", "started"].includes(queueNotice(b, old)?.state ?? "") || transcriptionState(b)?.active === true));
         if (!running && !old.blocks.some(b => b.type === "card" && actionable(b.elements))) continue;
         // Old choices/configuration cards are durable history, not failed runs.
         // Keep their values, titles, terminal metadata and status; retire actions only.
@@ -192,36 +223,81 @@ export class HubStore {
         if (chat.type === "group") await this.db.run("DELETE FROM conversation_members WHERE conversation_id=? AND member_type='bot' AND member_id=?", [chat.id, botId]);
         if (chat.type === "direct" || !await this.db.get("SELECT 1 FROM conversation_members WHERE conversation_id=? AND member_type='bot'", [chat.id])) await this.db.run("UPDATE conversations SET archived=1 WHERE id=?", [chat.id]);
       }
+      const retiredSessions = await this.db.all<{ conversation_id: string; group_id: string; session_id: string; member_key: string; bot_id: string; host_id: string }>(
+        "SELECT conversation_id, group_id, session_id, member_key, bot_id, host_id FROM group_session_members WHERE kind='local' AND bot_id=? AND active=1",
+        [botId],
+      );
+      if (retiredSessions.length) {
+        const retiredAt = Date.now();
+        await this.db.run("UPDATE group_session_members SET active=0, removed_at=? WHERE kind='local' AND bot_id=? AND active=1", [retiredAt, botId]);
+        for (const row of retiredSessions) {
+          await this.db.run(
+            "INSERT OR REPLACE INTO group_former_sessions(conversation_id, group_id, session_id, member_key, bot_id, host_id, revoked_at) VALUES(?,?,?,?,?,?,?)",
+            [row.conversation_id, row.group_id, row.session_id, row.member_key, row.bot_id, row.host_id, retiredAt],
+          );
+        }
+      }
+      await this.db.run("DELETE FROM group_designated_member WHERE member_key=?", [`local:${botId}`]);
       await this.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), userId, "bot.deleted", JSON.stringify({ botId, retainedHistory: true, retainedFiles: true })]);
       return { conversations: await Promise.all(chats.map(c => this.conversationRow(c.id))), events };
     });
     for (const event of result.events) this.emit(event);
     return result.conversations;
   }
-  private async conversationRow(id: string): Promise<Conversation> {
+  private async conversationRow(id: string, includeWorkspace = true): Promise<Conversation> {
     const row = await this.db.get<ConversationRow>("SELECT * FROM conversations WHERE id=?", [id]);
     if (!row) throw new HubError("conversation_not_found", 404);
     const bots = await this.db.all<{ member_id: string }>("SELECT member_id FROM conversation_members WHERE conversation_id=? AND member_type='bot' ORDER BY member_id", [id]);
-    return conversationSchema.parse({ ...(row.history_origin_json ? { historyOrigin: JSON.parse(row.history_origin_json) } : {}), id: row.id, type: row.type, title: row.title, ownerId: row.owner_id, ...(row.parent_id ? { parentId: row.parent_id } : {}), botIds: bots.map((b) => b.member_id), archived: !!row.archived, ...(row.session_id ? { sessionId: row.session_id } : {}), ...(row.binding_id ? { bindingId: row.binding_id } : {}), createdAt: row.created_at,
+    return conversationSchema.parse({ ...(row.history_origin_json ? { historyOrigin: JSON.parse(row.history_origin_json) } : {}), id: row.id, type: row.type, title: row.title, ownerId: row.owner_id, ...(row.parent_id ? { parentId: row.parent_id } : {}), botIds: bots.map((b) => b.member_id), archived: !!row.archived, ...(row.session_id ? { sessionId: row.session_id } : {}), ...(row.binding_id ? { bindingId: row.binding_id } : {}), ...(includeWorkspace && row.workspace_path ? { workspacePath: row.workspace_path } : {}), createdAt: row.created_at,
       ...(row.hidden ? { hidden: true } : {}), ...(row.ticket_json ? { ticket: conversationTicketSchema.parse(JSON.parse(row.ticket_json)) } : {}) });
+  }
+  conversationWorkspacePath(conversationId: string): Promise<string | undefined> {
+    return this.db.serial(async () => {
+      const row = await this.db.get<{ workspace_path: string | null; ticket_json: string | null }>("SELECT workspace_path,ticket_json FROM conversations WHERE id=?", [conversationId]);
+      if (!row) return undefined;
+      if (row.ticket_json) {
+        const ticket = conversationTicketSchema.safeParse(JSON.parse(row.ticket_json));
+        if (ticket.success && ticket.data.workspace) return ticket.data.workspace;
+      }
+      return row.workspace_path?.trim() || undefined;
+    });
+  }
+  /** Pin legacy single-Bot conversations (direct chats and 1-Bot groups/topics)
+   * that have no explicit workspace yet before changing the Bot's default workspace,
+   * so they remain in their original folder. */
+  pinUnassignedBotConversations(botId: string, workspacePath: string, validate?: TransactionGuard): Promise<Conversation[]> {
+    return this.db.transaction(async () => {
+      await validate?.();
+      const rows = await this.db.all<{ id: string }>(
+        `SELECT c.id FROM conversations c
+         JOIN conversation_members m ON m.conversation_id=c.id AND m.member_type='bot' AND m.member_id=?
+         WHERE c.workspace_path IS NULL AND c.hidden=0
+           AND (c.type='direct' OR (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversation_id=c.id AND cm.member_type='bot')=1)`,
+        [botId],
+      );
+      if (!rows.length) return [];
+      for (const row of rows) await this.db.run("UPDATE conversations SET workspace_path=? WHERE id=? AND workspace_path IS NULL", [workspacePath, row.id]);
+      return Promise.all(rows.map(row => this.conversationRow(row.id)));
+    });
   }
   /** Pass `hidden: false` where a listing reaches a client without dispatch.v1:
    * it would show dispatcher worker conversations as ordinary chats. */
   conversations(userId: string, options: { hidden?: boolean } = {}): Promise<Conversation[]> {
     return this.db.serial(async () => {
+      const owner = await this.isOwnerInTransaction(userId);
       const rows = await this.db.all<{ id: string }>(`SELECT c.id FROM conversations c JOIN conversation_members m ON c.id=m.conversation_id WHERE m.member_type='user' AND m.member_id=? AND NOT EXISTS(SELECT 1 FROM history_operations h WHERE h.destination_conversation_id=c.id AND h.state!='applied')${options.hidden === false ? " AND c.hidden=0" : ""} ORDER BY c.created_at`, [userId]);
-      return Promise.all(rows.map((r) => this.conversationRow(r.id)));
+      return Promise.all(rows.map((r) => this.conversationRow(r.id, owner)));
     });
   }
   conversationForBot(botId: string, conversationId: string): Promise<Conversation> { return this.db.serial(async () => { await this.requireBot(botId, conversationId); return this.conversationRow(conversationId); }); }
-  async createConversation(userId: string, botIds: string[], title: string, clientActionId: string, options: { type?: "direct" | "group"; parentId?: string; dispatchWorker?: true } = {}, validate?: TransactionGuard): Promise<Conversation> {
+  async createConversation(userId: string, botIds: string[], title: string, clientActionId: string, options: { type?: "direct" | "group"; parentId?: string; dispatchWorker?: true; workspacePath?: string } = {}, validate?: TransactionGuard): Promise<Conversation> {
     return this.db.transaction(async () => {
       await validate?.();
       return this.createConversationInTransaction(userId, botIds, title, clientActionId, options);
     });
   }
   /** Caller holds db.transaction; Agent Bus creates its dedicated chats atomically with the workspace. */
-  async createConversationInTransaction(userId: string, botIds: string[], title: string, clientActionId: string, options: { type?: "direct" | "group"; parentId?: string; dispatchWorker?: true } = {}): Promise<Conversation> {
+  async createConversationInTransaction(userId: string, botIds: string[], title: string, clientActionId: string, options: { type?: "direct" | "group"; parentId?: string; dispatchWorker?: true; workspacePath?: string } = {}): Promise<Conversation> {
     const existing = await this.db.get<{ id: string }>("SELECT id FROM conversations WHERE owner_id=? AND client_action_id=?", [userId, clientActionId]);
     if (existing) {
       const conversation = await this.conversationRow(existing.id);
@@ -238,22 +314,20 @@ export class HubStore {
     const user = await this.db.get<User>("SELECT * FROM users WHERE id=?", [userId]);
     const ids = [...new Set(botIds)];
     if (ids.length === 0) throw new HubError("bots_required");
-    let dispatcher = false;
     for (const id of ids) {
       const bot = await this.db.get<{ role: string }>("SELECT role FROM bots WHERE id=? AND deleted_at IS NULL", [id]);
       if (!bot) throw new HubError("bot_not_found", 404);
       if (!parent && user?.role !== "owner" && !await this.db.get("SELECT 1 FROM bot_grants WHERE user_id=? AND bot_id=?", [userId, id])) throw new HubError("bot_forbidden", 403);
-      dispatcher ||= bot.role === "dispatcher";
       // A dispatcher's engine worker only runs its hidden ticket conversations.
       if (bot.role === "worker" && !options.dispatchWorker) throw new HubError("dispatch_worker_internal", 409);
+      // Dispatchers operate owner-only ticket ledgers and Host CLI workers.
+      if (bot.role === "dispatcher" && user?.role !== "owner") throw new HubError("bot_forbidden", 403);
     }
     const id = newId("gw");
     const type = parent ? "group" : options.type ?? (ids.length === 1 ? "direct" : "group");
     if (type === "direct" && ids.length !== 1) throw new HubError("direct_requires_one_bot");
-    // A dispatcher works through exactly one conversation and is never a group member.
-    if (dispatcher && type === "group") throw new HubError("dispatcher_group_forbidden", 409);
-    if (dispatcher && await this.db.get("SELECT 1 FROM conversations c JOIN conversation_members m ON m.conversation_id=c.id WHERE m.member_type='bot' AND m.member_id=? AND c.type='direct'", [ids[0]!])) throw new HubError("dispatcher_single_conversation", 409);
-    await this.db.run("INSERT INTO conversations(id,type,title,owner_id,created_at,client_action_id,parent_id) VALUES(?,?,?,?,?,?,?)", [id, type, title, userId, Date.now(), clientActionId, parent?.id ?? null]);
+    const workspacePath = options.workspacePath?.trim() || parent?.workspacePath || null;
+    await this.db.run("INSERT INTO conversations(id,type,title,owner_id,created_at,client_action_id,parent_id,workspace_path) VALUES(?,?,?,?,?,?,?,?)", [id, type, title, userId, Date.now(), clientActionId, parent?.id ?? null, workspacePath]);
     if (parent) await this.db.run("INSERT INTO conversation_members SELECT ?,'user',member_id,0 FROM conversation_members WHERE conversation_id=? AND member_type='user'", [id, parent.id]);
     else await this.db.run("INSERT INTO conversation_members VALUES(?,'user',?,0)", [id, userId]);
     for (const bot of ids) await this.db.run("INSERT INTO conversation_members VALUES(?,'bot',?,0)", [id, bot]);
@@ -293,8 +367,16 @@ export class HubStore {
     const revision = `gs_${createHash("sha256").update(JSON.stringify([group.title, [...group.botIds].sort(), policy.mode, policy.botOrder, policy.maxRounds])).digest("hex").slice(0, 40)}`;
     return { group, policy, revision };
   }
-  groupSettings(userId: string, groupId: string, validate?: TransactionGuard): Promise<GroupSettingsSnapshot> {
-    return this.db.serial(async () => { await validate?.(); await this.requireMember(userId, groupId); return this.groupSettingsInTransaction(groupId); });
+  groupSettings(userId: string, groupId: string, validate?: TransactionGuard, options: { designatedCapable?: boolean } = {}): Promise<GroupSettingsSnapshot> {
+    return this.db.serial(async () => {
+      await validate?.(); await this.requireMember(userId, groupId);
+      const settings = compatGroupSettings(await this.groupSettingsInTransaction(groupId), options.designatedCapable ?? true);
+      if (settings.group.workspacePath && !await this.isOwnerInTransaction(userId)) {
+        const { workspacePath: _workspacePath, ...group } = settings.group;
+        return { ...settings, group };
+      }
+      return settings;
+    });
   }
   async updateGroup(userId: string, id: string, input: GroupSettingsInput, validate?: TransactionGuard): Promise<Conversation[]> {
     const change = groupSettingsSchema.parse(input);
@@ -315,6 +397,7 @@ export class HubStore {
       // Requests without a policy keep the original title/member comparison and
       // can never reset a saved discussion mode. A policy edit compares the full
       // settings revision, so a stale mode/order/round view cannot overwrite.
+      if (change.policy && settings.policy.mode === "designated" && change.expectedRevision === groupSettingsCompatRevision(settings.revision)) throw new HubError("group_designated_client_update_required", 409);
       if (current.title !== change.expectedTitle || !same(current.botIds, change.expectedBotIds) || change.policy && change.expectedRevision !== settings.revision) throw new HubError("group_settings_conflict", 409);
       if (change.policy) {
         if (change.policy.botOrder.length !== change.botIds.length || !same(change.policy.botOrder, change.botIds)) throw new HubError("group_discussion_order_invalid");
@@ -324,8 +407,8 @@ export class HubStore {
       for (const bot of change.botIds.filter(bot => !current.botIds.includes(bot))) {
         const added = await this.db.get<{ role: string }>("SELECT role FROM bots WHERE id=? AND deleted_at IS NULL", [bot]);
         if (!added) throw new HubError("bot_not_found", 404);
-        if (added.role === "dispatcher") throw new HubError("dispatcher_group_forbidden", 409);
         if (added.role === "worker") throw new HubError("dispatch_worker_internal", 409);
+        if (added.role === "dispatcher" && user?.role !== "owner") throw new HubError("bot_forbidden", 403);
         if (user?.role !== "owner" && !await this.db.get("SELECT 1 FROM bot_grants WHERE user_id=? AND bot_id=?", [userId, bot])) throw new HubError("bot_forbidden", 403);
       }
       // A running discussion keeps its participant snapshot; removing one of
@@ -334,14 +417,35 @@ export class HubStore {
       if (active && change.policy?.mode === "parallel") throw new HubError("group_parallel_discussion_active", 409);
       if (active && z.array(z.object({ botId: z.string() }).passthrough()).parse(JSON.parse(active.participants_json)).some(participant => !change.botIds.includes(participant.botId))) throw new HubError("group_discussion_active", 409);
       // Topics inherit membership, including archived topics when restored.
-      // Never remove access while a queued/active delivery still needs it.
+      // Never remove access while a queued/active delivery or working ticket still needs it.
       for (const row of rows) for (const bot of (await this.conversationRow(row.id)).botIds.filter(bot => !change.botIds.includes(bot))) {
-        if (await this.db.get("SELECT 1 FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE m.conversation_id=? AND d.bot_id=? AND d.status='pending' UNION ALL SELECT 1 FROM action_deliveries WHERE conversation_id=? AND bot_id=? AND status='pending' UNION ALL SELECT 1 FROM messages WHERE conversation_id=? AND author_type='bot' AND author_id=? AND status IN ('pending','streaming') LIMIT 1", [row.id, bot, row.id, bot, row.id, bot])) throw new HubError("group_bot_busy", 409);
+        if (await this.db.get("SELECT 1 FROM deliveries d JOIN messages m ON m.id=d.message_id WHERE m.conversation_id=? AND d.bot_id=? AND d.status='pending' UNION ALL SELECT 1 FROM action_deliveries WHERE conversation_id=? AND bot_id=? AND status='pending' UNION ALL SELECT 1 FROM messages WHERE conversation_id=? AND author_type='bot' AND author_id=? AND status IN ('pending','streaming') UNION ALL SELECT 1 FROM dispatch_tickets WHERE conversation_id=? AND dispatcher_bot_id=? AND status='working' LIMIT 1", [row.id, bot, row.id, bot, row.id, bot, row.id, bot])) throw new HubError("group_bot_busy", 409);
       }
       await this.db.run("UPDATE conversations SET title=? WHERE id=?", [change.title, id]);
       for (const row of rows) {
         await this.db.run("DELETE FROM conversation_members WHERE conversation_id=? AND member_type='bot' AND member_id NOT IN (SELECT value FROM json_each(?))", [row.id, JSON.stringify(change.botIds)]);
         for (const bot of change.botIds) await this.db.run("INSERT OR IGNORE INTO conversation_members VALUES(?,'bot',?,0)", [row.id, bot]);
+      }
+      const removedBots = current.botIds.filter(bot => !change.botIds.includes(bot));
+      if (removedBots.length) {
+        const retiredAt = Date.now();
+        for (const bot of removedBots) {
+          const memberKey = `local:${bot}`;
+          const activeRows = await this.db.all<{ conversation_id: string; group_id: string; session_id: string; host_id: string }>(
+            "SELECT conversation_id, group_id, session_id, host_id FROM group_session_members WHERE group_id=? AND member_key=? AND active=1",
+            [id, memberKey],
+          );
+          if (activeRows.length) {
+            await this.db.run("UPDATE group_session_members SET active=0, removed_at=? WHERE group_id=? AND member_key=? AND active=1", [retiredAt, id, memberKey]);
+            for (const sessionRow of activeRows) {
+              await this.db.run(
+                "INSERT OR REPLACE INTO group_former_sessions(conversation_id, group_id, session_id, member_key, bot_id, host_id, revoked_at) VALUES(?,?,?,?,?,?,?)",
+                [sessionRow.conversation_id, sessionRow.group_id, sessionRow.session_id, memberKey, bot, sessionRow.host_id, retiredAt],
+              );
+            }
+          }
+          await this.db.run("DELETE FROM group_designated_member WHERE group_id=? AND member_key=?", [id, memberKey]);
+        }
       }
       if (change.policy) {
         await this.db.run("INSERT INTO group_discussion_settings VALUES(?,?,?,?,?,?) ON CONFLICT(group_id) DO UPDATE SET mode=excluded.mode,order_json=excluded.order_json,max_rounds=excluded.max_rounds,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
@@ -428,10 +532,11 @@ export class HubStore {
       return this.sendMessageInTransaction(userId, input);
     });
     if (result.event) this.emit(result.event);
+    if (result.remoteDispatch) this.emitRemoteDispatch(result.remoteDispatch);
     return { message: result.message, duplicate: result.duplicate, ...(result.workbenchContextOmitted ? { workbenchContextOmitted: result.workbenchContextOmitted } : {}) };
   }
   /** Caller holds db.transaction and passes the returned event to emitCommitted after commit. */
-  async sendMessageInTransaction(userId: string, input: SendMessageInput): Promise<{ message: Message; duplicate: boolean; event?: HubEvent; workbenchContextOmitted?: "history_limit" }> {
+  async sendMessageInTransaction(userId: string, input: SendMessageInput): Promise<{ message: Message; duplicate: boolean; event?: HubEvent; remoteDispatch?: RemoteGroupDispatch; workbenchContextOmitted?: "history_limit" }> {
     await this.requireMember(userId, input.conversationId);
     const context = input.workbench ? workbenchContextSchema.parse(input.workbench) : undefined;
     if (context && (input.botSource || input.groupDiscussion)) throw new HubError("workbench_context_forbidden", 403);
@@ -449,11 +554,20 @@ export class HubStore {
     await this.requireHistoryUnfencedInTransaction(input.conversationId);
     const conv = await this.conversationRow(input.conversationId);
     if (conv.archived || conv.parentId && (await this.conversationRow(conv.parentId)).archived) throw new HubError("conversation_archived", 409);
+    const rootGroup = conv.type === "group" ? (conv.parentId ? await this.conversationRow(conv.parentId) : conv) : undefined;
     if (input.groupReplyGuard) {
       if (conv.type !== "group" || input.botSource || input.groupDiscussion) throw new HubError("group_reply_mode_changed", 409);
-      const settings = await this.groupSettingsInTransaction(conv.parentId ?? conv.id);
-      if (settings.revision !== input.groupReplyGuard.revision || settings.policy.mode !== input.groupReplyGuard.mode
-        || await this.db.get("SELECT 1 FROM group_discussions WHERE group_id=? AND status IN ('running','pausing','paused','ending')", [settings.group.id])) {
+      const settings = await this.groupSettingsInTransaction(rootGroup!.id);
+      if (await this.db.get("SELECT 1 FROM group_discussions WHERE group_id=? AND status IN ('running','pausing','paused','ending')", [settings.group.id])) {
+        throw new HubError("group_reply_mode_changed", 409);
+      }
+      const designatedCompatGuard = settings.policy.mode === "designated"
+        && input.designatedCapable === false
+        && input.groupReplyGuard.mode === "mentions"
+        && input.groupReplyGuard.revision === groupSettingsCompatRevision(settings.revision);
+      if (designatedCompatGuard) {
+        if (!input.mentions?.length) throw new HubError("group_designated_client_update_required", 409);
+      } else if (settings.revision !== input.groupReplyGuard.revision || settings.policy.mode !== input.groupReplyGuard.mode) {
         throw new HubError("group_reply_mode_changed", 409);
       }
     }
@@ -464,28 +578,88 @@ export class HubStore {
     // already accepted requests returned above; rejection rolls back the caller.
     if (input.botSource && conv.type === "group" && await this.db.get("SELECT 1 FROM group_discussions WHERE conversation_id=? AND status IN ('running','pausing','paused','ending')", [conv.id])) throw new HubError("group_discussion_active", 409);
     if (input.groupReplyGuard && automaticGroupDiscussion(input.groupReplyGuard.mode) && new Set(input.mentions ?? []).size !== 1) throw new HubError("group_discussion_start_required", 409);
-    // Only ordinary human input may fan out. Explicit recipients always win;
-    // delegated Bot tasks and scheduler inputs never become broadcasts.
-    const parallel = conv.type === "group" && !input.mentions?.length && !input.botSource && !input.groupDiscussion
-      && (await this.groupPolicyInTransaction(conv.parentId ? await this.conversationRow(conv.parentId) : conv)).mode === "parallel";
-    if (parallel && input.parallelCapable === false) throw new HubError("group_parallel_client_update_required", 409);
-    const targets = input.mentions?.length ? [...new Set(input.mentions)] : conv.type === "direct" || parallel ? conv.botIds : [];
-    for (const bot of targets) { if (!conv.botIds.includes(bot)) throw new HubError("mention_forbidden", 403); await this.requireBot(bot, conv.id); }
+    type ActiveRemoteRow = { member_key: string; host_id: string; host_name: string; host_public_key: string | null; bot_id: string; session_id: string; name_snapshot: string };
+    const loadActiveRemoteMembers = async (): Promise<ActiveRemoteRow[]> => {
+      if (conv.type !== "group" || !rootGroup) return [];
+      const hasRoomRows = conv.parentId
+        ? !!(await this.db.get("SELECT 1 FROM group_session_members WHERE conversation_id=? LIMIT 1", [conv.id]))
+        : true;
+      const scopeConvId = hasRoomRows ? conv.id : rootGroup.id;
+      return this.db.all<ActiveRemoteRow>(
+        "SELECT member_key, host_id, host_name, host_public_key, bot_id, session_id, name_snapshot FROM group_session_members WHERE conversation_id=? AND kind='remote' AND active=1 ORDER BY joined_at ASC",
+        [scopeConvId],
+      );
+    };
+    const ordinaryHumanGroup = conv.type === "group" && !input.botSource && !input.groupDiscussion && !input.clientMsgId.startsWith("gdnote_");
+    const activeDiscussion = ordinaryHumanGroup && !!(await this.db.get("SELECT 1 FROM group_discussions WHERE conversation_id=? AND status IN ('running','pausing','paused','ending')", [conv.id]));
+    const policy = rootGroup ? await this.groupPolicyInTransaction(rootGroup) : undefined;
+    // Only ordinary human input may fan out or route via designated responder.
+    // Explicit recipients always win; delegated Bot tasks and scheduler inputs never become broadcasts.
+    let targets: string[] = [];
+    let remoteTargets: ActiveRemoteRow[] = [];
+    let mentions: string[] | undefined = input.mentions;
+    if (input.mentions?.length) {
+      const requested = [...new Set(input.mentions)];
+      const remotes = ordinaryHumanGroup && !activeDiscussion ? await loadActiveRemoteMembers() : [];
+      for (const bot of requested) {
+        if (conv.botIds.includes(bot)) {
+          await this.requireBot(bot, conv.id);
+          targets.push(bot);
+        } else {
+          const matchingRemotes = remotes.filter(r => r.bot_id === bot || r.member_key === bot);
+          if (!matchingRemotes.length) throw new HubError("mention_forbidden", 403);
+          remoteTargets.push(...matchingRemotes);
+        }
+      }
+      mentions = [...new Set([...targets, ...remoteTargets.map(r => r.bot_id)])];
+    } else if (conv.type === "direct") {
+      targets = [...conv.botIds];
+      for (const bot of targets) await this.requireBot(bot, conv.id);
+    } else if (ordinaryHumanGroup && !activeDiscussion && policy?.mode === "parallel") {
+      if (input.parallelCapable === false) throw new HubError("group_parallel_client_update_required", 409);
+      targets = [...conv.botIds];
+      for (const bot of targets) await this.requireBot(bot, conv.id);
+      remoteTargets = await loadActiveRemoteMembers();
+      mentions = [...new Set([...targets, ...remoteTargets.map(r => r.bot_id)])];
+    } else if (ordinaryHumanGroup && !activeDiscussion && policy?.mode === "designated" && rootGroup) {
+      if (input.designatedCapable === false) throw new HubError("group_designated_client_update_required", 409);
+      const designated = await this.db.get<{ member_key: string }>("SELECT member_key FROM group_designated_member WHERE group_id=?", [rootGroup.id]);
+      if (designated?.member_key.startsWith("local:")) {
+        const botId = designated.member_key.slice("local:".length);
+        if (conv.botIds.includes(botId) && await this.db.get("SELECT 1 FROM bots WHERE id=? AND deleted_at IS NULL", [botId])) {
+          targets = [botId];
+          mentions = [botId];
+        }
+      } else if (designated?.member_key.startsWith("remote:")) {
+        const remotes = await loadActiveRemoteMembers();
+        const match = remotes.find(r => r.member_key === designated.member_key);
+        if (match) {
+          remoteTargets = [match];
+          mentions = [match.bot_id];
+        }
+      }
+    }
     const previewStyle = linkPreviewStyleSchema.optional().parse(input.previewStyle);
     const links = extractLinks(input.text);
     const previewUrl = input.previewUrl === null ? null : input.previewUrl === undefined ? links[0] : normalizedLink(input.previewUrl);
     if (input.previewUrl && (!previewUrl || !links.includes(previewUrl))) throw new HubError("preview_url_not_in_message");
     const blocks: Block[] = input.text ? [{ type: "text", text: input.text }] : [];
     for (const id of input.attachments) {
-      const file = await this.db.get<AttachmentRow>("SELECT * FROM attachments WHERE id=? AND complete=1 AND conversation_id=?", [id, conv.id]);
+      const file = await this.db.get<AttachmentRow & { recording: number | null }>("SELECT a.*, ar.recording AS recording FROM attachments a LEFT JOIN attachment_recording ar ON ar.attachment_id=a.id WHERE a.id=? AND a.complete=1 AND a.conversation_id=?", [id, conv.id]);
       if (!file) throw new HubError("attachment_not_found", 404);
-      blocks.push(file.mime.startsWith("image/") ? { type: "image", attachmentId: id, title: file.name } : file.mime.startsWith("audio/") ? { type: "audio", attachmentId: id, name: file.name } : { type: "file", attachmentId: id, name: file.name, size: file.size, mime: file.mime });
+      const isAudio = /^audio\//i.test(file.mime);
+      const isRecording = isAudio && (file.recording === 1
+        || (file.recording == null && isGeneratedVoiceFilename(file.name)));
+      blocks.push(
+        /^image\//i.test(file.mime) ? { type: "image", attachmentId: id, title: file.name }
+        : isRecording ? { type: "audio", attachmentId: id, name: file.name, ...(file.recording === 1 ? { recording: true } : {}) }
+        : { type: "file", attachmentId: id, name: file.name, size: file.size, mime: file.mime },
+      );
     }
     if (!blocks.length) throw new HubError("empty_message");
     if (input.replyTo && !await this.db.get("SELECT 1 FROM messages WHERE id=? AND conversation_id=? AND status!='deleted' AND NOT EXISTS(SELECT 1 FROM message_deletions d WHERE d.message_id=messages.id AND d.user_id=?)", [input.replyTo, conv.id, userId])) throw new HubError("reply_not_found", 404);
     // Freeze the addressed recipients in the existing message contract. This
     // also makes default @-only workers and explicit retries use the same set.
-    const mentions = parallel ? targets : input.mentions;
     const message: Message = { ...(input.groupDiscussion ? { groupDiscussion: input.groupDiscussion } : {}), ...(input.botSource ? { botSource: input.botSource } : {}), id: newId("msg"), conversationId: conv.id, authorId: userId, authorType: "user", blocks, ...(previewUrl !== undefined ? { previewUrl } : {}), ...(previewUrl && previewStyle ? { previewStyle } : {}), status: "complete", version: 1, clientMsgId: input.clientMsgId, ...(mentions?.length ? { mentions } : {}), ...(input.replyTo ? { replyTo: input.replyTo } : {}), createdAt: Date.now() };
     await this.saveMessage(message);
     let workbenchContextOmitted: "history_limit" | undefined;
@@ -497,7 +671,29 @@ export class HubStore {
     }
     for (const id of input.attachments) await this.db.run("INSERT OR IGNORE INTO message_attachments VALUES(?,?)", [message.id, id]);
     for (const bot of targets) await this.db.run("INSERT INTO deliveries(message_id,bot_id,queue_position) SELECT ?,?,COALESCE(MAX(queue_position),0)+1 FROM deliveries WHERE bot_id=?", [message.id, bot, bot]);
-    return { message, duplicate: false, event: await this.append(conv.id, "message.created", message), ...(workbenchContextOmitted ? { workbenchContextOmitted } : {}) };
+    const questionIds: string[] = [];
+    if (remoteTargets.length && rootGroup) {
+      const now = Date.now();
+      for (const remote of remoteTargets) {
+        const qid = `gq_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+        const requestId = `greq_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
+        await this.db.run(
+          `INSERT INTO group_remote_questions(
+            id, group_id, conversation_id, member_key, host_id, host_name, host_public_key, bot_id, session_id,
+            bot_name_snapshot, source_message_id, request_id, status, stopped_unanswered, error, created_at, updated_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'sending',0,NULL,?,?)`,
+          [qid, rootGroup.id, conv.id, remote.member_key, remote.host_id, remote.host_name, remote.host_public_key, remote.bot_id, remote.session_id, remote.name_snapshot, message.id, requestId, now, now],
+        );
+        questionIds.push(qid);
+      }
+    }
+    return {
+      message,
+      duplicate: false,
+      event: await this.append(conv.id, "message.created", message),
+      ...(questionIds.length && rootGroup ? { remoteDispatch: { userId, groupId: rootGroup.id, conversationId: conv.id, message, questionIds } } : {}),
+      ...(workbenchContextOmitted ? { workbenchContextOmitted } : {}),
+    };
   }
   /** Headless author publication: transcript-only, never impersonates a Bot or
    * schedules an engine turn. Uses the same durable card as the native tool. */
@@ -893,6 +1089,7 @@ export class HubStore {
         if (!file) throw new HubError("attachment_not_found", 404);
         const id = newId("att"); await copy(file, id);
         await this.db.run("INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,1,?)", [id, conv.id, userId, file.sha256, file.size, file.mime, file.name, `${id}.blob`, Date.now()]);
+        await this.db.run("INSERT OR IGNORE INTO attachment_recording(attachment_id, recording) SELECT ?, recording FROM attachment_recording WHERE attachment_id=?", [id, sourceId]);
         remapped.set(sourceId, id);
       }
       const author = original.authorType === "bot" ? await this.db.get<{ name: string }>("SELECT name FROM bots WHERE id=?", [original.authorId]) : await this.db.get<{ name: string }>("SELECT name FROM users WHERE id=?", [original.authorId]);
@@ -944,6 +1141,42 @@ export class HubStore {
     await this.saveMessage(message);
     return { message, event: await this.append(input.conversationId, old ? "message.updated" : "message.created", message) };
   }
+  /** Caller holds db.transaction and passes the returned event to emitCommitted after commit.
+   * Writes a remote peer Bot's answer through saveMessage + append so FTS, push outbox, and WS broadcast stay in sync. */
+  async publishRemoteBotMessageInTransaction(input: {
+    conversationId: string;
+    botId: string;
+    clientMsgId: string;
+    replyTo?: string;
+    blocks: Block[];
+    botSource: NonNullable<Message["botSource"]>;
+  }): Promise<{ message: Message; event?: HubEvent; duplicate: boolean }> {
+    const old = await this.db.get<MessageRow>(
+      "SELECT * FROM messages WHERE author_id=? AND client_msg_id=?",
+      [input.botId, input.clientMsgId],
+    );
+    if (old) return { message: this.decodeMessage(old), duplicate: true };
+    const message = messageSchema.parse({
+      id: newId("msg"),
+      conversationId: input.conversationId,
+      authorId: input.botId,
+      authorType: "bot",
+      blocks: input.blocks,
+      status: "complete",
+      version: 1,
+      clientMsgId: input.clientMsgId,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
+      botSource: input.botSource,
+      createdAt: Date.now(),
+    });
+    await this.saveMessage(message);
+    return { message, event: await this.append(input.conversationId, "message.created", message), duplicate: false };
+  }
+  /** Caller holds db.transaction. Durable notice to clients that group settings/members changed. */
+  async groupSettingsEventInTransaction(groupId: string): Promise<HubEvent> {
+    const settings = await this.groupSettingsInTransaction(groupId);
+    return this.append(groupId, "turn.state", { groupSettings: { groupId, revision: settings.revision } }, false);
+  }
   messageForBot(botId: string, id: string): Promise<Message> { return this.db.serial(async () => { const row = await this.db.get<MessageRow>("SELECT * FROM messages WHERE id=?", [id]); if (!row) throw new HubError("message_not_found", 404); await this.requireBot(botId, row.conversation_id); await this.requireUnsealedInTransaction(botId, [id]); return this.decodeMessage(row); }); }
   /** Independent first round: until the Hub reveals it, no other Bot (member
    * or later-added) can read a participant's reply (or its files) to a blind
@@ -992,7 +1225,7 @@ export class HubStore {
       const rows = await this.db.all<MessageRow>("SELECT * FROM messages WHERE conversation_id=? AND reply_to=? AND author_id=? AND author_type='bot' AND status!='deleted'", [input.conversation_id, messageId, botId]);
       for (const row of rows) {
         const old = this.decodeMessage(row);
-        if (!["pending", "streaming"].includes(old.status) && !old.blocks.some((b) => b.type === "card" && (actionable(b.elements) || activeAnswerFollowup(answerFollowup(b)) || (anyRun(b) && isRunActive(anyRun(b)!.phase))))) continue;
+        if (!["pending", "streaming"].includes(old.status) && !old.blocks.some((b) => b.type === "card" && (actionable(b.elements) || activeAnswerFollowup(answerFollowup(b)) || (anyRun(b) && isRunActive(anyRun(b)!.phase)) || transcriptionState(b)?.active === true))) continue;
         const message = this.interruptedRunMessage(old, reason, note);
         await this.saveMessage(message); events.push(await this.append(message.conversationId, "message.updated", message));
       }
@@ -1017,8 +1250,10 @@ export class HubStore {
       // Forwarding strips grouping; an interrupted member keeps its validated
       // original record, still bound to the same scoped run ID.
       const group = original.type === "card" && original.extra?.scopedRun !== undefined && run && backgroundTaskGroup(original, run) ? original.extra.backgroundTaskGroup : undefined;
+      const plan = original.type === "card" && original.extra?.scopedRun === undefined && run ? runPlanPreview(original, run) : undefined;
       const answer = original.type === "card" ? answerFollowup(original) : undefined;
       const queue = original.type === "card" ? queueNotice(original, old) : undefined;
+      const transcription = original.type === "card" ? transcriptionState(original) : undefined;
       if (block.type === "card" && queue && ["queued", "started"].includes(queue.state)) {
         const { cancel: _cancel, ...data } = queue;
         const state = orphanQueue ? "expired" : reason === "failed" ? "failed" : "interrupted";
@@ -1026,18 +1261,32 @@ export class HubStore {
         return { ...block, summary, extra: { ...block.extra, appQueue: { ...data, state } },
           elements: [{ type: "markdown", text: orphanQueue ? "排队提示已失效，实际结果请查看本对话的后续回复。" : note }] };
       }
+      if (block.type === "card" && transcription?.active) {
+        const en = original.type === "card" && original.elements[0]?.type === "markdown" && /^\*\*Transcribing audio…\*\*$/.test(original.elements[0].text ?? "");
+        const filename = block.elements.length === 3 && block.elements[1]?.type === "markdown" ? [block.elements[1]] : [];
+        return {
+          ...block,
+          extra: { ...block.extra, appTranscription: { ...transcription, active: false } },
+          elements: [
+            { type: "markdown", text: `**${en ? "Transcription interrupted" : "转写已中断"}**` },
+            ...filename,
+            { type: "markdown", text: en ? "Audio transcription was interrupted. The original recording remains in this conversation." : "音频转写已中断，原录音仍保留在对话中。" },
+          ],
+        };
+      }
       if (block.type === "card" && answer && activeAnswerFollowup(answer)) {
-        const text = answer.locale === "en" ? "Follow-up interrupted. Your answer is kept here; check the conversation before retrying." : "后续处理已中断，你的答案保留在此，请查看对话后再决定是否重试。";
-        return { ...block, title: answer.locale === "en" ? "Answer follow-up interrupted" : "补答处理已中断", extra: { ...block.extra, answerFollowup: { ...answer, phase: "interrupted" } },
+        const text = hostT(answer.locale, "后续处理已中断，你的答案保留在此，请查看对话后再决定是否重试。");
+        return { ...block, title: hostT(answer.locale, "补答处理已中断"), extra: { ...block.extra, answerFollowup: { ...answer, phase: "interrupted" } },
           elements: block.elements.filter(element => element.type !== "button").map(element => element.id === "answer_followup_status" ? { ...element, text } : element) };
       }
       return block.type === "card" ? { ...block,
-      ...(run ? { extra: { ...block.extra, ...(group !== undefined ? { backgroundTaskGroup: group } : {}), [original.type === "card" && original.extra?.scopedRun !== undefined ? "scopedRun" : "nativeRun"]: { ...JSON.parse(JSON.stringify(run)), phase: reason === "interrupted" ? "interrupted" : "error", revision: run.revision + 1, updatedAt: Date.now(), endedAt: Date.now() } } } : {}),
+      ...(run ? { extra: { ...block.extra, ...(group !== undefined ? { backgroundTaskGroup: group } : {}), ...(plan ? { nativeRunPlan: { ...plan, items: plan.items.map(item => ({ ...item })), revision: run.revision + 1 } } : {}), [original.type === "card" && original.extra?.scopedRun !== undefined ? "scopedRun" : "nativeRun"]: { ...JSON.parse(JSON.stringify(run)), phase: reason === "interrupted" ? "interrupted" : "error", revision: run.revision + 1, updatedAt: Date.now(), endedAt: Date.now() } } } : {}),
       title: reason === "interrupted" ? "处理已中断" : "处理未完成", template: "orange",
       elements: run ? [...block.elements, { type: "markdown", text: note }] : [{ type: "markdown", text: note }, { type: "collapsible", text: block.title ? `中断前：${block.title}` : "查看中断前的内容", open: false, children: block.elements }],
     } : block; }));
     const expiredNoticeOnly = orphanQueue && old.blocks.length > 0 && old.blocks.every(block => block.type === "card" && ["queued", "started"].includes(queueNotice(block, old)?.state ?? ""));
-    return { ...old, version: old.version + 1, status: expiredNoticeOnly ? "complete" : "error", blocks: preserved.length && preserved.every((b) => b.type === "card") ? preserved : [{ type: "text", text: note }, ...preserved] };
+    const transcriptionOnly = old.blocks.length > 0 && old.blocks.every(block => block.type === "card" && transcriptionState(block)?.active === true);
+    return { ...old, version: old.version + 1, status: expiredNoticeOnly || transcriptionOnly ? "complete" : "error", blocks: preserved.length && preserved.every((b) => b.type === "card") ? preserved : [{ type: "text", text: note }, ...preserved] };
   }
   /** Only a new worker attachment invokes this, never an ordinary reconnect.
    * Pending input deliveries have their own durable receipt recovery. Scheduled
@@ -1056,10 +1305,12 @@ export class HubStore {
             OR (json_extract(b.value,'$.extra.answerFollowup.phase') IN ('queued','processing')
             AND json_extract(b.value,'$.extra.answerFollowup.startedAt') < ?)
             OR (json_extract(b.value,'$.extra.appQueue.state') IN ('queued','started') AND json_extract(b.value,'$.extra.appQueue.at') < ?)
+            OR (json_type(b.value,'$.extra.appTranscription.active')='true'
+              AND COALESCE(json_extract(b.value,'$.extra.appTranscription.at'), m.created_at) < ?)
             OR (json_type(b.value,'$.extra.appQueue') IS NULL AND m.created_at < ?
               AND json_extract(b.value,'$.extra.schema')='2.0' AND json_extract(b.value,'$.layout.padding')='8px 12px 8px 12px'
               AND json_array_length(b.value,'$.elements')=2 AND json_extract(b.value,'$.elements[1].value.cctb_lark')='stop')))
-        AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id=m.reply_to AND d.bot_id=m.author_id AND d.status='pending')`, [botId, ...activeRunPhases, before, ...activeRunPhases, before, before, before, before]);
+        AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.message_id=m.reply_to AND d.bot_id=m.author_id AND d.status='pending')`, [botId, ...activeRunPhases, before, ...activeRunPhases, before, before, before, before, before]);
       const events: HubEvent[] = [];
       for (const row of rows) {
         const old = this.decodeMessage(row);
@@ -1069,7 +1320,11 @@ export class HubStore {
           if (block.type !== "card") return false;
           const run = anyRun(block), answer = answerFollowup(block);
           const queue = queueNotice(block, old);
-          return (run && run.startedAt < before && isRunActive(run.phase)) || (answer && answer.startedAt < before && activeAnswerFollowup(answer)) || (queue && ["queued", "started"].includes(queue.state) && queue.at < before);
+          const transcription = transcriptionState(block);
+          return (run && run.startedAt < before && isRunActive(run.phase))
+            || (answer && answer.startedAt < before && activeAnswerFollowup(answer))
+            || (queue && ["queued", "started"].includes(queue.state) && queue.at < before)
+            || (transcription?.active === true && (transcription.at ?? old.createdAt) < before);
         })) continue;
         const message = this.interruptedRunMessage(old, "interrupted", "处理因实例重启而中断，以上内容已保留，待确认操作已关闭。", true);
         await this.saveMessage(message); events.push(await this.append(message.conversationId, "message.updated", message));
@@ -1233,10 +1488,11 @@ export class HubStore {
   snapshot(userId: string, conversationId: string): Promise<{ conversation: Conversation; messages: Message[]; seq: number }> {
     return this.db.serial(async () => {
       await this.requireMember(userId, conversationId);
+      const owner = await this.isOwnerInTransaction(userId);
       const messages = (await this.db.all<MessageRow>("SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at,rowid", [conversationId])).map((r) => this.decodeMessage(r));
       const seq = (await this.db.get<{ seq: number }>("SELECT COALESCE(MAX(seq),0) AS seq FROM events WHERE conversation_id=?", [conversationId]))!.seq;
       const hidden = await this.hiddenMessages(userId, conversationId);
-      return { conversation: await this.conversationRow(conversationId), messages: messages.map(message => hidden.has(message.id) ? deletedMessage(message) : message), seq };
+      return { conversation: await this.conversationRow(conversationId, owner), messages: messages.map(message => hidden.has(message.id) ? deletedMessage(message) : message), seq };
     });
   }
   syncHead(userId: string, conversationId: string): Promise<{ seq: number; firstSeq: number }> {
@@ -1283,7 +1539,8 @@ export class HubStore {
     const db = await HubDatabase.snapshot(this.db.file), view = new HubStore(db), id = newId("snapshot");
     try {
       await db.exec("BEGIN"); await view.requireMember(userId, conversationId);
-      const conversation = await view.conversationRow(conversationId);
+      const owner = await view.isOwnerInTransaction(userId);
+      const conversation = await view.conversationRow(conversationId, owner);
       const { seq, firstSeq } = (await db.get<{ seq: number; firstSeq: number }>(replayHeadSql, [conversationId]))!;
       const readSeq = (await db.get<{ seq: number }>("SELECT seq FROM reads WHERE user_id=? AND conversation_id=?", [userId, conversationId]))?.seq ?? 0;
       // Completion transitions match ClientCache.apply; editing an already-complete

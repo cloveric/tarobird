@@ -25,27 +25,23 @@ async function connect(page: Page, hub: HubServer, title: string, userId = "owne
 }
 async function newDesign(page: Page) {
   await panel(page).getByRole("button", { name: "新建内容", exact: true }).click();
-  await panel(page).getByRole("menu").getByRole("button", { name: "画布", exact: true }).click();
+  await panel(page).getByRole("menu").getByRole("button", { name: "演示文稿", exact: true }).click();
   // The product hides this entry. Reveal it only in this legacy collaboration
   // fixture so the retained sharing component/protocol still has coverage.
   await panel(page).locator(".workbench-design-sharing-entry").evaluate(node => node.removeAttribute("hidden"));
 }
-// Any nested editor frame (the artboard depth depends on the editor build).
-const artboards = (page: Page) => page.frames().filter(frame => frame !== page.mainFrame() && frame.parentFrame() !== page.mainFrame());
-const depth = (frame: Frame) => { let n = 0; for (let f: Frame | null = frame; f?.parentFrame(); f = f.parentFrame()) n++; return n; };
-const frameTree = (page: Page) => page.frames().map(frame => `${depth(frame)}:${frame.url().slice(0, 40)}`);
-const headings = (page: Page) => Promise.all(artboards(page).map(frame => frame.locator("h1").first().textContent({ timeout: 300 }).catch(() => "")));
-async function artboardWith(page: Page, text: string): Promise<Frame> {
-  try { await expect.poll(() => headings(page), { timeout: 30000 }).toContain(text); }
-  catch (error) { console.log("OPUS_FRAMES", JSON.stringify(frameTree(page)), JSON.stringify(await headings(page)), JSON.stringify((await panel(page).innerText().catch(() => "")).slice(0, 600))); throw error; }
-  for (const frame of artboards(page)) if ((await frame.locator("h1").first().textContent({ timeout: 300 }).catch(() => "")) === text) return frame;
-  throw new Error(`no artboard shows ${text}`);
+const editorFrames = (page: Page) => page.frames().filter(frame => frame !== page.mainFrame() && frame.parentFrame() === page.mainFrame());
+const headings = (page: Page) => Promise.all(editorFrames(page).map(frame => frame.getByRole("heading", { level: 1 }).first().textContent({ timeout: 300 }).catch(() => "")));
+async function waitHeading(page: Page, text: string): Promise<Frame> {
+  await expect.poll(() => headings(page), { timeout: 30000 }).toContain(text);
+  for (const frame of editorFrames(page)) if ((await frame.getByRole("heading", { level: 1 }).first().textContent({ timeout: 300 }).catch(() => "")) === text) return frame;
+  throw new Error(`no slide shows ${text}`);
 }
 async function editHeading(page: Page, frame: Frame, text: string) {
-  await frame.locator("h1").first().dblclick(); await page.keyboard.press("Meta+A"); await page.keyboard.type(text); await page.keyboard.press("Escape");
+  await frame.getByRole("heading", { level: 1 }).first().dblclick(); await page.keyboard.press("Meta+A"); await page.keyboard.type(text); await page.keyboard.press("Escape");
 }
 
-test("opus: owner shares a Baoyu design from one device and edits it from another; disconnect retires the copy until an explicit rejoin", async ({ page, browser }) => {
+test("opus: owner shares a Baoyu PPT from one device and edits it from another; disconnect retires the copy until an explicit rejoin", async ({ page, browser }) => {
   test.setTimeout(180000);
   const directory = await mkdtemp(path.join(os.tmpdir(), "design-share-e2e-"));
   const hub = await HubServer.start({ stateDir: directory, clientDir });
@@ -55,10 +51,10 @@ test("opus: owner shares a Baoyu design from one device and edits it from anothe
   const errors: string[] = []; for (const device of [page, other]) device.on("pageerror", error => { errors.push(error.message); console.log("OPUS_PAGEERROR", error.message.slice(0, 300)); });
   const broker = (hub as unknown as { workbench: WorkbenchBroker }).workbench, actor = { userId: "owner", conversationId: conversation.id, validate: async () => undefined };
   try {
-    // Device A: create a design, give it a recognisable title, share it (explicit click).
+    // Device A: create a PPT, give it a recognisable title, share it (explicit click).
     await connect(page, hub, conversation.title); await newDesign(page);
-    await editHeading(page, await artboardWith(page, "画布"), "Shared from A");
-    await artboardWith(page, "Shared from A");
+    await editHeading(page, await waitHeading(page, "演示文稿"), "Shared from A");
+    await waitHeading(page, "Shared from A");
     await panel(page).getByRole("button", { name: /^共享/ }).click();
     const dialog = page.getByRole("dialog", { name: "共享与协作", exact: true });
     await dialog.getByRole("button", { name: "开始共享", exact: true }).click();
@@ -68,10 +64,10 @@ test("opus: owner shares a Baoyu design from one device and edits it from anothe
     await dialog.getByRole("button", { name: "关闭", exact: true }).click();
 
     // Device B (the owner's other device): find it under "Shared with me" and open it.
-    await connect(other, hub, conversation.title); await newDesign(other); await artboardWith(other, "画布");
+    await connect(other, hub, conversation.title); await newDesign(other); await waitHeading(other, "演示文稿");
     await panel(other).getByRole("button", { name: /^共享/ }).click();
     const otherDialog = other.getByRole("dialog", { name: "共享与协作", exact: true });
-    const item = otherDialog.locator(".design-sharing-list li").filter({ hasText: "画布" });
+    const item = otherDialog.locator(".design-sharing-list li").filter({ hasText: "演示文稿" });
     await expect(item).toContainText("所有者", { timeout: 15000 }); await expect(item).toContainText("源设备在线");
     await item.getByRole("button", { name: "打开", exact: true }).click();
     const viewer = other.getByRole("region", { name: /^共享的设计：/ });
@@ -79,19 +75,18 @@ test("opus: owner shares a Baoyu design from one device and edits it from anothe
     // Shared copies say plainly that Send to Bot happens on the sharing device.
     await expect(viewer.getByText(/不能从这里发给 Bot/)).toBeVisible();
     // The joined copy renders A's content through the Host, then B edits it.
-    await editHeading(other, await artboardWith(other, "Shared from A"), "Edited on B");
+    await editHeading(other, await waitHeading(other, "Shared from A"), "Edited on B");
     // The edit is committed on device A, which holds the document.
     const sourceContains = async (text: string) => {
       const targets = await workbenchContentTargets(broker, actor), found: string[] = [];
       for (const target of targets) for (const tab of target.tabs.filter(tab => tab.kind === "design")) {
-        const read = await broker.request(actor, { requestId: `read-${target.windowId}-${tab.id}-${Date.now()}`, operation: "design.read", target: { deviceId: target.deviceId, windowId: target.windowId, tabId: tab.id }, payload: { path: "project/Main.dc.html" } }).catch(() => undefined);
+        const read = await broker.request(actor, { requestId: `read-${target.windowId}-${tab.id}-${Date.now()}`, operation: "design.read", target: { deviceId: target.deviceId, windowId: target.windowId, tabId: tab.id }, payload: { path: "project/slides/cover.html" } }).catch(() => undefined);
         const content = (read?.result as { content?: string } | undefined)?.content ?? "";
         if (content.includes(text)) found.push(target.deviceId);
       }
       return found.length;
     };
     await expect.poll(() => sourceContains("Edited on B"), { timeout: 30000 }).toBe(1);
-    console.log("OPUS_SHARE_A_FRAME", JSON.stringify(await headings(page)));
 
     // B loses its connection: the copy retires at once; recovery is an explicit rejoin.
     await otherContext.setOffline(true);
@@ -99,17 +94,17 @@ test("opus: owner shares a Baoyu design from one device and edits it from anothe
     await otherContext.setOffline(false); await waitForClientOnline(other);
     await viewer.getByRole("button", { name: "重新加入", exact: true }).click();
     await expect(viewer.getByText("连接已断开。重新加入后继续；断开期间不会在本机保存修改。", { exact: true })).toHaveCount(0, { timeout: 15000 });
-    await artboardWith(other, "Edited on B");
+    await waitHeading(other, "Edited on B");
 
     // Leave right after typing: the last edit is saved on A before the copy is revoked.
-    await editHeading(other, await artboardWith(other, "Edited on B"), "Left from B");
+    await editHeading(other, await waitHeading(other, "Edited on B"), "Left from B");
     await viewer.getByRole("button", { name: "离开", exact: true }).click();
     await expect(viewer).toHaveCount(0, { timeout: 15000 });
     await expect.poll(() => sourceContains("Left from B"), { timeout: 30000 }).toBe(1);
     // Reopen from "Shared with me" for the stop-sharing check below.
     await panel(other).getByRole("button", { name: /^共享/ }).click();
-    await otherDialog.locator(".design-sharing-list li").filter({ hasText: "画布" }).getByRole("button", { name: "打开", exact: true }).click();
-    await expect(viewer).toBeVisible(); await artboardWith(other, "Left from B");
+    await otherDialog.locator(".design-sharing-list li").filter({ hasText: "演示文稿" }).getByRole("button", { name: "打开", exact: true }).click();
+    await expect(viewer).toBeVisible(); await waitHeading(other, "Left from B");
 
     // A stops sharing: B's copy ends, and A's document keeps the shared edit.
     await panel(page).getByRole("button", { name: /^共享/ }).click();
@@ -135,7 +130,7 @@ test("opus: the owner grants a real conversation member view-only access from th
   const broker = (hub as unknown as { workbench: WorkbenchBroker }).workbench, actor = { userId: "owner", conversationId: conversation.id, validate: async () => undefined };
   try {
     await connect(page, hub, conversation.title); await newDesign(page);
-    await editHeading(page, await artboardWith(page, "画布"), "Owner only text"); await artboardWith(page, "Owner only text");
+    await editHeading(page, await waitHeading(page, "演示文稿"), "Owner only text"); await waitHeading(page, "Owner only text");
     await panel(page).getByRole("button", { name: /^共享/ }).click();
     const dialog = page.getByRole("dialog", { name: "共享与协作", exact: true });
     await dialog.getByRole("button", { name: "开始共享", exact: true }).click();
@@ -144,20 +139,20 @@ test("opus: the owner grants a real conversation member view-only access from th
     await picker.selectOption("viewer");
     await expect(picker).toHaveValue("viewer");
 
-    await connect(guest, hub, conversation.title, "guest"); await newDesign(guest); await artboardWith(guest, "画布");
+    await connect(guest, hub, conversation.title, "guest"); await newDesign(guest); await waitHeading(guest, "演示文稿");
     await panel(guest).getByRole("button", { name: /^共享/ }).click();
-    const item = guest.getByRole("dialog", { name: "共享与协作", exact: true }).locator(".design-sharing-list li").filter({ hasText: "画布" });
+    const item = guest.getByRole("dialog", { name: "共享与协作", exact: true }).locator(".design-sharing-list li").filter({ hasText: "演示文稿" });
     await expect(item).toContainText("仅查看", { timeout: 15000 });
     await item.getByRole("button", { name: "打开", exact: true }).click();
     const viewer = guest.getByRole("region", { name: /^共享的设计：/ });
     await expect(viewer).toContainText("仅查看");
-    const copy = await artboardWith(guest, "Owner only text");
+    const copy = await waitHeading(guest, "Owner only text");
     // A view-only copy cannot change the owner's document.
     await editHeading(guest, copy, "Guest tried to edit");
     await guest.waitForTimeout(3000);
     const targets = await workbenchContentTargets(broker, actor), contents: string[] = [];
     for (const target of targets) for (const tab of target.tabs.filter(tab => tab.kind === "design")) {
-      const read = await broker.request(actor, { requestId: `member-read-${tab.id}`, operation: "design.read", target: { deviceId: target.deviceId, windowId: target.windowId, tabId: tab.id }, payload: { path: "project/Main.dc.html" } });
+      const read = await broker.request(actor, { requestId: `member-read-${tab.id}`, operation: "design.read", target: { deviceId: target.deviceId, windowId: target.windowId, tabId: tab.id }, payload: { path: "project/slides/cover.html" } });
       contents.push((read.result as { content?: string }).content ?? "");
     }
     expect(contents.some(content => content.includes("Owner only text"))).toBe(true);
@@ -171,7 +166,7 @@ test("opus: the owner grants a real conversation member view-only access from th
   }
 });
 
-test("owner deletes a shared design offline, then ends its orphan share from the empty Workbench", async ({ page }) => {
+test("owner deletes a shared PPT offline, then ends its orphan share from the empty Workbench", async ({ page }) => {
   test.setTimeout(180000); page.setDefaultTimeout(15000);
   const directory = await mkdtemp(path.join(os.tmpdir(), "design-orphan-e2e-"));
   const hub = await HubServer.start({ stateDir: directory, clientDir });
@@ -179,7 +174,7 @@ test("owner deletes a shared design offline, then ends its orphan share from the
   const conversation = await hub.store.createConversation("owner", ["bot"], "Orphan share recovery", "new");
   const records = async () => (await hub.store.db.serial(() => hub.store.db.all<{ value: string }>("SELECT value FROM meta WHERE key LIKE 'workbench-design-share:%'"))).map(row => JSON.parse(row.value));
   try {
-    await connect(page, hub, conversation.title); await newDesign(page); await artboardWith(page, "画布");
+    await connect(page, hub, conversation.title); await newDesign(page); await waitHeading(page, "演示文稿");
     await panel(page).getByRole("button", { name: /^共享/ }).click();
     const dialog = page.getByRole("dialog", { name: "共享与协作", exact: true });
     await dialog.getByRole("button", { name: "开始共享", exact: true }).click();
@@ -187,25 +182,25 @@ test("owner deletes a shared design offline, then ends its orphan share from the
     await page.context().setOffline(true);
     await expect(dialog.getByText("当前未连接主机，无法共享或加入。", { exact: true })).toBeVisible({ timeout: 15000 });
     await dialog.getByRole("button", { name: "关闭", exact: true }).click();
-    await panel(page).getByRole("tab", { name: "画布", exact: true }).click({ button: "right" });
+    await panel(page).getByRole("tab", { name: "演示文稿", exact: true }).click({ button: "right" });
     await page.getByRole("button", { name: "关闭标签", exact: true }).click();
     await expect(panel(page).getByRole("tab")).toHaveCount(0);
     await panel(page).getByRole("button", { name: "全部标签和已关闭内容", exact: true }).click();
-    await panel(page).getByRole("button", { name: "删除这个设计：画布", exact: true }).click();
+    await panel(page).getByRole("button", { name: "删除这个设计：PPT", exact: true }).click();
     await page.getByRole("button", { name: "删除设计", exact: true }).click();
     await expect.poll(async () => (await records()).map(record => record.state)).toEqual(["open"]);
     await page.context().setOffline(false); await waitForClientOnline(page);
     await panel(page).getByRole("button", { name: "新建内容", exact: true }).click();
     await panel(page).getByRole("button", { name: "共享给我的项目", exact: true }).click();
     const shared = page.getByRole("region", { name: "共享给我的项目", exact: true });
-    const row = shared.locator(".design-sharing-list li").filter({ hasText: "画布" });
+    const row = shared.locator(".design-sharing-list li").filter({ hasText: "演示文稿" });
     await expect(row).toContainText("源设备离线", { timeout: 15000 });
     await expect(row.getByRole("button", { name: "打开", exact: true })).toHaveCount(0);
-    await row.getByRole("button", { name: "结束共享：画布", exact: true }).click();
+    await row.getByRole("button", { name: "结束共享：PPT", exact: true }).click();
     await test.info().attach("orphan-end-share-confirmation", { body: await page.screenshot(), contentType: "image/png" });
     await row.getByRole("button", { name: "取消", exact: true }).click();
     expect((await records())[0].state).toBe("open");
-    await row.getByRole("button", { name: "结束共享：画布", exact: true }).click();
+    await row.getByRole("button", { name: "结束共享：PPT", exact: true }).click();
     await row.getByRole("alertdialog").getByRole("button", { name: "结束共享", exact: true }).click();
     await expect(row).toHaveCount(0);
     await expect.poll(async () => (await records()).map(record => record.state)).toEqual(["closed"]);

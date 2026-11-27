@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DesignShareClient, joinDesignShare, type DesignShareTransport } from "../src/workbench-design-collaboration.js";
-import { designTextFile, emptyDesign, type DesignDocument } from "../src/workbench-design.js";
+import { designTextFile, emptySlides, type DesignDocument } from "../src/workbench-design.js";
 import type { DesignShareServerFrame } from "../../src/client-protocol/workbench-design-sharing.js";
 
 const shareId = `ds_${"d".repeat(24)}`, path = "project/note.txt";
 function fixture() {
-  let current: DesignDocument = emptyDesign("freshness");
+  let current: DesignDocument = emptySlides("freshness");
   let receive: (frame: DesignShareServerFrame) => void = () => {};
   let wanted: string | undefined, held: (() => void) | undefined, onHold: (() => void) | undefined;
   const reply = (requestId: string, result: unknown) => receive({ v: 1, type: "design.share.result", requestId, ok: true, result } as DesignShareServerFrame);
@@ -14,9 +14,9 @@ function fixture() {
     send(frame) {
       const request = frame.request;
       let result: unknown;
-      if (request.op === "join") result = { role: "editor", sourceOnline: true };
+      if (request.op === "join") result = { role: "editor", sourceOnline: true, format: "slides" };
       else if (request.op === "leave") result = {};
-      else if (request.op === "call" && request.call === "list") result = { id: current.id, format: "canvas", revision: current.revision,
+      else if (request.op === "call" && request.call === "list") result = { id: current.id, format: "slides", revision: current.revision,
         files: Object.fromEntries(Object.entries(current.files).map(([key, { sha256, size, contentType }]) => [key, { sha256, size, contentType }])) };
       else if (request.op === "fetch") {
         const file = Object.values(current.files).find(item => item.sha256 === request.sha256);

@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ENGINE_SETTINGS_REPAIR_HINT, engineSettingsSchema, type EngineSettingsState, type HostEngine } from "../../src/client-protocol/engine-settings.js";
+import { ENGINE_SETTINGS_REPAIR_HINT, engineSettingsSchema, type EngineDiscoveryRule, type EngineSettingsState, type HostEngine } from "../../src/client-protocol/engine-settings.js";
 import type { HubConnection } from "./connection.js";
 import { RuntimeHostContext } from "./RuntimeHost.js";
 import { SettingsGroupHeading } from "./SettingsParts.js";
@@ -8,12 +8,26 @@ import { timeoutSignal } from "./abort-signals.js";
 import { t, useLocale } from "./i18n.js";
 import "./engine-settings.css";
 
-const labels: Record<HostEngine, string> = { codex: "Codex", claude: "Claude Code", antigravity: "Antigravity", kimi: "Kimi", deepseek: "DeepSeek", pi: "Pi" };
+const labels: Record<HostEngine, string> = { codex: "Codex", claude: "Claude Code", antigravity: "Antigravity", kimi: "Kimi", deepseek: "DeepSeek", pi: "Pi", omp: "oh-my-pi (omp)" };
+function ruleLabel(source: "setting" | "environment" | "auto", rule?: EngineDiscoveryRule | null): string {
+  if (source === "setting") return "手动指定";
+  if (source === "environment") return "主机环境变量";
+  switch (rule) {
+    case "auto-discovered": return "自动发现（已记住）";
+    case "login-shell": return "自动检测 · 登录 Shell";
+    case "package-manager": return "自动检测 · 包管理器全局目录";
+    case "windows-registry": return "自动检测 · Windows 注册表 PATH";
+    case "path": return "自动检测 · 主机 PATH";
+    case "known-directory": return "自动检测 · 常见安装目录";
+    default: return "自动检测";
+  }
+}
 export function EngineSettings({ connection, active, onBusy, onDirty, onSaved, onDetected }: { connection: HubConnection; active: boolean; onBusy?: (busy: boolean) => void; onDirty?: (dirty: boolean) => void; onSaved?: () => void; /** Engines the host reported as present in a completed read (not a save). */ onDetected?: (available: HostEngine[]) => void }) {
   useLocale(); const host = useContext(RuntimeHostContext);
   const state = useSyncExternalStore(notify => connection.subscribe(notify), () => connection.state);
   const owner = state.user?.role === "owner", online = state.status === "online", supported = state.engineSettingsAvailable === true;
   const [view, setView] = useState<EngineSettingsState>(), [editing, setEditing] = useState<HostEngine>(), [draft, setDraft] = useState("");
+  const [confirmAdopt, setConfirmAdopt] = useState<HostEngine>();
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [needsRead, setNeedsRead] = useState(false), [saved, setSaved] = useState(false);
   const [feedbackEngine, setFeedbackEngine] = useState<HostEngine>();
   const inputRef = useRef<HTMLInputElement>(null), editButtons = useRef(new Map<HostEngine, HTMLButtonElement>());
@@ -34,12 +48,12 @@ export function EngineSettings({ connection, active, onBusy, onDirty, onSaved, o
   const dirty = owner && supported && editing !== undefined && draft.trim() !== (view?.engines.find(engine => engine.id === editing)?.override ?? "");
   useEffect(() => { onBusy?.(busy); return () => onBusy?.(false); }, [busy, onBusy]);
   useEffect(() => { onDirty?.(dirty); return () => onDirty?.(false); }, [dirty, onDirty]);
-  useEffect(() => { generation.current++; flight.current = undefined; setBusy(false); setView(undefined); setEditing(undefined); setDraft(""); returnFocus.current = undefined; setError(""); setNeedsRead(false); setSaved(false); setFeedbackEngine(undefined); return () => { generation.current++; flight.current = undefined; }; }, [connection, owner, supported]);
-  const read = (requestId?: string) => connection.http(`/api/settings/engines?includePi=1${requestId ? `&requestId=${encodeURIComponent(requestId)}` : ""}`, { signal: timeoutSignal(15_000) }).then(engineSettingsSchema.parse);
-  async function refresh(focusAfter?: HostEngine | "refresh") {
+  useEffect(() => { generation.current++; flight.current = undefined; setBusy(false); setView(undefined); setEditing(undefined); setConfirmAdopt(undefined); setDraft(""); returnFocus.current = undefined; setError(""); setNeedsRead(false); setSaved(false); setFeedbackEngine(undefined); return () => { generation.current++; flight.current = undefined; }; }, [connection, owner, supported]);
+  const read = (requestId?: string, forceRefresh?: boolean) => connection.http(`/api/settings/engines?includePi=1&includeOmp=1${requestId ? `&requestId=${encodeURIComponent(requestId)}` : ""}${forceRefresh ? "&refresh=1" : ""}`, { signal: timeoutSignal(20_000) }).then(engineSettingsSchema.parse);
+  async function refresh(focusAfter?: HostEngine | "refresh", forceRefresh = false) {
     if (flight.current || !owner || !online || !supported) return;
-    const current = generation.current, token = Symbol(); flight.current = token; setBusy(true); setSaved(false); setFeedbackEngine(focusAfter === "refresh" ? undefined : focusAfter);
-    try { const value = await read(); if (current !== generation.current) return; setView(value); returnFocus.current = focusAfter; setEditing(undefined); setError(""); setNeedsRead(false); detected.current?.(value.engines.filter(engine => engine.available).map(engine => engine.id)); }
+    const current = generation.current, token = Symbol(); flight.current = token; setBusy(true); setSaved(false); setConfirmAdopt(undefined); setFeedbackEngine(focusAfter === "refresh" ? undefined : focusAfter);
+    try { const value = await read(undefined, forceRefresh); if (current !== generation.current) return; setView(value); returnFocus.current = focusAfter; setEditing(undefined); setError(""); setNeedsRead(false); detected.current?.(value.engines.filter(engine => engine.available).map(engine => engine.id)); }
     catch (cause) { if (current === generation.current) { setError(cause instanceof HubHttpError && cause.code === "engine_settings_unavailable" ? ENGINE_SETTINGS_REPAIR_HINT : "读取失败，请重新读取。"); setNeedsRead(true); returnFocus.current = focusAfter ? "recovery" : undefined; } }
     finally { if (flight.current === token) { flight.current = undefined; if (current === generation.current) setBusy(false); } }
   }
@@ -49,11 +63,11 @@ export function EngineSettings({ connection, active, onBusy, onDirty, onSaved, o
     const current = generation.current, token = Symbol(), command = { engine, path: value, revision: view.revision, requestId: crypto.randomUUID() };
     flight.current = token; setBusy(true); setSaved(false); setError(""); setFeedbackEngine(engine);
     try {
-      await connection.http("/api/settings/engines?includePi=1", { method: "PUT", signal: timeoutSignal(15_000), body: JSON.stringify(command) });
+      await connection.http("/api/settings/engines?includePi=1&includeOmp=1", { method: "PUT", signal: timeoutSignal(15_000), body: JSON.stringify(command) });
       const next = await read(command.requestId);
       if (current !== generation.current) return;
       if (next.receipt?.requestId !== command.requestId || next.receipt.revision !== next.revision || next.engines.find(item => item.id === engine)?.override !== value) throw new Error("unconfirmed");
-      setView(next); returnFocus.current = engine; setEditing(undefined); setSaved(true); onSaved?.();
+      setView(next); returnFocus.current = engine; setEditing(undefined); setConfirmAdopt(undefined); setSaved(true); onSaved?.();
     } catch (cause) {
       if (current !== generation.current) return;
       const code = cause instanceof HubHttpError ? cause.code : "";
@@ -71,23 +85,49 @@ export function EngineSettings({ connection, active, onBusy, onDirty, onSaved, o
     {!supported ? <p role="status">{t("请更新主机以使用此设置。")}</p> : <>
       {!online && <p role="status">{t("连接恢复后即可操作")}</p>}
       <p className="settings-note muted">{t("保存后，新启动的 Bot 使用新路径；已运行的 Bot 请在空闲后重启。不会中断当前任务。")}</p>
-      <div className="engine-path-list">{view?.engines.map(engine => <section className="engine-path-card" key={engine.id} aria-label={labels[engine.id]}>
-        <div className="engine-path-heading"><strong>{labels[engine.id]}</strong><span className={engine.available ? "muted" : "settings-warning"}>{engine.available ? t("已检测到 CLI") : t("未检测到 CLI")}</span></div>
-        <p className="engine-path-source">{t(engine.source === "setting" ? "手动指定" : engine.source === "environment" ? "主机环境变量" : "自动检测")}</p>
-        <code className="engine-path-value">{engine.executable ?? (engine.source !== "auto" ? engine.command : t("尚未找到可执行文件"))}</code>
-        {saved && feedbackEngine === engine.id && <p className="engine-path-feedback" role="status">{t("已保存并核实。")}</p>}
-        {editing !== engine.id && recoveryFor(engine.id)}
-        {editing === engine.id ? <div className="engine-path-editor">
-          <label>{t("CLI 程序路径")}<input ref={inputRef} aria-label={`${labels[engine.id]} ${t("CLI 程序路径")}`} value={draft} disabled={busy || needsRead} maxLength={4096} spellCheck={false} autoCapitalize="none" autoCorrect="off" placeholder={engine.executable ?? (view.platform === "win32" ? "C:\\Tools\\engine.cmd" : "/opt/tools/engine")} onChange={event => { setDraft(event.target.value); if (!needsRead) setError(""); }} onKeyDown={event => { if (event.key === "Escape" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); cancelEdit(); return; } if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); if (draft.trim()) void save(engine.id, draft.trim()); } }}/></label>
-          <p className="settings-note muted">{t("填写完整程序路径，不含参数或外层引号。清除手动路径后，将重新使用主机环境变量或自动检测。")}</p>
-          {recoveryFor(engine.id)}
-          <div className="engine-path-actions"><button type="button" className="primary" disabled={busy || !online || needsRead || !draft.trim()} onClick={() => void save(engine.id, draft.trim())}>{t("保存路径")}</button><button type="button" className="secondary" disabled={busy} onClick={cancelEdit}>{t("取消")}</button></div>
-        </div> : <div className="engine-path-actions"><button type="button" className="secondary" ref={button => { if (button) editButtons.current.set(engine.id, button); else editButtons.current.delete(engine.id); }} disabled={busy || !online || needsRead || !!editing} onClick={() => { setEditing(engine.id); setDraft(engine.override ?? ""); setSaved(false); setError(""); }}>{t("指定路径")}</button>{engine.override && <button type="button" className="secondary" disabled={busy || !online || needsRead || !!editing} onClick={() => void save(engine.id, null)}>{t("清除手动路径")}</button>}</div>}
-      </section>)}</div>
+      {view?.shellProbeStatus === "timeout" && <p className="settings-note muted" role="status">{t("登录 Shell 探测超时，已回退到主机常规目录规则。")}</p>}
+      <div className="engine-path-list">{view?.engines.map(engine => {
+        const danglingLinks = engine.danglingLinks ?? [];
+        const terminalExecutable = engine.terminalExecutable ?? null;
+        return <section className="engine-path-card" key={engine.id} aria-label={labels[engine.id]}>
+          <div className="engine-path-heading"><strong>{labels[engine.id]}</strong><span className={engine.available ? "muted" : "settings-warning"}>{engine.available ? t("已检测到 CLI") : t("未检测到 CLI")}</span></div>
+          <p className="engine-path-source">
+            <span>{t(ruleLabel(engine.source, engine.rule))}</span>
+            {engine.version && <span className="engine-path-version">{t("版本：{0}", engine.version)}</span>}
+          </p>
+          <code className="engine-path-value">{engine.executable ?? (engine.source !== "auto" ? engine.command : t("尚未找到可执行文件"))}</code>
+          {danglingLinks.length > 0 && <div className="engine-path-dangling-list">
+            {danglingLinks.map((link, idx) => <p key={`${idx}:${link.linkPath}`} className={engine.available ? "engine-path-dangling-note muted" : "engine-path-dangling-warn"}>
+              {engine.available ? t("已跳过失效软链接：{0} 指向的 {1} 已不存在", link.linkPath, link.targetPath) : t("{0} 指向的 {1} 已不存在", link.linkPath, link.targetPath)}
+            </p>)}
+          </div>}
+          {terminalExecutable && !engine.override && editing !== engine.id && <div className="engine-path-terminal-diff">
+            <p className="engine-path-terminal-label">{t(!engine.available ? "主机默认 PATH 未找到，但终端可找到：" : engine.executable !== terminalExecutable ? "主机与终端找到的路径不同，终端路径为：" : "由终端登录 Shell 的 PATH 发现（不在主机默认 PATH 中），可固定保存为手动路径：")}</p>
+            <code className="engine-path-value">{terminalExecutable}</code>
+            {confirmAdopt === engine.id ? <div className="engine-path-adopt-confirm">
+              <p className="settings-note">{t("确认采用终端路径 {0}？将保存为该引擎的固定路径。", terminalExecutable)}</p>
+              <div className="engine-path-actions">
+                <button type="button" className="primary" disabled={busy || !online || needsRead} onClick={() => void save(engine.id, terminalExecutable)}>{t("确认采用")}</button>
+                <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmAdopt(undefined)}>{t("取消")}</button>
+              </div>
+            </div> : <div className="engine-path-actions">
+              <button type="button" className="secondary" disabled={busy || !online || needsRead || !!editing} onClick={() => { setConfirmAdopt(engine.id); setSaved(false); setError(""); }}>{t("采用终端路径")}</button>
+            </div>}
+          </div>}
+          {saved && feedbackEngine === engine.id && <p className="engine-path-feedback" role="status">{t("已保存并核实。")}</p>}
+          {editing !== engine.id && recoveryFor(engine.id)}
+          {editing === engine.id ? <div className="engine-path-editor">
+            <label>{t("CLI 程序路径")}<input ref={inputRef} aria-label={`${labels[engine.id]} ${t("CLI 程序路径")}`} value={draft} disabled={busy || needsRead} maxLength={4096} spellCheck={false} autoCapitalize="none" autoCorrect="off" placeholder={engine.executable ?? (view.platform === "win32" ? "C:\\Tools\\engine.cmd" : "/opt/tools/engine")} onChange={event => { setDraft(event.target.value); if (!needsRead) setError(""); }} onKeyDown={event => { if (event.key === "Escape" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); cancelEdit(); return; } if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); if (draft.trim()) void save(engine.id, draft.trim()); } }}/></label>
+            <p className="settings-note muted">{t("填写完整程序路径，不含参数或外层引号。清除手动路径后，将重新使用主机环境变量或自动检测。")}</p>
+            {recoveryFor(engine.id)}
+            <div className="engine-path-actions"><button type="button" className="primary" disabled={busy || !online || needsRead || !draft.trim()} onClick={() => void save(engine.id, draft.trim())}>{t("保存路径")}</button><button type="button" className="secondary" disabled={busy} onClick={cancelEdit}>{t("取消")}</button></div>
+          </div> : <div className="engine-path-actions"><button type="button" className="secondary" ref={button => { if (button) editButtons.current.set(engine.id, button); else editButtons.current.delete(engine.id); }} disabled={busy || !online || needsRead || !!editing} onClick={() => { setConfirmAdopt(undefined); setEditing(engine.id); setDraft(engine.override ?? ""); setSaved(false); setError(""); }}>{t("指定路径")}</button>{engine.override && <button type="button" className="secondary" disabled={busy || !online || needsRead || !!editing} onClick={() => void save(engine.id, null)}>{t("清除手动路径")}</button>}</div>}
+        </section>;
+      })}</div>
       {!view && !error && online && <p role="status">{t("正在读取…")}</p>}
       {view && <details className="engine-path-diagnostics"><summary>{t("查看主机搜索目录")}</summary><ul>{view.searchPaths.map((directory, index) => <li key={`${index}:${directory}`}><code>{directory}</code></li>)}</ul></details>}
       {error && feedbackEngine === undefined && <p className="settings-warning" role="alert">{t(error)}</p>}
-      {(!error || feedbackEngine === undefined) && <button ref={error ? recoveryButton : refreshButton} type="button" className="secondary" disabled={busy || !online || (dirty && !needsRead)} onClick={() => void refresh("refresh")}>{t(error ? "重新读取" : "重新检测")}</button>}
+      {(!error || feedbackEngine === undefined) && <button ref={error ? recoveryButton : refreshButton} type="button" className="secondary" disabled={busy || !online || (dirty && !needsRead)} onClick={() => void refresh("refresh", true)}>{t(error ? "重新读取" : "重新检测")}</button>}
     </>}
   </div>;
 }

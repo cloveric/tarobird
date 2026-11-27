@@ -8,13 +8,14 @@ import {fileURLToPath} from 'node:url';
 import {integrationAssets} from './integration-assets.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
 test('selected skill installation includes references, preserves unrelated data and packages the same resources', async()=>{
- const destination=await mkdtemp(path.join(os.tmpdir(),'baoyu-skill-install-'));
+ const destination=await mkdtemp(path.join(os.tmpdir(),'skill-install-'));
  try{
   await writeFile(path.join(destination,'unrelated.txt'),'keep');
-  execFileSync('bash',[path.join(root,'scripts/install-skills.sh'),'--skill','baoyu-design','--skill','baoyu-ppt','--destination',destination]);
+  // Both Baoyu skills are gone (#89, #90); scrapling is the skill the package still carries.
+  execFileSync('bash',[path.join(root,'scripts/install-skills.sh'),'--skill','scrapling','--destination',destination]);
   assert.equal(await readFile(path.join(destination,'unrelated.txt'),'utf8'),'keep');
-  for(const name of ['baoyu-design','baoyu-ppt']){
-   const skill=await readFile(path.join(destination,name,'SKILL.md'),'utf8');assert.match(skill,/ordinary/i);
+  for(const name of ['scrapling']){
+   const skill=await readFile(path.join(destination,name,'SKILL.md'),'utf8');assert.match(skill,/^---\nname: scrapling\n/);
    const files=(await readdir(path.join(root,'skills',name),{recursive:true,withFileTypes:true})).filter(entry=>entry.isFile()).map(entry=>path.relative(path.join(root,'skills',name),path.join(entry.parentPath,entry.name)));
    for(const file of files){
     assert.deepEqual(await readFile(path.join(destination,name,file)),await readFile(path.join(root,'skills',name,file)));

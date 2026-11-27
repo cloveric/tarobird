@@ -1,6 +1,8 @@
 import { readdir, readFile, stat, lstat, open } from "node:fs/promises";
 import { constants, existsSync, statSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "./locale.js";
 
 function resolveHomeDir(): string {
   if (process.platform === "win32") {
@@ -215,48 +217,38 @@ function formatTimeAgo(ms: number): string {
   return `${hours}h${minutes % 60}m ago`;
 }
 
-export function formatSessionList(sessions: ScannedSession[], locale: "en" | "zh"): string {
+export function formatSessionList(sessions: ScannedSession[], locale: Locale): string {
   if (sessions.length === 0) {
-    return locale === "zh"
-      ? "最近 1 小时内没有找到本地 session。"
-      : "No local sessions found in the last hour.";
+    return hostT(locale, "最近 1 小时内没有找到本地 session。");
   }
 
-  const header = locale === "zh" ? "最近的本地 session：" : "Recent local sessions:";
+  const header = hostT(locale, "最近的本地 session：");
   const lines = sessions.map((s, i) => {
     const ago = formatTimeAgo(Date.now() - s.modifiedAt.getTime());
     const name = s.displayName;
     const idShort = s.sessionId.slice(0, 8);
     return `${i + 1}. [${name}] ${idShort}… (${ago})`;
   });
-  const footer = locale === "zh"
-    ? "\n回复 /resume <编号> 继续该 session。"
-    : "\nReply /resume <number> to continue that session.";
+  const footer = hostT(locale, "\n回复 /resume <编号> 继续该 session。");
 
   return [header, ...lines, footer].join("\n");
 }
 
-export function formatAntigravityConversationList(sessions: ScannedSession[], locale: "en" | "zh"): string {
+export function formatAntigravityConversationList(sessions: ScannedSession[], locale: Locale): string {
   if (sessions.length === 0) {
-    return locale === "zh"
-      ? "最近 24 小时内没有找到 Antigravity conversation。"
-      : "No Antigravity conversations found in the last 24 hours.";
+    return hostT(locale, "最近 24 小时内没有找到 Antigravity conversation。");
   }
 
-  const header = locale === "zh" ? "最近的 Antigravity conversation：" : "Recent Antigravity conversations:";
+  const header = hostT(locale, "最近的 Antigravity conversation：");
   const visibleSessions = sessions.slice(0, MAX_FORMATTED_ANTIGRAVITY_CONVERSATIONS);
   const lines = visibleSessions.map((s, i) => {
     const ago = formatTimeAgo(Date.now() - s.modifiedAt.getTime());
     return `${i + 1}. [${s.displayName}] ${s.sessionId.slice(0, 8)}… (${ago})`;
   });
   if (sessions.length > visibleSessions.length) {
-    lines.push(locale === "zh"
-      ? `…仅显示最近 ${visibleSessions.length} / ${sessions.length} 个。`
-      : `…showing ${visibleSessions.length} of ${sessions.length} most recent.`);
+    lines.push(hostT(locale, "…仅显示最近 {0} / {1} 个。", visibleSessions.length, sessions.length));
   }
-  const footer = locale === "zh"
-    ? "\n回复 /resume <编号> 绑定该 conversation。"
-    : "\nReply /resume <number> to attach that conversation.";
+  const footer = hostT(locale, "\n回复 /resume <编号> 绑定该 conversation。");
 
   return [header, ...lines, footer].join("\n");
 }

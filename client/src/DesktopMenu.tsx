@@ -2,6 +2,7 @@ import "./desktop-menu.css";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useBackAction } from "./back-navigation.js";
+import { addGlobalListener } from "./global-event-hub.js";
 
 /** Compact conversations clip their content; menus escape to the shared overlay. */
 export const DesktopMenuPortalContext = createContext(false);
@@ -55,16 +56,22 @@ export function DesktopMenu({ id, label, open, close, trigger, placement, point,
       }
       closeRef.current();
     };
-    window.addEventListener("resize", moved); document.addEventListener("scroll", moved, true);
-    return () => { observer.disconnect(); window.removeEventListener("resize", moved); document.removeEventListener("scroll", moved, true); };
+    const cleanups = [
+      addGlobalListener(window, "resize", moved),
+      addGlobalListener(document, "scroll", moved, { capture: true }),
+    ];
+    return () => { observer.disconnect(); for (const cleanup of cleanups) cleanup(); };
   }, [open, point, floating, placement, trigger]);
   useEffect(() => {
     if (!open) return;
     panel.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus({ preventScroll: true });
     const outside = (event: PointerEvent) => { const target = event.target as Node | null; if (target && !panel.current?.contains(target) && (point || !trigger.current?.contains(target))) closeRef.current(); };
     const escape = (event: KeyboardEvent) => { if (event.key !== "Escape" || event.defaultPrevented) return; event.preventDefault(); dismiss(); };
-    document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape); };
+    const cleanups = [
+      addGlobalListener(document, "pointerdown", outside, { capture: true }),
+      addGlobalListener(document, "keydown", escape),
+    ];
+    return () => { for (const cleanup of cleanups) cleanup(); };
   }, [open, trigger, point]);
   if (!open) return null;
   const keys = (event: ReactKeyboardEvent<HTMLDivElement>) => {

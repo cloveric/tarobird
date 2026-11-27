@@ -24,4 +24,4 @@ const connection = { http: async (url: string, options?: RequestInit) => {
   // definite old-Host action rejection, without starting a native App.
   return { tickets: removed ? [] : [ticket], engines: [], ...(mode !== "legacy" && url.includes("capabilities=1") ? { capabilities: { remove: true } } : {}) };
 } } as unknown as HubConnection;
-createRoot(document.getElementById("root")!).render(<DispatchTickets connection={connection} botId="dispatcher" active online open={() => undefined}/>);
+createRoot(document.getElementById("root")!).render(<DispatchTickets connection={connection} botId="dispatcher" conversationId="chat" active online open={() => undefined}/>);

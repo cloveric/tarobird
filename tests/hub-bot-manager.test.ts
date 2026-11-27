@@ -3,6 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { botAvatarById } from "../src/client-protocol/bot-avatar-catalog.js";
+import { LocalHostClient } from "../src/host-cli/client.js";
+import { HostManagement } from "../src/host-cli/management.js";
+import { startHubControl } from "../src/hub/service.js";
 import { BotManager } from "../src/hub/bot-manager.js";
 import { HubServer } from "../src/hub/server.js";
 import { loadInstanceConfig, readValidatedConfigFile, updateInstanceConfig } from "../src/state/instance-config.js";
@@ -62,6 +65,38 @@ describe("client-created TaroCub instances", () => {
     expect(ticketDir).toBe(path.join((await loadInstanceConfig(path.join(root, "bots", dispatcher.id))).workspacePath!, "tickets", "tk_one"));
     expect((await stat(ticketDir)).isDirectory()).toBe(true);
     await expect(manager.ticketWorkspace(dispatcher.id, "../escape")).rejects.toThrow();
+  });
+  it("uses manual approval for a remote worker and refuses to reuse it after permission widens", async () => {
+    const warning = vi.fn();
+    const options = manager.options;
+    await manager.close();
+    await hub.close();
+    hub = await HubServer.start({ stateDir: root, managedBots: options, onWarning: warning });
+    manager = hub.dispatch.workers as BotManager;
+    const worker = await manager.remoteDispatchWorker("source_host", "codex");
+    const stateDir = path.join(root, "bots", worker);
+    expect(await readValidatedConfigFile(path.join(stateDir, "config.json"))).toMatchObject({ approvalMode: "normal" });
+    expect(await manager.remoteDispatchWorker("source_host", "codex")).toBe(worker);
+    await updateInstanceConfig(stateDir, cfg => { cfg.approvalMode = "bypass"; });
+    await expect(manager.remoteDispatchWorker("source_host", "codex")).rejects.toMatchObject({ code: "dispatch_worker_permissions_unsafe", status: 409 });
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining(`tarobot bots delete ${worker} --expected-name='Remote · Codex' --yes`));
+    const previous = await hub.store.createConversation("owner", [worker], "History", "remote_history", { dispatchWorker: true });
+    const closeControl = await startHubControl(root, { running: true, pid: process.pid, url: hub.url, instanceUrl: hub.instanceUrl, publicKey: hub.auth.publicKey },
+      () => {}, { enrollController: value => hub.enrollLocalController(value) });
+    const cli = await LocalHostClient.connect(root, { enroll: true });
+    try {
+      const management = new HostManagement(cli);
+      expect(management.bots().some(bot => bot.id === worker)).toBe(false);
+      await expect(management.deleteBot(worker, { expectedName: "Wrong name", confirm: true })).rejects.toMatchObject({ code: "bot_name_conflict", status: 409 });
+      await management.deleteBot(worker, { expectedName: "Remote · Codex", confirm: true });
+    } finally {
+      cli.close();
+      await closeControl();
+    }
+    expect(await hub.store.db.serial(() => hub.store.conversationInTransaction(previous.id))).toMatchObject({ archived: true });
+    const replacement = await manager.remoteDispatchWorker("source_host", "codex");
+    expect(replacement).not.toBe(worker);
+    expect(await readValidatedConfigFile(path.join(root, "bots", replacement, "config.json"))).toMatchObject({ approvalMode: "normal" });
   });
   it("replaces a deleted dispatcher worker once while retaining its old history", async () => {
     const dispatcher = await manager.create("owner", { ...spec, requestId: "dispatcher", role: "dispatcher" });

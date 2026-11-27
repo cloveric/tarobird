@@ -11,11 +11,11 @@ import { selectConversation, showDisconnectedBots, waitForClientOnline } from '.
 
 test.use({ serviceWorkers: 'block' });
 const panel = (page: Page) => page.getByRole('complementary', { name: '工作台', exact: true });
-const title = (page: Page) => page.frameLocator('.workbench-design-frame:visible').frameLocator('iframe').locator('h1');
+const title = (page: Page) => page.frameLocator('.workbench-design-frame:visible').getByRole('heading', { level: 1 }).first();
 const content = (receipt: WorkbenchReceipt) => (receipt.result as { content: string }).content;
 const createdTarget = (receipt: WorkbenchReceipt): WorkbenchTarget => ({ ...receipt.target, tabId: (receipt.result as {tabId: string}).tabId });
-const read = (requestId: string, target?: WorkbenchTarget): WorkbenchRequest => ({ requestId, operation: 'design.read', target, payload: { path: 'project/Main.dc.html' } });
-const publish = (requestId: string, target: WorkbenchTarget, revision: number, text: string): WorkbenchRequest => ({ requestId, operation: 'design.publish', target, expectedRevision: revision, payload: { files: { 'project/Main.dc.html': { content: text, contentType: 'text/html' } } } });
+const read = (requestId: string, target?: WorkbenchTarget): WorkbenchRequest => ({ requestId, operation: 'design.read', target, payload: { path: 'project/slides/cover.html' } });
+const publish = (requestId: string, target: WorkbenchTarget, revision: number, text: string): WorkbenchRequest => ({ requestId, operation: 'design.publish', target, expectedRevision: revision, payload: { files: { 'project/slides/cover.html': { content: text, contentType: 'text/html' } } } });
 
 async function fixture(page: Page) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'design-routing-'));
@@ -49,15 +49,15 @@ test('same Bot in two conversations uses separate Design storage, targets and re
   test.setTimeout(180000); const f = await fixture(page);
   try {
     const bPage = await f.another(f.b);
-    const [a,b] = await Promise.all([f.command(f.a.id,{requestId:'same-create',operation:'design.create',payload:{title:'Canvas A'}}),f.command(f.b.id,{requestId:'same-create',operation:'design.create',payload:{title:'Canvas B'}})]);
+    const [a,b] = await Promise.all([f.command(f.a.id,{requestId:'same-create',operation:'design.create',payload:{title:'Slide A',format:'slides'}}),f.command(f.b.id,{requestId:'same-create',operation:'design.create',payload:{title:'Slide B',format:'slides'}})]);
     const aTarget=createdTarget(a),bTarget=createdTarget(b);
-    expect(await f.command(f.a.id,{requestId:'same-create',operation:'design.create',payload:{title:'Canvas A'}})).toMatchObject({status:'applied',saved:true,result:{tabId:aTarget.tabId}});
+    expect(await f.command(f.a.id,{requestId:'same-create',operation:'design.create',payload:{title:'Slide A',format:'slides'}})).toMatchObject({status:'applied',saved:true,result:{tabId:aTarget.tabId}});
     expect(aTarget.tabId).toBe(bTarget.tabId); expect(aTarget.windowId).not.toBe(bTarget.windowId);
-    await expect(title(page)).toHaveText('Canvas A',{timeout:20000});await expect(title(bPage)).toHaveText('Canvas B',{timeout:20000});
+    await expect(title(page)).toHaveText('Slide A',{timeout:20000});await expect(title(bPage)).toHaveText('Slide B',{timeout:20000});
     await expect(f.command(f.a.id,read('cross-target',bTarget))).rejects.toThrow('workbench_app_unavailable');
     const [ar,br]=await Promise.all([f.command(f.a.id,read('same-read',aTarget)),f.command(f.b.id,read('same-read',bTarget))]);
-    const ap=publish('same-publish',aTarget,ar.revision!,content(ar).replace('Canvas A','Only conversation A'));
-    const bp=publish('same-publish',bTarget,br.revision!,content(br).replace('Canvas B','Only conversation B'));
+    const ap=publish('same-publish',aTarget,ar.revision!,content(ar).replace('Slide A','Only conversation A'));
+    const bp=publish('same-publish',bTarget,br.revision!,content(br).replace('Slide B','Only conversation B'));
     const writes=await Promise.all([f.command(f.a.id,ap),f.command(f.b.id,bp)]);
     for(const result of writes)expect(result).toMatchObject({status:'applied',saved:true,revision:1});
     await expect(title(page)).toHaveText('Only conversation A',{timeout:20000});await expect(title(bPage)).toHaveText('Only conversation B',{timeout:20000});
@@ -72,14 +72,14 @@ test('same Bot in two conversations uses separate Design storage, targets and re
 test('a frozen Design target survives tab selection and hiding a pending conversation never edits another one', async ({page}) => {
   test.setTimeout(120000);const f=await fixture(page);let release:()=>void=()=>{};const originalAdmit=f.broker.admit.bind(f.broker);
   try {
-    const a=createdTarget(await f.command(f.a.id,{requestId:'first',operation:'design.create',payload:{title:'First design'}}));
+    const a=createdTarget(await f.command(f.a.id,{requestId:'first',operation:'design.create',payload:{title:'First design',format:'slides'}}));
     await expect(title(page)).toHaveText('First design',{timeout:20000});
     const frozen=await f.broker.validateContext('owner',f.a.id,{target:a,kind:'design'});
-    const next=createdTarget(await f.command(f.a.id,{requestId:'second',operation:'design.create',payload:{title:'Second design'}}));
+    const next=createdTarget(await f.command(f.a.id,{requestId:'second',operation:'design.create',payload:{title:'Second design',format:'slides'}}));
     await expect(title(page)).toHaveText('Second design',{timeout:20000});
     const frozenRead=await f.broker.request({...f.actor(f.a.id),context:frozen},read('frozen-read'));
     expect(frozenRead.target).toEqual(a);expect(content(frozenRead)).toContain('First design');
-    const bPage=await f.another(f.b);const b=createdTarget(await f.command(f.b.id,{requestId:'third',operation:'design.create',payload:{title:'Unaffected B'}}));
+    const bPage=await f.another(f.b);const b=createdTarget(await f.command(f.b.id,{requestId:'third',operation:'design.create',payload:{title:'Unaffected B',format:'slides'}}));
     await expect(title(bPage)).toHaveText('Unaffected B',{timeout:20000});
     const before=await f.command(f.a.id,read('before-hide',next));
     let started!:()=>void;const entered=new Promise<void>(resolve=>{started=resolve;});const gate=new Promise<void>(resolve=>{release=resolve;});
@@ -96,7 +96,7 @@ test('a frozen Design target survives tab selection and hiding a pending convers
 test('multiple App windows require an exact Design target and stale revisions cannot overwrite another window', async ({page}) => {
   test.setTimeout(120000);const f=await fixture(page);
   try {
-    const target=createdTarget(await f.command(f.a.id,{requestId:'shared',operation:'design.create',payload:{title:'Shared design'}}));
+    const target=createdTarget(await f.command(f.a.id,{requestId:'shared',operation:'design.create',payload:{title:'Shared design',format:'slides'}}));
     await expect(title(page)).toHaveText('Shared design',{timeout:20000});
     const other=await f.another(f.a);await expect(title(other)).toHaveText('Shared design',{timeout:20000});
     await expect.poll(async()=>(await workbenchContentTargets(f.broker, f.actor(f.a.id))).length).toBe(2);
@@ -116,11 +116,11 @@ test('multiple App windows require an exact Design target and stale revisions ca
 test('a partial explicit Design target cannot replace a frozen tab with the newly selected tab', async ({page}) => {
   test.setTimeout(90000);const f=await fixture(page);
   try {
-    const a=createdTarget(await f.command(f.a.id,{requestId:'target-a',operation:'design.create',payload:{title:'Intended A'}}));
+    const a=createdTarget(await f.command(f.a.id,{requestId:'target-a',operation:'design.create',payload:{title:'Intended A',format:'slides'}}));
     await expect(title(page)).toHaveText('Intended A',{timeout:20000});
     const ar=await f.command(f.a.id,read('read-a',a));
     const frozen=await f.broker.validateContext('owner',f.a.id,{target:a,kind:'design',revision:ar.revision});
-    const b=createdTarget(await f.command(f.a.id,{requestId:'target-b',operation:'design.create',payload:{title:'Keep B'}}));
+    const b=createdTarget(await f.command(f.a.id,{requestId:'target-b',operation:'design.create',payload:{title:'Keep B',format:'slides'}}));
     await expect(title(page)).toHaveText('Keep B',{timeout:20000});
     // Both documents have revision zero. Revision checks cannot identify them.
     const partial={deviceId:a.deviceId,windowId:a.windowId};

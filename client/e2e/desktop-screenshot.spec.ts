@@ -21,7 +21,7 @@ test("desktop selection becomes a removable thumbnail alongside the caption; can
   await page.keyboard.press("ArrowDown"); await expect(menu.getByRole("button", { name: /^截屏/ })).toBeFocused();
   await page.screenshot({ path: info.outputPath("desktop-screenshot-menu.png"), animations: "disabled" });
   await page.keyboard.press("Enter"); await expect(menu).toHaveCount(0); await expect(attach).toBeDisabled();
-  expect(await page.evaluate(() => (window as any).screenshotFixture.calls)).toEqual([{ english: false }]);
+  expect(await page.evaluate(() => (window as any).screenshotFixture.calls)).toEqual([{ english: false, locale: "zh" }]);
   await page.evaluate(png => (window as any).screenshotFixture.finish(png), png);
   await expect(tray.getByRole("listitem")).toHaveCount(1);
   await expect(attach).toBeEnabled();
@@ -61,9 +61,16 @@ test("permission failure explains recovery; retry, English, Escape and phone fal
   await expect(page.getByRole("alert")).toContainText("隐私与安全性"); await expect(attach).toBeEnabled();
   await page.evaluate(() => (window as any).screenshotFixture.setLocale("en"));
   await attach.click(); await page.getByRole("button", { name: /^Screenshot/ }).click();
-  expect(await page.evaluate(() => (window as any).screenshotFixture.calls.at(-1))).toEqual({ english: true });
+  expect(await page.evaluate(() => (window as any).screenshotFixture.calls.at(-1))).toEqual({ english: true, locale: "en" });
   await page.evaluate(() => (window as any).screenshotFixture.finish(null));
-  await expect(attach).toBeEnabled(); await attach.click(); await page.keyboard.press("Escape"); await expect(page.getByRole("textbox", { name: "Message" })).toBeFocused();
+  await expect(attach).toBeEnabled();
+  await page.evaluate(() => (window as any).screenshotFixture.setLocale("ja"));
+  await attach.click(); await page.getByRole("button", { name: /^スクリーンショット/ }).click();
+  expect(await page.evaluate(() => (window as any).screenshotFixture.calls.at(-1))).toEqual({ english: true, locale: "ja" });
+  await page.evaluate(() => (window as any).screenshotFixture.finish(null));
+  await expect(attach).toBeEnabled();
+  await page.evaluate(() => (window as any).screenshotFixture.setLocale("en"));
+  await attach.click(); await page.keyboard.press("Escape"); await expect(page.getByRole("textbox", { name: "Message" })).toBeFocused();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => (window as any).screenshotFixture.setPhone(true));
   await attach.click(); await expect(page.getByRole("dialog", { name: "Add attachments", exact: true })).toBeVisible();

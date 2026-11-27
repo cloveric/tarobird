@@ -34,7 +34,8 @@ import { SessionStore } from "../state/session-store.js";
 import { CORE_APPROVAL_TIMEOUT_MS } from "./shared/approval-timeouts.js";
 import { loadInstanceConfig, resolveInstanceWorkspacePath, updateInstanceConfig, type ResumeState } from "../state/instance-config.js";
 import { applyConversationResumeScope } from "../runtime/conversation-resume.js";
-import type { Locale } from "../runtime/locale.js";
+import { isChineseLocale, type Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import { larkAgentInstructions, larkMediaTaskInstruction } from "./agent-instructions.js";
 import { handleCoreBoardCommand } from "./bus.js";
 import { sendCoreCardWithFallback } from "./card-delivery.js";
@@ -87,11 +88,12 @@ type AskUserQuestionCardQuestion = {
 };
 
 function isAskUserQuestionRequest(request: EngineApprovalRequest): boolean {
-  return (request.engine === "claude" || request.engine === "kimi" || request.engine === "deepseek" || request.engine === "codex" || request.engine === "pi")
+  return (request.engine === "claude" || request.engine === "kimi" || request.engine === "deepseek" || request.engine === "codex" || request.engine === "pi" || request.engine === "antigravity" || request.engine === "omp")
     && request.toolName === "AskUserQuestion";
 }
 
 function renderApprovalEngineLabel(engine: EngineApprovalRequest["engine"] | undefined): string {
+  if (engine === "omp") return "oh-my-pi";
   if (engine === "pi") return "Pi";
   if (engine === "deepseek") {
     return "DeepSeek Harness";
@@ -158,9 +160,7 @@ export async function requestCoreApproval(input: {
           .catch(() => undefined);
       }
       const expiredText = isAskUserQuestionRequest(input.request)
-        ? (locale === "en"
-          ? "Question expired after 29 minutes without an answer. Send a message if you still want to respond."
-          : "问题已过期（29 分钟未提交），没有代你选择答案。仍需回答时可以直接发消息。")
+        ? hostT(locale, "问题已过期（29 分钟未提交），没有代你选择答案。仍需回答时可以直接发消息。")
         : renderCoreApprovalExpired(locale);
       void input.channel.send(
         input.chatId,
@@ -180,6 +180,7 @@ export async function requestCoreApproval(input: {
       ...(input.replyInThread ? { replyInThread: true } : {}),
       ...(isAskUserQuestionRequest(input.request) ? { askUserQuestionInput: input.request.toolInput } : {}),
       approvalEngine: input.request.engine,
+      ...(input.request.workerName ? { approvalWorkerName: input.request.workerName } : {}),
       approvalToolName: input.request.toolName,
       approvalToolInput: input.request.toolInput,
       approvalScopes: input.request.approvalScopes,
@@ -214,6 +215,7 @@ export async function requestCoreApproval(input: {
         requestId,
         toolInput: input.request.toolInput,
         engine: input.request.engine,
+        ...(input.request.workerName ? { workerName: input.request.workerName } : {}),
         replyInThread: input.replyInThread,
         locale: input.locale,
       });
@@ -245,6 +247,7 @@ export async function requestCoreApproval(input: {
             input.locale ?? "zh",
             0,
             input.request.engine,
+            input.request.workerName,
           ),
           options: coreReplyOptions(input.replyTo, input.replyInThread),
           locale: input.locale ?? "zh",
@@ -260,6 +263,7 @@ export async function requestCoreApproval(input: {
       requestId,
       toolName: input.request.toolName,
       toolInput: input.request.toolInput,
+      ...(input.request.workerName ? { workerName: input.request.workerName } : {}),
       approvalScopes: input.request.approvalScopes,
       replyInThread: input.replyInThread,
       locale: input.locale,
@@ -301,19 +305,11 @@ export async function requestCoreApproval(input: {
 function renderCoreApprovalFallbackText(requestId: string, request: EngineApprovalRequest, locale: Locale): string {
   const toolInput = typeof request.toolInput === "string" ? request.toolInput : JSON.stringify(request.toolInput, null, 2);
   const choices = (["once", "session", "deny"] as const).filter((choice) => approvalScope(request.approvalScopes, choice)).map((choice) =>
-    `${choice === "once" ? "/approve" : choice === "session" ? "/approve-session" : "/deny"} ${requestId} (${approvalScopeLabel(request.approvalScopes, choice, locale)})`).join(locale === "en" ? ", " : "、");
-  if (locale === "en") {
-    return [
-      `Approval required: ${request.toolName}`,
-      toolInput,
-      `Reply with ${choices}.`,
-    ].join("\n\n");
-  }
-  return [
-    `需要审批：${request.toolName}`,
-    toolInput,
-    `请回复 ${choices}。`,
-  ].join("\n\n");
+    `${choice === "once" ? "/approve" : choice === "session" ? "/approve-session" : "/deny"} ${requestId} (${approvalScopeLabel(request.approvalScopes, choice, locale)})`).join(hostT(locale, "、"));
+  const workerTag = request.workerName?.trim()
+    ? hostT(locale, "（来自 @{0}）", request.workerName.trim())
+    : "";
+  return hostT(locale, "需要审批{0}：{1}\n\n{2}\n\n请回复 {3}。", workerTag, request.toolName, toolInput, choices);
 }
 
 function askFormFieldName(index: number): string {
@@ -372,6 +368,7 @@ function renderCoreAskUserQuestionCard(input: {
   requestId: string;
   toolInput: unknown;
   engine?: EngineApprovalRequest["engine"];
+  workerName?: string;
   replyInThread?: boolean;
   locale?: Locale;
   /**
@@ -400,15 +397,15 @@ function renderCoreAskUserQuestionCard(input: {
     const limitHint = question.multiSelect
       ? [
         question.minSelections !== undefined
-          ? (locale === "en" ? `at least ${question.minSelections}` : `至少 ${question.minSelections} 项`)
+          ? hostT(locale, "至少 {0} 项", question.minSelections)
           : undefined,
         question.maxSelections !== undefined
-          ? (locale === "en" ? `at most ${question.maxSelections}` : `最多 ${question.maxSelections} 项`)
+          ? hostT(locale, "最多 {0} 项", question.maxSelections)
           : undefined,
-      ].filter(Boolean).join(locale === "en" ? ", " : "，")
+      ].filter(Boolean).join(hostT(locale, "，"))
       : "";
     const multiHint = question.multiSelect
-      ? (locale === "en" ? ` (multi-select${limitHint ? `; ${limitHint}` : ""})` : `（多选${limitHint ? `；${limitHint}` : ""}）`)
+      ? (limitHint ? hostT(locale, "（多选；{0}）", limitHint) : hostT(locale, "（多选）"))
       : "";
     formElements.push({
       tag: "markdown",
@@ -450,8 +447,8 @@ function renderCoreAskUserQuestionCard(input: {
       placeholder: {
         tag: "plain_text",
         content: question.multiSelect
-          ? (locale === "en" ? "Select one or more" : "可多选")
-          : (locale === "en" ? "Select one" : "请选择"),
+          ? hostT(locale, "可多选")
+          : hostT(locale, "请选择一项"),
       },
       options: selectOptions,
       ...(selected.length > 0
@@ -471,8 +468,8 @@ function renderCoreAskUserQuestionCard(input: {
         placeholder: {
           tag: "plain_text",
           content: question.input?.placeholder ?? (question.options.length
-            ? (locale === "en" ? "Other — type your own (optional)" : "其他 —— 不合适就自己填（选填）")
-            : (locale === "en" ? "Type your answer" : "填写你的回答")),
+            ? hostT(locale, "其他 —— 不合适就自己填（选填）")
+            : hostT(locale, "填写你的回答")),
         },
         ...(otherValue ? { default_value: otherValue } : {}),
       });
@@ -481,7 +478,7 @@ function renderCoreAskUserQuestionCard(input: {
 
   formElements.push({
     tag: "button",
-    text: { tag: "plain_text", content: locale === "en" ? "Submit" : "提交" },
+    text: { tag: "plain_text", content: hostT(locale, "提交") },
     type: "primary",
     width: "fill",
     // A button inside a form container REQUIRES a globally-unique `name` (Feishu Card 2.0
@@ -500,18 +497,19 @@ function renderCoreAskUserQuestionCard(input: {
     })],
   });
 
-  const title = questions.length > 1
-    ? (locale === "en" ? `${questions.length} questions` : `${questions.length} 个问题`)
-    : (questions[0]?.header || (locale === "en" ? "Question" : "请选择"));
+  const worker = input.workerName?.trim();
+  const baseTitle = questions.length > 1
+    ? hostT(locale, "{0} 个问题", questions.length)
+    : (questions[0]?.header || hostT(locale, "问题"));
+  const title = worker && !baseTitle.toLowerCase().includes(worker.toLowerCase()) ? `@${worker} · ${baseTitle}` : baseTitle;
+  const actor = worker ? `${renderApprovalEngineLabel(input.engine)} (@${worker})` : renderApprovalEngineLabel(input.engine);
 
   return {
     schema: "2.0",
     config: {
       update_multi: true,
       summary: {
-        content: locale === "en"
-          ? `${renderApprovalEngineLabel(input.engine)} is asking a question`
-          : `${renderApprovalEngineLabel(input.engine)} 请求选择`,
+        content: hostT(locale, "{0} 请求选择", actor),
       },
     },
     header: {
@@ -551,14 +549,14 @@ function renderCoreAskUserQuestionSubmittedCard(
   cancelValue?: Record<string, unknown>,
 ): Record<string, unknown> {
   const questions = normalizeAskUserQuestions(toolInput);
-  const none = locale === "en" ? "(none)" : "（未选）";
+  const none = hostT(locale, "（未选）");
   const lines = questions
     .map((question) => {
       const answer = (answers[question.question] ?? "").trim();
       return `**${question.header}**: ${answer || none}`;
     })
     .join("\n");
-  const title = locale === "en" ? "Submitted" : "已提交";
+  const title = hostT(locale, "已提交");
   return {
     schema: "2.0",
     ...(followup ? { answerFollowup: followup } : {}),
@@ -570,7 +568,7 @@ function renderCoreAskUserQuestionSubmittedCard(
       elements: [
         { tag: "markdown", content: lines || none },
         ...(feedback ? [{ tag: "markdown", ...(followup ? { element_id: "answer_followup_status" } : {}), content: feedback }] : []),
-        ...(cancelValue ? [{ tag: "button", text: { tag: "plain_text", content: locale === "en" ? "Cancel follow-up" : "取消后续处理" }, type: "default",
+        ...(cancelValue ? [{ tag: "button", text: { tag: "plain_text", content: hostT(locale, "取消后续处理") }, type: "default",
           behaviors: [{ type: "callback", value: cancelValue }] }] : []),
       ],
     },
@@ -579,10 +577,8 @@ function renderCoreAskUserQuestionSubmittedCard(
 
 /** Terminal replacement for an invalid form after a fresh retry card is sent. */
 function renderCoreAskUserQuestionRetrySentCard(notice: string, locale: Locale): Record<string, unknown> {
-  const title = locale === "en" ? "Please complete the new form" : "请填写新表单";
-  const guidance = locale === "en"
-    ? "This form is no longer active. A fresh form was sent below so Submit works normally."
-    : "这张表单已停用。下方已发送一张新表单，请在那里填写并提交。";
+  const title = hostT(locale, "请填写新表单");
+  const guidance = hostT(locale, "这张表单已停用。下方已发送一张新表单，请在那里填写并提交。");
   return {
     schema: "2.0",
     config: { update_multi: true, summary: { content: title } },
@@ -610,17 +606,14 @@ function renderCorePendingTimedOutCard(
   locale: Locale,
 ): Record<string, unknown> {
   const isAsk = pending.askUserQuestionInput !== undefined;
-  const en = locale === "en";
   const title = isAsk
-    ? (en ? "Choice timed out" : "选择已超时")
-    : (en ? "Approval timed out" : "审批已超时");
+    ? hostT(locale, "选择已超时")
+    : hostT(locale, "审批已超时");
   const body = isAsk
-    ? (en
-      ? "No answer was submitted within 29 minutes. No default answer was chosen for you. You can still respond in a new message."
-      : "29 分钟内未收到答案，没有代你选择默认选项。仍需回答时可以直接发消息。")
-    : (en
-      ? `No decision within 29 minutes — the request${pending.approvalToolName ? ` (${pending.approvalToolName})` : ""} was denied and the turn moved on.`
-      : `29 分钟内未作决定，该请求${pending.approvalToolName ? `（${pending.approvalToolName}）` : ""}已按拒绝处理。`);
+    ? hostT(locale, "29 分钟内未收到答案，没有代你选择默认选项。仍需回答时可以直接发消息。")
+    : pending.approvalToolName
+      ? hostT(locale, "29 分钟内未作决定，该请求（{0}）已按拒绝处理。", pending.approvalToolName)
+      : hostT(locale, "29 分钟内未作决定，该请求已按拒绝处理。");
   return renderCorePendingClosedCard("⏳", title, body);
 }
 
@@ -635,17 +628,14 @@ function renderCorePendingInterruptedCard(
   locale: Locale,
 ): Record<string, unknown> {
   const isAsk = pending.askUserQuestionInput !== undefined;
-  const en = locale === "en";
   const title = isAsk
-    ? (en ? "Choice cancelled" : "选择已取消")
-    : (en ? "Approval cancelled" : "审批已取消");
+    ? hostT(locale, "选择已取消")
+    : hostT(locale, "审批已取消");
   const body = isAsk
-    ? (en
-      ? "The task was stopped, so this choice no longer applies. To continue, just send a message describing what you want."
-      : "任务已停止，这次选择不再需要。想继续的话，直接发消息说明你的选择即可。")
-    : (en
-      ? `The task was stopped, so this request${pending.approvalToolName ? ` (${pending.approvalToolName})` : ""} no longer needs a decision.`
-      : `任务已停止，该请求${pending.approvalToolName ? `（${pending.approvalToolName}）` : ""}无需再审批。`);
+    ? hostT(locale, "任务已停止，这次选择不再需要。想继续的话，直接发消息说明你的选择即可。")
+    : pending.approvalToolName
+      ? hostT(locale, "任务已停止，该请求（{0}）无需再审批。", pending.approvalToolName)
+      : hostT(locale, "任务已停止，该请求无需再审批。");
   return renderCorePendingClosedCard("⏹", title, body);
 }
 
@@ -668,12 +658,13 @@ function renderCoreAskUserQuestionFallbackText(
   locale: Locale,
   questionIndex = 0,
   engine?: EngineApprovalRequest["engine"],
+  workerName?: string,
 ): string {
   const questions = normalizeAskUserQuestions(toolInput);
   const question = questions[questionIndex] ?? questions[0];
+  const actor = workerName?.trim() ? `${renderApprovalEngineLabel(engine)} (@${workerName.trim()})` : renderApprovalEngineLabel(engine);
   if (!question) {
-    const engineName = renderApprovalEngineLabel(engine);
-    return locale === "en" ? `${engineName} is asking a question.` : `${engineName} 需要你选择。`;
+    return hostT(locale, "{0} 需要你选择。", actor);
   }
   const options = question.options
     .map((option, index) => {
@@ -681,7 +672,10 @@ function renderCoreAskUserQuestionFallbackText(
       return `${optionMarker(index)}. ${option.label}${description}`;
     })
     .join("\n");
-  return [`**${question.header}**`, question.question, options].filter(Boolean).join("\n");
+  const header = workerName?.trim() && !question.header.toLowerCase().includes(workerName.trim().toLowerCase())
+    ? `@${workerName.trim()} · ${question.header}`
+    : question.header;
+  return [`**${header}**`, question.question, options].filter(Boolean).join("\n");
 }
 
 function normalizeAskUserQuestions(toolInput: unknown): AskUserQuestionCardQuestion[] {
@@ -819,20 +813,26 @@ export function dropPendingCoreAttachmentBurst(
 }
 
 export function renderCoreDroppedBurstNotice(count: number, locale: Locale): string {
-  return locale === "en"
-    ? `Also cancelled ${count} message(s) still waiting to be merged into a turn.`
-    : `已同时取消 ${count} 条尚未合并成任务的待发送消息。`;
+  return hostT(locale, "已同时取消 {0} 条尚未合并成任务的待发送消息。", count);
 }
 
-/** Shared by /stop, the run card and Gateway's composer stop control.
- * Call only after surface authorization. Queued turns are intentionally kept. */
-export async function stopCoreConversation(runtime: CoreServiceRuntime, conversationKey: string, stateDir?: string) {
+/** Interrupt current work, its outstanding questions and post-turn background
+ * swarms while retaining all pending inputs. Shared by /stop and /restart: the
+ * foreground abort runs synchronously; `backgroundStop` is the swarm stop, if any. */
+export function abortCoreConversation(
+  runtime: CoreServiceRuntime,
+  conversationKey: string,
+  bridge?: Pick<CoreBridgeLike, "stopBackgroundWork">,
+  locale?: Locale,
+) {
   const active = runtime.activeRuns.get(conversationKey);
+  const concurrent = [...(runtime.concurrentRuns.get(conversationKey) ?? [])];
+  const hasForegroundRun = Boolean(active) || concurrent.length > 0;
   const reason = channelProfile() === "gateway" ? APP_USER_STOP_REASON : undefined;
   // Let a goal route stop to its live ordinary turns before they are aborted;
   // otherwise it mistakes this same stop request for a second goal-level stop.
   active?.abortController.abort(reason);
-  for (const run of runtime.concurrentRuns.get(conversationKey) ?? []) run.abortController.abort(reason);
+  for (const run of concurrent) run.abortController.abort(reason);
   // A goal's own question closes with the goal's signal. When this stop was
   // routed to an attached ordinary turn, the surviving pursuit keeps it.
   const survivingGoal = active?.abortController instanceof CoreGoalRunController && !active.abortController.signal.aborted
@@ -840,13 +840,55 @@ export async function stopCoreConversation(runtime: CoreServiceRuntime, conversa
   const cancelledQuestions = [...runtime.pendingApprovals.values()].filter(p => p.asyncQuestion && p.conversationKey === conversationKey
     && (!survivingGoal || p.abortSignal !== survivingGoal));
   for (const pending of cancelledQuestions) pending.abortHandler?.();
+  // When an active foreground turn (or surviving goal) already owns this stop,
+  // its abort handler manages cancellation cleanly (preserving session/cancel
+  // grace for ordinary ACP turns while still stopping active swarms). Only stop
+  // post-turn background swarms here when no foreground run owns the stop.
+  const backgroundStop: Promise<{ stopped: boolean; summary?: string }> | undefined = !hasForegroundRun && !survivingGoal && bridge?.stopBackgroundWork
+    ? (async () => {
+      const background: { stopped: boolean; summary?: string } = await bridge.stopBackgroundWork!({
+        chatId: stableCoreNumericId(conversationKey),
+        conversationKey,
+        scope: "swarm",
+        ...(locale ? { locale: isChineseLocale(locale) ? "zh" as const : "en" as const } : {}),
+      }).catch(() => ({ stopped: false }));
+      if (background.stopped) {
+        for (const pending of [...runtime.pendingApprovals.values()]) {
+          if (pending.conversationKey === conversationKey && !pending.cancelled) {
+            pending.abortHandler?.();
+          }
+        }
+      }
+      return background;
+    })()
+    : undefined;
+  return { active, cancelledQuestions: cancelledQuestions.length, backgroundStop };
+}
+
+/** Shared by /stop, the run card and Gateway's composer stop control.
+ * Call only after surface authorization. Queued turns are intentionally kept. */
+export async function stopCoreConversation(
+  runtime: CoreServiceRuntime,
+  conversationKey: string,
+  stateDir?: string,
+  bridge?: Pick<CoreBridgeLike, "stopBackgroundWork">,
+  locale?: Locale,
+) {
+  const { active, cancelledQuestions, backgroundStop } = abortCoreConversation(runtime, conversationKey, bridge, locale);
+  const background = backgroundStop ? await backgroundStop : { stopped: false };
   const droppedBurst = dropPendingCoreAttachmentBurst(runtime, conversationKey);
   if (droppedBurst && stateDir) {
     await Promise.allSettled(droppedBurst.members.map((member) => appendCoreTimelineEvent(stateDir, member, {
       type: "command.handled", outcome: "noop", detail: "batch-cancelled",
     })));
   }
-  return { active, droppedBurst, cancelledQuestions: cancelledQuestions.length };
+  return {
+    active,
+    droppedBurst,
+    cancelledQuestions,
+    backgroundStopped: background.stopped,
+    backgroundSummary: background.summary,
+  };
 }
 
 /** Stops only the run executing one queued input, never another turn of the
@@ -866,11 +908,15 @@ export function stopCoreRunForMessage(runtime: CoreServiceRuntime, conversationK
 }
 
 export function renderCoreConversationStop(result: Awaited<ReturnType<typeof stopCoreConversation>>, locale: Locale): string | undefined {
-  const { active, droppedBurst } = result;
-  const notice = droppedBurst ? renderCoreDroppedBurstNotice(droppedBurst.members.length, locale) : "";
+  const { active, droppedBurst, backgroundStopped, backgroundSummary } = result;
+  const notice = [
+    backgroundStopped && !active?.hasRunCard ? backgroundSummary : "",
+    droppedBurst ? renderCoreDroppedBurstNotice(droppedBurst.members.length, locale) : "",
+  ].filter(Boolean).join("\n");
   // A live run card supplies its own acknowledgment. A dropped burst has no card.
   if (active?.hasRunCard) return notice || undefined;
-  return [renderCoreStopResult(Boolean(active) || Boolean(droppedBurst) || result.cancelledQuestions > 0, locale), notice].filter(Boolean).join("\n");
+  if (backgroundStopped && backgroundSummary) return [backgroundSummary, droppedBurst ? renderCoreDroppedBurstNotice(droppedBurst.members.length, locale) : ""].filter(Boolean).join("\n");
+  return [renderCoreStopResult(Boolean(active) || Boolean(droppedBurst) || result.cancelledQuestions > 0 || backgroundStopped, locale), notice].filter(Boolean).join("\n");
 }
 
 export function isCoreApprovalTextCommand(text: string): boolean {
@@ -952,6 +998,7 @@ export async function handleCoreApprovalTextCommand(input: {
       requestId: pending.requestId,
       toolName: pending.approvalToolName ?? "",
       toolInput: pending.approvalToolInput,
+      ...(pending.approvalWorkerName ? { workerName: pending.approvalWorkerName } : {}),
       approvalScopes: pending.approvalScopes,
       replyInThread: pending.replyInThread,
       locale,
@@ -1042,7 +1089,7 @@ export async function handleCoreCardAction(input: {
       return true;
     }
     if (taskId && input.runtime.chatQueue.cancel(value.conversationKey, taskId)) {
-      const cancelledText = locale === "en" ? "Cancelled this queued task." : "已取消此排队任务。";
+      const cancelledText = hostT(locale, "已取消此排队任务。");
       // Claim the task so the eventual queue skip stays silent (no duplicate
       // notice), and forget its card so no wait/skip path re-renders it.
       input.runtime.cancelledQueueTaskIds.add(taskId);
@@ -1081,14 +1128,14 @@ export async function handleCoreCardAction(input: {
       // longer pending (it already started or finished), so the card is stale —
       // never fall through to abort whatever run is active NOW.
       await input.channel.send(input.event.chatId, {
-        text: locale === "en" ? "This task is no longer in the queue." : "该任务已不在队列中。",
+        text: hostT(locale, "该任务已不在队列中。"),
       }, {
         replyTo: input.event.messageId,
         ...(replyInThread ? { replyInThread: true } : {}),
       });
       return true;
     }
-    const stopped = await stopCoreConversation(input.runtime, value.conversationKey, input.stateDir);
+    const stopped = await stopCoreConversation(input.runtime, value.conversationKey, input.stateDir, input.bridge, locale);
     const text = renderCoreConversationStop(stopped, locale);
     if (text) {
       await input.channel.send(input.event.chatId, { text }, {
@@ -1254,25 +1301,25 @@ export async function handleCoreCardAction(input: {
       await input.channel.send(
         input.event.chatId,
         {
-          text: locale === "en"
-            ? "Codex does not provide a session scan here. Use /resume thread <thread-id>."
-            : "Codex 当前不支持在这里扫描 session，请使用 /resume thread <thread-id>。",
+          text: hostT(locale, "Codex 当前不支持在这里扫描 session，请使用 /resume thread <thread-id>。"),
         },
         coreReplyOptions(input.event.messageId, replyInThread),
       );
       return true;
     }
-    const kind = cfg.engine === "pi" ? "pi" : cfg.engine === "antigravity"
+    const kind = cfg.engine === "omp" ? "omp" : cfg.engine === "pi" ? "pi" : cfg.engine === "antigravity"
       ? "antigravity"
       : cfg.engine === "kimi"
         ? "kimi"
         : cfg.engine === "deepseek"
           ? "deepseek"
           : "claude";
+    const conversationWorkspace = await input.channel.conversationWorkspace?.(input.event.chatId);
+    const effectiveWorkspace = conversationWorkspace ?? resolveInstanceWorkspacePath(cfg);
     const sessions = kind === "antigravity"
       ? await scanRecentAntigravityConversations(24)
-      : (kind === "kimi" || kind === "deepseek" || kind === "pi") && input.bridge?.listExternalSessions
-        ? (await input.bridge.listExternalSessions({ limit: 20 })).map((session) => {
+      : (kind === "kimi" || kind === "deepseek" || kind === "pi" || kind === "omp") && input.bridge?.listExternalSessions
+        ? (await input.bridge.listExternalSessions({ ...(effectiveWorkspace ? { cwd: effectiveWorkspace } : {}), limit: 20 })).map((session) => {
             const modifiedAt = new Date(session.updatedAt ?? 0);
             return {
               sessionId: session.sessionId,
@@ -1297,7 +1344,7 @@ export async function handleCoreCardAction(input: {
       channel: input.channel,
       chatId: input.event.chatId,
       card,
-      fallbackText: locale === "en" ? "Recent sessions are available, but the resume card could not be displayed." : "已找到最近 session，但恢复卡片无法显示。",
+      fallbackText: hostT(locale, "已找到最近 session，但恢复卡片无法显示。"),
       options: coreReplyOptions(input.event.messageId, replyInThread),
       locale,
     });
@@ -1308,7 +1355,7 @@ export async function handleCoreCardAction(input: {
     value.cctb_lark === "resume" &&
     typeof value.conversationKey === "string" &&
     typeof value.sessionId === "string" &&
-    (value.engine === "claude" || value.engine === "antigravity" || value.engine === "kimi" || value.engine === "deepseek" || value.engine === "pi")
+    (value.engine === "claude" || value.engine === "antigravity" || value.engine === "kimi" || value.engine === "deepseek" || value.engine === "pi" || value.engine === "omp")
   ) {
     if (!input.stateDir) {
       return false;
@@ -1333,19 +1380,22 @@ export async function handleCoreCardAction(input: {
       return true;
     }
     let resumeValue = value;
-    if (value.engine === "kimi" || value.engine === "deepseek" || value.engine === "pi") {
-      const engineName = value.engine === "pi" ? "Pi" : value.engine === "deepseek" ? "DeepSeek Harness" : "Kimi";
+    if (value.engine === "kimi" || value.engine === "deepseek" || value.engine === "pi" || value.engine === "omp") {
+      const engineName = value.engine === "omp" ? "oh-my-pi" : value.engine === "pi" ? "Pi" : value.engine === "deepseek" ? "DeepSeek Harness" : "Kimi";
       const validateHarnessSession = input.bridge?.validateCodexThread?.bind(input.bridge);
       if (!validateHarnessSession) {
         await input.channel.send(
           input.event.chatId,
-          { text: locale === "en" ? `This ${engineName} runtime cannot validate session IDs.` : `当前 ${engineName} runtime 无法验证 session id。` },
+          { text: hostT(locale, "当前 {0} runtime 无法验证 session id。", engineName) },
           coreReplyOptions(input.event.messageId, replyInThread),
         );
         return true;
       }
       try {
-        const validated = await validateHarnessSession(value.sessionId);
+        const conversationWorkspace = (await input.channel.conversationWorkspace?.(input.event.chatId)) ?? resolveInstanceWorkspacePath(currentConfig);
+        const validated = conversationWorkspace
+          ? await validateHarnessSession(value.sessionId, { workspaceOverride: conversationWorkspace })
+          : await validateHarnessSession(value.sessionId);
         if (!validated?.cwd) {
           throw new Error(`${engineName} session workspace is unavailable`);
         }
@@ -1358,7 +1408,7 @@ export async function handleCoreCardAction(input: {
       } catch {
         await input.channel.send(
           input.event.chatId,
-          { text: locale === "en" ? `Could not load ${engineName} session: ${value.sessionId}` : `无法加载 ${engineName} session：${value.sessionId}` },
+          { text: hostT(locale, "无法加载 {0} session：{1}", engineName, value.sessionId) },
           coreReplyOptions(input.event.messageId, replyInThread),
         );
         return true;
@@ -1379,7 +1429,7 @@ export async function handleCoreCardAction(input: {
         conversationKey: `lark:${input.event.chatId}`, bridgeChatType: await input.channel.getChatMode?.(input.event.chatId) === "group" ? "group" : "private",
         replyInThread, action: "approval",
       })) await input.channel.closeInactiveQuestion({ chatId: input.event.chatId, messageId: input.event.messageId,
-        requestId: value.requestId, card: renderCorePendingClosedCard("", locale === "en" ? "Question inactive" : "问题已失效", renderCoreChoiceNoLongerActive(locale)),
+        requestId: value.requestId, card: renderCorePendingClosedCard("", hostT(locale, "问题已失效"), renderCoreChoiceNoLongerActive(locale)),
       }).catch(() => undefined);
       // A late submit on a dead form: say what actually happened instead of the
       // terse "no pending approval" (which reads as a broken button). The copy
@@ -1479,6 +1529,7 @@ export async function handleCoreCardAction(input: {
         requestId: pending.requestId,
         toolInput: pending.askUserQuestionInput,
         engine: pending.approvalEngine,
+        ...(pending.approvalWorkerName ? { workerName: pending.approvalWorkerName } : {}),
         ...(pending.replyInThread ?? replyInThread ? { replyInThread: true } : {}),
         locale,
         selections: formValue,
@@ -1601,20 +1652,16 @@ export async function handleCoreCardAction(input: {
     if (missingRequired.length > 0 || belowMinimum.length > 0 || aboveMaximum.length > 0) {
       const notices: string[] = [];
       if (missingRequired.length > 0) {
-        const names = missingRequired.map((question) => question.header).join(locale === "en" ? ", " : "、");
-        notices.push(locale === "en" ? `Please choose an answer for: ${names}` : `请先选择：${names}`);
+        const names = missingRequired.map((question) => question.header).join(hostT(locale, "、"));
+        notices.push(hostT(locale, "请先选择：{0}", names));
       }
       for (const question of belowMinimum) {
-        notices.push(locale === "en"
-          ? `${question.header}: choose at least ${question.minSelections} options`
-          : `${question.header}：请至少选择 ${question.minSelections} 项`);
+        notices.push(hostT(locale, "{0}：请至少选择 {1} 项", question.header, question.minSelections));
       }
       for (const question of aboveMaximum) {
-        notices.push(locale === "en"
-          ? `${question.header}: choose at most ${question.maxSelections} options`
-          : `${question.header}：最多选择 ${question.maxSelections} 项`);
+        notices.push(hostT(locale, "{0}：最多选择 {1} 项", question.header, question.maxSelections));
       }
-      const notice = notices.join(locale === "en" ? ". " : "；");
+      const notice = notices.join(hostT(locale, "；"));
       pending.submitting = true;
       try {
         await retryQuestion(notice);
@@ -1631,7 +1678,7 @@ export async function handleCoreCardAction(input: {
     // never received. Treat it as the no-pending case instead.
     if (!input.runtime.pendingApprovals.has(value.requestId)) {
       if (pending.managedCard) await updateManagedCard(input.channel, pending.managedCard,
-        renderCorePendingClosedCard("", locale === "en" ? "Question inactive" : "问题已失效", renderCoreChoiceNoLongerActive(locale))).catch(() => undefined);
+        renderCorePendingClosedCard("", hostT(locale, "问题已失效"), renderCoreChoiceNoLongerActive(locale))).catch(() => undefined);
       await input.channel.send(
         input.event.chatId,
         { text: renderCoreChoiceNoLongerActive(locale) },
@@ -1669,19 +1716,22 @@ export async function handleCoreCardAction(input: {
         // A stop/timeout while the transport was in flight owns the terminal UI.
         if (!input.runtime.pendingApprovals.has(value.requestId)) return true;
         if (delivery === "retry") {
-          await retryQuestion(locale === "en" ? "The running task did not accept the answer. Please retry." : "当前任务尚未接收答案，请重试。");
+          await retryQuestion(hostT(locale, "当前任务尚未接收答案，请重试。"));
           return true;
         }
         if (delivery !== "accepted") {
           cleanupPendingApproval(input.runtime, value.requestId);
           pending.resolve({ behavior: "deny" });
           const summary = questions.map(q => `${q.question}\n${answers[q.question] ?? ""}`).join("\n\n");
-          pending.closedCard = renderCorePendingClosedCard("", delivery === "unknown"
-            ? (locale === "en" ? "Answer delivery unconfirmed" : "答案提交结果未确认")
-            : (locale === "en" ? "Question no longer active" : "问题已失效"),
-          (delivery === "unknown"
-            ? (locale === "en" ? "Delivery could not be confirmed. Check the conversation before sending again. Your answer:\n\n" : "暂时无法确认任务是否收到，请查看后续回复再决定是否重发。你的答案：\n\n")
-            : (locale === "en" ? "The task or session changed. No answer was sent.\n\n" : "任务或会话已变化，本次没有发送答案。\n\n")) + summary);
+          pending.closedCard = renderCorePendingClosedCard(
+            "",
+            delivery === "unknown"
+              ? hostT(locale, "答案提交结果未确认")
+              : hostT(locale, "问题已失效"),
+            delivery === "unknown"
+              ? hostT(locale, "暂时无法确认任务是否收到，请查看后续回复再决定是否重发。你的答案：\n\n{0}", summary)
+              : hostT(locale, "任务或会话已变化，本次没有发送答案。\n\n{0}", summary),
+          );
           if (pending.managedCard) await updateManagedCard(input.channel, pending.managedCard, pending.closedCard);
           return true;
         }
@@ -1708,7 +1758,7 @@ export async function handleCoreCardAction(input: {
         ...root,
         questions: Array.isArray(root.questions) ? root.questions : questions,
         answers,
-        ...(pending.approvalEngine === "pi" ? { selections: askFormPiSelections(questions, formValue) } : {}),
+        ...(pending.approvalEngine === "pi" || pending.approvalEngine === "omp" ? { selections: askFormPiSelections(questions, formValue) } : {}),
       },
       ...(onAnswerProgress ? { onAnswerProgress } : {}),
     };
@@ -1726,7 +1776,7 @@ export async function handleCoreCardAction(input: {
       // Drain previously enqueued patches before retiring the old form.
       await pending.managedCard?.updateChain;
       const summary = questions
-        .map((question) => `${question.header}: ${answers[question.question] || (locale === "en" ? "—" : "（未选）")}`)
+        .map((question) => `${question.header}: ${answers[question.question] || hostT(locale, "（未选）")}`)
         .join("\n");
       const summaryOptions: CoreSendOptions | undefined = (pending.replyInThread ?? replyInThread)
         ? { replyInThread: true }
@@ -1738,7 +1788,7 @@ export async function handleCoreCardAction(input: {
         // Keep a truthful submission receipt, not orphaned live metadata.
         card: pending.asyncQuestion ? renderCoreAskUserQuestionSubmittedCard(pending.askUserQuestionInput, answers, locale,
           input.channel.profile === "gateway" ? questionFeedback(undefined, locale) : undefined) : submittedCard,
-        fallbackText: (locale === "en" ? "Submitted:\n" : "已提交：\n") + summary,
+        fallbackText: hostT(locale, "已提交：\n{0}", summary),
         options: summaryOptions,
         locale,
       });
@@ -1861,6 +1911,7 @@ export async function handleCoreCardAction(input: {
         requestId: value.requestId,
         toolName: pending.approvalToolName ?? "",
         toolInput: pending.approvalToolInput,
+        ...(pending.approvalWorkerName ? { workerName: pending.approvalWorkerName } : {}),
         approvalScopes: pending.approvalScopes,
         replyInThread: pending.replyInThread ?? replyInThread,
         locale,
@@ -1924,7 +1975,7 @@ export async function handleCoreCardAction(input: {
       `choice_value: ${choiceValue}`,
       "</lark_card_action>",
       "",
-      locale === "en" ? `The user clicked a Lark card button: ${label}` : `用户点击了飞书卡片按钮：${label}`,
+      hostT(locale, "用户点击了飞书卡片按钮：{0}", label),
       `value: ${choiceValue}`,
     ].filter((line): line is string => line !== undefined).join("\n");
     const userId = stableCoreNumericId(`user:${input.event.operator?.openId ?? input.event.operator?.userId ?? "unknown"}`);
@@ -2047,7 +2098,7 @@ export async function handleCoreCardAction(input: {
     const archiveCard = claimCoreChoiceCard(
       input.runtime,
       input.event.messageId,
-      locale === "en" ? "Continue Analysis" : "继续分析",
+      hostT(locale, "继续分析"),
     );
     if (!archiveCard) {
       // The first tap already owns this archive continuation. Acknowledge any
@@ -2281,10 +2332,8 @@ function claimCoreChoiceCard(
 }
 
 function renderCoreChoiceSubmittedCard(label: string, locale: Locale): Record<string, unknown> {
-  const title = locale === "en" ? "Choice received" : "已收到选择";
-  const body = locale === "en"
-    ? `✅ Selected: **${label}**\n\nThe task will continue with this choice. No need to click again.`
-    : `✅ 已选择：**${label}**\n\n任务将按此选择继续，无需重复点击。`;
+  const title = hostT(locale, "已收到选择");
+  const body = hostT(locale, "✅ 已选择：**{0}**\n\n任务将按此选择继续，无需重复点击。", label);
   return {
     schema: "2.0",
     config: { update_multi: true, summary: { content: title } },
@@ -2342,9 +2391,7 @@ function renderPreservedCoreChoiceSubmittedCard(
   if (!body || !Array.isArray(body.elements)) return undefined;
   body.elements.push({
     tag: "markdown",
-    content: locale === "en"
-      ? `✅ Selected: **${label}**. The task will continue; no need to click again.`
-      : `✅ 已选择：**${label}**。任务将继续，无需重复点击。`,
+    content: hostT(locale, "✅ 已选择：**{0}**。任务将继续，无需重复点击。", label),
   });
   const config = payloadObject(card.config) ?? {};
   config.update_multi = true;
@@ -2367,9 +2414,7 @@ function settleCoreChoiceCard(input: {
       channel: input.channel,
       chatId: input.chatId,
       card: submittedCard,
-      fallbackText: input.locale === "en"
-        ? `Choice received: ${input.label}. The task will continue with this choice.`
-        : `已收到选择：${input.label}。任务将按此选择继续。`,
+      fallbackText: hostT(input.locale, "已收到选择：{0}。任务将按此选择继续。", input.label),
       options: coreReplyOptions(input.ref.messageId, input.replyInThread),
       locale: input.locale,
     });
@@ -2388,10 +2433,8 @@ function settleCoreChoiceCard(input: {
 }
 
 function renderCoreArchiveContinuationSubmittedCard(locale: Locale): Record<string, unknown> {
-  const title = locale === "en" ? "Continue request received" : "已收到继续请求";
-  const body = locale === "en"
-    ? "✅ The request is queued while the archive state is checked. Do not click again or send `/continue`; results will follow if analysis can resume."
-    : "✅ 请求已进入队列，正在检查压缩包状态。无需再次点击或输入 `/continue`；若可继续分析，结果会随后自动回复。";
+  const title = hostT(locale, "已收到继续请求");
+  const body = hostT(locale, "✅ 请求已进入队列，正在检查压缩包状态。无需再次点击或输入 `/continue`；若可继续分析，结果会随后自动回复。");
   return {
     schema: "2.0",
     config: { update_multi: true, summary: { content: title } },
@@ -2420,9 +2463,7 @@ function settleCoreArchiveContinuationCard(input: {
       channel: input.channel,
       chatId: input.chatId,
       card: submittedCard,
-      fallbackText: input.locale === "en"
-        ? "Continue request received. The archive state is being checked; do not send /continue again."
-        : "已收到继续请求，正在检查压缩包状态；无需再次输入 /continue。",
+      fallbackText: hostT(input.locale, "已收到继续请求，正在检查压缩包状态；无需再次输入 /continue。"),
       options: coreReplyOptions(input.ref.messageId, input.replyInThread),
       locale: input.locale,
     });
@@ -2476,7 +2517,7 @@ async function submitAsyncQuestion(
   const taskId = pending.asyncTaskId = `answer:${pending.requestId}`;
   const notifySkipped = async () => {
     onProgress?.("skipped");
-    await input.channel.send(pending.chatId, { text: locale === "en" ? "The queued answer was not delivered because the task or session changed. Please send a new message if needed." : "排队中的答案未送达，任务或会话已变化。如需继续，请重新发消息。" });
+    await input.channel.send(pending.chatId, { text: hostT(locale, "排队中的答案未送达，任务或会话已变化。如需继续，请重新发消息。") });
   };
   if (onProgress && pending.managedCard) input.runtime.queueCards.set(taskId, {
     messageId: input.event.messageId, handle: pending.managedCard,
@@ -2508,9 +2549,7 @@ async function submitAsyncQuestion(
   void queued.finally(() => {
     input.runtime.queueCards.delete(taskId);
     input.runtime.cancelledQueueTaskIds.delete(taskId);
-  }).catch(() => { onProgress?.("failed"); return input.channel.send(pending.chatId, { text: locale === "en"
-    ? "The answer follow-up failed. Check the conversation before sending it again."
-    : "答案的后续处理失败，请查看对话后再决定是否重发。" }).catch(() => undefined); });
+  }).catch(() => { onProgress?.("failed"); return input.channel.send(pending.chatId, { text: hostT(locale, "答案的后续处理失败，请查看对话后再决定是否重发。") }).catch(() => undefined); });
   return "accepted";
 }
 
@@ -2543,7 +2582,9 @@ async function runCoreCardChoice(input: {
     // Card-driven turns must see the CONVERSATION's resumed workspace, not the
     // raw instance config — see applyConversationResumeScope.
     await applyConversationResumeScope(input.stateDir, input.conversationKey, cfg);
-    const workspaceOverride = resolveInstanceWorkspacePath(cfg);
+    const workspaceOverride = cfg.resume?.workspacePath
+      ?? (await input.channel.conversationWorkspace?.(input.chatId))
+      ?? resolveInstanceWorkspacePath(cfg);
     // Enforce the spend budget before running the engine (parity with the
     // message-turn and bus entry points).
     const budgetExhausted = await checkBudgetAvailability(input.stateDir, cfg.budgetUsd, locale);
@@ -2787,7 +2828,7 @@ async function runCoreArchiveContinueCardAction(input: {
       await sendCoreMarkdown(
         input.channel,
         input.chatId,
-        input.locale === "en" ? "This archive is no longer awaiting continuation." : "这个压缩包已不在等待继续分析。",
+        hostT(input.locale, "这个压缩包已不在等待继续分析。"),
         coreReplyOptions(input.replyTo, input.replyInThread),
       ).catch(() => undefined);
       return;
@@ -2817,7 +2858,9 @@ async function runCoreArchiveContinueCardAction(input: {
     // Card-driven turns must see the CONVERSATION's resumed workspace, not the
     // raw instance config — see applyConversationResumeScope.
     await applyConversationResumeScope(input.stateDir, input.conversationKey, cfg);
-    const workspaceOverride = resolveInstanceWorkspacePath(cfg);
+    const workspaceOverride = cfg.resume?.workspacePath
+      ?? (await input.channel.conversationWorkspace?.(input.chatId))
+      ?? resolveInstanceWorkspacePath(cfg);
     // Enforce the spend budget before running the engine (parity with the
     // message-turn and bus entry points).
     const budgetExhausted = await checkBudgetAvailability(input.stateDir, cfg.budgetUsd, locale);
@@ -3264,7 +3307,7 @@ function renderTextApprovalDecision(choice: CoreApprovalChoice): EngineApprovalD
 }
 
 function renderApprovalNoPending(locale: Locale): string {
-  return locale === "en" ? "No pending approval." : "没有待处理的审批。";
+  return hostT(locale, "没有待处理的审批。");
 }
 
 /**
@@ -3274,39 +3317,27 @@ function renderApprovalNoPending(locale: Locale): string {
  * where neither is true.
  */
 function renderCoreChoiceNoLongerActive(locale: Locale): string {
-  return locale === "en"
-    ? "This choice is no longer active (it timed out or the task already ended/stopped). To continue, just send a message describing what you want."
-    : "该选择已失效（超时或任务已结束/停止）。想继续的话，直接发消息说明你的选择即可。";
+  return hostT(locale, "该选择已失效（超时或任务已结束/停止）。想继续的话，直接发消息说明你的选择即可。");
 }
 
 function renderApprovalDifferentConversation(locale: Locale): string {
-  return locale === "en"
-    ? "This approval request belongs to another Lark conversation."
-    : "这个审批请求属于另一个飞书会话。";
+  return hostT(locale, "这个审批请求属于另一个飞书会话。");
 }
 
 function renderApprovalDifferentUser(locale: Locale): string {
-  return locale === "en"
-    ? "This approval request belongs to another Lark user."
-    : "这个审批请求属于另一位飞书用户。";
+  return hostT(locale, "这个审批请求属于另一位飞书用户。");
 }
 
 function renderAskUserQuestionNeedsCard(locale: Locale): string {
-  return locale === "en"
-    ? "This is a question card. Please choose an answer in the card; /approve cannot replace an answer."
-    : "这个是问题卡片，请在卡片里选择答案，不能用 /approve 代替。";
+  return hostT(locale, "这个是问题卡片，请在卡片里选择答案，不能用 /approve 代替。");
 }
 
 function renderUnsupportedCoreCardAction(locale: Locale): string {
-  return locale === "en"
-    ? "This card action is no longer active or is not supported by the current bot version. Please send a new message to continue."
-    : "这张卡片的操作已不再有效，或当前机器人版本不支持。请发送新消息继续。";
+  return hostT(locale, "这张卡片的操作已不再有效，或当前机器人版本不支持。请发送新消息继续。");
 }
 
 function renderCoreResumeEngineChanged(locale: Locale): string {
-  return locale === "en"
-    ? "The bot engine changed after this resume card was created. Send /resume again to load a current list."
-    : "这张恢复卡片生成后，bot 引擎已经切换。请重新发送 /resume 获取当前列表。";
+  return hostT(locale, "这张恢复卡片生成后，bot 引擎已经切换。请重新发送 /resume 获取当前列表。");
 }
 
 
@@ -3328,9 +3359,7 @@ async function applyCoreResumeCardAction(
       });
   } catch (error) {
     if (error !== busy) throw error;
-    return locale === "en"
-      ? "Another operation is in progress in this conversation. Try resuming again when it finishes."
-      : "当前对话有其他操作正在进行，请结束后再恢复会话。";
+    return hostT(locale, "当前对话有其他操作正在进行，请结束后再恢复会话。");
   }
 }
 
@@ -3346,7 +3375,9 @@ async function applyCoreResumeCardActionUnlocked(
       ? "kimi"
       : value.engine === "deepseek"
         ? "deepseek"
-        : value.engine === "pi" ? "pi" : "claude";
+        : value.engine === "pi"
+          ? "pi"
+          : value.engine === "omp" ? "omp" : "claude";
   const sessionId = String(value.sessionId);
   const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
   const cfg = await loadInstanceConfig(stateDir);
@@ -3354,14 +3385,12 @@ async function applyCoreResumeCardActionUnlocked(
     return renderCoreResumeEngineChanged(locale);
   }
   let workspacePath: string | null = null;
-  if (engine === "claude" || engine === "kimi" || engine === "deepseek" || engine === "pi") {
+  if (engine === "claude" || engine === "kimi" || engine === "deepseek" || engine === "pi" || engine === "omp") {
     const candidate = typeof value.workspacePath === "string" && value.workspacePath.trim()
       ? value.workspacePath
       : null;
     if (!candidate) {
-      return locale === "en"
-        ? "Cannot resume this session because its workspace path is unknown."
-        : "无法恢复这个 session：工作区路径未知。";
+      return hostT(locale, "无法恢复这个 session：工作区路径未知。");
     }
     try {
       workspacePath = await realpath(candidate);
@@ -3370,15 +3399,13 @@ async function applyCoreResumeCardActionUnlocked(
         throw new Error("not a directory");
       }
     } catch {
-      return locale === "en"
-        ? "Cannot resume this session because its workspace path is not an existing directory."
-        : "无法恢复这个 session：工作区路径不是一个有效的目录。";
+      return hostT(locale, "无法恢复这个 session：工作区路径不是一个有效的目录。");
     }
   }
 
   const existing = await sessionStore.findByConversationKeySafe(conversationKey);
   const currentResume = resolveConversationResume(existing.record, cfg.resume);
-  const nextResume: ResumeState | null = (engine === "claude" || engine === "kimi" || engine === "deepseek" || engine === "pi") && workspacePath
+  const nextResume: ResumeState | null = (engine === "claude" || engine === "kimi" || engine === "deepseek" || engine === "pi" || engine === "omp") && workspacePath
     ? {
       sessionId,
       dirName: typeof value.dirName === "string" ? value.dirName : sessionId,
@@ -3398,37 +3425,32 @@ async function applyCoreResumeCardActionUnlocked(
     }),
   });
 
-  if ((engine === "claude" || engine === "kimi" || engine === "deepseek" || engine === "pi") && workspacePath) {
+  if ((engine === "claude" || engine === "kimi" || engine === "deepseek" || engine === "pi" || engine === "omp") && workspacePath) {
     await updateInstanceConfig(stateDir, (config) => {
       delete config.resume;
     });
     const displayName = typeof value.displayName === "string" ? value.displayName : sessionId;
     if (engine === "kimi") {
-      return locale === "en"
-        ? `Attached Kimi session: ${sessionId}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
-        : `已绑定 Kimi session：${sessionId}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+      return hostT(locale, "已绑定 Kimi session：{0}\n工作区：{1}\n\n发送消息继续对话，完成后发 /detach 断开。", sessionId, workspacePath);
     }
     if (engine === "pi") {
-      return locale === "en"
-        ? `Attached Pi session: ${sessionId}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
-        : `已绑定 Pi session：${sessionId}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+      return hostT(locale, "已绑定 Pi session：{0}\n工作区：{1}\n\n发送消息继续对话，完成后发 /detach 断开。", sessionId, workspacePath);
+    }
+    if (engine === "omp") {
+      return !isChineseLocale(locale)
+        ? `Attached omp session: ${sessionId}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
+        : `已绑定 omp session：${sessionId}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
     }
     if (engine === "deepseek") {
-      return locale === "en"
-        ? `Attached DeepSeek Harness session: ${sessionId}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
-        : `已绑定 DeepSeek Harness session：${sessionId}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+      return hostT(locale, "已绑定 DeepSeek Harness session：{0}\n工作区：{1}\n\n发送消息继续对话，完成后发 /detach 断开。", sessionId, workspacePath);
     }
-    return locale === "en"
-      ? `Resumed session: ${displayName}\nWorkspace: ${workspacePath}\n\nSend a message to continue. Use /detach when done.`
-      : `已恢复 session：${displayName}\n工作区：${workspacePath}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+    return hostT(locale, "已恢复 session：{0}\n工作区：{1}\n\n发送消息继续对话，完成后发 /detach 断开。", displayName, workspacePath);
   }
 
   await updateInstanceConfig(stateDir, (config) => {
     delete config.resume;
   });
-  return locale === "en"
-    ? `Attached Antigravity conversation: ${sessionId}\n\nSend a message to continue. Use /detach when done.`
-    : `已绑定 Antigravity conversation：${sessionId}\n\n发送消息继续对话，完成后发 /detach 断开。`;
+  return hostT(locale, "已绑定 Antigravity conversation：{0}\n\n发送消息继续对话，完成后发 /detach 断开。", sessionId);
 }
 
 function buildSuspendedPreviousSnapshot(input: {

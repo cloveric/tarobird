@@ -1,4 +1,4 @@
-import { deploymentMatchesRoutes, localRoutesSchema, MAX_DIRECT_ROUTES, MAX_VPS_ROUTES, type Deployment, type Route } from "../../src/client-protocol/routes.js";
+import { deploymentMatchesRoutes, isDirectRoute, localRoutesSchema, MAX_DIRECT_ROUTES, MAX_VPS_ROUTES, type Deployment, type Route } from "../../src/client-protocol/routes.js";
 import { networkCanonical } from "../../src/client-protocol/private-network.js";
 
 export type HostRouteMergeInput = {
@@ -17,7 +17,7 @@ export type HostRouteMergeInput = {
 export type HostRouteMerge = { routes: Route[]; base: Route[]; manual: string[]; deployment?: Deployment; changed: boolean; limited: boolean; deferred: string[] };
 
 const same = (a: Route | undefined, b: Route | undefined) => !!a && !!b && networkCanonical(a) === networkCanonical(b);
-const direct = (route: Route) => route.name !== "VPS";
+const direct = (route: Route) => isDirectRoute(route);
 
 /** Per-origin three-way merge. Host additions are adopted unless the user
  * already has that origin; host withdrawals and changes apply only to routes

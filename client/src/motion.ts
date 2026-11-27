@@ -1,3 +1,5 @@
+import { addGlobalListener } from "./global-event-hub.js";
+
 /** App motion stays enabled; keep interaction-safe animation lifetimes. */
 const scenes = new Set<Animation>();
 
@@ -59,33 +61,24 @@ export function installMotion(): () => void {
       if (document.hidden || (event.target.contains(document.activeElement) && document.activeElement?.matches("input,textarea,select,[contenteditable=true]"))) animation.cancel();
     }
   };
-  document.addEventListener("pointerdown", hold, true);
-  document.addEventListener("touchstart", hold, { passive: true, capture: true });
-  document.addEventListener("pointerup", release, true);
-  document.addEventListener("touchend", release, { passive: true, capture: true });
-  document.addEventListener("click", click, true);
-  document.addEventListener("pointercancel", click, true);
-  document.addEventListener("touchcancel", click, true);
-  document.addEventListener("contextmenu", click, true);
-  document.addEventListener("keydown", stop, true);
-  document.addEventListener("focusin", focus, true);
-  document.addEventListener("visibilitychange", hide);
-  document.addEventListener("animationstart", enter, true);
+  const cleanups = [
+    addGlobalListener(document, "pointerdown", hold, { capture: true }),
+    addGlobalListener(document, "touchstart", hold, { passive: true, capture: true }),
+    addGlobalListener(document, "pointerup", release, { capture: true }),
+    addGlobalListener(document, "touchend", release, { passive: true, capture: true }),
+    addGlobalListener(document, "click", click, { capture: true }),
+    addGlobalListener(document, "pointercancel", click, { capture: true }),
+    addGlobalListener(document, "touchcancel", click, { capture: true }),
+    addGlobalListener(document, "contextmenu", click, { capture: true }),
+    addGlobalListener(document, "keydown", stop, { capture: true }),
+    addGlobalListener(document, "focusin", focus, { capture: true }),
+    addGlobalListener(document, "visibilitychange", hide),
+    addGlobalListener(document, "animationstart", enter, { capture: true }),
+  ];
   return () => {
     stop();
     paused.clear();
-    document.removeEventListener("pointerdown", hold, true);
-    document.removeEventListener("touchstart", hold, true);
-    document.removeEventListener("pointerup", release, true);
-    document.removeEventListener("touchend", release, true);
-    document.removeEventListener("click", click, true);
-    document.removeEventListener("pointercancel", click, true);
-    document.removeEventListener("touchcancel", click, true);
-    document.removeEventListener("contextmenu", click, true);
-    document.removeEventListener("keydown", stop, true);
-    document.removeEventListener("focusin", focus, true);
-    document.removeEventListener("visibilitychange", hide);
-    document.removeEventListener("animationstart", enter, true);
+    for (const cleanup of cleanups) cleanup();
   };
 }
 

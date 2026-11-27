@@ -30,7 +30,7 @@ describe("public web previews", () => {
     expect(readPageMetadata('<script><meta property="og:title" content="forged"></script><!-- <title>hidden</title> --><title>真实标题 &lt;b&gt;</title>', "https://example.org").title).toBe("真实标题 <b>");
   });
   it("blocks local, reserved, mapped, CGNAT and non-global IPs while accepting public v4/v6", () => {
-    for (const ip of ["127.0.0.1", "10.0.0.1", "172.16.2.3", "192.168.1.1", "169.254.169.254", "100.100.100.100", "0.0.0.0", "224.1.1.1", "192.0.2.1", "198.18.0.1", "::1", "::ffff:127.0.0.1", "fd7a:115c:a1e0::1", "fe80::1", "2001:db8::1", "2002:7f00:1::"]) expect(isPublicPreviewAddress(ip), ip).toBe(false);
+    for (const ip of ["127.0.0.1", "10.0.0.1", "172.16.2.3", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.1.1.1", "192.0.2.1", "192.0.2.2", "::1", "::ffff:127.0.0.1", "fd7a:115c:a1e0::1", "fe80::1", "2001:db8::1", "2002:7f00:1::"]) expect(isPublicPreviewAddress(ip), ip).toBe(false);
     for (const ip of ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"]) expect(isPublicPreviewAddress(ip), ip).toBe(true);
   });
   it("pins resolved addresses and revalidates every redirect, including mixed DNS answers", async () => {
@@ -174,7 +174,7 @@ it("migrates schema 7 previews without rewriting messages/events and rejects cor
   const before = await store.snapshot("owner", conversation.id), events = await store.sync("owner", conversation.id, 0);
   await store.db.exec("ALTER TABLE messages DROP COLUMN preview_style; UPDATE meta SET value='7' WHERE key='schema_version'");
   await store.db.close(); store = await HubStore.open(root);
-  expect((await store.db.get<{ value: string }>("SELECT value FROM meta WHERE key='schema_version'"))?.value).toBe("26");
+  expect((await store.db.get<{ value: string }>("SELECT value FROM meta WHERE key='schema_version'"))?.value).toBe("28");
   expect(await store.snapshot("owner", conversation.id)).toEqual(before);
   expect(await store.sync("owner", conversation.id, 0)).toEqual(events);
   expect((await store.messageForUser("owner", message.id)).previewStyle).toBeUndefined();

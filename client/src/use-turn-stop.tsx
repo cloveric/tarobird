@@ -1,7 +1,7 @@
 import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Message } from "../../src/client-protocol/index.js";
-import { affectedBackgroundTasks, stopScopeUnverified, turnStopImpact } from "./turn-stop.js";
+import { affectedBackgroundTasks, engineForegroundStopAffectsBackground, stopScopeUnverified, turnStopImpact } from "./turn-stop.js";
 import { engineTaskSnapshotSchema } from "../../src/client-protocol/engine-tasks.js";
 import { queueRequest } from "./prompt-queue-request.js";
 import type { HubConnection } from "./connection.js";
@@ -35,7 +35,7 @@ export function useTurnStop(connection: HubConnection, conversationId: string, m
       const impact = turnStopImpact(latest.current.messages, connection.state.bots, target, botId);
       // Native tasks need not have a saved scoped card. Read them only for an
       // explicit stop, without adding polling or delaying other engines.
-      const targets = connection.state.engineTasksAvailable ? connection.state.bots.filter(bot => bot.engine === "claude" && (!botId || bot.id === botId)
+      const targets = connection.state.engineTasksAvailable ? connection.state.bots.filter(bot => engineForegroundStopAffectsBackground(bot.engine) && (!botId || bot.id === botId)
         && turnStopImpact(latest.current.messages, connection.state.bots, target, bot.id).identity !== "[]") : [];
       const lookup = targets.length ? queueRequest([], 1500) : undefined;
       const details = await Promise.all(targets.map(async bot => {

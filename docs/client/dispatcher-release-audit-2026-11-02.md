@@ -1,4 +1,4 @@
-# Chancellor 1.0.127 release audit
+# Superagent 1.0.127 release audit
 
 Root and an independent Claude Opus 5.5 reviewer audited main `6d35512` and the worker-assistance changes. Opus worked in an isolated clone; root reproduced the failures before applying the reviewed patches.
 

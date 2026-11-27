@@ -192,3 +192,17 @@ it.each([false, true])("queues a signed App message behind a held HTTP history r
   expect(replies.some(reply => reply.blocks_json.includes("App input during history read"))).toBe(true);
   expect(f.prompts()).toHaveLength(2);
 }, 20_000);
+
+it("reports when a queued Bridge turn finally holds the conversation lock, with how long it waited", async () => {
+  const f = await bridgeFixture(); f.hold();
+  const snapshot = f.bridge.getConversationHistory(f.scope);
+  await until(() => f.held.length === 1);
+  const acquired = vi.fn();
+  const next = f.bridge.handleAuthorizedMessage({ ...f.scope, userId: 42, chatType: "private", text: "after a slow read", files: [], onTurnLockAcquired: acquired });
+  await new Promise(resolve => setTimeout(resolve, 60));
+  expect(acquired).not.toHaveBeenCalled();
+  f.release();
+  await snapshot; await next;
+  expect(acquired).toHaveBeenCalledOnce();
+  expect(acquired.mock.calls[0]![0].waitedMs).toBeGreaterThanOrEqual(50);
+});

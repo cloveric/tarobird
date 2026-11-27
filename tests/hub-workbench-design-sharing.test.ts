@@ -6,7 +6,7 @@ import { HubError, HubStore } from "../src/hub/store.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "../src/hub/workbench-design-sharing.js";
 import type { DesignShareDispatchFrame, DesignShareEventFrame, DesignShareServerFrame } from "../src/client-protocol/workbench-design-sharing.js";
 import { DesignShareClient, DesignShareManager, joinDesignShare, openDesignShare, type DesignShareTransport, type DesignShareView } from "../client/src/workbench-design-collaboration.js";
-import { decodeDesignFile, designTextFile, encodeDesignFile, type DesignDocument } from "../client/src/workbench-design.js";
+import { decodeDesignFile, designTextFile, emptySlides, encodeDesignFile, type DesignDocument } from "../client/src/workbench-design.js";
 import { memoryDesign } from "../client/tests/design-session-fixture.js";
 
 // The real broker on a real HubStore (SQLite users and conversation
@@ -53,10 +53,10 @@ describe("authenticated Baoyu sharing broker", () => {
     owner = device("owner", "mac"); phone = device("owner", "phone"); guest = device("guest", "guest-laptop"); outsider = device("outsider", "x");
   });
   afterEach(async () => { broker.close(); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
-  const share = async (made = memoryDesign()) => ({ session: made.session, store: made.store, ...(await openDesignShare(owner.client, made.session, { conversationId, windowId: "w-src", title: "Deck" })) });
+  const share = async (made = memoryDesign(emptySlides("design"))) => ({ session: made.session, store: made.store, ...(await openDesignShare(owner.client, made.session, { conversationId, windowId: "w-src", title: "Deck" })) });
 
   it("does not disclose another user's private file names or hashes in change notifications", async () => {
-    const made = await share(memoryDesign(undefined, { user: () => ({ id: "owner", name: "Owner" }) }));
+    const made = await share(memoryDesign(emptySlides("design"), { user: () => ({ id: "owner", name: "Owner" }) }));
     const shareId = (made.view as { shareId: string }).shareId;
     await owner.client.request({ op: "grant", shareId, userId: "guest", role: "editor" });
     await guest.client.request({ op: "join", shareId, windowId: "w-guest" });
@@ -71,7 +71,7 @@ describe("authenticated Baoyu sharing broker", () => {
   });
 
   it("cannot copy another user's private bytes into a public file by supplying their content hash", async () => {
-    const made = await share(memoryDesign(undefined, { user: () => ({ id: "owner", name: "Owner" }) }));
+    const made = await share(memoryDesign(emptySlides("design"), { user: () => ({ id: "owner", name: "Owner" }) }));
     const shareId = (made.view as { shareId: string }).shareId;
     await made.session.request("db.write", { op: "set", path: "data/users/me/preferences", data: { note: "owner-only fixture" } });
     const privateFile = made.store.design.files["project/db/data/users/owner/preferences.json"];
@@ -125,7 +125,7 @@ describe("authenticated Baoyu sharing broker", () => {
     broker.close();
     broker = new DesignShareBroker({ requireMember: (u, c) => store.db.serial(() => store.requireMember(u, c)), userName: async u => (await store.user(u))?.name, repository: metaDesignShareRepository(store.db) },
       { limits: { resultInlineBytes: 100000, resultBufferBytes: 500000, dispatchTimeoutMs: 2000 } });
-    const made = memoryDesign();
+    const made = memoryDesign(emptySlides("design"));
     for (let i = 0; i < 2; i++) await made.session.request("db.write", { op: "set", path: `items/item${i}`, data: { text: "x".repeat(150000) } });
     const source = await share(made), shareId = source.view.shareId;
     await owner.client.request({ op: "grant", shareId, userId: "guest", role: "viewer" });
@@ -148,7 +148,8 @@ describe("authenticated Baoyu sharing broker", () => {
     const shareId = (view as { shareId: string }).shareId;
     expect(shareId).toMatch(/^ds_[a-z0-9]{24}$/);
     expect(((await openDesignShare(owner.client, session, { conversationId, windowId: "w-src", title: "Deck" })).view as { shareId: string }).shareId).toBe(shareId);
-    await expect(outsider.client.request({ op: "open", conversationId, designId: "d", windowId: "w", title: "x", format: "canvas", revision: 0 })).rejects.toThrow("conversation_forbidden");
+    await expect(outsider.client.request({ op: "open", conversationId, designId: "d", windowId: "w", title: "x", format: "slides", revision: 0 })).rejects.toThrow("conversation_forbidden");
+    await expect(owner.client.request({ op: "open", conversationId, designId: "d", windowId: "w", title: "x", format: "canvas", revision: 0 })).rejects.toThrow("design_canvas_removed");
     await expect(guest.client.request({ op: "grant", shareId, userId: "guest", role: "editor" })).rejects.toThrow("design_share_forbidden");
     await expect(owner.client.request({ op: "grant", shareId, userId: "outsider", role: "viewer" })).rejects.toThrow("design_share_not_member");
     await expect(guest.client.request({ op: "join", shareId, windowId: "w" })).rejects.toThrow("design_share_forbidden");
@@ -258,7 +259,7 @@ describe("authenticated Baoyu sharing broker", () => {
     // A re-open racing a close never revives the closed share.
     const second = await openDesignShare(owner.client, source.session, { conversationId, windowId: "w-src", title: "Deck" }), secondId = (second.view as { shareId: string }).shareId;
     expect(secondId).not.toBe(shareId);
-    const [, reopened] = await Promise.allSettled([owner.client.request({ op: "close", shareId: secondId }), owner.client.request({ op: "open", conversationId, designId: source.session.document.id, windowId: "w-src", title: "Deck", format: "canvas", revision: 0 })]);
+    const [, reopened] = await Promise.allSettled([owner.client.request({ op: "close", shareId: secondId }), owner.client.request({ op: "open", conversationId, designId: source.session.document.id, windowId: "w-src", title: "Deck", format: "slides", revision: 0 })]);
     expect(await repository.get(secondId)).toMatchObject({ state: "closed", generation: 2 });
     if (reopened.status === "fulfilled") {
       const id = (reopened.value as { shareId: string }).shareId;
@@ -285,7 +286,7 @@ describe("authenticated Baoyu sharing broker", () => {
     expect(text(source.store.design.files["project/race.txt"])).toBe("retried");
   });
   it("a joined copy, even on the owner's own other device, never offers or performs Send to Bot", async () => {
-    const drafts: unknown[] = [], source = await share(memoryDesign(undefined, { sendToBot: async draft => { drafts.push(draft); return "opened"; } }));
+    const drafts: unknown[] = [], source = await share(memoryDesign(emptySlides("design"), { sendToBot: async draft => { drafts.push(draft); return "opened"; } }));
     const shareId = (source.view as { shareId: string }).shareId;
     // The sharing device itself still sends.
     expect(((await source.session.request("comments.snapshot", {})) as { body: { agent: { available: boolean } } }).body.agent.available).toBe(true);
@@ -423,7 +424,7 @@ describe("authenticated Baoyu sharing broker", () => {
   });
   // Independent review (sharing-ui-independent-review.md, confirmed 2): Pause during a reconnect.
   it("Pause while a reconnect is still saving: the stopped source never re-attaches, and Start works again", async () => {
-    const made = memoryDesign(), manager = new DesignShareManager(owner.client);
+    const made = memoryDesign(emptySlides("design")), manager = new DesignShareManager(owner.client);
     const first = await manager.share(made.session, { conversationId, windowId: "w-src", title: "Deck" });
     await manager.grant(made.session, "guest", "viewer");
     let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; }), flush = made.session.flush.bind(made.session);
@@ -442,7 +443,7 @@ describe("authenticated Baoyu sharing broker", () => {
     expect(await guest.client.request({ op: "call", shareId: first.shareId, windowId: "g", call: "list", payload: {} })).toMatchObject({ files: expect.any(Object) });
   });
   it("Pause while the reconnect attach is already on the wire: the Host ends detached", async () => {
-    const made = memoryDesign(), manager = new DesignShareManager(owner.client);
+    const made = memoryDesign(emptySlides("design")), manager = new DesignShareManager(owner.client);
     const first = await manager.share(made.session, { conversationId, windowId: "w-src", title: "Deck" });
     let release!: () => void, sent!: () => void; const wire = new Promise<void>(resolve => { release = resolve; }), onWire = new Promise<void>(resolve => { sent = resolve; });
     owner.gate(op => { if (op !== "attach") return undefined; sent(); return wire; });

@@ -1,4 +1,5 @@
 import { classifyFailure } from "../../runtime/error-classification.js";
+import { hostT } from "../../locales/index.js";
 import type { EngineContextUsage } from "../../codex/adapter.js";
 import { chunkReplyMessage, type Locale } from "../../runtime/message-renderer.js";
 import {
@@ -9,9 +10,7 @@ import { applyEngineSelection } from "../../state/instance-config.js";
 import type { CommandMessage } from "../../runtime/command-message.js";
 import type { InstanceEngine } from "../../state/instance-config.js";
 
-const ENGINE_CHOICES: InstanceEngine[] = ["claude", "codex", "kimi", "deepseek", "antigravity", "pi"];
-const ENGINE_USAGE_EN = "Usage: /engine [claude|codex|kimi|deepseek|antigravity|pi]";
-const ENGINE_USAGE_ZH = "用法: /engine [claude|codex|kimi|deepseek|antigravity|pi]";
+const ENGINE_CHOICES: InstanceEngine[] = ["claude", "codex", "kimi", "deepseek", "antigravity", "pi", "omp"];
 
 function isCompactCommand(text: string): boolean {
   return /^\/compact(?:@\w+)?(?:\s|$)/i.test(text.trim());
@@ -25,26 +24,22 @@ function isContextCommand(text: string): boolean {
   return /^\/context(?:@\w+)?(?:\s|$)/i.test(text.trim());
 }
 
+function isSwarmCommand(text: string): boolean {
+  return /^\/swarm(?:@\w+)?(?:\s|$)/i.test(text.trim());
+}
+
 function renderContextUsage(usage: EngineContextUsage | null, locale: Locale, engineName = "DeepSeek Harness"): string {
   const used = usage?.projectedTokens ?? usage?.pressureTokens;
   const window = usage?.contextWindow;
   if (used === undefined || window === undefined || window <= 0) {
-    return locale === "zh"
-      ? `当前还没有可用的上下文统计。先发送一条消息，让 ${engineName} 获得 provider 用量样本后再试。`
-      : `Context usage is not available yet. Send a message first so ${engineName} can collect a provider usage sample, then try again.`;
+    return hostT(locale, "当前还没有可用的上下文统计。先发送一条消息，让 {0} 获得 provider 用量样本后再试。", engineName);
   }
   const format = (value: number) => Math.round(value).toLocaleString("en-US");
   const percent = Math.min(100, Math.max(0, used / window * 100)).toFixed(1);
   const sample = usage?.pressureTokens;
-  if (locale === "zh") {
-    return [
-      `上下文：约 ${format(used)} / ${format(window)} token（${percent}%）`,
-      ...(sample === undefined ? [] : [`最近一次 provider 样本：${format(sample)} token`]),
-    ].join("\n");
-  }
   return [
-    `Context: ~${format(used)} / ${format(window)} tokens (${percent}%)`,
-    ...(sample === undefined ? [] : [`Last provider sample: ${format(sample)} tokens`]),
+    hostT(locale, "上下文：约 {0} / {1} token（{2}%）", format(used), format(window), percent),
+    ...(sample === undefined ? [] : [hostT(locale, "最近一次 provider 样本：{0} token", format(sample))]),
   ].join("\n");
 }
 
@@ -84,40 +79,22 @@ function renderEngineSwitchMessage(input: {
     if (!enabledFullAuto) {
       return message;
     }
-    return locale === "zh"
-      ? `${message} Antigravity 已自动开启 YOLO/full-auto。`
-      : `${message} Antigravity YOLO/full-auto enabled.`;
+    return hostT(locale, "{0} Antigravity 已自动开启 YOLO/full-auto。", message);
   };
 
-  if (locale === "zh") {
-    if (resetSessionBindingFailed) {
-      return `未能切换到 ${engine}：该实例的会话绑定未能先清除。当前引擎仍是 ${previousEngine ?? engine}。`;
-    }
-    if (clearedModel && resetSessionBindings) {
-      return appendAntigravityYolo(`引擎已设为 ${engine}。已清除先前的模型覆盖，并重置该实例的会话绑定。重启此实例后生效。`);
-    }
-    if (clearedModel) {
-      return appendAntigravityYolo(`引擎已设为 ${engine}。已清除先前的模型覆盖。重启此实例后生效。`);
-    }
-    if (resetSessionBindings) {
-      return appendAntigravityYolo(`引擎已设为 ${engine}。已重置该实例的会话绑定。重启此实例后生效。`);
-    }
-    return appendAntigravityYolo(`引擎已设为 ${engine}。重启此实例后生效。`);
-  }
-
   if (resetSessionBindingFailed) {
-    return `Could not switch to ${engine} because this instance's session bindings could not be reset first. Engine remains ${previousEngine ?? engine}.`;
+    return hostT(locale, "未能切换到 {0}：该实例的会话绑定未能先清除。当前引擎仍是 {1}。", engine, previousEngine ?? engine);
   }
   if (clearedModel && resetSessionBindings) {
-    return appendAntigravityYolo(`Engine set to ${engine}. Cleared the previous model override and reset this instance's session bindings. Restart this instance to apply.`);
+    return appendAntigravityYolo(hostT(locale, "引擎已设为 {0}。已清除先前的模型覆盖，并重置该实例的会话绑定。重启此实例后生效。", engine));
   }
   if (clearedModel) {
-    return appendAntigravityYolo(`Engine set to ${engine}. Cleared the previous model override. Restart this instance to apply.`);
+    return appendAntigravityYolo(hostT(locale, "引擎已设为 {0}。已清除先前的模型覆盖。重启此实例后生效。", engine));
   }
   if (resetSessionBindings) {
-    return appendAntigravityYolo(`Engine set to ${engine}. Reset this instance's session bindings. Restart this instance to apply.`);
+    return appendAntigravityYolo(hostT(locale, "引擎已设为 {0}。已重置该实例的会话绑定。重启此实例后生效。", engine));
   }
-  return appendAntigravityYolo(`Engine set to ${engine}. Restart this instance to apply.`);
+  return appendAntigravityYolo(hostT(locale, "引擎已设为 {0}。重启此实例后生效。", engine));
 }
 
 export interface EngineCommandConfig {
@@ -183,25 +160,16 @@ export async function handleLocalEngineCoreCommand(input: {
   if (engineCmd) {
     let engineMessage: string;
     if (!engineCmd.engine && !engineCmd.invalid) {
-      engineMessage = locale === "zh"
-        ? [
-            `当前引擎：${cfg.engine}`,
-            "用 /engine <名称> 选择引擎：",
-            ...ENGINE_CHOICES.filter(engine => engine !== "pi" || cfg.role !== "dispatcher").map((engine) => `/engine ${engine}`),
-            "切换后重启此实例以生效。",
-          ].join("\n")
-        : [
-            `Current engine: ${cfg.engine}`,
-            "Choose an engine with /engine <name>:",
-            ...ENGINE_CHOICES.filter(engine => engine !== "pi" || cfg.role !== "dispatcher").map((engine) => `/engine ${engine}`),
-            "Restart this instance after switching to apply the change.",
-          ].join("\n");
+      const options = ENGINE_CHOICES.filter(engine => (engine !== "pi" && engine !== "omp") || cfg.role !== "dispatcher").map((engine) => `/engine ${engine}`).join("\n");
+      engineMessage = hostT(locale, "当前引擎：{0}\n用 /engine <名称> 选择引擎：\n{1}\n切换后重启此实例以生效。", cfg.engine, options);
       await context.api.sendMessage(normalized.chatId, engineMessage);
     } else if (engineCmd.invalid || !ENGINE_CHOICES.includes(engineCmd.engine as InstanceEngine)) {
-      engineMessage = locale === "zh" ? ENGINE_USAGE_ZH : ENGINE_USAGE_EN;
+      engineMessage = hostT(locale, "用法: /engine [claude|codex|kimi|deepseek|antigravity|pi|omp]");
       await context.api.sendMessage(normalized.chatId, engineMessage);
-    } else if (engineCmd.engine === "pi" && cfg.role === "dispatcher") {
-      engineMessage = locale === "zh" ? "Pi 仅用于普通 Bot，不支持幕僚长。" : "Pi is available for ordinary Bots, not Chief of Staff Bots.";
+    } else if ((engineCmd.engine === "pi" || engineCmd.engine === "omp") && cfg.role === "dispatcher") {
+      engineMessage = engineCmd.engine === "omp"
+        ? (locale === "zh" ? "omp 仅用于普通 Bot，不支持幕僚长。" : "omp is available for ordinary Bots, not Superagent Bots.")
+        : (locale === "zh" ? "Pi 仅用于普通 Bot，不支持幕僚长。" : "Pi is available for ordinary Bots, not Superagent Bots.");
       await context.api.sendMessage(normalized.chatId, engineMessage);
     } else {
       const selectedEngine = engineCmd.engine as InstanceEngine;
@@ -247,13 +215,11 @@ export async function handleLocalEngineCoreCommand(input: {
   }
 
   if (isCompactCommand(normalized.text)) {
-    // Keep Pi's native command suffix, extension callbacks and turn scope.
-    if (cfg.engine === "pi") return false;
+    // Keep Pi/OMP's native command suffix, extension callbacks and turn scope.
+    if (cfg.engine === "pi" || cfg.engine === "omp") return false;
     const agyAcp = cfg.engine === "antigravity" && cfg.antigravityRuntime === "acp";
     if (cfg.engine !== "claude" && cfg.engine !== "kimi" && cfg.engine !== "deepseek" && !agyAcp) {
-      const msg = locale === "zh"
-        ? "/compact 仅支持 Claude、Kimi 与 DeepSeek 引擎。当前引擎不会执行本地上下文压缩；如需清空当前会话，请使用 /reset。"
-        : "/compact is only supported with the Claude, Kimi, and DeepSeek engines. The current engine does not run local context compaction; use /reset to clear this conversation.";
+      const msg = hostT(locale, "/compact 仅支持 Claude、Kimi 与 DeepSeek 引擎。当前引擎不会执行本地上下文压缩；如需清空当前会话，请使用 /reset。");
       await context.api.sendMessage(normalized.chatId, msg);
       await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
         startedAt,
@@ -266,7 +232,7 @@ export async function handleLocalEngineCoreCommand(input: {
 
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? "正在压缩会话上下文..." : "Compacting session context...",
+      hostT(locale, "正在压缩会话上下文..."),
     );
 
     let compactAuditText: string | undefined;
@@ -280,13 +246,13 @@ export async function handleLocalEngineCoreCommand(input: {
         locale,
         text: "/compact",
         files: [],
-        workspaceOverride: cfg.resume?.workspacePath,
+        workspaceOverride: cfg.resume?.workspacePath ?? cfg.workspacePath,
         disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
         abortSignal: context.abortSignal,
       });
 
       // A native compact can finish without any text of its own (Antigravity ACP).
-      const compactMsg = [locale === "zh" ? "上下文已压缩。" : "Context compacted.", result.text.trim() ? result.text : ""].filter(Boolean).join("\n\n");
+      const compactMsg = [hostT(locale, "上下文已压缩。"), result.text.trim() ? result.text : ""].filter(Boolean).join("\n\n");
       compactAuditText = compactMsg;
       const chunks = chunkReplyMessage(compactMsg);
       await context.api.sendMessage(normalized.chatId, chunks[0]!);
@@ -302,9 +268,7 @@ export async function handleLocalEngineCoreCommand(input: {
       // a reset throws it away. Silently resetting here destroyed the very
       // conversation the user was trying to preserve. Leave the session intact
       // and let the user decide whether to /reset.
-      const fallbackMsg = locale === "zh"
-        ? "这次没能压缩上下文，会话保持不变。如果想清空、重新开始，请发送 /reset。"
-        : "Couldn't compact the context this time; your conversation is unchanged. Send /reset if you want to start fresh.";
+      const fallbackMsg = hostT(locale, "这次没能压缩上下文，会话保持不变。如果想清空、重新开始，请发送 /reset。");
       compactAuditText = fallbackMsg;
       await context.api.sendMessage(normalized.chatId, fallbackMsg);
     }
@@ -319,9 +283,7 @@ export async function handleLocalEngineCoreCommand(input: {
 
   if (isUltrareviewCommand(normalized.text)) {
     if (cfg.engine !== "claude") {
-      const msg = locale === "zh"
-        ? "/ultrareview 仅支持 Claude 引擎（Opus 4.7+）。"
-        : "/ultrareview is only supported with the Claude engine (Opus 4.7+).";
+      const msg = hostT(locale, "/ultrareview 仅支持 Claude 引擎（Opus 4.7+）。");
       await context.api.sendMessage(normalized.chatId, msg);
       await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
         startedAt,
@@ -334,7 +296,7 @@ export async function handleLocalEngineCoreCommand(input: {
 
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? "正在进行代码审查..." : "Running code review...",
+      hostT(locale, "正在进行代码审查..."),
     );
 
     const result = await bridge.handleAuthorizedMessage({
@@ -346,7 +308,7 @@ export async function handleLocalEngineCoreCommand(input: {
       locale,
       text: "/ultrareview",
       files: [],
-      workspaceOverride: cfg.resume?.workspacePath,
+      workspaceOverride: cfg.resume?.workspacePath ?? cfg.workspacePath,
       disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
       abortSignal: context.abortSignal,
     });
@@ -366,14 +328,14 @@ export async function handleLocalEngineCoreCommand(input: {
   }
 
   if (isContextCommand(normalized.text)) {
-    if (cfg.engine === "deepseek" || cfg.engine === "pi" || cfg.engine === "antigravity" && cfg.antigravityRuntime === "acp") {
+    if (cfg.engine === "deepseek" || cfg.engine === "pi" || cfg.engine === "omp" || cfg.engine === "antigravity" && cfg.antigravityRuntime === "acp") {
       const usage = await bridge.getContextUsage?.({
         chatId: normalized.chatId,
         messageThreadId: normalized.messageThreadId,
         conversationKey: normalized.conversationKey,
-        workspaceOverride: cfg.engine === "pi" ? cfg.workspacePath ?? cfg.resume?.workspacePath : cfg.resume?.workspacePath,
+        workspaceOverride: cfg.engine === "pi" || cfg.engine === "omp" ? cfg.workspacePath ?? cfg.resume?.workspacePath : cfg.resume?.workspacePath ?? cfg.workspacePath,
       }) ?? null;
-      const msg = renderContextUsage(usage, locale, cfg.engine === "pi" ? "Pi" : cfg.engine === "antigravity" ? "Antigravity" : "DeepSeek Harness");
+      const msg = renderContextUsage(usage, locale, cfg.engine === "omp" ? "oh-my-pi (omp)" : cfg.engine === "pi" ? "Pi" : cfg.engine === "antigravity" ? "Antigravity" : "DeepSeek Harness");
       await context.api.sendMessage(normalized.chatId, msg);
       await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
         startedAt,
@@ -384,9 +346,7 @@ export async function handleLocalEngineCoreCommand(input: {
     }
 
     if (cfg.engine !== "claude") {
-      const msg = locale === "zh"
-        ? "/context 仅支持 Claude 或 DeepSeek 引擎。当前引擎不暴露本地上下文查询。"
-        : "/context is only supported with the Claude or DeepSeek engine. The current engine does not expose local context.";
+      const msg = hostT(locale, "/context 仅支持 Claude 或 DeepSeek 引擎。当前引擎不暴露本地上下文查询。");
       await context.api.sendMessage(normalized.chatId, msg);
       await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
         startedAt,
@@ -406,7 +366,7 @@ export async function handleLocalEngineCoreCommand(input: {
       locale,
       text: "/context",
       files: [],
-      workspaceOverride: cfg.resume?.workspacePath,
+      workspaceOverride: cfg.resume?.workspacePath ?? cfg.workspacePath,
       disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
       abortSignal: context.abortSignal,
     });
@@ -421,6 +381,22 @@ export async function handleLocalEngineCoreCommand(input: {
       startedAt,
       command: "context",
       responseText: result.text,
+    });
+    return true;
+  }
+
+  if (isSwarmCommand(normalized.text)) {
+    if (cfg.engine !== "antigravity") return false;
+    if (cfg.antigravityRuntime === "acp") return false;
+    const msg = locale === "zh"
+      ? "当前 Antigravity Bot 运行在 print 模式，不支持 `/swarm`（仅 `agy acp` 交互运行时支持 `/swarm`）。本次未向模型发送任何内容；请新建使用 ACP 运行时的 Antigravity Bot 后重试。"
+      : "`/swarm` is not available on Antigravity's print runtime (only the `agy acp` interactive runtime supports `/swarm`). Nothing was sent to the model; create a new Antigravity Bot on the ACP runtime to use `/swarm`.";
+    await context.api.sendMessage(normalized.chatId, msg);
+    await appendCommandSuccessAuditEventBestEffort(stateDir, context, normalized, {
+      startedAt,
+      command: "swarm",
+      responseText: msg,
+      metadata: { rejected: "print-runtime" },
     });
     return true;
   }

@@ -1,13 +1,15 @@
 import "reflect-metadata";
 import { randomBytes, webcrypto, X509Certificate, createPrivateKey } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
-import { BasicConstraintsExtension, ExtendedKeyUsageExtension, KeyUsagesExtension, KeyUsageFlags, SubjectAlternativeNameExtension, X509CertificateGenerator } from "@peculiar/x509";
+import { AuthorityKeyIdentifierExtension, BasicConstraintsExtension, ExtendedKeyUsageExtension, KeyUsagesExtension, KeyUsageFlags, SubjectAlternativeNameExtension, SubjectKeyIdentifierExtension, X509Certificate as PeculiarX509, X509CertificateGenerator } from "@peculiar/x509";
 import { z } from "zod";
 import { isTailscaleAddress } from "./network.js";
 
 const crypto = webcrypto as unknown as Crypto;
+const SERVER_AUTH_EKU_OID = ["1", "3", "6", "1", "5", "5", "7", "3", "1"].join(".");
 const algorithm = { name: "ECDSA", namedCurve: "P-256", hash: "SHA-256" };
 const authoritySchema = z.object({ certificate: z.string(), privateKey: z.string() }).strict();
 const pem = (type: string, bytes: ArrayBuffer) => `-----BEGIN ${type}-----\n${Buffer.from(bytes).toString("base64").match(/.{1,64}/g)!.join("\n")}\n-----END ${type}-----\n`;
@@ -33,23 +35,31 @@ export async function desktopTls(directory: string, addresses: string[]) {
   const now = Date.now();
   if (!authority) {
     const keys = await crypto.subtle.generateKey(algorithm, true, ["sign", "verify"]) as CryptoKeyPair;
-    const certificate = await X509CertificateGenerator.createSelfSigned({ name: "CN=TaroBot private host CA", serialNumber: randomBytes(16).toString("hex"), notBefore: new Date(now - 300_000), notAfter: new Date(now + 10 * 365 * 86400_000), keys, signingAlgorithm: algorithm, extensions: [new BasicConstraintsExtension(true, 0, true), new KeyUsagesExtension(KeyUsageFlags.keyCertSign | KeyUsageFlags.cRLSign, true)] }, crypto);
+    const ski = await SubjectKeyIdentifierExtension.create(keys.publicKey, false, crypto);
+    const certificate = await X509CertificateGenerator.createSelfSigned({ name: "CN=TaroBot private host CA", serialNumber: randomBytes(16).toString("hex"), notBefore: new Date(now - 300_000), notAfter: new Date(now + 10 * 365 * 86400_000), keys, signingAlgorithm: algorithm, extensions: [new BasicConstraintsExtension(true, 0, true), new KeyUsagesExtension(KeyUsageFlags.keyCertSign | KeyUsageFlags.cRLSign, true), ski] }, crypto);
     authority = { certificate: certificate.toString("pem"), privateKey: Buffer.from(await crypto.subtle.exportKey("pkcs8", keys.privateKey)).toString("base64") };
     await writeFile(file, JSON.stringify(authority), { mode: 0o600, flag: "wx" });
   }
   const cert = path.join(root, "server.pem"), key = path.join(root, "server-key.pem");
   const certificateAuthority = new X509Certificate(authority.certificate).raw.toString("base64");
+  const normalizedAddresses = [...new Set(addresses.map(v => v.trim().replace(/^\[|\]$/g, "")).filter(Boolean))];
   try {
     const existing = new X509Certificate(await readFile(cert));
-    if (Date.parse(existing.validTo) > now + 7 * 86400_000 && addresses.every((ip) => existing.checkIP(ip) === ip)
+    const coversAll = normalizedAddresses.every((entry) => isIP(entry) !== 0 ? existing.checkIP(entry) === entry : Boolean(existing.checkHost(entry)));
+    if (Date.parse(existing.validTo) > now + 7 * 86400_000 && coversAll
       && existing.verify(new X509Certificate(authority.certificate).publicKey)
       && existing.checkPrivateKey(createPrivateKey(await readFile(key)))) {
       return { cert, key, certificateAuthority, renewed: false };
     }
   } catch { /* Missing, expired or mismatched leaves are renewed under the host mutex. */ }
   const signingKey = await crypto.subtle.importKey("pkcs8", Uint8Array.from(Buffer.from(authority.privateKey, "base64")), algorithm, false, ["sign"]);
+  const caCert = new PeculiarX509(authority.certificate);
+  const caPublicKey = await caCert.publicKey.export(algorithm, ["verify"], crypto);
   const keys = await crypto.subtle.generateKey(algorithm, true, ["sign", "verify"]) as CryptoKeyPair;
-  const certificate = await X509CertificateGenerator.create({ subject: "CN=TaroBot host", issuer: "CN=TaroBot private host CA", publicKey: keys.publicKey, signingKey, signingAlgorithm: algorithm, serialNumber: randomBytes(16).toString("hex"), notBefore: new Date(now - 300_000), notAfter: new Date(now + 90 * 86400_000), extensions: [new BasicConstraintsExtension(false, undefined, true), new KeyUsagesExtension(KeyUsageFlags.digitalSignature, true), new ExtendedKeyUsageExtension(["1.3.6.1.5.5.7.3.1"]), new SubjectAlternativeNameExtension([...new Set(addresses)].map((value) => ({ type: "ip" as const, value })))] }, crypto);
+  const leafSki = await SubjectKeyIdentifierExtension.create(keys.publicKey, false, crypto);
+  const leafAki = await AuthorityKeyIdentifierExtension.create(caPublicKey, false, crypto);
+  const sanEntries = normalizedAddresses.map((value) => (isIP(value) !== 0 ? { type: "ip" as const, value } : { type: "dns" as const, value }));
+  const certificate = await X509CertificateGenerator.create({ subject: "CN=TaroBot host", issuer: "CN=TaroBot private host CA", publicKey: keys.publicKey, signingKey, signingAlgorithm: algorithm, serialNumber: randomBytes(16).toString("hex"), notBefore: new Date(now - 300_000), notAfter: new Date(now + 90 * 86400_000), extensions: [new BasicConstraintsExtension(false, undefined, true), new KeyUsagesExtension(KeyUsageFlags.digitalSignature, true), new ExtendedKeyUsageExtension([SERVER_AUTH_EKU_OID]), leafSki, leafAki, new SubjectAlternativeNameExtension(sanEntries)] }, crypto);
   await writeFile(cert, certificate.toString("pem") + "\n" + authority.certificate, { mode: 0o600 });
   await writeFile(key, pem("PRIVATE KEY", await crypto.subtle.exportKey("pkcs8", keys.privateKey)), { mode: 0o600 });
   return { cert, key, certificateAuthority, renewed: true };

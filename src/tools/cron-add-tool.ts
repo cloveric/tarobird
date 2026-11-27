@@ -5,6 +5,7 @@ import type { CronJobInput, CronJobRecord } from "../state/cron-store.js";
 import type { CronDeliveryMode, CronSessionMode } from "../state/cron-store-schema.js";
 import { formatInCronTimezone, normalizeCronTimezone } from "../state/cron-timezone.js";
 import { loadInstanceConfig } from "../state/instance-config.js";
+import { hostT } from "../locales/index.js";
 import type { Locale } from "../runtime/locale.js";
 import type { CoreToolContext, CoreToolResult } from "./tool-types.js";
 
@@ -308,21 +309,17 @@ function renderAccepted(record: CronJobRecord, locale: Locale): string {
     ? formatInCronTimezone(record.targetAt, record.timezone)
     : record.cronExpr;
   const timezone = record.timezone && !record.runOnce ? ` (${record.timezone})` : "";
-  return locale === "zh"
-    ? `✓ 已添加定时任务  ID  ${record.id}\n⏰ ${when}${timezone}\n📝 ${record.prompt}`
-    : `✓ Scheduled task added  ID  ${record.id}\n⏰ ${when}${timezone}\n📝 ${record.prompt}`;
+  const isNotify = (record.deliveryMode ?? (record.runOnce ? "notify" : "agent")) === "notify";
+  const modeLine = hostT(locale, isNotify ? "🔔 模式：仅发送提醒卡片，不会运行 Bot" : "🤖 模式：到点自动运行 Bot 执行此任务");
+  return hostT(locale, "✓ 已添加定时任务  ID  {0}\n⏰ {1}{2}\n{3}\n📝 {4}", record.id, when, timezone, modeLine, record.prompt);
 }
 
 export function renderCronAddInvalidPayloadMessage(detail: string, locale: Locale): string | null {
   if (detail === "at must be a valid date-time" || detail.startsWith("invalid at timestamp:")) {
-    return locale === "zh"
-      ? "✗ 提醒时间格式无效：at 必须使用 ISO 日期时间，例如 2026-05-27T13:30:00+08:00。如果只是相对时间，请改用 in，例如 {\"in\":\"10m\",\"prompt\":\"...\"}。"
-      : "✗ Invalid reminder time: at must be an ISO date-time, for example 2026-05-27T13:30:00+08:00. For relative delays, use in, for example {\"in\":\"10m\",\"prompt\":\"...\"}.";
+    return hostT(locale, "✗ 提醒时间格式无效：at 必须使用 ISO 日期时间，例如 2026-05-27T13:30:00+08:00。如果只是相对时间，请改用 in，例如 {\"in\":\"10m\",\"prompt\":\"...\"}。");
   }
   if (detail.startsWith("in must match pattern") || detail === "in must be a duration like 10m, 2h, or 1d") {
-    return locale === "zh"
-      ? "✗ 提醒延迟格式无效：in 必须是 10m、2h、1d 这样的相对时长。需要具体日期时间时，请使用 ISO 格式的 at。"
-      : "✗ Invalid reminder delay: in must be a relative duration like 10m, 2h, or 1d. Use ISO date-time at for an exact date and time.";
+    return hostT(locale, "✗ 提醒延迟格式无效：in 必须是 10m、2h、1d 这样的相对时长。需要具体日期时间时，请使用 ISO 格式的 at。");
   }
   return null;
 }
@@ -332,9 +329,7 @@ function renderRejected(detail: string, locale: Locale): string {
   if (invalidPayloadMessage) {
     return invalidPayloadMessage;
   }
-  return locale === "zh"
-    ? `✗ 定时任务添加失败：${detail}`
-    : `✗ Failed to add scheduled task: ${detail}`;
+  return hostT(locale, "✗ 定时任务添加失败：{0}", detail);
 }
 
 export async function executeCronAddTool(payload: unknown, context: CronAddToolContext): Promise<CoreToolResult> {
@@ -356,12 +351,13 @@ export async function executeCronAddTool(payload: unknown, context: CronAddToolC
       detail: "cron.add tool accepted",
       metadata: {
         cronJobId: record.id,
+        deliveryMode: record.deliveryMode ?? (record.runOnce ? "notify" : "agent"),
         targetAt: record.targetAt,
         cronExpr: record.cronExpr,
         timezone: record.timezone,
       },
     });
-    return { ok: true, status: "accepted", message, metadata: { cronJobId: record.id } };
+    return { ok: true, status: "accepted", message, metadata: { cronJobId: record.id, deliveryMode: record.deliveryMode ?? (record.runOnce ? "notify" : "agent") } };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     const message = renderRejected(detail, context.locale);

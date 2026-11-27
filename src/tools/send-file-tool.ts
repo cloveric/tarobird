@@ -1,4 +1,5 @@
 import { deliverArtifactResponse } from "../core/shared/artifact-delivery.js";
+import { hostT } from "../locales/index.js";
 import { isAbsoluteFilePath } from "../runtime/file-paths.js";
 import type {
   CoreToolContext,
@@ -106,7 +107,7 @@ function renderRejected(detail: string, locale: CoreToolContext["locale"]): Core
   return {
     ok: false,
     status: "rejected",
-    message: locale === "zh" ? `✗ 文件发送失败：${detail}` : `✗ File delivery failed: ${detail}`,
+    message: hostT(locale, "✗ 文件发送失败：{0}", detail),
     error: detail,
   };
 }
@@ -161,7 +162,7 @@ export async function executeSendBatchTool(payload: unknown, context: CoreToolCo
       return {
         ok: false,
         status: accepted > 0 ? "partial" : "rejected",
-        message: context.locale === "zh" ? `✗ 文件发送失败：${detail}` : `✗ File delivery failed: ${detail}`,
+        message: hostT(context.locale, "✗ 文件发送失败：{0}", detail),
         error: detail,
         metadata: { requested, accepted, filesSent },
       };
@@ -169,7 +170,7 @@ export async function executeSendBatchTool(payload: unknown, context: CoreToolCo
     return {
       ok: true,
       status: "accepted",
-      message: context.locale === "zh" ? `✓ 文件已送达  ${accepted}/${requested}` : `✓ File delivered  ${accepted}/${requested}`,
+      message: hostT(context.locale, "✓ 文件已送达  {0}/{1}", accepted, requested),
       metadata: { requested, accepted, filesSent },
     };
   } catch (error) {

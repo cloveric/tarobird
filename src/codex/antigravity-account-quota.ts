@@ -12,6 +12,7 @@ import {
   type EngineQuotaReadOptions,
   type EngineQuotaReadResult,
 } from "./adapter-account-quota.js";
+import { probeAntigravityLocalServerQuota, type AntigravityLocalProbeDeps } from "./antigravity-local-server.js";
 import { killProcessTree } from "./process-tree.js";
 
 export type AntigravityQuotaSpawnOptions = {
@@ -219,7 +220,9 @@ async function runBoundedQuotaCommand(input: {
   return { code: exitCode, stdout, stderr, overflow, loginRequired, didClose, didStop, errorCode };
 }
 
-/** Dedicated one-shot reader using `agy --version` (>= 1.1.11) then `agy -p /usage --output-format json`. */
+/** Dedicated reader: queries a running `agy acp` / local Antigravity language server
+ * over loopback first (no new `agy` process), falling back to `agy --version` (>= 1.1.11)
+ * + `agy -p /usage --output-format json` when no local server answers. */
 export async function readOwnedAntigravityQuota(input: {
   executable: string;
   cwd: string;
@@ -229,6 +232,8 @@ export async function readOwnedAntigravityQuota(input: {
   scope: AdapterQuotaScope;
   options: EngineQuotaReadOptions;
   captureScope: () => AdapterQuotaScope;
+  preferredPids?: readonly number[];
+  localProbe?: boolean | Partial<AntigravityLocalProbeDeps>;
   now?: () => number;
 }): Promise<EngineQuotaReadResult> {
   if (owned.get(input.cache)?.size) return input.cache.failure(input.scope, "timeout");
@@ -256,6 +261,22 @@ export async function readOwnedAntigravityQuota(input: {
   };
 
   try {
+    if (input.localProbe && input.preferredPids?.length) {
+      const localDeps = typeof input.localProbe === "object" ? input.localProbe : undefined;
+      const localSnapshot = await probeAntigravityLocalServerQuota({
+        preferredPids: input.preferredPids,
+        signal: abort.signal,
+        now,
+        deps: localDeps,
+      });
+      if (abort.signal.aborted) return fail(timedOut ? "timeout" : "cancelled");
+      const afterLocal = input.captureScope();
+      if (afterLocal.revision !== input.scope.revision) return input.cache.failure(afterLocal, "auth_changed");
+      if (localSnapshot) {
+        return input.cache.store(afterLocal, { snapshot: localSnapshot });
+      }
+    }
+
     const versionRun = await runBoundedQuotaCommand({
       executable: input.executable,
       args: ["--version"],

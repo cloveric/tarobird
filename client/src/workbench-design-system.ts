@@ -28,9 +28,10 @@ export function designSystemInstall(target: DesignDocument, source: DesignDocume
     const name=path.slice("project/".length);if(name==="tarobot-source.json" || name.startsWith("db/"))continue;
     const destination=designPath.parse(prefix+name);
     // Content-addressed asset URLs become portable project-file references in
-    // this copy. The source itself is never altered.
+    // this copy. Slides paths omit the leading slash; canvas retains it.
+    const dsAssetPrefix = target.format === "slides" ? prefix : `/${prefix}`;
     copies[destination]=/^(text\/|application\/json|image\/svg\+xml)/.test(file.contentType)
-      ? designTextFile(text(file).replace(/(?<![\w:/.-])(?:\.?\/)?_blob\/([a-f0-9]{32})(?![a-f0-9])/g,(_all,id)=>`/${prefix}assets/${id}`),file.contentType):file;
+      ? designTextFile(text(file).replace(/(?<![\w:/.-])(?:\.?\/)?_blob\/([a-f0-9]{32})(?![a-f0-9])/g,(_all,id)=>`${dsAssetPrefix}assets/${id}`),file.contentType):file;
   }
   const batch:Record<string,unknown>={};
   const oldHashes:Record<string,string>=prior?.hashes ?? {};

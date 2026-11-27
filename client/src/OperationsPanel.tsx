@@ -38,7 +38,7 @@ function UsageSummary({ usage, engine }: { usage: Usage | null; engine: string }
     <p>{t("已记录用量：")}{tokenText} · {costText}{usage.unmeteredRequestCount ? t(" · {0} 次用量未知", usage.unmeteredRequestCount) : ""}</p>
     <p className="muted">{t("累计记录不包含未上报的用量或费用。")}{engine === "kimi"
       ? t("Kimi 当前不提供逐轮 token 和美元费用。")
-      : engine === "pi" ? t("Pi 费用按模型标价估算，订阅登录时不代表实际账单。") : engine !== "claude" ? t("当前引擎不提供美元费用，美元预算无法约束其消耗。") : ""}</p>
+      : engine === "pi" ? t("Pi 费用按模型标价估算，订阅登录时不代表实际账单。") : engine === "omp" ? t("omp 费用按模型标价估算，订阅登录时不代表实际账单。") : engine !== "claude" ? t("当前引擎不提供美元费用，美元预算无法约束其消耗。") : ""}</p>
   </>;
 }
 export function OperationsPanel({ connection, close, initialBot, initialView = "collaboration" }: { connection: HubConnection; close: () => void; initialBot?: { botId: string; name: string }; initialView?: "collaboration" | "dashboard" }) {

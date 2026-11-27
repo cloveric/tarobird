@@ -131,3 +131,22 @@ test('a recycled leader PID cannot receive the delayed group kill', async () => 
   const rejected = assert.rejects(f.helper.call('desktop_host', { action: 'resume' }), /native_helper_exited/);
   f.child.emit('close', 1); await rejected; await delay(15); assert.deepEqual(groups, []);
 });
+test('net_http_open and net_socket_open forward edgeTls: true intact for Cloudflare routes', async () => {
+  const f = fixture();
+  const httpReq = f.helper.call('net_http_open', {
+    id: 'h1',
+    input: { origin: 'https://cf.example.com', hubKey: 'trusted', edgeTls: true, path: '/health', method: 'GET', headers: [], body: null },
+  });
+  const wsReq = f.helper.call('net_socket_open', {
+    id: 's1', origin: 'https://cf.example.com', hubKey: 'trusted', edgeTls: true, channel: 'chan1',
+  });
+  assert.equal(f.requests[0].command, 'net_http_open');
+  assert.equal(f.requests[0].args.input.edgeTls, true);
+  assert.equal(f.requests[1].command, 'net_socket_open');
+  assert.equal(f.requests[1].args.edgeTls, true);
+  f.reply({ id: f.requests[0].id, result: { status: 200, headers: [] } });
+  f.reply({ id: f.requests[1].id, result: null });
+  assert.deepEqual(await httpReq, { status: 200, headers: [] });
+  assert.equal(await wsReq, null);
+  f.helper.close();
+});

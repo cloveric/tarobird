@@ -36,10 +36,16 @@ export function spawnEngine(command: string, args: string[], options: SpawnOptio
     // npm's JS launcher can run directly with our bundled Node. Avoiding an
     // intermediate cmd.exe preserves DSH's additional IPC pipe handles too.
     const entry = npmShimEntrypoint(resolved);
-    if (entry) return spawn(process.execPath, [entry, ...args], { ...options, shell: false, windowsHide: true });
+    if (entry) return spawn(process.execPath, [entry, ...args], {
+      ...options,
+      ...(process.versions.electron ? { env: { ...(options.env ?? process.env), ELECTRON_RUN_AS_NODE: "1" } } : {}),
+      shell: false,
+      windowsHide: true,
+    });
   }
-  if (/\.ps1$/i.test(command)) return spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-File", resolved ?? command, ...args], { ...options, shell: false, windowsHide: true });
-  return crossSpawn(resolved ?? command, args, { ...options, shell: false, windowsHide: true });
+  const target = resolved ?? command;
+  if (/\.ps1$/i.test(target)) return spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-File", target, ...args], { ...options, shell: false, windowsHide: true });
+  return crossSpawn(target, args, { ...options, shell: false, windowsHide: true });
 }
 
 /** Recognize only the vendor's exact Desktop shim, never arbitrary batch code. */

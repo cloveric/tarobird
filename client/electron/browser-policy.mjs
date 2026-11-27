@@ -57,16 +57,27 @@ export function privateHost(hostname) {
   return /^(fc|fd|fe8|fe9|fea|feb)/.test(host) && host.includes(':') || host.startsWith('::ffff:127.');
 }
 
-export function permissionLabel(permission, details = {}, english = false) {
+export function permissionLabel(permission, details = {}, localeOrEnglish = false) {
+  const loc = typeof localeOrEnglish === 'string'
+    ? (localeOrEnglish.toLowerCase().startsWith('ja') ? 'ja' : localeOrEnglish.toLowerCase().startsWith('zh') ? 'zh' : 'en')
+    : (localeOrEnglish ? 'en' : 'zh');
   if (permission === 'media') {
     const types = details.mediaTypes ?? [];
     const audio = types.includes('audio'), video = types.includes('video');
-    return english ? (audio && video ? 'camera and microphone' : video ? 'camera' : 'microphone') : (audio && video ? '摄像头和麦克风' : video ? '摄像头' : '麦克风');
+    if (loc === 'ja') return audio && video ? 'カメラとマイク' : video ? 'カメラ' : 'マイク';
+    if (loc === 'en') return audio && video ? 'camera and microphone' : video ? 'camera' : 'microphone';
+    return audio && video ? '摄像头和麦克风' : video ? '摄像头' : '麦克风';
   }
-  const labels = { geolocation: ['location', '位置'], notifications: ['notifications', '通知'], 'clipboard-read': ['clipboard contents', '剪贴板内容'],
-    midi: ['MIDI devices', 'MIDI 设备'], 'idle-detection': ['idle detection', '空闲检测'], 'storage-access': ['storage access', '跨站存储'],
-    'top-level-storage-access': ['storage access', '跨站存储'] };
-  return (labels[permission] ?? [permission, permission])[english ? 0 : 1];
+  const labels = {
+    geolocation: { en: 'location', zh: '位置', ja: '位置情報' },
+    notifications: { en: 'notifications', zh: '通知', ja: '通知' },
+    'clipboard-read': { en: 'clipboard contents', zh: '剪贴板内容', ja: 'クリップボードの内容' },
+    midi: { en: 'MIDI devices', zh: 'MIDI 设备', ja: 'MIDI デバイス' },
+    'idle-detection': { en: 'idle detection', zh: '空闲检测', ja: 'アイドル検出' },
+    'storage-access': { en: 'storage access', zh: '跨站存储', ja: 'ストレージアクセス' },
+    'top-level-storage-access': { en: 'storage access', zh: '跨站存储', ja: 'ストレージアクセス' },
+  };
+  return labels[permission]?.[loc] ?? permission;
 }
 
 /** User-Agent without Electron/App tokens for website compatibility.

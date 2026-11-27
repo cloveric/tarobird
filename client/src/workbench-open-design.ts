@@ -5,7 +5,8 @@ import type { OpenedDesign } from "./workbench-design-opener.js";
 
 /** Called only after the opener's source-bound command was admitted. Reuse a
  * live Design; don't create an empty document for each subsequent request. */
-export async function openWorkbenchDesign(controller: WorkbenchController, requestId: string, check: () => void, signal: AbortSignal, format: DesignFormat = "canvas"): Promise<OpenedDesign> {
+export async function openWorkbenchDesign(controller: WorkbenchController, requestId: string, check: () => void, signal: AbortSignal, format: DesignFormat = "slides"): Promise<OpenedDesign> {
+  if (format !== "slides") throw new Error("design_canvas_removed");
   check();
   if (!controller.isVisible) {
     await new Promise<void>((resolve, reject) => {

@@ -269,10 +269,12 @@ describe('workbench standalone CLI and engine tools',()=>{
     expect(await runWorkbenchCommand(dir,'run','conv',{from:file,requestId:'cli-md',contextMessageId:'source'})).toMatchObject({status:'applied',saved:true});
     expect(request).toHaveBeenCalledWith('/api/conversations/conv/workbench/commands','POST',{requestId:'cli-md',...body,contextMessageId:'source'});
   });
-  it.each(['markdown','design'])('refuses Bot %s access before dispatch when the Host lacks that capability, leaving other workbench kinds working',async(kind)=>{
-    const operation=`${kind}.read`,error=`workbench_${kind}_host_update_required`;
+  it.each([
+    ['markdown', 'markdown.read', 'workbench.markdown.v1', 'workbench_markdown_host_update_required'],
+    ['design', 'design.read', 'workbench.design.slides.v1', 'workbench_slides_host_update_required'],
+  ] as const)('refuses Bot %s access before dispatch when the Host lacks that capability, leaving other workbench kinds working', async (kind, operation, capability, error) => {
     const conversation={id:'chat',type:'direct' as const,title:'Chat',ownerId:'owner',botIds:['bot'],archived:false,createdAt:1};
-    for(const capabilities of [['workbench.v1'],['workbench.v1',`workbench.${kind}.v1`]]){
+    for(const capabilities of [['workbench.v1'],['workbench.v1',capability]]){
       const requestLive=vi.fn().mockImplementation(async(_method:string,params:{request:{requestId:string}})=>({requestId:params.request.requestId,status:'success',target:{deviceId:'d',windowId:'w',tabId:'t'},revision:1}));
       const transport={options:{stateDir:dir,botId:'bot'},capabilities,refreshStatus:async()=>undefined,request:vi.fn().mockResolvedValue(null),requestLive,deliverySettled:vi.fn(),reconnectAfterDeliveryFailure:vi.fn()} as unknown as GatewayTransport;
       const channel=new GatewayChannel(transport),results:Record<string,unknown>={};channel.on('error',error=>{throw error;});
@@ -288,6 +290,17 @@ describe('workbench standalone CLI and engine tools',()=>{
     await writeFile(file,JSON.stringify({operation,target:{deviceId:'d',windowId:'w',tabId:'tab'}}));
     await expect(runWorkbenchCommand(dir,'run','conv',{from:file,requestId:`old-host-${kind}`})).rejects.toThrow(error);expect(request).not.toHaveBeenCalled();
     expect(appCapabilityInstructions('browser')).toContain(error);
+  });
+
+  it('rejects removed canvas requests locally in Bot CLI mode before HTTP dispatch', async () => {
+    vi.stubEnv('TAROBOT_ACTIVE_INSTANCE', 'bot');
+    vi.stubEnv('TAROBOT_MESSAGE_ID', 'source');
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+    for (const payload of [{ format: 'canvas' }, {}]) {
+      await writeFile(file, JSON.stringify({ operation: 'design.create', payload }));
+      await expect(runWorkbenchCommand(dir, 'run', 'conv', { from: file, requestId: 'bot-canvas' })).rejects.toThrow('design_canvas_removed');
+    }
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
 });

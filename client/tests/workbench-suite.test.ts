@@ -9,24 +9,26 @@ const brandDocument=()=>validateDesignDocument({schema:1,id:'brand',format:'desi
  'project/README.md':designTextFile('# Brand\n'),
  'project/tokens.json':designTextFile('{"version":1}','application/json'),
 }});
-describe('Baoyu canvas/PPT product boundaries',()=>{
- for(const format of ['canvas','slides'] as const)it(`${format} keeps its files and format through backup`,()=>{
-  const doc=emptyDesignDocument('project','Design',format);
+describe('Baoyu PPT product boundaries',()=>{
+ it('slides keeps its files and format through backup',()=>{
+  const doc=emptyDesignDocument('project','Design','slides');
   expect(validateDesignDocument(JSON.parse(JSON.stringify(doc)))).toEqual(doc);
-  expect(workbenchDesignError({operation:'design.create',payload:{format}})).toBeUndefined();
+  expect(workbenchDesignError({operation:'design.create',payload:{format:'slides'}})).toBeUndefined();
+ });
+ it('canvas is removed as a standalone editor',()=>{
+  for(const operation of ['design.create','design.open'])expect(workbenchDesignError({operation,payload:{format:'canvas'}})).toBe('design_canvas_removed');
+  expect(()=>emptyDesignDocument('project','Design','canvas')).toThrow('design_canvas_removed');
  });
  for(const format of ['design-system','dashboard','motion'])it(`${format} has no standalone editor route`,()=>{
   expect(designFormatSchema.safeParse(format).success).toBe(false);
   for(const operation of ['design.create','design.open'])expect(workbenchDesignError({operation,payload:{format}})).toBe('invalid_design_payload');
   expect(()=>emptyDesignDocument('project','Design',format as never)).toThrow('design_format_unsupported');
-  expect(workbenchRegistrationSchema.safeParse({windowId:'window',generation:'gen',conversationId:'chat',capabilities:['design.v1'],tabs:[{id:'project',kind:'design',title:'Design',designFormat:format}],visible:true}).success).toBe(false);
+  expect(workbenchRegistrationSchema.safeParse({windowId:'window',generation:'gen',conversationId:'chat',capabilities:['design.slides.v1'],tabs:[{id:'project',kind:'design',title:'Design',designFormat:format}],visible:true}).success).toBe(false);
  });
- it('validates project database documents for canvas/PPT without a separate editor',()=>{
-  for(const format of ['canvas','slides'] as const){
-   const doc=emptyDesignDocument('project','Design',format);
-   for(const value of ['[]','null','{"constructor":{"polluted":true}}'])expect(()=>validateDesignDocument({...doc,files:{...doc.files,'project/db/data/item.json':designTextFile(value,'application/json')}})).toThrow('design_invalid_db_document');
-   expect(()=>validateDesignDocument({...doc,files:{...doc.files,'project/db/data/item.json':designTextFile('{"value":1}','application/json')}})).not.toThrow();
-  }
+ it('validates project database documents for PPT without a separate editor',()=>{
+  const doc=emptyDesignDocument('project','Design','slides');
+  for(const value of ['[]','null','{"constructor":{"polluted":true}}'])expect(()=>validateDesignDocument({...doc,files:{...doc.files,'project/db/data/item.json':designTextFile(value,'application/json')}})).toThrow('design_invalid_db_document');
+  expect(()=>validateDesignDocument({...doc,files:{...doc.files,'project/db/data/item.json':designTextFile('{"value":1}','application/json')}})).not.toThrow();
  });
  it('registers canvas/PPT openers without advertising the removed suite',()=>{
   const opener={windowId:'window',generation:'gen',conversationId:'chat',capabilities:['design.open.v1','design.slides.v1'],tabs:[],visible:true};

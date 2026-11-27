@@ -10,7 +10,10 @@ import { desktopControllerMarkerKey } from "../src/hub/local-controller.js";
 import { markDeviceNameAlias } from "../src/hub/network-device-name.js";
 import { PrivateNetwork, mergeNetworkManifests, networkId, networkMemberId } from "../src/hub/private-network.js";
 import { deviceActionProofText } from "../src/client-protocol/device-actions.js";
-import { networkCanonical, networkCommandSchema, type NetworkManifest, type SignedNetworkPeerRequest, type NetworkCommandInput, type NetworkCommandResult, type SignedNetworkManifest } from "../src/client-protocol/private-network.js";
+import { PRIVATE_NETWORK_RECOVERY_CAPABILITY, networkCanonical, networkCommandSchema, sharedRoutesSchema, type NetworkManifest, type SignedNetworkPeerRequest, type NetworkCommandInput, type NetworkCommandResult, type SignedNetworkManifest } from "../src/client-protocol/private-network.js";
+import { z } from "zod";
+import { hostNameSchema } from "../src/client-protocol/host-profile.js";
+import { deviceActionProofSchema, deviceActionStatementSchema } from "../src/client-protocol/device-actions.js";
 
 type TestDevice = { id: string; publicKey: string; privateKey: KeyObject; token: string; session: AuthSession };
 type TestHost = { directory: string; store: HubStore; auth: HubAuth; profile: HostProfile; network: PrivateNetwork; owner: TestDevice };
@@ -51,8 +54,8 @@ async function host(name: string, clockOffset = 0): Promise<TestHost> {
 async function mutation(host: TestHost, raw: NetworkCommandInput, actor = host.owner): Promise<NetworkCommandResult> {
   const view = await host.network.view();
   if (raw.operation === "leave") raw = { expectedState: view.membership ? view.host.state : "standalone", ...raw };
-  if (raw.operation === "remove") raw = { expectedState: view.membership!.manifest.hosts.find(host => host.publicKey === raw.publicKey)!.state, ...raw };
-  const contextual = ["routes", "attest", "remove", "leave"].includes(raw.operation) ? { networkId: (await host.network.view()).membership?.manifest.id ?? "", ...raw } : raw;
+  if (raw.operation === "remove") { const targetKey = raw.publicKey; raw = { expectedState: view.membership!.manifest.hosts.find(host => host.publicKey === targetKey)!.state, ...raw }; }
+  const contextual = ["routes", "attest", "reinstate", "remove", "leave"].includes(raw.operation) ? { networkId: (await host.network.view()).membership?.manifest.id ?? "", ...raw } : raw;
   const command = networkCommandSchema.parse(contextual), target = hashSecret(networkCanonical(command));
   const statement = await host.auth.prepareDeviceAction({ operation: "network", target }, actor.token, actor.session);
   return host.network.command(command, actor.session, { nonce: statement.nonce, signature: sign(null, Buffer.from(deviceActionProofText(statement)), actor.privateKey).toString("base64") });
@@ -269,8 +272,9 @@ async function peerRequest(peer: TestHost, extra: Partial<SignedNetworkPeerReque
     v: 1, networkId: (extra.known ?? view.membership)!.manifest.id, publicKey: peer.auth.publicKey,
     nonce: randomBytes(32).toString("base64url"), expiresAt: now + 30_000,
     host: { publicKey: peer.auth.publicKey, name: view.host.name, routes: view.host.routes, protocol: 2 },
-    devices: [], revoked: [], ...(view.membership ? { known: view.membership } : {}), ...extra,
+    devices: [], revoked: [], capabilities: [PRIVATE_NETWORK_RECOVERY_CAPABILITY], ...(view.membership ? { known: view.membership } : {}), ...extra,
   };
+  if (request.capabilities === undefined) delete request.capabilities;
   return { request, signature: peer.auth.signNetworkPeer(request) };
 }
 function rootSign(root: TestHost, manifest: NetworkManifest): SignedNetworkManifest { return { manifest, signature: root.auth.signNetworkManifest(manifest) }; }
@@ -538,7 +542,7 @@ it("uses a root-signed higher backup to restore additions while keeping its loca
 it("merges duplicate-key forks associatively even if another branch already revoked one slot", async () => {
   const a = await host("a"), b = await host("b"); await create(a); await join(a, b);
   const base = (await a.network.view()).membership!.manifest, item = freshEnrollment(b, "duplicate_one").device;
-  const origin = { memberId: networkMemberId(a.auth.publicKey, a.owner.id), originHost: a.auth.publicKey, attestedBy: a.auth.publicKey, scope: "host", revoked: false };
+  const origin = { memberId: networkMemberId(a.auth.publicKey, a.owner.id), originHost: a.auth.publicKey, attestedBy: a.auth.publicKey, scope: "host" as const, revoked: false };
   const left = structuredClone(base), right = structuredClone(base), third = structuredClone(base);
   left.devices.push({ ...item, ...origin }); right.devices.push({ ...item, id: "duplicate_two", ...origin });
   third.devices.push({ ...item, ...origin, revoked: true });
@@ -968,4 +972,360 @@ it("lets a host replace only its own descriptor routes: authority signs once, pe
   await b.network.enroll(removed.membership);
   expect(await b.network.replaceManagedRoutes([route("https://198.51.100.21:8443")], [route("https://198.51.100.22:8443")])).toBe(false);
   expect((await b.network.view()).sync).toBe("removed");
+});
+
+it("requires explicit coordinator reinstatement and host recovery to rejoin after leave or remove, and keeps monotonic gen-2 revocations", async () => {
+  const a = await host("a"), b = await host("b");
+  await create(a); await join(a, b);
+  const derived = freshEnrollment(b, "a_on_b");
+  await b.network.enroll((await mutation(a, { operation: "attest", device: derived.device })).membership);
+  const individuallyRevoked = await device(b, "revoked_before_leave");
+  await b.network.tick();
+  await b.auth.revoke(individuallyRevoked.id, "local-owner");
+  await b.network.tick();
+
+  // Voluntary leave retires the network on B and revokes B at generation 1 on A.
+  await mutation(b, { operation: "leave" });
+  expect((await b.network.view()).sync).toBe("standalone");
+  const gen1Revoked = (await a.network.view()).membership!;
+  expect(gen1Revoked.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)?.revoked).toBe(true);
+
+  // Stale / unrecovered rejoin attempts must fail on both sides.
+  await expect(mutation(b, { operation: "propose", networkId: gen1Revoked.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(gen1Revoked.manifest)) })).rejects.toThrow("network_retired");
+  await expect(mutation(b, { operation: "propose", networkId: gen1Revoked.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(gen1Revoked.manifest)), generation: 2, recover: true })).resolves.toBeDefined();
+  const unapprovedProposal = (await mutation(b, { operation: "propose", networkId: gen1Revoked.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(gen1Revoked.manifest)), generation: 2, recover: true })).proposal!;
+  await expect(mutation(a, { operation: "admit", proposal: unapprovedProposal })).rejects.toThrow("network_host_removed");
+
+  // Coordinator explicitly reinstates B -> B explicitly proposes & joins at generation 2.
+  const reinstated = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+  expect(reinstated.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)).toMatchObject({ revoked: true, reinstated: 2 });
+  expect(reinstated.manifest.blockedKeys).toEqual(expect.arrayContaining([hashSecret(derived.device.publicKey), hashSecret(individuallyRevoked.publicKey)]));
+
+  const recoveryProposal = (await mutation(b, { operation: "propose", networkId: reinstated.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated.manifest)), generation: 2, recover: true })).proposal!;
+  const admitted = (await mutation(a, { operation: "admit", proposal: recoveryProposal })).membership!;
+  await mutation(b, { operation: "join", membership: admitted, nonce: recoveryProposal.proposal.nonce });
+  const activeGen2 = (await a.network.view()).membership!;
+  expect(activeGen2.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)).toMatchObject({ state: "active", revoked: false, generation: 2 });
+  expect((await b.store.device(b.owner.id))?.revoked).toBe(0);
+
+  // Old gen-1 revocation snapshot cannot roll B back to revoked; old revoked device key remains blocked.
+  await a.network.enroll(gen1Revoked);
+  expect((await a.network.view()).membership!.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)).toMatchObject({ state: "active", revoked: false, generation: 2 });
+  await expect(mutation(a, { operation: "attest", device: { id: "replay_old_key", publicKey: individuallyRevoked.publicKey, host: b.auth.publicKey, name: "Bad", platform: "web" } })).rejects.toThrow("network_device_key_blocked");
+
+  // Forcible removal in generation 2 can also be recovered to generation 3, and gen-2 active backup cannot erase gen-2 removal.
+  const gen2Removed = (await mutation(a, { operation: "remove", publicKey: b.auth.publicKey })).membership!;
+  expect(gen2Removed.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)).toMatchObject({ revoked: true, generation: 2 });
+  await a.network.enroll(activeGen2);
+  expect((await a.network.view()).membership!.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)?.revoked).toBe(true);
+  await b.network.enroll(gen2Removed);
+  expect((await b.network.view()).sync).toBe("removed");
+
+  const reinstated3 = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+  const proposal3 = (await mutation(b, { operation: "propose", networkId: reinstated3.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated3.manifest)), generation: 3, recover: true })).proposal!;
+  const admitted3 = (await mutation(a, { operation: "admit", proposal: proposal3 })).membership!;
+  await mutation(b, { operation: "join", membership: admitted3, nonce: proposal3.proposal.nonce });
+  expect((await b.network.view()).host).toMatchObject({ state: "active", revoked: false, generation: 3 });
+
+  // Merge associativity & commutativity across generations.
+  const gen3Active = (await a.network.view()).membership!.manifest;
+  for (const [x, y, z] of [[gen1Revoked.manifest, reinstated.manifest, gen3Active], [gen3Active, reinstated.manifest, gen1Revoked.manifest], [reinstated.manifest, gen3Active, gen1Revoked.manifest]]) {
+    expect(mergeNetworkManifests(mergeNetworkManifests(x, y), z)).toEqual(mergeNetworkManifests(x, mergeNetworkManifests(y, z)));
+  }
+});
+
+it("separates originGeneration from target host generation so recovered gen-2 host controllers enroll onto gen-1 peers and old gen-1 peer controllers revoke on gen-2 hosts", async () => {
+  const a = await host("a"), b = await host("b"), c = await host("c");
+  await create(a); await join(a, b); await join(a, c); await b.network.tick();
+
+  // Recover B to generation 2 while A and C remain at generation 1.
+  await mutation(b, { operation: "leave" });
+  const reinstatedB = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+  const propB = (await mutation(b, { operation: "propose", networkId: reinstatedB.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstatedB.manifest)), generation: 2, recover: true })).proposal!;
+  const admB = (await mutation(a, { operation: "admit", proposal: propB })).membership!;
+  await mutation(b, { operation: "join", membership: admB, nonce: propB.proposal.nonce });
+  await c.network.tick();
+
+  // Gen-2 host B's local desktop controller (scope: "host") attests onto gen-1 coordinator A and gen-1 peer C.
+  const bOnA = freshEnrollment(a, "b_owner_on_a_gen2"), bOnC = freshEnrollment(c, "b_owner_on_c_gen2");
+  const attA = (await mutation(b, { operation: "attest", device: bOnA.device })).membership!;
+  expect(attA.manifest.devices.find(d => d.id === bOnA.device.id)).toMatchObject({ host: a.auth.publicKey, originHost: b.auth.publicKey, scope: "host", originGeneration: 2, attestedGeneration: 2, revoked: false });
+  expect(attA.manifest.devices.find(d => d.id === bOnA.device.id)?.generation).toBeUndefined();
+  await a.network.enroll(attA);
+  expect((await login(a, bOnA.device.id, bOnA.keys.privateKey)).session.deviceId).toBe(bOnA.device.id);
+
+  const attC = (await mutation(b, { operation: "attest", device: bOnC.device })).membership!;
+  await c.network.enroll(attC);
+  expect((await login(c, bOnC.device.id, bOnC.keys.privateKey)).session.deviceId).toBe(bOnC.device.id);
+
+  // Gen-1 peer C's local desktop controller (scope: "host") attests onto gen-2 host B.
+  const cOnB = freshEnrollment(b, "c_owner_on_b_gen2");
+  const attB = (await mutation(c, { operation: "attest", device: cOnB.device })).membership!;
+  expect(attB.manifest.devices.find(d => d.id === cOnB.device.id)).toMatchObject({ host: b.auth.publicKey, originHost: c.auth.publicKey, scope: "host", generation: 2, revoked: false });
+  expect(attB.manifest.devices.find(d => d.id === cOnB.device.id)?.originGeneration).toBeUndefined();
+  const forkWithCGen1OnB = structuredClone(attB.manifest);
+  await b.network.enroll(attB);
+  const cOnBLogin = await login(b, cOnB.device.id, cOnB.keys.privateKey);
+
+  // C leaves at gen 1 and recovers to gen 2: its old gen-1 binding on gen-2 B must be revoked both directly and across fork merges.
+  await mutation(c, { operation: "leave" });
+  const reinstatedC = (await mutation(a, { operation: "reinstate", publicKey: c.auth.publicKey })).membership!;
+  const propC = (await mutation(c, { operation: "propose", networkId: reinstatedC.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstatedC.manifest)), generation: 2, recover: true })).proposal!;
+  const admC = (await mutation(a, { operation: "admit", proposal: propC })).membership!;
+  await mutation(c, { operation: "join", membership: admC, nonce: propC.proposal.nonce });
+  const activeCGen2 = (await a.network.view()).membership!.manifest;
+  await b.network.tick();
+  await expect(b.auth.authorize(cOnBLogin.token)).rejects.toThrow();
+
+  // Even a synthetic gen-2 C manifest without C's gen-1 device binding revokes forkWithCGen1OnB on merge.
+  const withoutOldC = structuredClone(activeCGen2);
+  withoutOldC.devices = withoutOldC.devices.filter(d => d.id !== cOnB.device.id);
+  const merged = mergeNetworkManifests(forkWithCGen1OnB, withoutOldC);
+  expect(merged.devices.find(d => d.id === cOnB.device.id)?.revoked).toBe(true);
+});
+
+it("allows re-admitting a cancelled or expired gen-2 recovery admission and keeps gen-2 cancel stable across peer syncs", async () => {
+  const a = await host("a"), b = await host("b"), c = await host("c");
+  await create(a); await join(a, b); await join(a, c); await b.network.tick();
+
+  await mutation(b, { operation: "leave" });
+  const reinstated = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+
+  // 1. Expired pending gen-2 recovery admission can be re-proposed and re-admitted at gen 2.
+  const expiredProp = (await mutation(b, { operation: "propose", networkId: reinstated.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated.manifest)), generation: 2, recover: true })).proposal!;
+  await mutation(a, { operation: "admit", proposal: expiredProp });
+  now += 6 * 60_000;
+  const afterExpiry = (await a.network.view()).membership!.manifest;
+  const retryAfterExpiry = (await mutation(b, { operation: "propose", networkId: afterExpiry.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(afterExpiry)), generation: 2, recover: true })).proposal!;
+  const admitted2 = (await mutation(a, { operation: "admit", proposal: retryAfterExpiry })).membership!;
+
+  // 2. Pending gen-2 join cancelled locally stays cancelled after peer C syncs stale gen-1 history, and can retry at gen 2 (never gen 1).
+  reachable = false;
+  await expect(mutation(b, { operation: "join", membership: admitted2, nonce: retryAfterExpiry.proposal.nonce })).rejects.toThrow("authority_offline");
+  reachable = true;
+  await mutation(b, { operation: "leave", expectedState: "pending" });
+  expect((await b.network.view()).sync).toBe("standalone");
+  const cancelledOnA = (await a.network.view()).membership!.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)!;
+  expect(cancelledOnA).toMatchObject({ state: "pending", revoked: false, generation: 2, proposalNonce: retryAfterExpiry.proposal.nonce, expiresAt: 1 });
+
+  // Routine peer C tick carrying gen-1 pendingProposals must not resurrect gen-1 proposalNonce or live expiresAt.
+  await c.network.tick();
+  const afterPeerTick = (await a.network.view()).membership!.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)!;
+  expect(afterPeerTick).toMatchObject({ state: "pending", revoked: false, generation: 2, proposalNonce: retryAfterExpiry.proposal.nonce, expiresAt: 1 });
+
+  // B cannot roll back to gen 1 after cancelling pending gen-2 recovery, but can retry gen 2 to completion.
+  const afterCancel = (await a.network.view()).membership!.manifest;
+  await expect(mutation(b, { operation: "propose", networkId: afterCancel.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(afterCancel)) })).rejects.toThrow("network_retired");
+  const finalProp = (await mutation(b, { operation: "propose", networkId: afterCancel.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(afterCancel)), generation: 2, recover: true })).proposal!;
+  const finalAdm = (await mutation(a, { operation: "admit", proposal: finalProp })).membership!;
+  await mutation(b, { operation: "join", membership: finalAdm, nonce: finalProp.proposal.nonce });
+  expect((await b.network.view()).host).toMatchObject({ state: "active", revoked: false, generation: 2 });
+});
+
+it("does not revoke a recovering host's local desktop or CLI controllers when enroll() delivers a newer manifest while pending", async () => {
+  const a = await host("a"), b = await host("b");
+  const bCli = await device(b, "b_cli_controller");
+  await b.auth.markLocalDesktopController({ deviceId: bCli.id, publicKey: bCli.publicKey, name: "CLI", platform: "web" });
+  await create(a); await join(a, b);
+
+  await mutation(b, { operation: "leave" });
+  const reinstated = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+  const prop = (await mutation(b, { operation: "propose", networkId: reinstated.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated.manifest)), generation: 2, recover: true })).proposal!;
+  const admitted = (await mutation(a, { operation: "admit", proposal: prop })).membership!;
+
+  // Save pending gen-2 manifest on B while commit exchange fails.
+  reachable = false;
+  await expect(mutation(b, { operation: "join", membership: admitted, nonce: prop.proposal.nonce })).rejects.toThrow("authority_offline");
+  expect((await b.network.view()).host).toMatchObject({ state: "pending", generation: 2 });
+
+  // Coordinator publishes a newer revision (e.g. route change) and delivers it via enroll() while B is still pending.
+  const afterRoute = (await mutation(a, { operation: "routes", routes: [{ name: "Direct", url: "https://updated-coordinator.example" }] })).membership!;
+  await b.network.enroll(afterRoute);
+  expect((await b.store.device(b.owner.id))?.revoked).toBe(0);
+  expect((await b.store.device(bCli.id))?.revoked).toBe(0);
+  expect(await b.auth.authorize(b.owner.token)).toEqual(b.owner.session);
+  expect(await b.auth.authorize(bCli.token)).toEqual(bCli.session);
+
+  // Commit completes cleanly once reachable and keeps both local controllers active.
+  reachable = true;
+  await b.network.tick();
+  expect((await b.network.view()).host).toMatchObject({ state: "active", revoked: false, generation: 2 });
+  expect((await b.store.device(b.owner.id))?.revoked).toBe(0);
+  expect((await b.store.device(bCli.id))?.revoked).toBe(0);
+});
+
+it("enforces monotonic host generation after voluntary gen-2 leave, validates reinstate seenManifestHash, and blocks legacy unclassified devices on reinstate", async () => {
+  const a = await host("a"), b = await host("b");
+  const legacyPhone = await device(b, "legacy_unclassified_phone");
+  await b.store.db.run("DELETE FROM meta WHERE key=?", [`network-device:v1:${hashSecret(legacyPhone.id)}`]);
+  await create(a); await join(a, b);
+  expect((await a.network.view()).membership!.manifest.devices.find(d => d.id === legacyPhone.id)?.scope).toBeUndefined();
+
+  // Forcible removal + reinstate must block legacy unclassified device keys while sparing scope: "host" local controllers.
+  await mutation(a, { operation: "remove", publicKey: b.auth.publicKey });
+  const beforeConcurrentChange = (await a.network.view()).membership!.manifest;
+  await device(a, "concurrent_a_device"); await a.network.tick();
+  await expect(mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(beforeConcurrentChange)) })).rejects.toThrow("network_review_changed");
+
+  const currentBeforeReinstate = (await a.network.view()).membership!.manifest;
+  const reinstatedGen2 = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(currentBeforeReinstate)) })).membership!;
+  expect(reinstatedGen2.manifest.blockedKeys).toContain(hashSecret(legacyPhone.publicKey));
+  expect(reinstatedGen2.manifest.blockedKeys).not.toContain(hashSecret(b.owner.publicKey));
+
+  // Even if B still has legacyPhone unrevoked in SQLite (e.g. backup restore before removal), admit refuses to resurrect it.
+  await b.network.enroll(reinstatedGen2);
+  await b.store.db.run("UPDATE devices SET revoked=0 WHERE id=?", [legacyPhone.id]);
+  const badProp = (await mutation(b, { operation: "propose", networkId: reinstatedGen2.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstatedGen2.manifest)), generation: 2, recover: true })).proposal!;
+  await expect(mutation(a, { operation: "admit", proposal: badProp })).rejects.toThrow("network_device_key_blocked");
+
+  // Once legacyPhone is revoked locally, B completes gen-2 recovery, then voluntarily leaves at gen 2.
+  await b.store.db.run("UPDATE devices SET revoked=1 WHERE id=?", [legacyPhone.id]);
+  const prop2 = (await mutation(b, { operation: "propose", networkId: reinstatedGen2.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstatedGen2.manifest)), generation: 2, recover: true })).proposal!;
+  const adm2 = (await mutation(a, { operation: "admit", proposal: prop2 })).membership!;
+  await mutation(b, { operation: "join", membership: adm2, nonce: prop2.proposal.nonce });
+  expect((await b.network.view()).host).toMatchObject({ state: "active", generation: 2 });
+
+  await mutation(b, { operation: "leave" });
+  expect((await b.network.view()).sync).toBe("standalone");
+  // After leaving at gen 2, B must reject rolling back to gen 2 against an older gen-1 reinstated manifest.
+  await expect(mutation(b, { operation: "propose", networkId: reinstatedGen2.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstatedGen2.manifest)), generation: 2, recover: true })).rejects.toThrow("network_retired");
+
+  // Only generation >= 3 is accepted by B.
+  const reinstatedGen3 = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+  const prop3 = (await mutation(b, { operation: "propose", networkId: reinstatedGen3.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstatedGen3.manifest)), generation: 3, recover: true })).proposal!;
+  const adm3 = (await mutation(a, { operation: "admit", proposal: prop3 })).membership!;
+  await mutation(b, { operation: "join", membership: adm3, nonce: prop3.proposal.nonce });
+  expect((await b.network.view()).host).toMatchObject({ state: "active", revoked: false, generation: 3 });
+});
+
+it("keeps a pending gen-2 host descriptor intact when reconcile sees a higher-revision gen-1 active fork", async () => {
+  const a = await host("a"), b = await host("b");
+  await create(a); await join(a, b);
+  const gen1ActiveFork = structuredClone((await a.network.view()).membership!.manifest);
+  await mutation(b, { operation: "leave" });
+  const reinstated = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+  const profile = await b.profile.read();
+  await b.profile.update({ name: "B-Gen2-Renamed", revision: profile.revision });
+  const prop2 = (await mutation(b, { operation: "propose", networkId: reinstated.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated.manifest)), generation: 2, recover: true })).proposal!;
+  const adm2 = (await mutation(a, { operation: "admit", proposal: prop2 })).membership!;
+
+  // Deliver a higher-revision gen-1 active snapshot to Coordinator A while B is pending at gen 2.
+  gen1ActiveFork.revision = adm2.manifest.revision + 10;
+  await a.network.enroll(rootSign(a, gen1ActiveFork));
+  const pendingOnA = (await a.network.view()).membership!.manifest.hosts.find(h => h.publicKey === b.auth.publicKey)!;
+  expect(pendingOnA).toMatchObject({ state: "pending", generation: 2, name: "B-Gen2-Renamed", proposalNonce: prop2.proposal.nonce });
+
+  // B's original commit still succeeds against A without network_commit_invalid.
+  await mutation(b, { operation: "join", membership: adm2, nonce: prop2.proposal.nonce });
+  expect((await b.network.view()).host).toMatchObject({ state: "active", generation: 2, name: "B-Gen2-Renamed" });
+});
+
+// Exact 1.6.0 strict schemas (no generation/reinstated/hostCapabilities/peer capabilities).
+const legacy160Key = z.string().length(60).regex(/^[A-Za-z0-9+/]{59}=$/);
+const legacy160Id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/);
+const legacy160Nonce = z.string().length(43).regex(/^[A-Za-z0-9_-]{43}$/);
+const legacy160Sig = z.string().length(88).regex(/^[A-Za-z0-9+/]{86}==$/);
+const legacy160Deadline = z.number().int().positive().safe();
+const legacy160HostDescriptorSchema = z.object({ publicKey: legacy160Key, name: hostNameSchema, routes: sharedRoutesSchema, protocol: z.literal(2).optional() }).strict();
+const legacy160HostSchema = legacy160HostDescriptorSchema.extend({ state: z.enum(["pending", "active"]), revoked: z.boolean(), proposalNonce: legacy160Nonce.optional(), expiresAt: legacy160Deadline.optional() }).strict();
+const legacy160EnrollmentSchema = z.object({ id: legacy160Id, publicKey: legacy160Key, host: legacy160Key, name: hostNameSchema, platform: z.enum(["web", "macos", "windows", "android", "ios"]) }).strict();
+const legacy160PublishedEnrollmentSchema = legacy160EnrollmentSchema.extend({ scope: z.enum(["host", "network"]).optional() }).strict();
+const legacy160DeviceSchema = legacy160PublishedEnrollmentSchema.extend({ memberId: legacy160Id, originHost: legacy160Key, attestedBy: legacy160Key, revoked: z.boolean() }).strict();
+const legacy160ManifestSchema = z.object({
+  v: z.union([z.literal(1), z.literal(2)]), id: legacy160Id, name: hostNameSchema, authorityKey: legacy160Key, genesisNonce: legacy160Nonce,
+  revision: z.number().int().nonnegative().safe(), hosts: z.array(legacy160HostSchema).min(1).max(256), devices: z.array(legacy160DeviceSchema).max(4096),
+  pendingProposals: z.array(z.object({ host: legacy160Key, nonce: legacy160Nonce, expiresAt: legacy160Deadline }).strict()).max(4096).optional(),
+  cancelledProposals: z.array(z.object({ host: legacy160Key, nonce: legacy160Nonce }).strict()).max(4096).optional(),
+  blockedKeys: z.array(z.string().length(64).regex(/^[a-f0-9]{64}$/)).max(8192).optional(),
+  revokedMembers: z.array(legacy160Id).max(4096), blockedBindings: z.array(z.object({ host: legacy160Key, id: legacy160Id }).strict()).max(4096),
+}).strict();
+const legacy160SignedManifestSchema = z.object({ manifest: legacy160ManifestSchema, signature: legacy160Sig }).strict();
+const legacy160ViewSchema = z.object({ host: legacy160HostSchema, membership: legacy160SignedManifestSchema.optional(), sync: z.enum(["standalone", "current", "waiting", "removed"]), lastSyncedAt: z.number().int().nonnegative() }).strict();
+const legacy160PeerRequestSchema = z.object({
+  v: z.literal(1), networkId: legacy160Id, publicKey: legacy160Key, nonce: legacy160Nonce, expiresAt: legacy160Deadline,
+  host: legacy160HostDescriptorSchema, devices: z.array(legacy160PublishedEnrollmentSchema).max(256), revoked: z.array(legacy160Id).max(256),
+  known: legacy160SignedManifestSchema.optional(), commit: legacy160Nonce.optional(), cancel: legacy160Nonce.optional(), retire: z.literal(true).optional(),
+  attest: z.object({ sourceDeviceId: legacy160Id, device: legacy160EnrollmentSchema, statement: deviceActionStatementSchema, proof: deviceActionProofSchema }).strict().optional(),
+}).strict();
+
+it("refuses reinstate while any active 1.6.0 peer lacks generation support, keeps manifests 1.6.0-valid for revocations, and allows reinstate after upgrade", async () => {
+  const a = await host("a"), b = await host("b"), c = await host("c");
+  const phoneA = await device(a, "phone_a");
+  await create(a); await join(a, b); await join(a, c);
+  const phoneOnC = freshEnrollment(c, "phone_c");
+  await c.network.enroll((await mutation(a, { operation: "attest", device: phoneOnC.device }, phoneA)).membership);
+  const activePhoneOnC = await login(c, phoneOnC.device.id, phoneOnC.keys.privateKey);
+
+  // Simulate upgraded Coordinator A having a 1.6.0 active peer C (e.g. C synced without capabilities).
+  await a.network.peer(await peerRequest(c, { capabilities: undefined }), "legacy-160-peer");
+  const viewWithoutCaps = await a.network.view();
+  expect(() => legacy160ViewSchema.parse(viewWithoutCaps)).not.toThrow();
+  const viewWithCaps = await a.network.view(undefined, { includeCapabilities: true });
+  expect(viewWithCaps.hostCapabilities?.[a.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+  expect(viewWithCaps.hostCapabilities?.[b.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+  expect(viewWithCaps.hostCapabilities?.[c.auth.publicKey]).toBeUndefined();
+
+  // Host B leaves; Coordinator A must refuse reinstate while 1.6.0 Peer C is still active.
+  await mutation(b, { operation: "leave" });
+  const beforeRefusal = (await a.network.view()).membership!;
+  await expect(mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).rejects.toThrow("network_recovery_upgrade_required");
+  expect((await a.network.view()).membership).toEqual(beforeRefusal);
+  expect(() => legacy160SignedManifestSchema.parse(beforeRefusal)).not.toThrow();
+
+  // Revoking phoneA still yields a 1.6.0-strict manifest so 1.6.0 Peer C accepts it and revokes phoneOnC!
+  await a.auth.revoke(phoneA.id, "local-owner");
+  await a.network.tick();
+  const cSynced = await a.network.peer(await peerRequest(c, { capabilities: undefined }), "legacy-160-peer");
+  expect(() => legacy160SignedManifestSchema.parse(cSynced)).not.toThrow();
+  await c.network.enroll(cSynced);
+  await expect(c.auth.authorize(activePhoneOnC.token)).rejects.toThrow();
+
+  // Once Peer C upgrades and syncs with signed private-network.recovery.v1, reinstate & gen-2 recovery succeed.
+  await c.network.tick();
+  expect((await a.network.view(undefined, { includeCapabilities: true })).hostCapabilities?.[c.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+  const reinstated = (await mutation(a, { operation: "reinstate", publicKey: b.auth.publicKey })).membership!;
+  expect(() => legacy160SignedManifestSchema.parse(reinstated)).toThrow();
+  const prop = (await mutation(b, { operation: "propose", networkId: reinstated.manifest.id, authorityKey: a.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated.manifest)), generation: 2, recover: true })).proposal!;
+  const adm = (await mutation(a, { operation: "admit", proposal: prop })).membership!;
+  await mutation(b, { operation: "join", membership: adm, nonce: prop.proposal.nonce });
+  expect((await b.network.view()).host).toMatchObject({ state: "active", revoked: false, generation: 2 });
+
+  // Once a manifest uses generation fields, a downgraded 1.6.0 active peer sync is explicitly rejected.
+  await expect(a.network.peer(await peerRequest(c, { capabilities: undefined }), "downgraded-peer")).rejects.toThrow("network_recovery_upgrade_required");
+}, 20_000);
+
+it("falls back cleanly to 1.6.0-strict peer requests when talking to a 1.6.0 coordinator and re-advertises after TTL", async () => {
+  const a = await host("a"), b = await host("b");
+  await create(a);
+  let coordinatorIs160 = true;
+  let attempts = 0, rejectedLegacySchema = 0, receivedCapabilities = 0;
+  interceptExchange = async (request, next) => {
+    attempts++;
+    if (request.request.capabilities?.includes(PRIVATE_NETWORK_RECOVERY_CAPABILITY)) receivedCapabilities++;
+    if (coordinatorIs160) {
+      const parsed = legacy160PeerRequestSchema.safeParse(request.request);
+      if (!parsed.success) { rejectedLegacySchema++; throw parsed.error; }
+    }
+    return next();
+  };
+
+  // Join (propose -> admit -> join/commit) succeeds against a strict 1.6.0 coordinator via single fallback.
+  await join(a, b);
+  expect((await b.network.view()).host).toMatchObject({ state: "active", revoked: false });
+  expect(rejectedLegacySchema).toBe(1);
+
+  // Subsequent ticks within TTL omit capabilities so zero extra 400/schema rejections occur.
+  const beforeTicks = rejectedLegacySchema;
+  await b.network.tick();
+  await b.network.tick();
+  expect(rejectedLegacySchema).toBe(beforeTicks);
+
+  // Once the coordinator upgrades and TTL elapses, Peer B automatically advertises generation support again.
+  coordinatorIs160 = false;
+  now += 61_000;
+  const capsBefore = receivedCapabilities;
+  await b.network.tick();
+  expect(receivedCapabilities).toBe(capsBefore + 1);
+  expect((await a.network.view(undefined, { includeCapabilities: true })).hostCapabilities?.[b.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+  expect(attempts).toBeGreaterThanOrEqual(4);
 });

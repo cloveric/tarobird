@@ -22,6 +22,7 @@ const command = (file, args, options) => execFileSync(file, args, { stdio: 'inhe
 export async function buildInfiniteCanvasPlugin({
   sourceRepository = process.env.TAROBIRD_INFINITE_CANVAS_SOURCE,
   outDir = outDirDefault,
+  refreshNotices = false,
 } = {}) {
   const upstream = JSON.parse(await readFile(path.join(integration, 'UPSTREAM.json'), 'utf8'));
   if (!/^[a-f0-9]{40}$/.test(upstream.commit) || upstream.repository !== 'https://github.com/basketikun/infinite-canvas') throw Error('infinite_canvas_source_pin_invalid');
@@ -54,6 +55,13 @@ export async function buildInfiniteCanvasPlugin({
     await patchUpstream(extracted);
     const { bytes: bundle, notices } = await buildUpstreamEditor(extracted);
 
+    const noticeFile = path.join(integration, 'notices/BUNDLED_DEPENDENCIES.txt');
+    if (refreshNotices) {
+      await writeFile(noticeFile, notices);
+      return { noticeFile };
+    }
+    if (notices !== await readFile(noticeFile, 'utf8')) throw Error('infinite_canvas_dependency_notices_out_of_date');
+
     const digest = sha256(bundle);
     const sizeBytes = bundle.byteLength;
     const manifest = { ...catalog, artifact: { sha256: digest, sizeBytes } };
@@ -69,5 +77,5 @@ export async function buildInfiniteCanvasPlugin({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  console.log(JSON.stringify(await buildInfiniteCanvasPlugin()));
+  console.log(JSON.stringify(await buildInfiniteCanvasPlugin({ refreshNotices: process.argv.includes('--refresh-notices') })));
 }

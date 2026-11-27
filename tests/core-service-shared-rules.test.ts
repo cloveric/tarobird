@@ -1308,6 +1308,87 @@ describe("core service shared rules (compatibility profile)", () => {
     }
   });
 
+  it("/restart stops the in-flight turn, then restarts the conversation's engine process", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "core-shared-rules-"));
+    const runtime = createCoreServiceRuntime();
+    const channel = fakeChannel();
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const order: string[] = [];
+    const bridge = {
+      ...allowAllBridge(vi.fn(async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
+        markStarted();
+        await new Promise<void>((_resolve, reject) => {
+          abortSignal?.addEventListener("abort", () => { order.push("aborted"); reject(new Error("Task was stopped by user")); }, { once: true });
+        });
+        return { text: "unreachable" };
+      })),
+      restartConversationSession: vi.fn(async (request: import("../src/runtime/bridge.js").BridgeConversationRestartInput) => {
+        request.onStopping();
+        order.push("close");
+        return "closed" as const;
+      }),
+    };
+    try {
+      const firstRun = handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ messageId: "om_first", content: "first" }) });
+      await started;
+      await handleCoreMessage({ channel, bridge, runtime, stateDir, message: fakeLarkMessage({ messageId: "om_restart", content: "/restart" }) });
+      await firstRun;
+      expect(order).toEqual(["aborted", "close"]);
+      expect(bridge.restartConversationSession).toHaveBeenCalledOnce();
+      expect(bridge.restartConversationSession.mock.calls[0]![0]).toMatchObject({ conversationKey: expect.any(String) });
+      expect(sentPayloads(channel)).toContain("旧进程已结束，会话已保留，下次发消息时启动。");
+      const events = parseTimelineEvents(await readFile(path.join(stateDir, "timeline.log.jsonl"), "utf8"));
+      expect(events).toContainEqual(expect.objectContaining({ type: "command.handled", detail: "/restart", outcome: "success",
+        metadata: expect.objectContaining({ result: "closed", stopRequested: true }) }));
+      expect(bridge.handleAuthorizedMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("/restart with no running turn stops background swarms the way /stop does, before the close and the reply", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "core-shared-rules-"));
+    const channel = fakeChannel();
+    const order: string[] = [];
+    const bridge = {
+      ...allowAllBridge(),
+      stopBackgroundWork: vi.fn(async (request: { scope?: string; locale?: string }) => {
+        await Promise.resolve();
+        order.push(`swarm:${request.scope}:${request.locale}`);
+        return { stopped: true, summary: "stopped" };
+      }),
+      // Like Bridge + adapter: wait for onStopping, then close the process.
+      restartConversationSession: vi.fn(async (request: import("../src/runtime/bridge.js").BridgeConversationRestartInput) => {
+        await request.onStopping();
+        order.push("close");
+        return "closed" as const;
+      }),
+    };
+    const send = channel.send;
+    channel.send = vi.fn(async (...args: Parameters<typeof send>) => { order.push("reply"); return await send(...args); }) as typeof send;
+    try {
+      await handleCoreMessage({ channel, bridge, runtime: createCoreServiceRuntime(), stateDir, message: fakeLarkMessage({ messageId: "om_restart", content: "/restart" }) });
+      expect(order).toEqual(["swarm:swarm:zh", "close", "reply"]);
+      expect(sentPayloads(channel)).toContain("旧进程已结束，会话已保留，下次发消息时启动。");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("/restart explains an engine without support and never queues a turn", async () => {
+    const stateDir = await mkdtemp(path.join(os.tmpdir(), "core-shared-rules-"));
+    const channel = fakeChannel();
+    const bridge = allowAllBridge();
+    try {
+      await handleCoreMessage({ channel, bridge, runtime: createCoreServiceRuntime(), stateDir, message: fakeLarkMessage({ messageId: "om_restart", content: "/restart" }) });
+      expect(sentPayloads(channel)).toContain("当前引擎或运行模式暂不支持 /restart");
+      expect(bridge.handleAuthorizedMessage).not.toHaveBeenCalled();
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
   it("passes the configured timeout override into engine turns", async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "core-shared-rules-"));
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "codex", disableRuntimeTimeout: true }) + "\n", "utf8");

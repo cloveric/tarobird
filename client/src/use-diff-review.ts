@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { addGlobalListener } from "./global-event-hub.js";
 import type { HubConnection } from "./connection.js";
 import type { DiffReviewDraft, DiffReviewNote, DiffReviewScope } from "./diff-review-draft.js";
 
@@ -53,8 +54,7 @@ export function useDiffReview(connection: HubConnection, scope: DiffReviewScope,
     // A responsive layout change may disable the viewer while its last edit
     // still needs saving. Keep that guard for the entry's mounted lifetime.
     const protect = (event: BeforeUnloadEvent) => { if (entry.pending || entry.error === "save") { event.preventDefault(); event.returnValue = ""; } };
-    window.addEventListener("beforeunload", protect);
-    return () => window.removeEventListener("beforeunload", protect);
+    return addGlobalListener(window, "beforeunload", protect);
   }, [entry]);
   useEffect(() => {
     entry.enabled = enabled;
@@ -62,12 +62,12 @@ export function useDiffReview(connection: HubConnection, scope: DiffReviewScope,
     entry.refresh = true; load();
     const unsubscribe = connection.cache.subscribeDiffReviews(scope, refresh);
     const visible = () => { if (document.visibilityState === "visible") refresh(); };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", visible);
+    const stopFocus = addGlobalListener(window, "focus", refresh);
+    const stopVisibility = addGlobalListener(document, "visibilitychange", visible);
     return () => {
       entry.enabled = false; unsubscribe(); clearTimeout(entry.refreshTimer); entry.refreshTimer = undefined;
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", visible);
+      stopFocus();
+      stopVisibility();
     };
   }, [entry, enabled]);
   const reserve = <T,>(operation: () => Promise<T>): Promise<T> => {

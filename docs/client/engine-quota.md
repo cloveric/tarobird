@@ -69,12 +69,25 @@ One shared rule (`quotaReadingExpired`) decides this for the Gateway, CLI output
 and the Settings page: the reading's TTL, any window/credit expiry, or any reported reset
 time, including an independent constraint's reset, ends the current reading.
 The last restriction remains visible as a last reading until a new read.
-No background polling, automatic retry, login, or token refresh is added.
+After the list is read (on opening the page, or "Re-read list"), the page
+starts one read by itself for each card that has no fresh reading and may be
+read: an active reader, not offline, not waiting for a sign-in, not inside its
+one-minute limit. Bots confirmed to share an account are one card and one
+read. At most two reads run at a time, manual refreshes included. When a
+Claude read times out, the card stays "Reading…" and the page looks at the
+Host's cache every 2.5 s, for up to 90 s, for the answer that arrives late.
+The page does not read again on a timer; an open conversation does (see "When
+readings are taken"). No login or token refresh is started.
 
 The owner-only HTTP entry points are `GET /api/engine-quotas` and
 `GET /api/engine-quotas/:scopeId`. A single active refresh additionally requires
 `refresh=1&revision=<last-read-revision>`. The Host and worker advertise
 `engines.quota.v1`; old/offline workers return an explicit unavailable state.
+A Host that also advertises `engines.quota.currency.v1` sends currency
+balances (Kimi's top-up pack, DeepSeek's wallet) only to a caller that adds
+`balances=currency` to the query, as the App and the CLI then do. Without it
+a reply carries `credits` balances only, which is all a 1.6.0 client accepts;
+a reading that consisted of currency balances alone is then "no data".
 
 CLI examples:
 
@@ -131,29 +144,37 @@ lists (in agy 1.5.14, "Orchestrator (Argon)"; "Orchestrator (Neon)" is listed
 by its display name, which its id does not carry). A window past its reset
 time is left out.
 
-**When readings are taken.** Nothing is polled. A reading is taken when the
+**When readings are taken.** A reading is taken when the
 conversation opens, when its newest finished Bot message changes (a reply
-has ended), and once about twenty seconds before the shown reading would stop
-counting (its thirty minutes, or a window's reset), so a conversation that
-stays open keeps its battery for as long as the engine can answer. The engine itself is asked for quota again only once the shown
-reading is five minutes old, or one minute when the details are opened; in
-between, the App shows what the Host holds. A read that failed is not repeated
-before the same time has passed, and after "sign in first" the engine is left
-alone for thirty minutes or until the login changes. The last reading of a Bot
-is shown for thirty minutes at most (the symbols' own limit, not the 60 s rule
-above; a window past its reset is left out); an older answer never replaces a newer
-one, and a Hub reply for a worker that did not answer changes nothing. A reading
-is dropped when the Host answers that it cannot verify the login
-(`scope_unverifiable`).
+has ended), about twenty seconds before the first window of the shown reading
+resets, and right after that reset. While the conversation stays open and the
+Host is online, the App also reads again in the background: five minutes
+after a read that worked, and after one that did not, 1, 2, 5, 10 and then
+every 15 minutes later. The engine itself is asked for quota again only once
+the shown reading is five minutes old, or as little as one minute old when
+the details are opened or a failed read is retried; in between, the App shows
+what the Host holds. After "sign in first" the engine is left alone for
+thirty minutes or until the login changes. The last reading of a Bot stays
+shown when no newer one can be had: after thirty minutes it is marked old
+(greyed, with its age) instead of being removed (the symbols' own limit, not
+the 60 s rule above). It goes when its windows have reset (a window past its
+reset is left out), and after seven days at the latest. An older answer never
+replaces a newer one, and a Hub reply for a worker that did not answer changes
+nothing. A reading is dropped when the Host answers that it cannot verify the
+login (`scope_unverifiable`).
 
 **Saved on the device.** The last reading per Host and Bot is also saved in
 the App's local storage (`tarobird.quotaReadings.v1`), so the battery is there
-when the App starts again within those thirty minutes. A saved reading is not
-shown by itself: it waits until the Bot's worker has answered, and is shown
-only if that answer carries the same revision (the same login state); another
-revision discards it, and a Hub reply for an absent worker leaves it waiting.
-It holds percentages, reset times and pool names, no account identity, and is
-dropped once it is too old to show.
+when the App starts again. A saved reading is shown at once, in the
+conversation and on the Settings page, marked old until the Bot's worker
+answers with a reading of its own. An answer that carries another revision
+(another login state) discards it, and so does one that reports a changed,
+missing or unverifiable login or a login without quota; a Hub reply for an
+absent worker leaves it shown as old. It holds percentages, balances, reset
+times and pool names, no account identity, and is dropped once its windows
+have reset, after seven days at the latest, or when the Host refuses this
+user's quota read (401 or 403) or reports that the user is no longer the
+owner.
 
 **What a reading may start.** Nothing for context. For quota, only the readers
 that already existed: Codex's temporary helper when its app-server is not

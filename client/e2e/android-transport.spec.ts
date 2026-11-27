@@ -2,7 +2,8 @@ import {test,expect} from "@playwright/test";
 import type {ViteDevServer} from "vite";
 import {createServer} from "./fixtures/vite.js";
 import type {hubFetch,hubSocket,usesPinnedTransport} from "../src/transport.js";
-declare global {interface Window {androidTransportFixture:{hubFetch:typeof hubFetch;hubSocket:typeof hubSocket;usesPinnedTransport:typeof usesPinnedTransport;handle(next:(method:string,args:Record<string,unknown>)=>unknown):void;emit(value:unknown):void}}}
+import type {rememberRouteTrust} from "../src/route-trust.js";
+declare global {interface Window {androidTransportFixture:{hubFetch:typeof hubFetch;hubSocket:typeof hubSocket;usesPinnedTransport:typeof usesPinnedTransport;rememberRouteTrust:typeof rememberRouteTrust;handle(next:(method:string,args:Record<string,unknown>)=>unknown):void;emit(value:unknown):void}}}
 let server:ViteDevServer;
 test.beforeAll(async()=>{server=await createServer({server:{host:"127.0.0.1",port:0}});await server.listen();});
 test.afterAll(async()=>{await server?.close();});
@@ -35,6 +36,34 @@ test("plugin failure never starts unpinned WebView networking",async({page})=>{
     const error=await f.hubFetch("https://hub.invalid","/health","trusted").then(()=>"",(e:Error)=>e.message);
     const socket=f.hubSocket("https://hub.invalid","trusted");const closed=await new Promise<number>(r=>{socket.onclose=e=>r(e.code);});return {error,closed,escaped};
   })).toEqual({error:"native unavailable",closed:1006,escaped:0});
+});
+test("Cloudflare edge routes forward edgeTls: true on both net_http_open and net_socket_open",async({page})=>{
+  expect(await page.evaluate(async()=>{
+    const f=window.androidTransportFixture,calls:Array<[string,Record<string,unknown>]>= [];
+    let alloc=0;
+    f.rememberRouteTrust([{name:"Cloudflare",url:"https://cf.hub.invalid"}],"trusted");
+    f.handle((method,args)=>{
+      calls.push([method,args]);
+      if(method==="allocate")return {value:`h${++alloc}`};
+      if(method==="httpOpen")return {status:200,headers:[]};
+      if(method==="httpRead")return {data:""};
+      if(method==="socketOpen"){f.emit({id:args.id,kind:"open"});return {};}
+      if(method==="socketClose"){f.emit({id:args.id,kind:"close",code:1000,reason:"",clean:true});return {value:true};}
+    });
+    const res=await f.hubFetch("https://cf.hub.invalid","/health","trusted");
+    await res.text();
+    const socket=f.hubSocket("https://cf.hub.invalid","trusted");
+    await new Promise<void>(r=>{socket.onopen=()=>r();});
+    socket.close(1000,"done");
+    const httpOpen=calls.find(([m])=>m==="httpOpen")?.[1];
+    const socketOpen=calls.find(([m])=>m==="socketOpen")?.[1];
+    return {
+      httpEdgeTls:(httpOpen?.input as Record<string,unknown>|undefined)?.edgeTls,
+      httpCa:(httpOpen?.input as Record<string,unknown>|undefined)?.certificateAuthority,
+      socketEdgeTls:socketOpen?.edgeTls,
+      socketCa:socketOpen?.certificateAuthority,
+    };
+  })).toEqual({httpEdgeTls:true,httpCa:undefined,socketEdgeTls:true,socketCa:undefined});
 });
 
 });

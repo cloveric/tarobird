@@ -1,6 +1,7 @@
 import { writeClipboardText } from "./clipboard-write.js";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { DiffCode } from "./DiffCode.js";
+import { DiffCounts } from "./DiffCounts.js";
 import { ArrowLeft, RefreshCw, MessageSquarePlus, Trash2, FileCode2, Columns2, Rows3 } from "lucide-react";
 import { workspaceChangesSchema, workspaceFileDiffSchema, type WorkspaceChanges, type WorkspaceFileDiff, type WorkspaceDiffLine } from "../../src/client-protocol/workspace-diff.js";
 import type { HubConnection } from "./connection.js";
@@ -58,9 +59,6 @@ function statusText(status: WorkspaceChanges["items"][number]["status"]) {
     case "type_changed": return t("类型变化");
     default: return t("已修改");
   }
-}
-function Counts({ add, del }: { add: number | null; del: number | null }) {
-  return <span className="diff-counts"><span>+{add ?? "—"}</span><span>−{del ?? "—"}</span></span>;
 }
 
 export default function DiffViewer({ connection, conversationId, botId, close, onSummary, sharedReview }: { connection: HubConnection; conversationId: string; botId: string; close: () => void; onSummary?: (summary: string) => void; sharedReview?: ReturnType<typeof useDiffReview> }) {
@@ -127,7 +125,7 @@ export default function DiffViewer({ connection, conversationId, botId, close, o
   const act = async (fn: () => Promise<unknown>) => { setSending(true); setActionError(""); try { await fn(); } catch (error) { setActionError(error instanceof DiffReviewTextTooLargeError ? t("批注消息为 {0} KB，超过 {1} KB 上限。请缩短意见或减少批注后发送。", Math.ceil(error.bytes / 1024), error.limit / 1024) : t("操作未完成，批注仍保留，请检查连接、草稿状态或内容长度后重试。")); } finally { setSending(false); } };
   const general = !permitted ? t("没有权限查看此工作区，请检查连接和对话权限。") : !online ? t("连接恢复后即可查看工作区改动。") : state.workspaceDiffAvailable === false ? t("此主机尚不支持改动查看，请更新主机。") : error || (list && repositoryText(list.state, list.notes));
   const regular = list?.items.filter(item => !item.generated) ?? [], generated = list?.items.filter(item => item.generated) ?? [];
-  const fileButton = (item: WorkspaceChanges["items"][number]) => <button type="button" className={`diff-file ${selected === item.path ? "is-selected" : ""}`} key={item.path} onClick={() => choose(item.path)} title={item.path} aria-current={selected === item.path ? "true" : undefined}><FileCode2 size={15}/><span className="diff-file-path">{item.path}</span><Counts add={item.additions} del={item.deletions}/>{item.protected ? <small>{t("受保护")}</small> : item.status === "untracked" && <small>{t("新增")}</small>}</button>;
+  const fileButton = (item: WorkspaceChanges["items"][number]) => <button type="button" className={`diff-file ${selected === item.path ? "is-selected" : ""}`} key={item.path} onClick={() => choose(item.path)} title={item.path} aria-current={selected === item.path ? "true" : undefined}><FileCode2 size={15}/><span className="diff-file-path">{item.path}</span><DiffCounts additions={item.additions} deletions={item.deletions}/>{item.protected ? <small>{t("受保护")}</small> : item.status === "untracked" && <small>{t("新增")}</small>}</button>;
   return <><CreationDialog title={t("工作区改动")} close={doClose} onBack={() => { if (selected) setSelected(undefined); else doClose(); }} closeLabel={t("关闭改动查看器")} showHost={false} className={`diff-viewer ${desktop ? "is-desktop" : "is-mobile"} ${selected ? "has-file" : ""}`}>
     <div className="diff-toolbar"><div><strong>{state.bots.find(bot => bot.id === botId)?.name ?? botId}</strong><span>{t("当前工作区 · 相对 HEAD 的未提交改动")}</span>{(file ?? list)?.head && <code>{(file ?? list)!.head!.slice(0, 8)}</code>}{(file ?? list) && <time dateTime={new Date((file ?? list)!.capturedAt).toISOString()} title={t("本次读取时间")}>{new Date((file ?? list)!.capturedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>}</div><button type="button" className="icon-button" aria-label={t("刷新工作区改动")} disabled={loading || fileLoading || !online} onClick={refresh}><RefreshCw size={17}/></button></div>
     {general ? <div className="diff-empty" role="status">{general}</div> : loading ? <div className="diff-empty" role="status">{t("正在检查工作区…")}</div> : <div className="diff-layout">
@@ -138,7 +136,7 @@ export default function DiffViewer({ connection, conversationId, botId, close, o
         <p className="diff-hint">{t("含暂存、未暂存和未跟踪文件。忽略子模块内容；不读取全局 Git 配置。")}</p>{list?.notes.includes("conflicts") && <p className="diff-warning">{t("仓库存在合并冲突，冲突文件只显示状态。")}</p>}{list?.state === "no_head" && <p className="diff-hint">{t("仓库尚无提交，以空版本作为比较基准。")}</p>}
       </nav>
       <section className="diff-content" aria-label={t("文件差异")}>
-        {!selected ? <div className="diff-empty"><FileCode2 size={30}/><p>{t("选择一个文件查看改动")}</p></div> : <><div className="diff-file-toolbar"><button type="button" className="icon-button diff-back" aria-label={t("返回改动文件")} onClick={() => setSelected(undefined)}><ArrowLeft size={18}/></button><strong title={selected}>{selected}</strong>{file && <><span className="diff-status">{statusText(file.file.status)}</span><Counts add={file.additions} del={file.deletions}/></>} {desktop && <button type="button" className="icon-button" aria-label={split ? t("切换单栏差异") : t("切换左右对比")} onClick={() => setSplit(!split)}>{split ? <Rows3 size={17}/> : <Columns2 size={17}/>}</button>}</div>
+        {!selected ? <div className="diff-empty"><FileCode2 size={30}/><p>{t("选择一个文件查看改动")}</p></div> : <><div className="diff-file-toolbar"><button type="button" className="icon-button diff-back" aria-label={t("返回改动文件")} onClick={() => setSelected(undefined)}><ArrowLeft size={18}/></button><strong title={selected}>{selected}</strong>{file && <><span className="diff-status">{statusText(file.file.status)}</span><DiffCounts additions={file.additions} deletions={file.deletions}/></>} {desktop && <button type="button" className="icon-button" aria-label={split ? t("切换单栏差异") : t("切换左右对比")} onClick={() => setSplit(!split)}>{split ? <Rows3 size={17}/> : <Columns2 size={17}/>}</button>}</div>
           {fileLoading ? <div className="diff-empty" role="status">{t("正在读取文件改动…")}</div> : fileError ? <div className="diff-empty" role="alert">{fileError}</div> : file && <>
             {file.metadataOnly ? <div className="diff-empty" role="status"><p>{file.notes.includes("unsupported_encoding") ? t("此文本不是 UTF-8 编码，当前仅显示状态。") : file.notes.includes("index_removed_worktree") ? t("文件已从暂存索引移除，但仍存在于工作区；当前仅显示状态。") : file.notes.includes("nested_repository") ? t("嵌套仓库或目录仅显示状态，请在对应工作区查看内容。") : file.notes.includes("path_unavailable") ? t("此路径为多重链接、特殊文件或无法安全读取的路径，仅显示状态。") : metadataText(file.reason)}</p>{file.reason === "too_large" && <button type="button" className="primary" onClick={() => setPreview(true)}>{t("只看前 200 行")}</button>}</div> : <>
               {file.notes.includes("preview_prefix") && <p className="diff-warning">{t("这是文件文本的前 200 行预览，不是完整差异。")}</p>}

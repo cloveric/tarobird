@@ -67,7 +67,31 @@
     },
     {
       "path": "client/e2e/fixtures/network-manager.tsx",
-      "sha256": "38af0f5d187bde059037a1b5176e60b001f74b8f2bdda490aad41fe40eda1822",
+      "sha256": "e64be4b55321859d94abd057fcc31fcc27e44a81cb1d308d5aa425e74f8b8aed",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/network-manager.tsx",
+      "sha256": "1009c401bbe7c502cee4247d87e1f8cef76d507ff69aa2bc1c3cb15626922c6a",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/network-manager.tsx",
+      "sha256": "91fe26c5bbb4c3788b32002f77c3da19e41bc8c3dd2ee53a8c7a0e01552a0933",
       "reviewer": "codex",
       "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
       "findings": [
@@ -167,7 +191,31 @@
     },
     {
       "path": "client/e2e/network-manager.spec.ts",
-      "sha256": "ba533ec936656c258ca9b7253af86f2d6ea4c5017fa04facdb502ddc4623ddaa",
+      "sha256": "ce5a948b7138f9beff1ce7095ef7c485be40eb0ee70c5e7754c991a1b659716b",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/network-manager.spec.ts",
+      "sha256": "bada024dc287536a7f0160b966685662117dfa98b679b89d0dad155458d6a1a7",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/network-manager.spec.ts",
+      "sha256": "e48ab127d8099bff204416eb576585fc440d26273de3d7e4a56b621b19bee6b9",
       "reviewer": "codex",
       "note": "Reviewed synthetic test identities, addresses and negative-case data; no owner deployment or contact information.",
       "findings": [
@@ -951,9 +999,9 @@
     },
     {
       "path": "tests/host-cli-entry.test.ts",
-      "sha256": "f9ab7ca07cf5baf3377dc57365e691766f209e72b7ccf3e848a03225ecd5acaa",
+      "sha256": "6f1c60a7ce81ddb484121b4d928b53d832cfc9c9864cde177644aea579e991f6",
       "reviewer": "codex",
-      "note": "Rechecked unchanged synthetic CLI platform paths against the previous approved fixture; only history command coverage changed.",
+      "note": "Rechecked unchanged synthetic CLI platform paths against the previous approved fixture; only schema-version 27 assertions changed.",
       "findings": [
         {
           "kind": "personal-home-path",
@@ -1055,9 +1103,9 @@
     },
     {
       "path": "tests/hub-link-preview.test.ts",
-      "sha256": "ff12aed7ef811eb4667e18de08a44349a347df43db77acb8f727b3941eef136c",
+      "sha256": "705d3f5c606321a04fd362df3579ce33a7f284166c7ad1bc2b6cf5bee09c39d3",
       "reviewer": "codex",
-      "note": "Rechecked unchanged reserved-address SSRF negative fixtures against the previous approval; only schema-version fixture changed.",
+      "note": "Rechecked unchanged reserved-address SSRF negative fixtures against the previous approval; only schema-version 27 assertion changed.",
       "findings": [
         {
           "kind": "non-example-public-ip",
@@ -1331,7 +1379,31 @@
     },
     {
       "path": "tests/host-cli-network-command.test.ts",
-      "sha256": "a88d4718d5256a5f3fe5999a7ba482fc65e66d5be977b61c140101cf4ae8fee3",
+      "sha256": "27cec0645a339fb3b12275eabdded0da2eb3115d1d8d211f59a677d87294ee31",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-network-command.test.ts",
+      "sha256": "af6ee10eaa7c70aa55a5b0c2187336639a5df8bac0d0c2fda0a6e4cac48808a1",
+      "reviewer": "codex",
+      "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "dacf3f4d33be55bca20361714d8f6e4a056ad3d217dc7ed70fb3d373c3dfc32f"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-network-command.test.ts",
+      "sha256": "604421bf35647a1a41eb96d436da18e0430b65c0effe319d59de28d4ff96f8d4",
       "reviewer": "codex",
       "note": "Reviewed synthetic CGNAT addresses in isolated Tailscale route fixtures and negative cases; no owner deployment addresses or credentials.",
       "findings": [
@@ -1450,6 +1522,398 @@
         {
           "kind": "personal-home-path",
           "fingerprint": "ffe27392eb3e6ac8cca1fed5637a4c727bca806b99147ec8cf5913c3f82efc98"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/tailscale-pairing.tsx",
+      "sha256": "121cef84f971e30c67ff209cc75f55af11a92b1834c4cc7a35a6a01c8595b5a9",
+      "reviewer": "codex",
+      "note": "Re-reviewed unchanged synthetic Tailscale test addresses after issue #156 multi-candidate pairing updates; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/tailscale-pairing.spec.ts",
+      "sha256": "48e268f6a6fc628505bce771b58478027b918f4ece98bbc2dc48abcb41c0c276",
+      "reviewer": "codex",
+      "note": "Re-reviewed unchanged synthetic Tailscale test addresses after issue #156 multi-candidate pairing updates; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/desktop-lan-addresses.test.ts",
+      "sha256": "db756a9c20fd8b7b94d9c1d99046e023bb779df461a454cdf4c3f00f8cb8bfb0",
+      "reviewer": "codex",
+      "note": "Re-reviewed unchanged synthetic Tailscale test addresses after issue #156 multi-candidate pairing updates; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-day-audit.test.ts",
+      "sha256": "3d1d0689ef131b61645d52fae701397fa1f59feb3c6898a74fbee735c41b3e7e",
+      "reviewer": "codex",
+      "note": "Re-reviewed unchanged synthetic Tailscale test addresses after issue #156 multi-candidate pairing updates; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "b561751746c6b986134f7802acf540666c18c1f35cbcb132a55f9a98e1a4a23a"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "94424f22c21cb2aa20f3ce0a90556555901c009da066016d24a48fc869a4a2b6"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/device-invite.spec.ts",
+      "sha256": "d26e4fbe5c6c0f9864a775c2957828d206bcb795e39d430957261ab0b6e83751",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale test address after PR #166 v2 invite and legacy fallback test updates; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/tailscale-pairing.tsx",
+      "sha256": "4b112f81ff74da328171edf5ff9ca59922506830af320859707a93d95d812034",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale test address after PR #166 desktop_network_settings fixture update; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/pairing-route-repair.spec.ts",
+      "sha256": "c9c739679db371630292aa49e179607b14083d08fc97ebdb1032330cc92f598f",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale test address after adding PR #166 v2 repair confirmation test; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/tailscale-pairing.spec.ts",
+      "sha256": "4e91d44c20529333b916fb22e7bdfb66b664e20eb33334841b4e0bcd7240ca50",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale test address after PR #166 WindowsFirewallNotice layout and IPC test updates; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/client-multipath-routes.test.ts",
+      "sha256": "32cc190582dcd70751ec4140757f49a54e8ad120f9d7654eda41d49dbf2d8fd5",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale test addresses after PR #166 v2/v1 pairing payload test updates; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "63246b8fde0d7ce1f3ac7fdbf4b6c5e9aa9bd23d2d8156036cd57e4ce9308edb"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-day-audit.test.ts",
+      "sha256": "9a5706a9f6a292a33d24df90db8a24c0409bb7c95b99fc1b246aff0607bae29f",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale test addresses after adding PR #166 CLI Domain-network firewall warning test; no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "b561751746c6b986134f7802acf540666c18c1f35cbcb132a55f9a98e1a4a23a"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "94424f22c21cb2aa20f3ce0a90556555901c009da066016d24a48fc869a4a2b6"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/device-invite.spec.ts",
+      "sha256": "8ab85aabf29a7ecc98e5ab7012c3f8755c6697f4f1a7bad2c7320cd7d75007fc",
+      "reviewer": "claude",
+      "note": "Re-reviewed the unchanged synthetic CGNAT Tailscale test address after the test was adjusted to the v1 default pairing code (review of PR #166); no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/tailscale-pairing.spec.ts",
+      "sha256": "5b961993f294aa55deea3d999916da60d6abd149b68d94ebb2e44969709a125c",
+      "reviewer": "claude",
+      "note": "Re-reviewed the unchanged synthetic CGNAT Tailscale test address after the test was adjusted to the v1 default pairing code (review of PR #166); no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/client-multipath-routes.test.ts",
+      "sha256": "b90b243d99865f6784d4a34f01f8e5c90f8257b6aa7f76ec72d8a19edeb56702",
+      "reviewer": "claude",
+      "note": "Re-reviewed the unchanged synthetic CGNAT Tailscale test addresses after the test was adjusted to the v1 default pairing code (review of PR #166); no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "63246b8fde0d7ce1f3ac7fdbf4b6c5e9aa9bd23d2d8156036cd57e4ce9308edb"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
+        }
+      ]
+    },
+    {
+      "path": "tests/host-cli-day-audit.test.ts",
+      "sha256": "04007fd2c8c40890f5d0b086b0d082338a01336ec49627730e6e0d0724cda7cb",
+      "reviewer": "claude",
+      "note": "Re-reviewed the unchanged synthetic CGNAT Tailscale test addresses after the CLI pairing test was adjusted to the v1 default and the --v2 option (review of PR #166); no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "b561751746c6b986134f7802acf540666c18c1f35cbcb132a55f9a98e1a4a23a"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "94424f22c21cb2aa20f3ce0a90556555901c009da066016d24a48fc869a4a2b6"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/workbench-slides/editor/assets/index-DaF3puIc.js",
+      "sha256": "2c4af5c5e5d54b58c191bef23b6c5f97f6c0dc2336cff8b759994efa6c6b0968",
+      "reviewer": "antigravity",
+      "note": "Reviewed Lucide SVG path coordinates bundled in Apache-2.0 @open-artifact/slides-editor v0.14.6; dotted numeric graphics syntax is not an IP address, no private data.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "336f8bdbd0706531cd5101c4d599b46522be75cf6d81edddb9e8b20b1d878f51"
+        }
+      ]
+    },
+    {
+      "path": "client/vendor/workbench-slides/THIRD-PARTY-NOTICES.txt",
+      "sha256": "daddb046ce595b986fd7b32b1c1e23c13d71c672c7bf395b06cfa2f346d472c4",
+      "reviewer": "fable",
+      "note": "Reviewed the one match: the author's contact address inside the copyright line of the clsx MIT licence, reproduced verbatim from that package's own license file as the licence requires. A public licence attribution; no owner, user or deployment data.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/device-invite.spec.ts",
+      "sha256": "4c716782bcb4b9de52b29b5daf63517473be166b33d25bc312fa088e2fcbbbdd",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale fixture addresses after adding Cloudflare route regression tests; no owner data or new exemptions.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/device-invite.tsx",
+      "sha256": "a4b2abf6eac74add19bbda9dbdaa48217271a313579037ddd125473ea50114ca",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale fixture addresses after adding Cloudflare route regression tests; no owner data or new exemptions.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/local-relay.tsx",
+      "sha256": "8d582c7cbf2589a6cc2e27764a378ec2bd679650d8eec0e6eff1af9805d63eb3",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale fixture addresses after adding Cloudflare route regression tests; no owner data or new exemptions.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/local-relay.spec.ts",
+      "sha256": "a8dd03abdc27d91d1a812e427ec5c35bb6e110f57a783134b776493a1e1a5093",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale fixture addresses after adding Cloudflare route regression tests; no owner data or new exemptions.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/client-multipath-routes.test.ts",
+      "sha256": "a9b4988ca5990fea79026fc05ce17071683c91297ee5fc7c171cf5402a3291af",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale fixture addresses after adding Cloudflare route regression tests; no owner data or new exemptions.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "63246b8fde0d7ce1f3ac7fdbf4b6c5e9aa9bd23d2d8156036cd57e4ce9308edb"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/fixtures/local-relay.tsx",
+      "sha256": "44054305b732a449217fb424a82f7d35e1f133ff1c09baae7315fc509d7bffe2",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale fixture address after updating Cloudflare edge-proxy fixture port and signed action helpers; no owner data or new exemptions.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/local-relay.spec.ts",
+      "sha256": "ff9f681b99e1c074a743538ef7bb62ea54b544117388bf3daab8cb602e69195c",
+      "reviewer": "antigravity",
+      "note": "Re-reviewed unchanged synthetic CGNAT Tailscale fixture address after updating Cloudflare edge-proxy fixture port assertion; no owner data or new exemptions.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "client/e2e/device-invite.spec.ts",
+      "sha256": "d0244cef546374e5e9cb21ce3945ef886e3c328786c53b2c2a35fcf239dfd223",
+      "reviewer": "claude",
+      "note": "Re-reviewed the unchanged synthetic CGNAT Tailscale test addresses after hand-merging PR #129 onto the integration line (same address set as both parents); no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "d2a4c7100116c273732bd68f5fc6f61ba55591215158ab88b06927b0c899d454"
+        }
+      ]
+    },
+    {
+      "path": "tests/client-multipath-routes.test.ts",
+      "sha256": "12fc8045f00b267e2d2672b99a79f68ae6a753a5faa343b2f4cdedb757d53bf2",
+      "reviewer": "claude",
+      "note": "Re-reviewed the unchanged synthetic CGNAT Tailscale test addresses after hand-merging PR #129 onto the integration line (same address set as both parents); no real deployment or owner identity.",
+      "findings": [
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "8308f3a233cf4bd3987f20880945ac60b08eacaa9e85391fd66c5919780196e3"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "63246b8fde0d7ce1f3ac7fdbf4b6c5e9aa9bd23d2d8156036cd57e4ce9308edb"
+        },
+        {
+          "kind": "non-example-public-ip",
+          "fingerprint": "258cca7a8e42d54d201f4528b4c562bef41b6ce9022a600d1d7639364a92abeb"
+        }
+      ]
+    },
+    {
+      "path": "integrations/infinite-canvas/notices/BUNDLED_DEPENDENCIES.txt",
+      "sha256": "a63d6596543dbbc91b03d92a7b2fc3c5667f1c351ad69d50c1f95fb598cb0a03",
+      "reviewer": "codex",
+      "note": "Reviewed all seven exact fingerprints against the public pinned npm package MIT copyright lines and the retained upstream react-remove-scroll-bar MIT notice. No project owner, deployment, or private contact information.",
+      "findings": [
+        {
+          "kind": "personal-email",
+          "fingerprint": "fe333eac30d08732e7ab5744d91ed42ab47cace977ab9bdd2f7a58957d64b645"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "106a6c8669149a6395be25bbb8280adfc7252d58fb2de92d15a686a1e8a5f7dc"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "bdf9ce3b6fad26286e88dc74fe508107913344140b3282382d6ee4c290e7175c"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "97f7b9150be37699192361c0d15e1436464be9f161b2f7b99f2dadacdaeaa2f3"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "295dee0d3dbb93aac67e72ae4af40f728f050e5fd18417ad60d1ed19186ae03b"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "ba822a4a0ffc8df004606941d9fce04b6ab34d2e72904f44d2e4317c49a4eafc"
+        },
+        {
+          "kind": "personal-email",
+          "fingerprint": "6e13be8b3eb67489f0f0a6585a310a4e3d2f56db869e9f7ea5cb4ed9452c9ec8"
         }
       ]
     }

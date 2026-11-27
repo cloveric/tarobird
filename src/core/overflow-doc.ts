@@ -1,5 +1,6 @@
 import { CORE_CARD_ANSWER_MAX } from "./card-renderer.js";
 import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import type { LarkDocumentCreateInput, LarkDocumentCreateResult } from "./document-client.js";
 import type { CoreChannelLike, CoreSendOptions } from "./types.js";
 
@@ -31,7 +32,7 @@ export function larkOverflowDocTitle(text: string, locale: Locale): string {
   if (firstLine) {
     return firstLine.slice(0, 60);
   }
-  return locale === "en" ? "Claude reply" : "Claude 回复";
+  return hostT(locale, "Claude 回复");
 }
 
 /** A filesystem-safe `.md` file name derived from the answer's title. */
@@ -41,18 +42,14 @@ export function larkOverflowDocFileName(text: string, locale: Locale): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 50);
-  return `${base || (locale === "en" ? "reply" : "回复")}.md`;
+  return `${base || hostT(locale, "回复")}.md`;
 }
 
 /** The short chat message carrying the doc link (plus any permission warning). */
 export function renderLarkOverflowDocLink(url: string, locale: Locale, warning?: string): string {
-  const lead = locale === "en"
-    ? `📄 The reply is long — full content saved as a Feishu doc:\n${url}`
-    : `📄 回复较长，完整内容已存为飞书云文档：\n${url}`;
+  const lead = hostT(locale, "📄 回复较长，完整内容已存为飞书云文档：\n{0}", url);
   if (warning?.trim()) {
-    const note = locale === "en"
-      ? `\n\n⚠️ Doc permission note: ${warning.trim()}`
-      : `\n\n⚠️ 文档权限提示：${warning.trim()}`;
+    const note = hostT(locale, "\n\n⚠️ 文档权限提示：{0}", warning.trim());
     return lead + note;
   }
   return lead;

@@ -23,6 +23,7 @@ import {
 } from "./shared/tool-tags.js";
 import { chunkMarkdown } from "../runtime/markdown-chunks.js";
 import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import { executeCronAddTool } from "../tools/cron-add-tool.js";
 import { executeCoreTool } from "../tools/tool-executor.js";
 import { sendCoreCardWithFallback } from "./card-delivery.js";
@@ -366,9 +367,7 @@ export async function deliverCoreResponse(input: {
       },
     }, "invalid Lark delivery directive");
     await input.channel.send(input.chatId, {
-      text: locale === "en"
-        ? "Delivery failed: the response used an invalid send directive. Use an executable [send-file:/absolute/path], [send-image:/absolute/path], or send.* tool call and try again."
-        : "交付失败：回复使用了无法执行的发送指令。请改用 [send-file:/绝对路径]、[send-image:/绝对路径] 或 send.* 工具调用后重试。",
+      text: hostT(locale, "交付失败：回复使用了无法执行的发送指令。请改用 [send-file:/绝对路径]、[send-image:/绝对路径] 或 send.* 工具调用后重试。"),
     }, replyOptions);
   }
   // Structured and legacy send directives are alternative spellings of the
@@ -411,9 +410,7 @@ export async function deliverCoreResponse(input: {
         await input.channel.send(input.chatId, {
           text: invalidJson ? renderCoreToolTagParseError(error, locale)
             : input.channel.profile === "gateway" && toolName === "send.widget"
-              ? locale === "en"
-                ? "Widget publication was not confirmed. Ask the Bot to check the content and delivery status before retrying. Details were recorded in logs."
-                : "图形未能确认发布。请让 Bot 检查图形内容和交付状态后再处理，详细原因已记录到日志。"
+              ? hostT(locale, "图形未能确认发布。请让 Bot 检查图形内容和交付状态后再处理，详细原因已记录到日志。")
               : renderCoreUserFacingError(error, "tool", locale),
         }, replyOptions);
       }
@@ -589,9 +586,9 @@ export async function deliverCoreResponse(input: {
         },
       }, "Lark markdown delivery failure");
       await input.channel.send(input.chatId, {
-        text: locale === "en"
-          ? `Part of the reply could not be delivered (${failedChunks} chunk${failedChunks === 1 ? "" : "s"}). Please ask me to resend it.`
-          : `回复有部分内容未送达（${failedChunks} 个分块）。请让我重新发送。`,
+        text: failedChunks === 1
+          ? hostT(locale, "回复有部分内容未送达（1 个分块）。请让我重新发送。")
+          : hostT(locale, "回复有部分内容未送达（{0} 个分块）。请让我重新发送。", failedChunks),
       }, replyOptions).catch(() => undefined);
     }
   }
@@ -658,9 +655,7 @@ function coreReplyOptions(replyTo: string | undefined, replyInThread: boolean | 
 
 function renderCoreToolTagParseError(error: unknown, locale: Locale): string {
   if (error instanceof SyntaxError) {
-    return locale === "en"
-      ? "Invalid tool tag JSON; nothing was executed. For batch files or long text, use a fenced tool-call code block."
-      : "错误：tool tag JSON 格式无效，未执行。批量文件或长文本请改用 fenced tool-call 代码块。";
+    return hostT(locale, "错误：tool tag JSON 格式无效，未执行。批量文件或长文本请改用 fenced tool-call 代码块。");
   }
   return renderCoreUserFacingError(error, "tool", locale);
 }
@@ -716,10 +711,8 @@ async function executeCoreToolTag(input: {
   if (isCronMutationTool(input.name) && input.allowCronMutations === false) {
     await input.channel.send(input.chatId, {
       text: input.cronMutationContext === "discussion"
-        ? input.locale === "en" ? "Group discussion turns cannot create, remove, toggle, or run schedules; the request was ignored." : "群讨论发言不能创建、删除、启停或运行定时任务；本次请求已忽略。"
-        : input.locale === "en"
-          ? "Scheduled runs cannot create, remove, toggle, or run other schedules; the request was ignored."
-          : "定时任务执行期间不能创建、删除、启停或运行其他定时任务；本次请求已忽略。",
+        ? hostT(input.locale, "群讨论发言不能创建、删除、启停或运行定时任务；本次请求已忽略。")
+        : hostT(input.locale, "定时任务执行期间不能创建、删除、启停或运行其他定时任务；本次请求已忽略。"),
     }, coreReplyOptions(input.replyTo, input.replyInThread));
     // This is an enforced policy, not a failure of the parent scheduled run.
     // Returning false would increment its failure counter and disable it after
@@ -906,17 +899,13 @@ async function executeCoreToolTag(input: {
     const label = created.title ?? docInput.title ?? "飞书文档";
     const location = created.url ?? created.documentId ?? "(created)";
     const warning = created.warning
-      ? input.locale === "en"
-        ? `\n\nNote: ${created.warning}`
-        : `\n\n提示：${created.warning}`
+      ? hostT(input.locale, "\n\n提示：{0}", created.warning)
       : "";
-    await sendCoreMarkdown(input.channel, input.chatId, input.locale === "en"
-      ? `Created ${label}:\n${location}${warning}`
-      : `已创建 ${label}：\n${location}${warning}`, coreReplyOptions(input.replyTo, input.replyInThread));
+    await sendCoreMarkdown(input.channel, input.chatId, hostT(input.locale, "已创建 {0}：\n{1}{2}", label, location, warning), coreReplyOptions(input.replyTo, input.replyInThread));
     return true;
   }
   await input.channel.send(input.chatId, {
-    text: input.locale === "en" ? `Unsupported Lark tool ${input.name}.` : `错误：不支持的飞书工具 ${input.name}。`,
+    text: hostT(input.locale, "错误：不支持的飞书工具 {0}。", input.name),
   }, coreReplyOptions(input.replyTo, input.replyInThread));
   return false;
 }
@@ -966,28 +955,16 @@ function renderInvalidCoreToolPayload(
   locale: Locale,
   field?: string,
 ): string {
-  if (locale === "en") {
-    if (reason === "requires_path") {
-      return `Invalid Lark tool payload: ${toolName} requires payload.path.`;
-    }
-    if (reason === "image_entries") {
-      return `Invalid Lark tool payload: ${toolName} images must be path strings or {path, caption} objects.`;
-    }
-    if (reason === "file_entries") {
-      return `Invalid Lark tool payload: ${toolName} files must be path strings or {path, caption} objects.`;
-    }
-    return `Invalid Lark tool payload: ${toolName} ${field ?? "field"} must be an array of strings.`;
-  }
   if (reason === "requires_path") {
-    return `错误：飞书工具参数无效：${toolName} 需要 payload.path。`;
+    return hostT(locale, "错误：飞书工具参数无效：{0} 需要 payload.path。", toolName);
   }
   if (reason === "image_entries") {
-    return `错误：飞书工具参数无效：${toolName} images 必须是路径字符串或 {path, caption} 对象。`;
+    return hostT(locale, "错误：飞书工具参数无效：{0} images 必须是路径字符串或 {path, caption} 对象。", toolName);
   }
   if (reason === "file_entries") {
-    return `错误：飞书工具参数无效：${toolName} files 必须是路径字符串或 {path, caption} 对象。`;
+    return hostT(locale, "错误：飞书工具参数无效：{0} files 必须是路径字符串或 {path, caption} 对象。", toolName);
   }
-  return `错误：飞书工具参数无效：${toolName} ${field ?? "字段"} 必须是字符串数组。`;
+  return hostT(locale, "错误：飞书工具参数无效：{0} {1} 必须是字符串数组。", toolName, field ?? hostT(locale, "字段"));
 }
 
 function effectiveCoreSendPathKind(kind: CoreSendPathKind, filePath: string): CoreSendPathKind {
@@ -1512,54 +1489,41 @@ function renderCoreFileDeliveryError(
   // Name the exact failure (which file, why) so the operator and the agent can
   // self-correct — a generic "read failed" hides not-found vs oversize vs a
   // platform rejection and sends the operator to the logs for every incident.
-  const dir = context.workspaceRoot ?? (locale === "en" ? "the workspace" : "工作区");
+  const dir = context.workspaceRoot ?? hostT(locale, "当前工作区");
   const name = context.fileName;
   const sizeMb = context.fileBytes !== undefined ? Math.ceil(context.fileBytes / (1024 * 1024)) : undefined;
   const capMb = Math.floor(CORE_FILE_UPLOAD_MAX_BYTES / (1024 * 1024));
   const batchCapMb = Math.floor(CORE_BATCH_UPLOAD_MAX_BYTES / (1024 * 1024));
-  if (locale === "en") {
-    switch (reason) {
-      case "outside-workspace":
-        if (channelProfile() === "gateway") return `File not sent: it is outside the allowed directories. Copy it into ${dir}, or select Full access in Bot settings → Permissions. Full access allows external paths by default; check whether this Bot's bot.env explicitly sets TAROBOT_ALLOW_ANY_FILE_PATH=0.`;
-        return `This file is outside the allowed send directory — a path restriction, not a send failure. Copy it into ${dir} and resend (only files under that directory can be sent), or add TAROBOT_ALLOW_ANY_FILE_PATH=1 to this Bot's bot.env and restart it to allow any readable path.`;
-      case "credentials-file":
-        return `Refusing to send a credentials-style file${name ? ` (${name})` : ""}. Dotenv files and private keys (.env*, *.pem, *.key, id_rsa, id_ed25519) are never sendable — not even from inside the workspace, and not with TAROBOT_ALLOW_ANY_FILE_PATH=1. Copy only the specific non-secret values you need into a normal file.`;
-      case "not-found":
-        return `File was not sent: the file does not exist${name ? ` (${name})` : ""}. The sender referenced a path that was never created.`;
-      case "permission-denied":
-        return `File was not sent: no permission to read it${name ? ` (${name})` : ""}.`;
-      case "too-large":
-        return `File was not sent: ${name ?? "the file"} is ${sizeMb ?? "?"}MB, over the current tested-safe ${capMb}MB Feishu bot upload limit. Split it into smaller parts or compress it further, then resend.`;
-      case "batch-too-large":
-        return `Files were not sent: the batch is ${sizeMb ?? "?"}MB, over the ${batchCapMb}MB aggregate limit. Split it into smaller batches and resend.`;
-      case "upload-failed":
-        return `File was not sent: Feishu rejected the upload${name ? ` (${name})` : ""}; details were recorded in logs.`;
-      case "delivery-uncertain":
-        return "The image card's delivery could not be confirmed. To avoid duplicates, it was not retried automatically. If it did not arrive, ask me to resend it.";
-      default:
-        return "File was not sent: failed to read the file; details were recorded in logs.";
-    }
-  }
   switch (reason) {
     case "outside-workspace":
-      if (channelProfile() === "gateway") return `文件未发送：路径不在允许的目录内。请复制到 ${dir}，或在 Bot 设置 → 权限与批准中选择“完全访问”。完全访问默认允许外部路径；若仍被限制，请检查该 Bot 的 bot.env 是否显式设置了 TAROBOT_ALLOW_ANY_FILE_PATH=0。`;
-      return `该文件不在允许发送的目录内——这是路径限制，不是发送失败。请把文件复制到 ${dir} 再发（只有该目录下的文件可直接发送），或在该 Bot 的 bot.env 中加入 TAROBOT_ALLOW_ANY_FILE_PATH=1 并重启，以放开任意可读路径。`;
+      if (channelProfile() === "gateway") {
+        return hostT(locale, "文件未发送：路径不在允许的目录内。请复制到 {0}，或在 Bot 设置 → 权限与批准中选择“完全访问”。完全访问默认允许外部路径；若仍被限制，请检查该 Bot 的 bot.env 是否显式设置了 TAROBOT_ALLOW_ANY_FILE_PATH=0。", dir);
+      }
+      return hostT(locale, "该文件不在允许发送的目录内——这是路径限制，不是发送失败。请把文件复制到 {0} 再发（只有该目录下的文件可直接发送），或在该 Bot 的 bot.env 中加入 TAROBOT_ALLOW_ANY_FILE_PATH=1 并重启，以放开任意可读路径。", dir);
     case "credentials-file":
-      return `拒绝发送凭据类文件${name ? `（${name}）` : ""}：.env* / *.pem / *.key / id_rsa / id_ed25519 这类文件永远不会被发送——即使它在工作区内，也不受 TAROBOT_ALLOW_ANY_FILE_PATH=1 影响。如确需分享，请只把不涉密的内容单独写入普通文件。`;
+      return name
+        ? hostT(locale, "拒绝发送凭据类文件（{0}）：.env* / *.pem / *.key / id_rsa / id_ed25519 这类文件永远不会被发送——即使它在工作区内，也不受 TAROBOT_ALLOW_ANY_FILE_PATH=1 影响。如确需分享，请只把不涉密的内容单独写入普通文件。", name)
+        : hostT(locale, "拒绝发送凭据类文件：.env* / *.pem / *.key / id_rsa / id_ed25519 这类文件永远不会被发送——即使它在工作区内，也不受 TAROBOT_ALLOW_ANY_FILE_PATH=1 影响。如确需分享，请只把不涉密的内容单独写入普通文件。");
     case "not-found":
-      return `文件未发送：文件不存在${name ? `（${name}）` : ""}。发送方引用了一个从未生成的路径。`;
+      return name
+        ? hostT(locale, "文件未发送：文件不存在（{0}）。发送方引用了一个从未生成的路径。", name)
+        : hostT(locale, "文件未发送：文件不存在。发送方引用了一个从未生成的路径。");
     case "permission-denied":
-      return `文件未发送：没有读取权限${name ? `（${name}）` : ""}。`;
+      return name
+        ? hostT(locale, "文件未发送：没有读取权限（{0}）。", name)
+        : hostT(locale, "文件未发送：没有读取权限。");
     case "too-large":
-      return `文件未发送：${name ?? "该文件"} 有 ${sizeMb ?? "?"}MB，超过当前接口实测安全上限 ${capMb}MB。请拆分成多个小包或进一步压缩后重发。`;
+      return hostT(locale, "文件未发送：{0} 有 {1}MB，超过当前接口实测安全上限 {2}MB。请拆分成多个小包或进一步压缩后重发。", name ?? hostT(locale, "该文件"), sizeMb ?? "?", capMb);
     case "batch-too-large":
-      return `文件未发送：本批次合计 ${sizeMb ?? "?"}MB，超过 ${batchCapMb}MB 总量上限。请拆成多个批次后重发。`;
+      return hostT(locale, "文件未发送：本批次合计 {0}MB，超过 {1}MB 总量上限。请拆成多个批次后重发。", sizeMb ?? "?", batchCapMb);
     case "upload-failed":
-      return `文件未发送：上传被飞书拒绝${name ? `（${name}）` : ""}，详细原因已记录到日志。`;
+      return name
+        ? hostT(locale, "文件未发送：上传被飞书拒绝（{0}），详细原因已记录到日志。", name)
+        : hostT(locale, "文件未发送：上传被飞书拒绝，详细原因已记录到日志。");
     case "delivery-uncertain":
-      return "图片卡片的送达状态无法确认。为避免重复发送，未自动重试；如果没有收到，请让我重发。";
+      return hostT(locale, "图片卡片的送达状态无法确认。为避免重复发送，未自动重试；如果没有收到，请让我重发。");
     default:
-      return "文件未发送：读取文件失败，详细原因已记录到日志。";
+      return hostT(locale, "文件未发送：读取文件失败，详细原因已记录到日志。");
   }
 }
 
@@ -1766,7 +1730,7 @@ function buildCoreToolCard(
 
 function renderCoreToolCardFallback(payload: Record<string, unknown> | null, locale: Locale): string {
   if (!payload) {
-    return locale === "en" ? "Interactive card could not be displayed." : "交互卡片无法显示。";
+    return hostT(locale, "交互卡片无法显示。");
   }
   const title = stringValue(payload.title) ?? defaultCoreToolCardTitle(locale);
   const body = stringValue(payload.body) ?? "";
@@ -1826,7 +1790,7 @@ function buildCoreOptionSection(input: {
           tag: "markdown",
           content: description && description !== title
             ? description
-            : input.locale === "en" ? "_Click the button below to choose this option._" : "_点击下方按钮选择此项。_",
+            : hostT(input.locale, "_点击下方按钮选择此项。_"),
           text_size: "notation",
         },
         {
@@ -1948,11 +1912,11 @@ function stringValue(value: unknown): string | undefined {
 }
 
 function defaultCoreToolCardTitle(locale: Locale): string {
-  return locale === "en" ? "Choose" : "请选择";
+  return hostT(locale, "请选择");
 }
 
 function defaultCoreToolCardActionLabel(locale: Locale): string {
-  return locale === "en" ? "Choose" : "选择";
+  return hostT(locale, "选择");
 }
 
 function decorateRawCoreCard(

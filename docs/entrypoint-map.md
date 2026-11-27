@@ -2,7 +2,7 @@
 
 [Pi native engine](client/pi-engine.md) maps the native RPC adapter, shared
 discovery, provider/model selection, session controls and permission bridge.
-Pi is available for ordinary Bots, not Chancellor creation or conversion.
+Pi is available for ordinary Bots, not Superagent creation or conversion.
 Keep native session identity and provider/model pairs intact, and distinguish
 isolated RPC/browser evidence from installed-device acceptance. Native process,
 bridge, commands and state ownership are documented in the linked guide;
@@ -1156,7 +1156,7 @@ and the existing network/run/delete suites listed in that audit.
   in `bot-conversation-folds.css`; browser coverage is `bot-conversation-folds`
   and `bot-context-menu` in Chromium/WebKit. CLI has no corresponding local
   presentation surface. [Behavior and verification](client/bot-conversation-folds-2026-10-24.md).
-  Bot rows reserve one trailing action column, including Chancellor rows without
+  Bot rows reserve one trailing action column, including Superagent rows without
   a create button; source-host badges precede the count. Bot/group section headings
   have no total count.
   See [count alignment](client/sidebar-count-alignment-2026-11-02.md).
@@ -5100,8 +5100,9 @@ Right-side opening shares `useSideWindowExpansion`, `SidePanelResize` and the
 name appears below the icon in its empty state. The top bar keeps tabs and
 actions together in one row; roomy docked headers retain smaller tabs.
 See [empty-state title placement](client/workbench-empty-title-2026-10-31.md).
-Empty-state creation actions wrap inside narrow panels; product labels use
-画布 / Canvas and PPT, with upstream skill routing unchanged. See
+Empty-state creation actions wrap inside narrow panels; the product label is
+演示文稿 / Presentation (画布 / Canvas was removed in #89 and the PPT label
+replaced in #90). See
 [neutral names and narrow-layout validation](client/workbench-labels-width-2026-11-04.md).
 New content sits immediately after the tabs; only the tab list scrolls, while
 the plus button stays visible. Its menu anchors below the tab group. See
@@ -5286,19 +5287,54 @@ authorized Design/PPT release scope, CLI parity and fresh upstream inventory.
 [The responsiveness audit](client/workbench-efficiency-2026-11-10.md) documents
 the canvas reveal handshake, bounded registration coalescing, shared whiteboard
 reads and native browser overlay tracking. Cover `workbench-controller`,
-`workbench-registration`, `workbench-design-frame-reveal` and
-`workbench-browser-layout`; actual editor entrypoints also assert the upstream
-reveal mark. These scheduling changes retain save and scope fences.
+`workbench-registration` and `workbench-browser-layout`; actual editor
+entrypoints also assert the upstream reveal mark. The dedicated
+`workbench-design-frame-reveal` spec used canvas fixtures and was deleted with
+the canvas (#89). These scheduling changes retain save and scope fences.
 
 ### Baoyu Design / Baoyu PPT skills (2026-11-03)
+
+**Canvas removed (#89, 2026-11-27).** `client/vendor/baoyu-design`,
+`skills/baoyu-design` and the canvas editor are gone. Hub, Gateway, CLI and App
+refuse canvas create/open/read/publish/share/import with `design_canvas_removed`
+(`workbenchDesignError` in `src/client-protocol/workbench-design.ts`); PPT
+(`format:slides`) is unchanged and `workbench.design.v1` stays advertised for
+1.6.0 peers. A canvas project kept on a device is never opened: its tab and its
+row in Settings → Workbench files only offer export of the stored project as a
+`.tarobot-design.json` backup (`exportStoredDesign` in `workbench-library.ts`,
+`WorkbenchController.exportRemovedCanvas`) and deletion. Cover
+`tests/remove-baoyu-canvas.test.ts`. Canvas statements in the two sections
+below describe earlier versions.
+
+**Presentation editor replaced (#90, 2026-11-27).** `client/vendor/baoyu-slides`
+and `skills/baoyu-ppt` are gone. `+ → 演示文稿` loads the Open Artifact slides
+editor from `client/vendor/workbench-slides`: a built bundle, pinned and hashed
+in its `UPSTREAM.json`, with `LICENSE`, `NOTICE` and our own
+`THIRD-PARTY-NOTICES.txt` beside it, all emitted to
+`dist/licenses/workbench-slides/` by `client/design-assets.ts`.
+`design-runtime.js` gives the editor its `window.openartifact` capabilities over
+the same per-tab bridge; `workbench-slides-pptx-import.ts` imports `.pptx`;
+phones and windows up to 760 px wide get a read-only preview. Storage,
+`deck.json` v4 and the `design.*` contract are unchanged, so a deck written by
+1.6.0 opens as it is; `workbench-slides-legacy.ts` folds the one 1.6.0 construct
+the new editor drops (a translate on `<x-shape>`) into the text handed to the
+editor, never into storage. Bot guidance is `workbenchPptRouting` and
+`workbenchDesignGuidance` in `src/gateway/design-guidance.ts`: no per-turn PPT
+note and no Baoyu skill. Cover `tests/workbench-presentation-routing.test.ts`,
+`client/tests/workbench-presentation-pptx.test.ts`,
+`client/tests/workbench-slides-legacy.test.ts`,
+`client/e2e/workbench-slides.spec.ts` and, with real 1.6.0 projects,
+`client/e2e/workbench-legacy-1.6.0.spec.ts`. The rest of this section records
+the Baoyu integration as it was up to 1.6.0.
 
 [The 2026-11-10 upstream refresh](client/workbench-upstream-2026-11-10.md) pins
 both editors and adapted skills to 2.12.2, keeps offline authoring and native PPT
 routing, and records editor/browser acceptance separately from installed Apps.
 
-`skills/baoyu-design` and `skills/baoyu-ppt` are TaroBot adapters, with pinned
-upstream authoring references, not upstream's local-server workflow. Use them
-for explicit Baoyu requests or an unambiguous continuation of the selected Baoyu
+Until #90 `skills/baoyu-ppt` was a TaroBot adapter (`skills/baoyu-design` its
+canvas counterpart until #89), with pinned
+upstream authoring references, not upstream's local-server workflow. It was
+for explicit Baoyu PPT requests or an unambiguous continuation of the selected Baoyu
 project; ordinary PPT/design requests retain native engine skills. In particular,
 “用 Design 做 PPT” uses the engine's native presentation skill, even with a Baoyu
 tab selected. See [PPT selection and validation](client/baoyu-ppt-routing-2026-11-03.md).
@@ -5309,15 +5345,15 @@ skill and distinguishes that from binary PPTX import. New tool contract v13 uses
 neutral labels; old schema digests remain exact and receive the corrected guide.
 `install-skills.sh --skill ...` copies
 references as well as SKILL.md; the Host package includes the same allowlisted
-resources. When this integration is updated, review both skills and editor assets.
-Baoyu Design/PPT updates are not a mandatory pre-release item; see the
-2026-11-15 amendment in [the release checklist](release-checklist.md#full-release-upstream-gate).
+resources. For the present editor's place in the release rules see
+[the release checklist](release-checklist.md#full-release-upstream-gate).
 
 PPT reuses `design.*` and storage but has `format:slides`, `designFormat:slides`,
 `deck.json` v4 and slide HTML. Host `workbench.design.slides.v1` / App
 `design.slides.v1` fence old peers; new tool schema v11 preserves v1–v10 digests.
 The opener, library recovery and import preserve the requested/stored format.
-ADHD auto-opening remains disabled. `client/vendor/baoyu-slides` is pinned and
+ADHD auto-opening remains disabled. The editor bundle (`client/vendor/workbench-slides`,
+before #90 `client/vendor/baoyu-slides`) is pinned and
 patched by `design-assets.ts`; a lazy separate sandbox shares the existing opaque
 loader, virtual file bridge, CAS and quit guards. Never substitute a canvas for
 unsupported PPT or permit external network/Host paths to make upstream tools work.
@@ -5348,8 +5384,10 @@ on navigation/hide/close invalidates old source requests. Content controllers an
 other Workbench commands remain separate. See [automatic opening and acceptance
 boundaries](client/design-auto-open-2026-11-01.md).
 
-`Workbench.tsx` / `WorkbenchDesign.tsx` add the baoyu-design canvas editor as a
-`design` tab. See [scope, lifecycle and validation](client/workbench-design.md).
+`Workbench.tsx` / `WorkbenchDesign.tsx` added the baoyu-design canvas editor as a
+`design` tab. Since #89 a `design` tab is a PPT (`designFormat:slides`); a tab
+kept from a canvas loads no editor and shows only its export action.
+See [scope, lifecycle and validation](client/workbench-design.md).
 `client/design-assets.ts` verifies pristine vendor hashes and builds the offline
 opaque-origin editor; `design-frame.ts` owns DOM lifetime/flush and `design-runtime.js`
 provides a per-tab file/comment/event bridge. Never serve project code at the App origin or
@@ -5359,8 +5397,8 @@ rendering. Cover multi-page Unicode publishes, reopen and Electron rendering; se
 [the silent artboard filtering defect](client/design-unicode-artboards-2026-11-03.md).
 The trusted loader contains no project data or message handler before its
 data-origin navigation.
-`design-wheel.ts` supplies bounded viewport wheel input to both the canvas and
-PPT build adapters, including nested artboard forwarding. Native scroll, touch
+`design-wheel.ts` supplies bounded viewport wheel input to the PPT build adapter
+(and did to the canvas one until #89), including nested artboard forwarding. Native scroll, touch
 and fit boundaries stay upstream-owned. Cover `workbench-wheel.spec.ts` when
 upgrading either bundle; see [wheel navigation](client/baoyu-wheel-2026-11-03.md).
 
@@ -5414,7 +5452,7 @@ for shared-path measurements, lifecycle checks and unresolved frame-timing limit
 
 ## Dispatcher Bots (#110)
 
-Shown in the App as 幕僚长 / Chancellor. A dispatcher Bot is chosen at creation (`createBotSchema.role`), keeps one
+Shown in the App as 幕僚长 / Superagent. A dispatcher Bot is chosen at creation (`createBotSchema.role`), keeps one
 direct conversation and runs tickets directly on installed engine CLIs through
 hidden per-engine worker Bots (`BotManager.dispatchWorker`, `role: "worker"`)
 in hidden worker conversations. `hub/dispatch.ts` owns settings, the ticket ledger, dispatch,
@@ -5486,8 +5524,8 @@ approval gate or automatic preference store. See the [1.0.126 preflight](client/
 Evidence-led selection adds read-only `tickets capabilities --engine E [--match TEXT] [--offset N]` through the shared owner/Bot Hub route. User-scope metadata is partial/unverified; no worker creation, model-discovery process, automatic ranking or outcome memory. Acceptance criteria and quality-failure reassessment stay in the bounded per-turn contract. See [selection change and paired real-ticket evidence](client/dispatcher-evidence-selection-2026-11-02.md). Additional regressions: `dispatch-capabilities`, `dispatch-engine-capabilities`, `bot-capabilities`, `dispatcher-selection-contract`.
 Execution-time assistance adds `tickets assist` / `assist-status` for the authenticated current worker attempt and `tickets assists` for owner/dispatcher readback. `hub/dispatch-assistance.ts` defines bounded helper inputs/outcomes; `hub/dispatch.ts` owns parent yield, helper settlement and same-session continuation in the existing ticket slot. Schema 24 persists the separate ledger/allowance without changing strict App ticket/attempt markers. Gateway identifies worker turns from current Hub-owned `conversation.ticket`, not `config.role` (which only persists dispatcher). See [worker assistance and verification](client/dispatcher-worker-assistance-2026-11-02.md). New regressions: `hub-dispatch-assist`, `dispatch-assistance-boundaries`, `host-cli-assistance`, `gateway-worker-assistance-context`, `gateway-worker-assistance-lifecycle`.
 `DispatcherSettings` keeps edits local until explicit save, displays Host read/save status, and guards close/reload against unsaved draft loss. Ask/auto labels describe the existing policy. See [settings save feedback](client/dispatcher-settings-save-feedback-2026-11-03.md); browser regression: `dispatcher-settings-allowlist`.
-`DispatcherRoutingHelp` explains current model-selection tendencies beside the New Bot role checkbox and existing Chancellor settings; native hover plus touch/keyboard dialog access share localized copy. It changes no routing policy or CLI behavior. See [routing help](client/dispatcher-routing-help-2026-11-02.md).
-A same-source six-task [DeepSeek Chancellor follow-up](client/dispatcher-deepseek-coordinator-comparison-2026-11-02.md) verifies autonomous Claude/GPT selection, while retaining a missed protocol-design defect; completed execution is not accepted result quality.
+`DispatcherRoutingHelp` explains current model-selection tendencies beside the New Bot role checkbox and existing Superagent settings; native hover plus touch/keyboard dialog access share localized copy. It changes no routing policy or CLI behavior. See [routing help](client/dispatcher-routing-help-2026-11-02.md).
+A same-source six-task [DeepSeek Superagent follow-up](client/dispatcher-deepseek-coordinator-comparison-2026-11-02.md) verifies autonomous Claude/GPT selection, while retaining a missed protocol-design defect; completed execution is not accepted result quality.
 The [1.0.127 release audit](client/dispatcher-release-audit-2026-11-02.md) covers help/pause settlement and bounded `tickets assists` helper-result/continuation-delivery readback. Readback never resumes cancelled work; accepted delivery is not answer acceptance.
 Regressions: `hub-dispatch`, `hub-dispatch-efficiency`, `hub-dispatch-health`, `hub-dispatch-auth`, `host-cli-tickets`, `gateway-dispatch`,
 `gateway-dispatcher-context`, `client-dispatcher-settings`, `engine-override`,

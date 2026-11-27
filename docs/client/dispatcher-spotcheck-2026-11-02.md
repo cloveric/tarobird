@@ -1,4 +1,4 @@
-# Chancellor: additional real-ticket spot checks
+# Superagent: additional real-ticket spot checks
 
 The owner requested another small test after the permissive-selection change.
 This run used source `1cd99290ae91b90f43e234fbaccdb14eb1998111` and its already

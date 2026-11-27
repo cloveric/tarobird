@@ -88,6 +88,7 @@ export function mobileNetwork(plugin: MobileTransport, pageToken?: string) {
         channels.set(id, channel);
         try { return await plugin.socketOpen({ id, origin: args.origin, hubKey: args.hubKey,
           ...(args.certificateAuthority ? { certificateAuthority: args.certificateAuthority } : {}),
+          ...(args.edgeTls ? { edgeTls: true } : {}),
           ...(pageToken ? { pageToken } : {}) }); }
         catch (error) { channels.delete(id); throw error; }
       }

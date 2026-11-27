@@ -166,4 +166,24 @@ describe("quoted replies and durable forwarding", () => {
     expect(parsed).not.toHaveProperty("forwardedFrom");
     expect(clientFrameSchema.safeParse({ ...parsed, sourceMessageId: "../file" }).success).toBe(false);
   });
+
+  it("strips nativeRunPlan metadata when forwarding a run card", async () => {
+    const blocks: Block[] = [{
+      type: "card",
+      title: "Run",
+      elements: [{ type: "markdown", text: "Done." }],
+      extra: {
+        nativeRun: { version: 1, id: "run_plan_fwd", revision: 3, phase: "done", startedAt: 1, updatedAt: 2, endedAt: 2, count: 0, completed: 0, failed: 0, truncated: false },
+        nativeRunPlan: { version: 1, runId: "run_plan_fwd", revision: 3, seq: 1, items: [{ content: "Secret step", status: "completed" }] },
+        keepMe: "preserved",
+      },
+    }];
+    const original = await store.publishBotMessage("alpha", { conversationId: source, blocks });
+    const copied = (await forward(original, "forward_plan")).message;
+    const card = copied.blocks.find(b => b.type === "card");
+    expect(card?.type).toBe("card");
+    expect(card?.type === "card" ? card.extra : undefined).toEqual({ keepMe: "preserved" });
+    expect(JSON.stringify(copied.blocks)).not.toContain("nativeRunPlan");
+    expect(JSON.stringify(copied.blocks)).not.toContain("Secret step");
+  });
 });

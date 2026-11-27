@@ -2,7 +2,7 @@
 
 ## Incident and cause
 
-The installed 1.0.125 Chancellor could read `tickets targets`, including an
+The installed 1.0.125 Superagent could read `tickets targets`, including an
 installed, allowed Claude engine, but its `tickets create` command omitted
 `--context-message`. The Host correctly returned `dispatch_context_not_active`.
 No ticket was created. The Bot described this as an inactive interface and ran
@@ -21,7 +21,7 @@ disabled. The Host's existing active-turn and Bot-identity checks remain intact.
 ## Changes
 
 - The Gateway creates a short, Host-owned `executionInstructions` contract for
-  each Chancellor turn. Codex sends it separately as `tarobot.execution`, even
+  each Superagent turn. Codex sends it separately as `tarobot.execution`, even
   when resuming a thread without native App tool registration. It is not saved
   as a persona, worker setting, user message or tool-schema change.
 - The same short contract heads the existing turn instructions used by the
@@ -39,7 +39,7 @@ disabled. The Host's existing active-turn and Bot-identity checks remain intact.
   original request ID and arguments for read-back/reconciliation.
 - CLI help documents the parameter. Local owner commands still use the owner
   API without requiring a Bot context; read-only Bot commands still work
-  without one. Workers and group discussions receive no Chancellor contract.
+  without one. Workers and group discussions receive no Superagent contract.
 
 ## Verification
 

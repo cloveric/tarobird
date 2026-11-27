@@ -1,6 +1,6 @@
-export type ModelBrand = "openai" | "claude" | "gemini" | "deepseek" | "kimi";
+export type ModelBrand = "openai" | "claude" | "gemini" | "deepseek" | "kimi" | "omp";
 export type ModelIdentity = { engine?: string; model?: string };
-export const modelBrandNames: Record<ModelBrand, string> = { openai: "OpenAI", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek", kimi: "Kimi" };
+export const modelBrandNames: Record<ModelBrand, string> = { openai: "OpenAI", claude: "Claude", gemini: "Gemini", deepseek: "DeepSeek", kimi: "Kimi", omp: "oh-my-pi" };
 
 /** Identify the configured model, never the Bot's name or a historical reply.
  * Explicit unknown models must not inherit a misleading engine brand. */
@@ -17,7 +17,7 @@ export function resolveModelBrand(bot?: ModelIdentity): { brand: ModelBrand; sou
   if (brand) return { brand, source: "model" };
   if (model && !["default", "auto"].includes(model)) return;
   const engine = (bot.engine ?? "").trim().toLowerCase();
-  const engines: Record<string, ModelBrand> = { codex: "openai", claude: "claude", antigravity: "gemini", agy: "gemini", deepseek: "deepseek", kimi: "kimi" };
+  const engines: Record<string, ModelBrand> = { codex: "openai", claude: "claude", antigravity: "gemini", agy: "gemini", deepseek: "deepseek", kimi: "kimi", omp: "omp" };
   brand = Object.hasOwn(engines, engine) ? engines[engine] : undefined;
   if (brand) return { brand, source: "engine" };
 }

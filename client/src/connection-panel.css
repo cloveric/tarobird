@@ -13,10 +13,28 @@
 .direct-route-entry label{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0}
 .direct-route-entry input{min-width:0;width:100%;box-sizing:border-box}
 @media(max-width:600px){.direct-route-groups{grid-template-columns:minmax(0,1fr);gap:0}}
-.local-relay-settings{margin-top:24px;padding-top:8px;border-top:1px solid var(--border);min-width:0}
-.local-relay-settings .saved-routes li>div{min-width:0}
-.local-relay-settings .saved-routes li>button{flex-shrink:0}
-.local-relay-settings .route-save-bar{justify-content:flex-end}
+.local-relay-settings,.local-cloudflare-settings{margin-top:24px;padding-top:8px;border-top:1px solid var(--border);min-width:0}
+.local-relay-settings .saved-routes li>div,.local-cloudflare-settings .saved-routes li>div{min-width:0}
+.local-relay-settings .saved-routes li>button,.local-cloudflare-settings .saved-routes li>button{flex-shrink:0}
+.local-relay-settings .route-save-bar,.local-cloudflare-settings .route-save-bar{justify-content:flex-end}
+.route-add-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.cf-status-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 14px}
+.cf-status-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;background:var(--surface);color:var(--muted);font-size:12px;font-weight:500}
+.cf-status-pill[data-ok]{color:var(--green,var(--text))}
+.cf-status-pill.is-running{background:color-mix(in srgb,var(--accent,var(--blue)) 14%,var(--bg));color:var(--accent,var(--text))}
+.cf-controls-grid{display:grid;gap:14px;margin:12px 0}
+.cf-mode-group{margin:0;padding:12px;border:1px solid var(--border);border-radius:10px;min-width:0}
+.cf-mode-group legend{padding:0 4px;font-size:12px;font-weight:600;color:var(--muted)}
+.cf-segmented{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.cf-segmented button{flex:1 1 140px;min-height:34px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:12.5px}
+.cf-segmented button[aria-pressed="true"]{border-color:var(--accent,var(--border-strong));background:color-mix(in srgb,var(--accent,var(--text)) 10%,var(--bg));font-weight:600}
+.cf-command-box{margin:12px 0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.cf-command-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.cf-command-box code{display:block;font-size:12px;line-height:1.5;word-break:break-all;color:var(--text)}
+.cf-quick-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0}
+.cf-active-url{font-size:12px;padding:4px 8px;border-radius:6px;background:var(--surface);word-break:break-all}
+.cf-origins-editor{margin:14px 0}
+.cf-expectation-note{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.6}
 .local-relay-share{display:grid;justify-items:center;gap:12px;margin:12px 0}
 .local-relay-share .pair-qr{width:min(240px,100%);height:auto}
 @media(max-width:760px),(hover:none) and (pointer:coarse){
@@ -29,5 +47,8 @@
 .host-route-status dd { margin: 0; color: var(--muted); }
 /* Screen control moved to its own settings page; this row leads there. */
 .connection-dialog .connection-screen-entry{margin:0 0 18px}
+.connection-checks{margin:12px 0 16px;padding:10px 12px;border-left:2px solid var(--accent);border-radius:0 var(--radius-sm) var(--radius-sm) 0;background:var(--surface);font-size:13px;line-height:1.6}
+.connection-checks strong{display:block;margin-bottom:6px;font-weight:600}
+.connection-checks ul{margin:0;padding-left:18px;color:var(--grey);display:grid;gap:4px}
 /* Its own page: the screen section starts the page instead of following routes. */
 .screen-control-dialog .settings-content>.screen-settings{margin-top:0;padding-top:0;border-top:0}

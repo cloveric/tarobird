@@ -16,6 +16,7 @@ import { renderCodexWebCitations } from "../../src/runtime/codex-web-citations.j
 import { SIDE_QUESTION_LIMIT } from "../../src/client-protocol/side.js";
 import { sideErrorText, type SideConversationController } from "./use-side-conversation.js";
 import { t, useLocale } from "./i18n.js";
+import { hasPendingBubbleTiming, hasPendingComposerTiming, markSendTimingComposerCleared, markSendTimingSideVisible } from "./send-timing.js";
 import "./side-conversation.css";
 
 export function SideConversation({ side, online, visible, appearance, mainRecording, recordingChanged, close, returnToComposer, insert, trigger }: { side: SideConversationController; online: boolean; visible: boolean; appearance: string; mainRecording: boolean; recordingChanged(busy: boolean): void; close(): void; returnToComposer(): void; insert(text: string): void; trigger: RefObject<HTMLButtonElement | null> }) {
@@ -58,6 +59,21 @@ export function SideConversation({ side, online, visible, appearance, mainRecord
   useEffect(() => { setLatest(false); setCopied(""); setCopyError(false); }, [side.view?.id]);
   useComposerSize(input, side.draft, side.scope, false, false, `${appearance}:${locale}`, visible);
   useLayoutEffect(() => { const node = log.current; if (!node) return; if (follow.current) node.scrollTop = node.scrollHeight; else if (busy) setLatest(true); }, [side.view?.revision, busy]);
+  useLayoutEffect(() => {
+    if (!hasPendingBubbleTiming(side.conversationId, "side") || !side.view?.exchanges.length) return;
+    const last = side.view.exchanges.at(-1);
+    const children = log.current?.children;
+    if (!last || !children) return;
+    for (let i = children.length - 1; i >= 0; i--) {
+      if ((children[i] as HTMLElement).dataset?.sideExchangeId === last.id) {
+        markSendTimingSideVisible(side.conversationId, last.question, last.id);
+        break;
+      }
+    }
+  }, [side.conversationId, side.view?.revision, side.view?.exchanges]);
+  useLayoutEffect(() => {
+    if (!side.draft && hasPendingComposerTiming(side.conversationId, "side")) markSendTimingComposerCleared(side.conversationId, "side");
+  }, [side.draft, side.conversationId]);
   const choose = (text: string) => { side.setDraft(text); focusInput(); };
   const send = () => { if (!oversize && !voice.busy) { follow.current = true; setLatest(false); void side.send(); } };
   const closePanel = () => { close(); requestAnimationFrame(() => { if (trigger.current?.isConnected) trigger.current.focus({ preventScroll: true }); else returnToComposer(); }); };
@@ -76,7 +92,7 @@ export function SideConversation({ side, online, visible, appearance, mainRecord
         // Keep the raw accumulated stream intact; deriving each display avoids
         // losing partial controls when the next delta arrives.
         const answer = renderCodexWebCitations(exchange.answer, locale, { streaming: exchange.status === "running" });
-        return <section className="side-exchange" key={exchange.id}>{exchange.question && <p className="side-question">{exchange.question}</p>}{!!exchange.attachments?.length && <div className="side-question-attachments">{exchange.attachments.map(attachment => attachment.type === "image" ? <AttachmentImage key={attachment.attachmentId} connection={side.connection} id={attachment.attachmentId} title={attachment.title}/> : <AttachmentFile key={attachment.attachmentId} connection={side.connection} block={attachment} list/>)}</div>}{!!exchange.partialAttachments?.length && <p className="side-usage-note">{t("部分附件内容较长，模型仅获得了部分文本。")}</p>}{exchange.answer && <MarkdownText text={answer} reply/>}{exchange.deliveries?.map(delivery => <div className="side-output-attachments" key={delivery.id} data-side-delivery={delivery.id}>{delivery.caption && <MarkdownText text={delivery.caption}/>}{delivery.attachments.map((attachment, index) => <Fragment key={`${attachment.attachmentId}:${index}`}>{attachment.caption && <MarkdownText text={attachment.caption}/>}{attachment.type === "image" ? <AttachmentImage connection={side.connection} id={attachment.attachmentId} title={attachment.title}/> : <AttachmentFile connection={side.connection} block={attachment} list/>}</Fragment>)}</div>)}<div className="side-answer-state">{exchange.status === "running" && <span className="side-thinking" role="status"><i/>{side.view?.phase === "stopping" ? t("正在停止…") : t("思考中…")}</span>}{exchange.status === "stopped" && <span>{t("已停止")}</span>}{exchange.error && exchange.status === "error" && <p role="alert">{sideErrorText(exchange.error)} <button disabled={busy || !!side.draft.trim() || !!side.files.length} onClick={() => { side.retry(exchange.id); focusInput(); }}>{t("重试")}</button></p>}{exchange.truncated && <span>{t("回答过长，已截断显示")}</span>}</div>{exchange.answer && <div className="side-answer-actions"><button onClick={() => { setCopyError(false); void Promise.resolve().then(() => writeClipboardText(answer)).then(() => setCopied(exchange.id)).catch(() => setCopyError(true)); }}><Copy size={13}/>{copied === exchange.id ? t("已复制") : t("复制")}</button><button onClick={() => insert(answer)}><TextQuote size={14}/>{t("插入主输入框")}</button></div>}</section>; })}
+        return <section className="side-exchange" data-side-exchange-id={exchange.id} key={exchange.id}>{exchange.question && <p className="side-question">{exchange.question}</p>}{!!exchange.attachments?.length && <div className="side-question-attachments">{exchange.attachments.map(attachment => attachment.type === "image" ? <AttachmentImage key={attachment.attachmentId} connection={side.connection} id={attachment.attachmentId} title={attachment.title}/> : <AttachmentFile key={attachment.attachmentId} connection={side.connection} block={attachment} list/>)}</div>}{!!exchange.partialAttachments?.length && <p className="side-usage-note">{t("部分附件内容较长，模型仅获得了部分文本。")}</p>}{exchange.answer && <MarkdownText text={answer} reply/>}{exchange.deliveries?.map(delivery => <div className="side-output-attachments" key={delivery.id} data-side-delivery={delivery.id}>{delivery.caption && <MarkdownText text={delivery.caption}/>}{delivery.attachments.map((attachment, index) => <Fragment key={`${attachment.attachmentId}:${index}`}>{attachment.caption && <MarkdownText text={attachment.caption}/>}{attachment.type === "image" ? <AttachmentImage connection={side.connection} id={attachment.attachmentId} title={attachment.title}/> : <AttachmentFile connection={side.connection} block={attachment} list/>}</Fragment>)}</div>)}<div className="side-answer-state">{exchange.status === "running" && <span className="side-thinking" role="status"><i/>{side.view?.phase === "stopping" ? t("正在停止…") : t("思考中…")}</span>}{exchange.status === "stopped" && <span>{t("已停止")}</span>}{exchange.error && exchange.status === "error" && <p role="alert">{sideErrorText(exchange.error)} <button disabled={busy || !!side.draft.trim() || !!side.files.length} onClick={() => { side.retry(exchange.id); focusInput(); }}>{t("重试")}</button></p>}{exchange.truncated && <span>{t("回答过长，已截断显示")}</span>}</div>{exchange.answer && <div className="side-answer-actions"><button onClick={() => { setCopyError(false); void Promise.resolve().then(() => writeClipboardText(answer)).then(() => setCopied(exchange.id)).catch(() => setCopyError(true)); }}><Copy size={13}/>{copied === exchange.id ? t("已复制") : t("复制")}</button><button onClick={() => insert(answer)}><TextQuote size={14}/>{t("插入主输入框")}</button></div>}</section>; })}
       {preparing && <p className="side-preparing" role="status"><span className="side-thinking"><i/>{t("正在准备上下文…")}</span></p>}
       {side.view?.error && <p className="side-inline-error" role="alert">{sideErrorText(side.view.error)}</p>}
       {side.error && <p className="side-inline-error" role="alert">{side.error}</p>}

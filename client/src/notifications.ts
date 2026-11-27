@@ -33,6 +33,10 @@ async function hostPushWorker(hostId: string): Promise<ServiceWorkerRegistration
   return worker;
 }
 
+export class SystemNotificationPermissionError extends Error {
+  readonly systemSettings = true;
+}
+
 /** `apnsTopics`: present only on Hubs that route APNs per declared App topic. */
 export type NotificationState = { customization?: boolean; preferences: NotificationPreferences; mutedConversations?: string[]; providers: Record<"apns" | "fcm" | "webpush" | "unifiedpush", boolean>; vapidPublicKey?: string; apnsTopics?: string[] };
 export async function updateNotificationPreferences(connection: HubConnection, preferences: NotificationPreferences): Promise<void> {
@@ -77,7 +81,14 @@ export async function enableNotifications(connection: HubConnection, state: Noti
     }
     const { PushNotifications } = await import("@capacitor/push-notifications");
     stillCurrent();
-    const permission = await PushNotifications.requestPermissions(); stillCurrent(); if (permission.receive !== "granted") throw new Error(t("通知权限未开启。"));
+    const permission = await PushNotifications.requestPermissions(); stillCurrent();
+    if (permission.receive !== "granted") throw new SystemNotificationPermissionError(t("通知权限未开启。"));
+    if (provider === "fcm") {
+      // On Android <= 12 (API < 33), Capacitor's PushNotifications.requestPermissions()
+      // always returns "granted" even when notifications are disabled in system settings.
+      const status = await UnifiedPush.notificationStatus?.().catch(() => undefined); stillCurrent();
+      if (status && status.appEnabled === false) throw new SystemNotificationPermissionError(t("系统通知已关闭。请在系统设置中允许 TaroBird 通知。"));
+    }
     const scope = provider === "fcm" ? pushScopeFor(connection) : undefined;
     const register = async () => {
       stillCurrent();
@@ -146,7 +157,15 @@ export function installPushActions(scope = new ListenerScope()): () => void {
       const data: unknown = action.notification.data;
       if (!data || typeof data !== "object" || Array.isArray(data)) return;
       const source = data as Record<string, unknown>;
-      emit(Object.fromEntries(Object.keys(pushPayloadSchema.shape).filter(key => Object.hasOwn(source, key)).map(key => [key, source[key]])));
+      emit(Object.fromEntries(Object.keys(pushPayloadSchema.shape).filter(key => Object.hasOwn(source, key)).map(key => {
+        const value = source[key];
+        // FCM data payloads serialize every value as a string; accept safe digit-only timestamps.
+        if (key === "at" && typeof value === "string" && /^\d+$/.test(value)) {
+          const numeric = Number(value);
+          if (Number.isSafeInteger(numeric)) return [key, numeric];
+        }
+        return [key, value];
+      })));
     }); return () => listener.remove();
   }, navigate);
   return scope.close;
@@ -210,7 +229,10 @@ export async function clearHostPush(host: RuntimeHost): Promise<void> {
   cancelDesktopSends(host.id);
   if (isDesktop()) { if (await desktopNotificationsSupported()) await clearDesktopNotifications(host.id); return; }
   if (Capacitor.isNativePlatform()) {
-    if (Capacitor.getPlatform() === "android") await clearUnifiedPush(pushScopeForHost(host));
+    if (Capacitor.getPlatform() === "android") {
+      await clearUnifiedPush(pushScopeForHost(host));
+      await UnifiedPush.clearHostNotifications?.({ hostId: host.id }).catch(() => undefined);
+    }
     return;
   }
   if (isDesktop() || !("serviceWorker" in navigator)) return;

@@ -1,12 +1,12 @@
 {
-  "sourceRevision": "a0411ba26bfac96a5372e1022d838447eaa584af",
+  "sourceRevision": "3274532246c238bce5b4bd975c2f03c7d0ce5001",
   "sourceDirty": true,
   "clientEntry": {
-    "file": "assets/index-BYzlevgr.js",
-    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
-    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+    "file": "assets/index-CzfczZFW.js",
+    "sha256": "e01952153c19d323de8c3dc61d036663f4196a732f6fa0a517426d236806ffc0",
+    "indexSha256": "b6a93bf11b6ecc31c3867e4a153c4f82a4f3083f721caf9f514e1c289f26c3d6"
   },
-  "captured": "2026-11-04T10:54:43.655Z",
+  "captured": "2026-11-26T22:57:47.016Z",
   "source": "Real built App, disposable loopback Hubs, fictional projects and ticket states; no model execution",
   "images": [
     {
@@ -61,7 +61,7 @@
         "width": 1440,
         "height": 900
       },
-      "sha256": "fc3d61b00f38e5a3ada510d2afcc256e79a89c2e4934be88af5eb7a4d01df10f"
+      "sha256": "b83c19274197204cc44bfaad767e18b5dc1083efc4fd5a0269d76a1dcb065883"
     },
     {
       "file": "workbench-whiteboard-en.png",
@@ -70,7 +70,7 @@
         "width": 1440,
         "height": 900
       },
-      "sha256": "73ac1e23ea07da055323871ed61ff9f27df578283062b7401d2623c8e777ca4d"
+      "sha256": "e05a7a6743e6e0effb68c2a1c264bc93a62f5896ccc2e628975a40240ce97766"
     },
     {
       "file": "workbench-notes-en.png",
@@ -79,7 +79,7 @@
         "width": 1440,
         "height": 900
       },
-      "sha256": "0236aa134dfa7dd2358fdd165fc71e9aef0cd620c7f00c06ad4c2030c3f8abf3"
+      "sha256": "1d9828e0856edcb78a4dd6fef9aea1bcb7091f410fb4ff3b894a38d1c675c425"
     },
     {
       "file": "workbench-side-en.png",
@@ -88,7 +88,7 @@
         "width": 1440,
         "height": 900
       },
-      "sha256": "3e7e932467689dbd507bd37529ec6bdcc45304e222a085179b66051ff608d253"
+      "sha256": "3e56aed5b199555f49bdf54748365fd3dd326ce28ff030446170c983b391570b"
     },
     {
       "file": "chancellor-en.png",
@@ -97,7 +97,7 @@
         "width": 1440,
         "height": 760
       },
-      "sha256": "5270a5c835fbf9a3ef3f6f7fc1b8d292f624b13d096e8ddf3d54cb62286dcc8a"
+      "sha256": "e5c17366325fc8b4656010a9abca1840b3b7c511b6866038b5bf3ffe910a353e"
     }
   ],
   "animations": [
@@ -147,10 +147,10 @@
     },
     {
       "file": "canvas-demo-en.gif",
-      "frames": 31,
-      "duration": 6.233,
-      "bytes": 131759,
-      "sha256": "b7631ad737b0c94115a01aab97dec0ad89cf8cbe48fffb99e894d1b089fc10b9",
+      "frames": 13,
+      "duration": 6.617,
+      "bytes": 141276,
+      "sha256": "2516abd47fe4333cbf99e4c3617b30c8873dbac3a1d9621579cf95daf7b7f74d",
       "locale": "en",
       "actions": [
         "Canvas launch page",
@@ -160,10 +160,10 @@
     },
     {
       "file": "workbench-tools-demo-en.gif",
-      "frames": 34,
-      "duration": 6.566,
-      "bytes": 213635,
-      "sha256": "c8ecfeb4c2371cf3d558ff650247cf4c43bfe5417f92209a06152beaa68ddae2",
+      "frames": 16,
+      "duration": 7.756,
+      "bytes": 218606,
+      "sha256": "fe039ce1f070cabafefd51698ca107867ab532ed081238392aaefcaf11321144",
       "locale": "en",
       "actions": [
         "Side panel",
@@ -174,10 +174,10 @@
     },
     {
       "file": "chancellor-demo-en.gif",
-      "frames": 20,
-      "duration": 3.925,
-      "bytes": 138589,
-      "sha256": "ab3ab1dba2fe1051bbcfd13cd153a0d750ebfd69d6c7d28a5149aa8c46af8efb",
+      "frames": 7,
+      "duration": 4.077,
+      "bytes": 135440,
+      "sha256": "140a51911faafde35f508c25d5c075dfe4c9767643e4661d6e080ebccc395ab9",
       "locale": "en",
       "viewport": {
         "width": 1440,

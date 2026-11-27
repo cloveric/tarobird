@@ -73,7 +73,7 @@ Further Pi command fixes preserve explicit confirmation for model-scope
 selection, skip malformed custom-provider identities without losing the valid
 catalog, avoid splitting Unicode names, and share tree-index/depth computation
 across a history listing. Pi `/goal` returns a clear unsupported-mode explanation
-without starting a failed run card. These do not add a Pi goal or Chancellor mode.
+without starting a failed run card. These do not add a Pi goal or Superagent mode.
 
 The production-minified chart regression fixture also omitted the real App
 entry and failed the required editor asset transform check. Its build now

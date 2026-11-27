@@ -1,10 +1,14 @@
 import { expect, it } from "vitest";
 import type { Message } from "../src/client-protocol/index.js";
-import { affectedBackgroundTasks, stopScopeUnverified, turnStopImpact } from "../client/src/turn-stop.js";
+import { affectedBackgroundTasks, engineForegroundStopAffectsBackground, stopScopeUnverified, turnStopImpact } from "../client/src/turn-stop.js";
 
-const bots = [{ id: "claude", engine: "claude" as const }, { id: "codex", engine: "codex" as const }];
+const bots = [
+  { id: "claude", engine: "claude" as const },
+  { id: "deepseek", engine: "deepseek" as const },
+  { id: "codex", engine: "codex" as const },
+];
 function message(id: string, bot: string, scoped = false, phase = "working", waiting = false): Message {
-  return { id, conversationId: "chat", authorType: "bot", authorId: bot, status: "streaming", createdAt: 1, blocks: [{ type: "card", elements: [], extra: { [scoped ? "scopedRun" : "nativeRun"]: { version: 1, id, revision: 1, phase, startedAt: 1, updatedAt: 1, count: 0, completed: 0, failed: 0, truncated: false, ...(waiting ? { current: { seq: 1, revision: 1, at: 1, name: "background_review_wait", kind: "text", status: "waiting" } } : {}) } } }] } as Message;
+  return { id, conversationId: "chat", authorType: "bot", authorId: bot, status: "streaming", createdAt: 1, blocks: [{ type: "card", elements: [], extra: { [scoped ? "scopedRun" : "nativeRun"]: { version: 1, id, revision: 1, phase, startedAt: 1, updatedAt: 1, count: 0, completed: 0, failed: 0, truncated: false, ...(waiting ? { current: { seq: 1, revision: 1, at: 1, name: "background_review_wait", kind: "text", status: "waiting" } } : {}) } } }] } as unknown as Message;
 }
 it("does not mistake a streaming background scope for an active foreground reply", () => {
   expect(turnStopImpact([message("background", "claude", true)], bots, "chat")).toEqual({ risk: false, identity: "[]" });
@@ -28,6 +32,14 @@ it("ends consent when the foreground changes, not when background reports update
 });
 
 const busRecord = (): Message => ({ id: "bus_record", conversationId: "chat", authorType: "bot", authorId: "claude", status: "streaming", version: 1, createdAt: 1, blocks: [{ type: "card", elements: [], extra: { agentBusStage: { runId: "run_one", workspaceId: "bus_one", stageId: "s1", status: "running" } } }] });
+
+const transcriptionCard = (): Message => ({
+  id: "transcribe", conversationId: "chat", authorType: "bot", authorId: "claude", status: "streaming", version: 1, createdAt: 1,
+  blocks: [{ type: "card", elements: [{ type: "markdown", text: "**正在转写音频…**" }], extra: { appTranscription: { version: 1, active: true } } }],
+});
+it("does not mistake an active transcription card for a foreground Claude run with background task risk", () => {
+  expect(turnStopImpact([transcriptionCard(), message("background", "claude", true)], bots, "chat")).toEqual({ risk: false, identity: "[]" });
+});
 it("does not target an independent Bus record or let its updates change foreground consent", () => {
   const record = busRecord();
   expect(turnStopImpact([record], bots, "chat")).toEqual({ risk: false, identity: "[]" });
@@ -63,4 +75,18 @@ it("leaves a stop unverified unless the worker lists its tasks and declares its 
   expect(stopScopeUnverified({ supported: true, tasks: [] })).toBe(true);
   // An empty list is still verified once the scope is declared.
   for (const foregroundStopScope of ["foreground", "subagents", "all"] as const) expect(stopScopeUnverified({ supported: true, tasks: [], foregroundStopScope })).toBe(false);
+});
+
+it("triggers stop-impact confirmation for DeepSeek bots with active background subagents", () => {
+  expect(engineForegroundStopAffectsBackground("claude")).toBe(true);
+  expect(engineForegroundStopAffectsBackground("deepseek")).toBe(true);
+  expect(engineForegroundStopAffectsBackground("codex")).toBe(false);
+  expect(engineForegroundStopAffectsBackground(undefined)).toBe(false);
+
+  const rows = [message("ds-front", "deepseek"), message("ds-sub", "deepseek", true), message("other", "codex")];
+  expect(turnStopImpact(rows, bots, "chat").risk).toBe(true);
+  expect(turnStopImpact(rows, bots, "chat", "deepseek").risk).toBe(true);
+  expect(turnStopImpact(rows, bots, "chat", "codex").risk).toBe(false);
+  expect(turnStopImpact([message("ds-wait", "deepseek", false, "working", true)], bots, "chat").risk).toBe(true);
+  expect(turnStopImpact([message("ds-front", "deepseek"), message("ds-sub-done", "deepseek", true, "done")], bots, "chat").risk).toBe(false);
 });

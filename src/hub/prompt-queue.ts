@@ -15,11 +15,14 @@ export const supportsPromptQueueEngine = (engine: string): boolean => (PROMPT_QU
  * write transaction, so a started/uncertain delivery can never become editable. */
 export class HubPromptQueue {
   constructor(private readonly store: HubStore) {}
-  async registerWorker(botId: string, supported: boolean, active: () => boolean = () => true, status?: { engine: string; model: string; effort: string }): Promise<boolean> {
+  async registerWorker(botId: string, supported: boolean, active: () => boolean = () => true, status?: { engine: string; model: string; effort: string; workspacePath?: string }): Promise<boolean> {
     return this.store.db.transaction(async () => {
       if (!active()) return false;
       if (status) {
-        const update = await this.store.db.run("UPDATE bots SET engine=?,model=?,effort=?,online=1 WHERE id=? AND deleted_at IS NULL", [status.engine, status.model, status.effort, botId]);
+        const workspacePath = status.workspacePath?.trim();
+        const update = workspacePath
+          ? await this.store.db.run("UPDATE bots SET engine=?,model=?,effort=?,online=1,workspace_path=? WHERE id=? AND deleted_at IS NULL", [status.engine, status.model, status.effort, workspacePath, botId])
+          : await this.store.db.run("UPDATE bots SET engine=?,model=?,effort=?,online=1 WHERE id=? AND deleted_at IS NULL", [status.engine, status.model, status.effort, botId]);
         if (!update.changes) throw new HubError("bot_deleted", 410);
       }
       await this.store.db.run("INSERT INTO prompt_queue_workers VALUES(?,?) ON CONFLICT(bot_id) DO UPDATE SET supported=excluded.supported", [botId, Number(supported)]);
@@ -202,9 +205,14 @@ export class HubPromptQueue {
         // A reconnect must not replay a ticket the owner already stopped.
         // Resolve the one ticket through this conversation's indexed ID; never
         // scan all ticket history on the shared dispatch queue.
-        const stoppedTicket = replay && row.dispatched && await this.store.db.get(`SELECT 1 FROM conversations c JOIN dispatch_tickets t ON t.id=json_extract(c.ticket_json,'$.id')
-          WHERE c.id=? AND json_extract(t.attempts_json,'$[#-1].inputMessageId')=? AND json_extract(t.attempts_json,'$[#-1].botId')=?
-          AND json_extract(t.attempts_json,'$[#-1].stopRequested') IN ('pause','cancel')`, [row.conversation_id, row.message_id, botId]);
+        const stoppedTicket = replay && row.dispatched && (
+          await this.store.db.get(`SELECT 1 FROM conversations c JOIN dispatch_tickets t ON t.id=json_extract(c.ticket_json,'$.id')
+            WHERE c.id=? AND json_extract(t.attempts_json,'$[#-1].inputMessageId')=? AND json_extract(t.attempts_json,'$[#-1].botId')=?
+            AND json_extract(t.attempts_json,'$[#-1].stopRequested') IN ('pause','cancel')`, [row.conversation_id, row.message_id, botId])
+          || await this.store.db.get(`SELECT 1 FROM remote_dispatch_tickets r
+            WHERE r.conversation_id=? AND r.input_message_id=? AND r.bot_id=?
+            AND (r.stop_requested IN ('pause','cancel') OR r.status='cancelled')`, [row.conversation_id, row.message_id, botId])
+        );
         if (stoppedTicket) {
           // Withhold replay, but do not manufacture a terminal receipt: the
           // same process may merely have reconnected while its old turn lives.

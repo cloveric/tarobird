@@ -99,6 +99,24 @@ fn update_info(app: tauri::AppHandle) -> serde_json::Value {
 }
 #[tauri::command]
 fn restart_client(app: tauri::AppHandle) { app.restart(); }
+/// Fixed system destination only; no caller-supplied URL or argument.
+#[tauri::command]
+async fn desktop_network_settings(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" { return Err("network_settings_window_denied".into()); }
+    tauri::async_runtime::spawn_blocking(move || open_windows_network_settings(&window)).await.map_err(|_| "network_settings_unavailable")?
+}
+fn open_windows_network_settings(window: &tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        window.opener().open_url("ms-settings:network-status", None::<&str>).map_err(|_| "network_settings_unavailable".into())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+        Err("network_settings_unavailable".into())
+    }
+}
 fn main() {
     #[cfg(target_os = "windows")]
     if let Some(code) = fresh_install::installer_command() { std::process::exit(code); }
@@ -169,7 +187,7 @@ fn main() {
             notifications::desktop_notifications_supported, notifications::desktop_notification_permission,
             notifications::desktop_notification_context,
             notifications::desktop_notification_show, notifications::desktop_notification_peek,
-            notifications::desktop_notification_ack, notifications::desktop_notification_clear, notifications::desktop_notification_settings,
+            notifications::desktop_notification_ack, notifications::desktop_notification_clear, notifications::desktop_notification_settings, desktop_network_settings,
             transport::net_document, transport::net_allocate, transport::net_cancel, transport::net_http_open, transport::net_http_read,
             transport::net_socket_open, transport::net_socket_send, transport::net_socket_ack, transport::net_socket_close])
         .setup(|app| {

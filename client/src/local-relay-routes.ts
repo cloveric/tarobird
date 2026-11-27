@@ -2,7 +2,7 @@ import { sharedRoutesSchema, networkCanonical, type NetworkView } from "../../sr
 import { routeUrlSchema, type Route } from "../../src/client-protocol/routes.js";
 import { t } from "./i18n.js";
 
-/** This edits the host's advertised routes, never the desktop's loopback route. */
+/** This edits the host's advertised VPS routes, preserving Direct and Tailscale routes. */
 export function localRelayRoutes(existing: Route[], relays: Route[]): Route[] {
   const normalized = relays.map(route => {
     const parsed = routeUrlSchema.safeParse(route.url.trim());

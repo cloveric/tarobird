@@ -48,6 +48,15 @@ function useAddons() {
     return state;
 }
 
+function CanvasAcknowledgements() {
+    const [expanded, setExpanded] = useState(false);
+    const template = document.querySelector<HTMLTemplateElement>("template#tarobird-canvas-acknowledgements");
+    return <details className="rounded-md border p-3" onToggle={event => setExpanded(event.currentTarget.open)}>
+        <summary className="cursor-pointer">开源许可 · Open-source licenses · オープンソースライセンス</summary>
+        {expanded && <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs">{template?.content.textContent}</pre>}
+    </details>;
+}
+
 export function ConfigPlugins() {
     const state = useAddons();
     const [url, setUrl] = useState("");
@@ -106,6 +115,7 @@ export function ConfigPlugins() {
                 <Button type="button" variant="ghost" className="justify-self-start" disabled={state.busy} onClick={() => setConfirmation({ kind: "remove", id: plugin.id, title: plugin.title })}>卸载</Button>
             </li>)}
         </ul>}
+        <CanvasAcknowledgements />
     </section>;
 }
 

@@ -8,16 +8,29 @@ final class ShareViewController: UIViewController {
     private let save = UIButton(type: .system)
     private let cancel = UIButton(type: .system)
     private var task: Task<Void, Never>?
-    private var chinese: Bool { Locale.preferredLanguages.first?.hasPrefix("zh") == true }
+    private enum AppLocale { case zh, ja, en }
+    private var appLocale: AppLocale {
+        let code = Locale.preferredLanguages.first?.lowercased() ?? ""
+        if code.hasPrefix("zh") { return .zh }
+        if code.hasPrefix("ja") { return .ja }
+        return .en
+    }
+    private func localized(zh: String, en: String, ja: String) -> String {
+        switch appLocale {
+        case .zh: return zh
+        case .ja: return ja
+        case .en: return en
+        }
+    }
     override func viewDidLoad() {
         super.viewDidLoad(); view.backgroundColor = .systemBackground
         let title = UILabel(); title.text = "TaroBird"; title.font = .preferredFont(forTextStyle: .title2)
-        status.text = chinese ? "保存后打开 TaroBird，选择会话并确认发送。" : "Save, then open TaroBird to choose a conversation and send."
+        status.text = localized(zh: "保存后打开 TaroBird，选择会话并确认发送。", en: "Save, then open TaroBird to choose a conversation and send.", ja: "保存後、TaroBird を開いて会話を選択し送信してください。")
         status.numberOfLines = 0; status.font = .preferredFont(forTextStyle: .body)
         textView.font = .preferredFont(forTextStyle: .body); textView.backgroundColor = .secondarySystemBackground
-        textView.accessibilityLabel = chinese ? "附加说明" : "Add a note"
-        save.setTitle(chinese ? "保存分享" : "Save share", for: .normal); save.addTarget(self, action: #selector(storeShare), for: .touchUpInside)
-        cancel.setTitle(chinese ? "取消" : "Cancel", for: .normal); cancel.addTarget(self, action: #selector(cancelShare), for: .touchUpInside)
+        textView.accessibilityLabel = localized(zh: "附加说明", en: "Add a note", ja: "メモを追加")
+        save.setTitle(localized(zh: "保存分享", en: "Save share", ja: "共有を保存"), for: .normal); save.addTarget(self, action: #selector(storeShare), for: .touchUpInside)
+        cancel.setTitle(localized(zh: "取消", en: "Cancel", ja: "キャンセル"), for: .normal); cancel.addTarget(self, action: #selector(cancelShare), for: .touchUpInside)
         let stack = UIStackView(arrangedSubviews: [title, status, textView, save, cancel]); stack.axis = .vertical; stack.spacing = 18; stack.translatesAutoresizingMaskIntoConstraints = false
         // Sharing remains reachable in a short split window and while editing
         // the note. The current scene's guides follow folds and keyboard moves.
@@ -72,8 +85,8 @@ final class ShareViewController: UIViewController {
                 let text = texts.joined(separator: "\n\n")
                 guard text.utf8.count <= 200 * 1024, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { throw inbox.failure("share_empty_or_too_large") }
                 try inbox.write(draftID, ["id": draftID, "createdAt": Date().timeIntervalSince1970 * 1000, "text": text, "files": files])
-                status.text = chinese ? "已保存。打开 TaroBird 完成发送。" : "Saved. Open TaroBird to finish sending."
-                save.setTitle(chinese ? "完成" : "Done", for: .normal); save.removeTarget(self, action: #selector(storeShare), for: .touchUpInside); save.addTarget(self, action: #selector(finish), for: .touchUpInside); save.isEnabled = true
+                status.text = localized(zh: "已保存。打开 TaroBird 完成发送。", en: "Saved. Open TaroBird to finish sending.", ja: "保存しました。TaroBird を開いて送信を完了してください。")
+                save.setTitle(localized(zh: "完成", en: "Done", ja: "完了"), for: .normal); save.removeTarget(self, action: #selector(storeShare), for: .touchUpInside); save.addTarget(self, action: #selector(finish), for: .touchUpInside); save.isEnabled = true
             } catch {
                 if let store, let id { try? store.remove(id) }
                 status.text = error.localizedDescription; save.isEnabled = true; cancel.isEnabled = true; textView.isEditable = true; task = nil

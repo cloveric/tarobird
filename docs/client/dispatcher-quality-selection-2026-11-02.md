@@ -1,10 +1,10 @@
-# Chancellor selection: quality needs, owner-reported outcomes and restrictions
+# Superagent selection: quality needs, owner-reported outcomes and restrictions
 
 ## Why
 
 The owner observed that, for our explainer-video work, Claude Opus produced
 creative deliverables (narration script, storyboard, visual direction) that met
-the owner's bar better than GPT. The owner also prefers a permissive Chancellor
+the owner's bar better than GPT. The owner also prefers a permissive Superagent
 that judges each task, rather than a provider-to-topic table. This change keeps
 selection with the coordinator and makes two generic gaps explicit:
 
@@ -17,7 +17,7 @@ selection with the coordinator and makes two generic gaps explicit:
 It also separates two kinds of unavailability. A preferred but unavailable
 target may be replaced by another suitable installed, allowed and healthy
 target under the usual ask/auto rules. If the owner limited the request to one
-target, the Chancellor reports that it is unavailable instead of substituting.
+target, the Superagent reports that it is unavailable instead of substituting.
 
 ## Change
 
@@ -150,7 +150,7 @@ What this does and does not show:
   restriction; it still validates authorization, installation, allowlist,
   health and parameter compatibility only.
 - The initial Opus review found that the Hub's own 【需要改派】 notice text
-  (`src/hub/dispatch.ts`) still asked the Chancellor to switch CLI. The release
+  (`src/hub/dispatch.ts`) still asked the Superagent to switch CLI. The release
   follow-up below fixes that notice under the same confirmation, cost and owner
   restriction rules; its earlier live selection samples do not cover a real
   post-failure model turn.

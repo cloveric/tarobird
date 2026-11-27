@@ -74,6 +74,13 @@ export class SessionManager {
     return existing.record ? { sessionId: existing.record.codexSessionId } : null;
   }
 
+  async isSessionShared(conversationKey: string, sessionId: string): Promise<boolean> {
+    const snapshot = await this.sessionStore.inspect();
+    if (snapshot.warning) throw new SessionStateError(NON_REPAIRABLE_SESSION_STATE_ERROR, false);
+    return snapshot.state.chats.some(record => record.codexSessionId === sessionId
+      && (record.conversationKey ?? getConversationKey(record.telegramChatId, record.telegramThreadId)) !== conversationKey);
+  }
+
   async bindSession(scope: number | { chatId: number; messageThreadId?: number; conversationKey?: string }, sessionId: string): Promise<void> {
     const chatId = typeof scope === "number" ? scope : scope.chatId;
     const messageThreadId = typeof scope === "number" ? undefined : scope.messageThreadId;

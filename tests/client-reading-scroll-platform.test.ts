@@ -70,6 +70,67 @@ it("leaves iOS logical-origin compensation independent of native offset lag", ()
   expect(createReadingScroll(() => null).canAdjust(0, 2435, 158)).toBe(true);
 });
 
+it("repositions user rows and background task groups via data-row-key during iOS deferred compensation", () => {
+  vi.stubGlobal("navigator", {
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    platform: "iPhone",
+    maxTouchPoints: 5,
+  });
+  vi.stubGlobal("window", {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    setTimeout: vi.fn(() => 1),
+    clearTimeout: vi.fn(),
+    requestAnimationFrame: vi.fn(() => 1),
+    cancelAnimationFrame: vi.fn(),
+  });
+  vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+  const makeRow = (dataset: { messageId: string; rowKey?: string }, initialTop: number) =>
+    ({ dataset, style: { transform: `translateY(${initialTop}px)` } }) as unknown as HTMLElement;
+
+  const bgKey = JSON.stringify(["conv_1", "bot_1", "", "group_1"]);
+  const userRow = makeRow({ messageId: "msg_user", rowKey: "user:owner:client_1" }, 100);
+  const bgRow = makeRow({ messageId: "msg_bg", rowKey: bgKey }, 180);
+  const botRow = makeRow({ messageId: "msg_bot", rowKey: "msg_bot" }, 260);
+  const legacyRow = makeRow({ messageId: "msg_legacy" }, 340);
+  const history = {
+    children: [userRow, bgRow, botRow, legacyRow],
+    style: { transform: "", height: "" },
+  } as unknown as HTMLDivElement;
+
+  const scroller = Object.assign(new EventTarget(), {
+    scrollTop: 500,
+    scrollHeight: 2000,
+    clientHeight: 600,
+  }) as unknown as HTMLDivElement;
+
+  const fakeList = {
+    scrollElement: scroller,
+    getVirtualItems: () => [
+      { key: "user:owner:client_1", start: 300 },
+      { key: bgKey, start: 380 },
+      { key: "msg_bot", start: 460 },
+      { key: "msg_legacy", start: 540 },
+    ],
+    getTotalSize: () => 2200,
+  } as unknown as Parameters<ReturnType<typeof createReadingScroll>["changed"]>[0];
+
+  const reading = createReadingScroll(() => history);
+  expect(reading.ios).toBe(true);
+  reading.changed(fakeList);
+  expect(reading.defer(200)).toBe(true);
+  reading.changed(fakeList);
+
+  expect(history.style.transform).toBe("translateY(-200px)");
+  expect(history.style.height).toBe("2000px");
+  expect(userRow.style.transform).toBe("translateY(300px)");
+  expect(bgRow.style.transform).toBe("translateY(380px)");
+  expect(botRow.style.transform).toBe("translateY(460px)");
+  expect(legacyRow.style.transform).toBe("translateY(540px)");
+});
+
 it("keeps native iPhone, iPad, and iPad desktop WebKit on the inertia path", () => {
   for (const userAgent of [
     "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",

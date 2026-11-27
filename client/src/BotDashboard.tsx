@@ -4,7 +4,7 @@ import { botDashboardSchema, type BotDashboard as Dashboard, type DashboardUsage
 import type { HubConnection } from "./connection.js";
 import { HubHttpError } from "./http-error.js";
 import { DashboardCronList } from "./DashboardCronList.js";
-import { t, useLocale } from "./i18n.js";
+import { localeIntlTag, t, useLocale } from "./i18n.js";
 
 function UsageMetrics({ value }: { value: DashboardUsageBucket | undefined }) {
   if (!value) return <p className="dashboard-empty">{t("此期间没有用量记录，消耗未知。")}</p>;
@@ -32,7 +32,7 @@ export function BotDashboard({ connection, botId, name, back, records }: { conne
     return (value: string | null, timezone?: string | null) => {
       if (!value) return t("未知");
       const key = timezone ?? "";
-      if (!formats.has(key)) formats.set(key, new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", {
+      if (!formats.has(key)) formats.set(key, new Intl.DateTimeFormat(localeIntlTag(locale), {
         year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", ...(timezone ? { timeZone: timezone } : {}),
       }));
       return formats.get(key)!.format(new Date(value));

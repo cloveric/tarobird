@@ -1,3 +1,4 @@
+import { addGlobalListener } from "./global-event-hub.js";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronRight, Inbox } from "lucide-react";
 import { useBackAction } from "./back-navigation.js";
@@ -105,8 +106,8 @@ export function useShareInbox({ connection, conversations, active = true, enable
       else if (event.shiftKey && focused === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && focused === last) { event.preventDefault(); first?.focus(); }
     };
-    document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("keydown", key); if (node?.contains(document.activeElement) || document.activeElement === document.body) trigger.current?.focus({ preventScroll: true }); };
+    const offKey = addGlobalListener(document, "keydown", key);
+    return () => { offKey(); if (node?.contains(document.activeElement) || document.activeElement === document.body) trigger.current?.focus({ preventScroll: true }); };
   }, [visible]);
   useEffect(() => { if (!active) setOpen(false); }, [active]);
   // Nothing left to review: a later share must not reopen a stale dialog.
@@ -142,8 +143,9 @@ export function useShareInbox({ connection, conversations, active = true, enable
     void refresh(); const focus = () => { void refresh(); };
     // iOS extensions write to the shared container while the main app is suspended.
     const interval = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 2500);
-    window.addEventListener("focus", focus); document.addEventListener("visibilitychange", focus);
-    return () => { clearInterval(interval); window.removeEventListener("focus", focus); document.removeEventListener("visibilitychange", focus); };
+    const stopFocus = addGlobalListener(window, "focus", focus);
+    const stopVisibility = addGlobalListener(document, "visibilitychange", focus);
+    return () => { clearInterval(interval); stopFocus(); stopVisibility(); };
   }, [connection, native, active]);
   // A read failure with nothing pending offers no action (the Share extension
   // reports its own storage failure while sharing): show no "(0)" entry. With

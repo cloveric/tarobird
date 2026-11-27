@@ -1,5 +1,6 @@
 import { CAPTURE_ORIGIN } from './screen-capture-contract.mjs';
 import { captureAsset } from './screen-capture-host.mjs';
+import { resolveElectronLocale } from './locale.mjs';
 
 const WIDTH = 330, HEIGHT = 26;
 /** Persistent "being shared" badge on every display that is being viewed or
@@ -24,7 +25,7 @@ export class ScreenIndicator {
     for (const item of items) { const list = byDisplay.get(item.nativeId) ?? []; list.push(item); byDisplay.set(item.nativeId, list); }
     for (const [id, window] of this.#windows) if (!byDisplay.has(id)) { if (!window.isDestroyed()) window.destroy(); this.#windows.delete(id); this.#since.delete(id); }
     const displays = this.electron.screen.getAllDisplays();
-    const english = this.electron.app.getLocale().startsWith('en');
+    const loc = resolveElectronLocale({ app: this.electron.app });
     for (const [id, list] of byDisplay) {
       const display = displays.find(d => String(d.id) === id);
       if (!display) continue;
@@ -43,7 +44,7 @@ export class ScreenIndicator {
         window.once('ready-to-show', () => { if (!window.isDestroyed()) window.showInactive(); });
         this.#windows.set(id, window);
       } else window.setBounds({ x, y, width: WIDTH, height: HEIGHT });
-      const hash = new URLSearchParams({ lang: english ? 'en' : 'zh', since: String(this.#since.get(id)),
+      const hash = new URLSearchParams({ lang: loc, since: String(this.#since.get(id)),
         names: list.map(item => String(item.deviceName || '').slice(0, 64)).join('\n'), control: list.some(item => item.controlling) ? '1' : '0' });
       void window.loadURL(`${CAPTURE_ORIGIN}/indicator.html#${hash}`).catch(() => {});
     }

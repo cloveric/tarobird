@@ -3,7 +3,8 @@ import { summarizeRun, type RunRecord } from "./run-record.js";
 import type { EngineStreamEvent, EngineApprovalScopes } from "../codex/adapter.js";
 import { approvalScope, approvalScopeLabel } from "./approval-scopes.js";
 import { renderCodexFileCitations } from "../runtime/codex-file-citations.js";
-import type { Locale } from "../runtime/locale.js";
+import { isChineseLocale, type Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import { stripDeliveryTags, stripInvalidDeliveryPseudoTags } from "./shared/delivery-tags.js";
 import { stripCronAddTags } from "./shared/cron-tags.js";
 import {
@@ -74,6 +75,7 @@ export interface CoreApprovalCardInput {
   requestId: string;
   toolName: string;
   toolInput?: unknown;
+  workerName?: string;
   approvalScopes?: EngineApprovalScopes;
   replyInThread?: boolean;
   locale?: Locale;
@@ -388,9 +390,7 @@ export function renderCoreRunCard(state: CoreRunState, locale: Locale = "zh"): R
   // not just a normal reply. Persists across running → done/interrupted.
   if (state.goalObjective && state.goalObjective.trim()) {
     elements.push(markdownElement(
-      locale === "en"
-        ? `🎯 **Goal:** ${truncate(state.goalObjective.trim(), 120)}`
-        : `🎯 **目标:** ${truncate(state.goalObjective.trim(), 120)}`,
+      hostT(locale, "🎯 **目标:** {0}", truncate(state.goalObjective.trim(), 120)),
       "run_goal_banner",
     ));
   }
@@ -398,9 +398,7 @@ export function renderCoreRunCard(state: CoreRunState, locale: Locale = "zh"): R
   if (state.status === "done" && state.nativeRun) {
     const started = new Set(state.nativeRun.entries.filter(e => e.name === "background_task_started").map(e => e.callId));
     for (const entry of state.nativeRun.entries) if (entry.name === "background_task_finished") started.delete(entry.callId);
-    if (started.size) elements.push(markdownElement(locale === "en"
-      ? `When this reply ended, ${started.size} background task(s) had no terminal receipt. Follow-up reports appear separately.`
-      : `本轮回复结束时，仍有 ${started.size} 个后台任务未收到结束回执。后续回报将单独显示。`, "run_background_note"));
+    if (started.size) elements.push(markdownElement(hostT(locale, "本轮回复结束时，仍有 {0} 个后台任务未收到结束回执。后续回报将单独显示。", started.size), "run_background_note"));
   }
 
   if (state.status === "running") {
@@ -786,9 +784,7 @@ export function rollingTailContent(cleaned: string, locale: Locale = "zh"): stri
   if (((tail.match(/```/g) ?? []).length) % 2 === 1) {
     tail = tail + "\n```";
   }
-  const notice = locale === "en"
-    ? `_… live preview shows the latest output only (${start} earlier chars omitted) …_`
-    : `_…实时预览仅显示最新输出（前 ${start} 字已省略）…_`;
+  const notice = hostT(locale, "_…实时预览仅显示最新输出（前 {0} 字已省略）…_", start);
   return truncateBytes(truncate(`${notice}\n\n${tail}`, CORE_CARD_ANSWER_MAX), ELEMENT_CONTENT_MAX_BYTES);
 }
 
@@ -1103,9 +1099,9 @@ function condensedProcessPanel(
   if (channelProfile() === "gateway" && state.nativeRun && body.length > PROCESS_PANEL_MAX) {
     // Native details retain the complete bounded journal. Quoted/older cards
     // must not imply that a silent prefix truncation is the whole process.
-    const notice = (shown: number) => locale === "en"
-      ? `Recent process excerpt (${shown}/${parts.length} items); more retained steps are in the original message’s run details.${state.nativeRun!.truncated ? " This run reached the capture limit." : ""}`
-      : `最近的过程摘要（${shown}/${parts.length} 项）；其余已保留记录请在原消息的“运行过程”中查看。${state.nativeRun!.truncated ? "本次过程记录已达采集上限。" : ""}`;
+    const notice = (shown: number) => state.nativeRun!.truncated
+      ? hostT(locale, "最近的过程摘要（{0}/{1} 项）；其余已保留记录请在原消息的“运行过程”中查看。本次过程记录已达采集上限。", shown, parts.length)
+      : hostT(locale, "最近的过程摘要（{0}/{1} 项）；其余已保留记录请在原消息的“运行过程”中查看。", shown, parts.length);
     const budget = PROCESS_PANEL_MAX - notice(parts.length).length - 2;
     const recent: string[] = [];
     let length = 0;
@@ -1215,9 +1211,7 @@ export function renderCoreRunCardCompact(state: CoreRunState, locale: Locale = "
   // not just a normal reply. Persists across running → done/interrupted.
   if (state.goalObjective && state.goalObjective.trim()) {
     elements.push(markdownElement(
-      locale === "en"
-        ? `🎯 **Goal:** ${truncate(state.goalObjective.trim(), 120)}`
-        : `🎯 **目标:** ${truncate(state.goalObjective.trim(), 120)}`,
+      hostT(locale, "🎯 **目标:** {0}", truncate(state.goalObjective.trim(), 120)),
       "run_goal_banner",
     ));
   }
@@ -1296,9 +1290,9 @@ export function renderCoreRunCardMinimal(state: CoreRunState, locale: Locale = "
     const prefix = state.status === "partial" ? `${labels.partialWarning}\n\n` : "";
     elements.push(markdownElement(`⚠️ ${truncate(prefix + state.errorText.trim(), 400)}`));
   } else if (state.status === "delivering") {
-    elements.push(noteElement(locale === "en" ? "_Full reply is being delivered below._" : "_完整回复正在下方交付。_"));
+    elements.push(noteElement(hostT(locale, "_完整回复正在下方交付。_")));
   } else {
-    elements.push(noteElement(locale === "en" ? "_Full reply sent as a message below._" : "_完整回复见下方消息。_"));
+    elements.push(noteElement(hostT(locale, "_完整回复见下方消息。_")));
   }
   return {
     ...(state.nativeRun ? { appRun: { summary: summarizeRun(state.nativeRun, state.status), ...(state.status === "done" && state.goalTurnEnded ? { goalTurnEnded: true } : {}), entries: state.nativeRun.entries } } : {}),
@@ -1325,8 +1319,8 @@ export function renderCoreRunCardMinimal(state: CoreRunState, locale: Locale = "
  * preserved exactly as with the plain-text path.
  */
 export function renderCoreReminderCard(body: string, locale: Locale = "zh"): Record<string, unknown> {
-  const heading = locale === "en" ? "⏰ Reminder" : "⏰ 提醒";
-  const text = body.trim() || (locale === "en" ? "(reminder)" : "（提醒）");
+  const heading = hostT(locale, "⏰ 提醒");
+  const text = body.trim() || hostT(locale, "（提醒）");
   return constrainCoreCardTables({
     schema: "2.0",
     config: {
@@ -1955,67 +1949,36 @@ function runCardLabels(locale: Locale): {
   footerTool: string;
   footerStreaming: string;
 } {
-  return locale === "en"
-    ? {
-      running: "Task is running...",
-      delivering: "Delivering result...",
-      done: "Done",
-      goalTurnEnded: "Turn ended",
-      partial: "Partially completed",
-      partialWarning: "The engine failed after producing output; the content above may be incomplete.",
-      error: "Failed",
-      deliveryError: "Delivery incomplete",
-      stop: "Stop",
-      thinkingActive: "🧠 Thinking",
-      thinkingDone: "🧠 Thinking complete · tap to view",
-      tools: "Tool calls",
-      process: "Process",
-      processSteps: (n) => `${n} step${n === 1 ? "" : "s"}`,
-      outputLines: (n) => `${n} line${n === 1 ? "" : "s"}`,
-      plan: "📋 Plan",
-      noOutput: "no output",
-      toolRunning: "running…",
-      empty: "(no content returned)",
-      interrupted: "Interrupted",
-      interruptedTitle: "Interrupted",
-      idleTimeoutTitle: "Auto-stopped (no response)",
-      idleTimeout: (mins) => `No response for ${mins} minute(s); auto-stopped`,
-      footerThinking: "🧠 Thinking",
-      footerCompacting: "Compacting context",
-      footerCheckpointing: "Summarizing conversation context",
-      footerTool: "🧰 Running tool",
-      footerStreaming: "✍️ Streaming output",
-    }
-    : {
-      running: "任务处理中...",
-      delivering: "正在交付结果...",
-      done: "已完成",
-      goalTurnEnded: "本轮已结束",
-      partial: "部分完成",
-      partialWarning: "引擎在输出内容后失败，以上内容可能不完整。",
-      error: "执行失败",
-      deliveryError: "交付未完成",
-      stop: "停止",
-      thinkingActive: "🧠 思考中",
-      thinkingDone: "🧠 思考完成 · 点击查看",
-      tools: "工具调用",
-      process: "过程",
-      processSteps: (n) => `${n} 步`,
-      outputLines: (n) => `${n} 行`,
-      plan: "📋 计划",
-      noOutput: "无输出",
-      toolRunning: "运行中…",
-      empty: "（未返回内容）",
-      interrupted: "已被中断",
-      interruptedTitle: "已中断",
-      idleTimeoutTitle: "无响应已自动终止",
-      idleTimeout: (mins) => `${mins} 分钟无响应，已自动终止`,
-      footerThinking: "🧠 正在思考",
-      footerCompacting: "正在压缩上下文",
-      footerCheckpointing: "正在整理上下文摘要",
-      footerTool: "🧰 正在调用工具",
-      footerStreaming: "✍️ 正在输出",
-    };
+  return {
+    running: hostT(locale, "任务处理中..."),
+    delivering: hostT(locale, "正在交付结果..."),
+    done: hostT(locale, "已完成"),
+    goalTurnEnded: hostT(locale, "本轮已结束"),
+    partial: hostT(locale, "部分完成"),
+    partialWarning: hostT(locale, "引擎在输出内容后失败，以上内容可能不完整。"),
+    error: hostT(locale, "执行失败"),
+    deliveryError: hostT(locale, "交付未完成"),
+    stop: hostT(locale, "停止"),
+    thinkingActive: hostT(locale, "🧠 思考中"),
+    thinkingDone: hostT(locale, "🧠 思考完成 · 点击查看"),
+    tools: hostT(locale, "工具调用"),
+    process: hostT(locale, "过程"),
+    processSteps: (n) => (n === 1 ? hostT(locale, "1 步") : hostT(locale, "{0} 步", n)),
+    outputLines: (n) => (n === 1 ? hostT(locale, "1 行") : hostT(locale, "{0} 行", n)),
+    plan: hostT(locale, "📋 计划"),
+    noOutput: hostT(locale, "无输出"),
+    toolRunning: hostT(locale, "运行中…"),
+    empty: hostT(locale, "（未返回内容）"),
+    interrupted: hostT(locale, "已被中断"),
+    interruptedTitle: hostT(locale, "已中断"),
+    idleTimeoutTitle: hostT(locale, "无响应已自动终止"),
+    idleTimeout: (mins) => hostT(locale, "{0} 分钟无响应，已自动终止", mins),
+    footerThinking: hostT(locale, "🧠 正在思考"),
+    footerCompacting: hostT(locale, "正在压缩上下文"),
+    footerCheckpointing: hostT(locale, "正在整理上下文摘要"),
+    footerTool: hostT(locale, "🧰 正在调用工具"),
+    footerStreaming: hostT(locale, "✍️ 正在输出"),
+  };
 }
 
 export function renderCoreApprovalCard(input: CoreApprovalCardInput): Record<string, unknown> {
@@ -2027,14 +1990,16 @@ export function renderCoreApprovalCard(input: CoreApprovalCardInput): Record<str
   const fence = "`".repeat(fenceWidth);
   const toolInput = details === undefined ? "" : `\n\n${fence}json\n${details}\n${fence}`;
   const labels = approvalCardLabels(input.locale ?? "zh");
+  const workerTag = input.workerName?.trim()
+    ? (!isChineseLocale(input.locale) ? ` (from \`@${input.workerName.trim()}\`)` : `（来自 \`@${input.workerName.trim()}\`）`)
+    : "";
+  const workerSummary = input.workerName?.trim() ? `@${input.workerName.trim()} · ` : "";
 
   const elements: unknown[] = [
-    markdownElement(`**${labels.header}**\n${input.toolName}${toolInput}`),
+    markdownElement(`**${labels.header}**${workerTag}\n${input.toolName}${toolInput}`),
   ];
   if (input.approvalScopes?.session === "always") {
-    elements.push(markdownElement(input.locale === "en"
-      ? "Allow subsequent calls uses the engine's persistent permission option; its lifetime is not limited to this turn."
-      : "“允许后续调用”采用引擎提供的持续授权选项，生效范围不限于当前轮次。"));
+    elements.push(markdownElement(hostT(input.locale ?? "zh", "“允许后续调用”采用引擎提供的持续授权选项，生效范围不限于当前轮次。")));
   }
   if (input.decidedStatus) {
     // Resolved in place after the operator decided: show the outcome, drop the buttons.
@@ -2056,8 +2021,8 @@ export function renderCoreApprovalCard(input: CoreApprovalCardInput): Record<str
       update_multi: true,
       summary: {
         content: input.decidedStatus
-          ? `${input.decidedStatus} — ${input.toolName}`
-          : labels.summary(input.toolName),
+          ? `${workerSummary}${input.decidedStatus} — ${input.toolName}`
+          : `${workerSummary}${labels.summary(input.toolName)}`,
       },
     },
     body: {
@@ -2074,25 +2039,27 @@ export function renderCoreQueueWaitCard(input: CoreQueueWaitCardInput): Record<s
     // A message already admitted to Core (for example behind an async answer)
     // cannot be edited in the Hub's pre-dispatch panel. Keep a compact notice
     // with the real task-scoped cancel action, not a second legacy queue UI.
-    const title = locale === "en" ? "Queued" : "排队中";
+    const title = hostT(locale, "排队中");
     return {
       schema: "2.0", config: { update_multi: true, summary: { content: title } },
       ...(input.taskId ? { appQueue: { version: 1, state: "queued", taskId: input.taskId, conversationKey: input.conversationKey, at: Date.now() } } : {}),
       body: { direction: "vertical", padding: "8px 12px 8px 12px", elements: [
-        markdownElement(`**${title}** · ${locale === "en" ? "Waiting for the preceding task to finish." : "等待前面的任务结束后自动继续。"}`),
-        ...(input.taskId ? [{ tag: "button", element_id: "queued_turn_cancel", text: { tag: "plain_text", content: locale === "en" ? "Cancel queued message" : "取消排队" }, type: "default",
+        markdownElement(`**${title}** · ${hostT(locale, "等待前面的任务结束后自动继续。")}`),
+        ...(input.taskId ? [{ tag: "button", element_id: "queued_turn_cancel", text: { tag: "plain_text", content: hostT(locale, "取消排队") }, type: "default",
           behaviors: [callbackBehavior({ cctb_lark: "stop", conversationKey: input.conversationKey, taskId: input.taskId,
             ...(input.bridgeChatType ? { bridgeChatType: input.bridgeChatType } : {}), ...(input.replyInThread ? { replyInThread: true } : {}) })] }] : []),
       ] },
     };
   }
   const seconds = Math.max(1, Math.round(input.waitedMs / 1000));
-  const title = locale === "en" ? "Queued behind the active turn" : "正在排队等待当前任务";
-  const body = locale === "en"
-    ? `This conversation already has a running task. This message has waited about ${seconds}s and will continue automatically.\n\nDon't need it anymore? Cancel just this queued task below. To stop the task that's *running*, send \`/stop\`.`
-    : `同一个会话里还有任务在运行。这条消息已等待约 ${seconds} 秒，前一个任务结束后会自动继续。\n\n不想等了？可点下面取消这条排队任务。要停止*正在运行*的任务，请发送 \`/stop\`。`;
-  const stop = locale === "en" ? "Cancel this task" : "取消此排队任务";
-  const keepWaiting = locale === "en" ? "Keep waiting" : "继续等待";
+  const title = hostT(locale, "正在排队等待当前任务");
+  const body = hostT(
+    locale,
+    "同一个会话里还有任务在运行。这条消息已等待约 {0} 秒，前一个任务结束后会自动继续。\n\n不想等了？可点下面取消这条排队任务。要停止*正在运行*的任务，请发送 `/stop`。",
+    seconds,
+  );
+  const stop = hostT(locale, "取消此排队任务");
+  const keepWaiting = hostT(locale, "继续等待");
   return {
     schema: "2.0",
     config: {
@@ -2161,7 +2128,7 @@ export function renderCoreQueueLifecycleCard(input: Pick<CoreQueueWaitCardInput,
 }
 
 export function renderCoreQueueCancelledCard(locale: Locale = "zh", input?: Pick<CoreQueueWaitCardInput, "profile" | "taskId" | "conversationKey">): Record<string, unknown> {
-  const text = locale === "en" ? "Cancelled this queued task." : "已取消此排队任务。";
+  const text = hostT(locale, "已取消此排队任务。");
   return {
     schema: "2.0",
     ...(input?.profile === "gateway" && input.taskId ? { appQueue: { version: 1, state: "cancelled", taskId: input.taskId, conversationKey: input.conversationKey, at: Date.now() } } : {}),
@@ -2179,17 +2146,11 @@ function approvalCardLabels(locale: Locale): {
   summary: (toolName: string) => string;
   deny: string;
 } {
-  return locale === "en"
-    ? {
-      header: "Approval requested",
-      summary: (toolName) => `Approval requested: ${toolName}`,
-      deny: "Deny",
-    }
-    : {
-      header: "请求审批",
-      summary: (toolName) => `请求审批：${toolName}`,
-      deny: "拒绝",
-    };
+  return {
+    header: hostT(locale, "请求审批"),
+    summary: (toolName) => hostT(locale, "请求审批：{0}", toolName),
+    deny: hostT(locale, "拒绝"),
+  };
 }
 
 function markdownElement(content: string, elementId?: string): Record<string, unknown> {
@@ -2518,7 +2479,7 @@ export function renderCoreContinuationCard(
   total: number,
   locale: Locale = "zh",
 ): Record<string, unknown> {
-  const heading = locale === "en" ? `↪ Continued · ${index}/${total}` : `↪ 接上 · ${index}/${total}`;
+  const heading = hostT(locale, "↪ 接上 · {0}/{1}", index, total);
   // Same text cleaning the run card applies (strip delivery/tool/cron tags, downgrade
   // markdown headings): without it a chunk starting with "## " would render as a giant
   // Feishu title and any [send-file:]/tool/cron tag would leak as literal text — making
@@ -2536,7 +2497,7 @@ export function renderCoreContinuationCard(
       padding: "12px 12px 12px 12px",
       elements: [
         noteElement(heading),
-        markdownElement(cleaned || (locale === "en" ? "(empty)" : "（空）")),
+        markdownElement(cleaned || hostT(locale, "（空）")),
       ],
     },
   });
@@ -2544,27 +2505,27 @@ export function renderCoreContinuationCard(
 
 function cardSummary(state: CoreRunState, locale: Locale): string {
   if (state.status === "running") {
-    return locale === "en" ? "Task is running" : "任务处理中";
+    return hostT(locale, "任务处理中");
   }
   if (state.status === "delivering") {
-    return locale === "en" ? "Delivering result" : "正在交付结果";
+    return hostT(locale, "正在交付结果");
   }
   if (state.status === "error") {
-    return locale === "en" ? "Failed" : "执行失败";
+    return hostT(locale, "执行失败");
   }
   if (state.status === "partial") {
-    return locale === "en" ? "Partially completed" : "部分完成";
+    return hostT(locale, "部分完成");
   }
   if (state.status === "delivery_error") {
-    return locale === "en" ? "Delivery incomplete" : "交付未完成";
+    return hostT(locale, "交付未完成");
   }
   if (state.status === "interrupted") {
-    return locale === "en" ? "Interrupted" : "已中断";
+    return hostT(locale, "已中断");
   }
   if (state.status === "idle_timeout") {
-    return locale === "en" ? "Auto-stopped" : "无响应已终止";
+    return hostT(locale, "无响应已终止");
   }
-  if (state.goalTurnEnded) return locale === "en" ? "Turn ended" : "本轮已结束";
+  if (state.goalTurnEnded) return hostT(locale, "本轮已结束");
   const text = cleanCardText(finalAnswerText(state), locale, { sources: state.webSources });
-  return text.trim().slice(0, 80) || (locale === "en" ? "Done" : "已完成");
+  return text.trim().slice(0, 80) || hostT(locale, "已完成");
 }

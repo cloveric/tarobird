@@ -2,7 +2,16 @@
  * with the summary producer; never infer an action from arbitrary shell text. */
 export function runToolAction(name = "", input?: Record<string, unknown>): "read" | "edit" | "search" | "execute" | "plan" | "delegate" | "other" {
   // Native delegation tools only: an unrelated MCP tool named Task is not a child.
-  if (name === "Agent" || name === "Task" || name === "CodexAgent") return "delegate";
+  if (
+    name === "Agent"
+    || name === "Task"
+    || name === "CodexAgent"
+    || name === "subagent"
+    || name === "wait_agent"
+    || name === "send_message"
+    || name === "interrupt_agent"
+    || name === "list_agents"
+  ) return "delegate";
   const key = name.split(/__|[.:/]/).at(-1)!.replace(/[_-]/g, "").toLowerCase();
   if (key === "strreplaceeditor") return input?.command === "view" ? "read" : "edit";
   if (["todowrite", "settodolist", "updateplan"].includes(key)) return "plan";

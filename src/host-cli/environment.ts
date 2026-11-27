@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { discoverEngineDirectories } from "./engine-discovery.js";
 import { deepseekExecutableOverride } from "../runtime/deepseek-executable.js";
+import { isLiveHostEnvironment, markLiveHostEnvironment, mergeWindowsPathEntries, readWindowsPathEntries, setCanonicalWindowsPath } from "../runtime/windows-registry-path.js";
 
-export const HOST_ENGINE_EXECUTABLE_KEYS = ["CODEX_EXECUTABLE", "CLAUDE_EXECUTABLE", "ANTIGRAVITY_EXECUTABLE", "KIMI_EXECUTABLE", "DSH_EXECUTABLE", "PI_EXECUTABLE"] as const;
-export const HOST_CONFIG_DIRECTORY_KEYS = ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "DSH_HOME", "KIMI_CODE_HOME", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"] as const;
+export const HOST_ENGINE_EXECUTABLE_KEYS = ["CODEX_EXECUTABLE", "CLAUDE_EXECUTABLE", "ANTIGRAVITY_EXECUTABLE", "KIMI_EXECUTABLE", "DSH_EXECUTABLE", "PI_EXECUTABLE", "OMP_EXECUTABLE"] as const;
+export const HOST_CONFIG_DIRECTORY_KEYS = ["CODEX_HOME", "CLAUDE_CONFIG_DIR", "DSH_HOME", "KIMI_CODE_HOME", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "PI_CONFIG_DIR", "OMP_CONFIG_DIR", "OMP_PROFILE"] as const;
 export const HOST_PROXY_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy"] as const;
 export const HOST_PRESERVED_ENVIRONMENT_KEYS = [...HOST_ENGINE_EXECUTABLE_KEYS, ...HOST_CONFIG_DIRECTORY_KEYS, ...HOST_PROXY_KEYS] as const;
 export type HostEnvironmentOptions = { platform?: NodeJS.Platform; home?: string; executable?: string; env?: NodeJS.ProcessEnv };
@@ -20,14 +21,21 @@ export function hostProcessEnvironment(options: HostEnvironmentOptions = {}): No
   if (windows) {
     if (lookup("APPDATA")) paths.push(p.join(lookup("APPDATA")!, "npm"));
     paths.push(p.join(home, ".cargo/bin"), p.join(home, "scoop/shims"));
-  } else paths.push("/opt/homebrew/bin", "/usr/local/bin");
-  paths.push(...(lookup("PATH") ?? "").split(windows ? ";" : ":").filter(Boolean));
+    paths.push(...readWindowsPathEntries(env).entries);
+    paths.push(...discoverEngineDirectories(home, env, platform));
+    const merged = mergeWindowsPathEntries([paths]);
+    const result = { ...env };
+    setCanonicalWindowsPath(result, merged, true);
+    if (isLiveHostEnvironment(env)) markLiveHostEnvironment(result);
+    return result;
+  }
+  paths.push("/opt/homebrew/bin", "/usr/local/bin");
+  paths.push(...(lookup("PATH") ?? "").split(":").filter(Boolean));
   paths.push(...discoverEngineDirectories(home, env, platform));
   const seen = new Set<string>();
-  const search = paths.filter(value => { const key = windows ? value.toLowerCase() : value; if (seen.has(key)) return false; seen.add(key); return true; }).join(windows ? ";" : ":");
-  const result = { ...env };
-  if (windows) for (const key of Object.keys(result)) if (key.toUpperCase() === "PATH") delete result[key];
-  result.PATH = search;
+  const search = paths.filter(value => { if (seen.has(value)) return false; seen.add(value); return true; }).join(":");
+  const result = { ...env, PATH: search };
+  if (isLiveHostEnvironment(env)) markLiveHostEnvironment(result);
   return result;
 }
 /** Native desktop_host.rs bootstraps Node; the shared Host adds manager fallbacks.
@@ -57,9 +65,13 @@ export function buildHostEnvironment(options: HostEnvironmentOptions = {}): Reco
   }
   for (const key of HOST_CONFIG_DIRECTORY_KEYS) if (lookup(key)) {
     const value = lookup(key)!;
-    // Pi resolves tilde, file URLs and relative directory settings in each
-    // worker's workspace. Preserve those native forms instead of rebasing them.
-    if (key !== "PI_CODING_AGENT_DIR" && key !== "PI_CODING_AGENT_SESSION_DIR" && !p.isAbsolute(value)) throw new Error(`host_service_config_directory_absolute_path_required: ${key}`);
+    if (key === "OMP_PROFILE") {
+      if (!/^[A-Za-z0-9._-]{1,64}$/.test(value) || value.includes("..")) throw new Error(`host_service_invalid_environment: ${key}`);
+    } else if (key !== "PI_CODING_AGENT_DIR" && key !== "PI_CODING_AGENT_SESSION_DIR" && key !== "PI_CONFIG_DIR" && key !== "OMP_CONFIG_DIR" && !p.isAbsolute(value)) {
+      // Pi and omp resolve tilde, file URLs and relative directory settings in
+      // each worker's workspace. Preserve those native forms instead of rebasing them.
+      throw new Error(`host_service_config_directory_absolute_path_required: ${key}`);
+    }
     environment[key] = value;
   }
   for (const key of HOST_PROXY_KEYS) {
@@ -70,6 +82,7 @@ export function buildHostEnvironment(options: HostEnvironmentOptions = {}): Reco
     if (value) environment[key] = value;
   }
   for (const [key, value] of Object.entries(environment)) if (/[\x00-\x1f\x7f]/.test(value)) throw new Error(`host_service_invalid_environment: ${key}`);
+  if (isLiveHostEnvironment(env)) markLiveHostEnvironment(environment);
   return environment;
 }
 export async function validateHostEnvironmentExecutables(environment: Record<string, string>, platform = process.platform): Promise<void> {

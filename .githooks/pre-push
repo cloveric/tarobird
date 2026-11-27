@@ -3,5 +3,9 @@ set -euo pipefail
 policy_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$(git rev-parse --show-toplevel)"
 node "$policy_root/scripts/release-version.mjs" check
-node "$policy_root/scripts/check-upload-privacy.mjs" pre-push "$1"
-bash "$policy_root/scripts/check-secrets.sh" history
+# Both checks read Git's list of refs being pushed, so keep one copy of it.
+# Secrets are scanned in the outgoing commits only; the all-history scan is
+# `node scripts/check-secrets.mjs history` (CI, pre-completion and releases).
+outgoing="$(cat)"
+printf '%s\n' "$outgoing" | node "$policy_root/scripts/check-upload-privacy.mjs" pre-push "$1"
+printf '%s\n' "$outgoing" | bash "$policy_root/scripts/check-secrets.sh" pre-push "$1"

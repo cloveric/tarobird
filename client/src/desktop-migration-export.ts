@@ -107,7 +107,7 @@ export async function exportDesktopData(source: ExportSource, sink: ExportSink, 
     }
     let local = 0, localBytes = 0;
     for (const [key, value] of source.localStorage()) {
-      if (!/^(tarocub|tarobot)/.test(key)) continue;
+      if (!/^(tarocub|tarobot|tarobird)/.test(key)) continue;
       const bytes = (key.length + value.length) * 2;
       if (value.length > MIGRATION_LIMITS.localStorageValue || local + 1 > MIGRATION_LIMITS.localStorageEntries || localBytes + bytes > MIGRATION_LOCAL_TOTAL_BYTES) {
         skipped.push({ d: LOCAL_STORAGE, s: "items", key: keyLabel(key), reason: "too_large" }); continue;

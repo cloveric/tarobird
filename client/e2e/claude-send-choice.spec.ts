@@ -131,10 +131,13 @@ for (const platform of ['ios', 'android']) test(platform + ': narrow phone keeps
     const input = await open(page, f, true);
     await page.evaluate(platform => document.documentElement.setAttribute('data-platform', platform), platform);
     await input.fill('我想等这轮完成，再处理这条消息。');
+    await expect(page.locator('.send-choice-summary')).toHaveCount(0);
+    await expect(page.locator('.composer-accessories')).not.toContainText('由 CLI 适时读入');
     const next = page.getByRole('radio', { name: /^(排到下一轮|排队)$/ }); await next.check();
     await expect(input).toBeFocused();
+    await expect(page.locator('.composer-accessories')).not.toContainText('等待当前任务结束后再处理');
     const geometry = await page.locator('.claude-send-choice').evaluate(node => {
-      const r = node.getBoundingClientRect(); return { left: r.left, right: r.right, scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth, heights: [...node.querySelectorAll('[role=radio]')].map(n => n.getBoundingClientRect().height) };
+      const r = node.getBoundingClientRect(); return { left: r.left, right: r.right, scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth, heights: [...node.querySelectorAll('[role=radio], .send-choice-help')].map(n => n.getBoundingClientRect().height) };
     });
     expect(geometry.left).toBeGreaterThanOrEqual(0); expect(geometry.right).toBeLessThanOrEqual(320); expect(geometry.scroll).toBe(geometry.client);
     expect(Math.min(...geometry.heights)).toBeGreaterThanOrEqual(44); expect((await input.boundingBox())!.width).toBeGreaterThan(200);

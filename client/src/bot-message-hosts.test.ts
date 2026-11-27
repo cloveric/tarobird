@@ -7,7 +7,7 @@ it("resolves source Bots by authenticated host identity, not a duplicate display
   const key = Buffer.alloc(44, 3).toString('base64'), other = Buffer.alloc(44, 4).toString('base64');
   const id = `hub_${createHash('sha256').update(Buffer.from(key, 'base64')).digest('hex')}`;
   expect(botMessageHostId(key)).toBe(id);
-  const bots = [{ id: 'one', name: 'Assistant' }, { id: 'chief', name: 'Chancellor', role: 'dispatcher' }, { id: 'internal', role: 'worker' }, { id: 'deleted', deletedAt: 1 }];
+  const bots = [{ id: 'one', name: 'Assistant' }, { id: 'chief', name: 'Superagent', role: 'dispatcher' }, { id: 'internal', role: 'worker' }, { id: 'deleted', deletedAt: 1 }];
   const entries = [
     { host: { publicKey: other, name: 'Same host' }, connection: { state: { status: 'online', bots: [{ id: 'wrong' }] } } },
     { host: { publicKey: key, name: 'Same host' }, connection: { state: { status: 'online', bots, dispatchWorkers: [{ id: 'hidden', role: 'worker' }] } } },

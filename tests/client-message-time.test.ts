@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { setLocale } from "../client/src/i18n.js";
+import { setLocale, type SupportedLocale } from "../client/src/i18n.js";
 import { formatMessageTime, formatRowTime } from "../client/src/conversation-inbox.js";
 
 // Every instant is built from local calendar fields, so the cases hold in any
@@ -7,13 +7,14 @@ import { formatMessageTime, formatRowTime } from "../client/src/conversation-inb
 const local = (year: number, month: number, day: number, hour = 0, minute = 0, second = 0, ms = 0) => new Date(year, month - 1, day, hour, minute, second, ms).getTime();
 const clock = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const now = local(2026, 11, 17, 15, 30);
-const use = (locale: "zh" | "en") => { vi.stubGlobal("document", { documentElement: { lang: "zh-CN" } }); setLocale(locale); };
+const use = (locale: SupportedLocale) => { vi.stubGlobal("document", { documentElement: { lang: "zh-CN" } }); setLocale(locale); };
 afterEach(() => { setLocale("zh"); vi.unstubAllGlobals(); });
 
 describe("message timestamps inside a conversation", () => {
   it.each([
     ["zh", "昨天", "11月15日", "1月2日", "2025年12月3日"],
     ["en", "Yesterday", "Nov 15", "Jan 2", "Dec 3, 2025"],
+    ["ja", "昨日", "11月15日", "1月2日", "2025年12月3日"],
   ] as const)("%s: today is time-only; older messages add the day, then the year", (locale, yesterday, earlier, january, lastYear) => {
     use(locale);
     const at = { today: local(2026, 11, 17, 14, 5), yesterday: local(2026, 11, 16, 14, 5), earlier: local(2026, 11, 15, 14, 5), january: local(2026, 1, 2, 9, 7), lastYear: local(2025, 12, 3, 14, 5) };
@@ -27,6 +28,7 @@ describe("message timestamps inside a conversation", () => {
   it.each([
     ["zh", "昨天", "11月15日"],
     ["en", "Yesterday", "Nov 15"],
+    ["ja", "昨日", "11月15日"],
   ] as const)("%s: days change at local midnight, not 24 hours ago", (locale, yesterday, dayBefore) => {
     use(locale);
     const midnight = local(2026, 11, 17), lastMs = local(2026, 11, 16, 23, 59, 59, 999);
@@ -43,6 +45,7 @@ describe("message timestamps inside a conversation", () => {
   it.each([
     ["zh", "昨天", "2025年12月30日"],
     ["en", "Yesterday", "Dec 30, 2025"],
+    ["ja", "昨日", "2025年12月30日"],
   ] as const)("%s: New Year's Eve is yesterday on New Year's Day; earlier days carry the year", (locale, yesterday, older) => {
     use(locale);
     const newYear = local(2026, 1, 1, 10, 0), eve = local(2025, 12, 31, 22, 15), before = local(2025, 12, 30, 22, 15);
@@ -53,6 +56,7 @@ describe("message timestamps inside a conversation", () => {
   it.each([
     ["zh", "昨天", "11/15", "2025/12/3"],
     ["en", "Yesterday", "11/15", "12/3/2025"],
+    ["ja", "昨日", "11/15", "2025/12/3"],
   ] as const)("%s: the compact form uses the conversation list's numeric day for every earlier day", (locale, yesterday, earlier, lastYear) => {
     use(locale);
     const at = { today: local(2026, 11, 17, 14, 5), yesterday: local(2026, 11, 16, 14, 5), earlier: local(2026, 11, 15, 14, 5), lastYear: local(2025, 12, 3, 14, 5) };
@@ -60,7 +64,7 @@ describe("message timestamps inside a conversation", () => {
     expect(formatMessageTime(at.yesterday, locale, true, now)).toBe(`11/16 ${clock(at.yesterday)}`);
     expect(formatMessageTime(at.earlier, locale, true, now)).toBe(`${earlier} ${clock(at.earlier)}`);
     // New Year's Eve seen on New Year's Day is another year: day only.
-    expect(formatMessageTime(local(2025, 12, 31, 22, 15), locale, true, local(2026, 1, 1, 10, 0))).toBe(locale === "zh" ? "2025/12/31" : "12/31/2025");
+    expect(formatMessageTime(local(2025, 12, 31, 22, 15), locale, true, local(2026, 1, 1, 10, 0))).toBe(locale === "en" ? "12/31/2025" : "2025/12/31");
     // Another year has no room for the clock in a narrow row.
     expect(formatMessageTime(at.lastYear, locale, true, now)).toBe(lastYear);
     // The list keeps its own wording for the same days.

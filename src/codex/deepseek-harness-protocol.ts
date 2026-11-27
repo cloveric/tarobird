@@ -109,9 +109,14 @@ interface RemoteFollowSnapshot {
   };
 }
 
+type RemoteFollowAddress =
+  | { kind: "session"; sessionId: string }
+  | { kind: "subagent"; parentSessionId: string; childSessionId: string; mode: "continuable" | "one-shot" | "unknown" };
+
 interface RemoteFollowState {
   streamId: string;
   sessionId: string;
+  address: RemoteFollowAddress;
   promise: Promise<RemoteFollowSnapshot>;
   resolve: (snapshot: RemoteFollowSnapshot) => void;
   reject: (error: Error) => void;
@@ -130,6 +135,7 @@ interface RemoteMuxGeneration {
   mux: WebSocket;
   sessionCookie?: string;
   streams: Map<string, RemoteStreamRegistration>;
+  cancelledStreams: Set<string>;
   follows: Map<string, RemoteFollowState>;
   settled: boolean;
   connectTimer?: ReturnType<typeof setTimeout>;
@@ -174,7 +180,7 @@ export class DeepSeekHarnessProtocolClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private authenticationPromise: Promise<void> | undefined;
   private sessionCookie: string | undefined;
-  private readonly followedSessions = new Set<string>();
+  private readonly followedSessions = new Map<string, RemoteFollowAddress>();
   private readonly remoteWaterfalls = new Map<string, PendingRemoteWaterfall>();
   private readonly remoteProjections = new Map<string, RemoteFollowSnapshot["projections"]>();
   private closing = false;
@@ -217,6 +223,14 @@ export class DeepSeekHarnessProtocolClient {
       ))
     ) {
       throw new Error(`Invalid DeepSeek Harness RPC method: ${JSON.stringify(method)}`);
+    }
+    if (method === "session.unfollowSubagent") {
+      if (this.launchUrl) {
+        const input = recordValue(payload) ?? {};
+        const childSessionId = requiredString(input.childSessionId, "session.unfollowSubagent childSessionId");
+        this.unfollowRemoteSession(childSessionId);
+      }
+      return { ok: true };
     }
     if (this.launchUrl) {
       return await this.requestRemote(method, payload, signal);
@@ -289,6 +303,8 @@ export class DeepSeekHarnessProtocolClient {
   async close(): Promise<void> {
     this.closing = true;
     this.handlers = undefined;
+    this.followedSessions.clear();
+    this.remoteProjections.clear();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -357,6 +373,20 @@ export class DeepSeekHarnessProtocolClient {
     }
     if (method === "session.history") {
       return await this.readRemoteHistory(input, signal);
+    }
+    if (method === "session.followSubagent") {
+      const parentSessionId = requiredString(input.parentSessionId, "session.followSubagent parentSessionId");
+      const childSessionId = requiredString(input.childSessionId, "session.followSubagent childSessionId");
+      const rawMode = input.mode;
+      const mode: "continuable" | "one-shot" | "unknown" = rawMode === "continuable" || rawMode === "one-shot"
+        ? rawMode
+        : "unknown";
+      const follow = await this.ensureRemoteFollow(
+        childSessionId,
+        signal,
+        { kind: "subagent", parentSessionId, childSessionId, mode },
+      );
+      return { sessionId: childSessionId, events: follow.records.length };
     }
     if (method === "host.describe") {
       const catalog = recordValue(await this.invokeRemote("session/modelCatalog", {}, signal));
@@ -564,6 +594,7 @@ export class DeepSeekHarnessProtocolClient {
       mux,
       ...(sessionCookie ? { sessionCookie } : {}),
       streams: new Map(),
+      cancelledStreams: new Set(),
       follows: new Map(),
       settled: false,
     };
@@ -643,8 +674,8 @@ export class DeepSeekHarnessProtocolClient {
       try {
         this.openRemoteStream(generation, "events", "$events", { args: {} });
         this.openRemoteStream(generation, "control", "session/control", { args: {} });
-        for (const sessionId of this.followedSessions) {
-          this.openRemoteFollow(generation, sessionId);
+        for (const [sessionId, address] of this.followedSessions) {
+          this.openRemoteFollow(generation, sessionId, address);
         }
       } catch (error) {
         failed(error instanceof Error ? error : new Error(String(error)));
@@ -695,7 +726,11 @@ export class DeepSeekHarnessProtocolClient {
     return streamId;
   }
 
-  private openRemoteFollow(generation: RemoteMuxGeneration, sessionId: string): RemoteFollowState {
+  private openRemoteFollow(
+    generation: RemoteMuxGeneration,
+    sessionId: string,
+    address: RemoteFollowAddress = { kind: "session", sessionId },
+  ): RemoteFollowState {
     const existing = generation.follows.get(sessionId);
     if (existing) {
       return existing;
@@ -714,7 +749,7 @@ export class DeepSeekHarnessProtocolClient {
       {
         args: {
           request: {
-            address: { kind: "session", sessionId },
+            address,
             maxMessages: 50,
             assistantStream: true,
           },
@@ -725,6 +760,7 @@ export class DeepSeekHarnessProtocolClient {
     const state: RemoteFollowState = {
       streamId,
       sessionId,
+      address,
       promise,
       resolve,
       reject,
@@ -737,14 +773,46 @@ export class DeepSeekHarnessProtocolClient {
   private async ensureRemoteFollow(
     sessionId: string,
     signal?: AbortSignal,
+    address: RemoteFollowAddress = { kind: "session", sessionId },
   ): Promise<RemoteFollowSnapshot> {
-    this.followedSessions.add(sessionId);
     const generation = this.generation;
     if (!generation || generation.mode !== "remote") {
       throw new Error("DeepSeek Harness remote event stream is not connected");
     }
-    const state = generation.follows.get(sessionId) ?? this.openRemoteFollow(generation, sessionId);
+    const state = generation.follows.get(sessionId) ?? this.openRemoteFollow(generation, sessionId, address);
+    this.followedSessions.set(sessionId, address);
     return await waitForPromiseOrAbort(state.promise, signal);
+  }
+
+  private cancelRemoteStream(generation: RemoteMuxGeneration, streamId: string): void {
+    generation.streams.delete(streamId);
+    generation.cancelledStreams.add(streamId);
+    if (generation.cancelledStreams.size > 1_024) {
+      const oldest = generation.cancelledStreams.values().next().value;
+      if (oldest !== undefined) generation.cancelledStreams.delete(oldest);
+    }
+    if (generation.mux.readyState === WebSocket.OPEN) {
+      try {
+        generation.mux.send(JSON.stringify({ type: "cancel", streamId }));
+      } catch {
+        // Best-effort cancellation when socket is closing.
+      }
+    }
+  }
+
+  private unfollowRemoteSession(sessionId: string): void {
+    this.followedSessions.delete(sessionId);
+    this.remoteProjections.delete(sessionId);
+    const generation = this.generation;
+    if (!generation || generation.mode !== "remote") {
+      return;
+    }
+    const follow = generation.follows.get(sessionId);
+    if (follow) {
+      generation.follows.delete(sessionId);
+      this.cancelRemoteStream(generation, follow.streamId);
+      follow.reject(new Error(`DeepSeek Harness follow stream for ${sessionId} was closed`));
+    }
   }
 
   private handleRemoteStreamFrame(
@@ -755,17 +823,26 @@ export class DeepSeekHarnessProtocolClient {
   ): void {
     const registration = generation.streams.get(frame.streamId);
     if (!registration) {
+      if (generation.cancelledStreams.has(frame.streamId)) {
+        if (frame.type === "end" || frame.type === "error") {
+          generation.cancelledStreams.delete(frame.streamId);
+        }
+        return;
+      }
       throw new Error(`DeepSeek Harness returned an unknown remote stream id: ${frame.streamId}`);
     }
     if (frame.type === "error") {
       const error = new DeepSeekHarnessRpcError(frame.error);
       if (registration.kind === "follow" && registration.sessionId) {
+        const isSubagent = generation.follows.get(registration.sessionId)?.address.kind === "subagent";
         this.dropRemoteFollow(generation, registration.sessionId, error);
-        this.deliverSyntheticFrame(generation, "host", randomUUID(), {
-          type: "host/agent-error",
-          sessionId: registration.sessionId,
-          message: error.message,
-        });
+        if (!isSubagent) {
+          this.deliverSyntheticFrame(generation, "host", randomUUID(), {
+            type: "host/agent-error",
+            sessionId: registration.sessionId,
+            message: error.message,
+          });
+        }
       } else {
         failed(error);
       }
@@ -774,12 +851,15 @@ export class DeepSeekHarnessProtocolClient {
     if (frame.type === "end") {
       const error = new Error(`DeepSeek Harness ${registration.kind} stream ended`);
       if (registration.kind === "follow" && registration.sessionId) {
+        const isSubagent = generation.follows.get(registration.sessionId)?.address.kind === "subagent";
         this.dropRemoteFollow(generation, registration.sessionId, error);
-        this.deliverSyntheticFrame(generation, "host", randomUUID(), {
-          type: "host/agent-error",
-          sessionId: registration.sessionId,
-          message: error.message,
-        });
+        if (!isSubagent) {
+          this.deliverSyntheticFrame(generation, "host", randomUUID(), {
+            type: "host/agent-error",
+            sessionId: registration.sessionId,
+            message: error.message,
+          });
+        }
       } else {
         failed(error);
       }
@@ -824,13 +904,38 @@ export class DeepSeekHarnessProtocolClient {
         });
       } else if (event === "api-session/removed") {
         const sessionId = requiredString(args[0], "api-session/removed sessionId");
-        this.followedSessions.delete(sessionId);
-        this.remoteProjections.delete(sessionId);
-        const follow = generation.follows.get(sessionId);
-        if (follow) {
-          generation.streams.delete(follow.streamId);
-          generation.follows.delete(sessionId);
-          follow.reject(new Error(`DeepSeek Harness session ${sessionId} was removed`));
+        const removedIds = new Set<string>([sessionId]);
+        const isSubagent = this.followedSessions.get(sessionId)?.kind === "subagent"
+          || generation.follows.get(sessionId)?.address.kind === "subagent";
+        if (!isSubagent) {
+          // Removing a parent session also tears down its subagent tree; evict
+          // any followed descendant subagents so they are never reopened on reconnect.
+          let added = true;
+          while (added) {
+            added = false;
+            for (const [followedId, address] of this.followedSessions) {
+              if (address.kind === "subagent" && removedIds.has(address.parentSessionId) && !removedIds.has(followedId)) {
+                removedIds.add(followedId);
+                added = true;
+              }
+            }
+            for (const [followedId, follow] of generation.follows) {
+              if (follow.address.kind === "subagent" && removedIds.has(follow.address.parentSessionId) && !removedIds.has(followedId)) {
+                removedIds.add(followedId);
+                added = true;
+              }
+            }
+          }
+        }
+        for (const removedId of removedIds) {
+          this.followedSessions.delete(removedId);
+          this.remoteProjections.delete(removedId);
+          const follow = generation.follows.get(removedId);
+          if (follow) {
+            generation.follows.delete(removedId);
+            this.cancelRemoteStream(generation, follow.streamId);
+            follow.reject(new Error(`DeepSeek Harness session ${removedId} was removed`));
+          }
         }
         this.deliverSyntheticFrame(generation, "host", randomUUID(), {
           type: "host/session-removed",
@@ -930,8 +1035,28 @@ export class DeepSeekHarnessProtocolClient {
     }
     if (type === "projection") {
       const sessionId = requiredString(item?.sessionId, "control projection sessionId");
-      const key = requiredString(item?.key, "control projection key");
       const seq = finiteNumber(item?.seq, "control projection sequence");
+      const changes = recordValue(item?.changes);
+      if (changes) {
+        const prior = this.remoteProjections.get(sessionId);
+        if (!prior || seq >= prior.asOfSeq) {
+          this.remoteProjections.set(sessionId, {
+            asOfSeq: seq,
+            values: { ...(prior?.values ?? {}), ...changes },
+          });
+        }
+        for (const [key, projectionValue] of Object.entries(changes)) {
+          this.deliverSyntheticFrame(generation, "mux", randomUUID(), {
+            type: "session/projection",
+            sessionId,
+            key,
+            value: projectionValue,
+            seq,
+          });
+        }
+        return;
+      }
+      const key = requiredString(item?.key, "control projection key");
       const prior = this.remoteProjections.get(sessionId);
       if (!prior || seq >= prior.asOfSeq) {
         this.remoteProjections.set(sessionId, {
@@ -979,6 +1104,22 @@ export class DeepSeekHarnessProtocolClient {
         projections,
       };
       state.snapshot = snapshot;
+      // Replay subagent snapshot records synchronously BEFORE resolving the
+      // follow promise or delivering subsequent live frames so initial child
+      // steps never lose a sequence race against live events, and reconnect
+      // snapshots also replay missed child events.
+      if (state.address.kind === "subagent") {
+        for (const rec of snapshot.records) {
+          const event = recordValue(recordValue(rec)?.event);
+          if (event) {
+            this.deliverSyntheticFrame(generation, "mux", randomUUID(), {
+              type: "session/event",
+              sessionId,
+              event,
+            });
+          }
+        }
+      }
       if (item.assistantStream !== undefined) {
         const prefix = state.assistantStream.replace(item.assistantStream);
         if (prefix) this.deliverSyntheticFrame(generation, "mux", randomUUID(), {

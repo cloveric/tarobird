@@ -90,3 +90,5 @@ client/src-desktop-native/target.noindex/
 
 # Temporary native applications and Cargo outputs must stay unindexed.
 *.noindex/
+
+client/src/generated/

@@ -5,17 +5,23 @@ import {
   CROSS_HOST_FOLDER_ORDER_KEY,
   applyCrossHostFolderMove,
   applyCrossHostFolderPin,
+  applySingleHostFolderReorder,
   commitCrossHostFolderOrder,
   crossHostFolderKey,
   emptyCrossHostFolderOrder,
+  flushCrossHostFolderOrderPersistence,
   folderHostIdentity,
   moveCrossHostFolderOrder,
   parseCrossHostFolderKey,
   parseStoredCrossHostFolderOrder,
+  pruneCrossHostDeletedFolder,
+  pruneCrossHostFolderOrderFolder,
   pruneCrossHostFolderOrderHost,
   readCrossHostFolderOrder,
+  readyCrossHostFolderOrder,
   recordCrossHostFolderPin,
   removeCrossHostFolderOrderHost,
+  reorderSingleHostCrossHostFolderOrder,
   resetCrossHostFolderOrderCache,
   resolveCrossHostFolderOrder,
   saveCrossHostFolderOrder,
@@ -24,6 +30,8 @@ import {
   writeCrossHostFolderOrder,
   type CrossHostFolderSource,
 } from '../client/src/cross-host-folder-order.js';
+import { exportDesktopData, type ExportSink, type ExportSource } from '../client/src/desktop-migration-export.js';
+import { importDesktopData, type ImportSource, type ImportTarget } from '../client/src/desktop-migration-import.js';
 import { buildCrossHostFolderSources } from '../client/src/use-cross-host-folder-order.js';
 
 function makeSource(
@@ -73,7 +81,9 @@ function installMemoryStorage() {
 afterEach(() => {
   resetCrossHostFolderOrderCache();
   delete (globalThis as { localStorage?: unknown }).localStorage;
+  delete (globalThis as { indexedDB?: unknown }).indexedDB;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('cross-host folder order keying and parsing', () => {
@@ -455,7 +465,7 @@ describe('App-local persistence store', () => {
     writeCrossHostFolderOrder(choice);
     unmount();
     const remount = subscribeCrossHostFolderOrder(() => {});
-    try { expect(readCrossHostFolderOrder()).toEqual(choice); }
+    try { expect(readCrossHostFolderOrder()).toMatchObject(choice); }
     finally { remount(); }
   });
 
@@ -484,7 +494,110 @@ describe('App-local persistence store', () => {
     expect(readCrossHostFolderOrder().ordinary).not.toContain(k('keyB', 'b1'));
     expect(readCrossHostFolderOrder().ordinary).toContain(k('keyA', null));
 
-    writeCrossHostFolderOrder(emptyCrossHostFolderOrder());
+    writeCrossHostFolderOrder(emptyCrossHostFolderOrder(), { fromSync: true });
     expect(map.has(CROSS_HOST_FOLDER_ORDER_KEY)).toBe(false);
+  });
+
+  it('propagates single-host FolderManager reorders and folder deletions into combined cross-host order', () => {
+    installMemoryStorage();
+    const hostA = makeSource('a', 'keyA', 'Host Alpha', [{ id: 'a1', name: 'A1' }, { id: 'a2', name: 'A2' }]);
+    const hostB = makeSource('b', 'keyB', 'Host Beta', [{ id: 'b1', name: 'B1' }]);
+    const sources = [hostA, hostB];
+
+    // Interleaved cross-host order: A1 -> B1 -> A2 -> A/unfiled -> B/unfiled.
+    saveCrossHostFolderOrder(sources, [
+      k('keyA', 'a1'), k('keyB', 'b1'), k('keyA', 'a2'), k('keyA', null), k('keyB', null),
+    ]);
+
+    // Single-host FolderManager reorders Host A to [a2, a1, null]. Host B stays anchored in slot 1!
+    const nextHostA: ConversationFoldersState = {
+      revision: 2,
+      folders: [{ id: 'a2', name: 'A2' }, { id: 'a1', name: 'A1' }],
+      assignments: [],
+    };
+    const pureReordered = reorderSingleHostCrossHostFolderOrder(readCrossHostFolderOrder(), 'keyA', nextHostA, ['a2', 'a1', null]);
+    expect(describeOrder([{ ...hostA, folders: nextHostA }, hostB], pureReordered)).toEqual([
+      'keyA/a2', 'keyB/b1', 'keyA/a1', 'keyA/unfiled', 'keyB/unfiled',
+    ]);
+
+    applySingleHostFolderReorder('keyA', nextHostA, ['a2', 'a1', null]);
+    expect(describeOrder([{ ...hostA, folders: nextHostA }, hostB], readCrossHostFolderOrder())).toEqual([
+      'keyA/a2', 'keyB/b1', 'keyA/a1', 'keyA/unfiled', 'keyB/unfiled',
+    ]);
+
+    const purePruned = pruneCrossHostFolderOrderFolder(readCrossHostFolderOrder(), 'keyA', 'a1');
+    expect(purePruned.ordinary).not.toContain(k('keyA', 'a1'));
+    pruneCrossHostDeletedFolder('keyA', 'a1');
+    expect(readCrossHostFolderOrder().ordinary).not.toContain(k('keyA', 'a1'));
+  });
+
+  it('includes tarobird-cross-host-folder-order-v1 in desktop migration export and import', async () => {
+    const orderPayload = JSON.stringify({
+      version: 1,
+      updatedAt: 12345,
+      pinned: [k('hubA', 'f1')],
+      ordinary: [k('hubB', 'f2'), k('hubA', null)],
+    });
+    const parts: string[] = [];
+    const hostIdA = `hub_${'a'.repeat(64)}`;
+    const registryHosts = [{ id: hostIdA, name: 'Host A', publicKey: 'hubA', deviceId: 'dev1', databaseName: 'tarocub-v1', registrationId: 'r1', createdAt: 1, state: 'ready' }];
+    const source: ExportSource = {
+      async database(name) { return name === 'tarocub-hosts-v1' ? { version: 2 } : undefined; },
+      async *records(name, store) {
+        if (name === 'tarocub-hosts-v1' && store === 'hosts') yield { key: hostIdA, value: registryHosts[0] };
+      },
+      *localStorage() {
+        yield [CROSS_HOST_FOLDER_ORDER_KEY, orderPayload];
+        yield ['unrelated-key', 'skip-me'];
+      },
+    };
+    let committedMeta: any;
+    const sink: ExportSink = {
+      async begin() { return '00000000-0000-0000-0000-000000000001'; },
+      async part(_index, text) { parts.push(text); },
+      async blob() { return '0'.repeat(64); },
+      async commit(meta) { committedMeta = meta; return { exportId: '00000000-0000-0000-0000-000000000001', records: 2, bytes: parts.join('').length }; },
+      async abort() {},
+    };
+    const exported = await exportDesktopData(source, sink, { appVersion: '1.6.0' });
+    expect(exported.state).toBe('exported');
+    const joined = parts.join('');
+    expect(joined).toContain(CROSS_HOST_FOLDER_ORDER_KEY);
+    expect(joined).not.toContain('unrelated-key');
+
+    const importedLocal: [string, string][] = [];
+    const importTarget: ImportTarget = {
+      async state() { return { hosts: 0, candidates: 0, registryVersion: 2 }; },
+      async inspect() { return { exists: false, records: 0 }; },
+      async databases() { return []; },
+      async prepare() { return 1; },
+      async claim() {},
+      async put() {},
+      async commitRegistry() {},
+      async setLocalStorage(entries) { importedLocal.push(...entries); },
+      async finishLocalStorage() {},
+    };
+    const importSource: ImportSource = {
+      manifest: {
+        format: 'tarobot-desktop-migration',
+        version: 1,
+        exportId: '00000000-0000-0000-0000-000000000001',
+        createdAt: 1,
+        installation: 'test',
+        source: { app: 'tauri', appVersion: '1.6.0' },
+        databases: committedMeta.databases.map((d: any) => ({ ...d, stores: d.name === 'tarocub-hosts-v1' ? { hosts: 1 } : {} })),
+        localStorage: 1,
+        parts: [{ file: '000000.jsonl', bytes: joined.length, sha256: 'a'.repeat(64), records: 2 }],
+        blobs: [],
+        totals: { records: 2, blobs: 0 },
+        skipped: [],
+        requiresRepair: [],
+      } as any,
+      part: async () => joined,
+      blob: async () => new Uint8Array(),
+    };
+    const imported = await importDesktopData(importSource, importTarget);
+    expect(imported.state).toBe('imported');
+    expect(importedLocal).toEqual([[CROSS_HOST_FOLDER_ORDER_KEY, orderPayload]]);
   });
 });

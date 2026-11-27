@@ -52,14 +52,15 @@ test("busy chat notifications do not postpone a changed workbench registration",
   await page.clock.install();
   await page.evaluate(() => {
     const f = (window as any).workbenchRegistrationFixture;
-    f.connection.state.workbenchDesignAvailable = true;
+    f.connection.state.workbenchSlidesAvailable = true;
     f.emit();
     f.noise = setInterval(() => f.emit(), 10);
   });
   await page.clock.runFor(250);
   const registered = await page.evaluate(() => (window as any).workbenchRegistrationFixture.sent.filter((frame: any) => frame.type === "workbench.register"));
   expect(registered).toHaveLength(2);
-  expect(registered[1].registration.capabilities).toContain("design.v1");
+  expect(registered[1].registration.capabilities).toContain("design.slides.v1");
+  expect(registered[1].registration.capabilities).not.toContain("design.v1");
   await page.evaluate(() => {
     const f = (window as any).workbenchRegistrationFixture;
     clearInterval(f.noise); f.connection.state.workbenchMarkdownAvailable = true; f.emit();
@@ -69,7 +70,7 @@ test("busy chat notifications do not postpone a changed workbench registration",
   // A pending old-session window is cancelled on offline/epoch replacement.
   await page.evaluate(() => {
     const f = (window as any).workbenchRegistrationFixture;
-    f.connection.state.workbenchSlidesAvailable = true; f.emit();
+    f.connection.state.workbenchDesignAvailable = true; f.emit();
     f.connection.state.status = "offline"; f.emit();
   });
   await page.clock.runFor(160);
@@ -80,5 +81,7 @@ test("busy chat notifications do not postpone a changed workbench registration",
   });
   await page.clock.runFor(160);
   const final = await page.evaluate(() => (window as any).workbenchRegistrationFixture.sent);
-  expect(final).toHaveLength(4); expect(final[3].registration.capabilities).toContain("design.slides.v1");
+  expect(final).toHaveLength(4);
+  expect(final[3].registration.capabilities).toContain("design.slides.v1");
+  expect(final[3].registration.capabilities).toContain("design.v1");
 });

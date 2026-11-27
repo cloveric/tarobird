@@ -1,5 +1,6 @@
 import type { BoardTaskRecord } from "../state/board-store.js";
 import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 
 export function renderCoreBoardTaskCard(input: {
   task: BoardTaskRecord;
@@ -105,9 +106,17 @@ function boardLabels(locale: Locale): {
   approve: string;
   reject: string;
 } {
-  return locale === "en"
-    ? { title: "Board task", ready: "Ready", run: "Run", heartbeat: "Heartbeat", done: "Done", block: "Block", unblock: "Unblock", approve: "Approve", reject: "Reject" }
-    : { title: "Board 任务", ready: "标记 Ready", run: "运行", heartbeat: "心跳", done: "完成", block: "阻塞", unblock: "解除阻塞", approve: "通过", reject: "退回" };
+  return {
+    title: hostT(locale, "Board 任务"),
+    ready: hostT(locale, "标记 Ready"),
+    run: hostT(locale, "运行"),
+    heartbeat: hostT(locale, "心跳"),
+    done: hostT(locale, "完成"),
+    block: hostT(locale, "阻塞"),
+    unblock: hostT(locale, "解除阻塞"),
+    approve: hostT(locale, "通过"),
+    reject: hostT(locale, "退回"),
+  };
 }
 
 function callbackBehavior(value: Record<string, unknown>): Record<string, unknown> {

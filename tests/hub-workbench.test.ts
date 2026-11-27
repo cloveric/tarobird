@@ -124,8 +124,8 @@ describe('authenticated workbench command lifecycle', () => {
     expect(commands).toHaveLength(0);
   });
   it('routes Design only to its capable exact tab and requires durable mutation receipts', async () => {
-    await expect(broker.request(actor,{requestId:'no-design-cap',operation:'design.create'})).rejects.toThrow('workbench_capability_unsupported');
-    await broker.register(peer,{...registration,capabilities:[...registration.capabilities,'design.v1'],tabs:[...registration.tabs,{id:'design',kind:'design',title:'Design',revision:0}],activeTabId:'design'});
+    await expect(broker.request(actor,{requestId:'no-design-cap',operation:'design.create',payload:{format:'slides'}})).rejects.toThrow('workbench_capability_unsupported');
+    await broker.register(peer,{...registration,capabilities:[...registration.capabilities,'design.slides.v1'],tabs:[...registration.tabs,{id:'design',kind:'design',designFormat:'slides',title:'PPT',revision:0}],activeTabId:'design'});
     expect(await broker.request(actor,{requestId:'wrong-design-kind',operation:'whiteboard.read'})).toMatchObject({status:'not_executed',error:'workbench_wrong_kind'});
     // Design reads/edits name their exact tab; the original payload/revision errors still apply.
     const designTarget={deviceId:'device',windowId:'window',tabId:'design'};

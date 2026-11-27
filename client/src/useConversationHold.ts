@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { addGlobalListener } from "./global-event-hub.js";
 
 /** Inbox rows and folder headings are controls, not selectable message text. Keep native scrolling
  * and cancel a hold as soon as the finger, list or active surface moves. */
@@ -40,26 +41,20 @@ export function useConversationHold(root: RefObject<HTMLElement | null>, scope: 
       if (touchGesture || pending || Date.now() < suppressClickUntil || event instanceof PointerEvent && event.pointerType === "touch") event.stopImmediatePropagation();
     };
     const click = (event: MouseEvent) => { if (event.detail > 0 && Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); suppressClickUntil = 0; } };
-    document.addEventListener("pointerdown", down, true);
-    document.addEventListener("pointermove", move, true);
-    document.addEventListener("pointerup", up, true);
-    document.addEventListener("pointercancel", up, true);
-    document.addEventListener("scroll", scroll, true);
-    document.addEventListener("contextmenu", context, true);
-    document.addEventListener("click", click, true);
-    document.addEventListener("visibilitychange", cancel);
-    window.addEventListener("blur", cancel);
+    const cleanups = [
+      addGlobalListener(document, "pointerdown", down, { capture: true }),
+      addGlobalListener(document, "pointermove", move, { capture: true }),
+      addGlobalListener(document, "pointerup", up, { capture: true }),
+      addGlobalListener(document, "pointercancel", up, { capture: true }),
+      addGlobalListener(document, "scroll", scroll, { capture: true }),
+      addGlobalListener(document, "contextmenu", context, { capture: true }),
+      addGlobalListener(document, "click", click, { capture: true }),
+      addGlobalListener(document, "visibilitychange", cancel),
+      addGlobalListener(window, "blur", cancel),
+    ];
     return () => {
       cancel();
-      document.removeEventListener("pointerdown", down, true);
-      document.removeEventListener("pointermove", move, true);
-      document.removeEventListener("pointerup", up, true);
-      document.removeEventListener("pointercancel", up, true);
-      document.removeEventListener("scroll", scroll, true);
-      document.removeEventListener("contextmenu", context, true);
-      document.removeEventListener("click", click, true);
-      document.removeEventListener("visibilitychange", cancel);
-      window.removeEventListener("blur", cancel);
+      for (const cleanup of cleanups) cleanup();
     };
   }, [root, scope, enabled, selector]);
 }

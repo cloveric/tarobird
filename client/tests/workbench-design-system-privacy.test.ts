@@ -10,8 +10,8 @@ const brandDocument = () => validateDesignDocument({ schema: 1, id: "brand", for
 } });
 
 describe("portable design system provenance and assets", () => {
-  it.each(["canvas", "slides"] as const)("keeps local routing identities out of copied %s project files", format => {
-    const source = brandDocument(), target = emptyDesignDocument("target", "Target", format);
+  it("keeps local routing identities out of copied slides project files", () => {
+    const source = brandDocument(), target = emptyDesignDocument("target", "Target", "slides");
     const installed = applyDesignFiles(target, designSystemInstall(target, source, identity));
     const meta = JSON.parse(read(installed.files[metaPath]!));
     expect(meta).toMatchObject({ schema: 2, sourceRef: expect.stringMatching(/^[a-f0-9]{64}$/), title: "Brand" });
@@ -28,23 +28,26 @@ describe("portable design system provenance and assets", () => {
     source.files[`project/assets/${id}`] = asset;
     source.files["project/Logo.dc.html"] = designTextFile(`<img src="/_blob/${id}"><img src="./_blob/${id}">`, "text/html");
     source.files["project/theme.css"] = designTextFile(`.logo{background-image:url(_blob/${id})}`, "text/css");
-    const target = emptyDesignDocument("target", "Target", "canvas"), installed = applyDesignFiles(target, designSystemInstall(target, source, identity));
-    const expected = `/project/ds/system-brand/assets/${id}`;
+    const target = emptyDesignDocument("target", "Target", "slides"), installed = applyDesignFiles(target, designSystemInstall(target, source, identity));
+    // A deck gets the form the presentation editor's compiler accepts (#90): a project
+    // path without a leading slash, which that editor resolves from the document root
+    // and never from the nested file's own directory. 1.6.0 wrote "/project/ds/…" here.
+    const expected = `project/ds/system-brand/assets/${id}`;
     expect(read(installed.files["project/ds/system-brand/Logo.dc.html"]!)).toBe(`<img src="${expected}"><img src="${expected}">`);
     expect(read(installed.files["project/ds/system-brand/theme.css"]!)).toContain(`url(${expected})`);
-    expect(new URL(expected, "https://design.invalid/project/ds/system-brand/Logo.dc.html").pathname).toBe(expected);
-    expect(installed.files[expected.slice(1)]).toEqual(asset);
+    expect(new URL(expected, "https://design.invalid/").pathname).toBe(`/${expected}`);
+    expect(installed.files[expected]).toEqual(asset);
   });
 
   it("migrates a matching legacy copy on sync without accepting another source or losing local edits", () => {
-    const source = brandDocument(), target = emptyDesignDocument("target", "Target", "canvas");
+    const source = brandDocument(), target = emptyDesignDocument("target", "Target", "slides");
     const installed = applyDesignFiles(target, designSystemInstall(target, source, identity));
     const hashes = JSON.parse(read(installed.files[metaPath]!)).hashes;
-    const index = JSON.parse(read(installed.files["project/canvas.json"]!));
+    const index = JSON.parse(read(installed.files["project/deck.json"]!));
     index.designSystems[0].artifact = `tarobot-design:${encodeURIComponent(identity.scope)}/${identity.id}`;
     const legacy: DesignDocument = { ...installed, files: { ...installed.files,
       [metaPath]: designTextFile(JSON.stringify({ schema: 1, ...identity, revision: 0, hashes }), "application/json"),
-      "project/canvas.json": designTextFile(JSON.stringify(index), "application/json"),
+      "project/deck.json": designTextFile(JSON.stringify(index), "application/json"),
     } };
     const migrated = applyDesignFiles(legacy, designSystemInstall(legacy, { ...source, revision: 1 }, identity));
     expect(JSON.parse(read(migrated.files[metaPath]!))).toMatchObject({ schema: 2, revision: 1 });

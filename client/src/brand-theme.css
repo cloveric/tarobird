@@ -70,6 +70,9 @@
   --card-blue-bg:#e9eef7; --card-blue-fg:#2c4f86; --card-green-bg:#e7f3eb; --card-green-fg:#1d6f3f; --card-orange-bg:#fbf0dd; --card-orange-fg:#8a5200; --card-red-bg:#fcebea; --card-red-fg:#b02f2f;
   font-family:var(--font-sans); color-scheme:light;
 }
+:root[lang^="ja"]{
+  --font-sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Yu Gothic","Meiryo","Noto Sans JP","Noto Sans CJK JP",sans-serif;
+}
 /* ---------- Tokens: dark (explicit, and system on a dark OS) ---------- */
 :root[data-theme=dark]{
 
@@ -344,7 +347,8 @@ kbd{font:500 11px/1 var(--font-sans);color:var(--muted)}
 .header-title h1{font-size:15.5px;font-weight:650;letter-spacing:-.012em;line-height:1.3}
 .header-heading-row{display:flex;align-items:center;gap:8px;min-width:0}
 .header-heading-row>h1{flex:0 1 auto;min-width:0}
-.header-bot-name{flex:0 0 auto;max-width:8em;min-width:0;padding:2px 6px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.4;font-weight:500}
+/* The conversation title comes first: in a tight header the Bot name gives up its width before the title does. */
+.header-bot-name{flex:0 1000 auto;max-width:8em;min-width:0;padding:2px 6px;border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--surface);color:var(--muted);font-size:12px;line-height:1.4;font-weight:500}
 .header-heading-row>.header-activity{flex-shrink:0;max-width:50%}
 .header-heading-row>.header-bot-name~.header-activity{max-width:none}
 .header-title>span{margin-top:1px;overflow:hidden;font-size:12px;line-height:1.4;white-space:nowrap;text-overflow:ellipsis;color:var(--muted)}

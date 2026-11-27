@@ -11,6 +11,29 @@ export class ChatQueue {
   // Per-conversation set of currently-queued task ids (for targeted cancel).
   private readonly pendingTaskIds = new Map<string | number, Set<string>>();
   private readonly cancelledTaskIds = new Map<string | number, Set<string>>();
+  private readonly pauses = new Map<string | number, { until: Promise<void>; controller: AbortController }>();
+
+  pause(chatId: string | number): { signal: AbortSignal; release(): void } | undefined {
+    if (this.pauses.has(chatId)) return;
+    const controller = new AbortController();
+    let resume!: () => void;
+    const until = new Promise<void>(resolve => { resume = resolve; });
+    const pause = { until, controller };
+    this.pauses.set(chatId, pause);
+    return { signal: controller.signal, release: () => {
+      if (this.pauses.get(chatId) !== pause) return;
+      this.pauses.delete(chatId);
+      resume();
+    } };
+  }
+
+  pausedUntil(chatId: string | number): Promise<void> | undefined {
+    return this.pauses.get(chatId)?.until;
+  }
+
+  abortPauses(matches: (chatId: string | number) => boolean): void {
+    for (const [chatId, pause] of this.pauses) if (matches(chatId)) pause.controller.abort();
+  }
 
   enqueue<T>(
     chatId: string | number,
@@ -33,7 +56,7 @@ export class ChatQueue {
       this.pendingTaskIds.set(chatId, set);
     }
     let waitTimer: ReturnType<typeof setTimeout> | undefined;
-    if (existing && options.onWait && options.waitNotifyAfterMs !== undefined && options.waitNotifyAfterMs >= 0) {
+    if ((existing || this.pausedUntil(chatId)) && options.onWait && options.waitNotifyAfterMs !== undefined && options.waitNotifyAfterMs >= 0) {
       waitTimer = setTimeout(() => {
         void Promise.resolve(options.onWait?.({
           chatId,
@@ -44,6 +67,7 @@ export class ChatQueue {
     }
     this.pendingCounts.set(chatId, (this.pendingCounts.get(chatId) ?? 0) + 1);
     const run = previous.catch(() => undefined).then(async () => {
+      for (let pause; (pause = this.pausedUntil(chatId));) await pause;
       if (waitTimer) {
         clearTimeout(waitTimer);
         waitTimer = undefined;
@@ -147,9 +171,9 @@ export class ChatQueue {
   }
 
   isBusy(chatId: string | number): boolean {
-    return this.queues.has(chatId);
+    return this.queues.has(chatId) || this.pauses.has(chatId);
   }
 
   /** Includes admitted jobs doing setup before they claim an engine run slot. */
-  busyKeys(): Array<string | number> { return [...this.queues.keys()]; }
+  busyKeys(): Array<string | number> { return [...new Set([...this.queues.keys(), ...this.pauses.keys()])]; }
 }

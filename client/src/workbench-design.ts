@@ -72,9 +72,9 @@ export function emptySlides(id: string, title = "PPT"): DesignDocument {
   } };
 }
 /** Both editors retain the same atomic, revisioned project store. */
-export function emptyDesignDocument(id: string, title: string, format: DesignFormat = "canvas"): DesignDocument {
-  if (format === "canvas") return emptyDesign(id,title);
-  if (format === "slides") return emptySlides(id,title);
+export function emptyDesignDocument(id: string, title: string, format: DesignFormat = "slides"): DesignDocument {
+  if (format === "slides") return emptySlides(id, title);
+  if (format === "canvas") throw new Error("design_canvas_removed");
   throw new Error("design_format_unsupported");
 }
 const wireEntry = z.object({ base64: fileSchema.shape.base64, contentType: fileSchema.shape.contentType, ifMatch: z.string().nullable().optional() }).strict();

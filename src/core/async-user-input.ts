@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 
 const option = z.union([z.string().trim().min(1), z.object({ label: z.string().trim().min(1), description: z.string().optional(), preview: z.string().optional() })]);
 const payload = z.object({ questions: z.array(z.object({
@@ -19,7 +20,7 @@ export function normalizeAsyncUserInput(raw: unknown, locale: Locale) {
     let question = text;
     while (used.has(question)) question += ` (${index + 1})`;
     used.add(question);
-    return { question, header: item.header ?? (locale === "en" ? `Question ${index + 1}` : `问题 ${index + 1}`),
+    return { question, header: item.header ?? hostT(locale, "问题 {0}", index + 1),
       options: item.options ?? [], multiSelect: item.multiSelect ?? item.multi_select ?? false,
       required: item.required !== false, allowFreeText: true };
   }) };

@@ -6,8 +6,9 @@ import { createServer } from "./fixtures/vite.js";
 type Fixture = {
   configure(platform: string, behavior?: Record<string, { fail?: number; hold?: boolean; replay?: unknown; remove?: "throw" | "reject"; removeEmit?: { name: string; value: unknown } }>, launch?: string): void;
   mountHost(): void; mountUpdates(): Promise<void>; unmountUpdates(): void; mountWorkspace(): Promise<void>; start(kind: "native" | "push"): void; stop(): void; emit(name: string, value: unknown): void; release(name: string): void;
+  setAcceptNavigate(value: boolean): void; navigationReady(): void;
   enable(): void;
-  snapshot(): { resumes: number; enabling: string; navigations: { conversationId: string; hostId?: string }[]; errors: string[]; calls: string[]; handles: { name: string; removeCalls: number }[] };
+  snapshot(): { resumes: number; enabling: string; navigations: { conversationId: string; hostId?: string }[]; errors: string[]; active: boolean; activeChanges: boolean[]; calls: string[]; handles: { name: string; removeCalls: number }[] };
 };
 declare global { interface Window { nativeEventsFixture: Fixture } }
 let server: ViteDevServer;
@@ -382,4 +383,62 @@ test("Android settings share startup checks without duplicating or prematurely r
   expect((await snap(page)).handles.filter(h => h.name === "android-update-state").map(h => h.removeCalls)).toEqual([0]);
   await page.evaluate(() => window.nativeEventsFixture.stop());
   await expect.poll(async () => (await snap(page)).handles.filter(h => h.name === "android-update-state").map(h => h.removeCalls)).toEqual([1]);
+});
+
+test("Android FCM stringified timestamps navigate cleanly while invalid strings stay rejected", async ({ page }) => {
+  await page.evaluate(() => { const f = window.nativeEventsFixture; f.configure("android"); f.start("push"); });
+  await expect.poll(async () => (await snap(page)).calls).toContain("pushNotificationActionPerformed");
+  await page.evaluate(() => {
+    const f = window.nativeEventsFixture;
+    const base = { id: "fcm_notice", title: "TaroCub", body: "Done", conversationId: "fcm_chat", messageId: "fcm_msg", hostId: "hub_" + "a".repeat(64), kind: "answer" };
+    f.emit("pushNotificationActionPerformed", { notification: { data: { ...base, at: "not-a-number" } } });
+    f.emit("pushNotificationActionPerformed", { notification: { data: { ...base, at: "1795670007891" } } });
+  });
+  expect((await snap(page)).navigations).toEqual([{ conversationId: "fcm_chat", messageId: "fcm_msg", hostId: "hub_" + "a".repeat(64) }]);
+});
+
+test("Android cold-start notification tap retries once hosts become ready and yields to user interaction", async ({ page }) => {
+  await page.evaluate(() => { const f = window.nativeEventsFixture; f.configure("android"); f.start("native"); });
+  await expect.poll(async () => (await snap(page)).calls).toContain("appUrlOpen");
+  // First attempt is unhandled (host still connecting), then ready triggers retry and accepts it.
+  await page.evaluate(() => {
+    const f = window.nativeEventsFixture;
+    f.setAcceptNavigate(false);
+    f.emit("appUrlOpen", { url: "tarocub://conversation/cold_chat?message=cold_msg" });
+    f.setAcceptNavigate(true);
+    f.navigationReady();
+    // Second ready does not replay an already accepted link.
+    f.navigationReady();
+  });
+  expect((await snap(page)).navigations).toEqual([
+    { conversationId: "cold_chat", messageId: "cold_msg" },
+    { conversationId: "cold_chat", messageId: "cold_msg" },
+  ]);
+  // A deferred link is cancelled once the user explicitly clicks before navigation becomes ready.
+  await page.evaluate(() => {
+    const f = window.nativeEventsFixture;
+    f.setAcceptNavigate(false);
+    f.emit("appUrlOpen", { url: "tarocub://conversation/cancelled_chat?message=m2" });
+  });
+  await page.mouse.click(10, 10);
+  await page.evaluate(() => {
+    const f = window.nativeEventsFixture;
+    f.setAcceptNavigate(true);
+    f.navigationReady();
+  });
+  expect((await snap(page)).navigations.filter((n) => n.conversationId === "cancelled_chat")).toHaveLength(1);
+});
+
+test("Android appStateChange publishes inactive and active native presence transitions", async ({ page }) => {
+  await page.evaluate(() => { const f = window.nativeEventsFixture; f.configure("android"); f.start("native"); });
+  await expect.poll(async () => (await snap(page)).calls).toContain("appStateChange");
+  await page.evaluate(() => {
+    const f = window.nativeEventsFixture;
+    f.emit("appStateChange", { isActive: false });
+    f.emit("appStateChange", { isActive: true });
+  });
+  const state = await snap(page);
+  expect(state.activeChanges).toEqual([false, true]);
+  expect(state.active).toBe(true);
+  expect(state.resumes).toBe(1);
 });

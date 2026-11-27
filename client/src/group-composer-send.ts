@@ -8,10 +8,12 @@ import type { GroupComposerIntent } from "./group-composer-intent.js";
 import type { WorkbenchDraft } from "./workbench-draft.js";
 import { t } from "./i18n.js";
 import { LEGACY_GROUP_REPLY_REVISION, unknownGroupReplyMode, unavailableGroupReplyGuard } from "./group-reply-guard.js";
+import type { SendTimingTrace } from "./send-timing.js";
 
 export type GroupReplyMode = {
   conversationId: string; mode: GroupDiscussionView["settings"]["policy"]["mode"]; revision: string;
   botOrder?: string[];
+  designatedName?: string;
   activeRun?: Pick<NonNullable<GroupDiscussionView["run"]>, "id" | "conversationId"> & Partial<Pick<NonNullable<GroupDiscussionView["run"]>, "revision" | "status" | "topic" | "pauseReason" | "actions" | "participants">>;
   delivery?: "guarded" | "legacy" | "unguarded";
 };
@@ -50,7 +52,7 @@ export function discussionSendProblem(error: unknown): string {
  * the topic dialog/CLI. No ordinary @ fan-out is allowed in discussion mode.
  * Persist the exact pending body before HTTP: a lost reply/reload must not
  * turn a retry into a second run or into a supplemental ordinary message. */
-export async function sendGroupComposerMessage(connection: HubConnection, frame: MessageSend, mode: GroupReplyMode | undefined, signal: AbortSignal, accept?: (value: GroupReplyMode) => void, currentMode?: () => GroupReplyMode | undefined, intent?: GroupComposerIntent, designComments?: WorkbenchDraft): Promise<(() => Promise<void>) | undefined> {
+export async function sendGroupComposerMessage(connection: HubConnection, frame: MessageSend, mode: GroupReplyMode | undefined, signal: AbortSignal, accept?: (value: GroupReplyMode) => void, currentMode?: () => GroupReplyMode | undefined, intent?: GroupComposerIntent, designComments?: WorkbenchDraft, timing?: SendTimingTrace): Promise<(() => Promise<void>) | undefined> {
   const key = `discussion-composer:${frame.conversationId}`;
   const signature = JSON.stringify([frame.text, frame.attachments, frame.replyTo ?? null]);
   let saved: z.infer<typeof pendingSchema> | undefined;
@@ -81,7 +83,9 @@ export async function sendGroupComposerMessage(connection: HubConnection, frame:
     const legacy = mode!.delivery === "legacy";
     const guarded = connection.state.groupReplyGuardAvailable || mode!.delivery === "guarded";
     if (!legacy && !guarded && connection.state.status !== "online") throw new Error(unavailableGroupReplyGuard());
-    const message = { ...frame, ...(legacy || guarded ? { groupReplyGuard: { mode: mode!.mode as "mentions" | "parallel", revision: legacy ? LEGACY_GROUP_REPLY_REVISION : mode!.revision } } : {}) };
+    const message = { ...frame, ...(legacy || guarded ? { groupReplyGuard: { mode: mode!.mode as "designated" | "mentions" | "parallel", revision: legacy ? LEGACY_GROUP_REPLY_REVISION : mode!.revision } } : {}) };
+    timing?.setRoute("queue");
+    timing?.setClientMsgId(frame.clientMsgId);
     if (designComments?.context.kind === "design") await connection.send(message, designComments); else await connection.send(message);
     return;
   }
@@ -102,6 +106,8 @@ export async function sendGroupComposerMessage(connection: HubConnection, frame:
   if (!retry && !active && participants?.length === 1) {
     if (!recovery) throw new Error(t("更新主机后可在讨论模式中点名单个 Bot，内容已保留。"));
     const message = { ...frame, mentions: participants, groupReplyGuard: { mode: mode!.mode, revision: mode!.revision } };
+    timing?.setRoute("queue");
+    timing?.setClientMsgId(frame.clientMsgId);
     if (designComments?.context.kind === "design") await connection.send(message, designComments); else await connection.send(message);
     return;
   }
@@ -128,9 +134,14 @@ export async function sendGroupComposerMessage(connection: HubConnection, frame:
   }
   const serialized = JSON.stringify(pending);
   await connection.cache.saveDraft(key, serialized);
+  timing?.setRoute(pending.kind === "note" ? "discussion_note" : "discussion_start");
+  timing?.setMatchText(pending.body.text);
   try {
     const route = `/api/conversations/${frame.conversationId}/discussion${pending.kind === "note" ? `/${pending.runId}/notes` : ""}`;
     const view = groupDiscussionViewSchema.parse(await connection.http(route, { method: "POST", body: JSON.stringify(pending.body), signal: anySignal([signal, timeoutSignal(30_000)]) }));
+    timing?.mark("outboxFlushSentAt");
+    const messageId = pending.kind === "start" ? view.run?.topicMessageId : view.run?.latestNote?.messageId;
+    if (messageId) timing?.setClientMsgId(undefined, messageId);
     accept?.(groupReplyModeFromView(frame.conversationId, view));
   } catch (error) {
     if (error instanceof HubHttpError && error.status >= 400 && error.status < 500) await connection.cache.clearDraftIfMatches(key, serialized);

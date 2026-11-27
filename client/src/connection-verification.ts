@@ -10,6 +10,19 @@ export function deviceStorageErrorMessage(error: unknown): string | undefined {
   return undefined;
 }
 
+const NATIVE_LIFECYCLE_ERRORS = new Set([
+  "native_document_retired",
+  "native_document_unavailable",
+  "native_view_unavailable",
+  "native_transport_unavailable",
+]);
+
+/** Return the machine-readable code if `error` is a local native lifecycle failure. */
+export function nativeLifecycleErrorCode(error: unknown): string | undefined {
+  const code = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return NATIVE_LIFECYCLE_ERRORS.has(code) ? code : undefined;
+}
+
 /** Native IPC rejects with strings as well as Errors. Never expose a raw
  * implementation code (or validation dump) as the user's recovery guidance. */
 export function connectionErrorMessage(error: unknown): string {
@@ -25,33 +38,95 @@ export function connectionErrorMessage(error: unknown): string {
   if (code === "local_cache_preparation_timeout") return t("本地消息缓存准备超时，请退出并重新打开 TaroBird。历史消息和草稿仍保留。");
   if (["local_cache_unavailable", "local_cache_closed"].includes(code)) return t("本地消息缓存已关闭，自动重连已停止。请关闭其他 TaroBird 窗口后重新打开应用；不要清除应用数据。");
   if (["device_key_unavailable", "device_key_invalid", "system_keychain_unavailable"].includes(code)) return t("无法读取此设备的配对密钥，请解锁系统钥匙串后重试；仍无法连接时，请重新配对。");
-  if (["native_document_retired", "native_document_unavailable", "native_view_unavailable"].includes(code)) return t("连接组件已失效，请重新打开 TaroBird。配对信息和草稿仍保留。");
+  if (NATIVE_LIFECYCLE_ERRORS.has(code)) return t("连接组件已失效，请重新打开 TaroBird。配对信息和草稿仍保留。");
   if (["native_socket_timeout", "native_request_timeout", "connection_handshake_timeout"].includes(code)) return t("主机响应超时，正在自动重试。请确认主机仍在运行。");
+  if (code === "local_network_permission_denied") return t("TaroBird 没有获得“本地网络”权限，无法访问局域网主机。请在设备的「设置 → 隐私与安全性 → 本地网络」中允许 TaroBird，然后重试。");
+  if (["native_dns_failed", "native_host_unreachable", "native_connection_refused", "native_connection_reset"].includes(code)) return t("暂时无法连接到主机地址，正在自动重试。请检查网络、代理或端口转发状态。");
   if (code && code.length < 240 && !/^[a-z_]+$/.test(code) && !code.startsWith("[")) return code;
   return t("连接中断，正在自动重试。请检查主机和网络状态。");
+}
+
+const KNOWN_DIAGNOSTIC_CODES = new Set([
+  "tls_identity_mismatch",
+  "hub_tls_identity_required",
+  "invalid_hub_key",
+  "trusted_hub_key_required",
+  "invalid_host_authority",
+  "native_tls_untrusted",
+  "native_tls_hostname_mismatch",
+  "native_tls_cert_expired",
+  "native_tls_cert_policy_rejected",
+  "native_tls_challenge_rejected",
+  "native_tls_handshake_failed",
+  "native_tls_identity_unavailable",
+  "native_ats_blocked",
+  "native_request_timeout",
+  "native_dns_failed",
+  "native_host_unreachable",
+  "native_connection_refused",
+  "native_connection_reset",
+  "native_network_offline",
+  "local_network_permission_denied",
+  "native_transport_failed",
+  "hub_unavailable",
+]);
+
+/** Extract a whitelisted machine-readable diagnostic code for optional technical
+ * troubleshooting disclosures without exposing arbitrary error strings or PII. */
+export function connectionDiagnosticCode(error: unknown): string | undefined {
+  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) return "pairing_probe_timeout";
+  const code = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+  return code && KNOWN_DIAGNOSTIC_CODES.has(code) ? code : undefined;
 }
 
 /** Keep native diagnostics machine-readable; translate only at the UI boundary. */
 export function connectionVerificationFailure(error: unknown): ConnectionVerificationFailure | undefined {
   const code = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
   if (code === "tls_identity_mismatch") return "identity-mismatch";
-  if (code === "hub_tls_identity_required") return "verification-unavailable";
+  if (code === "hub_tls_identity_required" || code === "native_tls_identity_unavailable") return "verification-unavailable";
   if (code === "invalid_hub_key" || code === "trusted_hub_key_required") return "invalid-key";
+  if (code === "native_tls_hostname_mismatch") return "hostname-mismatch";
+  if (code === "native_tls_cert_expired") return "certificate-expired";
+  if (code === "native_tls_cert_policy_rejected" || code === "native_ats_blocked") return "certificate-policy";
+  if (code === "native_tls_handshake_failed") return "tls-handshake";
   return undefined;
 }
 export function connectionVerificationMessage(failure: ConnectionVerificationFailure | undefined, context: "pairing" | "paired" = "pairing"): string | undefined {
   if (context === "paired" && failure === "identity-mismatch") return t("主机身份校验未通过，请先核对连接地址。若确认主机已重装或更换身份，请重新配对。");
   if (context === "paired" && failure === "invalid-key") return t("已保存的主机身份公钥缺失或无效，请重新配对此设备。");
   if (failure === "identity-mismatch") return t("主机身份校验未通过，请核对连接地址和主机身份公钥。");
+  if (failure === "hostname-mismatch") return t("主机 TLS 证书未覆盖当前连接域名或 IP（SAN 不匹配），请更新主机证书后重试。");
+  if (failure === "certificate-expired") return t("主机 TLS 证书已过期或尚未生效，请检查主机与本机系统时间，或重新生成主机证书。");
+  if (failure === "certificate-policy") return t("系统安全策略拒绝了主机证书（如缺少 serverAuth 扩展、有效期过长或 TLS 套件不满足要求），请更新主机证书配置后重试。");
+  if (failure === "tls-handshake") return t("与主机建立 TLS 安全连接失败。请确认目标端口提供 HTTPS 透传，并检查代理或防火墙设置。");
   if (failure === "verification-unavailable") return t("暂时无法完成主机安全验证，请检查主机是否运行、版本是否支持，并核对连接地址。");
   if (failure === "invalid-key") return t("主机身份公钥格式不正确，请重新从主机或已信任设备复制。");
   return undefined;
 }
 export function preferredVerificationFailure(failures: (ConnectionVerificationFailure | undefined)[]): ConnectionVerificationFailure | undefined {
-  return failures.find((value) => value === "invalid-key") ?? failures.find((value) => value === "identity-mismatch") ?? failures.find((value) => value === "verification-unavailable");
+  for (const kind of ["invalid-key", "identity-mismatch", "hostname-mismatch", "certificate-expired", "certificate-policy", "tls-handshake", "verification-unavailable"] as const) {
+    if (failures.includes(kind)) return kind;
+  }
+  return undefined;
+}
+export function preferredVerificationDiagnostic(
+  reasons: readonly unknown[],
+): { failure: ConnectionVerificationFailure | undefined; code: string | undefined } {
+  const entries = reasons.map((reason) => ({
+    failure: connectionVerificationFailure(reason),
+    code: connectionDiagnosticCode(reason),
+  }));
+  const failure = preferredVerificationFailure(entries.map((entry) => entry.failure));
+  const code = (failure ? entries.find((entry) => entry.failure === failure && entry.code)?.code : undefined)
+    ?? entries.find((entry) => entry.code)?.code;
+  return { failure, code };
 }
 export function connectionVerificationLabel(failure: ConnectionVerificationFailure | undefined): string | undefined {
   if (failure === "identity-mismatch") return t("主机身份不匹配");
+  if (failure === "hostname-mismatch") return t("证书域名不匹配");
+  if (failure === "certificate-expired") return t("证书已过期");
+  if (failure === "certificate-policy") return t("证书策略未通过");
+  if (failure === "tls-handshake") return t("TLS 握手失败");
   if (failure === "verification-unavailable") return t("主机安全验证不可用");
   if (failure === "invalid-key") return t("请检查主机公钥");
   return undefined;

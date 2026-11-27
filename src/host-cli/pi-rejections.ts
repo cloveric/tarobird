@@ -7,9 +7,10 @@ import { HostCliError } from "./client.js";
 
 const piLevels = () => PI_THINKING_LEVELS.join(", ");
 
-/** `--thinking` for a conversation, or `--effort` for a Pi Bot: Pi's own levels, or `default`. */
-export function piLevelArgumentError(flag: "--thinking" | "--effort", value: string): Error {
-  return new Error(`${flag} ${value} 不是 Pi 的思考强度。可选：${piLevels()}，或 default（${flag === "--thinking" ? "交还给 Bot 默认" : "跟随模型默认"}）。 / ${flag} ${value} is not a Pi thinking level. Use ${piLevels()}, or default.`);
+/** `--thinking` for a conversation, or `--effort` for a Pi/omp Bot: native levels, or `default`. */
+export function piLevelArgumentError(flag: "--thinking" | "--effort", value: string, engine: "pi" | "omp" = "pi"): Error {
+  const name = engine === "omp" ? "omp" : "Pi";
+  return new Error(`${flag} ${value} 不是 ${name} 的思考强度。可选：${piLevels()}，或 default（${flag === "--thinking" ? "交还给 Bot 默认" : "跟随模型默认"}）。 / ${flag} ${value} is not ${engine === "omp" ? "an omp" : "a Pi"} thinking level. Use ${piLevels()}, or default.`);
 }
 
 /** `--effort` for a Bot of another engine: the values the settings API accepts. */
@@ -40,14 +41,22 @@ export function piSessionRejectionNote(result: PiSessionResult, value: string | 
  * so scripts that look for it still find it.
  */
 export function explainPiModelRejection(error: unknown, settings: ModelSettings, model: string, effort: string | undefined): unknown {
-  if (!(error instanceof HostCliError) || settings.engine !== "pi") return error;
+  if (!(error instanceof HostCliError) || (settings.engine !== "pi" && settings.engine !== "omp")) return error;
+  const isOmp = settings.engine === "omp";
+  const engineName = isOmp ? "omp" : "Pi";
   let text: string | undefined;
   if (error.code === "model_unavailable") {
     const provider = decodePiModel(model)?.provider ?? model;
     const signedIn = settings.choices.some(choice => choice.id && (choice.provider ?? decodePiModel(choice.id)?.provider) === provider);
-    text = signedIn
-      ? `Pi 的模型目录里没有 ${model}：提供商 ${provider} 已登录，但没有这个模型。用 bots model 查看可选模型。 / Pi's catalog has no ${model}: provider ${provider} is signed in but has no such model. Run bots model to list the choices.`
-      : `Pi 的模型目录里没有 ${model}：提供商 ${provider} 没有可用凭据（或不存在）。在运行 Bot 的主机终端执行 pi auth login ${provider} 后再试。 / Pi's catalog has no ${model}: provider ${provider} has no usable sign-in (or does not exist). Run pi auth login ${provider} on the host, then retry.`;
+    if (isOmp) {
+      text = signedIn
+        ? `omp 的模型目录里没有 ${model}：提供商 ${provider} 已登录，但没有这个模型。用 bots model 查看可选模型。 / omp's catalog has no ${model}: provider ${provider} is signed in but has no such model. Run bots model to list the choices.`
+        : `omp 的模型目录里没有 ${model}：提供商 ${provider} 没有可用凭据（或不存在）。在运行 Bot 的主机终端运行 omp 并执行 /login 后再试。 / omp's catalog has no ${model}: provider ${provider} has no usable sign-in (or does not exist). Run omp and /login on the host, then retry.`;
+    } else {
+      text = signedIn
+        ? `${engineName} 的模型目录里没有 ${model}：提供商 ${provider} 已登录，但没有这个模型。用 bots model 查看可选模型。 / ${engineName}'s catalog has no ${model}: provider ${provider} is signed in but has no such model. Run bots model to list the choices.`
+        : `${engineName} 的模型目录里没有 ${model}：提供商 ${provider} 没有可用凭据（或不存在）。在运行 Bot 的主机终端执行 pi auth login ${provider} 后再试。 / ${engineName}'s catalog has no ${model}: provider ${provider} has no usable sign-in (or does not exist). Run pi auth login ${provider} on the host, then retry.`;
+    }
   } else if (error.code === "model_effort_incompatible") {
     const levels = (settings.choices.find(choice => choice.id === model)?.efforts ?? []).filter(level => level);
     const asked = effort || settings.effort || "default";

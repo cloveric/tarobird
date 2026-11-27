@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { HubServer } from "../../src/hub/server.js";
@@ -464,5 +464,77 @@ for (const width of [320, 390]) test(`new Bot path controls keep phone target si
     expect(colors.background).not.toBe("rgba(0, 0, 0, 0)"); expect(colors.text).not.toBe(colors.body);
     expect((await row.getByRole("button", { name: "取消", exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({ path: info.outputPath(`new-bot-path-error-${width}.png`) });
+  } finally { await f.dispose(); }
+});
+
+test("explains dangling symlinks, version/rule metadata, and offers confirmed one-click adoption of a terminal path", async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 960 });
+  const f = await fixture(page, false);
+  try {
+    // Create a dangling symlink on PATH for DeepSeek (`dsh`), and a real executable outside PATH.
+    const danglingTarget = path.join(f.root, "removed-node/bin/dsh");
+    const danglingLink = path.join(f.root, "dsh");
+    await symlink(danglingTarget, danglingLink);
+    const manualDir = path.join(f.root, "manual-node/bin");
+    await mkdir(manualDir, { recursive: true });
+    const realDsh = path.join(manualDir, "dsh");
+    await writeFile(realDsh, "#!/bin/sh\necho 'dsh 0.9.4'\n");
+    await chmod(realDsh, 0o700);
+
+    // Augment GET /api/settings/engines so DeepSeek reports both the dangling symlink and the terminal-only path.
+    let adopted = false;
+    await page.route("**/api/settings/engines*", async route => {
+      if (route.request().method() === "PUT") {
+        adopted = true;
+        return route.continue();
+      }
+      const response = await route.fetch();
+      const body = await response.json();
+      if (!adopted) {
+        for (const eng of body.engines) {
+          if (eng.id === "deepseek") {
+            eng.danglingLinks = [{ linkPath: danglingLink, targetPath: danglingTarget }];
+            eng.terminalExecutable = realDsh;
+          }
+          if (eng.id === "codex") {
+            eng.available = true;
+            eng.executable = f.executable;
+            eng.rule = "package-manager";
+            eng.version = "codex 1.4.2";
+          }
+          if (eng.id === "pi") {
+            eng.source = "auto";
+            eng.override = null;
+            eng.available = true;
+            eng.executable = f.executable;
+            eng.rule = "known-directory";
+          }
+        }
+      }
+      return route.fulfill({ response, json: body });
+    });
+
+    await f.open();
+    const codexRow = f.panel.getByRole("region", { name: "Codex", exact: true });
+    await expect(codexRow).toContainText("自动检测 · 包管理器全局目录");
+    await expect(codexRow).toContainText("版本：codex 1.4.2");
+
+    const piRow = f.panel.getByRole("region", { name: "Pi", exact: true });
+    await expect(piRow).toContainText("自动检测 · 常见安装目录");
+    await expect(piRow).not.toContainText("手动指定");
+
+    const dshRow = f.panel.getByRole("region", { name: "DeepSeek", exact: true });
+    await expect(dshRow).toContainText(`${danglingLink} 指向的 ${danglingTarget} 已不存在`);
+    await expect(dshRow).toContainText("主机默认 PATH 未找到，但终端可找到");
+    await expect(dshRow).toContainText(realDsh);
+
+    // One-click adopt requires explicit confirmation before saving.
+    await dshRow.getByRole("button", { name: "采用终端路径", exact: true }).click();
+    await expect(dshRow).toContainText("确认采用终端路径");
+    await dshRow.getByRole("button", { name: "确认采用", exact: true }).click();
+    await expect(f.panel.getByText("已保存并核实。", { exact: true })).toBeVisible();
+    await expect(dshRow).toContainText("已检测到 CLI");
+    await expect(dshRow).toContainText("手动指定");
+    expect(f.hub.engineSettings.status().engines.find(e => e.id === "deepseek")?.override).toBe(realDsh);
   } finally { await f.dispose(); }
 });

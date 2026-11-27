@@ -180,4 +180,31 @@ describe("Baoyu comments: identity, storage and Send to Bot", () => {
     expect(one.result.threads[0].messages[0].text.length).toBeGreaterThan(9_000);
     expect(one.result.threads[0].nextMessageOffset).toBeGreaterThan(0);
   });
+  it("moves comment pins with updated anchor, label and slide location while refusing viewers", async () => {
+    const deck = emptySlides("deck", "Deck");
+    deck.files["project/slides/second.html"] = designTextFile('<section id="second"><h2>Second</h2></section>', "text/html");
+    const index = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(deck.files["project/deck.json"]!.base64), c => c.charCodeAt(0))));
+    index.order.push("second");
+    deck.files["project/deck.json"] = designTextFile(JSON.stringify(index), "application/json");
+    const { session } = memoryDesign(deck);
+    const created = await req(session, "comments.create", {
+      anchor: JSON.stringify({ slide: "cover", x: 100, y: 100 }),
+      label: "Slide 1",
+      text: "Pin here",
+    });
+    expect(created.status).toBe(201);
+    const id = created.body.thread.id as string;
+    expect(created.body.thread.location).toMatchObject({ file: "project/slides/cover.html", slide: 1, slideId: "cover" });
+
+    const movedAnchor = JSON.stringify({ slide: "second", x: 420, y: 280 });
+    const moved = await req(session, "comments.move", { id, anchor: movedAnchor, label: "Slide 2" });
+    expect(moved.status).toBe(200);
+    expect(moved.body.thread.anchor).toBe(movedAnchor);
+    expect(moved.body.thread.label).toBe("Slide 2");
+    expect(moved.body.thread.location).toMatchObject({ file: "project/slides/second.html", slide: 2, slideId: "second" });
+
+    expect((await req(session, "comments.move", { id: "c_0000000000", anchor: movedAnchor })).status).toBe(404);
+    const viewer = memoryDesign(deck, { role: () => "viewer" });
+    expect((await req(viewer.session, "comments.move", { id, anchor: movedAnchor })).status).toBe(403);
+  });
 });

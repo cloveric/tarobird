@@ -260,6 +260,20 @@ public final class NativeTlsAudit {
                 check(new JSONObject(get(rotating,"/health")).getBoolean("ok"),"freshSignedRotationRecovers");
             }
             check(domainPolicy.hostCalls>0 && domainPolicy.unawareCalls==0,"hostAwareTrustPreserved");
+            java.net.ConnectException okHttpRefused=new java.net.ConnectException("Failed to connect to /100.64.0.1:8788");
+            okHttpRefused.initCause(new java.net.ConnectException("failed to connect to /100.64.0.1 (port 8788): connect failed: ECONNREFUSED (Connection refused)"));
+            check("native_connection_refused".equals(HubTls.classifyError(okHttpRefused)),"classifyOkHttpRefused");
+            check("native_tls_untrusted".equals(HubTls.classifyError(new SSLHandshakeException("java.security.cert.CertPathValidatorException: Trust anchor for certification path not found."))),"classifySslHandshakeUntrusted");
+            SSLHandshakeException pinFailure=new SSLHandshakeException("Chain validation failed");
+            pinFailure.initCause(new CertificateException("tls_identity_mismatch"));
+            check("tls_identity_mismatch".equals(HubTls.classifyError(pinFailure)),"classifyPinMismatchOverUntrusted");
+            check("native_dns_failed".equals(HubTls.classifyError(new java.net.UnknownHostException("Unable to resolve host \"macmini.invalid\""))),"classifyUnknownHost");
+            check("native_request_timeout".equals(HubTls.classifyError(new java.net.SocketTimeoutException("connect timed out"))),"classifySocketTimeout");
+            check("native_request_timeout".equals(HubTls.classifyError(new InterruptedIOException("timeout"))),"classifyCallTimeout");
+            check("native_host_unreachable".equals(HubTls.classifyError(new java.net.NoRouteToHostException("No route to host"))),"classifyNoRouteToHost");
+            check("native_connection_reset".equals(HubTls.classifyError(new IOException("unexpected end of stream on https://192.168.1.100:8788/api/x"))),"classifyUnexpectedEofWithoutUrlLeak");
+            check("native_document_retired".equals(HubTls.classifyError(new IOException("native_document_retired"))),"classifyPreservesHubCode");
+            check("native_transport_failed".equals(HubTls.classifyError(new IOException("Failed to connect to /192.168.1.100:8788"))),"classifyRawIoExceptionDoesNotLeakIp");
             JSONObject stats=new JSONObject(command(stdin,output,"stats")); check(stats.getInt("sensitive")==0 && stats.getInt("proofs")>=3,"zeroProxyCredentialsOrPayloads"); check(stats.getInt("acceptedDroppedUploads")==1,"uploadDeliveredOnlyOnce"); result.put("proxy",stats); ok=true;
         } catch(Throwable error) { result.put("error",error.toString()); error.printStackTrace(); }
         finally {

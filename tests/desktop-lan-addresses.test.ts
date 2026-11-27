@@ -64,7 +64,12 @@ it("prepares a later Wi-Fi candidate for desktop and explicit CLI selection with
 
   const desktop = await desktopHost("network", directory, "unused");
   if (!("routes" in desktop)) throw Error("missing LAN routes");
-  expect(desktop.routes.map(route => new URL(route.url).hostname)).toEqual(candidates);
+  const hosts = desktop.routes.map(route => new URL(route.url).hostname);
+  expect(new Set(hosts)).toEqual(new Set(candidates));
+  // Wi-Fi (en0) must be ranked ahead of vpn0 and bridge0/bridge1.
+  expect(hosts[0]).toBe(wifi);
+  expect(["wifi", "ethernet", "lan"]).toContain(desktop.candidates[0]!.adapterKind);
+  expect(desktop.candidates.slice(1).map(candidate => candidate.adapterKind)).toEqual(["vpn", "bridge", "bridge", "bridge"]);
   const selected = desktop.routes.find(route => new URL(route.url).hostname === wifi)!;
   const certificate = new X509Certificate(await readFile(path.join(directory, "desktop-tls/server.pem")));
   for (const candidate of candidates) expect(certificate.checkIP(candidate)).toBe(candidate);

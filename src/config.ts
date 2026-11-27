@@ -5,6 +5,7 @@ import path from "node:path";
 import { normalizeInstanceName } from "./instance.js";
 import type { AppConfig } from "./types.js";
 import { resolvePiExecutable } from "./runtime/pi-executable.js";
+import { resolveOmpExecutable } from "./runtime/omp-executable.js";
 import { resolveDeepSeekExecutable } from "./runtime/deepseek-executable.js";
 
 export interface EnvSource {
@@ -35,6 +36,11 @@ export interface EnvSource {
   DSH_HOME?: string;
   PI_EXECUTABLE?: string;
   PI_CODING_AGENT_DIR?: string;
+  PI_CODING_AGENT_SESSION_DIR?: string;
+  PI_CONFIG_DIR?: string;
+  OMP_EXECUTABLE?: string;
+  OMP_CONFIG_DIR?: string;
+  OMP_PROFILE?: string;
   KIMI_EXECUTABLE?: string;
   KIMI_CODE_HOME?: string;
   ANTIGRAVITY_EXECUTABLE?: string;
@@ -203,6 +209,7 @@ function resolveBaseConfig(env: EnvSource, telegramBotToken: string): AppConfig 
     deepseekHome: resolveDeepSeekHome(env),
     kimiExecutable: resolveDefaultKimiExecutable(env),
     piExecutable: resolvePiExecutable(env as NodeJS.ProcessEnv),
+    ompExecutable: resolveOmpExecutable(env as NodeJS.ProcessEnv),
     antigravityExecutable: resolveDefaultAntigravityExecutable(env),
   };
 }

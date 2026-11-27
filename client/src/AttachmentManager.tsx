@@ -4,7 +4,7 @@ import { ATTACHMENT_ADMIN_DELETE_PATH, ATTACHMENT_ADMIN_LIST_PATH, ATTACHMENT_AD
 import type { HubConnection } from "./connection.js";
 import { bytes } from "./file-size.js";
 import { HubHttpError } from "./http-error.js";
-import { t, useLocale } from "./i18n.js";
+import { localeIntlTag, t, useLocale } from "./i18n.js";
 
 type Pending = { ids?: string[]; conversationId?: string; count: number; size: number; expected?: { count: number; bytes: number; revision: string } };
 const kind = (mime: string, name: string) => /\.([A-Za-z0-9]{1,8})$/.exec(name)?.[1]?.toUpperCase() ?? mime.split("/")[1]?.toUpperCase() ?? mime;
@@ -65,7 +65,7 @@ export function AttachmentManager({ connection, selected, select, locate, busyCh
     }
     finally { if (alive.current) setBusy(false); }
   };
-  const when = (at: number) => new Date(at).toLocaleString(locale === "zh" ? "zh-CN" : "en-US", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const when = (at: number) => new Date(at).toLocaleString(localeIntlTag(locale), { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
   return <>
     <div className="file-center-summary"><div><small>{t("附件总占用")}</small><strong>{summary ? bytes(summary.bytes) : "—"}</strong></div><div><small>{t("附件数")}</small><strong>{summary?.count ?? "—"}</strong></div>

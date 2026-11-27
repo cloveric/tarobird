@@ -7,6 +7,7 @@ import { refreshDesktopHostNetworks } from "./desktop.js";
 import { RouteMonitor } from "./route-monitor.js";
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -31,6 +32,50 @@ import { hostProcessEnvironment } from "../host-cli/environment.js";
 
 function backupSummary(manifest: HubStateBackup) {
   return { files: manifest.entries.filter((entry) => entry.type === "file").length, excluded: manifest.excluded.length, externalPaths: manifest.externalPaths, unmanagedBots: manifest.unmanagedBots, engineStateIsExternal: manifest.engineStateIsExternal, restoreDirectory: manifest.sourceDirectory };
+}
+
+async function canBindLoopbackPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
+  });
+}
+
+async function allocateLoopbackPort(reserved: ReadonlySet<number>): Promise<number> {
+  for (let i = 0; i < 16; i++) {
+    const server = net.createServer();
+    const port = await new Promise<number>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address();
+        const value = addr && typeof addr !== "string" ? addr.port : 0;
+        server.close(() => resolve(value));
+      });
+    });
+    if (port > 0 && !reserved.has(port)) return port;
+  }
+  return 0;
+}
+
+/** Pick a stable dedicated loopback port for edge-terminated tunnels (never the
+ * privileged main/instance port). Explicit config.edgePort wins; otherwise reuse
+ * edge-proxy-port.json so Named Tunnel configs remain stable. A saved port that
+ * is busy is still returned, never replaced: the Hub then starts without the
+ * edge listener and reports it, because a named tunnel points at that port. */
+export async function resolveEdgePort(directory: string, config: Pick<Awaited<ReturnType<typeof readHubConfig>>, "edgePort" | "instancePort" | "tlsListeners">, mainPort: number): Promise<number> {
+  if (config.edgePort !== undefined) return config.edgePort;
+  const reserved = new Set<number>([mainPort, config.instancePort, ...config.tlsListeners.map(listener => listener.port)]);
+  const file = path.join(directory, "edge-proxy-port.json");
+  const saved: unknown = await readFile(file, "utf8").then((text) => JSON.parse(text), () => undefined);
+  if (typeof saved === "number" && Number.isInteger(saved) && saved >= 1 && saved <= 65535 && !reserved.has(saved)) {
+    return saved;
+  }
+  const preferred = mainPort === 8788 && config.instancePort === 8789 && !reserved.has(8790) && await canBindLoopbackPort(8790)
+    ? 8790
+    : await allocateLoopbackPort(reserved);
+  if (preferred > 0) await writeFile(file, JSON.stringify(preferred), { mode: 0o600 }).catch(() => undefined);
+  return preferred;
 }
 
 export interface HubMaintenanceSchedule { backupKey?: string; cleanupDay?: string }
@@ -85,12 +130,14 @@ export async function runHubCli(argv: string[]): Promise<void> {
     const supervisor = process.env.TAROBOT_HOST_SUPERVISOR;
     delete process.env.TAROBOT_HOST_SUPERVISOR;
     const config = await readHubConfig(directory);
+    const mainPort = args.values.port ? z.coerce.number().int().min(1).max(65535).parse(args.values.port) : config.port;
+    const edgePort = await resolveEdgePort(directory, config, mainPort);
     const relaySources = new RelaySources();
-    const relay = await RelayTunnels.load({ ...config, host: args.values.host ?? config.host, port: args.values.port ? z.coerce.number().int().min(1).max(65535).parse(args.values.port) : config.port }, (code) => console.error(`[${new Date().toISOString()}] Hub relay: ${code}`), relaySources);
+    const relay = await RelayTunnels.load({ ...config, host: args.values.host ?? config.host, port: mainPort }, (code) => console.error(`[${new Date().toISOString()}] Hub relay: ${code}`), relaySources);
     const lock = await acquireInstanceLock(directory).catch(error => { if (error instanceof Error && error.message.startsWith("Instance lock already held")) Object.assign(error, { exitCode: 78 }); throw error; });
     let packageRoot = path.dirname(fileURLToPath(import.meta.url));
     while (!await stat(path.join(packageRoot, "package.json")).then(() => true, () => false)) { const parent = path.dirname(packageRoot); if (parent === packageRoot) throw new Error("TaroBird package root not found"); packageRoot = parent; }
-    const hub = await HubServer.start({ relaySources, managedBots: { entrypoint: fileURLToPath(new URL("../index.js", import.meta.url)), env: hostProcessEnvironment() }, stateDir: directory, exposure: config.exposure, host: args.values.host ?? config.host, port: args.values.port ? z.coerce.number().int().min(1).max(65535).parse(args.values.port) : config.port, origins: config.origins, maxFileBytes: config.maxFileBytes, push: config.push, instancePort: config.instancePort, tlsListeners: await Promise.all(config.tlsListeners.map(async (listener) => ({ ...listener, managed: listener.tls.cert === path.join(directory, "desktop-tls/server.pem"), tls: await loadHubTls(listener.tls) }))), googleDocs: () => openGoogleDocs(directory), clientDir: config.clientDir ?? path.join(packageRoot, "client", "dist"), pluginArtifactsDir: path.join(packageRoot, "dist", "plugins"), ...(config.tls ? { tls: await loadHubTls(config.tls) } : {}), onWarning: (code) => console.error(`[${new Date().toISOString()}] Hub: ${code}`) }).catch(async (error: unknown) => { await lock.release(); throw error; });
+    const hub = await HubServer.start({ relaySources, managedBots: { entrypoint: fileURLToPath(new URL("../index.js", import.meta.url)), env: hostProcessEnvironment() }, stateDir: directory, exposure: config.exposure, host: args.values.host ?? config.host, port: mainPort, origins: config.origins, maxFileBytes: config.maxFileBytes, push: config.push, instancePort: config.instancePort, edgePort, tlsListeners: await Promise.all(config.tlsListeners.map(async (listener) => ({ ...listener, managed: listener.tls.cert === path.join(directory, "desktop-tls/server.pem"), tls: await loadHubTls(listener.tls) }))), googleDocs: () => openGoogleDocs(directory), clientDir: config.clientDir ?? path.join(packageRoot, "client", "dist"), pluginArtifactsDir: path.join(packageRoot, "dist", "plugins"), ...(config.tls ? { tls: await loadHubTls(config.tls) } : {}), onWarning: (code) => console.error(`[${new Date().toISOString()}] Hub: ${code}`) }).catch(async (error: unknown) => { await lock.release(); throw error; });
     retainAdmission = true;
     const stopCrashMonitor = monitorServiceCrashes(directory, "hub", "hub");
     let networkRefresh: Promise<void> | undefined, refreshingStopped = false;
@@ -108,7 +155,7 @@ export async function runHubCli(argv: string[]): Promise<void> {
     relay?.start();
     const routeMonitor = config.routeMonitor ? new RouteMonitor(hub.store, config.routeMonitor, hub.auth.publicKey, (botId, alert) => hub.notifyRouteAlert(botId, alert), undefined, undefined, (code) => console.error(`[${new Date().toISOString()}] Hub: ${code}`)) : undefined;
     routeMonitor?.start();
-    console.log(`[${new Date().toISOString()}] TaroBird Hub listening at ${hub.urls.join(", ")}; instances: ${hub.instanceUrl}`);
+    console.log(`[${new Date().toISOString()}] TaroBird Hub listening at ${hub.urls.join(", ")}; instances: ${hub.instanceUrl}; edge-proxy: ${hub.edgeListenerError ? "unavailable" : hub.edgeUrl}`);
     const maintenance = new HubMaintenance(hub.store, directory, config.eventHistory), maintenanceSchedule: HubMaintenanceSchedule = {}; let maintenanceTask: Promise<void> | undefined;
     const tick = setInterval(() => {
       const now = Date.now();

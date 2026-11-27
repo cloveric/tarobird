@@ -11,6 +11,7 @@ import { PERSONAL_BROWSER_SCOPE } from '../shared/personal-browser.mjs';
 import { executableName } from './files.mjs';
 import { DEFAULT_SETTINGS, userStoreFor } from './browser-user-store.mjs';
 import { clampZoom, deviceSize, devicePreview, effectiveZoom, fitDevice, historyURL, saveName, shortcutCommand, zoomStep } from './browser-user-tools.mjs';
+import { resolveElectronLocale, pickElectronCopy } from './locale.mjs';
 
 export const BROWSER_COMMANDS = Object.freeze(['workbench_browser', 'workbench_browser_layout', 'workbench_browser_reset', EXTENSIONS_COMMAND]);
 const READ_ONLY = new Set(['capabilities', 'list', 'observe', 'selection', 'screenshot', 'downloads']);
@@ -76,7 +77,8 @@ export class WorkbenchBrowser {
     window.on?.('resize', this.onResize);
   }
   #hidden() { return !this.window.isVisible() || this.window.isMinimized(); }
-  get english() { try { return this.electron.app.getLocale().startsWith('en'); } catch { return false; } }
+  get locale() { return resolveElectronLocale({ app: this.electron.app }); }
+  get english() { return this.locale === 'en'; }
   // Events go only to this window's trusted App document. Each carries its
   // scope so several conversation panes can ignore each other's pages.
   #emit(payload, scope = this.#tabs.get(payload.tab)?.scope) {
@@ -91,7 +93,7 @@ export class WorkbenchBrowser {
     if (command === EXTENSIONS_COMMAND) {
       if (!this.extensions) throw new Error('extensions_unavailable');
       // A scope's session is created with page policy before anything loads into it.
-      return this.extensions.request(input, { window: this.window, english: this.english, prepare: scope => this.#session(scope) });
+      return this.extensions.request(input, { window: this.window, english: this.english, locale: this.locale, prepare: scope => this.#session(scope) });
     }
     if (command !== 'workbench_browser') throw new Error('unknown_desktop_command');
     const args = parseBrowserAction(input), key = scopeKey(args.scope);
@@ -759,7 +761,8 @@ export class WorkbenchBrowser {
    * cancels it rather than discarding under an older answer; a refusal changes
    * nothing. `commit(fn)` runs `fn` synchronously once no page document of the
    * session is left; `release()` lets pages start again (visible Tabs reload). */
-  static async drainForCompat(session, { interactive = false, english = false, window } = {}) {
+  static async drainForCompat(session, { interactive = false, english = false, locale, window } = {}) {
+    const loc = resolveElectronLocale({ locale, english });
     const refused = reason => ({ ok: false, reason, release() {} });
     if (compatGates.has(session)) return refused('busy');
     let open; const gate = new Promise(resolve => { open = resolve; });
@@ -799,7 +802,7 @@ export class WorkbenchBrowser {
       if (state.busy) return stop('pages_busy');
       if (state.risky.length) {
         if (!interactive) return stop('pages_busy');
-        if (!await WorkbenchBrowser.#confirmCompatReload(state.risky, { english, window })) return stop('cancelled');
+        if (!await WorkbenchBrowser.#confirmCompatReload(state.risky, { locale: loc, window })) return stop('cancelled');
         // The answer covers exactly what was listed.
         const again = await assess(), listed = new Set(state.risky.map(item => item.tab));
         if (again.busy || !same(state.pages, again.pages) || again.risky.some(item => !listed.has(item.tab))) return stop('changed');
@@ -826,31 +829,56 @@ export class WorkbenchBrowser {
       fn(); return true;
     } };
   }
-  static async #confirmCompatReload(risky, { english, window }) {
+  static async #confirmCompatReload(risky, { english, locale, window }) {
     const owner = risky[0].owner, target = window && !window.isDestroyed?.() ? window : owner.window;
     if (target.isDestroyed?.()) return false;
     if (!target.isVisible?.() || target.isMinimized?.()) target.show?.();
-    const label = { blocked: english ? 'may have unsaved changes' : '可能有未保存的内容', unresponsive: english ? 'not responding' : '无响应',
-      edited: english ? 'has typed input' : '有输入内容', popup: english ? 'its popup windows will close' : '其弹出窗口会关闭' };
+    const loc = resolveElectronLocale({ locale, english, app: owner.electron.app });
+    const label = {
+      blocked: pickElectronCopy(loc, { zh: '可能有未保存的内容', en: 'may have unsaved changes', ja: '未保存の変更がある可能性があります' }),
+      unresponsive: pickElectronCopy(loc, { zh: '无响应', en: 'not responding', ja: '応答なし' }),
+      edited: pickElectronCopy(loc, { zh: '有输入内容', en: 'has typed input', ja: '入力内容があります' }),
+      popup: pickElectronCopy(loc, { zh: '其弹出窗口会关闭', en: 'its popup windows will close', ja: 'ポップアップウィンドウが閉じられます' }),
+    };
     const names = risky.slice(0, 8).map(({ tab, result }) => `• ${(tab.title || tab.url).slice(0, 80)} (${label[result] ?? result})`);
-    if (risky.length > 8) names.push(english ? `• and ${risky.length - 8} more` : `• 另外 ${risky.length - 8} 个网页`);
-    names.push(english ? 'Their Tabs stay and each page reloads from its address. Cancel keeps compatibility mode off and these pages as they are.' : '标签会保留，每个网页会从原地址重新加载。取消将保持兼容模式关闭，这些网页保持原样。');
+    if (risky.length > 8) names.push(pickElectronCopy(loc, {
+      zh: `• 另外 ${risky.length - 8} 个网页`,
+      en: `• and ${risky.length - 8} more`,
+      ja: `• 他 ${risky.length - 8} 件のページ`,
+    }));
+    names.push(pickElectronCopy(loc, {
+      zh: '标签会保留，每个网页会从原地址重新加载。取消将保持兼容模式关闭，这些网页保持原样。',
+      en: 'Their Tabs stay and each page reloads from its address. Cancel keeps compatibility mode off and these pages as they are.',
+      ja: 'タブは保持され、各ページは元のアドレスから再読み込みされます。キャンセルすると互換モードはオフのまま、ページもそのまま維持されます。',
+    }));
     const { response } = await owner.electron.dialog.showMessageBox(target, { type: 'warning', title: 'TaroBird',
-      message: english ? 'Reload these web pages to turn on compatibility mode?' : '重新加载这些网页以开启兼容模式吗？',
-      detail: names.join('\n'), buttons: english ? ['Cancel', 'Reload pages'] : ['取消', '重新加载网页'], defaultId: 0, cancelId: 0, noLink: true });
+      message: pickElectronCopy(loc, {
+        zh: '重新加载这些网页以开启兼容模式吗？',
+        en: 'Reload these web pages to turn on compatibility mode?',
+        ja: '互換モードを有効にするため、これらの Web ページを再読み込みしますか？',
+      }),
+      detail: names.join('\n'),
+      buttons: pickElectronCopy(loc, {
+        zh: ['取消', '重新加载网页'],
+        en: ['Cancel', 'Reload pages'],
+        ja: ['キャンセル', 'ページを再読み込み'],
+      }), defaultId: 0, cancelId: 0, noLink: true });
     return response === 1;
   }
   #contextMenu(tab, params) {
-    const { Menu, clipboard } = this.electron, english = this.english, contents = tab.contents, items = [];
+    const { Menu, clipboard } = this.electron, loc = this.locale, contents = tab.contents, items = [];
     const link = params.linkURL && classifyURL(params.linkURL).kind === 'web' ? params.linkURL : undefined;
-    if (link) items.push({ label: english ? 'Open Link in New Tab' : '在新标签页打开链接', click: () => void this.#spawn(tab, link) },
-      { label: english ? 'Copy Link' : '复制链接', click: () => clipboard.writeText(link) }, { type: 'separator' });
+    if (link) items.push(
+      { label: pickElectronCopy(loc, { zh: '在新标签页打开链接', en: 'Open Link in New Tab', ja: '新しいタブでリンクを開く' }), click: () => void this.#spawn(tab, link) },
+      { label: pickElectronCopy(loc, { zh: '复制链接', en: 'Copy Link', ja: 'リンクをコピー' }), click: () => clipboard.writeText(link) },
+      { type: 'separator' });
     if (params.isEditable) items.push({ role: 'cut', enabled: params.editFlags.canCut }, { role: 'copy', enabled: params.editFlags.canCopy },
       { role: 'paste', enabled: params.editFlags.canPaste }, { role: 'selectAll' }, { type: 'separator' });
     else if (params.selectionText) items.push({ role: 'copy' }, { type: 'separator' });
-    items.push({ label: english ? 'Back' : '后退', enabled: contents.navigationHistory.canGoBack(), click: () => contents.navigationHistory.goBack() },
-      { label: english ? 'Forward' : '前进', enabled: contents.navigationHistory.canGoForward(), click: () => contents.navigationHistory.goForward() },
-      { label: english ? 'Reload' : '重新加载', click: () => contents.reload() });
+    items.push(
+      { label: pickElectronCopy(loc, { zh: '后退', en: 'Back', ja: '戻る' }), enabled: contents.navigationHistory.canGoBack(), click: () => contents.navigationHistory.goBack() },
+      { label: pickElectronCopy(loc, { zh: '前进', en: 'Forward', ja: '進む' }), enabled: contents.navigationHistory.canGoForward(), click: () => contents.navigationHistory.goForward() },
+      { label: pickElectronCopy(loc, { zh: '重新加载', en: 'Reload', ja: '再読み込み' }), click: () => contents.reload() });
     // Items the person's extensions in this page's session added (chrome.contextMenus).
     items.push(...(this.extensions?.menuItems(contents.session, params, { id: contents.id, url: contents.getURL(), title: contents.getTitle(), active: !!tab.visible, windowId: this.windowId, index: -1, incognito: false }) ?? []));
     Menu.buildFromTemplate(items).popup({ window: this.window });
@@ -966,11 +994,15 @@ export class WorkbenchBrowser {
   }
   #confirmLeave(tab) {
     if (!this.window.isVisible()) this.window.show();
-    const english = this.english;
+    const loc = this.locale;
     const result = this.electron.dialog.showMessageBoxSync(this.window, { type: 'question', title: 'TaroBird',
-      message: english ? 'Leave this web page?' : '离开这个网页吗？',
-      detail: `${tab.title || tab.url}\n${english ? 'Changes you made on this page may not be saved.' : '你在这个网页中填写的内容可能不会保存。'}`,
-      buttons: english ? ['Stay', 'Leave'] : ['留在网页', '离开'], defaultId: 0, cancelId: 0, noLink: true });
+      message: pickElectronCopy(loc, { zh: '离开这个网页吗？', en: 'Leave this web page?', ja: 'この Web ページから移動しますか？' }),
+      detail: `${tab.title || tab.url}\n${pickElectronCopy(loc, {
+        zh: '你在这个网页中填写的内容可能不会保存。',
+        en: 'Changes you made on this page may not be saved.',
+        ja: 'このページに入力した変更内容は保存されない場合があります。',
+      })}`,
+      buttons: pickElectronCopy(loc, { zh: ['留在网页', '离开'], en: ['Stay', 'Leave'], ja: ['このページにとどまる', '移動する'] }), defaultId: 0, cancelId: 0, noLink: true });
     return result === 1;
   }
   /** The webContents is gone (closed, slept, page-closed or destroyed). */
@@ -1141,13 +1173,21 @@ export class WorkbenchBrowser {
     if (keys.every(key => this.#grants.get(key) === true)) return true;
     if (keys.some(key => this.#grants.get(key) === false)) return false;
     if (this.#quitting || !this.window.isVisible() || this.#disposed) { this.#emit({ kind: 'permission', tab: tab.id, permission, origin, granted: false, reason: 'unavailable' }); return false; }
-    const english = this.english, label = permissionLabel(permission, details, english);
+    const loc = this.locale, label = permissionLabel(permission, details, loc);
     const ask = this.#prompts.then(async () => {
       if (this.#disposed || this.#tabs.get(tab.id) !== tab) return false;
       const { response } = await this.electron.dialog.showMessageBox(this.window, { type: 'question', title: 'TaroBird',
-        message: english ? `${origin} wants to use your ${label}` : `${origin} 想使用你的${label}`,
-        detail: `${tab.title || tab.url}\n${english ? 'This applies to this site in this workbench scope until TaroBird quits.' : '仅对这个工作台作用域中的该网站有效，退出 TaroBird 后失效。'}`,
-        buttons: english ? ['Block', 'Allow'] : ['拒绝', '允许'], defaultId: 0, cancelId: 0, noLink: true });
+        message: pickElectronCopy(loc, {
+          zh: `${origin} 想使用你的${label}`,
+          en: `${origin} wants to use your ${label}`,
+          ja: `${origin} が${label}へのアクセスを求めています`,
+        }),
+        detail: `${tab.title || tab.url}\n${pickElectronCopy(loc, {
+          zh: '仅对这个工作台作用域中的该网站有效，退出 TaroBird 后失效。',
+          en: 'This applies to this site in this workbench scope until TaroBird quits.',
+          ja: 'この Workbench スコープ内のこのサイトにのみ適用され、TaroBird を終了すると失効します。',
+        })}`,
+        buttons: pickElectronCopy(loc, { zh: ['拒绝', '允许'], en: ['Block', 'Allow'], ja: ['拒否', '許可'] }), defaultId: 0, cancelId: 0, noLink: true });
       return response === 1;
     });
     this.#prompts = ask.catch(() => false);
@@ -1184,15 +1224,22 @@ export class WorkbenchBrowser {
       && !resetting.has(tab.scope.host) && !compatGates.has(contents?.session) && !this.window.isDestroyed() && this.window.isVisible();
     if (!isGoogleSignInURL(url) || !current() || this.now() - (tab.googleSignInAt ?? 0) < 3000) return false;
     tab.googleSignInAt = this.now();
-    const english = this.english;
+    const loc = this.locale;
     const ask = this.#prompts.then(async () => {
       if (!current()) return false;
       check();
       const { response } = await this.electron.dialog.showMessageBox(this.window, { type: 'question', title: 'TaroBird',
-        message: english ? 'Continue Google sign-in in your default browser?' : '在默认浏览器中继续 Google 登录？',
-        detail: english ? 'Google requires an external browser for this sign-in. Continue using the website there; its sign-in session will not be copied into TaroBird. App authorization returns through its own callback.'
-          : 'Google 要求在外部浏览器中完成此登录。请在那里继续使用网页；网页登录状态不会复制回 TaroBird。应用授权会通过对应的回调完成。',
-        buttons: english ? ['Cancel', 'Open browser'] : ['取消', '打开浏览器'], defaultId: 0, cancelId: 0, noLink: true });
+        message: pickElectronCopy(loc, {
+          zh: '在默认浏览器中继续 Google 登录？',
+          en: 'Continue Google sign-in in your default browser?',
+          ja: '既定のブラウザで Google ログインを続行しますか？',
+        }),
+        detail: pickElectronCopy(loc, {
+          zh: 'Google 要求在外部浏览器中完成此登录。请在那里继续使用网页；网页登录状态不会复制回 TaroBird。应用授权会通过对应的回调完成。',
+          en: 'Google requires an external browser for this sign-in. Continue using the website there; its sign-in session will not be copied into TaroBird. App authorization returns through its own callback.',
+          ja: 'Google のログインには外部ブラウザが必要です。そちらでログインを続行してください（ブラウザのログイン状態は TaroBird にはコピーされません。アプリ連携の認証は専用コールバックで完了します）。',
+        }),
+        buttons: pickElectronCopy(loc, { zh: ['取消', '打开浏览器'], en: ['Cancel', 'Open browser'], ja: ['キャンセル', 'ブラウザを開く'] }), defaultId: 0, cancelId: 0, noLink: true });
       if (response !== 1 || !current()) return false;
       check();
       dispatch();
@@ -1208,10 +1255,14 @@ export class WorkbenchBrowser {
     if (target.kind !== 'external' || this.#quitting || !this.window.isVisible()) { this.blocked(tab, 'external', target.reason ?? 'unavailable', raw); return false; }
     if (this.now() - (tab.externalAt ?? 0) < 3000) { this.blocked(tab, 'external', 'rate_limited', raw); return false; }
     tab.externalAt = this.now();
-    const english = this.english, scheme = new URL(target.url).protocol.slice(0, -1);
+    const loc = this.locale, scheme = new URL(target.url).protocol.slice(0, -1);
     const ask = this.#prompts.then(async () => (await this.electron.dialog.showMessageBox(this.window, { type: 'question', title: 'TaroBird',
-      message: english ? `Open this ${scheme} link with another app?` : `用其他应用打开这个 ${scheme} 链接吗？`, detail: target.url.slice(0, 300),
-      buttons: english ? ['Cancel', 'Open'] : ['取消', '打开'], defaultId: 0, cancelId: 0, noLink: true })).response === 1);
+      message: pickElectronCopy(loc, {
+        zh: `用其他应用打开这个 ${scheme} 链接吗？`,
+        en: `Open this ${scheme} link with another app?`,
+        ja: `この ${scheme} リンクを別のアプリで開きますか？`,
+      }), detail: target.url.slice(0, 300),
+      buttons: pickElectronCopy(loc, { zh: ['取消', '打开'], en: ['Cancel', 'Open'], ja: ['キャンセル', '開く'] }), defaultId: 0, cancelId: 0, noLink: true })).response === 1);
     this.#prompts = ask.catch(() => false);
     const allowed = await ask.catch(() => false);
     if (allowed && openHere) await this.electron.shell.openExternal(target.url).catch(() => {});
@@ -1222,7 +1273,7 @@ export class WorkbenchBrowser {
     if (this.#quitting || this.#disposed || resetting.has(tab.scope.host) || [...this.#downloads.values()].filter(entry => entry.state === 'progressing').length >= 16) { event.preventDefault(); this.blocked(tab, 'download', 'unavailable', item.getURL()); return; }
     const id = randomUUID(), name = path.basename(item.getFilename() || 'download').replace(/[\x00-\x1f]/g, '').slice(0, 240) || 'download';
     const entry = { id, tab: tab.id, key: tab.key, scope: tab.scope, item, name, total: item.getTotalBytes(), received: 0, state: 'progressing', started: this.now(), emitted: 0 };
-    try { item.setSaveDialogOptions({ title: this.english ? 'Save download' : '保存下载文件', defaultPath: path.join(this.electron.app.getPath('downloads'), name) }); } catch { /* defaults */ }
+    try { item.setSaveDialogOptions({ title: pickElectronCopy(this.locale, { zh: '保存下载文件', en: 'Save download', ja: 'ダウンロードを保存' }), defaultPath: path.join(this.electron.app.getPath('downloads'), name) }); } catch { /* defaults */ }
     for (const [old, value] of this.#downloads) if (this.#downloads.size >= 100 && value.state !== 'progressing') this.#downloads.delete(old);
     this.#downloads.set(id, entry); tab.downloads.add(id); tab.lastDownloadAt = this.now();
     item.on('updated', (_event, state) => {
@@ -1251,10 +1302,14 @@ export class WorkbenchBrowser {
     if (!status?.isFile() || status.isSymbolicLink() || await realpath(entry.path).catch(() => '') !== entry.path) throw new BrowserError('download_not_found');
     if (args.action === 'download_reveal') { this.electron.shell.showItemInFolder(entry.path); return this.#receipt(args, undefined, 'ok'); }
     if (executableName(entry.path)) {
-      const english = args.english ?? this.english;
+      const loc = resolveElectronLocale({ locale: args.locale, english: args.english, app: this.electron.app });
       const { response } = await this.electron.dialog.showMessageBox(this.window, { type: 'warning', title: 'TaroBird',
-        message: english ? 'This file can run programs or change your system. Open only if you trust its source.' : '这个文件可能运行程序或修改系统。请仅在确认来源可信时打开。',
-        buttons: english ? ['Cancel', 'Open'] : ['取消', '打开'], defaultId: 0, cancelId: 0, noLink: true });
+        message: pickElectronCopy(loc, {
+          zh: '这个文件可能运行程序或修改系统。请仅在确认来源可信时打开。',
+          en: 'This file can run programs or change your system. Open only if you trust its source.',
+          ja: 'このファイルはプログラムを実行したりシステムを変更したりする可能性があります。信頼できる送信元の場合のみ開いてください。',
+        }),
+        buttons: pickElectronCopy(loc, { zh: ['取消', '打开'], en: ['Cancel', 'Open'], ja: ['キャンセル', '開く'] }), defaultId: 0, cancelId: 0, noLink: true });
       if (response !== 1) return this.#receipt(args, undefined, 'cancelled');
     }
     if (await this.electron.shell.openPath(entry.path)) throw new BrowserError('download_open_failed');
@@ -1491,12 +1546,15 @@ export class WorkbenchBrowser {
   /** Write captured bytes to a path chosen in the system save dialog. The
    * renderer never supplies a path; a scope reset meanwhile discards them. */
   async #saveChosen(args, tab, bytes, extension, extra = {}) {
-    const english = args.english ?? this.english, pdf = extension === 'pdf', name = saveName(tab.title, tab.url, extension, new Date(this.now()));
+    const loc = resolveElectronLocale({ locale: args.locale, english: args.english, app: this.electron.app }), pdf = extension === 'pdf', name = saveName(tab.title, tab.url, extension, new Date(this.now()));
     let defaultPath = name;
     try { defaultPath = path.join(this.electron.app.getPath('downloads'), name); } catch { /* name only */ }
     const { canceled, filePath } = await this.electron.dialog.showSaveDialog(this.window, {
-      title: english ? (pdf ? 'Save as PDF' : 'Save page screenshot') : (pdf ? '保存为 PDF' : '保存网页截图'), defaultPath,
-      filters: [pdf ? { name: 'PDF', extensions: ['pdf'] } : { name: english ? 'PNG image' : 'PNG 图片', extensions: ['png'] }],
+      title: pdf
+        ? pickElectronCopy(loc, { zh: '保存为 PDF', en: 'Save as PDF', ja: 'PDF として保存' })
+        : pickElectronCopy(loc, { zh: '保存网页截图', en: 'Save page screenshot', ja: 'ページのスクリーンショットを保存' }),
+      defaultPath,
+      filters: [pdf ? { name: 'PDF', extensions: ['pdf'] } : { name: pickElectronCopy(loc, { zh: 'PNG 图片', en: 'PNG image', ja: 'PNG 画像' }), extensions: ['png'] }],
       properties: ['createDirectory', 'showOverwriteConfirmation'] });
     if (canceled || !filePath) return this.#receipt(args, tab, 'cancelled', { saved: false });
     if (resetting.has(tab.scope.host) || tab.revoked || this.#disposed) return this.#receipt(args, tab, 'cancelled', { saved: false, error: 'scope_reset' });
@@ -1607,13 +1665,33 @@ export class WorkbenchBrowser {
   async #confirmDiscard(risky, downloads, purpose) {
     if (this.window.isDestroyed()) return true;
     if (!this.window.isVisible() || this.window.isMinimized()) this.window.show();
-    const english = this.english, names = risky.slice(0, 8).map(({ tab, result }) => `• ${(tab.title || tab.url).slice(0, 80)}${result === 'unresponsive' ? (english ? ' (not responding)' : '（无响应）') : ''}`);
-    if (risky.length > 8) names.push(english ? `• and ${risky.length - 8} more` : `• 另外 ${risky.length - 8} 个网页`);
-    if (downloads) names.push(english ? `• ${downloads} download(s) in progress will be cancelled` : `• ${downloads} 个进行中的下载将被取消`);
+    const loc = this.locale, names = risky.slice(0, 8).map(({ tab, result }) => `• ${(tab.title || tab.url).slice(0, 80)}${result === 'unresponsive' ? pickElectronCopy(loc, { zh: '（无响应）', en: ' (not responding)', ja: '（応答なし）' }) : ''}`);
+    if (risky.length > 8) names.push(pickElectronCopy(loc, { zh: `• 另外 ${risky.length - 8} 个网页`, en: `• and ${risky.length - 8} more`, ja: `• 他 ${risky.length - 8} 件のページ` }));
+    if (downloads) names.push(pickElectronCopy(loc, {
+      zh: `• ${downloads} 个进行中的下载将被取消`,
+      en: `• ${downloads} download(s) in progress will be cancelled`,
+      ja: `• 進行中のダウンロード ${downloads} 件がキャンセルされます`,
+    }));
     const quit = purpose === 'quit';
     const { response } = await this.electron.dialog.showMessageBox(this.window, { type: 'warning', title: 'TaroBird',
-      message: english ? (quit ? 'Quit TaroBird? Some web pages may have unsaved changes.' : 'Close these web pages? Some may have unsaved changes.') : (quit ? '退出 TaroBird 吗？有网页可能还有未保存的内容。' : '关闭这些网页吗？有网页可能还有未保存的内容。'),
-      detail: names.join('\n'), buttons: english ? ['Keep open', quit ? 'Quit' : 'Close pages'] : ['继续使用', quit ? '退出' : '关闭网页'], defaultId: 0, cancelId: 0, noLink: true });
+      message: quit
+        ? pickElectronCopy(loc, {
+            zh: '退出 TaroBird 吗？有网页可能还有未保存的内容。',
+            en: 'Quit TaroBird? Some web pages may have unsaved changes.',
+            ja: 'TaroBird を終了しますか？未保存の変更がある Web ページがあります。',
+          })
+        : pickElectronCopy(loc, {
+            zh: '关闭这些网页吗？有网页可能还有未保存的内容。',
+            en: 'Close these web pages? Some may have unsaved changes.',
+            ja: 'これらの Web ページを閉じますか？未保存の変更があるページがあります。',
+          }),
+      detail: names.join('\n'),
+      buttons: [
+        pickElectronCopy(loc, { zh: '继续使用', en: 'Keep open', ja: '開いたままにする' }),
+        quit
+          ? pickElectronCopy(loc, { zh: '退出', en: 'Quit', ja: '終了' })
+          : pickElectronCopy(loc, { zh: '关闭网页', en: 'Close pages', ja: 'ページを閉じる' }),
+      ], defaultId: 0, cancelId: 0, noLink: true });
     return response === 1;
   }
   /** Before quit: stop new Bot work and ask every page first. Nothing closes

@@ -5,13 +5,14 @@
 <h3 align="center">Your AI agents, running on your own computers.<br>The same conversations on desktop and phone.</h3>
 
 <p align="center">
-  Codex · Claude Code · Kimi Code · DeepSeek Harness · Antigravity · Pi
+  Codex · Claude Code · Kimi Code · DeepSeek Harness · Antigravity · Pi · oh-my-pi (omp)
 </p>
 
 <p align="center">
   <a href="https://github.com/cloveric/tarobird/releases/latest"><b>Download</b></a> &nbsp;·&nbsp;
   <a href="https://apps.apple.com/app/tarobird/id6828071641"><b>iOS App Store</b></a> &nbsp;·&nbsp;
   <a href="https://testflight.apple.com/join/ByFWEfFW"><b>iOS TestFlight beta</b></a> &nbsp;·&nbsp;
+  <a href="docs/client/web-client.md"><b>Web</b></a> &nbsp;·&nbsp;
   <a href="#quick-start"><b>Quick start</b></a> &nbsp;·&nbsp;
   <a href="#connection-options">Connection options</a> &nbsp;·&nbsp;
   <a href="docs/details.md">Details</a> &nbsp;·&nbsp;
@@ -117,7 +118,7 @@ TaroBird is a self-hosted workspace for AI agents. It brings command-line agents
 </p>
 <p align="center"><sub>App permission UI in 1.2.0 · Real settings and signed authorization with disposable hosts and fictional data; no model ran · Also available through <a href="docs/details.md#bot-to-bot-tasks-across-hosts">CLI authorization</a></sub></p>
 
-This is a foundation for a coordinating Bot or a network of collaborating peers. Automatic host selection, cross-host scheduling and shared ticket tracking are future possibilities, not built-in capabilities today. **Agent Bus, groups and Chancellor ticket dispatch currently stay within one host**; cross-host work uses direct Bot messages.
+This is a foundation for a coordinating Bot or a network of collaborating peers. Automatic host selection, cross-host scheduling and shared ticket tracking are future possibilities, not built-in capabilities today. **Agent Bus, groups and Superagent ticket dispatch currently stay within one host**; cross-host work uses direct Bot messages.
 
 [Permissions and recovery](docs/client/cross-host-message-permissions.md) · [Network setup](docs/details.md#private-network) · [Commands and delivery guarantees](docs/details.md#bot-to-bot-tasks-across-hosts)
 
@@ -136,15 +137,7 @@ This is a foundation for a coordinating Bot or a network of collaborating peers.
 
 <a id="workbench"></a>
 <h3 align="center">Workbench · Keep references and creative work beside the chat</h3>
-<p align="center">Web browsing, canvas, whiteboard, Markdown notes and PPT in one workspace.<br>Each conversation keeps its own Workbench, in the side panel or expanded into the main area.</p>
-
-<h3 align="center">Canvas · Turn an idea into something you can edit</h3>
-<p align="center">Create pages, posters and visual drafts with your Bot.<br>Double-click text to edit and refine the result as you go.</p>
-
-<p align="center">
-  <a href="assets/product/workbench-canvas-en.png"><img src="assets/product/canvas-demo-en.gif" width="100%" alt="Canvas demo: open a warm studio launch page, double-click and edit its headline, then review the updated canvas"></a>
-</p>
-<p align="center"><sub>Recorded from the real interface with demonstration content · <a href="assets/product/workbench-canvas-en.png">Full-size view</a> · <a href="docs/client/workbench-design.md">Canvas guide</a></sub></p>
+<p align="center">Web browsing, whiteboard, Markdown notes and presentations in one workspace.<br>Each conversation keeps its own Workbench, in the side panel or expanded into the main area.</p>
 
 <a id="workbench-browser"></a>
 <h3 align="center">Browser · Web pages inside the App</h3>
@@ -186,17 +179,17 @@ This is a foundation for a coordinating Bot or a network of collaborating peers.
 <p align="center"><sub>Desktop App · requires access and macOS permissions on the target Mac · real viewer with a simulated frame and connection in this recording · <a href="docs/client/remote-screen-2026-10-31.md">Controls and permissions</a></sub></p>
 
 <a id="chancellor"></a>
-<h3 align="center">Chancellor · One goal, tracked as tickets</h3>
-<p align="center">Choose Make it a Chancellor when creating a Bot, then describe the goal in its conversation.<br>It splits the work into tickets, runs each with an engine CLI on this host and reports back.</p>
+<h3 align="center">Superagent · One goal, tracked as tickets</h3>
+<p align="center">Choose Make it a Superagent when creating a Bot, then describe the goal in its conversation.<br>It splits the work into tickets, runs each with an engine CLI on this host and reports back.</p>
 
 <p align="center">
-  <a href="assets/product/chancellor-en.png"><img src="assets/product/chancellor-demo-en.gif" width="100%" alt="Chancellor demo: in the Chancellor's conversation, the ticket summary expands into three tickets: Review implementation (active), Summarize feedback (needs your review) and Write the launch brief (queued)"></a>
+  <a href="assets/product/chancellor-en.png"><img src="assets/product/chancellor-demo-en.gif" width="100%" alt="Superagent demo: in the Superagent's conversation, the ticket summary expands into three tickets: Review implementation (active), Summarize feedback (needs your review) and Write the launch brief (queued)"></a>
 </p>
-<p align="center"><sub>Actual UI with demonstration data; ticket states are illustrative and no model ran · <a href="docs/client/dispatcher-bot-2026-11-01.md">Chancellor guide</a></sub></p>
+<p align="center"><sub>Actual UI with demonstration data; ticket states are illustrative and no model ran · <a href="docs/client/dispatcher-bot-2026-11-01.md">Superagent guide</a></sub></p>
 
 - **Visible tickets.** See queued, active, waiting and ready-for-review tickets, and open any ticket's worker conversation.
 - **You set the pace.** Approve each plan or let it dispatch on its own; choose the allowed engines and how many tickets run at once. Pause, cancel or add context at any time.
-- **Pick the right tool.** A Chancellor plans and delegates; Agent Bus runs a workflow you define; ADHD keeps several conversations in view.
+- **Pick the right tool.** A Superagent plans and delegates; Agent Bus runs a workflow you define; ADHD keeps several conversations in view.
 
 See the complete [feature list](docs/details.md#features).
 
@@ -222,7 +215,9 @@ Right-click a folder name or an empty area of the desktop list to group by host,
 
 Install and sign in to any one engine on the computer that runs your Bots to get started; TaroBird does not include AI engines, model accounts or credits. See the [engine comparison](docs/details.md#engine-comparison) for adapter differences.
 
-**Pi, from 1.6.0:** [Pi native integration](docs/client/pi-engine.md) adds provider-aware model selection and native conversation controls for ordinary Bots. Pi is excluded from Chancellor dispatch.
+**Pi, from 1.6.0:** [Pi native integration](docs/client/pi-engine.md) adds provider-aware model selection and native conversation controls for ordinary Bots. Pi is excluded from Superagent dispatch.
+
+**oh-my-pi (`omp`):** [oh-my-pi native integration](docs/client/omp-engine.md) connects directly to `omp --mode rpc-ui` via its dedicated v2 RPC protocol (per-prompt `prompt_result` + `session_settled`, `steer` / `follow_up` / `aside` queues, and native subagent task tracking) as a separate engine alongside Pi.
 
 <a id="engines"></a>
 
@@ -344,8 +339,8 @@ Thank you to the [LINUX DO](https://linux.do/) community for supporting TaroBird
 
 Workbench builds on [Excalidraw](https://github.com/excalidraw/excalidraw) for whiteboards,
 [Vditor](https://github.com/Vanessa219/vditor) for Markdown notes, and
-[Jim Liu's baoyu-design](https://github.com/JimLiu/baoyu-design) for the canvas and slide editors and their adapted authoring skills.
-Thank you to their authors and contributors. Excalidraw and Vditor use MIT. baoyu-design has [mixed licensing](client/vendor/baoyu-design/NOTICE.md), with the reconstructed editor outside its MIT grant. Original copyright, scope notices and bundled
+[Open Artifact](https://github.com/JimLiu/open-artifact) (`@open-artifact/slides-editor`, Apache-2.0) for Workbench presentations.
+Thank you to their authors and contributors. Excalidraw and Vditor use MIT; Open Artifact uses Apache-2.0 (LICENSE and NOTICE retained in `client/vendor/workbench-slides/`). Original copyright, scope notices and bundled
 dependency notices are retained; see [third-party notices](LICENSING.md) and the
 [Design integration guide](docs/client/workbench-design.md).
 

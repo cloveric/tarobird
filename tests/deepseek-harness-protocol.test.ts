@@ -202,9 +202,11 @@ class ProtocolServer {
       }));
     } else if (open.endpoint === "session/follow" && this.autoFollowSnapshots) {
       const payload = open.payload as {
-        args?: { request?: { address?: { sessionId?: string } } };
+        args?: { request?: { address?: { sessionId?: string; childSessionId?: string } } };
       };
-      const sessionId = payload.args?.request?.address?.sessionId ?? "session-1";
+      const sessionId = payload.args?.request?.address?.childSessionId
+        ?? payload.args?.request?.address?.sessionId
+        ?? "session-1";
       websocket.send(JSON.stringify({
         type: "item",
         streamId: open.streamId,
@@ -1124,6 +1126,141 @@ describe("DeepSeekHarnessProtocolClient", () => {
     await server.waitForConnectionCount("/api/events.host", 3);
     await vi.waitFor(() => expect(onReconnect).toHaveBeenCalledTimes(2));
     expect(onDisconnect).toHaveBeenCalledTimes(2);
+
+    await client.close();
+  });
+
+  it("replays subagent snapshot events synchronously before live frames, replays on reconnect, and evicts unfollowed or parent-removed subagents", async () => {
+    const server = new ProtocolServer();
+    servers.push(server);
+    const baseUrl = await server.listen();
+    server.requireAuthentication("launch-token", "dsh_browser_session=subagent-follow");
+    server.autoFollowSnapshots = false;
+
+    const childSeqs: number[] = [];
+    const malformed: unknown[] = [];
+    const client = new DeepSeekHarnessProtocolClient(`${baseUrl}/?token=launch-token`, {
+      reconnectInitialDelayMs: 1,
+      reconnectMaxDelayMs: 1,
+      onMalformedFrame: (err) => malformed.push(err),
+    });
+
+    await client.connect({
+      onMuxFrame: (frame) => {
+        if (frame.payload.type === "session/event" && frame.payload.sessionId === "child-1") {
+          const seq = (frame.payload.event as { seq?: number } | undefined)?.seq;
+          if (typeof seq === "number") childSeqs.push(seq);
+        }
+      },
+      onHostFrame: () => {},
+    });
+
+    // Open subagent follow; send snapshot [1, 2, 3] IMMEDIATELY followed by live event 4
+    // in the same tick on the WebSocket (matching DSH WebController.follow).
+    const followPromise = client.request("session.followSubagent", {
+      parentSessionId: "parent-1",
+      childSessionId: "child-1",
+      mode: "continuable",
+    });
+    const streamId = await server.waitForRemoteStream("session/follow");
+    server.send("/api/remote.mux", {
+      type: "item",
+      streamId,
+      value: {
+        type: "snapshot",
+        header: { version: 0, id: "child-1", createdAt: 1 },
+        cursor: 3,
+        records: [
+          { event: { type: "turn/start", seq: 1, time: 1, data: { turn: 1 } } },
+          { event: { type: "tool/call", seq: 2, time: 2, data: { turn: 1, step: 1, callId: "c1", name: "read" } } },
+          { event: { type: "tool/result", seq: 3, time: 3, data: { turn: 1, step: 1 } } },
+        ],
+        hasMore: false,
+        projections: { asOfSeq: 3, values: {} },
+      },
+    });
+    server.send("/api/remote.mux", {
+      type: "item",
+      streamId,
+      value: {
+        type: "event",
+        event: { type: "assistant/message", seq: 4, time: 4, data: { turn: 1, step: 2 } },
+      },
+    });
+
+    await expect(followPromise).resolves.toMatchObject({ sessionId: "child-1" });
+    await vi.waitFor(() => expect(childSeqs).toEqual([1, 2, 3, 4]));
+
+    // Simulate WebSocket reconnect: reconnect snapshot must replay missed child events (seq 5)
+    server.remoteStreams.delete("session/follow");
+    server.sockets.get("/api/remote.mux")!.terminate();
+    await server.waitForConnectionCount("/api/remote.mux", 2);
+    const reconnectStreamId = await server.waitForRemoteStream("session/follow");
+    server.send("/api/remote.mux", {
+      type: "item",
+      streamId: reconnectStreamId,
+      value: {
+        type: "snapshot",
+        header: { version: 0, id: "child-1", createdAt: 1 },
+        cursor: 5,
+        records: [
+          { event: { type: "assistant/message", seq: 4, time: 4, data: {} } },
+          { event: { type: "turn/end", seq: 5, time: 5, data: { turn: 1, reason: { kind: "completed" } } } },
+        ],
+        hasMore: false,
+        projections: { asOfSeq: 5, values: {} },
+      },
+    });
+    await vi.waitFor(() => expect(childSeqs).toEqual([1, 2, 3, 4, 4, 5]));
+
+    // Unfollow sends cancel, tolerates a late end frame without malformed error,
+    // and does not reopen child-1 on subsequent reconnects.
+    await client.request("session.unfollowSubagent", { childSessionId: "child-1" });
+    await vi.waitFor(() => expect(server.remoteMessages).toContainEqual({ type: "cancel", streamId: reconnectStreamId }));
+    server.send("/api/remote.mux", { type: "end", streamId: reconnectStreamId });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(malformed).toEqual([]);
+
+    // Now follow parent-1, child-2, and grandchild-3, then remove parent-1 via api-session/removed.
+    server.autoFollowSnapshots = true;
+    server.responseFor = (path, body) => ({
+      type: "server-response",
+      rpcId: body.rpcId,
+      result: {
+        ok: true,
+        value: path === "/api/session/list"
+          ? { items: [] }
+          : path === "/api/session/create"
+            ? { sessionId: "parent-1" }
+            : {},
+      },
+    });
+    await client.request("session.create", { sessionId: "parent-1", cwd: "/tmp/workspace" });
+    await client.request("session.followSubagent", {
+      parentSessionId: "parent-1",
+      childSessionId: "child-2",
+      mode: "continuable",
+    });
+    await client.request("session.followSubagent", {
+      parentSessionId: "child-2",
+      childSessionId: "grandchild-3",
+      mode: "continuable",
+    });
+    server.sendRemote("$events", { type: "emit", event: "api-session/removed", args: ["parent-1"] });
+
+    // Reconnect and verify NONE of parent-1, child-1, child-2, grandchild-3 are re-followed.
+    await vi.waitFor(() => expect(
+      server.remoteMessages.filter((m) => m.type === "cancel").length,
+    ).toBeGreaterThanOrEqual(4));
+    const countBeforeReconnect = server.remoteMessages.length;
+    server.sockets.get("/api/remote.mux")!.terminate();
+    await server.waitForConnectionCount("/api/remote.mux", 3);
+    await new Promise((r) => setTimeout(r, 30));
+    const reopenedFollows = server.remoteMessages
+      .slice(countBeforeReconnect)
+      .filter((m) => m.type === "open" && m.endpoint === "session/follow");
+    expect(reopenedFollows).toEqual([]);
+    expect(malformed).toEqual([]);
 
     await client.close();
   });

@@ -1,4 +1,5 @@
-import { WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, isSlidesRequest, designOperationCapability } from "../client-protocol/workbench-design.js";
+import { hostT } from "../locales/index.js";
+import { WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, isSlidesRequest, designOperationCapability, workbenchDesignError } from "../client-protocol/workbench-design.js";
 import { createHash } from "node:crypto";
 import { readWorkbenchImage } from "../runtime/workbench-image.js";
 import { loadInstanceConfig, resolveInstanceWorkspacePath } from "../state/instance-config.js";
@@ -29,7 +30,10 @@ export async function runWorkbenchCommand(directory: string, command: string | u
       appCapabilityInstructions(conversationId, { widgetsEnabled: true }),
     ].join("\n\n"), staticGuide: true };
   }
-  if (!["targets", "run", "context", "publish", "canvas-agent"].includes(command ?? "")) throw new Error("用法：tarobot workbench guide widgets|browser | context CONVERSATION --context-message ID | targets CONVERSATION | run|publish CONVERSATION --from REQUEST.json --request-id ID [--context-message ID] --json | canvas-agent CONVERSATION --from REQUEST.json --context-message ID --json");
+  if (!["targets", "run", "context", "publish", "canvas-agent"].includes(command ?? "")) {
+    const usage = "tarobot workbench guide widgets|browser | context CONVERSATION --context-message ID | targets CONVERSATION | run|publish CONVERSATION --from REQUEST.json --request-id ID [--context-message ID] --json | canvas-agent CONVERSATION --from REQUEST.json --context-message ID --json";
+    throw new Error(hostT(process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG, "用法：{0}", usage));
+  }
   const conversation = idSchema.parse(conversationId);
   const contextMessageId = options.contextMessageId ?? process.env.TAROBOT_MESSAGE_ID;
   if (contextMessageId) idSchema.parse(contextMessageId);
@@ -79,9 +83,10 @@ export async function runWorkbenchCommand(directory: string, command: string | u
     if (command === "canvas-agent") throw new Error("canvas_agent_bot_instance_required");
     const client = await LocalHostClient.connect(directory);
     try {
+      const designError = request && workbenchDesignError(request); if (designError) throw new Error(designError);
       const feature = request && designOperationCapability(request.operation); if(feature && !client.supports(feature)) throw new Error("workbench_design_suite_host_update_required");
       if (request && isSlidesRequest(request) && !client.supports(WORKBENCH_SLIDES_CAPABILITY)) throw new Error("workbench_slides_host_update_required");
-      if (request?.operation.startsWith("design.") && !client.supports(WORKBENCH_DESIGN_CAPABILITY)) throw new Error("workbench_design_host_update_required");
+      if (request?.operation.startsWith("design.") && !client.supports(WORKBENCH_SLIDES_CAPABILITY)) throw new Error("workbench_slides_host_update_required");
       if (request?.operation === "design.open" && !client.supports(WORKBENCH_DESIGN_OPEN_CAPABILITY)) throw new Error("workbench_design_open_host_update_required");
       // The owner names the exact opener from targets; there is no implicit fallback.
       if (request?.operation === "design.open" && !request.target) throw new Error("workbench_open_target_required");
@@ -97,6 +102,7 @@ export async function runWorkbenchCommand(directory: string, command: string | u
     finally { client.close(); }
   }
   if (!contextMessageId) throw new Error("workbench_current_context_required");
+  const botDesignError = request && workbenchDesignError(request); if (botDesignError) throw new Error(botDesignError);
   idSchema.parse(botId);
   const state = process.env.TAROBOT_ACTIVE_STATE_DIR ?? process.env.TAROBOT_STATE_DIR;
   if (!state || await realpath(state) !== await realpath(path.join(directory, "bots", botId))) throw new Error("workbench_source_directory_mismatch");

@@ -1247,6 +1247,8 @@ describe("Pi native commands: /model with a Bot scope", () => {
     expect(lines[1]).toBe("- beta/dup-model — Dup Model (in scope)");
     expect(lines[2]).toBe("- alpha/dup-model — Dup Model (current)");
     expect((await handled("/model", context(h, { locale: "zh" }))).text).toContain("- beta/dup-model — Dup Model（范围内）");
+    expect((await handled("/model", context(h, { locale: "zh-CN" }))).text).toContain("- beta/dup-model — Dup Model（范围内）");
+    expect((await handled("/model", context(h, { locale: "ja-JP" }))).text).toContain("- beta/dup-model — Dup Model（スコープ内）");
   });
 
   it("offers the scope first, with a way to every model", async () => {

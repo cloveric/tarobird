@@ -79,6 +79,7 @@ describe("handleLocalEngineTelegramCommand", () => {
           "/engine deepseek",
           "/engine antigravity",
           "/engine pi",
+          "/engine omp",
           "Restart this instance after switching to apply the change.",
         ].join("\n"),
       );
@@ -96,6 +97,44 @@ describe("handleLocalEngineTelegramCommand", () => {
     }
   });
 
+  it("rejects /swarm clearly on Antigravity print runtime without sending to model", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "agy-print-swarm-"));
+    const sendMessage = vi.fn().mockResolvedValue({ message_id: 21 });
+    const run = vi.fn().mockResolvedValue({ text: "must not reach model" });
+    try {
+      const handledZh = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now(),
+        locale: "zh",
+        cfg: { engine: "antigravity" },
+        normalized: createNormalizedMessage("/swarm parallel check"),
+        context: { api: { sendMessage } as never },
+        bridge: { handleAuthorizedMessage: run },
+        sessionStore: { removeByChatId: vi.fn(), clearAll: vi.fn() },
+        updateInstanceConfig: vi.fn(),
+      });
+      expect(handledZh).toBe(true);
+      expect(sendMessage).toHaveBeenCalledWith(123, expect.stringContaining("print"));
+      expect(sendMessage.mock.calls[0]![1]).toContain("acp");
+
+      const handledAcp = await handleLocalEngineCoreCommand({
+        stateDir: root,
+        startedAt: Date.now(),
+        locale: "en",
+        cfg: { engine: "antigravity", antigravityRuntime: "acp" },
+        normalized: createNormalizedMessage("/swarm parallel check"),
+        context: { api: { sendMessage } as never },
+        bridge: { handleAuthorizedMessage: run },
+        sessionStore: { removeByChatId: vi.fn(), clearAll: vi.fn() },
+        updateInstanceConfig: vi.fn(),
+      });
+      expect(handledAcp).toBe(false);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await removeTempRoot(root);
+    }
+  });
+
   it("switches engine locally and clears incompatible model overrides", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "telegram-engine-commands-"));
     const api = {
@@ -104,6 +143,7 @@ describe("handleLocalEngineTelegramCommand", () => {
     const order: string[] = [];
     const sessionStore = {
       removeByChatId: vi.fn().mockResolvedValue(true),
+      clearAll: vi.fn().mockResolvedValue(2),
       clearAllThen: vi.fn().mockImplementation(async (commit: () => Promise<unknown>) => {
         order.push("clear");
         await commit();
@@ -166,7 +206,8 @@ describe("handleLocalEngineTelegramCommand", () => {
     };
     const sessionStore = {
       removeByChatId: vi.fn().mockResolvedValue(true),
-      clearAllThen: vi.fn(async (commit: () => Promise<unknown>) => { await commit(); return 1; }),
+      clearAll: vi.fn().mockResolvedValue(1),
+      clearAllThen: vi.fn().mockImplementation(async (commit: () => Promise<unknown>) => { await commit(); return 1; }),
     };
     const updateInstanceConfig = vi.fn(async (mutate: (cfg: Record<string, unknown>) => void) => {
       const cfg: Record<string, unknown> = { engine: "codex", model: "gpt-5.4", codexServiceTier: "fast" };
@@ -215,6 +256,7 @@ describe("handleLocalEngineTelegramCommand", () => {
     };
     const sessionStore = {
       removeByChatId: vi.fn().mockResolvedValue(true),
+      clearAll: vi.fn().mockResolvedValue(0),
       clearAllThen: vi.fn().mockRejectedValue(new Error("session store unavailable")),
     };
     const updateInstanceConfig = vi.fn();
@@ -279,7 +321,7 @@ describe("handleLocalEngineTelegramCommand", () => {
       });
 
       expect(handled).toBe(true);
-      expect(api.sendMessage).toHaveBeenCalledWith(123, "Usage: /engine [claude|codex|kimi|deepseek|antigravity|pi]");
+      expect(api.sendMessage).toHaveBeenCalledWith(123, "Usage: /engine [claude|codex|kimi|deepseek|antigravity|pi|omp]");
     } finally {
       await removeTempRoot(root);
     }

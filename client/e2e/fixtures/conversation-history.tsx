@@ -47,21 +47,22 @@ c.cache = {
 };
 c.http = async (route, init) => {
   f.calls.push({ route, method: init?.method ?? "GET" });
-  if (route === "/api/conversations") { if (f.directoryFailure) throw Error("directory_unavailable"); return f.conversations; }
-  if (route.includes("/history/anchors?")) return { anchors: f.anchors.filter(anchor => anchor.messageId === new URLSearchParams(route.split("?")[1]).get("messageId")) };
-  if (route.includes("/history?")) { if (f.snapshotFailure) throw Error("snapshot_unavailable"); return structuredClone(f.snapshot); }
-  if (route.endsWith("/reconcile") && init?.method === "POST") {
+  const [pathname, search = ""] = route.split("?");
+  if (pathname === "/api/conversations") { if (f.directoryFailure) throw Error("directory_unavailable"); return f.conversations; }
+  if (pathname.endsWith("/history/anchors")) return { anchors: f.anchors.filter(anchor => anchor.messageId === new URLSearchParams(search).get("messageId")) };
+  if (pathname.endsWith("/history")) { if (f.snapshotFailure) throw Error("snapshot_unavailable"); return structuredClone(f.snapshot); }
+  if (pathname.endsWith("/reconcile") && init?.method === "POST") {
     if (f.checkFailure) throw Error("receipt_unavailable");
     const body = JSON.parse(init.body);
     const result = f.operations[body.requestId] ?? { requestId: body.requestId, operationId: "cancelled_before_admission", state: "rejected", reason: "cancelled", sourceRevision: body.expectedRevision };
     f.operations[body.requestId] = result; persist(); return result;
   }
-  if (route.includes("/history/operations/") && !init?.method) {
-    const requestId = route.split("/operations/")[1].split("?")[0];
+  if (pathname.includes("/history/operations/") && !init?.method) {
+    const requestId = pathname.split("/operations/")[1];
     if (f.checkFailure) throw Error("receipt_unavailable");
     return f.operations[requestId];
   }
-  if (route.endsWith("/history/operations") && init?.method === "POST") {
+  if (pathname.endsWith("/history/operations") && init?.method === "POST") {
     const body = JSON.parse(init.body);
     if (f.operations[body.requestId]) return f.operations[body.requestId];
     f.posts.push(body);

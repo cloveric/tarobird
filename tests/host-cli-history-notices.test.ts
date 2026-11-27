@@ -12,7 +12,7 @@ it("retains bundled native-history component notices when staging an installed C
     await writeFile(target, typeof content === "string" ? content : JSON.stringify(content));
   }
   try {
-    await file("package.json", { name: "tarobot", version: "1.6.0", private: true, type: "module", engines: { node: ">=20.17.0" }, dependencies: { sqlite3: "6.0.1", zod: "4.1.5" }, tarobotHostUpdate: { format: 1, minHubSchema: 1, maxHubSchema: 26 } });
+    await file("package.json", { name: "tarobot", version: "1.6.0", private: true, type: "module", engines: { node: ">=20.17.0" }, dependencies: { sqlite3: "6.0.1", zod: "4.1.5" }, tarobotHostUpdate: { format: 1, minHubSchema: 1, maxHubSchema: 27 } });
     await file("standalone-graph.json", { inputs: { "src/index.ts": {} } });
     await file("dist/src/index.js", "if(process.argv[2]!=='--help')throw Error('unexpected stateful probe');console.log('Fixture host');");
     await file("dist/relay-runtime.mjs", "export {};");

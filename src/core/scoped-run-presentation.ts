@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { EngineStreamEvent } from "../codex/adapter.js";
 import type { RunScope } from "../client-protocol/run.js";
 import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import { backgroundTaskBody, backgroundTaskContext } from "./background-task-notice.js";
 import { renderCoreNotificationCard } from "./card-renderer.js";
 import { renderBackgroundTaskHeader } from "../runtime/background-task-header.js";
@@ -34,22 +35,22 @@ function serial<T>(state: ScopeState, fn: () => Promise<T>): Promise<T> {
   state.tail = next.catch(() => undefined); return next;
 }
 function statusText(state: ScopeState): string {
-  const en = state.context.locale === "en";
-  if (state.status === "done") return en ? "The follow-up process has finished." : "后续处理已结束。";
-  if (state.status === "interrupted") return en ? "The follow-up process was interrupted." : "后续处理已中断。";
-  if (state.status === "error") return en ? "The follow-up process did not complete." : "后续处理未完成。";
-  if (state.status === "partial") return en ? "The engine did not confirm the final state." : "引擎未确认最终状态。";
-  return en ? "Follow-up work is in progress. Public steps are available in the process details." : "正在继续处理，可在过程详情查看公开步骤。";
+  const { locale } = state.context;
+  if (state.status === "done") return hostT(locale, "后续处理已结束。");
+  if (state.status === "interrupted") return hostT(locale, "后续处理已中断。");
+  if (state.status === "error") return hostT(locale, "后续处理未完成。");
+  if (state.status === "partial") return hostT(locale, "引擎未确认最终状态。");
+  return hostT(locale, "正在继续处理，可在过程详情查看公开步骤。");
 }
 function childFinishedBody(state: ScopeState): string {
-  const note = state.context.locale === "en" ? "Subagent execution has finished." : "子代理执行已结束。";
+  const note = hostT(state.context.locale, "子代理执行已结束。");
   return state.body.includes(note) ? state.body : [state.body, note].filter(Boolean).join("\n\n");
 }
 function card(state: ScopeState, finalBody?: string, finalStatus?: string): Record<string, unknown> | null {
   const { locale } = state.context;
   const body = finalBody ?? (state.body || statusText(state));
   const header = state.background ? renderBackgroundTaskHeader(locale, finalStatus ?? (state.closed ? state.status : "running"))
-    : locale === "en" ? "Subagent process" : "子代理过程";
+    : hostT(locale, "子代理过程");
   const background = state.background ? { origin: state.origin, context: backgroundTaskContext({ origin: state.origin }, locale)!, status: finalStatus ?? (state.closed ? state.status : "running") } : undefined;
   const rendered = renderCoreNotificationCard(header, body, locale, background, "gateway");
   // Only bound background subagents share a parent-turn group. Review scopes
@@ -211,14 +212,14 @@ export async function finishScopedRunPresentation(input: Pick<Context, "channel"
     state.status = !deliveryConfirmed ? "partial" : ["failed", "error"].includes(status) ? "error"
       : event.reason === "engine_exit" || ["stopped", "interrupted", "cancelled", "canceled", "aborted", "killed"].includes(status) ? "interrupted"
       : completed ? "done" : "partial";
-    const en = state.context.locale === "en";
-    let body = backgroundTaskBody(event, state.context.locale);
-    if (event.settlesCurrentTurn) body = en ? "The result is included in the main reply." : "结果已并入本轮回复。";
+    const { locale } = state.context;
+    let body = backgroundTaskBody(event, locale);
+    if (event.settlesCurrentTurn) body = hostT(locale, "结果已并入本轮回复。");
     else if (event.suppressUserDelivery) {
-      if (!deliveryConfirmed) body = en ? "The report could not be fully delivered; the public process has been preserved." : "回报未能完整交付，公开过程已保留。";
+      if (!deliveryConfirmed) body = hostT(locale, "回报未能完整交付，公开过程已保留。");
       else if (completed && state.status === "done") body = event.reason === "no_result"
-        ? (en ? "No separate reply was generated; the public process has been preserved." : "未生成单独回复，公开过程已保留。")
-        : (en ? "The result has been collected into the main turn; the public process has been preserved." : "结果已由主任务收集，公开过程已保留。");
+        ? hostT(locale, "未生成单独回复，公开过程已保留。")
+        : hostT(locale, "结果已由主任务收集，公开过程已保留。");
       else body = statusText(state);
     }
     if ((event.settlesCurrentTurn || event.suppressUserDelivery) && !state.messageId) return false;

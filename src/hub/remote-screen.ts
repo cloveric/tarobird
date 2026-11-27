@@ -9,17 +9,18 @@ import { hashSecret, type AuthSession, type HubAuth } from "./auth.js";
 import { HubError, type HubStore } from "./store.js";
 import type { ScreenFrameHeader } from "../client-protocol/screen-wire.js";
 import { screenQualityProfile, type ScreenQuality } from "../client-protocol/screen-quality.js";
+import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
 
 const POLICY_KEY = "remote-screen:policy:v1", LAST_COMMAND_KEY = "remote-screen:command:v1";
 const secret = () => randomBytes(32).toString("base64url");
 const id = (prefix: string) => `${prefix}_${randomUUID().replaceAll("-", "")}`;
 export type ScreenControlSink = { send(value: unknown): boolean; close(reason: string): void };
 /** What the asking client can read; from the request, never from the signed policy. */
-export type ScreenViewerOptions = { windows?: boolean };
+export type ScreenViewerOptions = { windows?: boolean; udpStatus?: boolean; route?: ScreenRouteKind };
 export type ScreenMediaSink = { send(bytes: Uint8Array): boolean; configure(stream: ScreenStream): boolean; close(reason: string): void };
 type Lease = { id: string; expiresAt: number; ready: boolean; sequence: number; heldKeys: Set<string>; heldButtons: Set<number>; challenge: { nonce: string; validUntil: number; leaseUntil: number } };
 type Frame = { key: boolean; captureMs: number; confirmed: boolean; streamGeneration: number; pendingAck: boolean };
-type Live = { value: ScreenSession; auth: AuthSession; publicKey: string; control?: ScreenControlSink; media?: ScreenMediaSink; frames: Map<number, Frame>; lastFrame: number; lastKeyRequest: number; visible: boolean; started: boolean; direct: boolean; mediaBytesPerMs: number; lease?: Lease; codecs: ("h264" | "vp8")[]; quality?: ScreenQuality; flight?: number; streamGeneration: number; stream?: ScreenStream; awaitingKey: boolean; pendingControl?: number; lastCapture: number; rateAt: number; rateBudget: number };
+type Live = { value: ScreenSession; auth: AuthSession; publicKey: string; control?: ScreenControlSink; media?: ScreenMediaSink; frames: Map<number, Frame>; lastFrame: number; lastKeyRequest: number; visible: boolean; started: boolean; direct: boolean; route: ScreenRouteKind; mediaBytesPerMs: number; lease?: Lease; codecs: ("h264" | "vp8")[]; quality?: ScreenQuality; flight?: number; streamGeneration: number; stream?: ScreenStream; awaitingKey: boolean; pendingControl?: number; lastCapture: number; rateAt: number; rateBudget: number };
 type Ticket = { kind: "service" | "target-media" | "control" | "media"; id: string; expiresAt: number; epoch?: string };
 
 /** Identity/policy stays in the Host. Frames and ephemeral input never enter
@@ -64,17 +65,29 @@ export class HubRemoteScreen {
    * and would fail on the whole reply. So a Windows desktop is shown only to a
    * request that says it can read one (`viewer.windows`, from the query); to
    * any other it is the same as no desktop, which such a client can show. A
-   * Mac desktop is returned to both, byte for byte as before. */
+   * Mac desktop is returned to both, byte for byte as before.
+   * Likewise, `udpStatus` and `policy.udpBoost` are returned only to clients
+   * that opt in via `viewer.udpStatus` (`includeUdpStatus=1`). */
   async status(session: AuthSession, viewer: ScreenViewerOptions = {}): Promise<ScreenStatus> {
     await this.readPolicy(); const { device, canManage } = await this.principal(session), policy = this.policy!;
     const devices = canManage ? await this.store.db.serial(() => this.store.db.all<{ id: string; name: string; platform: string; publicKey: string }>("SELECT id,name,platform,public_key AS publicKey FROM devices WHERE revoked=0 ORDER BY created_at LIMIT 256")) : undefined;
     const permission = policy.grants.find(g => g.deviceId === device.id && g.publicKey === device.public_key)?.permission ?? "none";
+    const visiblePolicy = canManage ? structuredClone(policy) : undefined;
+    if (visiblePolicy && !viewer.udpStatus) delete visiblePolicy.udpBoost;
+    const udpEnabled = policy.udpBoost === true;
+    const activeRoute = [...this.sessions.values()].find(s => s.auth.deviceId === device.id && s.media)?.route;
+    const route: ScreenRouteKind = activeRoute ?? viewer.route ?? "tcp_default";
     return { supported: true, enabled: policy.enabled, canManage, permission,
-      ...(canManage ? { policy: structuredClone(policy), devices } : {}),
+      ...(visiblePolicy ? { policy: visiblePolicy, devices } : {}),
       desktop: (canManage || policy.enabled && permission !== "none") && this.desktop && this.readableBy(viewer) ? structuredClone(this.desktop) : null,
-      sessions: [...this.sessions.values()].filter(s => canManage || s.auth.deviceId === device.id).map(s => structuredClone(s.value)), serverTime: this.now() };
+      sessions: [...this.sessions.values()].filter(s => canManage || s.auth.deviceId === device.id).map(s => structuredClone(s.value)), serverTime: this.now(),
+      ...(viewer.udpStatus ? {
+        udpStatus: udpEnabled
+          ? { enabled: true, state: "fallback_tcp" as const, route, reasonCode: "udp_transport_unavailable" as const }
+          : { enabled: false, state: "disabled" as const, route, reasonCode: "disabled" as const },
+      } : {}) };
   }
-  async configure(session: AuthSession, raw: unknown, proof: DeviceActionProof): Promise<ScreenPolicy> {
+  async configure(session: AuthSession, raw: unknown, proof: DeviceActionProof, viewer: ScreenViewerOptions = {}): Promise<ScreenPolicy> {
     const command = screenConfigureSchema.parse(raw), digest = hashSecret(screenConfigureText(command));
     await this.readPolicy();
     const policy = await this.store.db.transaction(async () => {
@@ -102,7 +115,9 @@ export class HubRemoteScreen {
         }
         grants.push(grant);
       }
-      const next = screenPolicySchema.parse({ revision: command.expectedRevision + 1, enabled: command.enabled, grants });
+      // Omit `udpBoost` when false/default so downgraded Hosts can still parse the stored policy strictly.
+      const udpBoost = command.udpBoost !== undefined ? command.udpBoost : current.udpBoost === true;
+      const next = screenPolicySchema.parse({ revision: command.expectedRevision + 1, enabled: command.enabled, grants, ...(udpBoost ? { udpBoost: true } : {}) });
       await this.store.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", [POLICY_KEY, JSON.stringify(next)]);
       await this.store.db.run("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", [LAST_COMMAND_KEY, JSON.stringify({ deviceId: session.deviceId, requestId: command.requestId, digest })]);
       return next;
@@ -115,7 +130,9 @@ export class HubRemoteScreen {
       else if (grant.permission !== "control" && live.value.controlAllowed) { live.value.controlAllowed = false; this.release(live, "screen_control_revoked"); this.notify(live); }
     }
     void this.store.audit("screen.policy", session.deviceId, { revision: policy.revision, enabled: policy.enabled, grants: policy.grants.length });
-    return structuredClone(policy);
+    const result = structuredClone(policy);
+    if (!viewer.udpStatus && command.udpBoost === undefined) delete result.udpBoost;
+    return result;
   }
   /** Called exclusively by the authenticated local control socket, never HTTP. */
   serviceTicket(desktopId: string): { ticket: string; expiresAt: number } {
@@ -199,20 +216,20 @@ export class HubRemoteScreen {
       deviceId: device.id, deviceName: device.name, controlAllowed: grant.permission === "control", state: "connecting", createdAt: this.now() };
     const join: ScreenJoin = { session: value, controlTicket: this.issueTicket("control", value.id).ticket, mediaTicket: this.issueTicket("media", value.id).ticket, expiresAt: this.now() + SCREEN_TICKET_MS, serverTime: this.now(),
       ...(input.quality !== undefined ? { quality: input.quality } : {}) };
-    this.sessions.set(value.id, { value, auth: session, publicKey: device.public_key, frames: new Map(), lastFrame: 0, lastKeyRequest: 0, visible: true, started: false, direct: false, mediaBytesPerMs: SCREEN_MEDIA_BYTES_PER_MS, codecs: input.codecs, quality: input.quality, flight: input.flight, streamGeneration: 1, awaitingKey: true, lastCapture: 0, rateAt: this.now(), rateBudget: 180 });
+    this.sessions.set(value.id, { value, auth: session, publicKey: device.public_key, frames: new Map(), lastFrame: 0, lastKeyRequest: 0, visible: true, started: false, direct: false, route: viewer.route ?? "tcp_default", mediaBytesPerMs: SCREEN_MEDIA_BYTES_PER_MS, codecs: input.codecs, quality: input.quality, flight: input.flight, streamGeneration: 1, awaitingKey: true, lastCapture: 0, rateAt: this.now(), rateBudget: 180 });
     if (this.requests.size >= 128) this.requests.delete(this.requests.keys().next().value!);
     this.requests.set(requestKey, { body, join: structuredClone(join), platform: this.desktop.platform });
     void this.store.audit("screen.connected", session.deviceId, { sessionId: value.id, desktopId: value.desktopId, displayId: display.id, ...(input.quality !== undefined ? { quality: input.quality } : {}) });
     return structuredClone(join);
   }
   /** `origin.direct`: this socket came straight from a local-network address. Only the media socket's origin matters. */
-  async attachViewer(ticket: string, kind: "control" | "media", sink: ScreenControlSink | ScreenMediaSink, origin: { direct?: boolean } = {}): Promise<string> {
+  async attachViewer(ticket: string, kind: "control" | "media", sink: ScreenControlSink | ScreenMediaSink, origin: { direct?: boolean; route?: ScreenRouteKind } = {}): Promise<string> {
     const claim = this.takeTicket(ticket, kind), live = this.sessions.get(claim.id);
     if (!live) throw new HubError("screen_session_closed", 410);
     await this.auth.validateSession(live.auth);
     if (this.sessions.get(claim.id) !== live) throw new HubError("screen_session_closed", 410);
     if (kind === "control") { if (live.control) throw new HubError("screen_channel_busy", 409); live.control = sink as ScreenControlSink; }
-    else { if (live.media) throw new HubError("screen_channel_busy", 409); live.media = sink as ScreenMediaSink; live.direct = origin.direct === true; }
+    else { if (live.media) throw new HubError("screen_channel_busy", 409); live.media = sink as ScreenMediaSink; live.direct = origin.direct === true; live.route = origin.route ?? (origin.direct ? "tcp_lan_direct" : live.route); }
     this.startVisible(live);
     this.notify(live); return claim.id;
   }

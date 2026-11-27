@@ -7,7 +7,7 @@ import type { Bot, HubConnection } from "./connection.js";
 import { AttachmentFile } from "./Content.js";
 import { CreationDialog } from "./CreationDialog.js";
 import { useBotLabels } from "./BotReferences.js";
-import { t, useLocale } from "./i18n.js";
+import { localeIntlTag, t, useLocale } from "./i18n.js";
 import "./conversation-files.css";
 
 export function ConversationFiles({ connection, conversation, bots, close, locate }: {
@@ -67,7 +67,7 @@ function FileResults({ connection, conversationId, botId, query, locate }: {
       {result?.items.map(file => <article className="conversation-file-row" key={`${file.messageId}:${file.attachmentId}`}>
         <AttachmentFile list connection={connection} block={{ type: "file", attachmentId: file.attachmentId, name: file.name, size: file.size, mime: file.mime }}/>
         <div className="conversation-file-author"><span>{file.authorType === "user" && file.authorId === connection.state.user?.id ? t("我") : file.authorType === "bot" ? labels.get(file.authorId) ?? file.authorName : file.authorName}</span><small title={file.conversationTitle}>{file.conversationTitle}</small></div>
-        <time dateTime={new Date(file.createdAt).toISOString()}>{new Date(file.createdAt).toLocaleString(locale === "zh" ? "zh-CN" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
+        <time dateTime={new Date(file.createdAt).toISOString()}>{new Date(file.createdAt).toLocaleString(localeIntlTag(locale), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>
         <button className="icon-button file-locate" aria-label={t("查看 {0} 的原消息", file.name)} title={t("查看原消息")} onClick={() => locate(file.conversationId, file.messageId)}><ArrowUpRight size={18}/></button>
       </article>)}
       {!busy && !error && !result?.items.length && <div className="conversation-files-empty"><FolderOpen size={30}/><p>{query ? t("没有匹配的文件，试试其他文件名。") : t("这里还没有分享过文件。")}</p></div>}

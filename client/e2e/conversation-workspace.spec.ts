@@ -296,14 +296,27 @@ for (const locale of ["zh", "en"] as const) for (const phone of [false, true]) {
       // Light rail does NOT trigger desktop side-panel window expansion.
       await expect(page.locator(".app-shell")).not.toHaveClass(/has-side-panel/);
 
-      // Overview tab: Environment + Bot-to-Bot Comms + Artifacts, fitting cleanly in a single desktop viewport (zero vertical overflow!)
+      // Overview tab: Waiting for you + Who is helping you + Doing now + Bot-to-Bot (with avatars) + What was made,
+      // fitting cleanly in a single desktop viewport (zero vertical overflow!)
       await expect(container).toContainText("Example Studio Host");
+      await expect(container).toContainText("Claude Sonnet 4.6");
       await expect(container).toContainText("Architect");
       await expect(container).toContainText("Reviewer");
-      await expect(container).toContainText(L("待审批"));
+      await expect(container).toContainText(L("等你确认"));
+      await expect(container).toContainText(L("等你同意"));
       await expect(container).toContainText("Researcher");
-      await expect(container).toContainText(L("已回传"));
+      await expect(container).toContainText(L("已回复"));
       await expect(container).toContainText("workspace-rail-spec.md");
+      // Bot-to-Bot comms is the ONE block with Bot avatars; Who is helping you has no Bot avatar.
+      await expect(container.locator(".workspace-env-card .profile-avatar")).toHaveCount(0);
+      await expect(container.locator(".workspace-comm-card").first().locator(".workspace-comm-route .profile-avatar")).toHaveCount(2);
+      // First-use "?" help popover opens and closes cleanly.
+      const whoHelp = container.getByRole("button", { name: L("说明：{0}").replace("{0}", L("谁在帮你")) });
+      await whoHelp.click();
+      await expect(container.locator(".ws-help-popover")).toBeVisible();
+      await container.getByRole("button", { name: L("关闭说明") }).click();
+      await expect(container.locator(".ws-help-popover")).toHaveCount(0);
+
       await noHorizontalOverflow(page, phone ? ".conversation-workspace-sheet" : ".conversation-workspace-rail");
       if (!phone) {
         const fitsWithoutScroll = await container.locator(".workspace-body").evaluate(node => node.scrollHeight <= node.clientHeight + 1);
@@ -318,8 +331,8 @@ for (const locale of ["zh", "en"] as const) for (const phone of [false, true]) {
 
       // Switch to Bot Comms tab and filter
       await container.getByRole("tab", { name: new RegExp(L("Bot 通信")) }).click();
-      await expect(container.getByRole("button", { name: new RegExp(L("进行中 / 待审批")) })).toBeVisible();
-      await container.getByRole("button", { name: new RegExp(L("进行中 / 待审批")) }).click();
+      await expect(container.getByRole("button", { name: new RegExp(L("进行中 / 等你同意")) })).toBeVisible();
+      await container.getByRole("button", { name: new RegExp(L("进行中 / 等你同意")) }).click();
       await expect(container.locator(".workspace-comm-card")).toHaveCount(1);
       await expect(container).toContainText("Reviewer");
       await shot(page, info, `${tag}-comms`);
@@ -333,7 +346,7 @@ for (const locale of ["zh", "en"] as const) for (const phone of [false, true]) {
       await expect(container).toContainText("workspace-rail-spec.md");
       await expect(container).toContainText("layout-benchmark.json");
       // The turn's changes are listed by file name, each with its own counts, on desktop and phone alike.
-      const diffButton = container.getByRole("button", { name: /ConversationWorkspace\.tsx \+11 −1.*bot-messages\.ts \+4 −2/ });
+      const diffButton = container.getByRole("button", { name: /ConversationWorkspace\.tsx \+11 -1.*bot-messages\.ts \+4 -2/ });
       await expect(diffButton).toBeVisible();
       await noHorizontalOverflow(page, phone ? ".conversation-workspace-sheet" : ".conversation-workspace-rail");
       if (!phone) {
@@ -390,13 +403,13 @@ for (const locale of ["zh", "en"] as const) for (const phone of [false, true]) {
 
       // Jump directly to the approval collaboration conversation, with the files narrowed to this one's changes.
       await container.getByRole("tab", { name: new RegExp(`^${L("文件")}`) }).click();
-      await container.getByRole("button", { name: new RegExp(`^${L("本轮改动")}`) }).click();
+      await container.getByRole("button", { name: new RegExp(`^${L("代码改动")}`) }).click();
       await container.getByRole("tab", { name: new RegExp(L("总览")) }).click();
       await container.getByRole("button", { name: L("去批准"), exact: true }).click();
       await expect(page.getByRole("heading", { level: 1 })).toContainText("Architect");
       // The other conversation has no changes: its files page starts from "all", not from an empty filter.
       await container.getByRole("tab", { name: new RegExp(`^${L("文件")}`) }).click();
-      await expect(container.getByRole("button", { name: new RegExp(`^${L("本轮改动")}`) })).toHaveCount(0);
+      await expect(container.getByRole("button", { name: new RegExp(`^${L("代码改动")}`) })).toHaveCount(0);
       await expect(container.getByRole("button", { name: new RegExp(`^${L("全部")}`) })).toHaveAttribute("aria-pressed", "true");
       expect(errors).toEqual([]);
     } finally {

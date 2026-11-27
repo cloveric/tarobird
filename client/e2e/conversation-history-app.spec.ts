@@ -1,7 +1,12 @@
 import { test, expect } from "@playwright/test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { HubServer } from "../../src/hub/server.js";
+import { CONVERSATION_HISTORY_CAPABILITY, historyInternalSnapshotSchema } from "../../src/client-protocol/conversation-history.js";
+import { createCoreServiceRuntime } from "../../src/core/runtime.js";
+import type { GatewayChannel } from "../../src/gateway/channel.js";
+import { gatewayConversationHistory } from "../../src/gateway/conversation-history.js";
+import { ConversationHistoryController } from "../../src/runtime/conversation-history.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
 import { selectConversation, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
 import { holdMessage } from "./fixtures/message-actions.js";
@@ -74,4 +79,112 @@ test("App desktop, phone and ADHD menus open the fork while preserving source an
     await page.screenshot({ path: info.outputPath("history-app-adhd-fork.png") });
     expect(requests).toHaveLength(2); expect(requests.map(input => input.action.title)).toEqual(["历史操作源对话 · 分叉", "历史操作源对话 · 分叉 2"]); expect(errors).toEqual([]);
   } finally { await context.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+
+test("an open fork menu recovers when the queue drains during its snapshot request", async ({ page }) => {
+  const root = await mkdtemp(path.resolve("../.history-ui-fixture-"));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+  let finishBinding!: () => void, sendOlderResponse!: () => void;
+  const bindingHeld = new Promise<void>(resolve => { finishBinding = resolve; });
+  const olderResponseHeld = new Promise<void>(resolve => { sendOlderResponse = resolve; });
+  try {
+    const botId = "history_bot";
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('history_bot','历史测试助手','fixture')");
+    const source = await hub.store.createConversation("owner", [botId], "队列清空测试", "history_source");
+    const stateDir = path.join(root, "worker");
+    await mkdir(stateDir);
+    await writeFile(path.join(stateDir, "config.json"), "{}");
+    let pending = false, holdBinding = false, heldBindings = 0, nativeReads = 0, requests = 0;
+    let holdNextResponse = false, responseHeld = false;
+    const controller = new ConversationHistoryController({
+      getLockNamespace: async () => stateDir,
+      getHistoryBinding: async () => {
+        if (pending && holdBinding) {
+          heldBindings++;
+          await bindingHeld;
+          pending = false;
+        }
+        return { record: { telegramChatId: 7, codexSessionId: "fixture-session", status: "idle", updatedAt: "2026-01-01T00:00:00.000Z",
+          historyGeneration: "generation", historyRevision: "revision" }, shared: false };
+      },
+      reserveHistory: async () => { throw new Error("unexpected history mutation"); },
+      releaseHistory: async () => { throw new Error("unexpected history mutation"); },
+      finalizeHistory: async () => { throw new Error("unexpected history mutation"); },
+    }, { getHistoryState: async () => {
+      nativeReads++;
+      return { head: `head-${nativeReads}`, fork: { whole: true, anchored: false } };
+    } });
+    const channel = {
+      transport: { capabilities: [CONVERSATION_HISTORY_CAPABILITY], requestLive: async () => ({ allowed: true }) },
+      isConversationProcessing: () => pending,
+    } as unknown as GatewayChannel;
+    const gateway = gatewayConversationHistory({ getConversationHistory: controller.get.bind(controller) }, channel, createCoreServiceRuntime(), stateDir, botId);
+    await page.route(`**/api/conversations/${source.id}/history?*`, async route => {
+      requests++;
+      const snapshot = await gateway("history.snapshot", { userId: "owner", botId, conversationId: source.id });
+      const { bindingGeneration: _generation, sourceSessionId: _session, ...body } = historyInternalSnapshotSchema.parse(snapshot);
+      if (holdNextResponse) {
+        holdNextResponse = false;
+        responseHeld = true;
+        await olderResponseHeld;
+      }
+      await route.fulfill({ json: body });
+    });
+    await page.goto(hub.url);
+    await preparePairing(page, hub);
+    await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+    await showDisconnectedBots(page);
+    await waitForClientOnline(page);
+    await selectConversation(page, source.title);
+    const more = page.getByRole("button", { name: "更多聊天操作", exact: true });
+    const fork = page.getByRole("button", { name: "分叉当前对话", exact: true });
+    await more.click();
+    await expect(fork).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await expect(fork).toHaveCount(0);
+
+    pending = true;
+    await more.click();
+    await expect(fork).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(fork).toHaveCount(0);
+
+    holdNextResponse = true;
+    await more.click();
+    await expect.poll(() => responseHeld).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(fork).toHaveCount(0);
+
+    holdBinding = true;
+    const readsBeforeDrain = nativeReads, requestsBeforeDrain = requests;
+    const response = page.waitForResponse(value => value.url().includes(`/api/conversations/${source.id}/history?`));
+    await more.click();
+    await expect(more).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(() => heldBindings).toBe(1);
+    await expect(fork).toBeDisabled();
+    expect(nativeReads).toBe(readsBeforeDrain);
+    // Drain only on the Host. The App receives no new activity event.
+    finishBinding();
+    const recovered = await (await response).json();
+    expect(recovered).toMatchObject({ supported: true, revision: expect.any(String) });
+    expect(recovered).not.toHaveProperty("blocked");
+    await expect(fork).toBeEnabled();
+    await expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(nativeReads).toBe(readsBeforeDrain + 1);
+    expect(requests).toBe(requestsBeforeDrain + 1);
+
+    const older = page.waitForResponse(value => value.url().includes(`/api/conversations/${source.id}/history?`));
+    sendOlderResponse();
+    expect(await (await older).json()).toMatchObject({ supported: true, blocked: "busy" });
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(fork).toBeEnabled();
+  } finally {
+    finishBinding();
+    sendOlderResponse();
+    await hub.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });

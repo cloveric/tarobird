@@ -10,7 +10,7 @@ import { botRoleSchema, dispatcherSettingsSchema } from "./dispatch.js";
 export const createBotSchema = z.object({
   requestId: idSchema,
   name: z.string().trim().min(1).max(100),
-  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi"]),
+  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"]),
   model: z.string().trim().max(512),
   effort: z.enum(["", ...EFFORT_LEVELS]),
   permission: permissionChoiceSchema.optional(),
@@ -19,8 +19,8 @@ export const createBotSchema = z.object({
   // existing Bot must stay byte-identical for idempotent retries.
   role: botRoleSchema.optional(),
   dispatcher: dispatcherSettingsSchema.optional(),
-}).strict().refine(input => input.engine === "pi" || input.engine === "deepseek" || input.model.length <= 128, { message: "model_id_too_long", path: ["model"] })
-  .refine(input => input.engine !== "pi" || input.role !== "dispatcher", { message: "pi_dispatcher_unsupported", path: ["role"] })
+}).strict().refine(input => input.engine === "pi" || input.engine === "omp" || input.engine === "deepseek" || input.model.length <= 128, { message: "model_id_too_long", path: ["model"] })
+  .refine(input => (input.engine !== "pi" && input.engine !== "omp") || input.role !== "dispatcher", { message: "pi_dispatcher_unsupported", path: ["role"] })
   .refine(input => !input.dispatcher || input.role === "dispatcher", { message: "dispatcher_settings_require_role", path: ["dispatcher"] });
 
 export type CreateBotInput = z.infer<typeof createBotSchema>;

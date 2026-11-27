@@ -1,4 +1,5 @@
 import type { Message } from "../../src/client-protocol/index.js";
+import { isTranscriptionMessage } from "../../src/client-protocol/voice-presentation.js";
 import { isAgentBusRecord } from "./agent-bus-record.js";
 import type { MessageAttention } from "./attention.js";
 
@@ -12,10 +13,10 @@ export type AgentState = "idle" | "working" | "done" | "failed" | "ask";
 export type AgentSignal = { state: AgentState; at: number };
 export const IDLE_AGENT: AgentSignal = Object.freeze({ state: "idle", at: 0 });
 
-/** Keep only the newest reply per Bot. Forwarded copies and mirrored Agent Bus
- * records are not this conversation's own turn. */
+/** Keep only the newest reply per Bot. Forwarded copies, mirrored Agent Bus
+ * records and Host transcription cards are not this conversation's own turn. */
 export function projectReply(activity: ReplyActivity, message: Message, at: number): void {
-  if (message.authorType !== "bot" || message.forwardedFrom || isAgentBusRecord(message)) return;
+  if (message.authorType !== "bot" || message.forwardedFrom || isAgentBusRecord(message) || isTranscriptionMessage(message)) return;
   projectWorkingReply(activity, message, at);
   const replies = activity.replies ??= {}, current = replies[message.authorId];
   if (message.status === "deleted") {
@@ -31,7 +32,7 @@ export function projectReply(activity: ReplyActivity, message: Message, at: numb
  * Only active IDs/timestamps are retained; terminal updates remove their ID. */
 export function projectWorkingReply(activity: Pick<ReplyActivity, "workingReplies">, message: Message, at: number): void {
   const working = activity.workingReplies ??= {};
-  if (message.authorType === "bot" && !message.forwardedFrom && !isAgentBusRecord(message) && message.status === "streaming") working[message.id] = at;
+  if (message.authorType === "bot" && !message.forwardedFrom && !isAgentBusRecord(message) && !isTranscriptionMessage(message) && message.status === "streaming") working[message.id] = at;
   else delete working[message.id];
 }
 

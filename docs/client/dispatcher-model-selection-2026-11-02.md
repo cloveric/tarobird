@@ -1,8 +1,8 @@
-# Chancellor per-task model selection follow-up
+# Superagent per-task model selection follow-up
 
 ## Observed behavior
 
-The owner's Chancellor `高达sol` ran the simple lookup, table work and local
+The owner's Superagent `高达sol` ran the simple lookup, table work and local
 process inspection in its own Codex session (`gpt-6.1-sol`, `xhigh`). Its
 ticket ledger had no entries at inspection. The weather request used search
 tools directly in that session, before the later video request's failed

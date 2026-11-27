@@ -121,3 +121,49 @@ for (const width of [390, 1360]) test(`CLI bilingual reading size, fonts and con
     expect(await page.locator("html").evaluate(e => getComputedStyle(e).fontFamily)).not.toContain("Sarasa");
   } finally { await page.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("Japanese CLI typography uses JetBrains Mono and preserves brand-theme Japanese font stack", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1360, height: 1000 });
+  const root = await mkdtemp(path.join(os.tmpdir(), "cli-type-ja-"));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+  try {
+    await hub.profile.update({ name: "Demo Host", revision: (await hub.profile.read()).revision });
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('type','端末アシスタント','fixture')");
+    const chat = await hub.store.createConversation("owner", ["type"], "日本語CLI確認", "type-ja");
+    const plain = await hub.store.publishBotMessage("type", { conversationId: chat.id, blocks: [{ type: "text", text: "日本語テキストと `const ok = true;` の表示確認。" }] });
+    await page.goto(hub.url);
+    await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" }); await showDisconnectedBots(page);
+    await waitForClientOnline(page);
+
+    await openSettings(page, "general");
+    await page.locator("#language").selectOption("ja");
+    await expect(page.locator("html")).toHaveAttribute("lang", "ja");
+
+    const proportionalFont = await page.evaluate(() => ({
+      html: getComputedStyle(document.documentElement).fontFamily,
+      body: getComputedStyle(document.body).fontFamily,
+    }));
+    expect(proportionalFont.html).toContain("SF Pro Text");
+    expect(proportionalFont.html).toContain("Hiragino Sans");
+    expect(proportionalFont.body).toContain("SF Pro Text");
+
+    await page.locator('input[name="color-palette"][value="cli"]').check();
+    await expect(page.locator("html")).toHaveAttribute("data-palette", "cli");
+    await page.getByRole("button", { name: "設定を閉じる", exact: true }).click();
+    await selectConversation(page, chat.title);
+    await page.evaluate(() => document.fonts.ready);
+
+    const cliFont = await page.locator(`[data-message-id="${plain.id}"] .markdown`).first().evaluate(el => ({
+      html: getComputedStyle(document.documentElement).fontFamily,
+      body: getComputedStyle(document.body).fontFamily,
+      markdown: getComputedStyle(el).fontFamily,
+    }));
+    expect(cliFont.html).toMatch(/^"?JetBrains Mono"?,/);
+    expect(cliFont.html).toContain("Hiragino Kaku Gothic ProN");
+    expect(cliFont.body).toMatch(/^"?JetBrains Mono"?,/);
+    expect(cliFont.markdown).toMatch(/^"?JetBrains Mono"?,/);
+  } finally { await page.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});

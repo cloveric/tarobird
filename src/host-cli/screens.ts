@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { screenConfigureSchema, screenConfigureText, screenPolicySchema, screenStatusSchema, type ScreenConfigure } from "../client-protocol/remote-screen.js";
+import { REMOTE_SCREEN_UDP_BOOST_CAPABILITY, screenConfigureSchema, screenConfigureText, screenPolicySchema, screenStatusSchema, type ScreenConfigure } from "../client-protocol/remote-screen.js";
 import { hashSecret } from "../hub/auth.js";
 import type { LocalHostClient } from "./client.js";
 
@@ -10,7 +10,8 @@ export async function screenCommand(client: LocalHostClient, sub: string, device
     return client.request("/api/screens/stop", "POST", { ...(deviceId ? { sessionId: deviceId } : {}) });
   }
   // This CLI reads a Windows desktop as well as a Mac's; see `HubRemoteScreen.status`.
-  const status = screenStatusSchema.parse(await client.request("/api/screens/status?includeWindows=1"));
+  const includeUdpStatus = client.supports(REMOTE_SCREEN_UDP_BOOST_CAPABILITY);
+  const status = screenStatusSchema.parse(await client.request(includeUdpStatus ? "/api/screens/status?includeWindows=1&includeUdpStatus=1" : "/api/screens/status?includeWindows=1"));
   if (sub === "status") return status;
   if (!["configure", "enable", "disable", "allow", "revoke"].includes(sub)) throw new Error("未知 screens 命令。");
   if (!options.yes) throw new Error("先用 screens status 核对目标设备与权限，确认后加 --yes。");
@@ -32,5 +33,5 @@ export async function screenCommand(client: LocalHostClient, sub: string, device
     }
   }
   const proof = await client.deviceAction({ operation: "screen-grant", target: hashSecret(screenConfigureText(command)) });
-  return screenPolicySchema.parse(await client.request("/api/screens/configure", "POST", { command, proof }));
+  return screenPolicySchema.parse(await client.request(includeUdpStatus ? "/api/screens/configure?includeUdpStatus=1" : "/api/screens/configure", "POST", { command, proof }));
 }

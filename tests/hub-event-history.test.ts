@@ -108,7 +108,7 @@ it('migrates old accounting in bounded resumable passes and keeps backups enable
  expect(await backup.all('SELECT * FROM messages')).toEqual(await store.db.all('SELECT * FROM messages'));await backup.close();
  await updateBackupSettings(store,directory,{requestId:'off',revision:'default',retentionDays:0},'owner',async()=>{});
  await maintenance.dailyBackup();await expect(stat(path.join(directory,'backups',`auto-${new Date().toISOString().slice(0,10)}.sqlite`))).rejects.toMatchObject({code:'ENOENT'});
- expect(await store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({value:'26'});
+ expect(await store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({value:'28'});
 },20_000);
 it('reclaims new databases incrementally and converts legacy files only through explicit offline compaction',async()=>{
  expect((await databaseSpace(store.db)).autoVacuum).toBe(2);

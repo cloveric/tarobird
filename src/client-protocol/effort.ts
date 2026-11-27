@@ -3,7 +3,7 @@ import { z } from "zod";
 export const effortValueSchema = z.enum(["", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 export const effortSettingsSchema = z.object({
   scope: z.literal("bot"), revision: z.string().regex(/^[a-f0-9]{64}$/),
-  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi"]),
+  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"]),
   model: z.string(), effort: effortValueSchema, choices: z.array(effortValueSchema),
   activeTurns: z.number().int().nonnegative(),
   catalogStatus: z.enum(["ready", "no-models", "unavailable"]).optional(),

@@ -13,7 +13,7 @@ const asError = (value: unknown) => value instanceof Error ? value : new Error(S
 // terminal; this function never retries a request itself.
 const httpError = (value: unknown) => {
   const error = asError(value);
-  return /^(?:unexpected end of stream(?: on https?:\/\/[^\r\n]*)?|connection reset(?: by peer)?|native_response_idle_timeout)$/i.test(error.message)
+  return /^(?:unexpected end of stream(?: on https?:\/\/[^\r\n]*)?|connection reset(?: by peer)?|native_connection_reset|native_response_idle_timeout)$/i.test(error.message)
     ? new TypeError(error.message, { cause: error }) : error;
 };
 const abortError = (signal?: AbortSignal | null) => signal?.reason ?? new DOMException("The request was aborted", "AbortError");

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Security
 import CryptoKit
 
@@ -6,6 +7,99 @@ struct HubNetworkError: LocalizedError {
     let code: String
     init(_ code: String) { self.code = code }
     var errorDescription: String? { code }
+
+    static func classify(_ error: Error, fallback: String = "native_transport_failed", host: String? = nil) -> String {
+        if let hub = error as? HubNetworkError { return hub.code }
+        var current: NSError? = error as NSError
+        var urlCode: URLError.Code?
+        var posixCode: Int?
+        var osStatus: OSStatus?
+        var nwDnsError = false
+        var effectiveHost: String? = host.flatMap { $0.isEmpty ? nil : $0 }
+        var depth = 0
+        while let ns = current, depth < 8 {
+            if effectiveHost == nil {
+                if let failingUrl = ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL, let target = failingUrl.host, !target.isEmpty {
+                    effectiveHost = target
+                } else if let failingString = ns.userInfo[NSURLErrorFailingURLStringErrorKey] as? String,
+                          let failingUrl = URL(string: failingString), let target = failingUrl.host, !target.isEmpty {
+                    effectiveHost = target
+                }
+            }
+            if let pathObj = ns.userInfo["_NSURLErrorNWPathKey"] {
+                if #available(iOS 14.2, macOS 11.0, *),
+                   let path = pathObj as? OS_nw_path,
+                   nw_path_get_unsatisfied_reason(path) == nw_path_unsatisfied_reason_local_network_denied {
+                    return "local_network_permission_denied"
+                }
+                if String(describing: pathObj).localizedCaseInsensitiveContains("local network prohibited") {
+                    return "local_network_permission_denied"
+                }
+            }
+            if (ns.domain == NetService.errorDomain || ns.domain == "kCFErrorDomainDNSServiceDiscovery" || ns.domain == "kNWErrorDomainDNS") && ns.code == -65555 {
+                return "local_network_permission_denied"
+            }
+            if ns.domain == "kNWErrorDomainDNS" {
+                nwDnsError = true
+            }
+            if ns.domain == NSPOSIXErrorDomain || ns.domain == (kCFErrorDomainPOSIX as String) || ns.domain == "kNWErrorDomainPOSIX" {
+                posixCode = posixCode ?? ns.code
+            }
+            if ns.domain == NSURLErrorDomain && urlCode == nil {
+                urlCode = URLError.Code(rawValue: ns.code)
+            }
+            if ns.domain == NSOSStatusErrorDomain && osStatus == nil {
+                osStatus = OSStatus(truncatingIfNeeded: ns.code)
+            }
+            current = ns.userInfo[NSUnderlyingErrorKey] as? NSError
+            depth += 1
+        }
+        // Trust evaluation (SecTrustEvaluateAsyncWithError) reports OSStatus
+        // causes; URL loading errors keep their URL-level classification below.
+        if urlCode == nil, let status = osStatus {
+            switch status {
+            case errSecHostNameMismatch: return "native_tls_hostname_mismatch"
+            case errSecCertificateExpired, errSecCertificateNotValidYet: return "native_tls_cert_expired"
+            case errSecInvalidExtendedKeyUsage, errSecInvalidKeyUsageForPolicy, errSecCertificateValidityPeriodTooLong:
+                return "native_tls_cert_policy_rejected"
+            default: break
+            }
+        }
+        if let code = urlCode {
+            switch code {
+            case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff: return "native_network_offline"
+            case .secureConnectionFailed, .serverCertificateHasBadDate, .serverCertificateUntrusted,
+                 .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid: return "native_tls_untrusted"
+            case .clientCertificateRejected, .clientCertificateRequired: return "native_tls_handshake_failed"
+            case .appTransportSecurityRequiresSecureConnection: return "native_ats_blocked"
+            case .cannotFindHost, .dnsLookupFailed: return "native_dns_failed"
+            default: break
+            }
+        }
+        if let posix = posixCode {
+            switch Int32(posix) {
+            case EPERM:
+                if let target = effectiveHost, HubTLS.isLocalNetworkHost(target) {
+                    return "local_network_permission_denied"
+                }
+                return "native_host_unreachable"
+            case ECONNREFUSED: return "native_connection_refused"
+            case ETIMEDOUT: return "native_request_timeout"
+            case EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN: return "native_host_unreachable"
+            default: break
+            }
+        }
+        if let code = urlCode {
+            switch code {
+            case .timedOut: return "native_request_timeout"
+            case .networkConnectionLost: return "native_connection_reset"
+            case .cannotConnectToHost: return "native_host_unreachable"
+            default: break
+            }
+        }
+        if nwDnsError { return "native_dns_failed" }
+        return fallback
+    }
 }
 
 enum HubScreenRole: String { case control, media }
@@ -36,6 +130,31 @@ enum HubTLS {
 
     static func hostname(_ url: URL) -> String {
         (url.host ?? "").lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+    }
+
+    static func isLocalNetworkHost(_ raw: String) -> Bool {
+        var host = raw.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if host.hasSuffix(".") { host.removeLast() }
+        if host.isEmpty { return false }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        if parts.count == 4 {
+            let octets = parts.compactMap { Int($0) }
+            if octets.count == 4 && octets.allSatisfy({ (0...255).contains($0) }) {
+                return octets[0] == 10
+                    || (octets[0] == 192 && octets[1] == 168)
+                    || (octets[0] == 172 && (16...31).contains(octets[1]))
+                    || (octets[0] == 169 && octets[1] == 254)
+            }
+        }
+        if host.contains(":") {
+            if host.hasPrefix("fd7a:115c:a1e0:") { return false }
+            if host.hasPrefix("fe80:") { return true }
+            if host.hasPrefix("fc") || host.hasPrefix("fd") {
+                let first = host.split(separator: ":").first ?? ""
+                if first.count == 4, UInt16(first, radix: 16) != nil { return true }
+            }
+        }
+        return host.hasSuffix(".local") || host.hasSuffix(".lan")
     }
 
     static func target(_ base: URL, _ path: String) throws -> URL {
@@ -89,6 +208,21 @@ enum HubTLS {
         let decoded = try decode(signature)
         guard decoded.count == 64, verifier.isValidSignature(decoded, for: signed) else { throw HubNetworkError("tls_identity_mismatch") }
     }
+
+    static func verifyEdge(_ bytes: Data, publicKey: String, nonce: String, origin: String) throws {
+        let verifier = try self.publicKey(publicKey)
+        guard bytes.count <= proofLimit, let value = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              Set(value.keys) == Set(["v", "type", "publicKey", "nonce", "origin", "signature"]),
+              let version = value["v"] as? NSNumber, CFGetTypeID(version) != CFBooleanGetTypeID(), version.doubleValue == 1,
+              value["type"] as? String == "edge.identity", value["publicKey"] as? String == publicKey,
+              value["nonce"] as? String == nonce, value["origin"] as? String == origin,
+              let signature = value["signature"] as? String else {
+            throw HubNetworkError("tls_identity_mismatch")
+        }
+        let signed = Data("[\"tarocub/edge-identity/v1\",\"\(publicKey)\",\"\(nonce)\",\"\(origin)\"]".utf8)
+        let decoded = try decode(signature)
+        guard decoded.count == 64, verifier.isValidSignature(decoded, for: signed) else { throw HubNetworkError("tls_identity_mismatch") }
+    }
 }
 
 // All methods and delegate callbacks are confined to HubTLSSession.queue.
@@ -106,8 +240,10 @@ final class HubTLSSession: NSObject, URLSessionDataDelegate, URLSessionWebSocket
     let queue: DispatchQueue
     let created = ProcessInfo.processInfo.systemUptime
     private let anchors: [SecCertificate]?
+    private let edgeTls: Bool
     private var observedLeaf: Data?
     private var pin: Data?
+    private var edgeVerified = false
     private var retired = false
     private var cancelled = false
     // Set only when a trust failure deliberately cancels this entire session.
@@ -141,34 +277,59 @@ final class HubTLSSession: NSObject, URLSessionDataDelegate, URLSessionWebSocket
         return URLSession(configuration: configuration, delegate: delegate, delegateQueue: delegates)
     }
 
-    private init(base: URL, queue: DispatchQueue, anchors: [SecCertificate]?) {
-        self.base = base; self.queue = queue; self.anchors = anchors
+    private init(base: URL, queue: DispatchQueue, anchors: [SecCertificate]?, edgeTls: Bool = false) {
+        self.base = base; self.queue = queue; self.anchors = anchors; self.edgeTls = edgeTls
         super.init()
     }
 
     /// QR-provided roots are scoped to this origin and Hub identity. Hostname,
     /// certificate validity, identity proof and exact-leaf pinning still apply.
     static func prepare(origin: String, publicKey: String, queue: DispatchQueue, anchors: [SecCertificate]? = nil,
+                        // Identity probe budget; slow cross-border VPN links need more than 5 s.
+                        timeout: TimeInterval = 12,
+                        edgeTls: Bool = false,
                         completion: @escaping (Result<HubTLSSession, Error>) -> Void) throws -> HubTLSSession {
         dispatchPrecondition(condition: .onQueue(queue))
+        if edgeTls && anchors != nil { throw HubNetworkError("invalid_host_authority") }
         let base = try HubTLS.origin(origin)
         _ = try HubTLS.publicKey(publicKey)
         let nonce = try HubTLS.nonce()
-        let connection = HubTLSSession(base: base, queue: queue, anchors: anchors)
+        let connection = HubTLSSession(base: base, queue: queue, anchors: anchors, edgeTls: edgeTls)
         let probe = HubProofHandler(connection: connection, publicKey: publicKey, nonce: nonce, completion: completion)
-        var request = URLRequest(url: try HubTLS.target(base, "/api/tls-identity?nonce=" + nonce))
-        request.timeoutInterval = 5
+        let canonical = base.absoluteString.hasSuffix("/") ? String(base.absoluteString.dropLast()) : base.absoluteString
+        let path: String
+        if edgeTls {
+            var comps = URLComponents()
+            comps.path = "/api/edge-identity"
+            comps.queryItems = [URLQueryItem(name: "nonce", value: nonce), URLQueryItem(name: "origin", value: canonical)]
+            path = comps.string ?? ("/api/edge-identity?nonce=" + nonce)
+        } else {
+            path = "/api/tls-identity?nonce=" + nonce
+        }
+        var request = URLRequest(url: try HubTLS.target(base, path))
+        request.timeoutInterval = timeout
         let task = connection.session.dataTask(with: request)
         connection.handlers[task.taskIdentifier] = probe
-        let deadline = DispatchWorkItem { task.cancel() }
+        let deadline = DispatchWorkItem { [weak probe] in
+            probe?.markTimeout()
+            task.cancel()
+        }
         probe.deadline = deadline
-        queue.asyncAfter(deadline: .now() + 5, execute: deadline)
+        queue.asyncAfter(deadline: .now() + timeout, execute: deadline)
         task.resume()
         return connection
     }
 
     fileprivate func bindProof(_ bytes: Data, key: String, nonce: String) throws {
-        guard !retired, pin == nil, let leaf = observedLeaf else { throw HubNetworkError("native_tls_identity_unavailable") }
+        guard !retired else { throw HubNetworkError("native_tls_identity_unavailable") }
+        if edgeTls {
+            guard !edgeVerified else { throw HubNetworkError("native_tls_identity_unavailable") }
+            let canonical = base.absoluteString.hasSuffix("/") ? String(base.absoluteString.dropLast()) : base.absoluteString
+            try HubTLS.verifyEdge(bytes, publicKey: key, nonce: nonce, origin: canonical)
+            edgeVerified = true
+            return
+        }
+        guard pin == nil, let leaf = observedLeaf else { throw HubNetworkError("native_tls_identity_unavailable") }
         try HubTLS.verify(bytes, publicKey: key, nonce: nonce, certificate: leaf)
         // Only the no-credential proof task existed before this point. Reuse
         // its verified TLS connection and enforce this immutable pin on every
@@ -185,7 +346,7 @@ final class HubTLSSession: NSObject, URLSessionDataDelegate, URLSessionWebSocket
 
     private func validate(_ request: URLRequest) throws {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard !retired, pin != nil else { throw HubNetworkError("native_route_not_verified") }
+        guard !retired, (pin != nil || edgeVerified) else { throw HubNetworkError("native_route_not_verified") }
         guard let url = request.url, url.scheme == "https", HubTLS.hostname(url) == HubTLS.hostname(base),
               url.port == base.port, url.user == nil, url.password == nil, url.fragment == nil else { throw HubNetworkError("invalid_hub_origin") }
         guard request.httpBody == nil else { throw HubNetworkError("native_single_use_body_required") }
@@ -213,7 +374,7 @@ final class HubTLSSession: NSObject, URLSessionDataDelegate, URLSessionWebSocket
     /// route's verified identity/pin, but never the chat resource deadline.
     func screenConnection(control: HubTaskHandler, media: HubTaskHandler) throws -> HubScreenConnection {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard !retired, pin != nil else { throw HubNetworkError("native_route_not_verified") }
+        guard !retired, (pin != nil || edgeVerified) else { throw HubNetworkError("native_route_not_verified") }
         let connection = HubScreenConnection(owner: self, control: control, media: media)
         screenConnections[ObjectIdentifier(connection)] = connection
         return connection
@@ -222,7 +383,7 @@ final class HubTLSSession: NSObject, URLSessionDataDelegate, URLSessionWebSocket
 
     func socket(handler: HubTaskHandler) throws -> URLSessionWebSocketTask {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard !retired, pin != nil else { throw HubNetworkError("native_route_not_verified") }
+        guard !retired, (pin != nil || edgeVerified) else { throw HubNetworkError("native_route_not_verified") }
         var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)!
         parts.scheme = "wss"; parts.path = "/ws"
         var request = URLRequest(url: parts.url!)
@@ -262,21 +423,27 @@ final class HubTLSSession: NSObject, URLSessionDataDelegate, URLSessionWebSocket
                   SecTrustSetAnchorCertificatesOnly(trust, true) == errSecSuccess else {
                 rejectTrust("native_tls_untrusted", completion); return
             }
+            // Route-scoped private CAs have no public AIA/OCSP responders;
+            // disable network fetch so restricted/VPN networks never stall trust evaluation.
+            _ = SecTrustSetNetworkFetchAllowed(trust, false)
         }
         // Evaluate the supplied system policies, including hostname and ATS;
         // do not replace them with a weaker custom SSL policy.
         // Trust evaluation can fetch intermediates/revocation information.
         // Keep cancellation, deadlines and other hosts responsive while it runs.
-        let status = SecTrustEvaluateAsyncWithError(trust, queue) { [weak self] trust, trusted, _ in
+        let status = SecTrustEvaluateAsyncWithError(trust, queue) { [weak self] trust, trusted, trustError in
             guard let self = self, !self.cancelled else { completion(.cancelAuthenticationChallenge, nil); return }
             guard trusted, let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let certificate = chain.first else {
-                self.rejectTrust("native_tls_untrusted", completion); return
+                let code = trustError.map { HubNetworkError.classify($0, fallback: "native_tls_untrusted") } ?? "native_tls_untrusted"
+                self.rejectTrust(code, completion); return
             }
             let leaf = SecCertificateCopyData(certificate) as Data
-            guard (self.pin == nil || self.pin == leaf), (self.observedLeaf == nil || self.observedLeaf == leaf) else {
-                self.rejectTrust("tls_identity_mismatch", completion); return
+            if !self.edgeTls {
+                guard (self.pin == nil || self.pin == leaf), (self.observedLeaf == nil || self.observedLeaf == leaf) else {
+                    self.rejectTrust("tls_identity_mismatch", completion); return
+                }
+                self.observedLeaf = leaf
             }
-            self.observedLeaf = leaf
             completion(.useCredential, URLCredential(trust: trust))
         }
         if status != errSecSuccess { rejectTrust("native_tls_untrusted", completion) }
@@ -403,10 +570,18 @@ private final class HubProofHandler: HubTaskHandler {
         }
         bytes.append(data)
     }
+    func markTimeout() {
+        // A trust failure already recorded on the connection is the real cause;
+        // a later deadline must not mask it.
+        guard connection.trustFailure == nil else { return }
+        if failure == nil { failure = HubNetworkError("native_request_timeout") }
+    }
     override func completed(_ error: Error?) {
         deadline?.cancel(); deadline = nil
         do {
-            if let error = failure ?? error { throw error }
+            // Precedence: a recorded trust failure, then the deadline (or a
+            // response failure recorded before it), then the task's own error.
+            if let error = connection.trustFailure ?? failure ?? error { throw error }
             try connection.bindProof(bytes, key: key, nonce: nonce)
             completion(.success(connection))
         } catch { connection.cancelAll(); completion(.failure(error)) }

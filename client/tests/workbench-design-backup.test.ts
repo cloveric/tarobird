@@ -4,13 +4,13 @@ import { applyDesignFiles, decodeDesignFile, designTextFile, emptyDesignDocument
 import { planDesignHistory, planDesignRestore, type DesignHistoryIndex } from "../src/workbench-design-history.js";
 import type { DesignCommentsDoc } from "../src/workbench-design-comments.js";
 const content = (file: { base64: string }) => new TextDecoder().decode(decodeDesignFile(file));
-const path = "project/Main.dc.html", original = "<h1>Original</h1>", edited = "<h1>Edited</h1>", current = "<h1>Current</h1>";
+const path = "project/slides/cover.html", original = "<section><h1>Original</h1></section>", edited = "<section><h1>Edited</h1></section>", current = "<section><h1>Current</h1></section>";
 function write(document: DesignDocument, text: string) {
   const file = designTextFile(text, "text/html");
   return applyDesignFiles(document, { [path]: { base64: file.base64, contentType: file.contentType, ifMatch: document.files[path].sha256 } });
 }
 function fixture(): DesignBackupContent {
-  const d0 = emptyDesignDocument("old-design", "Old name"), before = write(d0, original), first = write(before, edited), document = write(first, current);
+  const d0 = emptyDesignDocument("old-design", "Old name", "slides"), before = write(d0, original), first = write(before, edited), document = write(first, current);
   const h1 = planDesignHistory({ before, after: first, author: { by: "agent", user: { id: "bot:trusted", name: "Trusted Bot" }, requestId: "first" } })!;
   const h2 = planDesignHistory({ index: h1.next, before: first, after: document, author: { by: "human", user: { id: "user:owner", name: "Owner" }, requestId: "second" } })!;
   const objects = { ...h1.put, ...h2.put }; for (const sha of h2.drop) delete objects[sha];
@@ -20,11 +20,11 @@ function fixture(): DesignBackupContent {
 }
 
 describe("complete Baoyu project backup", () => {
-  it.each(["canvas", "slides"] as const)("imports existing v1 %s backups under a new identity", format => {
-    const document = emptyDesignDocument("old", "Legacy", format); document.receipts.push({ id: "receipt", fingerprint: "x", revision: 0 });
+  it("imports existing v1 slides backups under a new identity", () => {
+    const document = emptyDesignDocument("old", "Legacy", "slides"); document.receipts.push({ id: "receipt", fingerprint: "x", revision: 0 });
     const imported = parseDesignBackup(JSON.stringify({ format: "tarobot-design", version: 1, title: "Legacy", document }), "new");
     expect(imported).toMatchObject({ title: "Legacy", document: { id: "new", revision: 0, receipts: [] } });
-    expect(imported.document.files).toEqual(document.files); expect(imported.document.format ?? "canvas").toBe(format);
+    expect(imported.document.files).toEqual(document.files); expect(imported.document.format).toBe("slides");
     expect(imported.history).toBeUndefined(); expect(imported.comments).toBeUndefined(); expect(document.receipts).toHaveLength(1);
   });
 

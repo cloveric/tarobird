@@ -11,18 +11,18 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncE
 import { LocalHostStartButton, LocalHostStartError, type LocalHostStartControl } from "./LocalHostStart.js";
 import { ArrowRight, Check, ChevronRight, Globe, Link, Monitor, MonitorSmartphone, Pencil, Plus, QrCode, RefreshCw, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import type { NetworkHost, NetworkManifest, NetworkView } from "../../src/client-protocol/private-network.js";
-import { sharedRoutesSchema } from "../../src/client-protocol/private-network.js";
+import { PRIVATE_NETWORK_RECOVERY_CAPABILITY, sharedRoutesSchema, unreadyRecoveryHosts } from "../../src/client-protocol/private-network.js";
 import { hostNameSchema, hostProfileSchema, type HostProfileState } from "../../src/client-protocol/host-profile.js";
 import { connectedHostName, type ConnectedHost } from "./host-connections.js";
 import type { HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
-import { joinNetworkHosts, reviewedNetworkHash, type NetworkJoinAttempt } from "./network-join.js";
+import { isOnlyReinstatementChange, joinNetworkHosts, reviewedNetworkHash, type NetworkJoinAttempt } from "./network-join.js";
 import { clearNetworkJoinAttempt, loadNetworkJoinAttempt, saveNetworkJoinAttempt } from "./network-join-storage.js";
 import { t, useLocale } from "./i18n.js";
 import "./network-manager.css";
 
 type Connection = HubConnection & {
-  state: HubConnection["state"] & { network?: NetworkView; networkAvailable?: boolean; hostProfile?: HostProfileState; networkChange?: NetworkView };
+  state: HubConnection["state"] & { network?: NetworkView; networkAvailable?: boolean; networkRecoveryAvailable?: boolean; hostProfile?: HostProfileState; networkChange?: NetworkView };
   refreshNetwork(): Promise<NetworkView | undefined>;
   confirmNetworkChange(review: NetworkView): Promise<void>;
 };
@@ -54,9 +54,10 @@ const networkState = (entry: ConnectedHost | undefined): { label: string; tone: 
   return connection.state.networkAvailable ? { label: t("正常"), tone: "ok" } : { label: t("需要更新"), tone: "warn" };
 };
 const fingerprint = (key: string) => t("公钥尾号 {0}", key.slice(-8));
+const hostGen = (host: { generation?: number }) => host.generation ?? 1;
 const currentNetwork = (entry: ConnectedHost) => { if (entry.host.networkBlocked) return undefined; const view = connectionOf(entry)?.state.network; return view && view.sync !== "removed" ? view.membership?.manifest : undefined; };
 const entryName = (entry: ConnectedHost) => connectedHostName(entry);
-const newJoinAttempt = (manifest: NetworkManifest, sourceKey: string): NetworkJoinAttempt => ({ networkId: manifest.id, authorityKey: manifest.authorityKey, sourceKey, seenManifestHash: reviewedNetworkHash(manifest), reviewedManifest: structuredClone(manifest) });
+const newJoinAttempt = (manifest: NetworkManifest, sourceKey: string, recover?: { generation: number }): NetworkJoinAttempt => ({ networkId: manifest.id, authorityKey: manifest.authorityKey, sourceKey, seenManifestHash: reviewedNetworkHash(manifest), ...(recover ? { recover: true, generation: recover.generation } : {}), reviewedManifest: structuredClone(manifest) });
 const eligibleRoutes = (entry: ConnectedHost) => {
   const routes = connectionOf(entry)?.identity.routes.filter(route => sharedRoutesSchema.safeParse([route]).success) ?? [];
   // These are candidates, not a wire payload. The existing merge below projects
@@ -69,15 +70,18 @@ const errorText = (error: unknown) => {
   if (error instanceof Error && error.message === "host_profile_changed") return t("主机名称已被其他设备修改，请重新打开名称编辑后保存。");
   if (error instanceof Error && error.message === "network_host_unavailable") return t("主机状态已变化，请刷新后重试。");
   if (error instanceof Error && error.message === "network_join_recovery_unavailable") return t("无法保存加入进度，请检查设备存储空间后重试。");
-  if (error instanceof Error && ["network_change_review_stale", "network_change_review_changed", "network_identity_mismatch"].includes(error.message)) return t("网络信息又有变化，请返回重新查看后确认。");
+  if (error instanceof Error && ["network_change_review_stale", "network_change_review_changed", "network_identity_mismatch", "network_membership_changed"].includes(error.message)) return t("网络信息又有变化，请返回重新查看后确认。");
   if (error instanceof Error && error.message === "network_host_state_changed") return t("主机加入状态已变化，请查看最新状态后再确认。");
   if (error instanceof Error && error.message === "network_devices_not_ready") return t("请先让手机打开 App，连接网络中的其他主机，再退出此主机。");
   if (error instanceof Error && error.message === "network_upgrade_required") return t("请先将网络内的所有主机升级到支持独立设备成员的版本，再重试。");
+  if (error instanceof Error && error.message === "network_recovery_upgrade_required") return t("请先将网络内所有主机和 App 更新到最新版本后再恢复主机。");
   if (error instanceof Error && error.message === "network_local_desktop_required") return t("这是网络中的最后一台主机，请在该主机的桌面版中解散网络，或在该主机终端运行 tarobot network leave --yes。");
   if (error instanceof Error && error.message === "network_authority_has_peers") return t("协调主机不能直接退出仍有其他成员的网络。");
   if (error instanceof Error && error.message === "network_join_in_progress") return t("主机正在完成加入，请稍后刷新状态再操作。");
   if (error instanceof Error && error.message === "network_request_expired") return t("本次加入已超时，请重新确认后再试。");
-  if (error instanceof Error && ["network_host_removed", "network_retired"].includes(error.message)) return t("此网络已撤销该主机身份的授权，再次加入需要新的主机身份。");
+  if (error instanceof Error && ["network_host_removed", "network_retired"].includes(error.message)) return t("此网络已撤销该主机之前的成员身份。需要先由协调主机明确允许重新加入，再从该主机发起恢复加入。");
+  if (error instanceof Error && error.message === "network_host_not_revoked") return t("这台主机仍在网络中，无需恢复。");
+  if (error instanceof Error && error.message === "network_cannot_reinstate_authority") return t("协调主机不能通过此操作恢复。");
   if (error instanceof Error && error.message === "network_review_changed") return t("网络成员已变化，请查看最新成员并重新确认加入。");
   if (error instanceof Error && error.message === "network_local_owner_required") return t("此设备是通过网络获得这台主机的访问权，不能代表它加入或退出网络。请在该主机本机，或最初配对它的设备上操作。");
   if (error instanceof Error && error.message === "network_pending_requires_local_cancel") return t("待加入的主机需要在它自己那里取消加入。");
@@ -108,7 +112,7 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
   localHostStart?: LocalHostStartControl;
 }) {
   useLocale();
-  const snapshot = useSyncExternalStore(notify => { const cleanups = entries.map(entry => entry.connection?.subscribe(notify)); return () => cleanups.forEach(cleanup => cleanup?.()); }, () => JSON.stringify(entries.map(entry => { const state = connectionOf(entry)?.state; return [state?.status, state?.network, state?.hostProfile, state?.networkAvailable, state?.user?.role, state?.networkChange]; })));
+  const snapshot = useSyncExternalStore(notify => { const cleanups = entries.map(entry => entry.connection?.subscribe(notify)); return () => cleanups.forEach(cleanup => cleanup?.()); }, () => JSON.stringify(entries.map(entry => { const state = connectionOf(entry)?.state; return [state?.status, state?.network, state?.hostProfile, state?.networkAvailable, state?.networkRecoveryAvailable, state?.user?.role, state?.networkChange]; })));
   const [confirmedNames, setConfirmedNames] = useState<Record<string, HostProfileState>>({});
   const hostName = (entry: ConnectedHost) => { const confirmed = confirmedNames[entry.host.publicKey], current = connectionOf(entry)?.state.hostProfile; return confirmed && (!current || current.revision < confirmed.revision) ? confirmed.name : entryName(entry); };
   const [selectedNetwork, setSelectedNetwork] = useState("");
@@ -146,6 +150,9 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
   const [networkChange, setNetworkChange] = useState<{ sourceKey: string; view: NetworkView }>();
   const [changeConsent, setChangeConsent] = useState(false);
   const [confirm, setConfirm] = useState<{ operation: "leave" | "remove"; publicKey: string; networkId: string; authorityKey: string; name: string; state: "pending" | "active"; dissolve?: boolean }>();
+  const [confirmConsent, setConfirmConsent] = useState(false);
+  const [reinstateConfirm, setReinstateConfirm] = useState<{ publicKey: string; networkId: string; name: string; generation: number }>();
+  const [reinstateConsent, setReinstateConsent] = useState(false);
   const networkMap = new Map<string, NetworkManifest>();
   for (const entry of entries) {
     const manifest = currentNetwork(entry); if (!manifest) continue;
@@ -162,18 +169,21 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
   const authorityName = authority ? hostName(authority) : network?.hosts.find(host => host.publicKey === network.authorityKey)?.name ?? t("协调主机");
   const authorityNotice = network ? managementNotice(authority, authorityName) : "";
   const standalone = entries.filter(entry => !entry.host.networkBlocked && !currentNetwork(entry));
-  const eligible = (entry: ConnectedHost, destination: NetworkManifest) => {
-    if (entry.host.networkBlocked || !canManage(entry) || !connectionOf(entry)?.state.network || entry.host.publicKey === destination.authorityKey || destination.hosts.some(host => host.publicKey === entry.host.publicKey && (host.revoked || host.state === "active"))) return false;
+  const canLeaveCurrentFor = (entry: ConnectedHost, destination: NetworkManifest) => {
     const current = currentNetwork(entry);
     if (!current) return true;
     if (current.id === destination.id && current.authorityKey === destination.authorityKey) return false;
     return current.authorityKey === entry.host.publicKey && current.hosts.filter(host => !host.revoked && (host.state === "active" || host.expiresAt! > Date.now())).length === 1;
   };
+  const eligible = (entry: ConnectedHost, destination: NetworkManifest) => {
+    if (entry.host.networkBlocked || !canManage(entry) || !connectionOf(entry)?.state.network || entry.host.publicKey === destination.authorityKey || destination.hosts.some(host => host.publicKey === entry.host.publicKey && (host.revoked || host.state === "active"))) return false;
+    return canLeaveCurrentFor(entry, destination);
+  };
   const candidates = network ? entries.filter(entry => eligible(entry, network)) : [];
   // Standalone hosts that cannot join right now stay visible with a reason.
   // Exception: this desktop's own stopped host has no network view, yet it is a
   // listed member shown above with its start action; it has not "not joined".
-  const unjoined = network ? standalone.filter(entry => !candidates.includes(entry) && !(localHostStart && entry.host.publicKey === localHostKey && network.hosts.some(host => host.publicKey === entry.host.publicKey && !host.revoked))) : [];
+  const unjoined = network ? standalone.filter(entry => !candidates.includes(entry) && !network.hosts.some(host => host.publicKey === entry.host.publicKey) && !(localHostStart && entry.host.publicKey === localHostKey && network.hosts.some(host => host.publicKey === entry.host.publicKey && !host.revoked))) : [];
   const authorityNoticeId = useId();
   const ready = standalone.filter(entry => canManage(entry) && connectionOf(entry)?.state.network?.sync === "standalone");
   const source = joining && entries.find(entry => entry.host.publicKey === joining.sourceKey);
@@ -181,6 +191,7 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
   const joiningNetwork = networks.find(value => value.id === joining?.networkId && value.authorityKey === joining.authorityKey);
   const detailEntry = entries.find(entry => entry.host.publicKey === details);
   const detailHost = network?.hosts.find(host => host.publicKey === details && !host.revoked);
+  const detailRevokedHost = !detailHost ? network?.hosts.find(host => host.publicKey === details && host.revoked) : undefined;
   const authorityHasPeers = !!network?.hosts.some(host => host.publicKey !== network.authorityKey && !host.revoked && (host.state === "active" || (host.expiresAt ?? 0) > Date.now()));
   const singletonAuthority = !!network && details === network.authorityKey && !authorityHasPeers;
   const routesEntry = entries.find(entry => entry.host.publicKey === routesFor);
@@ -224,12 +235,35 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
     const member = manifest.hosts.find(host => host.publicKey === source.host.publicKey && !host.revoked);
     if (member?.state === "active") { initialJoinApplied.current = `${initialJoin.hostId}:${initialJoin.networkHostId}`; return; }
     if (member?.state === "pending" && currentNetwork(source)?.id === manifest.id) { initialJoinApplied.current = `${initialJoin.hostId}:${initialJoin.networkHostId}`; setDetails(source.host.publicKey); return; }
+    const revokedMember = manifest.hosts.find(host => host.publicKey === source.host.publicKey && host.revoked);
+    if (revokedMember) {
+      if (!canManage(source) || !canLeaveCurrentFor(source, manifest)) {
+        setError(!canManage(source) ? t("主机当前不可用，请恢复连接或管理权限后再恢复加入。") : t("这台主机已属于另一个网络。请先在原网络处理成员关系，再发起加入。"));
+        return;
+      }
+      initialJoinApplied.current = `${initialJoin.hostId}:${initialJoin.networkHostId}`;
+      setSelectedNetwork(`${manifest.authorityKey}:${manifest.id}`);
+      setError("");
+      const nextGen = hostGen(revokedMember) + 1;
+      const saved = loadNetworkJoinAttempt(manifest.id, manifest.authorityKey, source.host.publicKey);
+      const value = saved?.recover && saved.generation === nextGen && saved.proposal && saved.proposal.proposal.expiresAt > Date.now()
+        ? saved
+        : newJoinAttempt(manifest, source.host.publicKey, { generation: nextGen });
+      attempt.current = value; setJoining(value); setConsent(false);
+      return;
+    }
     if (!eligible(source, manifest)) { setError(!canManage(source) ? t("主机当前不可用，请恢复连接或管理权限后再加入。") : t("这台主机已属于另一个网络。请先在原网络处理成员关系，再发起加入。")); return; }
     initialJoinApplied.current = `${initialJoin.hostId}:${initialJoin.networkHostId}`;
     setSelectedNetwork(`${manifest.authorityKey}:${manifest.id}`);
     setError("");
+    const pendingRecoverGen = member?.state === "pending" && hostGen(member) > 1 ? hostGen(member) : undefined;
     const saved = loadNetworkJoinAttempt(manifest.id, manifest.authorityKey, source.host.publicKey);
-    const value = saved?.proposal && saved.proposal.proposal.expiresAt > Date.now() ? saved : newJoinAttempt(manifest, source.host.publicKey);
+    const matchesSaved = pendingRecoverGen
+      ? saved?.recover && saved.generation === pendingRecoverGen
+      : !saved?.recover;
+    const value = matchesSaved && saved?.proposal && saved.proposal.proposal.expiresAt > Date.now()
+      ? saved
+      : newJoinAttempt(manifest, source.host.publicKey, pendingRecoverGen ? { generation: pendingRecoverGen } : undefined);
     attempt.current = value; setJoining(value); setConsent(false);
   }, [initialJoin?.hostId, initialJoin?.networkHostId, snapshot, entries]);
   const initialTarget = entries.find(entry => entry.host.id === initialJoin?.networkHostId);
@@ -240,7 +274,7 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
   useEffect(() => {
     if (!joining || consent || busy || joining.proposal || !joiningNetwork) return;
     if (reviewedNetworkHash(joiningNetwork) === joining.seenManifestHash) return;
-    const value = newJoinAttempt(joiningNetwork, joining.sourceKey);
+    const value = newJoinAttempt(joiningNetwork, joining.sourceKey, joining.recover && joining.generation ? { generation: joining.generation } : undefined);
     attempt.current = value; setJoining(value);
   }, [joiningNetwork, consent, busy, joining]);
   const nextJoinRoute = [source, joinAuthority].find((entry): entry is ConnectedHost => !!entry && !publicRoutes(entry).length);
@@ -274,10 +308,25 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
   }, [snapshot]);
   function startJoin(entry: ConnectedHost) {
     if (!network) return;
+    const pendingMember = network.hosts.find(host => host.publicKey === entry.host.publicKey && !host.revoked && host.state === "pending");
+    if (pendingMember && hostGen(pendingMember) > 1) {
+      startRecover(pendingMember, entry, hostGen(pendingMember));
+      return;
+    }
     setRoutesSuccess(undefined);
     const local = attempt.current;
-    const prior = local?.networkId === network.id && local.authorityKey === network.authorityKey && local.sourceKey === entry.host.publicKey ? local : loadNetworkJoinAttempt(network.id, network.authorityKey, entry.host.publicKey);
-    const value = prior?.networkId === network.id && prior.authorityKey === network.authorityKey && prior.sourceKey === entry.host.publicKey && (!prior.proposal || prior.proposal.proposal.expiresAt > Date.now()) ? prior : newJoinAttempt(network, entry.host.publicKey);
+    const prior = local?.networkId === network.id && local.authorityKey === network.authorityKey && local.sourceKey === entry.host.publicKey && !local.recover ? local : loadNetworkJoinAttempt(network.id, network.authorityKey, entry.host.publicKey);
+    const value = prior?.networkId === network.id && prior.authorityKey === network.authorityKey && prior.sourceKey === entry.host.publicKey && !prior.recover && (!prior.proposal || prior.proposal.proposal.expiresAt > Date.now()) ? prior : newJoinAttempt(network, entry.host.publicKey);
+    attempt.current = value; setJoining(value); setConsent(false); setError("");
+  }
+  function startRecover(host: NetworkHost, entry: ConnectedHost, generation = hostGen(host) + 1) {
+    if (!network) return;
+    setRoutesSuccess(undefined);
+    const local = attempt.current;
+    const prior = local?.networkId === network.id && local.authorityKey === network.authorityKey && local.sourceKey === entry.host.publicKey && local.recover && local.generation === generation
+      ? local : loadNetworkJoinAttempt(network.id, network.authorityKey, entry.host.publicKey);
+    const value = prior?.networkId === network.id && prior.authorityKey === network.authorityKey && prior.sourceKey === entry.host.publicKey && prior.recover && prior.generation === generation && (!prior.proposal || prior.proposal.proposal.expiresAt > Date.now())
+      ? prior : newJoinAttempt(network, entry.host.publicKey, { generation });
     attempt.current = value; setJoining(value); setConsent(false); setError("");
   }
   function openDetails(key: string) { initialHostApplied.current = true; setDetails(key); setRename(undefined); setRoutesSuccess(undefined); setError(""); }
@@ -305,24 +354,53 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
   }, [details]);
   async function completeJoin() {
     if (!source || !attempt.current || !canManage(source) || !canManage(joinAuthority)) throw new Error("network_host_unavailable");
-    if (attempt.current.proposal && attempt.current.proposal.proposal.expiresAt <= Date.now()) {
-      const updated = await connectionOf(source)!.refreshNetwork();
-      const own = updated?.membership?.manifest.hosts.find(host => host.publicKey === source.host.publicKey);
-      if (updated?.membership?.manifest.id === attempt.current.networkId && own?.state === "pending") {
-        setJoining(undefined); attempt.current = undefined; setDetails(source.host.publicKey);
-        throw new Error("network_request_expired");
-      }
-    }
+    const activeAttempt = attempt.current;
+    const wasRecover = !!activeAttempt.recover;
     try {
+      if (attempt.current.recover && !attempt.current.proposal) {
+        const latest = currentNetwork(joinAuthority!);
+        if (latest && reviewedNetworkHash(latest) !== attempt.current.seenManifestHash) throw new Error("network_review_changed");
+        const target = latest?.hosts.find(host => host.publicKey === source.host.publicKey);
+        const needsReinstate = !!target?.revoked && target.reinstated !== attempt.current.generation;
+        if (recoveryUpgradeBlocker(joinAuthority, latest, source, needsReinstate)) throw new Error("network_recovery_upgrade_required");
+        if (needsReinstate && target) {
+          const reviewed = attempt.current.reviewedManifest;
+          const reinstated = await connectionOf(joinAuthority)!.networkCommand({
+            operation: "reinstate", networkId: attempt.current.networkId, publicKey: source.host.publicKey,
+            expectedGeneration: hostGen(target), seenManifestHash: attempt.current.seenManifestHash,
+          });
+          const nextManifest = reinstated.view.membership?.manifest ?? currentNetwork(joinAuthority!);
+          if (!nextManifest) throw new Error("network_host_unavailable");
+          if (reviewed && !isOnlyReinstatementChange(reviewed, nextManifest, source.host.publicKey, attempt.current.generation!)) {
+            throw new Error("network_review_changed");
+          }
+          attempt.current = {
+            ...attempt.current,
+            seenManifestHash: reviewedNetworkHash(nextManifest),
+            reviewedManifest: structuredClone(nextManifest),
+          };
+          setJoining(attempt.current);
+        }
+      }
+      if (attempt.current.proposal && attempt.current.proposal.proposal.expiresAt <= Date.now()) {
+        const updated = await connectionOf(source)!.refreshNetwork();
+        const own = updated?.membership?.manifest.hosts.find(host => host.publicKey === source.host.publicKey);
+        if (updated?.membership?.manifest.id === attempt.current.networkId && own?.state === "pending") {
+          setJoining(undefined); attempt.current = undefined; setDetails(source.host.publicKey);
+          throw new Error("network_request_expired");
+        }
+      }
       await joinNetworkHosts(connectionOf(source)!, connectionOf(joinAuthority)!, attempt.current, value => { saveNetworkJoinAttempt(value); attempt.current = value; setJoining(value); });
     } catch (cause) {
       if (cause instanceof Error && ["network_review_changed", "network_request_expired"].includes(cause.message)) {
         setConsent(false);
         const updated = await connectionOf(joinAuthority)!.refreshNetwork().catch(() => undefined);
         const manifest = updated?.membership?.manifest;
-        if (manifest && manifest.id === joining?.networkId && manifest.authorityKey === joining.authorityKey) {
+        if (manifest && manifest.id === activeAttempt.networkId && manifest.authorityKey === activeAttempt.authorityKey) {
           clearNetworkJoinAttempt(manifest.id, manifest.authorityKey, source.host.publicKey);
-          const value = newJoinAttempt(manifest, source.host.publicKey); attempt.current = value; setJoining(value);
+          const target = manifest.hosts.find(host => host.publicKey === source.host.publicKey);
+          const recover = activeAttempt.recover ? { generation: target?.revoked ? hostGen(target) + 1 : target?.state === "pending" && hostGen(target) > 1 ? hostGen(target) : (activeAttempt.generation ?? 2) } : undefined;
+          const value = newJoinAttempt(manifest, source.host.publicKey, recover); attempt.current = value; setJoining(value);
         }
       }
       throw cause;
@@ -330,14 +408,17 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
     const completed = attempt.current!;
     clearNetworkJoinAttempt(completed.networkId, completed.authorityKey, completed.sourceKey);
     setJoining(undefined); attempt.current = undefined;
-    setJoinSuccess(t("「{0}」已加入「{1}」。可在新建 Bot 时选择运行主机；Bot、对话和文件仍保存在各自的电脑上。", hostName(source), joiningNetwork?.name ?? t("我的网络")));
+    setJoinSuccess(wasRecover
+      ? t("「{0}」已恢复加入「{1}」。Bot、对话和文件仍保留在原主机上。", hostName(source), joiningNetwork?.name ?? t("我的网络"))
+      : t("「{0}」已加入「{1}」。可在新建 Bot 时选择运行主机；Bot、对话和文件仍保存在各自的电脑上。", hostName(source), joiningNetwork?.name ?? t("我的网络")));
     // The signed join already succeeded. Other hosts can be briefly unavailable;
     // a background refresh must not turn that success into a failed admission.
     await Promise.allSettled([refresh(), changed()]);
   }
   const visibleHosts = (network?.hosts.filter(host => !host.revoked) ?? []).sort((a, b) => Number(b.publicKey === network!.authorityKey) - Number(a.publicKey === network!.authorityKey));
+  const revokedHosts = network?.hosts.filter(host => host.revoked) ?? [];
   const displayNames = new Map<string, string>();
-  for (const host of visibleHosts) {
+  for (const host of [...visibleHosts, ...revokedHosts]) {
     const entry = entries.find(value => value.host.publicKey === host.publicKey);
     displayNames.set(host.publicKey, entry ? hostName(entry) : host.name);
   }
@@ -406,31 +487,71 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
     : { title: t("连接另一台主机"), detail: t("只为本机添加连接。本机已在「{0}」中，不会因此改变组网。", localNetwork?.name ?? t("我的网络")) };
   // Detail actions. A reachable host leaves on its own, which checks that its
   // devices keep access elsewhere; coordinator removal is the fallback.
-  const detailName = detailEntry ? hostName(detailEntry) : detailHost?.name ?? "";
+  const detailName = detailEntry ? hostName(detailEntry) : detailHost?.name ?? detailRevokedHost?.name ?? "";
   // The host decides whether this device may act for it; a refusal is shown
   // and then the coordinator path is offered (see leaveFailed).
   const canSelfAct = !!network && !!detailEntry && canManage(detailEntry) && currentNetwork(detailEntry)?.id === network.id;
   const resumable = detailHost?.state === "pending" && !!detailEntry && candidates.includes(detailEntry);
   const removable = !!network && detailHost?.state === "active" && details !== network.authorityKey && canManage(authority) && (!canSelfAct || !!leaveFailed[details!]);
-  const confirmLeave = (publicKey: string, name: string, hostState: "pending" | "active", dissolve = false) => { if (!network) return; setConfirm({ operation: "leave", publicKey, networkId: network.id, authorityKey: network.authorityKey, name, state: hostState, dissolve }); setError(""); };
+  const confirmLeave = (publicKey: string, name: string, hostState: "pending" | "active", dissolve = false) => { if (!network) return; setConfirm({ operation: "leave", publicKey, networkId: network.id, authorityKey: network.authorityKey, name, state: hostState, dissolve }); setConfirmConsent(false); setError(""); };
   const dangerRow = (title: string, detail: string, action: string, onClick: () => void, disabled = false) => <div className="network-danger-row"><div><strong>{title}</strong><p>{detail}</p></div><button type="button" className="text-danger" disabled={busy || disabled} onClick={onClick}>{action}</button></div>;
   const danger = (() => {
     if (!network || !detailHost || !details) return null;
     if (details === network.authorityKey) {
       if (authorityHasPeers) return <p className="network-note">{t("协调主机不能直接退出仍有其他成员的网络。")}</p>;
-      if (localHostKey === network.authorityKey) return dangerRow(t("解散网络"), t("这是网络中的最后一台主机。解散后，其他设备对它的访问授权将撤销。"), t("解散网络"), () => confirmLeave(network.authorityKey, network.name, "active", true), !canManage(detailEntry));
+      if (localHostKey === network.authorityKey) return dangerRow(t("解散网络"), t("这是网络中的最后一台主机。解散后原网络将永久失效，无法恢复。"), t("解散网络"), () => confirmLeave(network.authorityKey, network.name, "active", true), !canManage(detailEntry));
       return <p className="network-note">{t("此网络只剩协调主机。请在「{0}」电脑的桌面版中解散网络，或在该主机终端运行 tarobot network leave --yes。", detailName)}</p>;
     }
     if (detailHost.state === "pending") {
       return canSelfAct ? dangerRow(t("取消加入"), t("撤回这次加入申请，之后可以重新申请。"), t("取消加入"), () => confirmLeave(details, detailName, "pending")) : null;
     }
     const rows = <>
-      {canSelfAct && dangerRow(t("退出网络"), t("Bot 和对话保留在这台主机上；网络中的其他设备将不能再访问它。"), t("退出网络"), () => confirmLeave(details, detailName, "active"))}
-      {removable && dangerRow(t("移出网络"), t("由协调主机「{0}」直接移出，不等待这台主机确认。", authorityName), t("移出网络"), () => { setConfirm({ operation: "remove", publicKey: details, networkId: network.id, authorityKey: network.authorityKey, name: detailName, state: "active" }); setError(""); })}
+      {canSelfAct && dangerRow(t("退出网络"), t("退出后当前网络不会自动重新接受这台主机；若只是连不上，请先检查连接状态与线路。"), t("退出网络"), () => confirmLeave(details, detailName, "active"))}
+      {removable && dangerRow(t("移出网络"), t("由协调主机「{0}」直接移出，需要协调主机重新允许后才能恢复加入。", authorityName), t("移出网络"), () => { setConfirm({ operation: "remove", publicKey: details, networkId: network.id, authorityKey: network.authorityKey, name: detailName, state: "active" }); setConfirmConsent(false); setError(""); })}
     </>;
     if (canSelfAct || removable) return rows;
     return <p className="network-note">{t("需要这台主机或协调主机在线，且此设备有管理权限，才能让它离开网络。")}</p>;
   })();
+  const troubleshootEntry = confirm ? ([entryOf(confirm.publicKey), entryOf(confirm.authorityKey)].find(entry => !!entry?.connection && !entry.host.networkBlocked)) : undefined;
+  const canRecoverEntry = (entry: ConnectedHost | undefined): entry is ConnectedHost => !!network && !!entry && !entry.host.networkBlocked && !!canManage(entry) && canLeaveCurrentFor(entry, network);
+  const joiningTargetHost = joining?.recover ? joiningNetwork?.hosts.find(host => host.publicKey === joining.sourceKey) : undefined;
+  const joiningRevokedHost = joiningTargetHost?.revoked ? joiningTargetHost : undefined;
+  const joiningReinstated = (!!joiningRevokedHost && joiningRevokedHost.reinstated === joining?.generation)
+    || (joiningTargetHost?.state === "pending" && !joiningTargetHost.revoked && hostGen(joiningTargetHost) === joining?.generation);
+  const recoveryUpgradeMessage = () => t("请先将网络内所有主机和 App 更新到最新版本后再恢复主机。");
+  const recoveryUpgradeBlocker = (
+    authorityEntry: ConnectedHost | undefined,
+    manifest: NetworkManifest | undefined,
+    targetEntry?: ConnectedHost,
+    needsReinstate = true,
+  ): string => {
+    if (!manifest) return "";
+    const targetConn = connectionOf(targetEntry);
+    if (targetConn && targetConn.state.status === "online" && targetConn.state.networkRecoveryAvailable === false) {
+      return recoveryUpgradeMessage();
+    }
+    const authorityConn = connectionOf(authorityEntry);
+    if (authorityConn && authorityConn.state.status === "online" && authorityConn.state.networkRecoveryAvailable === false) {
+      return recoveryUpgradeMessage();
+    }
+    if (!needsReinstate) return "";
+    if (!authorityEntry || !authorityConn || authorityConn.state.status !== "online" || !authorityConn.state.networkRecoveryAvailable) return "";
+    if (manifest.v !== 2) return recoveryUpgradeMessage();
+    if (unreadyRecoveryHosts(manifest, authorityConn.state.network?.hostCapabilities).length > 0) return recoveryUpgradeMessage();
+    if (manifest.hosts.some(host => {
+      if (host.revoked || host.state !== "active" || host.publicKey === manifest.authorityKey) return false;
+      const peerConn = connectionOf(entryOf(host.publicKey));
+      return !!peerConn && peerConn.state.status === "online" && peerConn.state.networkRecoveryAvailable === false;
+    })) return recoveryUpgradeMessage();
+    return "";
+  };
+  const joinRecoveryBlocker = joining?.recover ? recoveryUpgradeBlocker(joinAuthority, joiningNetwork, source, !joiningReinstated) : "";
+  const detailRecoveryBlocker = detailRevokedHost
+    ? recoveryUpgradeBlocker(authority, network, detailEntry, detailRevokedHost.reinstated !== hostGen(detailRevokedHost) + 1)
+    : "";
+  const reinstateBlocker = reinstateConfirm
+    ? recoveryUpgradeBlocker(authority, network, entryOf(reinstateConfirm.publicKey), true)
+    : "";
   const connectionButton = (entry: ConnectedHost) => <button type="button" className="network-option" disabled={busy || preparingLocal || !entry.connection || entry.host.networkBlocked} onClick={() => setConnectionFor(entry.host.publicKey)}>
     <SlidersHorizontal size={18} aria-hidden="true"/><span><strong>{t("连接状态与线路")}</strong><small>{entry.host.publicKey === localHostKey ? t("本机的局域网、Tailscale 和 VPS 中转") : t("此设备访问这台主机的直连和中转线路")}</small></span><ChevronRight size={15} aria-hidden="true"/>
   </button>;
@@ -445,7 +566,7 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
     {routesSuccess && network?.id === routesSuccess.id && network.authorityKey === routesSuccess.authorityKey && <p role="status" className="settings-feedback">{routesSuccess.text}</p>}
     {initialTarget && !initialTargetView && <p role="status" className="network-note">{connectionOf(initialTarget)?.state.status !== "online" ? t("请等待目标主机恢复连接，再继续加入。") : connectionOf(initialTarget)?.state.networkAvailable === false ? t("请确认目标主机已升级到支持组网的版本，且当前设备拥有管理权限。") : t("正在读取目标主机的网络信息…")}</p>}
     {initialMissingNetwork && <section className="network-onboarding-note"><h3>{t("连接已确认，主机尚未组网")}</h3><p>{t("已连接「{0}」，但这台主机还没有可加入的网络。", hostName(initialTarget!))}</p>{canManage(initialTarget) && initialTargetView?.sync === "standalone" ? <button type="button" className="primary" disabled={busy} onClick={() => { setCreateHost(initialTarget!.host.publicKey); setNetworkName(defaultNetworkName(hostName(initialTarget!))); setCreate(true); }}>{t("在「{0}」创建网络", hostName(initialTarget!))}</button> : <p>{connectionOf(initialTarget)?.state.status !== "online" ? t("请等待目标主机恢复连接，再继续加入。") : t("请确认目标主机已升级到支持组网的版本，且当前设备拥有管理权限。")}</p>}</section>}
-    {(refreshError || error) && !create && !joining && !details && !routesFor && !routesOverview && !confirm && !networkChange && <p role="alert" className="error-text network-overview-error">{error || refreshError}</p>}
+    {(refreshError || error) && !create && !joining && !details && !routesFor && !routesOverview && !confirm && !reinstateConfirm && !networkChange && <p role="alert" className="error-text network-overview-error">{error || refreshError}</p>}
     {entries.filter(entry => !entry.host.networkBlocked && connectionOf(entry)?.state.networkChange).map(entry => <div className="network-notice" key={entry.host.publicKey}><span>{hostName(entry)} · {connectionOf(entry)!.state.networkChange!.membership && connectionOf(entry)!.state.networkChange!.sync !== "removed" ? t("主机的网络已变更") : t("已退出网络")}</span><button type="button" className="network-secondary" disabled={busy} onClick={() => { setNetworkChange({ sourceKey: entry.host.publicKey, view: structuredClone(connectionOf(entry)!.state.networkChange!) }); setChangeConsent(false); setError(""); }}>{t("查看变更")}</button></div>)}
     {network ? <>
       {networks.length > 1 && <label className="network-field network-switch">{t("网络")}<select value={`${network.authorityKey}:${network.id}`} disabled={busy} onChange={event => { initialHostApplied.current = true; setSelectedNetwork(event.target.value); }}>{networks.map(value => <option key={`${value.authorityKey}:${value.id}`} value={`${value.authorityKey}:${value.id}`}>{value.name} · {fingerprint(value.authorityKey)}</option>)}</select></label>}
@@ -480,15 +601,52 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
       </section>
       {!!candidates.length && <section className="network-members network-candidates" aria-label={t("可加入的主机")}>
         <header><h3>{t("可加入的主机")}</h3></header>
-        <div className="network-member-list">{candidates.map(entry => <div className="network-candidate" key={entry.host.publicKey}>
-          <span className="network-member-icon"><Monitor size={18} aria-hidden="true"/></span>
-          <span className="network-member-name"><span className="network-member-title"><strong>{hostName(entry)}</strong>{tags(entry.host.publicKey)}</span>{duplicateName(hostName(entry)) && <small>{fingerprint(entry.host.publicKey)}</small>}</span>
-          <button type="button" className="network-secondary" disabled={busy || !canManage(authority)} aria-describedby={authorityNotice ? authorityNoticeId : undefined} onClick={() => startJoin(entry)}>{t("加入网络")}</button>
-        </div>)}</div>
+        <div className="network-member-list">{candidates.map(entry => {
+          const pendingMember = network.hosts.find(host => host.publicKey === entry.host.publicKey && !host.revoked && host.state === "pending");
+          const isPendingRecover = !!pendingMember && hostGen(pendingMember) > 1;
+          return <div className="network-candidate" key={entry.host.publicKey}>
+            <span className="network-member-icon"><Monitor size={18} aria-hidden="true"/></span>
+            <span className="network-member-name"><span className="network-member-title"><strong>{hostName(entry)}</strong>{tags(entry.host.publicKey)}</span>{duplicateName(hostName(entry)) && <small>{fingerprint(entry.host.publicKey)}</small>}</span>
+            <button type="button" className="network-secondary" disabled={busy || !canManage(authority)} aria-describedby={authorityNotice ? authorityNoticeId : undefined} onClick={() => startJoin(entry)}>{isPendingRecover ? t("恢复加入") : t("加入网络")}</button>
+          </div>;
+        })}</div>
       </section>}
       {!!unjoined.length && <section className="network-members" aria-label={t("未加入网络")}>
         <header><h3>{t("未加入网络")}</h3></header>
         <div className="network-member-list">{unjoined.map(entry => row(connectionOf(entry)?.state.network?.host ?? { publicKey: entry.host.publicKey, name: hostName(entry), routes: [], state: "active", revoked: false }, entry, joinReason(entry)))}</div>
+      </section>}
+      {!!revokedHosts.length && <section className="network-members network-revoked-hosts" aria-label={t("曾退出或移出的主机")}>
+        <header><h3>{t("曾退出或移出的主机")}</h3></header>
+        <div className="network-member-list">{revokedHosts.map(host => {
+          const entry = entryOf(host.publicKey);
+          const name = displayNames.get(host.publicKey) ?? host.name;
+          const reinstated = host.reinstated === hostGen(host) + 1;
+          const recoverable = canRecoverEntry(entry);
+          const rowRecoveryBlocker = recoveryUpgradeBlocker(authority, network, entry, !reinstated);
+          const note = rowRecoveryBlocker
+            ? rowRecoveryBlocker
+            : reinstated
+              ? t("协调主机已允许恢复，请在目标主机上确认重新加入。")
+              : entry?.host.networkBlocked
+                ? t("此设备仍保留已停用的旧连接；恢复加入后请先在「此设备的连接」移除旧连接。")
+                : t("需要协调主机明确允许，才能恢复加入此网络。");
+          return <div className="network-candidate" key={host.publicKey}>
+            <span className="network-member-icon"><Monitor size={18} aria-hidden="true"/></span>
+            <span className="network-member-name">
+              <span className="network-member-title">
+                <strong>{name}</strong>
+                {reinstated && <>{" "}<span className="network-tag" data-kind="authority">{t("已允许恢复")}</span></>}
+              </span>
+              {duplicateName(name) && <small>{fingerprint(host.publicKey)}</small>}
+              <small className="network-member-note">{note}</small>
+            </span>
+            {recoverable
+              ? <button type="button" className="network-secondary" disabled={busy || !canManage(authority)} aria-describedby={authorityNotice ? authorityNoticeId : undefined} onClick={() => startRecover(host, entry)}>{t("恢复加入")}</button>
+              : canManage(authority) && !reinstated
+                ? <button type="button" className="network-secondary" disabled={busy} onClick={() => { setReinstateConfirm({ publicKey: host.publicKey, networkId: network.id, name, generation: hostGen(host) }); setReinstateConsent(false); setError(""); }}>{t("允许重新加入")}</button>
+                : <button type="button" className="network-secondary" disabled={busy} onClick={() => openDetails(host.publicKey)}>{t("查看详情")}</button>}
+          </div>;
+        })}</div>
       </section>}
     </> : <>
       <section className="network-empty">
@@ -524,14 +682,22 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
       <footer className="network-actions"><button type="button" disabled={busy} onClick={() => { setCreate(false); setError(""); }}>{t("取消")}</button><button type="submit" className="primary" disabled={busy || !networkName.trim() || !ready.some(entry => entry.host.publicKey === createHost)}>{busy ? t("处理中…") : t("创建网络")}</button></footer>
     </form></CreationDialog>}
 
-    {joining && source && <CreationDialog mobilePage title={t("加入网络")} close={() => { setJoining(undefined); setError(""); }} closeLabel={t("返回设备与网络")} back showHost={false} busy={busy || preparingLocal} className="network-subpage">
-      {initialJoin && <p className="network-note">{t("手机已确认连接。最后一步：让这台电脑作为主机加入网络。")}</p>}
+    {joining && source && <CreationDialog mobilePage title={joining.recover ? t("恢复加入网络") : t("加入网络")} close={() => { setJoining(undefined); setError(""); }} closeLabel={t("返回设备与网络")} back showHost={false} busy={busy || preparingLocal} className="network-subpage">
+      {initialJoin && <p className="network-note">{joining.recover ? t("手机已确认连接。最后一步：将这台电脑恢复加入网络，原有 Bot 和数据会保留。") : t("手机已确认连接。最后一步：让这台电脑作为主机加入网络。")}</p>}
       <div className="network-direction">
         <div><small>{t("主机")}</small><strong>{hostName(source)}</strong><span>{fingerprint(source.host.publicKey)}</span></div>
         <ArrowRight size={18} aria-hidden="true"/>
         <div><small>{t("网络")}</small><strong>{joiningNetwork?.name ?? t("我的网络")}</strong><span>{t("协调 {0}", joinAuthority ? hostName(joinAuthority) : t("协调主机"))} · {fingerprint(joining.authorityKey)}</span></div>
       </div>
-      <p className="network-note">{t("加入后，两边已授权的设备都能访问网络内的 Bot 和对话。主机上的历史和文件保留原位。")}</p>
+      {joining.recover ? <div className="network-recovery-lead" role="note">
+        <p>{t("「{0}」此前曾退出或被移出「{1}」。恢复加入后，主机上的 Bot、对话和文件保留原位；此前撤销的旧设备授权不会自动恢复。", hostName(source), joiningNetwork?.name ?? t("我的网络"))}</p>
+        <p>{joiningReinstated
+          ? t("协调主机「{0}」已允许这台主机重新加入，确认后将完成加入。", joinAuthority ? hostName(joinAuthority) : t("协调主机"))
+          : canManage(joinAuthority)
+            ? t("确认后，将先在协调主机「{0}」明确允许恢复，再让这台主机重新加入。", joinAuthority ? hostName(joinAuthority) : t("协调主机"))
+            : t("协调主机「{0}」尚未允许恢复。请先在协调主机的「设备与网络」允许它重新加入。", joinAuthority ? hostName(joinAuthority) : t("协调主机"))}</p>
+      </div>
+        : <p className="network-note">{t("加入后，两边已授权的设备都能访问网络内的 Bot 和对话。主机上的历史和文件保留原位。")}</p>}
       {currentNetwork(source)?.authorityKey === source.host.publicKey && <p className="network-note network-caution">{t("「{0}」将离开原来的单主机网络，改由「{1}」协调。请确认加入方向正确。", hostName(source), joinAuthority ? hostName(joinAuthority) : t("协调主机"))}</p>}
       {joining.reviewedManifest && <details open={!!initialJoin} className="network-review-members"><summary>{t("查看网络成员和已授权设备")}</summary><ul>{joining.reviewedManifest.hosts.filter(host => !host.revoked).map(host => <li key={host.publicKey}>{host.name} · {fingerprint(host.publicKey)}{host.state === "pending" ? " · " + t("待完成加入") : ""}</li>)}{joining.reviewedManifest.devices.filter(device => !device.revoked).map(device => <li key={`${device.host}:${device.id}`}>{device.name} · {platformName(device.platform)}</li>)}</ul></details>}
       <section className="network-join-routes" aria-label={t("连接线路")}>
@@ -547,33 +713,45 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
       {!joinAuthority ? <p className="network-note" role="status">{t("尚未连接协调主机。请检查它是否在线，并刷新网络；已有授权会自动恢复。若从未连接过它，请先通过「连接另一台主机」完成配对。")}</p> : !canManage(joinAuthority) ? <p className="network-note" role="status">{managementNotice(joinAuthority, hostName(joinAuthority))}</p> : null}
       <p className="network-note">{t("手机将自动发现这台主机，无需再次扫码。")}</p>
       {!joinRoutesReady && <p id={joinRouteHintId} role="status" className="network-note">{nextJoinRoute ? t("还差一步：请先准备或共享「{0}」的连接线路。", hostName(nextJoinRoute)) : t("还差一步：请先准备或共享上方缺少的连接线路。")}</p>}
-      <label className="network-consent"><input type="checkbox" checked={consent} disabled={busy || !joinRoutesReady} aria-describedby={!joinRoutesReady ? joinRouteHintId : undefined} onChange={event => setConsent(event.target.checked)}/><span>{t("允许两边已授权的设备访问同一网络中的主机")}</span></label>
+      {joinRecoveryBlocker && <p role="alert" className="error-text">{joinRecoveryBlocker}</p>}
+      <label className="network-consent"><input type="checkbox" checked={consent} disabled={busy || !joinRoutesReady || !!joinRecoveryBlocker} aria-describedby={!joinRoutesReady ? joinRouteHintId : undefined} onChange={event => setConsent(event.target.checked)}/><span>{joining.recover ? t("确认由协调主机允许并让「{0}」恢复加入此网络，主机上的 Bot 和数据保留原位", hostName(source)) : t("允许两边已授权的设备访问同一网络中的主机")}</span></label>
       {joining.membership && <p role="status" className="network-note">{t("已保存加入批准，但主机之间的连接确认尚未完成。请检查两台主机共享的线路，再重试；无需重新配对。")}</p>}
-      {error && <p role="alert" className="error-text">{error}</p>}
+      {error && error !== joinRecoveryBlocker && <p role="alert" className="error-text">{error}</p>}
       <footer className="network-actions"><button type="button" disabled={busy || preparingLocal} onClick={() => { setJoining(undefined); setError(""); }}>{t("返回")}</button>{nextJoinRoute
         ? <button type="button" className="primary network-prepare-route" disabled={busy || preparingLocal || !canManage(nextJoinRoute)} aria-describedby={joinRouteHintId} onClick={() => { setRoutesFor(nextJoinRoute.host.publicKey); setError(""); }}><Link size={16}/><span>{t("准备「{0}」的连接线路", hostName(nextJoinRoute))}</span></button>
-        : <button type="button" className="primary" disabled={busy || preparingLocal || !consent || !canManage(source) || !canManage(joinAuthority) || !joinRoutesReady} onClick={() => void run(completeJoin)}><ShieldCheck size={16}/>{busy ? t("正在加入…") : joining.proposal ? t("重试加入") : t("确认加入")}</button>}</footer>
+        : <button type="button" className="primary" disabled={busy || preparingLocal || !consent || !canManage(source) || !canManage(joinAuthority) || !joinRoutesReady || !!joinRecoveryBlocker} onClick={() => void run(completeJoin)}><ShieldCheck size={16}/>{busy ? t("正在加入…") : joining.proposal ? t("重试加入") : joining.recover ? t("确认恢复加入") : t("确认加入")}</button>}</footer>
     </CreationDialog>}
 
-    {details && (detailEntry || detailHost) && <CreationDialog mobilePage title={detailName} busy={busy || preparingLocal} close={closeDetails} closeLabel={t("返回设备与网络")} back showHost={false} className="network-subpage network-detail">
+    {details && (detailEntry || detailHost || detailRevokedHost) && <CreationDialog mobilePage title={detailName} busy={busy || preparingLocal} close={closeDetails} closeLabel={t("返回设备与网络")} back showHost={false} className="network-subpage network-detail">
       <div className="network-detail-head">
         <span className="network-member-icon"><Monitor size={18} aria-hidden="true"/></span>
-        <div><span className="network-member-title">{tags(details)}{detailHost ? <span className="network-detail-state">{detailHost.state === "pending" ? t("待完成加入") : t("网络成员")}</span> : <span className="network-detail-state">{t("未加入网络")}</span>}</span><p className="network-fingerprint">{t("主机身份")} · {fingerprint(details)}</p></div>
+        <div><span className="network-member-title">{tags(details)}{detailHost ? <span className="network-detail-state">{detailHost.state === "pending" ? t("待完成加入") : t("网络成员")}</span> : detailRevokedHost ? <span className="network-detail-state">{detailRevokedHost.reinstated === hostGen(detailRevokedHost) + 1 ? t("已允许恢复加入") : t("已退出或移出")}</span> : <span className="network-detail-state">{t("未加入网络")}</span>}</span><p className="network-fingerprint">{t("主机身份")} · {fingerprint(details)}</p></div>
       </div>
       {network && details === network.authorityKey && <p className="network-note">{t("协调主机：负责确认新主机和新设备，日常对话无需通过它转发。")}</p>}
-      {!canManage(detailEntry) && <p className="network-note" role="status">{!detailEntry?.connection ? t("此设备尚未连接这台主机。") : detailEntry.host.networkBlocked ? t("此设备的授权已失效，请重新配对后管理这台主机。") : detailEntry.connection.state.status !== "online" ? t("连接这台主机后，才能修改名称或共享线路。") : !detailEntry.connection.state.user ? t("正在读取网络管理权限…") : detailEntry.connection.state.user.role !== "owner" ? t("此设备没有这台主机的管理权限，无法修改名称或共享线路。") : detailEntry.connection.state.networkAvailable === false ? t("这台主机需要更新后，才能在此修改名称或共享线路。") : t("正在读取网络管理能力…")}</p>}
+      {!canManage(detailEntry) && <p className="network-note" role="status">{!detailEntry?.connection ? t("此设备尚未连接这台主机。") : detailEntry.host.networkBlocked ? t("此设备保留着这台主机之前的已停用连接（含历史和草稿）。如需重新从此设备连接，请先在「此设备的连接」移除旧连接。") : detailEntry.connection.state.status !== "online" ? t("连接这台主机后，才能修改名称或共享线路。如果只是暂时连不上，请先在下方「连接状态与线路」检查主机是否运行与线路可达性，无需退出网络。") : !detailEntry.connection.state.user ? t("正在读取网络管理权限…") : detailEntry.connection.state.user.role !== "owner" ? t("此设备没有这台主机的管理权限，无法修改名称或共享线路。") : detailEntry.connection.state.networkAvailable === false ? t("这台主机需要更新后，才能在此修改名称或共享线路。") : t("正在读取网络管理能力…")}</p>}
+      {detailRevokedHost && <div className="network-recovery-panel">
+        <p className="network-note">{detailRevokedHost.reinstated === hostGen(detailRevokedHost) + 1
+          ? t("协调主机已允许这台主机重新加入「{0}」。Bot、对话和文件保留在原主机上；此前撤销的旧设备授权不会恢复。", network?.name ?? t("我的网络"))
+          : t("这台主机已离开或被移出「{0}」，但主机的 Bot、对话和文件仍保留。需要先由协调主机明确允许重新加入，再在目标主机确认加入。", network?.name ?? t("我的网络"))}</p>
+        {detailRecoveryBlocker && <p role="alert" className="error-text">{detailRecoveryBlocker}</p>}
+        <div className="network-actions">
+          {canRecoverEntry(detailEntry) && <button type="button" className="primary" disabled={busy || !canManage(authority)} onClick={() => startRecover(detailRevokedHost, detailEntry)}>{t("恢复加入网络")}</button>}
+          {!canRecoverEntry(detailEntry) && canManage(authority) && detailRevokedHost.reinstated !== hostGen(detailRevokedHost) + 1 && <button type="button" className="primary" disabled={busy} onClick={() => { setReinstateConfirm({ publicKey: details, networkId: network!.id, name: detailName, generation: hostGen(detailRevokedHost) }); setReinstateConsent(false); setError(""); }}>{t("允许重新加入")}</button>}
+          {detailEntry?.host.networkBlocked && <button type="button" className="network-secondary" disabled={busy} onClick={() => manageConnections()}>{t("管理此设备的连接")}</button>}
+        </div>
+      </div>}
       {detailHost?.state === "pending" && <div className="network-pending"><p className="network-note">{detailHost.expiresAt! <= Date.now() ? t("本次加入已超时。请在待加入主机上取消，再重新发起加入。") : t("正在等待协调主机确认，连接恢复后会自动继续；完成前不会向其他设备开放此主机。")}</p>{resumable && <button type="button" className="primary" disabled={busy || !canManage(authority)} onClick={() => startJoin(detailEntry!)}>{t("继续加入")}</button>}</div>}
-      {detailEntry && <section className="network-detail-section">
+      {detailEntry && !detailRevokedHost && <section className="network-detail-section">
         <div className="network-detail-row"><span>{t("主机名称")}</span><strong className="network-detail-name">{hostName(detailEntry)}</strong><button type="button" className="network-secondary" aria-label={t("修改主机名称")} disabled={busy || !canManage(detailEntry)} onClick={() => void run(() => renameHost(detailEntry))}><Pencil size={15} aria-hidden="true"/>{t("修改")}</button></div>
         {rename?.publicKey === details && <form className="network-form network-rename" onSubmit={event => { event.preventDefault(); void run(async () => { const c = connectionOf(detailEntry)!; if (!canManage(detailEntry)) throw new Error("network_host_unavailable"); const name = hostNameSchema.parse(rename.name); const saved = hostProfileSchema.parse(await c.http("/api/host-profile", { method: "PATCH", body: JSON.stringify({ name, revision: rename.revision }) })); setConfirmedNames(old => ({ ...old, [detailEntry.host.publicKey]: saved })); setRename(undefined); await Promise.allSettled([c.refreshNetwork(), changed()]); }); }}><label className="network-field"><span className="network-visually-hidden">{t("主机名称")}</span><input maxLength={100} value={rename.name} disabled={busy} onChange={event => setRename({ ...rename, name: event.target.value })}/></label><p className="network-note">{t("名称会同步到连接这台主机的其他设备。")}</p><button type="submit" className="primary" disabled={busy || !hostNameSchema.safeParse(rename.name).success}>{t("保存名称")}</button></form>}
       </section>}
-      <section className="network-detail-section">
+      {!detailRevokedHost && <section className="network-detail-section">
         <h4>{t("连接")}</h4>
         {detailEntry && connectionButton(detailEntry)}
         <div className="network-detail-row"><span>{t("网络线路")}</span><strong>{(detailEntry ? publicRoutes(detailEntry) : detailHost?.routes ?? []).length ? t("已共享 {0} 条线路", (detailEntry ? publicRoutes(detailEntry) : detailHost!.routes).length) : t("尚未共享线路")}</strong>{detailEntry && <div className="network-sync-actions"><button type="button" className="network-secondary" disabled={busy || !canManage(detailEntry)} onClick={() => { setRoutesFor(details); setError(""); }}><Link size={15} aria-hidden="true"/>{t("同步主机地址")}</button><HostAddressSyncHelp/></div>}</div>
         {!!(detailEntry ? publicRoutes(detailEntry) : detailHost?.routes ?? []).length && <ul className="network-route-list">{(detailEntry ? publicRoutes(detailEntry) : detailHost!.routes).map(route => <li key={route.url}>{route.url}</li>)}</ul>}
         <p className="network-note">{t("共享只是把地址告诉网络成员，不检测连通，也不部署中转。")}</p>
-      </section>
+      </section>}
       {error && <p role="alert" className="error-text">{error}</p>}
       {danger && <section className="network-danger" aria-label={t("危险操作")}><h4>{t("危险操作")}</h4>{danger}</section>}
     </CreationDialog>}
@@ -626,20 +804,58 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
         setNetworkChange(undefined); await Promise.allSettled([refresh(), changed()]); })}>{busy ? t("处理中…") : t("确认变更")}</button></footer>
     </CreationDialog>}
 
-    {confirm && <CreationDialog title={confirm.dissolve ? t("解散「{0}」？", confirm.name) : confirm.state === "pending" ? t("取消「{0}」的加入申请？", confirm.name) : confirm.operation === "remove" ? t("将「{0}」移出网络？", confirm.name) : t("让「{0}」退出网络？", confirm.name)} close={() => { setConfirm(undefined); setError(""); }} closeLabel={t("返回")} showHost={false} busy={busy} className="network-subpage network-confirm">
-      {confirm.dissolve ? <ul className="network-departure-effects"><li>{t("本机的 Bot、对话和文件保留，本机桌面端可继续使用。")}</li><li>{t("手机和其他设备对这台主机的访问授权将撤销，再次连接需要重新扫码配对。")}</li></ul> : confirm.state === "pending" ? <p className="network-note">{t("取消需要协调主机在线确认。这台主机尚未向网络开放，取消后可以重新申请加入；Bot、对话和文件保留。")}</p> : <>
+    {reinstateConfirm && <CreationDialog title={t("允许「{0}」重新加入网络？", reinstateConfirm.name)} close={() => { setReinstateConfirm(undefined); setReinstateConsent(false); setError(""); }} closeLabel={t("返回")} showHost={false} busy={busy} className="network-subpage network-confirm">
+      <div className="network-recovery-lead">
+        <p>{t("允许后，「{0}」可重新申请加入「{1}」，主机上的 Bot、对话和文件会保留原位。", reinstateConfirm.name, network?.name ?? t("我的网络"))}</p>
+        <p>{t("这不会立刻让该主机生效，仍需在那台主机（或有该主机权限的设备）上确认加入。此前撤销的旧设备授权不会恢复。")}</p>
+      </div>
+      {reinstateBlocker && <p role="alert" className="error-text">{reinstateBlocker}</p>}
+      <label className="network-consent"><input type="checkbox" checked={reinstateConsent} disabled={busy || !!reinstateBlocker} onChange={event => setReinstateConsent(event.target.checked)}/><span>{t("确认允许「{0}」重新申请加入「{1}」", reinstateConfirm.name, network?.name ?? t("我的网络"))}</span></label>
+      {error && error !== reinstateBlocker && <p role="alert" className="error-text">{error}</p>}
+      <footer className="network-actions"><button type="button" disabled={busy} onClick={() => { setReinstateConfirm(undefined); setReinstateConsent(false); setError(""); }}>{t("返回")}</button><button type="button" className="primary" disabled={busy || !reinstateConsent || !!reinstateBlocker} onClick={() => void run(async () => {
+        if (reinstateBlocker) throw new Error("network_recovery_upgrade_required");
+        if (!canManage(authority) || currentNetwork(authority!)?.id !== reinstateConfirm.networkId) throw new Error("network_host_unavailable");
+        await connectionOf(authority)!.networkCommand({ operation: "reinstate", networkId: reinstateConfirm.networkId, publicKey: reinstateConfirm.publicKey, expectedGeneration: reinstateConfirm.generation });
+        setReinstateConfirm(undefined); setReinstateConsent(false);
+        setJoinSuccess(t("已允许「{0}」重新加入「{1}」。请在目标主机上完成加入确认。", reinstateConfirm.name, network?.name ?? t("我的网络")));
+        await Promise.allSettled([refresh(), changed()]);
+      })}>{busy ? t("处理中…") : t("允许重新加入")}</button></footer>
+    </CreationDialog>}
+
+    {confirm && <CreationDialog title={confirm.dissolve ? t("解散「{0}」？", confirm.name) : confirm.state === "pending" ? t("取消「{0}」的加入申请？", confirm.name) : confirm.operation === "remove" ? t("将「{0}」移出网络？", confirm.name) : t("让「{0}」退出网络？", confirm.name)} close={() => { setConfirm(undefined); setConfirmConsent(false); setError(""); }} closeLabel={t("返回")} showHost={false} busy={busy} className="network-subpage network-confirm">
+      {confirm.dissolve ? <>
+        <p className="network-warning-lead">{t("解散后，当前网络将永久失效且无法恢复。如果以后需要组网，只能重新创建网络。")}</p>
+        <ul className="network-departure-effects">
+          <li>{t("本机的 Bot、对话和文件保留，本机桌面端可继续使用。")}</li>
+          <li>{t("手机和其他设备对这台主机的访问授权将撤销，再次连接需要重新扫码配对。")}</li>
+        </ul>
+      </> : confirm.state === "pending" ? <p className="network-note">{t("取消需要协调主机在线确认。这台主机尚未向网络开放，取消后可以重新申请加入；Bot、对话和文件保留。")}</p> : <>
+        <p className="network-warning-lead">{confirm.operation === "remove"
+          ? t("移出后，当前网络不再自动接受这台主机。之后如果想让它重新加入，必须先在协调主机「{0}」明确允许恢复，再重新发起加入。", authorityName)
+          : t("退出后，当前网络不再自动接受这台主机。之后如果想让它重新加入，必须先在协调主机「{0}」明确允许恢复，再重新发起加入。", authorityName)}</p>
         <ul className="network-departure-effects">
           <li>{t("主机上的 Bot、对话和文件保留，可在本机继续使用。")}</li>
           <li>{t("手机和其他网络设备留在原网络，不能再访问这台主机。")}</li>
           <li>{t("这台主机如需手机访问，需要重新扫码配对。")}</li>
         </ul>
-        <p className="network-note">{t("此网络不再接受该主机身份；再次加入需要新的主机身份。")}</p>
       </>}
       {!confirm.dissolve && confirm.operation === "leave" && confirm.state === "active" && <p className="network-note">{t("退出需要协调主机在线确认，确认完成前会保留当前网络关系。")}</p>}
       {confirm.operation === "remove" && <p className="network-note">{t("由协调主机直接移出，不等待这台主机确认。离线主机需要重新连接后才能获知成员变更。")}</p>}
-      {!confirm.dissolve && confirm.state === "active" && <button type="button" className="network-text-button" disabled={busy} onClick={event => { event.currentTarget.focus({ preventScroll: true }); manageConnections(); }}>{t("只想从此设备移除这台主机的连接？")}</button>}
+      {(confirm.state === "active" || confirm.dissolve) && <div className="network-confirm-help">
+        <p>{t("如果只是暂时连不上（例如 Tailscale、局域网或中转线路异常），无需退出网络。")}</p>
+        {troubleshootEntry && <button type="button" className="network-text-button" disabled={busy} onClick={() => { setError(""); setConnectionFor(troubleshootEntry.host.publicKey); }}>{t("检查连接状态与线路")}</button>}
+        {!confirm.dissolve && <button type="button" className="network-text-button" disabled={busy} onClick={event => { event.currentTarget.focus({ preventScroll: true }); manageConnections(); }}>{t("只想从此设备移除这台主机的连接？")}</button>}
+      </div>}
+      {(confirm.state === "active" || confirm.dissolve) && <label className="network-consent network-danger-consent">
+        <input type="checkbox" checked={confirmConsent} disabled={busy} onChange={event => setConfirmConsent(event.target.checked)}/>
+        <span>{confirm.dissolve
+          ? t("我已知晓解散后原网络无法恢复，仍要解散「{0}」", confirm.name)
+          : confirm.operation === "remove"
+            ? t("我已知晓移出后需要协调主机重新允许才能恢复，仍要将「{0}」移出网络", confirm.name)
+            : t("我已知晓退出后需要协调主机重新允许才能恢复，仍要让「{0}」退出网络", confirm.name)}</span>
+      </label>}
       {error && <p role="alert" className="error-text">{error}</p>}
-      <footer className="network-actions"><button type="button" disabled={busy} onClick={() => { setConfirm(undefined); setError(""); }}>{t("返回")}</button><button type="button" className="text-danger" disabled={busy} onClick={() => void run(async () => {
+      <footer className="network-actions"><button type="button" disabled={busy} onClick={() => { setConfirm(undefined); setConfirmConsent(false); setError(""); }}>{t("返回")}</button><button type="button" className="text-danger" disabled={busy || ((confirm.state === "active" || !!confirm.dissolve) && !confirmConsent)} onClick={() => void run(async () => {
         const owner = entries.find(entry => entry.host.publicKey === (confirm.operation === "remove" ? confirm.authorityKey : confirm.publicKey));
         if (!canManage(owner) || currentNetwork(owner!)?.id !== confirm.networkId) throw new Error("network_host_unavailable");
         if (confirm.dissolve) {
@@ -652,14 +868,14 @@ export function NetworkManager({ entries, close, addHost, manageConnections, con
           // A refused self-departure keeps its reason and offers the coordinator
           // path, except where waiting (devices, upgrades) is the actual remedy.
           if (confirm.operation === "leave" && confirm.state === "active" && !confirm.dissolve && !(cause instanceof Error && ["network_devices_not_ready", "network_upgrade_required"].includes(cause.message))) setLeaveFailed(old => ({ ...old, [confirm.publicKey]: true }));
-          if (cause instanceof Error && cause.message === "network_host_state_changed") { await refresh().catch(() => undefined); setConfirm(undefined); }
+          if (cause instanceof Error && cause.message === "network_host_state_changed") { await refresh().catch(() => undefined); setConfirm(undefined); setConfirmConsent(false); }
           throw cause;
         }
         clearNetworkJoinAttempt(confirm.networkId, confirm.authorityKey, confirm.publicKey);
-        setConfirm(undefined); setLeaveDetails(true); await Promise.allSettled([refresh(), changed()]);
+        setConfirm(undefined); setConfirmConsent(false); setLeaveDetails(true); await Promise.allSettled([refresh(), changed()]);
       })}>{busy ? t("处理中…") : confirm.dissolve ? t("解散网络") : confirm.state === "pending" ? t("取消加入") : confirm.operation === "remove" ? t("移出网络") : t("退出网络")}</button></footer>
     </CreationDialog>}
 
-    {connectionEntry && <RuntimeHostContext.Provider value={hostName(connectionEntry)}><ConnectionPanel key={connectionEntry.host.registrationId} connection={connectionEntry.connection!} close={() => setConnectionFor(undefined)} backLabel={routesFor === connectionFor ? t("返回地址同步") : t("返回主机详情")}/></RuntimeHostContext.Provider>}
+    {connectionEntry && <RuntimeHostContext.Provider value={hostName(connectionEntry)}><ConnectionPanel key={connectionEntry.host.registrationId} connection={connectionEntry.connection!} close={() => setConnectionFor(undefined)} backLabel={routesFor === connectionFor ? t("返回地址同步") : confirm ? t("返回确认") : t("返回主机详情")}/></RuntimeHostContext.Provider>}
   </CreationDialog>;
 }

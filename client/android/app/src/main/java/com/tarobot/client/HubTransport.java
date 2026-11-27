@@ -131,7 +131,8 @@ final class HubTransport implements AutoCloseable {
             byte[] bytes=body==null?null:HubTls.decode(body);
             if(bytes!=null && bytes.length>BODY_LIMIT) throw new IOException("native_body_too_large");
             JSONArray headers=input.getJSONArray("headers"); if(headers.length()>32) throw new IOException("invalid_http_headers");
-            HubTls.Route route=network.prepare(origin,key,input.has("certificateAuthority") ? string(input,"certificateAuthority") : null,call->track(slot,call)); activeRoute=route; alive(slot);
+            boolean edgeTls=input.optBoolean("edgeTls",false);
+            HubTls.Route route=network.prepare(origin,key,input.has("certificateAuthority") ? string(input,"certificateAuthority") : null,edgeTls,call->track(slot,call)); activeRoute=route; alive(slot);
             Request.Builder request=new Request.Builder().url(HubTls.target(route.base,string(input,"path"))); int total=0;
             for(int i=0;i<headers.length();i++) {
                 JSONArray pair=headers.getJSONArray(i); if(pair.length()!=2) throw new IOException("invalid_http_headers");
@@ -202,10 +203,10 @@ final class HubTransport implements AutoCloseable {
                     public void closed() { cancel(slot); }
                 },deadlines);
             }
-            if(input==null||input.length()<2||input.length()>3) throw new IOException("screen_route_invalid");
-            java.util.Iterator<String> fields=input.keys(); while(fields.hasNext()) if(!Arrays.asList("url","publicKey","certificateAuthority").contains(fields.next())) throw new IOException("screen_route_invalid");
+            if(input==null||input.length()<2||input.length()>4) throw new IOException("screen_route_invalid");
+            java.util.Iterator<String> fields=input.keys(); while(fields.hasNext()) if(!Arrays.asList("url","publicKey","certificateAuthority","edgeTls").contains(fields.next())) throw new IOException("screen_route_invalid");
             origin=string(input,"url"); key=string(input,"publicKey");
-            route=network.prepare(origin,key,input.has("certificateAuthority")?string(input,"certificateAuthority"):null,call->track(slot,call));
+            route=network.prepare(origin,key,input.has("certificateAuthority")?string(input,"certificateAuthority"):null,input.optBoolean("edgeTls",false),call->track(slot,call));
             synchronized(this) { alive(slot); if(!screenActive.getAsBoolean()) throw new IOException("screen_inactive"); }
             final String trustedOrigin=origin,trustedKey=key; final HubTls.Route trustedRoute=route;
             slot.screen.start(route,()->network.forget(trustedOrigin,trustedKey,trustedRoute));
@@ -226,11 +227,12 @@ final class HubTransport implements AutoCloseable {
         if(!slot.kind.equals("screen")||!slot.document.equals(document)) throw new IOException("invalid_screen_id");
         cancel(slot); return true;
     }
-    void socketOpen(String id, String origin, String key) throws Exception { socketOpen(id,origin,key,null); }
-    void socketOpen(String id, String origin, String key, String authority) throws Exception {
+    void socketOpen(String id, String origin, String key) throws Exception { socketOpen(id,origin,key,null,false); }
+    void socketOpen(String id, String origin, String key, String authority) throws Exception { socketOpen(id,origin,key,authority,false); }
+    void socketOpen(String id, String origin, String key, String authority, boolean edgeTls) throws Exception {
         Slot slot=get(id,"socket"); start(slot);
         try {
-            HubTls.Route route=network.prepare(origin,key,authority,call->track(slot,call));
+            HubTls.Route route=network.prepare(origin,key,authority,edgeTls,call->track(slot,call));
             HubSocket socket=new HubSocket(route,new HubSocket.Listener() {
                 public void opened() { synchronized(HubTransport.this) {
                     if(slot.cancelled || slots.get(slot.id)!=slot) { slot.socket.cancel(); return; }
@@ -258,7 +260,7 @@ final class HubTransport implements AutoCloseable {
                 public void failed(Exception error) {
                     synchronized(HubTransport.this) {
                         if(slot.cancelled || slot.terminal) return;
-                        emit(slot,"error","error","native_socket_failed"); terminal(slot,1006,"",false);
+                        emit(slot,"error","error",HubTls.classifyError(error,"native_socket_failed")); terminal(slot,1006,"",false);
                     }
                     if(HubTls.trustFailure(error)) network.forget(origin,key,route);
                 }

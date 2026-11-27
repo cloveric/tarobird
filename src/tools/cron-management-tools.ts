@@ -1,3 +1,4 @@
+import { hostT } from "../locales/index.js";
 import type { CronJobRecord } from "../state/cron-store.js";
 import type { CoreToolContext, CoreToolResult } from "./tool-types.js";
 
@@ -49,9 +50,7 @@ function renderRejected(detail: string, context: CoreToolContext): CoreToolResul
   return {
     ok: false,
     status: "rejected",
-    message: context.locale === "zh"
-      ? `✗ 定时任务操作失败：${detail}`
-      : `✗ Scheduled task operation failed: ${detail}`,
+    message: hostT(context.locale, "✗ 定时任务操作失败：{0}", detail),
     error: detail,
   };
 }
@@ -70,24 +69,20 @@ function renderSchedule(job: CronJobRecord): string {
 }
 
 function renderJob(job: CronJobRecord, index: number, locale: CoreToolContext["locale"]): string {
-  const status = job.enabled
-    ? locale === "zh" ? "已启用" : "enabled"
-    : locale === "zh" ? "已停用" : "disabled";
+  const status = hostT(locale, job.enabled ? "已启用" : "已停用");
   const last = job.lastRunAt
-    ? locale === "zh"
-      ? `\n   上次：${job.lastRunAt}${job.lastError ? ` 失败：${job.lastError}` : " 成功"}`
-      : `\n   last: ${job.lastRunAt}${job.lastError ? ` failed: ${job.lastError}` : " success"}`
+    ? job.lastError
+      ? hostT(locale, "\n   上次：{0} 失败：{1}", job.lastRunAt, job.lastError)
+      : hostT(locale, "\n   上次：{0} 成功", job.lastRunAt)
     : "";
   const failures = job.failureCount > 0
-    ? locale === "zh"
-      ? `\n   失败次数：${job.failureCount}/${job.maxFailures}`
-      : `\n   failures: ${job.failureCount}/${job.maxFailures}`
+    ? hostT(locale, "\n   失败次数：{0}/{1}", job.failureCount, job.maxFailures)
     : "";
   const latestHistory = job.runHistory.at(-1);
   const recent = latestHistory
-    ? locale === "zh"
-      ? `\n   最近：${latestHistory.ranAt}${latestHistory.success ? " 成功" : ` 失败：${latestHistory.error ?? "unknown error"}`}`
-      : `\n   recent: ${latestHistory.ranAt}${latestHistory.success ? " success" : ` failed: ${latestHistory.error ?? "unknown error"}`}`
+    ? latestHistory.success
+      ? hostT(locale, "\n   最近：{0} 成功", latestHistory.ranAt)
+      : hostT(locale, "\n   最近：{0} 失败：{1}", latestHistory.ranAt, latestHistory.error ?? "unknown error")
     : "";
   return `${index}. ID  ${job.id}  ${status}\n   ⏰ ${renderSchedule(job)}\n   📝 ${job.prompt}${last}${failures}${recent}`;
 }
@@ -96,7 +91,7 @@ async function getCurrentChatJob(id: string, context: CoreToolContext): Promise<
   const runtime = requireCronRuntime(context);
   const job = await runtime.store.get(id);
   if (!job || job.chatId !== context.chatId || job.messageThreadId !== context.messageThreadId) {
-    throw new Error(context.locale === "zh" ? `未找到任务：${id}` : `Task not found: ${id}`);
+    throw new Error(hostT(context.locale, "未找到任务：{0}", id));
   }
   return job;
 }
@@ -146,15 +141,11 @@ async function getCurrentChatJobBySelector(selector: CronJobSelector, context: C
   const jobs = await runtime.store.listByConversation(context.chatId, context.messageThreadId);
   const matches = jobs.filter((job) => jobMatchesQuery(job, selector.query));
   if (matches.length === 0) {
-    throw new Error(context.locale === "zh"
-      ? `未找到匹配任务：${selector.query}`
-      : `No matching task: ${selector.query}`);
+    throw new Error(hostT(context.locale, "未找到匹配任务：{0}", selector.query));
   }
   if (matches.length > 1) {
     const list = matches.map((job, index) => renderJob(job, index + 1, context.locale)).join("\n\n");
-    throw new Error(context.locale === "zh"
-      ? `匹配到多个任务，请使用 ID：\n\n${list}`
-      : `Multiple tasks matched; use an ID:\n\n${list}`);
+    throw new Error(hostT(context.locale, "匹配到多个任务，请使用 ID：\n\n{0}", list));
   }
   return matches[0]!;
 }
@@ -167,12 +158,12 @@ export async function executeCronListTool(_payload: unknown, context: CoreToolCo
       return {
         ok: true,
         status: "accepted",
-        message: context.locale === "zh" ? "暂无定时任务。" : "No scheduled tasks.",
+        message: hostT(context.locale, "暂无定时任务。"),
       };
     }
-    const header = context.locale === "zh"
-      ? `📅 已安排 ${jobs.length} 个任务：`
-      : `📅 ${jobs.length} scheduled task${jobs.length === 1 ? "" : "s"}:`;
+    const header = jobs.length === 1
+      ? hostT(context.locale, "📅 已安排 1 个任务：")
+      : hostT(context.locale, "📅 已安排 {0} 个任务：", jobs.length);
     return {
       ok: true,
       status: "accepted",
@@ -193,7 +184,7 @@ export async function executeCronRemoveTool(payload: unknown, context: CoreToolC
     return {
       ok: true,
       status: "accepted",
-      message: context.locale === "zh" ? `✓ 已删除任务  ID  ${job.id}` : `✓ Removed task  ID  ${job.id}`,
+      message: hostT(context.locale, "✓ 已删除任务  ID  {0}", job.id),
       metadata: { cronJobId: job.id },
     };
   } catch (error) {
@@ -207,16 +198,14 @@ export async function executeCronToggleTool(payload: unknown, context: CoreToolC
     const job = await getCurrentChatJobBySelector(parseSelector(payload), context);
     const updated = await runtime.store.toggleEnabled(job.id);
     if (!updated) {
-      throw new Error(context.locale === "zh" ? `未找到任务：${job.id}` : `Task not found: ${job.id}`);
+      throw new Error(hostT(context.locale, "未找到任务：{0}", job.id));
     }
     await runtime.scheduler.refresh();
-    const stateLabel = updated.enabled
-      ? context.locale === "zh" ? "已启用" : "enabled"
-      : context.locale === "zh" ? "已停用" : "disabled";
+    const stateLabel = hostT(context.locale, updated.enabled ? "已启用" : "已停用");
     return {
       ok: true,
       status: "accepted",
-      message: context.locale === "zh" ? `✓ 任务 ${job.id} ${stateLabel}` : `✓ Task ${job.id} ${stateLabel}`,
+      message: hostT(context.locale, "✓ 任务 {0} {1}", job.id, stateLabel),
       metadata: { cronJobId: job.id, enabled: updated.enabled },
     };
   } catch (error) {
@@ -234,16 +223,14 @@ export async function executeCronRunTool(payload: unknown, context: CoreToolCont
     // though runJobNow no-ops a disabled job — so the model believed it ran. Mirror
     // the command guard and surface the disabled state instead.
     if (!job.enabled) {
-      const detail = context.locale === "zh"
-        ? `任务 ${id} 已停用；请先启用后再运行。`
-        : `Task ${id} is disabled; enable it before running it.`;
+      const detail = hostT(context.locale, "任务 {0} 已停用；请先启用后再运行。", id);
       return renderRejected(detail, context);
     }
     void runtime.scheduler.runJobNow(id).catch(() => {});
     return {
       ok: true,
       status: "accepted",
-      message: context.locale === "zh" ? `✓ 任务 ${id} 已触发` : `✓ Task ${id} triggered`,
+      message: hostT(context.locale, "✓ 任务 {0} 已触发", id),
       metadata: { cronJobId: id },
     };
   } catch (error) {

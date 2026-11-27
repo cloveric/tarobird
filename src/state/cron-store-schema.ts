@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { LocaleSchema } from "../runtime/locale.js";
 import { normalizeCronTimezone } from "./cron-timezone.js";
 
 function isCanonicalIsoTimestamp(value: string): boolean {
@@ -14,7 +15,7 @@ export const CronJobIdSchema = z.string().regex(/^[a-f0-9]{8}$/, "cron id must b
 
 export const CronSessionModeSchema = z.enum(["reuse", "new_per_run"]);
 export const CronDeliveryModeSchema = z.enum(["agent", "notify"]);
-export const CronLocaleSchema = z.enum(["zh", "en"]);
+export const CronLocaleSchema = LocaleSchema;
 export const CronChannelSchema = z.enum(["telegram", "lark"]);
 
 export const CronRunHistoryEntrySchema = z.object({

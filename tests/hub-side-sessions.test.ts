@@ -170,3 +170,84 @@ it("negotiates delivery explicitly and falls back through delivery, tools, audio
     expect(seen.map(p => [p.delivery, p.tools])).toEqual([[true, true], [undefined, true], [undefined, undefined]]);
   } finally { legacy.dispose(); current.dispose(); }
 });
+
+it("gates side.ask recording metadata on worker support, audio MIME, and retries older strict Gateways", async () => {
+  const { sideAttachmentRefSchema } = await import("../src/client-protocol/side.js");
+  const legacyAttachmentRefSchema = sideAttachmentRefSchema.omit({ recording: true }).strict();
+  const insert = async (id: string, name: string, mime: string, recording?: 0 | 1) => {
+    await hub.store.db.run("INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,1,?)", [id, conversationId, "owner", "b".repeat(64), 16, mime, name, `${id}.blob`, Date.now()]);
+    if (recording !== undefined) await hub.store.db.run("INSERT INTO attachment_recording(attachment_id, recording) VALUES(?, ?)", [id, recording]);
+  };
+  await insert("att_txt", "notes.txt", "text/plain", 0);
+  await insert("att_upload_m4a", "meeting.m4a", "audio/mp4", 0);
+  await insert("att_rec_m4a", "voice-1791780593981.m4a", "audio/mp4", 1);
+  await insert("att_upper_audio", "podcast.webm", "Audio/webm", 0);
+
+  const openView = { ok: true as const, view: { id: "side_compat", conversationId, revision: 0, openedAt: 0, phase: "idle" as const, capability, exchanges: [], omitted: 0 } };
+
+  // 1. Older Gateway without AUDIO_RECORDING_CAPABILITY: Hub never emits `recording` on any ref.
+  const oldSeen: Array<Record<string, unknown>> = [];
+  const withCapFalse = new HubSideSessions(hub.store, hub.auth, async (_bot, method, raw) => {
+    const params = raw as Record<string, unknown>;
+    if (method === "side.open") return openView;
+    if (method === "side.close") return { ok: true };
+    if (method === "side.ask") {
+      oldSeen.push(params);
+      for (const ref of params.attachments as unknown[]) legacyAttachmentRefSchema.parse(ref);
+      return openView;
+    }
+    return { ok: true, capability };
+  }, () => false);
+
+  // 2. Modern Gateway with AUDIO_RECORDING_CAPABILITY: emits `recording` on audio/* only, never text/plain.
+  const newSeen: Array<Record<string, unknown>> = [];
+  const withCapTrue = new HubSideSessions(hub.store, hub.auth, async (_bot, method, raw) => {
+    const params = raw as Record<string, unknown>;
+    if (method === "side.open") return openView;
+    if (method === "side.close") return { ok: true };
+    if (method === "side.ask") {
+      newSeen.push(params);
+      for (const ref of params.attachments as unknown[]) sideAttachmentRefSchema.parse(ref);
+      return openView;
+    }
+    return { ok: true, capability };
+  }, () => true);
+
+  // 3. Direct HubSideSessions without capability callback against an older strict Gateway:
+  //    text/plain succeeds on first try; audio/* falls back by stripping `recording`.
+  const fallbackSeen: Array<Record<string, unknown>> = [];
+  const withoutCap = new HubSideSessions(hub.store, hub.auth, async (_bot, method, raw) => {
+    const params = raw as Record<string, unknown>;
+    if (method === "side.open") return openView;
+    if (method === "side.close") return { ok: true };
+    if (method === "side.ask") {
+      fallbackSeen.push(params);
+      for (const ref of params.attachments as unknown[]) legacyAttachmentRefSchema.parse(ref);
+      return openView;
+    }
+    return { ok: true, capability };
+  });
+
+  try {
+    await withCapFalse.request(session, conversationId, "bot", "side.open", { requestId: "open-old" });
+    expect(await withCapFalse.request(session, conversationId, "bot", "side.ask", { sideId: "side_compat", requestId: "ask-old", text: "hi", attachments: ["att_txt", "att_upload_m4a", "att_rec_m4a"] })).toMatchObject({ ok: true });
+    expect(oldSeen).toHaveLength(1);
+    expect((oldSeen[0]!.attachments as Array<Record<string, unknown>>).every(ref => !("recording" in ref))).toBe(true);
+
+    await withCapTrue.request(session, conversationId, "bot", "side.open", { requestId: "open-new" });
+    expect(await withCapTrue.request(session, conversationId, "bot", "side.ask", { sideId: "side_compat", requestId: "ask-new", text: "hi", attachments: ["att_txt", "att_upload_m4a", "att_rec_m4a", "att_upper_audio"] })).toMatchObject({ ok: true });
+    expect(newSeen).toHaveLength(1);
+    expect((newSeen[0]!.attachments as Array<Record<string, unknown>>).map(ref => ref.recording)).toEqual([undefined, false, true, false]);
+
+    await withoutCap.request(session, conversationId, "bot", "side.open", { requestId: "open-fb" });
+    expect(await withoutCap.request(session, conversationId, "bot", "side.ask", { sideId: "side_compat", requestId: "ask-txt", text: "txt", attachments: ["att_txt"] })).toMatchObject({ ok: true });
+    expect(fallbackSeen).toHaveLength(1);
+    expect("recording" in (fallbackSeen[0]!.attachments as Array<Record<string, unknown>>)[0]!).toBe(false);
+
+    fallbackSeen.length = 0;
+    expect(await withoutCap.request(session, conversationId, "bot", "side.ask", { sideId: "side_compat", requestId: "ask-audio", text: "aud", attachments: ["att_rec_m4a"] })).toMatchObject({ ok: true });
+    expect(fallbackSeen).toHaveLength(2);
+    expect((fallbackSeen[0]!.attachments as Array<Record<string, unknown>>)[0]!.recording).toBe(true);
+    expect("recording" in (fallbackSeen[1]!.attachments as Array<Record<string, unknown>>)[0]!).toBe(false);
+  } finally { withCapFalse.dispose(); withCapTrue.dispose(); withoutCap.dispose(); }
+});

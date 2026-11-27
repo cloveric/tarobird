@@ -43,7 +43,7 @@ if(params.has("en"))setLocale("en");
 function connection(key:string) {
  const route={name:"Direct",url:"http://127.0.0.1:8788"};const listeners=new Set<()=>void>();
  return { identity:{hubPublicKey:key,deviceId:"gui-device",routes:[route]},
-  state:{status:"online",screenAvailable:true,route,user:{role:"owner",id:"owner"},bots:[],networkAvailable:false},
+  state:{status:"online",screenAvailable:true,screenUdpBoostAvailable:!params.has("no-udp-boost"),route,user:{role:"owner",id:"owner"},bots:[],networkAvailable:false},
   subscribe:(f:()=>void)=>{listeners.add(f);return()=>{listeners.delete(f);};},
   screenStatus:async()=>{state.reads.push(key);if(state.holdRead)await new Promise<void>(r=>state.release=r);if(state.failRead)throw Error("screen_host_offline");return structuredClone(state.status);},
   screenConfigure:async(value:any)=>{state.configured.push({key,value});if(state.holdConfigure)await new Promise<void>(r=>state.releaseConfigure=r);state.status.policy=value;state.status.enabled=value.enabled;},

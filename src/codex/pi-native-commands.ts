@@ -1,4 +1,5 @@
 import path from "node:path";
+import { normalizeLocale, type Locale } from "../runtime/locale.js";
 import { parsePiModels, type PiModelChoice } from "./pi-models.js";
 import {
   PiNativeBridgeUnavailableError, PiNativeBusyError, PiNativeRejectedError, PiNativeUncertainError,
@@ -43,7 +44,7 @@ export type PiCommandAnswer = { cancelled: true } | { value: string } | { values
 export interface PiNativeCommandContext {
   sessionId: string;
   controls: PiNativeControls;
-  locale: "en" | "zh";
+  locale: Locale;
   approvalMode: "normal" | "bypass";
   /** Absent when the surface cannot show a card; choices are then printed with the argument form to send. */
   ask?: (question: PiCommandQuestion) => Promise<PiCommandAnswer>;
@@ -498,7 +499,209 @@ const ZH: Copy = {
   bashTruncated: file => `Pi 截断了输出，完整日志在 ${file}。`,
 };
 
-const COPY: Record<"en" | "zh", Copy> = { en: EN, zh: ZH };
+const JA: Copy = {
+  cancelled: "キャンセルしました。変更はありません。",
+  unchanged: "変更はありません。",
+  done: "完了しました。",
+  noArguments: name => `/${name} は引数を取らないため、何も変更しませんでした。`,
+  busy: name => `セッションが実行中です。${name} はアイドル時に実行できます。現在の返信が終わってからもう一度送信してください。`,
+  bridgeUnavailable: name => `このセッションでは TaroBird ブリッジが接続されていないため、${name} を実行できません。`,
+  uncertain: name => `このセッションで先ほど行ったモデルまたは思考レベルの変更結果が確認できておらず、後から反映される可能性があるため、${name} は実行しませんでした。Bot を再起動してから再度変更してください。`,
+  rejectedModel: "このモデルはこのセッションでは利用できません。プロバイダーにログインしていない可能性があります。",
+  rejectedThinking: allowed => `現在のモデルはこの思考レベルに対応していません。${allowed ? `対応レベル：${allowed}。` : ""}`,
+  rejectedNotFound: "このセッションでは該当する項目が見つかりませんでした。",
+  rejectedInvalid: allowed => `この値は受け付けられませんでした。${allowed ? `有効な値：${allowed}。` : ""}`,
+  failed: (name, detail) => `${name} に失敗しました。${detail ? ` ${detail}` : ""}`,
+  invalidChoice: "選択肢が一覧にありません。変更はありません。",
+  tooManyRounds: "候補が多すぎるため選択できません。より具体的な値を指定してコマンドを送信してください。",
+  narrowHint: (shown, total) => `全 ${number(total)} 件中、先頭 ${shown} 件を表示しています。名前の一部を入力すると絞り込めます。`,
+  narrowNone: text => `「${oneLine(text, 60)}」に一致する項目はありません。`,
+  more: count => `…他 ${number(count)} 件`,
+  current: "現在",
+  mark: text => `（${text}）`,
+  quote: text => `「${text}」`,
+  list: items => items.join("、"),
+  sentences: parts => parts.filter(Boolean).join(" "),
+
+  noModels: "利用可能なモデルがありません。端末で `pi auth login <provider>` を実行してプロバイダーにログインしてください（TaroBird でも同じログイン情報が使われます）。",
+  modelProviderTitle: "プロバイダー",
+  modelProviderMessage: "プロバイダーを選択してからモデルを選んでください。",
+  modelProviderCount: count => `${number(count)} 個のモデル`,
+  modelTitle: "モデル",
+  modelMessage: "この会話で使用するモデルを選択してください。",
+  modelPlaceholder: "モデル ID または名前の一部を入力",
+  modelCandidates: ref => `「${oneLine(ref, 60)}」に複数のモデルが一致しました。`,
+  modelNoMatch: ref => `「${oneLine(ref, 60)}」に一致する利用可能なモデルはありません。変更はありません。`,
+  modelListHeader: count => `${number(count)} 個のモデルが利用可能です：`,
+  modelListHint: "切り替えるには `/model <provider>/<id>` を送信してください。",
+  modelSet: (name, ref, level, before) =>
+    `モデルを ${name} (${ref}) に設定しました。思考レベル：${level}${before && before !== level ? `（変更前：${before}）` : ""}。この変更は現在の会話にのみ適用され、Bot の既定設定とは別に管理されます。`,
+
+  thinkingTitle: "思考レベル",
+  thinkingMessage: "この会話の思考レベルを選択してください。",
+  thinkingUnsupported: "現在のモデルは思考機能に対応していないため、オフのまま維持されます。",
+  thinkingUnknown: (value, allowed) => `不明な思考レベル「${oneLine(value, 40)}」です。利用可能：${allowed}。`,
+  thinkingSet: level => `思考レベル：${level}。この変更は現在の会話にのみ適用されます。`,
+  thinkingList: (level, allowed) => `思考レベル：${level}。利用可能：${allowed}。変更するには \`/thinking <level>\` を送信してください。`,
+
+  nameShow: name => `セッション名：${name}`,
+  nameUsage: "このセッションには名前がありません。設定するには `/name <name>` を送信してください。",
+  nameSet: name => `セッション名を設定しました：${name}`,
+
+  sessionTitle: (id, name) => (name ? `セッション ${name} (${id})` : `セッション ${id}`),
+  sessionModel: (ref, level) => `モデル：${ref} · 思考 ${level}`,
+  sessionNoModel: "モデル：利用不可",
+  sessionMessages: (total, user, assistant, tools) =>
+    `メッセージ：${number(total)} 件（ユーザー ${number(user)}・返信 ${number(assistant)}・ツール呼び出し ${number(tools)}）`,
+  sessionTokens: (input, output, read, write, total) =>
+    `トークン：入力 ${number(input)} · 出力 ${number(output)} · キャッシュ読込 ${number(read)} · キャッシュ書込 ${number(write)} · 合計 ${number(total)}`,
+  sessionCost: cost => `コスト：${cost}（標準単価換算）`,
+  sessionCostByModel: (key, cost, tokens) => `  ${key}: ${cost} (${tokens} tokens)`,
+  sessionCostOther: "ツール・要約呼び出し",
+  sessionContext: (percent, window) => `コンテキスト：${number(window)} トークン中 ${percent}`,
+  sessionContextPending: window => `コンテキスト：圧縮後の使用量は未計測（上限 ${number(window)} トークン）`,
+  sessionState: state => `状態：${state}`,
+  stateIdle: "アイドル", stateRunning: "返信中", stateCompacting: "圧縮中",
+
+  copyNone: "コピーできる返信がまだありません。",
+
+  compactDone: (before, after) =>
+    `コンテキストを圧縮しました。${before !== undefined ? ` 圧縮前：${number(before)} トークン。` : ""}${after !== undefined ? ` 圧縮後：約 ${number(after)} トークン。` : ""}`,
+
+  exportJsonlDone: (file, entries) => `セッションを ${file} にエクスポートしました（現在のブランチ ${number(entries)} エントリ、Pi セッション形式）。ファイルはこの会話で送信されます。`,
+  exportNoOutput: "TaroBird からのエクスポートは会話内で送信されますが、ここには出力先がありません。書き込みは行いませんでした。",
+  exportDone: file => `セッションを ${file} にエクスポートしました。ファイルはこの会話で送信されます。`,
+  exportDoneWorkspace: file => `セッションをワークスペース内の ${file} にエクスポートしました。`,
+  exportRedirected: "指定された保存先は使用されませんでした。TaroBird からのエクスポートは会話専用の出力先に保存されます。",
+
+  importUsage: "このコンピュータ上の Pi セッションファイル（.jsonl）のパスを指定して `/import <path>` を送信してください。",
+  importNotFound: file => `${file} が見つからないか読み込めません。インポートしませんでした。`,
+  importNotSession: file => `${file} は Pi セッションファイルではありません。インポートしませんでした。`,
+  importOtherWorkspace: file => `${file} は別の作業ディレクトリで記録されています。Pi はセッション内に記録されたディレクトリでツールを実行するため、この Bot のワークスペースとは一致せずインポートされませんでした。`,
+  importAlreadyPresent: file => `${file} はすでにこの Bot のセッションに含まれています。/resume からセッション一覧を開いてください。`,
+  importNeedsCard: "インポートするとこの会話が別のセッションに切り替わるため確認カードが必要ですが、この画面では表示できません。インポートしませんでした。",
+  importTitle: "セッションをインポート",
+  importConfirm: (file, name) => `${file}${name ? `（「${name}」）` : ""} のセッションでこの会話を続行しますか？現在のセッションも後から再開できる状態で残ります。ファイルはこのコンピュータ内でコピーされ、外部へはアップロードされません。`,
+  importYes: "インポートして切り替え",
+  importNo: "現在のセッションを保持",
+  importDone: file => `${file} をインポートしました。この会話は読み込んだセッションで続行します（以前のセッションも再開可能です）。`,
+  importCancelled: "インポートをキャンセルしました。変更はありません。",
+
+  trustTitle: "プロジェクトファイル",
+  trustNoFiles: "このワークスペースにはプロジェクト固有の Pi ファイル（.pi フォルダや .agents/skills）がないため、確認は不要です。",
+  trustNotice: "このワークスペースには、設定・拡張機能・スキル・プロンプト・MCP サーバーなどを含むプロジェクト固有の Pi ファイルがあります。拡張機能や MCP サーバーはこのコンピュータ上でコードを実行します。ここでの回答はこの Bot のこのワークスペースにのみ適用され、端末で使われる Pi 本来の信頼リストは変更されません。",
+  trustRecordedYes: "記録済みの回答：信頼する。",
+  trustRecordedNo: "記録済みの回答：読み込まない。",
+  trustRecordedNone: "まだ回答は記録されていません。",
+  trustLoaded: "実行中の Pi プロセスはすでに読み込んでいます。",
+  trustNotLoaded: "実行中の Pi プロセスはまだ読み込んでいません。",
+  trustYes: "信頼して読み込む",
+  trustNo: "読み込まない",
+  trustHint: "信頼して読み込む場合は `/trust yes`、読み込まない場合は `/trust no` を送信してください。",
+  trustUsage: "`/trust yes` または `/trust no` を使用してください。変更はありません。",
+  trustSetYes: loaded => `このワークスペースとこの Bot でプロジェクトファイルを信頼するよう設定しました。${loaded === true ? " Pi が読み込みました。" : loaded === false ? " Pi はまだ読み込んでいません。" : ""} Pi 本来の信頼リストは変更されていません。`,
+  trustSetNo: "このワークスペースとこの Bot ではプロジェクトファイルを読み込みません。Pi 本来の信頼リストは変更されていません。",
+  trustAlreadyYes: "このワークスペースのプロジェクトファイルはすでに信頼され読み込まれています。変更はありません。",
+  trustAlreadyNo: "このワークスペースのプロジェクトファイルはすでに読み込まない設定になっています。変更はありません。",
+
+  scopeTitle: "モデルスコープ",
+  scopeCurrent: list => `この Bot のスコープ：${list}。`,
+  scopeNone: "この Bot にはモデルスコープが設定されていません。",
+  scopeNative: list => `グローバルな Pi リスト（enabledModels）は ${list} です。この Bot 独自のスコープが未設定のあいだはこちらが適用されます。すべての Pi セッションに影響するため、変更は Pi 端末の /scoped-models で行います。`,
+  scopeNativeNone: "グローバルな Pi リスト（enabledModels）は未設定です。すべての Pi セッションに影響するため、変更は Pi 端末の /scoped-models で行います。",
+  scopeEffect: "スコープ内のモデルは /model の先頭に表示されます。新しいセッションは、Pi の既定モデルがスコープ内ならそれを、そうでなければスコープの先頭モデルを使います。既存セッションのモデルは変わりません。",
+  scopeHint: "この Bot のスコープを設定するには `/scoped-models <provider>/<id>,<provider>/<id>`、解除するには `/scoped-models clear` を送信してください。",
+  scopeCardMessage: "この Bot のスコープに含めるモデルを選択してください。現在のスコープを置き換えます。",
+  scopeProviderMessage: "モデルを選ぶプロバイダーを選択してください。",
+  scopeProviderCount: (count, selected) => `${number(count)} 個のモデル${selected ? ` · ${number(selected)} 個選択中` : ""}`,
+  scopeModelsMessage: "このプロバイダーから追加するモデルを選択してください。",
+  scopeSave: count => `選択した ${number(count)} 個のモデルを保存`,
+  scopeInScope: "スコープ内",
+  scopeNothing: "何も選択されなかったためスコープは変更されませんでした。解除するには `/scoped-models clear` を使用してください。",
+  scopeNotSaved: "保存されませんでした：「保存」で確定されなかったため、この Bot のスコープは変更されていません。もう一度 `/scoped-models` を送信するか、`/scoped-models provider/id, provider/id` の形式で直接指定してください。",
+  scopeSet: list => `この Bot のスコープを ${list} に設定しました。`,
+  scopeCleared: native => `この Bot のスコープを解除しました。${native ? "グローバルな Pi リストが再び適用されます。" : "以前と同様にすべての利用可能モデルが表示されます。"}`,
+  scopeAlreadyClear: "この Bot には解除すべきモデルスコープがありません。変更はありません。",
+  scopeUnknown: list => `${list} に一致する利用可能なモデルがありません。`,
+  scopeAmbiguous: list => `${list} に複数のモデルが一致しました。provider/id の形式で指定してください。`,
+  modelAll: "すべてのモデル",
+  modelScopeMessage: "この Bot のスコープ内のモデルが先頭に表示されます。",
+
+  reloadDone: "拡張機能、スキル、プロンプトテンプレート、コンテキストファイルを再読み込みしました。",
+  cloneDone: "新しいセッションへ複製しました。この会話は複製先で続行します。",
+  cloneCancelled: "複製をキャンセルしました。変更はありません。",
+  newDone: "新しいセッションを開始しました。この会話は新しいセッションで続行します。",
+  newCancelled: "新しいセッションの開始をキャンセルしました。変更はありません。",
+
+  forkNone: "フォーク元になるメッセージがまだありません。",
+  forkTitle: "フォーク",
+  forkMessage: "フォーク元にするメッセージを選択してください。新しいセッションはその直前までの状態で作成されます。",
+  forkPlaceholder: "メッセージの一部を入力",
+  forkListHeader: "フォーク可能なメッセージ（新しい順）：",
+  forkListHint: "フォークするには `/fork <番号>` を送信してください。",
+  forkDone: text => `新しいセッションへフォークしました。この会話はフォーク先で続行します。${text ? ` 分岐点のメッセージ（再送信できます）：\n\n${text}` : ""}`,
+  forkCancelled: "フォークをキャンセルしました。変更はありません。",
+
+  treeNone: "このセッションにはまだエントリがありません。",
+  treeNoneFiltered: filter => `Pi のツリーフィルタ「${filter}」に一致するエントリがありません。特定のエントリへ移動するには \`/tree <entry id>\` を送信してください。`,
+  treeTitle: "セッションツリー",
+  treeMessage: "戻るポイントを選択してください。",
+  treePlaceholder: "メッセージまたはラベルの一部を入力",
+  treeListHeader: "このセッション内のポイント（新しい順）：",
+  treeListHint: "移動するには `/tree <番号>`、元のブランチを要約して移動するには `/tree <番号> summarize [指示]`、ラベルを設定・削除するには `/tree label <番号> [テキスト]` を送信してください。",
+  treeLeaf: "現在地",
+  treeOnBranch: "現在のブランチ",
+  treeOtherBranch: "別のブランチ",
+  treeKind: kind => ({ assistant: "返信", toolResult: "ツール結果", bashExecution: "シェル", compaction: "圧縮", branch_summary: "ブランチ要約", custom_message: "拡張メッセージ" } as Record<string, string>)[kind] ?? kind,
+  treeAlready: "すでにこのポイントにいます。",
+  treeSummaryTitle: "ブランチを要約しますか？",
+  treeSummaryMessage: "離れるブランチの要約をセッションに残すことができます。",
+  treeSummaryNo: "要約しない",
+  treeSummaryYes: "要約する",
+  treeSummaryCustom: "カスタム指示で要約する",
+  treeSummaryInstructions: "要約の指示",
+  treeDone: text => `選択したポイントへ移動しました。${text ? ` そのポイントのメッセージ（再送信できます）：\n\n${text}` : ""}`,
+  treeCancelled: "移動をキャンセルしました。変更はありません。",
+  treeLabelSet: label => `ラベルを設定しました：${label}`,
+  treeLabelCleared: "ラベルを削除しました。",
+
+  settingsTitle: "Pi 設定",
+  settingsMessage: "これらはグローバルな Pi 設定であり、変更すると端末を含むこのコンピュータ上のすべての Pi セッションに適用されます。その他の設定は Pi の settings.json または Pi 端末の /settings で編集してください。",
+  settingsValueTitle: label => label,
+  settingsConfirmTitle: "グローバル Pi 設定を変更",
+  settingsConfirmMessage: (label, value) => `端末を含むこのコンピュータ上のすべての Pi セッションで ${label} を ${value} に設定しますか？`,
+  settingsConfirmYes: "変更する",
+  settingsConfirmNo: "現在の値を維持",
+  settingsDone: (label, value) => `${label} を ${value} に設定しました。グローバルな Pi 設定のため、端末にも適用されます。`,
+  settingsList: lines => `ここから変更できるグローバル Pi 設定：\n${lines}\n変更するには \`/settings <name> <value> confirm\` を送信してください（端末を含むすべての Pi セッションに適用されます）。その他の設定は Pi の settings.json または Pi 端末の /settings で編集してください。`,
+  settingsNeedsConfirm: (label, value, form) => `端末を含むこのコンピュータ上のすべての Pi セッションで ${label} を ${value} に設定します。適用するには \`${form}\` を送信してください。`,
+  settingsUnknown: allowed => `次のいずれかを指定してください：${allowed}。変更はありません。`,
+  settingsLine: (name, label, value) => `- ${name} (${label}): ${value}`,
+  settingSteering: "ステアリングモード", settingFollowUp: "フォローアップモード", settingAutoCompaction: "自動コンテキスト圧縮", settingAutoRetry: "自動リトライ",
+  valueAll: "まとめて送信 (all)", valueOne: "1件ずつ送信 (one-at-a-time)", valueOn: "オン", valueOff: "オフ", valueUnknown: "Pi から未報告",
+
+  hostResume: "TaroBird は自身のセッション一覧から Pi セッションを再開します。ここでは何も変更しませんでした。",
+  hostQuit: "TaroBird は Pi プロセス自体を管理しているため、ここで終了するものはありません。",
+  terminalLogin: provider => `ログインは端末で行う必要があります：端末で \`pi auth login ${provider}\` を実行してください。TaroBird でも同じログイン情報が使用されます。`,
+  terminalLogout: "ログアウトは端末で行います：端末で `pi auth logout <provider>` を実行してください。TaroBird でも同じログイン情報を使うため、こちらにも反映されます。",
+  terminalShare: "共有機能はセッションを外部サービスへアップロードするため、TaroBird の会話からは実行されません。何もアップロードしませんでした。ローカルの HTML コピーが必要な場合は /export を使用してください。",
+  terminalBug: "バグ報告は Pi 端末から /bug で送信します。TaroBird からは何もアップロードしませんでした。",
+  terminalHotkeys: "キーボードショートカットは Pi の端末 UI 専用であり、ここでは適用されません。",
+  terminalChangelog: "更新履歴は Pi 端末の /changelog および Pi のリリースノートで確認できます。",
+  terminalOnly: name => `/${name} は Pi の端末 UI でのみ動作します。ここでは何も実行しませんでした。`,
+
+  bashNeedsApproval: "このモードではシェルコマンドの実行にあなたの承認が必要ですが、この画面では確認できません。コマンドは実行されませんでした。",
+  bashDenied: "承認されなかったため、コマンドは実行されませんでした。",
+  bashExit: code => `終了コード ${code}。`,
+  bashCancelled: "コマンドがキャンセルされました。",
+  bashNoExit: "終了コードなしで終了しました。",
+  bashExcluded: "出力はモデルのコンテキストには含まれません。",
+  bashNoOutput: "（出力なし）",
+  bashTail: "これより前の出力は省略されています。",
+  bashTruncated: file => `Pi が出力を切り詰めました。完全なログは ${file} にあります。`,
+};
+
+const COPY: Record<Locale, Copy> = { en: EN, zh: ZH, ja: JA };
 
 interface Run { context: PiNativeCommandContext; t: Copy }
 
@@ -1456,7 +1659,7 @@ async function hasSessionCommand(context: PiNativeCommandContext, name: string):
 export async function runPiNativeCommand(text: string, context: PiNativeCommandContext): Promise<PiNativeCommandResult> {
   const input = text.trim();
   if (!input) return NOT_HANDLED;
-  const run: Run = { context, t: COPY[context.locale] ?? EN };
+  const run: Run = { context, t: COPY[normalizeLocale(context.locale, "en")] ?? EN };
 
   if (input.startsWith("!")) {
     // `!` adds the output to the model's context, `!!` keeps it out; an empty command is ordinary text (interactive-mode.ts:3471-3487).

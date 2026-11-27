@@ -1,6 +1,6 @@
-# Opus versus GPT Chancellor: real paired selection test
+# Opus versus GPT Superagent: real paired selection test
 
-The owner requested an Opus-based Chancellor comparison. Six supplied-data
+The owner requested an Opus-based Superagent comparison. Six supplied-data
 tasks ran once per coordinator against source
 `a259b3821def5e5c0c66f039a89b3473c866c7f9`. The Opus coordinator autonomously
 selected a GPT worker for the synchronization-protocol task. This establishes
@@ -9,7 +9,7 @@ does not establish optimal routing or general superiority.
 
 ## Conditions and actual execution
 
-Each arm used its own isolated Host, a fresh Chancellor and conversation per
+Each arm used its own isolated Host, a fresh Superagent and conversation per
 case, empty persona, auto mode, concurrency one, and the same six task texts.
 Both allowed Codex, Claude, DeepSeek and Antigravity. All six paired target
 catalog snapshots compare equal. Kimi was not allowed in either arm. No
@@ -22,7 +22,7 @@ Effort values below are dispatch settings; Codex also exposes them in native
 turn records, while the Claude model records used here do not independently
 report effort. Matching effort labels do not imply equal compute budgets.
 
-| Supplied task | Opus Chancellor's actual worker | GPT Chancellor's actual worker |
+| Supplied task | Opus Superagent's actual worker | GPT Superagent's actual worker |
 |---|---|---|
 | Aggregate inventory into JSON | Claude Haiku 5.5 / default | GPT Luna / low |
 | Three Chinese support-message tones | Claude Sonnet 5.5 / low | GPT Luna / low |

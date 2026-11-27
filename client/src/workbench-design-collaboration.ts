@@ -195,8 +195,9 @@ export async function openDesignShare(client: DesignShareClient, session: Design
   const document = await session.refresh(), format = document.format ?? "canvas";
   // Dropped (window closed, design deleted) while saving: nothing reaches the Host.
   if (options.live && !options.live()) throw new DesignShareError("design_share_source_stopped");
-  // Sharing is offered for canvas and PPT documents only.
-  if (format !== "canvas" && format !== "slides") throw new DesignShareError("design_share_format_unsupported");
+  // Sharing is offered for PPT (slides) documents only; Baoyu canvas was removed.
+  if (format === "canvas") throw new DesignShareError("design_canvas_removed");
+  if (format !== "slides") throw new DesignShareError("design_share_format_unsupported");
   // Another owner device can end this share before its open reply arrives.
   // Observe that interval too; a late reply cannot resurrect a closed source.
   const ended = new Set<string>();
@@ -263,6 +264,9 @@ export async function joinDesignShare(client: DesignShareClient, input: { shareI
       const epoch = loadEpoch;
       try {
         const manifest = await call("list", {}) as { id: string; format: DesignDocument["format"]; revision: number; files: Record<string, { sha256: string; size: number; contentType: string }> };
+        const manifestFormat = manifest.format ?? "canvas";
+        if (manifestFormat === "canvas") throw new DesignShareError("design_canvas_removed");
+        if (manifestFormat !== "slides") throw new DesignShareError("design_share_format_unsupported");
         const files: DesignDocument["files"] = {};
         for (const [path, meta] of Object.entries(manifest.files)) files[path] = await fetchFile(meta.sha256, meta.size, meta.contentType);
         requireJoined();
@@ -326,8 +330,10 @@ export async function joinDesignShare(client: DesignShareClient, input: { shareI
   });
   let joined = false;
   try {
-    const view = await client.request({ op: "join", shareId, windowId }) as { role: DesignRole; sourceOnline?: boolean };
+    const view = await client.request({ op: "join", shareId, windowId }) as { role: DesignRole; sourceOnline?: boolean; format?: string };
     joined = true;
+    if (view.format === "canvas") throw new DesignShareError("design_canvas_removed");
+    if (view.format && view.format !== "slides") throw new DesignShareError("design_share_format_unsupported");
     if (!roleObserved && !revoked) role = view.role;
     if (!sourceObserved) sourceOnline = view.sourceOnline !== false;
     session = new DesignSession(await load(), load, persist, () => {}, {
@@ -370,8 +376,8 @@ type SourceEntry = { source: DesignShareSource; view: DesignShareView; conversat
 /** What a listed share offers here. Grantees and the owner's other devices open it
  * (a source device cannot join its own share). The owner may also end it from any
  * of their devices, including a share whose document or window is gone. */
-export function designShareListActions(view: Pick<DesignShareView, "role" | "onThisDevice">) {
-  return { open: !view.onThisDevice, end: view.role === "owner" };
+export function designShareListActions(view: Pick<DesignShareView, "role" | "onThisDevice" | "format">) {
+  return { open: !view.onThisDevice && view.format === "slides", end: view.role === "owner" };
 }
 /** The Host no longer has this share open (ended here or elsewhere, or its tombstone expired). */
 const shareEnded = (error: unknown) => error instanceof DesignShareError && (error.code === "design_share_closed" || error.code === "design_share_not_found");
@@ -487,6 +493,8 @@ export class DesignShareManager {
   async list(conversationId: string) { return ((await this.client.request({ op: "list", conversationId })) as { shares: DesignShareView[] }).shares; }
   async members(conversationId: string) { return ((await this.client.request({ op: "members", conversationId })) as { members: DesignShareMember[] }).members; }
   async join(view: DesignShareView, input: { windowId: string; user: () => { id: string; name: string } | undefined }) {
+    if (view.format === "canvas") throw new DesignShareError("design_canvas_removed");
+    if (view.format !== "slides") throw new DesignShareError("design_share_format_unsupported");
     const known = this.mirrors.get(view.shareId);
     if (known) { if (known.mirror.state().disconnected) await known.mirror.resume(); return known.mirror; }
     const mirror = await joinDesignShare(this.client, { shareId: view.shareId, windowId: input.windowId, user: input.user, title: () => view.title });

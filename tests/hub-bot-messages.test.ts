@@ -320,7 +320,7 @@ it.each(["current BotMessages", "schema19-compatible direct writer"])("keeps ori
   const request = input("send", { text: "File task", attachments: [uploaded.id] }, chat.conversationId);
   if (writer === "schema19-compatible direct writer") {
     await b.close(); b = await HubServer.start({ stateDir: path.join(root, "b") });
-    expect(await b.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "26" });
+    expect(await b.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "28" });
     // Simulate an older receiver that writes only the original meta receipt
     // and ordinary message tables. It knows nothing about permit tracking and
     // consumes the existing upload directly, without another upload-init.

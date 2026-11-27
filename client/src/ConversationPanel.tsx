@@ -1,4 +1,3 @@
-import { isDispatcher } from "./dispatcher.js";
 import { timeoutSignal } from "./abort-signals.js";
 import { ExplanationList } from "./ExplanationList.js";
 import { AvatarEditor } from "./Avatar.js";
@@ -30,7 +29,7 @@ export function ConversationPanel({ connection, conversation, group, pinned, glo
   const advancedId = useId();
   // A dispatcher's hidden engine worker only runs its ticket conversations.
   const engineWorker = !!state.dispatchWorkers?.some(bot => bot.id === targetBot);
-  const compactSupported = ["claude", "kimi", "deepseek", "pi"].includes(state.bots.find(bot => bot.id === targetBot)?.engine ?? "");
+  const compactSupported = ["claude", "kimi", "deepseek", "pi", "omp"].includes(state.bots.find(bot => bot.id === targetBot)?.engine ?? "");
   const [refreshFailed, setRefreshFailed] = useState(false), [queuedCommands, setQueuedCommands] = useState<string[]>([]);
   const [busy, setBusy] = useState(false), busyRef = useRef(false);
   const [confirmation, setConfirmation] = useState<"discard" | "reset" | "unbind" | "new" | "detach">();
@@ -137,7 +136,7 @@ export function ConversationPanel({ connection, conversation, group, pinned, glo
       {conversation.botIds.length > 1 && <label className="session-bot-select">{t("操作的 Bot")}<select aria-label={t("操作的 Bot")} value={targetBot} disabled={busy} onChange={e => setTargetBot(e.target.value)}>{conversation.botIds.map(id => <option key={id} value={id}>{labels.get(id) ?? id}</option>)}</select></label>}
       <p className="session-scope">{t("当前操作对象：此对话中的 {0}", labels.get(targetBot) ?? state.bots.find(bot => bot.id === targetBot)?.name ?? targetBot)}</p>
       <div className="session-action-list">
-        {!isDispatcher(state.bots.find(bot => bot.id === targetBot)) && !engineWorker && <SessionAction icon={MessageSquarePlus} title={t("新建独立对话")} description={t("开启另一段聊天，不带入这里的上下文。Bot 人设和配置继续沿用。")} disabled={busy || !targetBot} onClick={() => { if (dirty) setConfirmation("new"); else newChat(targetBot); }}/>}
+        {!engineWorker && <SessionAction icon={MessageSquarePlus} title={t("新建独立对话")} description={t("开启另一段聊天，不带入这里的上下文。Bot 人设和配置继续沿用。")} disabled={busy || !targetBot} onClick={() => { if (dirty) setConfirmation("new"); else newChat(targetBot); }}/>}
         {compactSupported && <SessionAction icon={Sparkles} title={t("整理上下文")} description={t("聊天太长时，总结前文再继续。聊天记录保留，部分细节可能省略。")} disabled={commandDisabled("/compact")} onClick={() => command("/compact")}/>}
       </div>
       <button type="button" className="session-advanced-toggle" aria-label={t("高级对话管理")} aria-expanded={advanced} aria-controls={advancedId} onClick={() => setAdvanced(value => !value)}><SlidersHorizontal size={18} aria-hidden="true"/><span><strong>{t("高级对话管理")}</strong><small>{t("继续旧会话、退出接入或重新开始")}</small></span><ChevronDown size={16} aria-hidden="true"/></button>

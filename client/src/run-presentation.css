@@ -7,7 +7,20 @@
 .native-run-status.is-interrupted{color:var(--red)}
 .native-run-prose{margin:8px 0;overflow-wrap:anywhere}.native-run-prose:empty{display:none}
 .native-run-prose>.card-text+.card-text{margin-top:1em}
-.run-thinking-preview{margin:8px 0;color:var(--grey);font-size:12px;line-height:1.65;overflow-wrap:anywhere}.run-thinking-preview>span{font-size:11px;color:var(--muted)}.run-thinking-preview>p{margin:3px 0 0;white-space:pre-line}
+/* Public thinking summary: a tinted panel in the theme's hue, newest three lines only. */
+.run-thinking-preview{--think:var(--accent);margin:10px 0 12px;padding:10px 14px 11px;border-left:3px solid var(--think);border-radius:12px;background:color-mix(in srgb,var(--think) 16%,var(--raised,var(--bg)));color:var(--text);font-size:12.5px;line-height:1.7;overflow-wrap:anywhere}
+:root[data-palette=mono] .run-thinking-preview{--think:var(--mono-mark,var(--muted))}
+:root[data-palette=cli] .run-thinking-preview{border-radius:0}
+.run-thinking-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:color-mix(in srgb,var(--think) 45%,var(--text))}
+.run-thinking-dots{display:inline-flex;gap:3px}
+.run-thinking-dots>b{width:3.5px;height:3.5px;border-radius:50%;background:currentColor;animation:run-thinking-dot 1.2s ease-in-out infinite}
+.run-thinking-dots>b:nth-child(2){animation-delay:.15s}.run-thinking-dots>b:nth-child(3){animation-delay:.3s}
+.run-thinking-preview>p{margin:5px 0 0;display:flex;flex-direction:column;justify-content:flex-end;max-height:calc(1.7em * 3);overflow:hidden;white-space:pre-line}
+.run-thinking-preview>p[data-multiline]{-webkit-mask-image:linear-gradient(to bottom,#0006 0,#000 2.2em);mask-image:linear-gradient(to bottom,#0006 0,#000 2.2em)}
+.run-thinking-preview[data-live]>p>span::after{content:"";display:inline-block;width:2px;height:1.05em;margin-left:3px;vertical-align:-.18em;border-radius:1px;background:var(--think);animation:run-thinking-caret 1s steps(1) infinite}
+@keyframes run-thinking-dot{0%,60%,100%{transform:none;opacity:.45}30%{transform:translateY(-3px);opacity:1}}
+@keyframes run-thinking-caret{50%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.run-thinking-dots>b,.run-thinking-preview[data-live]>p>span::after{animation:none}}
 .native-run-status>svg,.native-run-status>time{flex-shrink:0}
 .native-run-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;margin-top:8px}
 .native-run-actions button{display:flex;flex-shrink:0;max-width:100%;min-width:0;align-items:center;gap:6px;background:transparent;border:0;min-height:32px;padding:4px 0;font-size:12px;color:var(--muted);text-align:left;white-space:normal;overflow-wrap:anywhere}
@@ -76,7 +89,48 @@
  .run-details-tools>button[aria-label]{min-width:44px;padding:4px}
 }
 
+:root{--run-plan-complete-accent:#16a34a;--run-plan-complete-ink:#15803d;--run-plan-complete-card-bg:color-mix(in srgb,#16a34a 3%,var(--bg));--run-plan-complete-count-bg:color-mix(in srgb,#16a34a 13%,transparent);--run-plan-complete-marker-bg:color-mix(in srgb,#16a34a 15%,transparent)}
+:root[data-theme="dark"]{--run-plan-complete-accent:#4ade80;--run-plan-complete-ink:#86efac;--run-plan-complete-card-bg:color-mix(in srgb,#4ade80 5%,var(--bg));--run-plan-complete-count-bg:color-mix(in srgb,#4ade80 16%,transparent);--run-plan-complete-marker-bg:color-mix(in srgb,#4ade80 18%,transparent)}
+@media(prefers-color-scheme:dark){:root[data-theme="system"]{--run-plan-complete-accent:#4ade80;--run-plan-complete-ink:#86efac;--run-plan-complete-card-bg:color-mix(in srgb,#4ade80 5%,var(--bg));--run-plan-complete-count-bg:color-mix(in srgb,#4ade80 16%,transparent);--run-plan-complete-marker-bg:color-mix(in srgb,#4ade80 18%,transparent)}}
 .run-plan{list-style:none;padding:0}.run-plan li{display:flex;gap:8px;align-items:baseline;margin:8px 0}.run-plan li>span:nth-child(2){flex:1}.run-plan small{color:var(--muted);white-space:nowrap}
+.run-plan-card{margin:10px 0 8px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--hover) 38%,var(--bg));overflow:hidden}
+.run-plan-card.is-complete{border-color:color-mix(in srgb,var(--run-plan-complete-accent) 24%,var(--border));background:var(--run-plan-complete-card-bg)}
+.run-plan-header{width:100%;display:flex;align-items:center;gap:8px;padding:9px 12px;border:0;background:transparent;color:var(--text);font-size:12.5px;line-height:1.4;text-align:left;cursor:pointer;transition:background .15s ease}
+.run-plan-header:hover{background:color-mix(in srgb,var(--hover) 65%,transparent)}
+.run-plan-header:focus-visible{outline:2px solid var(--focus);outline-offset:-2px;border-radius:9px}
+.run-plan-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--accent)}
+.run-plan-card.is-complete .run-plan-icon{color:var(--run-plan-complete-accent)}
+.run-plan-heading{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px}
+.run-plan-title{font-weight:600;color:var(--text);flex:none}
+.run-plan-subtitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted);font-weight:400}
+.run-plan-count{flex:none;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--border) 55%,transparent);color:var(--muted);font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.6}
+.run-plan-card.is-complete .run-plan-count{background:var(--run-plan-complete-count-bg);color:var(--run-plan-complete-ink)}
+.run-plan-chevron{flex:none;color:var(--muted);transition:transform .16s ease}
+.run-plan-card.is-collapsed .run-plan-chevron{transform:rotate(-90deg)}
+.run-plan-track{height:2px;background:color-mix(in srgb,var(--border) 68%,transparent);overflow:hidden}
+.run-plan-fill{height:100%;background:color-mix(in srgb,var(--accent) 82%,transparent);transition:width .24s ease}
+.run-plan-card.is-complete .run-plan-fill{background:var(--run-plan-complete-accent)}
+.run-plan-body{padding:6px 8px 8px}
+.run-plan-inline{margin:8px 0 4px}
+.run-plan-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+.run-plan-item{display:flex;align-items:flex-start;gap:9px;padding:6px 8px;border-radius:8px;border:1px solid transparent;font-size:12.5px;line-height:1.5;color:var(--text);transition:background .15s ease,border-color .15s ease}
+.run-plan-item.is-in-progress{background:color-mix(in srgb,var(--accent) 6%,var(--bg));border-color:color-mix(in srgb,var(--accent) 12%,var(--border))}
+.run-plan-item.is-completed{color:var(--muted)}
+.run-plan-marker{width:16px;height:16px;margin-top:2px;flex:none;border-radius:50%;display:inline-flex;align-items:center;justify-content:center}
+.run-plan-item.is-completed .run-plan-marker{background:var(--run-plan-complete-marker-bg);color:var(--run-plan-complete-ink)}
+.run-plan-item.is-in-progress .run-plan-marker{background:color-mix(in srgb,var(--accent) 11%,transparent);color:var(--accent)}
+.run-plan-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.run-plan-ring{width:13px;height:13px;border-radius:50%;border:1.5px solid color-mix(in srgb,var(--muted) 52%,transparent);box-sizing:border-box}
+.run-plan-text{flex:1;min-width:0;overflow-wrap:anywhere}
+.run-plan-item.is-in-progress .run-plan-text{font-weight:550;color:var(--text)}
+.run-plan-item.is-completed .run-plan-text{text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--muted) 48%,transparent)}
+.run-plan-badge{flex:none;margin-top:1px;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,var(--accent) 10%,transparent);color:var(--text);font-size:10.5px;font-weight:550;line-height:1.5;white-space:nowrap}
+.run-plan-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0}
+@media(max-width:760px),(hover:none) and (pointer:coarse){
+ .run-plan-header{min-height:42px;padding:9px 11px}
+ .run-plan-body{padding:6px 6px 8px}
+ .run-plan-item{padding:6px 7px;font-size:13px}
+}
 
 /* Secondary reports stay visible without expanding their full transcript into
    every chat pane. Previews contain plain text, so clipping hides no controls. */

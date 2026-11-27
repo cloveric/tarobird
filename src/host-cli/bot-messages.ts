@@ -5,7 +5,7 @@ import { lstat, mkdir, open, realpath, unlink } from "node:fs/promises";
 import { request } from "node:http";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { CHUNK_BYTES, MAX_FILE_BYTES, MAX_TEXT_BYTES, idSchema, uploadSchema } from "../client-protocol/index.js";
+import { CHUNK_BYTES, MAX_FILE_BYTES, MAX_TEXT_BYTES, idSchema, uploadFieldsSchema, uploadSchema } from "../client-protocol/index.js";
 import { BOT_LOCAL_REQUEST_TIMEOUT_MS, botMessageTargetSchema, parseBotDestination, type BotLocalRequest } from "../client-protocol/bot-messages.js";
 import { botMessageDeliverySchema, botMessageSteeringProofPayload, botMessageSteeringSnapshotSchema, type BotMessageDelivery } from "../client-protocol/bot-message-delivery.js";
 import { LocalHostClient, HostCliError } from "./client.js";
@@ -19,7 +19,7 @@ export type BotMessageOptions = { host?: string; bot?: string; to?: string; "sou
   "new-conversation"?: string; message?: string; timeout?: string; out?: string; "request-id"?: string; "context-message"?: string; from?: string; "cross-host"?: boolean;
   delivery?: string; enabled?: string };
 type Call = (body: BotLocalRequest) => Promise<any>;
-const replyFileSchema = uploadSchema.omit({ conversationId: true }).extend({ id: idSchema, size: uploadSchema.shape.size.max(MAX_FILE_BYTES) });
+const replyFileSchema = uploadFieldsSchema.omit({ conversationId: true }).extend({ id: idSchema, size: uploadFieldsSchema.shape.size.max(MAX_FILE_BYTES) });
 
 async function connect(directory: string): Promise<{ call: Call; grant: (data: unknown) => Promise<unknown>; close: () => void }> {
   const botId = process.env.TAROBOT_ACTIVE_INSTANCE ?? process.env.TAROBOT_INSTANCE;

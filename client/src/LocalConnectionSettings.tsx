@@ -4,6 +4,8 @@ import { Check, CheckCircle2, Copy, Globe, LoaderCircle, Wifi } from "lucide-rea
 import { HOST_ROUTES_PATH, hostRoutesViewSchema, type HostRoutesView } from "../../src/client-protocol/host-routes.js";
 import type { HubConnection } from "./connection.js";
 import { useDesktopHostAccess } from "./useDesktopHostAccess.js";
+import { WindowsFirewallNotice } from "./WindowsFirewallNotice.js";
+import { describeNetworkCandidate } from "./network-address-label.js";
 import { t, useLocale } from "./i18n.js";
 import "./desktop-host.css";
 
@@ -90,8 +92,13 @@ export function LocalConnectionSettings({ connection, busyChange }: { connection
       {view && result?.checkedAt && <p className="local-access-refreshed" role="status">{t("状态已刷新 · {0}", new Date(result.checkedAt).toLocaleTimeString())}<small>{t("本机入口状态，不代表其他设备已连接。")}</small></p>}
       {access.error && <p className="error-text" role="alert">{access.error}</p>}
       {access.unavailableRouteCount > 0 && <p className="settings-note" role="status">{t("{0} 个地址暂未就绪，已显示可用地址。", access.unavailableRouteCount)}</p>}
-      {access.routes.length > 0 && access.selected < 0 && <p className="settings-note" role="status">{t("检测到多个地址，请选择与另一台设备在同一网络的地址。")}</p>}
-      {access.routes.length > 0 && (access.routes.length > 1 || access.selected < 0) && <label>{t("选择连接地址")}<select value={access.selected} disabled={access.operationBusy || !allowed} onChange={event => access.setSelected(Number(event.target.value))}>{access.selected < 0 && <option value={-1} disabled>{t("请选择连接地址")}</option>}{access.routes.map((route, index) => <option key={route.url} value={index}>{route.url}</option>)}</select></label>}
+      {access.routes.length > 0 && access.selected < 0 && <p className="settings-note" role="status">{access.candidates.length > 0 ? t("仅检测到虚拟网桥或代理地址，请手动选择与另一台设备在同一网络的地址。") : t("检测到多个地址，请选择与另一台设备在同一网络的地址。")}</p>}
+      {access.routes.length > 0 && (access.routes.length > 1 || access.selected < 0) && (() => {
+        const candidateByUrl = new Map(access.candidates.map(item => [item.url, item]));
+        const recommendedUrl = access.candidates.find(item => !item.demoted && !item.virtualBridge)?.url;
+        return <label className="pairing-adapter-select">{t("选择连接地址")}<select value={access.selected} disabled={access.operationBusy || !allowed} onChange={event => access.setSelected(Number(event.target.value))}>{access.selected < 0 && <option value={-1} disabled>{t("请选择连接地址")}</option>}{access.routes.map((route, index) => <option key={route.url} value={index}>{describeNetworkCandidate(route, candidateByUrl.get(route.url), { recommended: access.routes.length > 1 && route.url === recommendedUrl })}</option>)}</select></label>;
+      })()}
+      {mode === "lan" && <WindowsFirewallNotice status={access.windowsFirewall}/>}
     </div>
     <details className="settings-help local-access-help"><summary>{t("连接说明与排查")}</summary>
       <p>{t("开启后，保持在线的已配对管理设备会自动同步新地址。首次加入 TaroBird 的设备仍需在「添加设备」中扫码并确认。")}</p>

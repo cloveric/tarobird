@@ -275,9 +275,11 @@ export interface EngineApprovalScopes {
 }
 
 export interface EngineApprovalRequest {
-  engine: "claude" | "codex" | "antigravity" | "kimi" | "deepseek" | "pi";
+  engine: "claude" | "codex" | "antigravity" | "kimi" | "deepseek" | "pi" | "omp";
   toolName: string;
   toolInput: unknown;
+  /** Name of the worker / subagent requesting approval or asking a question (e.g. swarm worker). */
+  workerName?: string;
   cwd?: string;
   sessionId?: string;
   abortSignal?: AbortSignal;
@@ -319,6 +321,9 @@ type UnscopedEngineStreamEvent =
       type: "subagent_activity";
       id: string;
       kind: "started" | "interacted" | "interrupted" | "completed";
+      /** True when an "interrupted" receipt is already confirmed settled by the
+       * engine (no separate "completed" receipt follows). */
+      terminal?: boolean;
       agentId: string;
       label: string;
       model?: string;
@@ -513,7 +518,7 @@ export interface CodexUserMessageInput {
    */
   authoredText?: string;
   files: string[];
-  locale?: "en" | "zh";
+  locale?: Locale;
   /** Stable channel/runtime contract. Changes may reconfigure persistent workers. */
   instructions?: string;
   /** Private guidance for this request only. Must never participate in worker settings. */
@@ -535,6 +540,11 @@ export interface CodexUserMessageInput {
    * place of config.json. An effort the engine rejects fails the turn. */
   engineOverride?: EngineOverride;
 }
+
+export interface EngineSessionRestartResult { outcome: "closed" | "not_running" | "exit_unconfirmed" }
+/** `beforeStop`: stops the session's running work (the Host's /stop path) after the
+ * adapter captured the old process and before it signals that process. */
+export interface EngineSessionRestartOptions { beforeStop?: () => unknown }
 
 export interface CodexAdapter {
   /** Account quota only: never starts a model turn. Private proof must not enter public replies. */
@@ -566,6 +576,10 @@ export interface CodexAdapter {
   controlNativeInput?(sessionId: string, input: { inputId: string; action: NativeInputAction }): Promise<NativeInputControlResult>;
   /** Slash commands the engine advertised (ACP available_commands_update); absent means none. */
   advertisedCommands?(): Array<{ name: string; description: string }>;
+  /** Whether an authoritative advertised-commands snapshot has arrived. */
+  hasReceivedAdvertisedCommands?(): boolean;
+  /** Stop background native work (such as an active swarm) after its initiating turn ended. */
+  stopBackgroundWork?(sessionId: string, input?: { locale?: "en" | "zh"; scope?: "swarm" | "all" }): Promise<{ stopped: boolean; summary?: string }>;
   /** Native live tasks; absent means unsupported. Handles must be worker-scoped. */
   listTasks?(sessionId: string): Promise<EngineTaskSnapshot>;
   stopTask?(sessionId: string, input: { taskId: string }): Promise<EngineTaskControlResult>;
@@ -641,5 +655,12 @@ export interface CodexAdapter {
     locale?: Locale;
     abortSignal?: AbortSignal;
   }): Promise<EngineSideSession>;
+  /** Request process termination and acknowledge only an observed exit.
+   * Future input lazily reopens the retained native session. */
+  restartSession?(sessionId: string, options?: EngineSessionRestartOptions): Promise<EngineSessionRestartResult>;
+  /** While an old process has an outstanding termination, input may wait on its exact exit. */
+  sessionRestartPending?(sessionId: string): Promise<void> | undefined;
+  /** Restart may also interrupt work known from lifecycle receipts outside the task panel. */
+  listRestartTasks?(sessionId: string): Promise<EngineTaskSnapshot["tasks"]>;
   destroy?(): void | Promise<void>;
 }

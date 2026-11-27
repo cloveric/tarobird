@@ -23,12 +23,13 @@ import {
 import { handleCrewCoreWorkflow, type CrewRoleName } from "./crew-workflow.js";
 import { getNormalizedConversationKey } from "../../runtime/conversation-key.js";
 import type { Locale } from "../../runtime/locale.js";
+import { hostT } from "../../locales/index.js";
 import { commandReplyChunks } from "./command-reply.js";
 import type { ResumeState } from "../../state/instance-config.js";
 import type { CoreCommandMessage } from "./command-message.js";
 
 function renderNonEmptyMiniText(text: string, locale: Locale): string {
-  return text.trim() || (locale === "zh" ? "（该 Mini 未返回文本）" : "(This mini returned no text.)");
+  return text.trim() || hostT(locale, "（该 Mini 未返回文本）");
 }
 
 export interface MiniBusCommandContext extends CoreTurnContext {
@@ -135,33 +136,28 @@ function parseMiniBusCommand(text: string): MiniBusAction | null {
 }
 
 function renderMiniBusUsage(locale: Locale): string {
-  return locale === "zh"
-    ? "用法: /mini [status|here <名称>|rm <名称>|order <名称...>|parallel <名称...>|verifier <名称|off>|role <角色> <名称>|crew research-report <提示>|ask <名称> <提示>|fan <提示>|chain <提示>|verify [名称] <提示>]"
-    : "Usage: /mini [status|here <name>|rm <name>|order <names...>|parallel <names...>|verifier <name|off>|role <role> <name>|crew research-report <prompt>|ask <name> <prompt>|fan <prompt>|chain <prompt>|verify [name] <prompt>]";
+  return hostT(
+    locale,
+    "用法: /mini [status|here <名称>|rm <名称>|order <名称...>|parallel <名称...>|verifier <名称|off>|role <角色> <名称>|crew research-report <提示>|ask <名称> <提示>|fan <提示>|chain <提示>|verify [名称] <提示>]",
+  );
 }
 
 function renderMiniBusGroupRequired(locale: Locale, context: MiniBusCommandContext): string {
-  if (context.channel === "gateway") return locale === "zh"
-    ? "Mini Bus 需要在群聊或话题对话中使用；跨 Bot 协作请使用 Agent Bus。"
-    : "Mini Bus requires a group or topic conversation. Use Agent Bus for collaboration between Bots.";
-  if (context.channel === "lark") return locale === "zh"
-    ? "Mini Bus 需要在飞书群聊或话题中使用。"
-    : "Mini Bus requires a Feishu group or topic.";
-  return locale === "zh"
-    ? "Mini Bus 需要在 Telegram 群聊或 forum topic 里使用。"
-    : "Mini Bus must be used inside a Telegram group or forum topic.";
+  if (context.channel === "gateway") {
+    return hostT(locale, "Mini Bus 需要在群聊或话题对话中使用；跨 Bot 协作请使用 Agent Bus。");
+  }
+  if (context.channel === "lark") {
+    return hostT(locale, "Mini Bus 需要在飞书群聊或话题中使用。");
+  }
+  return hostT(locale, "Mini Bus 需要在 Telegram 群聊或 forum topic 里使用。");
 }
 
 function renderInvalidPeerName(locale: Locale): string {
-  return locale === "zh"
-    ? "名称无效。请使用 1-32 位小写字母、数字、下划线或连字符。"
-    : "Invalid name. Use 1-32 lowercase letters, numbers, underscores, or hyphens.";
+  return hostT(locale, "名称无效。请使用 1-32 位小写字母、数字、下划线或连字符。");
 }
 
 function renderNoMiniPeers(locale: Locale): string {
-  return locale === "zh"
-    ? "当前群还没有 Mini Bus topic peer。请在每个目标 topic 内发送 /mini here <名称>。"
-    : "No Mini Bus topic peers registered for this group. Send /mini here <name> inside each target topic.";
+  return hostT(locale, "当前群还没有 Mini Bus topic peer。请在每个目标 topic 内发送 /mini here <名称>。");
 }
 
 function renderMiniBusStatus(input: {
@@ -183,24 +179,14 @@ function renderMiniBusStatus(input: {
     const current = peer.conversationKey === input.currentConversationKey ? " *" : "";
     return `- ${peer.name}: ${topic}${current}`;
   });
-  const header = input.locale === "zh"
-    ? "当前群的 Mini Bus topic peers："
-    : "Mini Bus topic peers for this group:";
-  const configRows = input.locale === "zh"
-    ? [
-        `parallel：${input.parallel.length > 0 ? input.parallel.join(", ") : "默认全部 peer"}`,
-        `chain：${input.chain.length > 0 ? input.chain.join(" -> ") : "默认注册顺序"}`,
-        `verifier：${input.verifier ?? "未设置"}`,
-        `crew roles：${renderMiniCrewRoles(input.roles, "zh")}`,
-        `crew：research-report (maxResearchQuestions=${input.crew.maxResearchQuestions}, maxRevisionRounds=${input.crew.maxRevisionRounds})`,
-      ]
-    : [
-        `parallel: ${input.parallel.length > 0 ? input.parallel.join(", ") : "all peers by default"}`,
-        `chain: ${input.chain.length > 0 ? input.chain.join(" -> ") : "registration order by default"}`,
-        `verifier: ${input.verifier ?? "not set"}`,
-        `crew roles: ${renderMiniCrewRoles(input.roles, "en")}`,
-        `crew: research-report (maxResearchQuestions=${input.crew.maxResearchQuestions}, maxRevisionRounds=${input.crew.maxRevisionRounds})`,
-      ];
+  const header = hostT(input.locale, "当前群的 Mini Bus topic peers：");
+  const configRows = [
+    hostT(input.locale, "parallel：{0}", input.parallel.length > 0 ? input.parallel.join(", ") : hostT(input.locale, "默认全部 peer")),
+    hostT(input.locale, "chain：{0}", input.chain.length > 0 ? input.chain.join(" -> ") : hostT(input.locale, "默认注册顺序")),
+    hostT(input.locale, "verifier：{0}", input.verifier ?? hostT(input.locale, "未设置")),
+    hostT(input.locale, "crew roles：{0}", renderMiniCrewRoles(input.roles, input.locale)),
+    `crew: research-report (maxResearchQuestions=${input.crew.maxResearchQuestions}, maxRevisionRounds=${input.crew.maxRevisionRounds})`,
+  ];
   return [header, ...rows, "", ...configRows].join("\n");
 }
 
@@ -209,7 +195,7 @@ function renderMiniCrewRoles(roles: MiniBusGroupRecord["roles"], locale: Locale)
     .map((role) => roles[role] ? `${role}=${roles[role]}` : null)
     .filter((pair): pair is string => pair !== null);
   if (pairs.length === 0) {
-    return locale === "zh" ? "未配置" : "not configured";
+    return hostT(locale, "未配置");
   }
   return pairs.join(", ");
 }
@@ -220,25 +206,13 @@ function buildMiniChainStagePrompt(input: {
   previousPeer: string;
   previousOutput: string;
 }): string {
-  if (input.locale === "zh") {
-    return [
-      `原始任务：${input.originalPrompt}`,
-      "",
-      `上一阶段（${input.previousPeer}）输出：`,
-      input.previousOutput,
-      "",
-      "请在此基础上继续处理，并返回你的结果。",
-    ].join("\n");
-  }
-
-  return [
-    `Original task: ${input.originalPrompt}`,
-    "",
-    `Previous stage output (${input.previousPeer}):`,
+  return hostT(
+    input.locale,
+    "原始任务：{0}\n\n上一阶段（{1}）输出：\n{2}\n\n请在此基础上继续处理，并返回你的结果。",
+    input.originalPrompt,
+    input.previousPeer,
     input.previousOutput,
-    "",
-    "Continue from this point and return your updated result.",
-  ].join("\n");
+  );
 }
 
 async function sendChunked(
@@ -450,28 +424,18 @@ function renderMiniCrewRoleProblem(input: {
 }): string {
   const parts: string[] = [];
   if (input.missingRoles.length > 0) {
-    parts.push(input.locale === "zh"
-      ? `未配置角色：${input.missingRoles.join(", ")}`
-      : `missing roles: ${input.missingRoles.join(", ")}`);
+    parts.push(hostT(input.locale, "未配置角色：{0}", input.missingRoles.join(", ")));
   }
   if (input.missingPeers.length > 0) {
-    parts.push(input.locale === "zh"
-      ? `找不到 peer：${input.missingPeers.join(", ")}`
-      : `missing peers: ${input.missingPeers.join(", ")}`);
+    parts.push(hostT(input.locale, "找不到 peer：{0}", input.missingPeers.join(", ")));
   }
   if (input.selfRoles.length > 0) {
-    parts.push(input.locale === "zh"
-      ? `角色不能指向当前 topic：${input.selfRoles.join(", ")}`
-      : `roles cannot target the current topic: ${input.selfRoles.join(", ")}`);
+    parts.push(hostT(input.locale, "角色不能指向当前 topic：{0}", input.selfRoles.join(", ")));
   }
   if (input.duplicatePeers.length > 0) {
-    parts.push(input.locale === "zh"
-      ? `重复角色 peer：${input.duplicatePeers.join(", ")}`
-      : `duplicate role peers: ${input.duplicatePeers.join(", ")}`);
+    parts.push(hostT(input.locale, "重复角色 peer：{0}", input.duplicatePeers.join(", ")));
   }
-  return input.locale === "zh"
-    ? `Mini crew 配置不完整：${parts.join("；")}。请用 /mini role <角色> <peer> 配置。`
-    : `Mini crew is not configured: ${parts.join("; ")}. Use /mini role <role> <peer>.`;
+  return hostT(input.locale, "Mini crew 配置不完整：{0}。请用 /mini role <角色> <peer> 配置。", parts.join(input.locale === "en" ? "; " : "；"));
 }
 
 function createMiniCrewConfig(input: {
@@ -601,9 +565,7 @@ export async function handleMiniBusCoreCommand(input: {
       .filter((name): name is string => name !== null)
       .filter((name) => !peers.some((peer) => peer.name === name));
     if (missing.length > 0) {
-      const responseText = locale === "zh"
-        ? `未找到 Mini Bus peer：${missing.join(", ")}`
-        : `Mini topic peers not found: ${missing.join(", ")}`;
+      const responseText = hostT(locale, "未找到 Mini Bus peer：{0}", missing.join(", "));
       await sendMiniReplyAndAudit({
         stateDir,
         startedAt,
@@ -621,8 +583,8 @@ export async function handleMiniBusCoreCommand(input: {
       ? await store.setChain(normalized.chatId, action.names)
       : await store.setParallel(normalized.chatId, action.names);
     const responseText = action.kind === "order"
-      ? (locale === "zh" ? `Mini chain 顺序：${saved.join(" -> ")}` : `Mini chain order: ${saved.join(" -> ")}`)
-      : (locale === "zh" ? `Mini parallel peers：${saved.join(", ")}` : `Mini parallel peers: ${saved.join(", ")}`);
+      ? hostT(locale, "Mini chain 顺序：{0}", saved.join(" -> "))
+      : hostT(locale, "Mini parallel peers：{0}", saved.join(", "));
     await sendMiniReplyAndAudit({
       stateDir,
       startedAt,
@@ -643,7 +605,7 @@ export async function handleMiniBusCoreCommand(input: {
       if (!name || !peer) {
         const responseText = !name
           ? renderInvalidPeerName(locale)
-          : locale === "zh" ? `未找到 Mini Bus peer ${name}。` : `Mini topic peer ${name} was not found.`;
+          : hostT(locale, "未找到 Mini Bus peer {0}。", name);
         await sendMiniReplyAndAudit({
           stateDir,
           startedAt,
@@ -658,8 +620,8 @@ export async function handleMiniBusCoreCommand(input: {
     }
     const verifier = await store.setVerifier(normalized.chatId, action.name);
     const responseText = verifier
-      ? (locale === "zh" ? `Mini verifier：${verifier}` : `Mini verifier: ${verifier}`)
-      : (locale === "zh" ? "Mini verifier 已关闭。" : "Mini verifier disabled.");
+      ? hostT(locale, "Mini verifier：{0}", verifier)
+      : hostT(locale, "Mini verifier 已关闭。");
     await sendMiniReplyAndAudit({
       stateDir,
       startedAt,
@@ -683,9 +645,7 @@ export async function handleMiniBusCoreCommand(input: {
         context,
         normalized,
         responseText: !role
-          ? (locale === "zh"
-              ? `角色无效。可用角色：${MINI_BUS_CREW_ROLES.join(", ")}`
-              : `Invalid role. Available roles: ${MINI_BUS_CREW_ROLES.join(", ")}`)
+          ? hostT(locale, "角色无效。可用角色：{0}", MINI_BUS_CREW_ROLES.join(", "))
           : renderInvalidPeerName(locale),
         outcome: "invalid",
         action: "role",
@@ -699,9 +659,7 @@ export async function handleMiniBusCoreCommand(input: {
         startedAt,
         context,
         normalized,
-        responseText: locale === "zh"
-          ? `未找到 Mini Bus peer ${name}。请先在目标 topic 发送 /mini here ${name}。`
-          : `Mini topic peer ${name} was not found. Send /mini here ${name} in the target topic first.`,
+        responseText: hostT(locale, "未找到 Mini Bus peer {0}。请先在目标 topic 发送 /mini here {0}。", name),
         outcome: "invalid",
         action: "role",
         metadata: { role, miniTarget: name },
@@ -714,9 +672,7 @@ export async function handleMiniBusCoreCommand(input: {
       startedAt,
       context,
       normalized,
-      responseText: locale === "zh"
-        ? `Mini crew role ${role}：${saved}`
-        : `Mini crew role ${role}: ${saved}`,
+      responseText: hostT(locale, "Mini crew role {0}：{1}", role, saved),
       outcome: "success",
       action: "role",
       metadata: { role, miniTarget: saved },
@@ -746,9 +702,7 @@ export async function handleMiniBusCoreCommand(input: {
       conversationKey: currentConversationKey,
     });
     const topic = peer.messageThreadId === undefined ? "main chat" : `topic ${peer.messageThreadId}`;
-    const responseText = locale === "zh"
-      ? `已注册 Mini Bus peer ${peer.name} (${topic})。`
-      : `Registered mini topic peer ${peer.name} (${topic}).`;
+    const responseText = hostT(locale, "已注册 Mini Bus peer {0} ({1})。", peer.name, topic);
     await context.api.sendMessage(normalized.chatId, responseText);
     await appendUpdateHandleAuditEventBestEffort(stateDir, context, normalized, {
       outcome: "success",
@@ -779,8 +733,8 @@ export async function handleMiniBusCoreCommand(input: {
 
     const removed = await store.removePeer(normalized.chatId, removedName);
     const responseText = removed
-      ? (locale === "zh" ? `已移除 Mini Bus peer ${removedName}。` : `Removed mini topic peer ${removedName}.`)
-      : (locale === "zh" ? `未找到 Mini Bus peer ${removedName}。` : `Mini topic peer ${removedName} was not found.`);
+      ? hostT(locale, "已移除 Mini Bus peer {0}。", removedName)
+      : hostT(locale, "未找到 Mini Bus peer {0}。", removedName);
     await context.api.sendMessage(normalized.chatId, responseText);
     await appendUpdateHandleAuditEventBestEffort(stateDir, context, normalized, {
       outcome: "success",
@@ -889,7 +843,7 @@ export async function handleMiniBusCoreCommand(input: {
         startedAt,
         context,
         normalized,
-        responseText: locale === "zh" ? `未找到 Mini Bus peer ${action.name}。` : `Mini topic peer ${action.name} was not found.`,
+        responseText: hostT(locale, "未找到 Mini Bus peer {0}。", action.name),
         outcome: "invalid",
         action: "ask",
         metadata: { miniTarget: action.name },
@@ -902,7 +856,7 @@ export async function handleMiniBusCoreCommand(input: {
         startedAt,
         context,
         normalized,
-        responseText: locale === "zh" ? "不能委托给当前 topic 自己。" : "Cannot delegate to the current topic.",
+        responseText: hostT(locale, "不能委托给当前 topic 自己。"),
         outcome: "invalid",
         action: "ask",
         metadata: { miniTarget: peer.name, selfTarget: true },
@@ -912,7 +866,7 @@ export async function handleMiniBusCoreCommand(input: {
 
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? `正在询问 Mini topic ${peer.name}...` : `Asking mini topic ${peer.name}...`,
+      hostT(locale, "正在询问 Mini topic {0}...", peer.name),
     );
     const result = await executeMiniPeer({
       bridge,
@@ -964,9 +918,7 @@ export async function handleMiniBusCoreCommand(input: {
         startedAt,
         context,
         normalized,
-        responseText: locale === "zh"
-          ? "未设置 Mini verifier。请先发送 /mini verifier <名称>，或使用 /mini verify <名称> <提示>。"
-          : "No Mini verifier set. Send /mini verifier <name> first, or use /mini verify <name> <prompt>.",
+        responseText: hostT(locale, "未设置 Mini verifier。请先发送 /mini verifier <名称>，或使用 /mini verify <名称> <提示>。"),
         outcome: "invalid",
         action: "verify",
       });
@@ -978,7 +930,7 @@ export async function handleMiniBusCoreCommand(input: {
         startedAt,
         context,
         normalized,
-        responseText: locale === "zh" ? "Mini verifier 不能是当前 topic 自己。" : "Mini verifier cannot be the current topic.",
+        responseText: hostT(locale, "Mini verifier 不能是当前 topic 自己。"),
         outcome: "invalid",
         action: "verify",
         metadata: { verifier: verifier.name, selfTarget: true },
@@ -986,7 +938,7 @@ export async function handleMiniBusCoreCommand(input: {
       return true;
     }
 
-    await context.api.sendMessage(normalized.chatId, locale === "zh" ? "正在执行..." : "Executing...");
+    await context.api.sendMessage(normalized.chatId, hostT(locale, "正在执行..."));
     let verifyOutcome: "success" | "error" = "success";
     try {
       const currentResult = await executeCurrentTopic({
@@ -1005,16 +957,14 @@ export async function handleMiniBusCoreCommand(input: {
       }
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh" ? `正在让 Mini verifier ${verifier.name} 检查...` : `Sending to mini verifier ${verifier.name}...`,
+        hostT(locale, "正在让 Mini verifier {0} 检查...", verifier.name),
       );
       const verifyResult = await executeMiniPeer({
         bridge,
         peer: verifier,
         normalized,
         locale,
-        prompt: locale === "zh"
-          ? `请验证以下回复的正确性和质量：\n\n原始问题：${prompt}\n\n回复：${currentResult.text}`
-          : `Please verify the correctness and quality of this response:\n\nOriginal question: ${prompt}\n\nResponse: ${currentResult.text}`,
+        prompt: hostT(locale, "请验证以下回复的正确性和质量：\n\n原始问题：{0}\n\n回复：{1}", prompt, currentResult.text),
         resume: cfg.resume,
         disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
         abortSignal: context.abortSignal,
@@ -1029,12 +979,12 @@ export async function handleMiniBusCoreCommand(input: {
         throw new Error(`${verifier.name}: ${verifyResult.error}`);
       }
       const responseText = [
-        locale === "zh" ? "[当前 topic 的回复]" : "[Current topic response]",
+        hostT(locale, "[当前 topic 的回复]"),
         currentResult.text,
         "",
         "---",
         "",
-        locale === "zh" ? `[Mini verifier: ${verifier.name}]` : `[Mini verifier: ${verifier.name}]`,
+        `[Mini verifier: ${verifier.name}]`,
         verifyResult.text,
       ].join("\n");
       const chunkCount = await sendChunked(context, normalized.chatId, responseText);
@@ -1054,7 +1004,7 @@ export async function handleMiniBusCoreCommand(input: {
       const detail = error instanceof Error ? error.message : String(error);
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh" ? `Mini verify 失败：${detail}` : `Mini verify failed: ${detail}`,
+        hostT(locale, "Mini verify 失败：{0}", detail),
       );
       await appendUpdateHandleAuditEventBestEffort(stateDir, context, normalized, {
         outcome: verifyOutcome,
@@ -1083,9 +1033,7 @@ export async function handleMiniBusCoreCommand(input: {
       startedAt,
       context,
       normalized,
-      responseText: locale === "zh"
-        ? `Mini Bus 配置引用了不存在的 peer：${resolved.missing.join(", ")}`
-        : `Mini Bus config references missing peers: ${resolved.missing.join(", ")}`,
+      responseText: hostT(locale, "Mini Bus 配置引用了不存在的 peer：{0}", resolved.missing.join(", ")),
       outcome: "invalid",
       action: action.kind,
       metadata: { missing: resolved.missing },
@@ -1108,16 +1056,14 @@ export async function handleMiniBusCoreCommand(input: {
   if (resolved.skippedCurrent.length > 0) {
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh"
-        ? `已跳过当前 topic：${resolved.skippedCurrent.join(", ")}`
-        : `Skipped current topic in mini ${action.kind}: ${resolved.skippedCurrent.join(", ")}`,
+      hostT(locale, "已跳过当前 mini {0} 的 topic：{1}", action.kind, resolved.skippedCurrent.join(", ")),
     );
   }
 
   if (action.kind === "fan") {
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? `正在并行查询 ${peers.length} 个 Mini topic...` : `Querying ${peers.length} mini topics...`,
+      hostT(locale, "正在并行查询 {0} 个 Mini topic...", peers.length),
     );
     const results = await Promise.all(peers.map((peer) => executeMiniPeer({
       bridge,
@@ -1162,7 +1108,7 @@ export async function handleMiniBusCoreCommand(input: {
   if (action.kind === "chain") {
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? `正在串联 ${peers.length} 个 Mini topic...` : `Running chain across ${peers.length} mini topics...`,
+      hostT(locale, "正在串联 {0} 个 Mini topic...", peers.length),
     );
     let stagePrompt = action.prompt;
     const sections: string[] = [];
@@ -1190,9 +1136,7 @@ export async function handleMiniBusCoreCommand(input: {
         }
         const stageText = renderNonEmptyMiniText(result.text, locale);
         sections.push(
-          locale === "zh"
-            ? `[Mini 链路阶段 ${index + 1}: ${peer.name}]\n${stageText}`
-            : `[Mini chain stage ${index + 1}: ${peer.name}]\n${stageText}`,
+          hostT(locale, "[Mini 链路阶段 {0}: {1}]\n{2}", index + 1, peer.name, stageText),
         );
         stagePrompt = buildMiniChainStagePrompt({
           locale,
@@ -1220,7 +1164,7 @@ export async function handleMiniBusCoreCommand(input: {
       const detail = error instanceof Error ? error.message : String(error);
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh" ? `Mini 串联执行失败：${detail}` : `Mini chain failed: ${detail}`,
+        hostT(locale, "Mini 串联执行失败：{0}", detail),
       );
       await appendUpdateHandleAuditEventBestEffort(stateDir, context, normalized, {
         outcome: "error",

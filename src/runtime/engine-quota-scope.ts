@@ -1,5 +1,21 @@
 import { createHmac } from "node:crypto";
+import { z } from "zod";
 import type { QuotaEngine } from "../client-protocol/engine-quota.js";
+
+/** Internal Gateway-to-Hub capability for matching Host-verified account proofs in memory.
+ * Private proofs never enter client-facing DTOs. */
+export const ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY = "engines.quota.account-match.v1";
+const scopeIdentifier = z.string().min(1).max(128).regex(/^[a-zA-Z0-9_.:-]+$/);
+export const QUOTA_ACCOUNT_KEY_HEX = /^[0-9a-f]{64}$/;
+export const quotaAccountProofRequestSchema = z.object({
+  scopeId: scopeIdentifier,
+  expectedRevision: scopeIdentifier,
+}).strict();
+export const quotaAccountProofReplySchema = z.object({
+  scopeId: scopeIdentifier,
+  revision: scopeIdentifier,
+  accountKey: z.string().regex(QUOTA_ACCOUNT_KEY_HEX).optional(),
+}).strict();
 
 export type QuotaScopeGenerations = {
   engine: QuotaEngine;

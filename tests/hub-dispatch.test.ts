@@ -38,11 +38,14 @@ async function finish(ticket: DispatchTicket, text: string, status: "complete" |
 }
 const notices = () => hub.store.db.all<{ blocks_json: string; bot_source_json: string }>("SELECT blocks_json,bot_source_json FROM messages WHERE conversation_id=? ORDER BY created_at,rowid", [home.id]);
 
-it("keeps a dispatcher to one direct conversation and out of groups", async () => {
-  await expect(hub.store.createConversation("owner", ["d"], "Second", "second")).rejects.toThrow("dispatcher_single_conversation");
-  await expect(hub.store.createConversation("owner", ["d", "codex1"], "Group", "group", { type: "group" })).rejects.toThrow("dispatcher_group_forbidden");
+it("allows a dispatcher to have multiple direct conversations and join groups while keeping role metadata", async () => {
+  const second = await hub.store.createConversation("owner", ["d"], "Second", "second");
+  expect(second).toMatchObject({ type: "direct", botIds: ["d"], title: "Second" });
+  const withDispatcher = await hub.store.createConversation("owner", ["d", "codex1"], "Group", "group", { type: "group" });
+  expect(withDispatcher).toMatchObject({ type: "group", botIds: ["codex1", "d"] });
   const group = await hub.store.createConversation("owner", ["codex1", "kimi1"], "Group", "group2", { type: "group" });
-  await expect(hub.store.updateGroup("owner", group.id, { title: group.title, expectedTitle: group.title, botIds: [...group.botIds, "d"], expectedBotIds: group.botIds })).rejects.toThrow("dispatcher_group_forbidden");
+  const [updated] = await hub.store.updateGroup("owner", group.id, { title: group.title, expectedTitle: group.title, botIds: [...group.botIds, "d"], expectedBotIds: group.botIds });
+  expect(updated!.botIds).toContain("d");
   expect((await hub.store.bots("owner")).find(bot => bot.id === "d")).toMatchObject({ role: "dispatcher" });
   expect((await hub.store.bots("owner")).find(bot => bot.id === "codex1")).not.toHaveProperty("role");
 });

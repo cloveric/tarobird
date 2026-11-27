@@ -20,9 +20,9 @@ describe('a Bot cancel is not lost before the command is dispatched', () => {
   let directory: string, store: HubStore, broker: WorkbenchBroker, conversationId: string, otherConversationId: string;
   let commands: WorkbenchCommandFrame[], peer: WorkbenchPeer, peerGate: ((call: number) => Promise<void> | undefined) | undefined, peerCalls: number;
   const target = { deviceId: 'device', windowId: 'window', tabId: 'design-a' };
-  const files = { files: { 'project/Main.dc.html': { content: '<x-dc>edit</x-dc>', contentType: 'text/html' as const } } };
+  const files = { files: { 'project/slides/cover.html': { content: '<section id="cover">edit</section>', contentType: 'text/html' as const } } };
   const publish = (requestId: string) => ({ requestId, operation: 'design.publish' as const, target, expectedRevision: 0, payload: files, contextMessageId: 'msg_turn' });
-  const registration = (conversation: string): WorkbenchRegistration => ({ windowId: 'window', generation: 'gen', conversationId: conversation, capabilities: ['design.v1'], tabs: [{ id: 'design-a', kind: 'design', title: 'A', revision: 0 }], activeTabId: 'design-a', visible: true });
+  const registration = (conversation: string): WorkbenchRegistration => ({ windowId: 'window', generation: 'gen', conversationId: conversation, capabilities: ['design.slides.v1'], tabs: [{ id: 'design-a', kind: 'design', designFormat: 'slides', title: 'A', revision: 0 }], activeTabId: 'design-a', visible: true });
   // The Hub builds a separate actor for the command and for its cancel.
   const turn = (overrides: Partial<WorkbenchActor> = {}): WorkbenchActor => ({ sourceMessageId: 'msg_turn', userId: 'owner', conversationId, validate: async () => {}, ...overrides });
   const deferred = () => { let release!: () => void; const promise = new Promise<void>(resolve => { release = resolve; }); return { promise, release }; };
@@ -246,11 +246,11 @@ describe('a gateway abort sends cancel right behind its command over the real Bo
     app.send({ type: 'auth', signature: sign(null, deviceProof('desktop', challenge.nonce, nonce), keys.privateKey).toString('base64') });
     const token = (await app.next(f => f.type === 'ready')).sessionToken as string; await app.next(f => f.type === 'sync.complete');
     const admit = (dispatchId: string) => fetch(hub.url + '/api/workbench/admit', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ dispatchId }) });
-    const tabs = (n: number) => [{ id: `design-${n}`, kind: 'design', title: 'Design', revision: 0 }];
+    const tabs = (n: number) => [{ id: `design-${n}`, kind: 'design', designFormat: 'slides', title: 'Design', revision: 0 }];
     const worker = await Peer.connect(hub.instanceUrl.replace(/^http/, 'ws') + '/instance'); peers.push(worker);
     worker.send({ type: 'instance.hello', botId: 'bot', secret, engine: 'codex', model: '', effort: '', capabilities: [] }); await worker.next(f => f.type === 'instance.ready');
     for (let round = 0; round < 4; round++) {
-      app.send({ type: 'workbench.register', registration: { windowId: 'w', generation: 'g', conversationId, capabilities: ['design.v1'], tabs: tabs(round), activeTabId: `design-${round}`, visible: true } });
+      app.send({ type: 'workbench.register', registration: { windowId: 'w', generation: 'g', conversationId, capabilities: ['design.slides.v1'], tabs: tabs(round), activeTabId: `design-${round}`, visible: true } });
       const target = { deviceId: 'desktop', windowId: 'w', tabId: `design-${round}` };
       await new Promise(r => setTimeout(r, 50));
       app.send({ type: 'message.send', conversationId, clientMsgId: `turn-${round}`, text: 'Edit', attachments: [], workbench: { target, kind: 'design', revision: 0 } });

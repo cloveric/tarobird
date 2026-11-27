@@ -86,7 +86,7 @@ export function LocalRelaySettings({ connection, dirtyChange, busyChange }: { co
     <SettingsGroupHeading>{t("本机 VPS 中转")}</SettingsGroupHeading>
     <p className="settings-note">{t("在这台电脑填写自己的 VPS 入口，供手机和其他电脑访问本机。")}</p>
     {!available ? <p role="status">{state.status !== "online" ? t("请等待本机连接恢复后设置中转。") : !state.user ? t("正在读取网络管理权限…") : state.user.role !== "owner" ? t("需要主机所有者权限才能设置本机中转。") : state.networkAvailable === false ? t("此主机需要更新后才能设置本机中转。") : t("正在读取网络管理能力…")}</p> : loading ? <p role="status">{t("正在读取本机中转配置…")}</p> : editing ? <form className="routes-editor" noValidate onSubmit={event => { event.preventDefault(); void save(); }}>
-      <VpsRouteFields routes={relays} change={value => { setRelays(value); setError(""); }} disabled={busy}/>
+      <VpsRouteFields routes={relays} change={value => { setRelays(value); setError(""); }} disabled={busy} allowCloudflare={false}/>
       <div className="route-save-bar"><button type="button" disabled={busy} onClick={() => { setEditing(false); setError(""); setAttempt(value => value + 1); }}>{t("取消")}</button><button type="submit" className="primary" disabled={busy || !dirty}>{busy ? t("正在验证并保存…") : t("验证并保存中转")}</button></div>
     </form> : <>
       {!!saved.length && <ol className="saved-routes">{saved.map((route, index) => <li key={route.url}><span className="saved-route-index" aria-hidden="true">{index + 1}</span><div><strong>{routeTitle(route, saved)}</strong><span>{route.url}</span></div><button type="button" onClick={() => setShare(share === route.url ? undefined : route.url)}>{share === route.url ? t("收起连接码") : t("连接码")}</button></li>)}</ol>}

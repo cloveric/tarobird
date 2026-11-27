@@ -163,3 +163,21 @@ test("unexpected touch capture loss cancels its owned drag and resets the click 
     await expect(page.getByRole("button",{name:"停止控制",exact:true})).toBeVisible();
   } finally {await cdp.detach();}
 });
+
+test("portrait mobile performance overlay has 44px More-menu hit target and lets touches pass through",async({page})=>{
+  await page.goto(url("ios"));
+  await page.getByRole("button",{name:"连接屏幕",exact:true}).click();
+  await expect(page.getByRole("button",{name:"开始控制",exact:true})).toBeEnabled();
+  await page.getByRole("button",{name:"屏幕更多操作",exact:true}).click();
+  const toggleRow=page.locator(".screen-metrics-toggle"), checkbox=toggleRow.locator('input[type="checkbox"]');
+  const sizes=await toggleRow.evaluate(node=>{const r=node.getBoundingClientRect(), input=node.querySelector("input")!.getBoundingClientRect();return{rowH:r.height,inputW:input.width,inputH:input.height};});
+  expect(sizes.rowH).toBeGreaterThanOrEqual(43.99);
+  expect(sizes.inputW).toBeGreaterThanOrEqual(43.99);
+  expect(sizes.inputH).toBeGreaterThanOrEqual(43.99);
+  await checkbox.click();
+  await page.getByRole("button",{name:"屏幕更多操作",exact:true}).click();
+  const overlay=page.getByRole("region",{name:"屏幕性能数据",exact:true});
+  await expect(overlay).toBeVisible();
+  const geometry=await overlay.evaluate(node=>{const o=node.getBoundingClientRect(), v=document.querySelector(".screen-viewport")!.getBoundingClientRect();return{pe:getComputedStyle(node).pointerEvents,inside:o.left>=v.left&&o.top>=v.top&&o.right<=v.right&&o.bottom<=v.bottom};});
+  expect(geometry).toEqual({pe:"none",inside:true});
+});

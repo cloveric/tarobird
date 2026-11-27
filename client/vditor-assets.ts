@@ -6,7 +6,7 @@ const version = "4.0.1", prefix = `vditor/${version}/`;
 const root = new URL("./node_modules/vditor/", import.meta.url);
 export function vditorAssets(): Plugin {
   if (JSON.parse(readFileSync(new URL("package.json", root), "utf8")).version !== version) throw Error("vditor_asset_version_mismatch");
-  const files = new Map(["dist/js/lute/lute.min.js", "dist/js/i18n/zh_CN.js", "dist/js/i18n/en_US.js", "dist/js/icons/ant.js", "LICENSE"].map(name => [prefix + name, readFileSync(new URL(name, root))]));
+  const files = new Map(["dist/js/lute/lute.min.js", "dist/js/i18n/zh_CN.js", "dist/js/i18n/en_US.js", "dist/js/i18n/ja_JP.js", "dist/js/icons/ant.js", "LICENSE"].map(name => [prefix + name, readFileSync(new URL(name, root))]));
   files.set(prefix + "Lute-LICENSE.txt", readFileSync(new URL("./licenses/vditor/Lute-LICENSE.txt", import.meta.url)));
   files.set(prefix + "NOTICE.txt", readFileSync(new URL("./licenses/vditor/NOTICE.txt", import.meta.url)));
   return {

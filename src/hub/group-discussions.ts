@@ -9,7 +9,7 @@ import {
 import { anyRun, isRunActive, nativeRun } from "../client-protocol/run.js";
 import { activeAnswerFollowup, answerFollowup } from "../client-protocol/answer-followup.js";
 import { queueNotice } from "../client-protocol/queue-notice.js";
-import { HubError, type HubStore, type TransactionGuard } from "./store.js";
+import { compatGroupSettings, HubError, type HubStore, type TransactionGuard } from "./store.js";
 
 const ACTIVE_SQL = "('running','pausing','paused','ending')";
 const TERMINAL = new Set(["completed", "ended", "failed"]);
@@ -84,16 +84,16 @@ export class HubGroupDiscussions {
   /** Read-only: never settles or advances anything. `known` is the reader's
    * opaque `viewRevision` (legacy run/settings token when nothing is hidden);
    * an unchanged view answers `{unchanged:true}`. `brief` shortens step texts. */
-  view(userId: string, conversationId: string, validate?: TransactionGuard, options: { brief?: boolean } = {}): Promise<GroupDiscussionView> {
+  view(userId: string, conversationId: string, validate?: TransactionGuard, options: { brief?: boolean; designatedCapable?: boolean } = {}): Promise<GroupDiscussionView> {
     return this.read(userId, conversationId, validate, options) as Promise<GroupDiscussionView>;
   }
-  read(userId: string, conversationId: string, validate?: TransactionGuard, options: { brief?: boolean; known?: string } = {}): Promise<GroupDiscussionView | { unchanged: true }> {
+  read(userId: string, conversationId: string, validate?: TransactionGuard, options: { brief?: boolean; known?: string; designatedCapable?: boolean } = {}): Promise<GroupDiscussionView | { unchanged: true }> {
     return this.db.serial(async () => {
       await validate?.(); await this.store.requireMember(userId, conversationId);
       const conversation = await this.store.conversationInTransaction(conversationId);
       if (conversation.type !== "group") throw new HubError("group_required");
       const groupId = conversation.parentId ?? conversation.id;
-      const settings = await this.store.groupSettingsInTransaction(groupId);
+      const settings = compatGroupSettings(await this.store.groupSettingsInTransaction(groupId), options.designatedCapable ?? true);
       let row = await this.db.get<RunRow>(`SELECT * FROM group_discussions WHERE group_id=? AND status IN ${ACTIVE_SQL}`, [groupId]);
       if (row && !await this.db.get("SELECT 1 FROM conversation_members WHERE conversation_id=? AND member_type='user' AND member_id=?", [row.conversation_id, userId])) row = undefined;
       row ??= await this.db.get<RunRow>("SELECT * FROM group_discussions WHERE conversation_id=? ORDER BY created_at DESC,id DESC LIMIT 1", [conversationId]);
@@ -122,15 +122,16 @@ export class HubGroupDiscussions {
     });
   }
 
-  async start(userId: string, conversationId: string, raw: unknown, validate?: TransactionGuard): Promise<GroupDiscussionView> {
+  async start(userId: string, conversationId: string, raw: unknown, validate?: TransactionGuard, options: { designatedCapable?: boolean } = {}): Promise<GroupDiscussionView> {
     const input = groupDiscussionStartSchema.parse(raw);
     const runId = `gd_${digest([userId, input.requestId]).slice(0, 32)}`;
+    const designatedCapable = options.designatedCapable ?? true;
     // Older receipts hash without the recovery fields, so their replays still match.
     const payload = digest(["start", conversationId, input.revision, input.text, input.attachments ?? [], ...(input.replyTo ? [input.replyTo] : []),
       ...(input.participants || input.supersedes ? [input.participants ?? null, input.supersedes?.runId ?? null] : [])]);
     const result = await this.db.transaction(async (): Promise<Work & { value: GroupDiscussionView }> => {
       await validate?.(); await this.store.requireMember(userId, conversationId);
-      if (await this.replayed(userId, input.requestId, "start", payload)) return { value: await this.viewInTransaction(userId, conversationId, runId), events: [], stops: [] };
+      if (await this.replayed(userId, input.requestId, "start", payload)) return { value: await this.viewInTransaction(userId, conversationId, runId, designatedCapable), events: [], stops: [] };
       // Keep exact old receipts replayable; only new requests need visible text.
       if (!hasVisibleGroupText(input.text)) throw new HubError("group_discussion_empty_topic");
       const conversation = await this.store.conversationInTransaction(conversationId);
@@ -142,7 +143,7 @@ export class HubGroupDiscussions {
       // membership change on another device rejects the whole start atomically.
       if (settings.revision !== input.revision) throw new HubError("group_settings_conflict", 409);
       const { policy } = settings;
-      if (policy.mode === "mentions" || policy.mode === "parallel") throw new HubError("group_discussion_mode_required", 409);
+      if (policy.mode !== "sequential" && policy.mode !== "independent") throw new HubError("group_discussion_mode_required", 409);
       // An explicit speaker selection narrows this run only; the saved order
       // still decides who speaks when. Omitted means every member.
       if (input.participants?.some(botId => !policy.botOrder.includes(botId))) throw new HubError("group_discussion_participants_invalid", 409);
@@ -178,7 +179,7 @@ export class HubGroupDiscussions {
       await this.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [now, userId, "group.discussion_started", JSON.stringify({ runId, groupId, conversationId, mode: policy.mode, participants: participants.length, maxRounds: policy.maxRounds,
         ...(input.participants ? { selected: true } : {}), ...(input.supersedes ? { supersedes: input.supersedes.runId } : {}) })]);
       events.push(await this.store.discussionEventInTransaction(conversationId, { runId, revision: "r1" }));
-      return { value: await this.viewInTransaction(userId, conversationId, runId), ...work };
+      return { value: await this.viewInTransaction(userId, conversationId, runId, designatedCapable), ...work };
     });
     this.after(result);
     return result.value;
@@ -201,13 +202,14 @@ export class HubGroupDiscussions {
 
   /** A supplemental composer message is bound to an exact live discussion.
    * It cannot become a broadcast after a delayed send or a settings change. */
-  async note(userId: string, conversationId: string, runId: string, raw: unknown, validate?: TransactionGuard): Promise<GroupDiscussionView> {
+  async note(userId: string, conversationId: string, runId: string, raw: unknown, validate?: TransactionGuard, options: { designatedCapable?: boolean } = {}): Promise<GroupDiscussionView> {
     const input = groupDiscussionNoteSchema.parse(raw);
+    const designatedCapable = options.designatedCapable ?? true;
     const payload = digest(["note", conversationId, runId, input.text, input.attachments, input.replyTo ?? null,
       ...(input.then || input.ifRunning ? [input.then ?? null, input.revision ?? null, !!input.ifRunning] : [])]);
     const result = await this.db.transaction(async (): Promise<Work & { value: GroupDiscussionView }> => {
       await validate?.(); await this.store.requireMember(userId, conversationId);
-      if (await this.replayed(userId, input.requestId, "note", payload)) return { value: await this.viewInTransaction(userId, conversationId, runId), events: [], stops: [] };
+      if (await this.replayed(userId, input.requestId, "note", payload)) return { value: await this.viewInTransaction(userId, conversationId, runId, designatedCapable), events: [], stops: [] };
       if (!hasVisibleGroupText(input.text) && !input.attachments.length) throw new HubError("empty_message");
       const run = await this.db.get<RunRow>("SELECT * FROM group_discussions WHERE id=? AND conversation_id=?", [runId, conversationId]);
       if (!run || !["running", "pausing", "paused"].includes(run.status)) throw new HubError("group_discussion_not_active", 409);
@@ -221,20 +223,21 @@ export class HubGroupDiscussions {
         if (`r${run.revision}` !== input.revision) throw new HubError("group_discussion_conflict", 409);
       }
       const note = await this.store.sendMessageInTransaction(userId, { conversationId, clientMsgId: `gdnote_${digest([userId, input.requestId]).slice(0, 32)}`, text: input.text, attachments: input.attachments,
-        ...(input.replyTo ? { replyTo: input.replyTo } : {}), parallelCapable: false });
+        ...(input.replyTo ? { replyTo: input.replyTo } : {}), parallelCapable: false, designatedCapable: false });
       const work: Work = { events: note.event ? [note.event] : [], stops: [] };
       await this.remember(userId, input.requestId, "note", payload, runId);
       if (input.then) await this.apply(run, userId, input.then, work);
       // Readers' note counts change with the run view.
       else await this.bump(run, work);
-      return { value: await this.viewInTransaction(userId, conversationId, runId), ...work };
+      return { value: await this.viewInTransaction(userId, conversationId, runId, designatedCapable), ...work };
     });
     this.after(result);
     return result.value;
   }
 
-  async control(userId: string, conversationId: string, runId: string, raw: unknown, validate?: TransactionGuard): Promise<GroupDiscussionView> {
+  async control(userId: string, conversationId: string, runId: string, raw: unknown, validate?: TransactionGuard, options: { designatedCapable?: boolean } = {}): Promise<GroupDiscussionView> {
     const input = groupDiscussionControlSchema.parse(raw);
+    const designatedCapable = options.designatedCapable ?? true;
     const payload = digest(["control", runId, input.action, input.revision]);
     const result = await this.db.transaction(async (): Promise<Work & { value: GroupDiscussionView }> => {
       await validate?.(); await this.store.requireMember(userId, conversationId);
@@ -245,7 +248,7 @@ export class HubGroupDiscussions {
       if (!run) throw new HubError("group_discussion_not_found", 404);
       await this.store.requireMember(userId, run.conversation_id);
       if (!await this.canControl(run, userId)) throw new HubError("group_discussion_control_forbidden", 403);
-      const view = async () => this.viewInTransaction(userId, run.conversation_id, runId);
+      const view = async () => this.viewInTransaction(userId, run.conversation_id, runId, designatedCapable);
       if (await this.replayed(userId, input.requestId, "control", payload)) return { value: await view(), events: [], stops: [] };
       const done = await this.alreadyDone(run, input.action);
       // A stale view may still ask for a state that already holds. End and
@@ -342,6 +345,18 @@ export class HubGroupDiscussions {
       return work;
     });
     this.after(result);
+  }
+  /** Ends any active discussion run in this group (used by whole-group Stop). */
+  async endActiveForGroup(groupId: string, userId: string): Promise<boolean> {
+    const result = await this.db.transaction(async (): Promise<Work & { ended: boolean }> => {
+      const run = await this.db.get<RunRow>(`SELECT * FROM group_discussions WHERE group_id=? AND status IN ${ACTIVE_SQL}`, [groupId]);
+      if (!run || await this.alreadyDone(run, "end")) return { ended: false, events: [], stops: [] };
+      const work: Work = { events: [], stops: [] };
+      await this.apply(run, userId, "end", work);
+      return { ended: true, ...work };
+    });
+    this.after(result);
+    return result.ended;
   }
   /** Caller holds the claim transaction. A worker without the discussion
    * capability would answer the bare input as chat; withhold it instead. */
@@ -839,9 +854,9 @@ export class HubGroupDiscussions {
     return { texts, resources: [...resources.values()].slice(-16), ids: [...given, ...taken.map(row => row.id)] };
   }
 
-  private async viewInTransaction(userId: string, conversationId: string, runId: string): Promise<GroupDiscussionView> {
+  private async viewInTransaction(userId: string, conversationId: string, runId: string, designatedCapable = true): Promise<GroupDiscussionView> {
     const conversation = await this.store.conversationInTransaction(conversationId);
-    const settings = await this.store.groupSettingsInTransaction(conversation.parentId ?? conversation.id);
+    const settings = compatGroupSettings(await this.store.groupSettingsInTransaction(conversation.parentId ?? conversation.id), designatedCapable);
     const row = await this.db.get<RunRow>("SELECT * FROM group_discussions WHERE id=?", [runId]);
     if (!row) throw new HubError("group_discussion_not_found", 404);
     return { settings, run: await this.runView(row, userId) };

@@ -86,7 +86,7 @@ it('migrates schema 20 policy constraints without losing existing groups, messag
   await hub.close(); hub = await HubServer.start({ stateDir: root });
   expect(await hub.store.groupSettings('owner', chat.id)).toEqual(before);
   expect((await hub.store.messageForUser('owner', note.message.id)).blocks).toEqual(note.message.blocks);
-  expect(await hub.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: '26' });
+  expect(await hub.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: '28' });
   await mode('parallel');
   await hub.close(); hub = await HubServer.start({ stateDir: root });
   expect((await hub.store.groupSettings('owner', chat.id)).policy.mode).toBe('parallel');

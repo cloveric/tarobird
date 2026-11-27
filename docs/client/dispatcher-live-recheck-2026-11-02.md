@@ -1,4 +1,4 @@
-# Chancellor routing: real execution recheck
+# Superagent routing: real execution recheck
 
 ## Scope and installation boundary
 
@@ -12,7 +12,7 @@ not the earlier baseline build.
 The installed Mac remains **1.0.125 / Host 0.1.470**. A fresh installed-source
 readback found neither `dispatcherExecutionInstructions` nor the new simple-task
 routing rule. These repairs are not installed. This task does not publish a
-release, replace the App, or change the production Chancellor's settings.
+release, replace the App, or change the production Superagent's settings.
 
 ## Real end-to-end evidence
 

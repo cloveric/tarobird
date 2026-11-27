@@ -314,3 +314,36 @@ it("drains a canceled early-connect batch before background probes can exceed th
   while (active) { pending.splice(0).forEach(resolve => resolve()); await vi.advanceTimersByTimeAsync(0); }
   await next; expect(peak).toBe(4);
 });
+
+it("reserves one of the four initial probe slots for a VPS relay when four direct routes are blackholed", async () => {
+  const { connection, identity } = fixture();
+  identity.routes = [
+    { name: "Direct", url: "https://192.168.1.10:8788" },
+    { name: "Direct", url: "https://192.168.1.20:8788" },
+    { name: "Direct", url: "https://192.168.1.30:8788" },
+    { name: "Direct", url: "https://192.168.1.40:8788" },
+    relay,
+  ];
+  let active = 0, peak = 0;
+  io.fetch.mockImplementation(async (url: string, _path: string, _key: string, init: RequestInit) => {
+    active++; peak = Math.max(peak, active);
+    try {
+      if (url === relay.url) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        return Response.json({ ok: true, publicKey: "trusted" });
+      }
+      await new Promise<void>((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      });
+      throw new Error("unreachable");
+    } finally {
+      active--;
+    }
+  });
+  const select = (early: boolean) => (Reflect.get(connection, "selectRoute") as (early: boolean) => Promise<{ route: { url: string } }>).call(connection, early);
+  const pending = select(true);
+  await vi.advanceTimersByTimeAsync(220);
+  const chosen = await pending;
+  expect(chosen.route.url).toBe(relay.url);
+  expect(peak).toBe(4);
+});

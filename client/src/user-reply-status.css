@@ -1,6 +1,9 @@
 /* Quiet receipt-like annotation beside the timestamp, outside bubble content.
    Both text and shape convey meaning; theme colours are only reinforcement. */
 .message.user .message-meta { min-width: 0; max-width: 100%; }
+@media (min-width: 761px) {
+  :root:not([data-palette=cli]) .message.user .message-meta { justify-content: flex-end; }
+}
 .user-reply-status { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 11px; line-height: inherit; }
 .user-reply-state { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
 .user-reply-state svg { width: 12px; height: 12px; flex-shrink: 0; stroke-width: 1.8; }

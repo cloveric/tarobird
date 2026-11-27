@@ -1,3 +1,5 @@
+import { Capacitor } from "@capacitor/core";
+import type { PluginSensitiveAction } from "./plugin-sensitive-action.js";
 import {
   PLUGIN_HOST_PROTOCOL,
   pluginHostRequestSchema,
@@ -10,6 +12,14 @@ import { writeClipboardText } from "./clipboard-write.js";
 import { handleCanvasDataRequest, requireCanvasStorageAccess } from "./canvas-data-store.js";
 import { canvasNetworkRequest, type CanvasNetworkInput } from "../electron/canvas-network.mjs";
 import { isDesktop, isElectron, invoke } from "./desktop-bridge.js";
+
+/** Launch reviewed HTML only in the validated desktop engine families. */
+export function isPluginSandboxSupported(): boolean {
+  if (typeof navigator === "undefined" || Capacitor.isNativePlatform()) return false;
+  if (isDesktop()) return isElectron();
+  const ua = navigator.userAgent;
+  return /\b(?:Chrome|Chromium|HeadlessChrome)\/\d+\b/.test(ua) && !/\b(?:Mobile|Android|iPhone|iPad|CriOS)\b/.test(ua);
+}
 
 /** Unambiguous per-plugin KV storage key (`/` is forbidden in pluginId). */
 export function pluginStorageBucketKey(pluginId: string, scopeId?: string): string {
@@ -127,6 +137,7 @@ export async function handlePluginHostMessage(
     storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
     kvStore?: PluginKvStore;
     credentialVault?: PluginCredentialVault;
+    runSensitiveAction?: (action: PluginSensitiveAction, run: () => Promise<boolean>) => Promise<boolean>;
     writeClipboard?: (text: string) => Promise<void>;
     exportWorkspace?: (filename: string, content: string | Uint8Array, mime?: string) => Promise<boolean>;
     requestDomain?: (domain: string, reason?: string) => Promise<{ granted: boolean; domain?: string; grantedDomains?: string[] }>;
@@ -311,8 +322,12 @@ export async function handlePluginHostMessage(
       }
     case "clipboard.write":
       try {
-        await (context.writeClipboard ? context.writeClipboard(req.text) : writeClipboardText(req.text));
-        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
+        const allowed = await context.runSensitiveAction?.({ id: req.id, kind: "clipboard", text: req.text }, async () => {
+          await (context.writeClipboard ? context.writeClipboard(req.text) : writeClipboardText(req.text));
+          return true;
+        });
+        return allowed ? { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true }
+          : { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "user_consent_required" };
       } catch {
         return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "clipboard_write_failed" };
       }
@@ -321,7 +336,9 @@ export async function handlePluginHostMessage(
         return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "export_unavailable" };
       }
       try {
-        const saved = await context.exportWorkspace(req.filename, req.content, req.mime);
+        const save = context.exportWorkspace;
+        const saved = await context.runSensitiveAction?.({ id: req.id, kind: "export", filename: req.filename }, () => save(req.filename, req.content, req.mime));
+        if (saved === undefined) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "user_consent_required" };
         return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: { saved } };
       } catch (error) {
         return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "export_failed") };
@@ -474,6 +491,7 @@ export function buildPluginCsp(grantedDomains: readonly string[]): string {
     "default-src 'none'",
     "script-src 'unsafe-inline'",
     "worker-src 'none'",
+    "child-src 'none'",
     "style-src 'unsafe-inline'",
     "img-src data: blob:",
     "media-src data: blob:",
@@ -487,6 +505,11 @@ export function buildPluginCsp(grantedDomains: readonly string[]): string {
 }
 
 function stripDisallowedMetaAndBase(root: ParentNode): void {
+  for (const node of root.querySelectorAll("iframe, frame, frameset, portal, fencedframe, object, embed")) node.remove();
+  for (const link of root.querySelectorAll("link")) {
+    const rel = link.getAttribute("rel")?.toLowerCase().split(/\s+/) ?? [];
+    if (rel.some(token => /^(?:dns-prefetch|preconnect|prefetch|prerender|preload|modulepreload)$/.test(token))) link.remove();
+  }
   const metas = [...root.querySelectorAll("meta")];
   for (const meta of metas) {
     const httpEquiv = meta.getAttribute("http-equiv")?.trim().toLowerCase();
@@ -494,6 +517,8 @@ function stripDisallowedMetaAndBase(root: ParentNode): void {
     if (
       httpEquiv === "content-security-policy"
       || httpEquiv === "content-security-policy-report-only"
+      || httpEquiv === "x-dns-prefetch-control"
+      || httpEquiv === "refresh"
       || name === "referrer"
     ) {
       meta.remove();
@@ -630,7 +655,7 @@ function findRealHeadOpenTag(html: string): { start: number; end: number } | nul
  * stripping any plugin-supplied CSP/referrer `<meta>` or `<base>`. */
 export function wrapSandboxedDocument(bundleHtml: string, grantedDomains: readonly string[]): string {
   const csp = buildPluginCsp(grantedDomains);
-  const headPrefix = `<meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="${csp}"><script>${PLUGIN_SANDBOX_BOOTSTRAP_SCRIPT}</script>`;
+  const headPrefix = `<meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="${csp}"><script>${PLUGIN_SANDBOX_BOOTSTRAP_SCRIPT}</script>`;
   if (typeof DOMParser !== "undefined") {
     const doc = new DOMParser().parseFromString(bundleHtml, "text/html");
     stripDisallowedMetaAndBase(doc);
@@ -649,9 +674,12 @@ export function wrapSandboxedDocument(bundleHtml: string, grantedDomains: readon
     const cspMeta = doc.createElement("meta");
     cspMeta.setAttribute("http-equiv", "Content-Security-Policy");
     cspMeta.setAttribute("content", csp);
+    const dnsMeta = doc.createElement("meta");
+    dnsMeta.setAttribute("http-equiv", "x-dns-prefetch-control");
+    dnsMeta.setAttribute("content", "off");
     const bootstrapScript = doc.createElement("script");
     bootstrapScript.textContent = PLUGIN_SANDBOX_BOOTSTRAP_SCRIPT;
-    doc.head.prepend(charsetMeta, referrerMeta, cspMeta, bootstrapScript);
+    doc.head.prepend(charsetMeta, referrerMeta, cspMeta, dnsMeta, bootstrapScript);
     return `<!doctype html>${doc.documentElement.outerHTML}`;
   }
   return wrapSandboxedDocumentWithoutDom(bundleHtml, headPrefix);

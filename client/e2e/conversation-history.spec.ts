@@ -76,13 +76,20 @@ test("rewind success waits for the committed exclusion cursor", async ({ page })
 
 test("busy, queues, goals and stale revisions block admission with localized reasons", async ({ page }) => {
   await fixture(page);
-  for (const [blocked, text] of [["busy", "请等待当前任务结束后再操作。"], ["queued", "请先处理待执行消息。"], ["goal_active", "请先暂停当前目标。"]]) {
+  for (const [blocked, text] of [
+    ["busy", "当前对话正在回复中，请等待结束后再操作。"],
+    ["background_work", "后台任务正在运行中，请等待结束后再操作。"],
+    ["side_session", "当前有打开的侧边对话，请等待回答结束或关闭后再操作。"],
+    ["queued", "请先处理待执行消息。"],
+    ["goal_active", "请先暂停当前目标。"],
+    ["future_reason_v2", "请刷新会话状态后重试。"],
+  ]) {
     await page.evaluate(blocked => { const f = (window as any).historyFixture; f.snapshot.blocked = blocked; f.history.refresh(); }, blocked);
     await expect(page.getByRole("button", { name: "分叉当前对话", exact: true })).toBeDisabled(); await expect(page.getByText(text, { exact: true })).toBeVisible();
   }
   // An older Host answers a running conversation without capabilities or revision: keep the entry, disabled.
   await page.evaluate(() => { const f = (window as any).historyFixture; f.saved = { ...f.snapshot }; f.snapshot = { supported: true, blocked: "busy" }; f.history.refresh(); });
-  await expect(page.getByRole("button", { name: "分叉当前对话", exact: true })).toBeDisabled(); await expect(page.getByText("请等待当前任务结束后再操作。", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "分叉当前对话", exact: true })).toBeDisabled(); await expect(page.getByText("当前对话正在回复中，请等待结束后再操作。", { exact: true })).toBeVisible();
   await page.evaluate(() => { const f = (window as any).historyFixture; f.snapshot = f.saved; delete f.snapshot.blocked; f.history.refresh(); });
   await page.getByRole("button", { name: "分叉当前对话", exact: true }).click();
   await page.evaluate(() => { (window as any).historyFixture.snapshot.revision = "new_revision"; });
@@ -101,7 +108,7 @@ test("double confirmation and lost response survive reload with receipt-only rec
   await page.getByRole("button", { name: "核对结果", exact: true }).click();
   await page.getByRole("dialog", { name: "核对历史操作", exact: true }).getByRole("button", { name: "核对结果", exact: true }).click();
   await expect(page.getByRole("heading", { name: "研究计划 · 分叉", exact: true })).toBeVisible(); expect(await posts(page)).toHaveLength(1);
-  expect(await page.evaluate(() => (window as any).historyFixture.calls.filter(call => call.route.includes("/operations/")).every(call => call.route.endsWith("/reconcile") && call.method === "POST"))).toBe(true);
+  expect(await page.evaluate(() => (window as any).historyFixture.calls.filter(call => call.route.includes("/operations/")).every(call => call.route.split("?")[0].endsWith("/reconcile") && call.method === "POST"))).toBe(true);
 });
 
 test("reload after local admission but before POST safely tombstones the same request", async ({ page }) => {

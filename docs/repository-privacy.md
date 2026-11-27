@@ -110,8 +110,13 @@ Git clone. Other computers must enable the hooks in their own checkout.
 
 `pre-commit` checks both effective author and committer identities, including
 environment overrides, then scans the **Git index**. Cleaning a working file
-without staging the cleanup does not bypass scanning. `pre-push` scans full
-reachable history. Before the secret scan, it rejects reachable pre-cleanup
+without staging the cleanup does not bypass scanning. `pre-push` scans the
+commits being uploaded: everything after the remote's current tip of that
+branch, or after the remote's live `main` for a branch the remote does not have
+yet (the whole ancestry when neither is known locally). Commits the remote
+already has were scanned when they were pushed and are covered again by the
+all-history scan (`check-secrets.mjs history`), which CI, the pre-completion
+scripts and release preparation run. Before the secret scan, it rejects reachable pre-cleanup
 ancestry, including old tags or branches copied from another machine. The guard
 stores SHA-256 fingerprints rather than publishing the retired commit IDs.
 The repository's POSIX and PowerShell pre-completion scripts also run both
@@ -124,6 +129,7 @@ native Cargo tests including integration targets.
 node --test scripts/privacy-guards.node-test.mjs
 node scripts/check-secrets.mjs staged
 node scripts/check-secrets.mjs history
+git push --dry-run   # runs the hook: outgoing-range privacy and secret scans
 ```
 
 The [Secret scanning workflow](../.github/workflows/secret-scan.yml) runs on

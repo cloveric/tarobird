@@ -3,6 +3,7 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { resolveElectronLocale, pickElectronCopy } from './locale.mjs';
 
 const token = z.string().uuid();
 const executable = /\.(?:exe|com|bat|cmd|msi|msp|scr|pif|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|reg|cpl|jar|command|terminal|sh)$/i;
@@ -10,7 +11,7 @@ const schemas = {
   desktop_save_begin: z.object({ name: z.string().min(1).max(240).refine(value => !/[\\/\x00-\x1f]/.test(value)), size: z.number().int().min(0).max(2 ** 40) }).strict(),
   desktop_save_write: z.object({ token, data: z.string().max(1398104) }).strict(),
   desktop_save_commit: z.object({ token }).strict(), desktop_save_cancel: z.object({ token }).strict(),
-  open_saved_file: z.object({ path: z.string().max(32768), english: z.boolean().optional() }).strict(), reveal_saved_file: z.object({ path: z.string().max(32768) }).strict(),
+  open_saved_file: z.object({ path: z.string().max(32768), english: z.boolean().optional(), locale: z.string().max(32).optional() }).strict(), reveal_saved_file: z.object({ path: z.string().max(32768) }).strict(),
 };
 export const FILE_COMMANDS = Object.freeze(Object.keys(schemas));
 export const executableName = file => executable.test(file.trim());
@@ -61,10 +62,18 @@ export class DesktopFiles {
       if (!this.#grants.has(args.path) || !await qualifies()) throw new Error('saved_file_not_granted');
       if (command === 'reveal_saved_file') { this.shell.showItemInFolder(args.path); return null; }
       if (executable.test(args.path.trim())) {
-        const english = args.english === true;
+        const loc = resolveElectronLocale({ locale: args.locale, english: args.english });
         const result = await this.dialog.showMessageBox(this.window, { type: 'warning', title: 'TaroBird',
-          message: english ? 'This file can run programs or change your system. Open only if you trust its source.' : '这个附件可能运行程序或修改系统。请仅在确认来源可信时打开。',
-          buttons: english ? ['Cancel', 'Open'] : ['取消', '打开'], defaultId: 0, cancelId: 0, noLink: true });
+          message: pickElectronCopy(loc, {
+            zh: '这个附件可能运行程序或修改系统。请仅在确认来源可信时打开。',
+            en: 'This file can run programs or change your system. Open only if you trust its source.',
+            ja: 'この添付ファイルはプログラムを実行したりシステムを変更したりする可能性があります。信頼できる送信元の場合のみ開いてください。',
+          }),
+          buttons: pickElectronCopy(loc, {
+            zh: ['取消', '打开'],
+            en: ['Cancel', 'Open'],
+            ja: ['キャンセル', '開く'],
+          }), defaultId: 0, cancelId: 0, noLink: true });
         if (result.response !== 1) return null;
       }
       if (!active() || !await qualifies()) throw new Error('saved_file_not_granted');

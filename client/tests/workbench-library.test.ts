@@ -48,7 +48,7 @@ function store(conversation: string, initial: WorkbenchLayout) {
       return results;
     },
   };
-  const connection = { identity: { deviceId: "device", hubPublicKey: "host" }, state: { status: "online", user: { id: "owner" }, workbenchDesignAvailable: true, workbenchMarkdownAvailable: true }, isClosed: false, isReadOnly: false, cache,
+  const connection = { identity: { deviceId: "device", hubPublicKey: "host" }, state: { status: "online", user: { id: "owner" }, workbenchDesignAvailable: true, workbenchSlidesAvailable: true, workbenchMarkdownAvailable: true }, isClosed: false, isReadOnly: false, cache,
     subscribe: () => () => undefined, conversationRevision: () => 0, http: vi.fn() } as unknown as HubConnection;
   const scope = workbenchScope("host", "owner", conversation);
   // The UI passes its listed rows; their cache key is re-checked against this connection.
@@ -149,8 +149,8 @@ describe("device workbench library deletion", () => {
 
 describe("controller after a device-library deletion", () => {
   it("forgets a closed design's lingering session and adopts the committed layout", async () => {
-    const conversation = fresh(), db = store(conversation, { ...emptyWorkbench(), tabs: [tab("d", "design"), tab("b", "whiteboard")], visible: ["d"], active: "d" });
-    db.designs.set("d", emptyDesign("d")); db.boards.set("b", emptyBoard("b"));
+    const conversation = fresh(), db = store(conversation, { ...emptyWorkbench(), tabs: [{ id: "d", kind: "design", designFormat: "slides", title: "D" }, tab("b", "whiteboard")], visible: ["d"], active: "d" });
+    db.designs.set("d", emptySlides("d")); db.boards.set("b", emptyBoard("b"));
     const controller = await open(db, conversation);
     await vi.waitFor(() => expect(controller.designSession("d")).toBeDefined());
     await controller.closeTab("d");
@@ -183,14 +183,15 @@ describe("controller after a device-library deletion", () => {
 describe("opening a device-library item", () => {
   it("selects an open Tab, reopens a closed one and restores unreferenced content by its stable ID", async () => {
     const conversation = fresh(), db = store(conversation, { ...emptyWorkbench(), tabs: [tab("a", "whiteboard"), tab("c", "chart")], closed: [tab("n", "markdown")], visible: ["c"], active: "c" });
-    db.boards.set("a", emptyBoard("a")); db.notes.set("n", emptyMarkdown("n")); db.designs.set("orphan", emptyDesign("orphan"));
+    db.boards.set("a", emptyBoard("a")); db.notes.set("n", emptyMarkdown("n")); db.designs.set("orphan", emptySlides("orphan")); db.designs.set("legacy-canvas", emptyDesign("legacy-canvas"));
     const controller = await open(db, conversation), at = (id: string, kind: WorkbenchItemKind, title = id) => ({ scope: db.scope, conversationId: conversation, id, kind, title });
     expect(await controller.openLibraryFile(at("a", "whiteboard"))).toBe("selected");
     expect(db.layout().active).toBe("a");
     expect(await controller.openLibraryFile(at("n", "markdown"), { assertActive: () => undefined })).toBe("reopened");
     expect(db.layout()).toMatchObject({ active: "n", closed: [] });
-    expect(await controller.openLibraryFile(at("orphan", "design", "  Poster  "))).toBe("restored");
-    expect(db.layout().tabs.find(value => value.id === "orphan")).toEqual({ id: "orphan", kind: "design", title: "Poster" });
+    expect(await controller.openLibraryFile(at("orphan", "design", "  Deck  "))).toBe("restored");
+    expect(db.layout().tabs.find(value => value.id === "orphan")).toEqual({ id: "orphan", kind: "design", designFormat: "slides", title: "Deck" });
+    await expect(controller.openLibraryFile(at("legacy-canvas", "design", "  Poster  "))).rejects.toThrow("design_canvas_removed");
   });
 
   it("restores a PPT project with its format rather than opening it as a canvas", async () => {

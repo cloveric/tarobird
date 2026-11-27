@@ -565,7 +565,7 @@ describe("Plugin sandbox Host API capability gating, storage isolation and error
     // Clipboard rejection returns ok: false instead of unhandled rejection
     const clipResp = await handlePluginHostMessage(
       { protocol: PLUGIN_HOST_PROTOCOL, id: "c1", method: "clipboard.write", text: "hi" },
-      { ...ctx, writeClipboard: async () => { throw new Error("NotAllowedError"); } },
+      { ...ctx, runSensitiveAction: (_action, run) => run(), writeClipboard: async () => { throw new Error("NotAllowedError"); } },
     );
     expect(clipResp).toMatchObject({ ok: false, error: "clipboard_write_failed" });
   });
@@ -621,7 +621,7 @@ describe("Plugin CSP wrapping, WebRTC hardening, domain filtering and theme reso
     const wrappedCommented = wrapSandboxedDocument(commented, ["api.example.com"]);
     expect(wrappedCommented).not.toContain("<!-- <head> --><meta");
     expect(wrappedCommented).toMatch(
-      /<head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="[^"]*connect-src https:\/\/api\.example\.com wss:\/\/api\.example\.com[^"]*"><script>/,
+      /<head><meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="[^"]*connect-src https:\/\/api\.example\.com wss:\/\/api\.example\.com[^"]*"><script>/,
     );
 
     const preHeadScript = "<script>window.__pluginRan=1;fetch('https://evil.example')</script><head><meta http-equiv=\"Content-Security-Policy\" content=\"default-src *\"></head><body>x</body>";

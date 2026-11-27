@@ -1,0 +1,294 @@
+// Produces the fixtures in client/e2e/fixtures/legacy-1.6.0/ of the merged tree.
+// Runs ONLY in a checkout of tag v1.6.0 (the Baoyu canvas and Baoyu PPT editors),
+// against a client build of that tag: every project below is created, rendered,
+// edited by hand and saved by the 1.6.0 App and its editors, then taken out with
+// that App's own export buttons and read back raw from its IndexedDB.
+//
+//   LEGACY_V160_DIST=<vite build of v1.6.0> LEGACY_FIXTURE_OUT=<directory> \
+//     npx playwright test e2e/zz-legacy-fixtures.spec.ts --workers=1
+import { workbenchContentTargets } from "./fixtures/workbench-targets.js";
+import { test, expect, type Page } from "@playwright/test";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import { deflateSync, crc32 } from "node:zlib";
+import os from "node:os";
+import path from "node:path";
+import { HubServer } from "../../src/hub/server.js";
+import type { WorkbenchBroker } from "../../src/hub/workbench.js";
+import type { WorkbenchRequest } from "../../src/client-protocol/workbench.js";
+import { preparePairing } from "./fixtures/pairing-invite.js";
+import { selectConversation, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
+
+const out = process.env.LEGACY_FIXTURE_OUT!, dist = process.env.LEGACY_V160_DIST!;
+test.skip(!out || !dist, "fixture generation needs LEGACY_FIXTURE_OUT and LEGACY_V160_DIST");
+test.use({ serviceWorkers: "block" });
+
+/** A real PNG (RGBA, a two-colour diagonal) so that decoding and natural size can be asserted. */
+function png(width: number, height: number, a: [number, number, number], b: [number, number, number]) {
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    raw[y * (width * 4 + 1)] = 0;
+    for (let x = 0; x < width; x++) { const c = x * height > y * width ? a : b, o = y * (width * 4 + 1) + 1 + x * 4; raw[o] = c[0]; raw[o + 1] = c[1]; raw[o + 2] = c[2]; raw[o + 3] = 255; }
+  }
+  const chunk = (type: string, data: Buffer) => { const body = Buffer.concat([Buffer.from(type), data]), head = Buffer.alloc(4), tail = Buffer.alloc(4); head.writeUInt32BE(data.length); tail.writeUInt32BE(crc32(body)); return Buffer.concat([head, body, tail]); };
+  const header = Buffer.alloc(13); header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+async function fixture(page: Page) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "legacy-fixture-"));
+  const hub = await HubServer.start({ stateDir: directory, clientDir: dist });
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','设计助手','fixture')");
+  const conversation = await hub.store.createConversation("owner", ["alpha"], "旧版项目", "legacy_chat");
+  await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+  await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner"); await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+  await waitForClientOnline(page); await showDisconnectedBots(page); await selectConversation(page, conversation.title);
+  const broker = (hub as unknown as { workbench: WorkbenchBroker }).workbench, actor = { userId: "owner", conversationId: conversation.id, validate: async () => undefined };
+  await page.getByRole("button", { name: "工作台", exact: true }).click(); await expect(panel(page)).toBeVisible();
+  await expect.poll(async () => (await workbenchContentTargets(broker, actor)).length).toBe(1);
+  return { hub, conversation, targets: () => workbenchContentTargets(broker, actor), command: (request: WorkbenchRequest) => broker.request(actor, request), close: async () => { await page.close({ runBeforeUnload: false }); await hub.close(); await rm(directory, { recursive: true, force: true }); } };
+}
+const panel = (page: Page) => page.getByRole("complementary", { name: "工作台", exact: true });
+const editorOf = (page: Page) => page.frameLocator(".workbench-design-frame:visible");
+const guestOf = (page: Page) => page.frames().find(frame => frame.parentFrame() === page.mainFrame())!;
+
+/** The stored records of one project exactly as the 1.6.0 App left them in IndexedDB. */
+async function stored(page: Page, id: string) {
+  return page.evaluate(async designId => {
+    const names = (await indexedDB.databases()).map(item => item.name!).filter(Boolean);
+    for (const name of names) {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => { const open = indexedDB.open(name); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); });
+      try {
+        if (!db.objectStoreNames.contains("workbenchDesign")) continue;
+        const tx = db.transaction(["workbenchDesign", "workbenchDesignMeta", "workbenchDesignObjects", "workbenchLayouts"]);
+        const all = <T,>(store: string) => new Promise<Array<{ key: IDBValidKey; value: T }>>((resolve, reject) => {
+          const rows: Array<{ key: IDBValidKey; value: T }> = [], cursor = tx.objectStore(store).openCursor();
+          cursor.onsuccess = () => { const at = cursor.result; if (!at) return resolve(rows); rows.push({ key: at.key, value: at.value }); at.continue(); };
+          cursor.onerror = () => reject(cursor.error);
+        });
+        const designs = (await all<{ id: string }>("workbenchDesign")).filter(row => (row.key as string[])[1] === designId);
+        if (!designs.length) continue;
+        const scope = (designs[0].key as string[])[0];
+        const meta = (await all<unknown>("workbenchDesignMeta")).filter(row => (row.key as string[])[1] === designId);
+        const objects = (await all<unknown>("workbenchDesignObjects")).filter(row => (row.key as string[])[1] === designId);
+        const layout = (await all<{ tabs: Array<{ id: string }>; closed: Array<{ id: string }> }>("workbenchLayouts")).find(row => row.key === scope)?.value;
+        const tab = layout && [...layout.tabs, ...layout.closed].find(item => item.id === designId);
+        return {
+          dbVersion: db.version,
+          document: designs[0].value,
+          tab,
+          meta: Object.fromEntries(meta.map(row => [(row.key as string[])[2], row.value])),
+          objects: Object.fromEntries(objects.map(row => [(row.key as string[])[2], row.value])),
+        };
+      } finally { db.close(); }
+    }
+    throw new Error("design_not_stored");
+  }, id);
+}
+const text = (file: { base64: string }) => Buffer.from(file.base64, "base64").toString("utf8");
+async function save(name: string, value: unknown) { await mkdir(out, { recursive: true }); await writeFile(path.join(out, name), typeof value === "string" || Buffer.isBuffer(value) ? value : JSON.stringify(value)); }
+async function tabTarget(f: Awaited<ReturnType<typeof fixture>>, title: string) {
+  const registration = (await f.targets())[0], tab = registration.tabs.find(item => item.title === title)!;
+  return { deviceId: registration.deviceId, windowId: registration.windowId, tabId: tab.id };
+}
+async function renameTab(page: Page, from: string, to: string) {
+  await panel(page).getByRole("tab", { name: from, exact: true }).click({ button: "right" });
+  await page.getByRole("menu", { name: "标签选项", exact: true }).getByRole("button", { name: "重命名", exact: true }).click();
+  await page.getByLabel("重命名标签").fill(to); await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(panel(page).getByRole("tab", { name: to, exact: true })).toBeVisible();
+}
+/** Types into a slide's text in the old editor: the editor itself rewrites and saves the slide file. */
+async function retype(page: Page, current: string, next: string) {
+  const editor = editorOf(page), target = editor.getByText(current, { exact: true }).first();
+  await expect(target).toBeVisible({ timeout: 30000 });
+  await target.dblclick(); await page.keyboard.press("Meta+A"); await page.keyboard.type(next); await page.keyboard.press("Escape");
+  await expect(editor.getByText(next, { exact: true }).first()).toBeVisible();
+}
+
+/** Waits until the old editor has written every pending change into the App's store. */
+async function saved(page: Page) {
+  await expect(editorOf(page).getByRole("button", { name: /waiting to save/ })).toHaveCount(0, { timeout: 30000 });
+  await expect(panel(page).getByRole("status").filter({ hasText: /正在保存|尚未保存/ })).toHaveCount(0, { timeout: 30000 });
+}
+/** Clicks the 1.6.0 App's own export button and keeps the file it downloads. */
+async function backup(page: Page, button: string, name: string) {
+  const download = page.waitForEvent("download");
+  await panel(page).getByRole("button", { name: button, exact: true }).click();
+  const file = await download, bytes = await readFile((await file.path())!);
+  expect(file.suggestedFilename()).toMatch(/\.tarobot-design\.json$/);
+  expect(JSON.parse(bytes.toString("utf8"))).toMatchObject({ format: "tarobot-design", version: 2 });
+  await save(`${name}.tarobot-design.json`, bytes);
+  return JSON.parse(bytes.toString("utf8")) as { title: string; document: { files: Record<string, { base64: string; contentType: string }> } };
+}
+
+test("1.6.0 PPT: plain deck with text, shapes, a table and an uploaded image", async ({ page }) => {
+  test.setTimeout(180000);
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const f = await fixture(page);
+  try {
+    await panel(page).getByRole("button", { name: "新建内容", exact: true }).click();
+    await panel(page).getByRole("menu").getByRole("button", { name: "PPT", exact: true }).click();
+    const editor = editorOf(page);
+    await expect(editor.getByText("PPT", { exact: true }).first()).toBeVisible({ timeout: 30000 });
+    await renameTab(page, "PPT", "季度复盘 1.6.0");
+    // 1. The person edits the cover in the old editor.
+    await retype(page, "PPT", "季度复盘 Quarterly review");
+    const target = await tabTarget(f, "季度复盘 1.6.0");
+    // 2. A picture goes in through the old editor's own upload, as when a person drops a file on it.
+    const picture = png(96, 64, [217, 119, 87], [41, 39, 35]);
+    const asset = await guestOf(page).evaluate(async bytes => (window as any).slidesHost.assets.upload(new Blob([new Uint8Array(bytes)], { type: "image/png" })), [...picture]);
+    expect(asset.url).toMatch(/^\/?_blob\/[0-9a-f]{32}$/);
+    // 3. The Bot adds slides through design.publish in the 1.6.0 interchange format, as 1.6.0 Bots did.
+    const index = await f.command({ requestId: "plain-index", operation: "design.read", target, payload: { path: "project/deck.json" } });
+    const deck = JSON.parse((index.result as { content: string }).content);
+    deck.order = ["cover", "agenda", "shapes", "numbers", "picture"]; deck.sections = { s1: { description: "Opening", start: "cover" }, s2: { description: "Evidence", start: "numbers" } };
+    const html = (content: string) => ({ content, contentType: "text/html" as const });
+    const files = {
+      "project/deck.json": { content: JSON.stringify(deck), contentType: "application/json" as const },
+      "project/slides/agenda.html": html(`<section id="agenda" style="background:#faf9f6;color:#292723;font-family:Georgia, serif;padding:120px;display:flex;flex-direction:column;gap:40px"><h2 style="font-size:72px;font-weight:600">议程 Agenda</h2><p style="font-size:36px;color:#5c5852">三件事，按<span style="font-weight:700">优先级</span>排列。</p><ul style="font-size:40px;line-height:1.5"><li>收入与留存</li><li>发布节奏 <span style="font-style:italic">release cadence</span></li><li>下季度计划</li></ul><aside>讲者备注：先讲留存，再讲收入。</aside></section>`),
+      "project/slides/shapes.html": html(`<section id="shapes" style="background:#ffffff;color:#292723;font-family:Arial, sans-serif;padding:96px"><h2 style="font-size:64px">流程 Flow</h2><div style="position:absolute;left:160px;top:360px;width:420px;height:240px;background:#d97757;border-radius:24px;display:flex;align-items:center;justify-content:center"><p style="font-size:40px;color:#ffffff">起草 Draft</p></div><x-shape kind="arrow-right" style="position:absolute;left:640px;top:440px;width:200px;height:80px;background:#292723"></x-shape><x-shape kind="ellipse" style="position:absolute;left:900px;top:340px;width:300px;height:280px;background:#3d7a6a;border:6px solid #1f4a3f"></x-shape><x-shape kind="diamond" style="position:absolute;left:1300px;top:340px;width:280px;height:280px;background:#e8c56a"></x-shape><hr style="position:absolute;left:160px;top:720px;width:1420px;border-top:6px dashed #77736e"><p style="position:absolute;left:160px;top:780px;font-size:32px;color:#77736e">矩形、箭头、椭圆、菱形与一条虚线</p></section>`),
+      "project/slides/numbers.html": html(`<section id="numbers" data-section="s2" style="background:#faf9f6;color:#292723;font-family:Arial, sans-serif;padding:110px;display:flex;flex-direction:column;gap:48px"><h2 style="font-size:64px">数据 Numbers</h2><table style="font-size:34px;width:1500px"><tr><th style="width:40%;text-align:left">指标 Metric</th><th style="width:30%;text-align:right">Q2</th><th style="width:30%;text-align:right">Q3</th></tr><tr><td>活跃用户</td><td style="text-align:right">12,400</td><td style="text-align:right">15,950</td></tr><tr><td>留存 Retention</td><td style="text-align:right">61%</td><td style="text-align:right">68%</td></tr><tr style="background:#f0ece4"><td>收入 Revenue</td><td style="text-align:right">¥ 1.2M</td><td style="text-align:right">¥ 1.7M</td></tr></table></section>`),
+      "project/slides/picture.html": html(`<section id="picture" style="background:#292723;color:#faf9f6;font-family:Arial, sans-serif;padding:110px;display:flex;flex-direction:row;gap:80px;align-items:center"><div style="display:flex;flex-direction:column;gap:32px;width:760px"><h2 style="font-size:64px">现场 On site</h2><p style="font-size:34px;color:#c9c4bb">本机上传的图片，随项目保存。</p></div><img src="${asset.url}" alt="现场照片 Site photo" style="width:720px;height:480px;object-fit:cover;border-radius:24px"></section>`),
+    };
+    expect(await f.command({ requestId: "plain-write", operation: "design.publish", target, expectedRevision: index.revision, payload: { files } })).toMatchObject({ status: "applied", saved: true });
+    // 4. The old editor renders every slide; the person then works in it by hand.
+    await expect(editor.getByText("季度复盘 Quarterly review", { exact: true }).first()).toBeVisible({ timeout: 30000 });
+    const next = editor.getByRole("button", { name: "Next slide", exact: true });
+    await next.click(); await retype(page, "议程 Agenda", "议程 Agenda（手改）");
+    await next.click(); await expect(editor.getByRole("group", { name: "Shape, Ellipse, 4 of 7", exact: true })).toBeVisible();
+    //    A rounded rectangle from the old editor's own Shapes menu.
+    await editor.getByRole("button", { name: "Shapes", exact: true }).click(); await editor.getByRole("menuitem", { name: "Rounded rectangle", exact: true }).click();
+    await expect(editor.getByRole("group", { name: "Shape, Rectangle, 8 of 8", exact: true })).toBeVisible(); await page.keyboard.press("Escape");
+    await next.click(); await expect(editor.getByRole("cell", { name: "15,950", exact: true })).toBeVisible();
+    //    A second table from the old editor's Table button.
+    await editor.getByRole("button", { name: "Table", exact: true }).click(); await expect(editor.getByRole("table")).toHaveCount(2); await page.keyboard.press("Escape");
+    await next.click();
+    const photo = editor.getByRole("img", { name: "现场照片 Site photo", exact: true }).first();
+    await expect(photo).toBeVisible(); await expect.poll(() => photo.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth)).toBe(96);
+    await retype(page, "本机上传的图片，随项目保存。", "本机上传的图片（手改）。");
+    await saved(page);
+    // 5. What the old editor stored, and what its own "Back up project" button writes.
+    const read = async (file: string) => ((await f.command({ requestId: `plain-check-${file}`, operation: "design.read", target, payload: { path: `project/slides/${file}.html` } })).result as { content: string }).content;
+    expect(await read("cover")).toContain("季度复盘 Quarterly review");
+    expect(await read("agenda")).toContain("议程 Agenda（手改）");
+    expect((await read("shapes")).match(/<x-shape|<div[^>]*border-radius/g)!.length).toBeGreaterThanOrEqual(5);
+    expect((await read("numbers")).match(/<table/g)).toHaveLength(2);
+    expect(await read("picture")).toContain("本机上传的图片（手改）。");
+    await backup(page, "备份 PPT 项目", "plain-deck");
+    await save("plain-deck.stored.json", await stored(page, target.tabId));
+    expect(errors).toEqual([]);
+  } finally { await f.close(); }
+});
+
+/** A design-system source as earlier versions left it on a device: 1.6.0 lists it under "设计系统" and copies it into a deck. */
+async function seedDesignSystem(page: Page, conversationId: string, logo: string, picture: number[]) {
+  return page.evaluate(async ({ conversationId, logo, picture }) => {
+    const encode = async (bytes: Uint8Array, contentType: string) => {
+      let binary = ""; for (const byte of bytes) binary += String.fromCharCode(byte);
+      const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+      return { base64: btoa(binary), contentType, sha256: digest, size: bytes.length };
+    };
+    const textFile = (value: string, contentType = "text/plain") => encode(new TextEncoder().encode(value), contentType);
+    const upload = await encode(new Uint8Array(picture), "image/png"), assetId = upload.sha256.slice(0, 32);
+    const tokens = { name: "Brand", color: { themes: [{ id: "light", name: "Light" }], tokens: [
+      { name: "coral", value: "#d97757", usage: "Accent" }, { name: "ink", value: "#292723", usage: "Text" }, { name: "paper", value: "#faf9f6", usage: "Background" } ] },
+      type: { groups: [{ name: "Display", family: "Georgia", styles: [{ name: "Hero", fontSize: "96px", fontWeight: 600, lineHeight: 1.1 }] }, { name: "Body", family: "Arial", styles: [{ name: "Body", fontSize: "36px" }] }] } };
+    const document = { schema: 1, id: "brand", format: "design-system", revision: 3, receipts: [], files: {
+      "project/README.md": await textFile(`# Brand\n\nA small house style: coral accent, ink text, paper background.\n\n## Consuming this system\n\n- Tokens: \`project/tokens.json\`\n- Logo: \`project/img/logo.svg\`\n- Sample picture: ![sample](/_blob/${assetId})\n`, "text/markdown"),
+      "project/tokens.json": await textFile(JSON.stringify(tokens), "application/json"),
+      "project/img/logo.svg": await textFile(logo, "image/svg+xml"),
+      "project/Logo.dc.html": await textFile(`<!doctype html><html><head><meta charset="utf-8"></head><body><x-dc><img alt="Sample" src="/_blob/${assetId}"><img alt="Sample again" src="./_blob/${assetId}"></x-dc></body></html>`, "text/html"),
+      "project/theme.css": await textFile(`.sample{background-image:url(_blob/${assetId})}`, "text/css"),
+      [`project/assets/${assetId}`]: upload,
+    } };
+    const names = (await indexedDB.databases()).map(item => item.name!).filter(Boolean);
+    for (const name of names) {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => { const open = indexedDB.open(name); open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error); });
+      try {
+        if (!db.objectStoreNames.contains("workbenchLayouts")) continue;
+        const keys = await new Promise<IDBValidKey[]>((resolve, reject) => { const request = db.transaction("workbenchLayouts").objectStore("workbenchLayouts").getAllKeys(); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+        const scope = keys.find(key => typeof key === "string" && JSON.parse(key)[2] === conversationId) as string | undefined;
+        if (!scope) continue;
+        await new Promise<void>((resolve, reject) => { const tx = db.transaction("workbenchDesign", "readwrite"); tx.objectStore("workbenchDesign").put(document, [scope, "brand"]); tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+        return { assetId, document };
+      } finally { db.close(); }
+    }
+    throw new Error("scope_not_found");
+  }, { conversationId, logo, picture });
+}
+
+test("1.6.0 PPT: deck with a design system installed through the App", async ({ page }) => {
+  test.setTimeout(180000);
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const f = await fixture(page);
+  try {
+    await panel(page).getByRole("button", { name: "新建内容", exact: true }).click();
+    await panel(page).getByRole("menu").getByRole("button", { name: "PPT", exact: true }).click();
+    const editor = editorOf(page);
+    await expect(editor.getByText("PPT", { exact: true }).first()).toBeVisible({ timeout: 30000 });
+    await renameTab(page, "PPT", "品牌演示 1.6.0");
+    await retype(page, "PPT", "品牌演示 Brand deck");
+    await saved(page);
+    const logo = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120"><rect width="120" height="120" rx="24" fill="#d97757"/><circle cx="60" cy="60" r="30" fill="#faf9f6"/></svg>';
+    const seeded = await seedDesignSystem(page, f.conversation.id, logo, [...png(48, 48, [61, 122, 106], [232, 197, 106])]);
+    await save("design-system-source.stored.json", seeded.document);
+    // The person installs it with the 1.6.0 App's own "设计系统" button: the App copies it under project/ds/.
+    await panel(page).getByRole("button", { name: "设计系统", exact: true }).click();
+    const dialog = panel(page).getByRole("dialog", { name: "安装或同步设计系统", exact: true });
+    await dialog.getByRole("button").first().click();
+    await expect(dialog).toHaveCount(0, { timeout: 30000 });
+    await expect(editor.getByText("品牌演示 Brand deck", { exact: true }).first()).toBeVisible({ timeout: 30000 });
+    const target = await tabTarget(f, "品牌演示 1.6.0");
+    const index = await f.command({ requestId: "ds-index", operation: "design.read", target, payload: { path: "project/deck.json" } });
+    const deck = JSON.parse((index.result as { content: string }).content);
+    expect(deck.designSystems).toHaveLength(1);
+    // The Bot then uses the system's logo and colours on a slide, by the path the 1.6.0 deck reference names.
+    deck.order = ["cover", "brand"];
+    const ns = deck.designSystems[0].namespace;
+    const files = {
+      "project/deck.json": { content: JSON.stringify(deck), contentType: "application/json" as const },
+      "project/slides/brand.html": { contentType: "text/html" as const, content: `<section id="brand" style="background:#faf9f6;color:#292723;font-family:Georgia, serif;padding:120px;display:flex;flex-direction:row;gap:96px;align-items:center"><img src="project/ds/${ns}/img/logo.svg" alt="品牌标志 Brand logo" style="width:360px;height:360px;object-fit:contain"><div style="display:flex;flex-direction:column;gap:32px"><h2 style="font-size:96px;font-weight:600;color:#d97757">品牌 Brand</h2><p style="font-size:36px">珊瑚色强调、墨色文字、纸色背景。</p></div></section>` },
+    };
+    expect(await f.command({ requestId: "ds-write", operation: "design.publish", target, expectedRevision: index.revision, payload: { files } })).toMatchObject({ status: "applied", saved: true });
+    await editor.getByRole("button", { name: "Next slide", exact: true }).click();
+    // 1.6.0 accepts this slide (it stays editable) and lists the picture as an element. It does not paint
+    // the picture: its frame only resolves /_blob/<id> and /project/ds/<ns>/assets/<id>, and its compiler
+    // refuses both of those forms for a design-system file (checked: either one makes the slide read-only).
+    await expect(editor.getByRole("group", { name: "Image, “品牌标志 Brand logo”, 1 of 2", exact: true })).toBeVisible({ timeout: 30000 });
+    await expect(editor.getByText(/can’t be edited right now/)).toHaveCount(0);
+    await retype(page, "珊瑚色强调、墨色文字、纸色背景。", "珊瑚色强调、墨色文字、纸色背景（手改）。");
+    // The old editor reads the installed system's tokens: the paragraph's colour is shown by its token name.
+    await editor.getByText("珊瑚色强调、墨色文字、纸色背景（手改）。", { exact: true }).first().click();
+    await editor.getByRole("button", { name: "Properties", exact: true }).click();
+    await expect(editor.getByRole("button", { name: "Color: ink", exact: true })).toBeVisible();
+    await editor.getByRole("tab", { name: "Theme", exact: true }).click();
+    await editor.getByRole("button", { name: "Close panel", exact: true }).click();
+    await saved(page);
+    const exported = await backup(page, "备份 PPT 项目", "design-system-deck");
+    // 1.6.0 rewrote the system's /_blob/<id> references to "/project/ds/<ns>/assets/<id>", with a leading slash.
+    expect(text(exported.document.files["project/ds/system-brand/Logo.dc.html"])).toContain('src="/project/ds/system-brand/assets/');
+    await save("design-system-deck.stored.json", await stored(page, target.tabId));
+    expect(errors).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test("1.6.0 canvas: a Baoyu Design project edited by hand", async ({ page }) => {
+  test.setTimeout(180000);
+  const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
+  const f = await fixture(page);
+  try {
+    await panel(page).getByRole("button", { name: "新建内容", exact: true }).click();
+    await panel(page).getByRole("menu").getByRole("button", { name: "画布", exact: true }).click();
+    const titles = () => Promise.all(page.frames().filter(frame => frame.parentFrame()?.parentFrame() === page.mainFrame()).map(frame => frame.locator("h1").textContent({ timeout: 300 }).catch(() => "")));
+    await expect.poll(titles, { timeout: 45000 }).toContain("画布");
+    await renameTab(page, "画布", "海报草稿 1.6.0");
+    const artboard = page.frames().find(frame => frame.parentFrame()?.parentFrame() === page.mainFrame())!;
+    await artboard.locator("h1").dblclick(); await page.keyboard.press("Meta+A"); await page.keyboard.insertText("海报草稿 Poster draft"); await page.keyboard.press("Escape");
+    await expect.poll(titles, { timeout: 15000 }).toContain("海报草稿 Poster draft");
+    const target = await tabTarget(f, "海报草稿 1.6.0");
+    await expect.poll(async () => ((await f.command({ requestId: `canvas-${Date.now()}`, operation: "design.read", target, payload: { path: "project/Main.dc.html" } })).result as { content: string }).content, { timeout: 30000 }).toContain("海报草稿 Poster draft");
+    await expect(panel(page).getByRole("status").filter({ hasText: /正在保存|尚未保存/ })).toHaveCount(0, { timeout: 30000 });
+    await backup(page, "导出设计", "canvas-project");
+    await save("canvas-project.stored.json", await stored(page, target.tabId));
+    expect(errors).toEqual([]);
+  } finally { await f.close(); }
+});

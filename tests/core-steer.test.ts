@@ -496,6 +496,7 @@ describe("core mid-turn steering", () => {
     const runtime = createCoreServiceRuntime();
     runtime.activeRuns.set("lark:oc_chat", { abortController: new AbortController() });
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: vi.fn(async (_chatId: string, job: () => Promise<unknown>) => await job()),
       pendingCount: vi.fn(() => 2),
       clearPending: vi.fn(() => false),

@@ -1,6 +1,13 @@
+import { cloudflareOriginSchema } from "../../src/client-protocol/cloudflare.js";
 import { type Deployment, type Route, routesSchema, localRoutesSchema, deploymentMatchesRoutes } from "../../src/client-protocol/routes.js";
 import { validateRoute } from "./identity.js";
 import { t } from "./i18n.js";
+
+function assertCloudflareOrigin(route: Pick<Route, "name">, url: string): void {
+  if (route.name === "Cloudflare" && !cloudflareOriginSchema.safeParse(url).success) {
+    throw new Error(t("Cloudflare Tunnel 必须使用公网 HTTPS 地址（不能使用 HTTP 或本机回环地址）。"));
+  }
+}
 
 export function connectionRoutes(deployment: Deployment | undefined, address: string, relays: Route[], legacyDirect?: Route): Route[] {
   const routes: Route[] = [];
@@ -13,7 +20,10 @@ export function connectionRoutes(deployment: Deployment | undefined, address: st
     // An untouched optional first relay is harmless. Partly filled rows must be fixed.
     if (relays.length === 1 && !relay.url.trim() && !relay.label?.trim()) continue;
     if (!relay.url.trim()) throw new Error(t("请填写每个 VPS 的地址，或移除空白线路。"));
-    routes.push({ ...relay, url: validateRoute(relay.url), label: relay.label?.trim() || undefined });
+    const url = validateRoute(relay.url);
+    assertCloudflareOrigin(relay, url);
+    const { certificateAuthority, ...rest } = relay;
+    routes.push({ ...rest, ...(relay.name !== "Cloudflare" && certificateAuthority ? { certificateAuthority } : {}), url, label: relay.label?.trim() || undefined });
   }
   if (deployment === "vps-relay" && !routes.length) throw new Error(t("请添加至少一台中转 VPS，并填写它的 HTTPS 入口。"));
   if (!routes.length) throw new Error(t("至少填写一条线路。"));
@@ -36,8 +46,9 @@ export function multipathConfiguration(direct: Route[], relays: Route[], previou
   const routes = entered.map(route => {
     if (!route.url.trim()) throw new Error(t("请填写每条线路的地址，或移除空白线路。"));
     const url = validateRoute(route.url), trusted = previous.find(value => value.url === url);
+    assertCloudflareOrigin(route, url);
     return { name: route.name, url, ...(route.label?.trim() ? { label: route.label.trim() } : {}),
-      ...(trusted?.certificateAuthority ? { certificateAuthority: trusted.certificateAuthority } : {}) };
+      ...(route.name !== "Cloudflare" && trusted?.certificateAuthority ? { certificateAuthority: trusted.certificateAuthority } : {}) };
   });
   if (!routes.length) throw new Error(t("至少填写一条线路。"));
   const parsed = localRoutesSchema.safeParse(routes);

@@ -821,3 +821,18 @@ test('a Host session attached again while its load is pending shows the timeout 
     assert.equal((await manager.request({ action: 'list' })).extensions[0].error, undefined);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('explicit args.english and BCP-47 args.locale take precedence over fallback OS locale in extension prompts', async () => {
+  const root = await temp();
+  try {
+    const { electron, manager } = await setup(root);
+    const id = (await manager.request({ action: 'install', source: 'folder', english: true }, { locale: 'zh', english: false })).extension.id;
+    const installReview = electron.dialogs.find(item => item.message);
+    assert.match(installReview.message, /Add “Sample”/);
+    electron.dialogs.length = 0;
+
+    await manager.request({ action: 'set', id, scope: 'all', locale: 'ja-JP' }, { locale: 'zh', english: false });
+    const jaScopePrompt = electron.dialogs.find(item => item.message);
+    assert.match(jaScopePrompt.message, /会話内の Web ページでも/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

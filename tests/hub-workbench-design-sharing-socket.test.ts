@@ -9,7 +9,7 @@ import { deviceProof } from "../src/hub/auth.js";
 import { nodeFrameReader } from "../src/client-protocol/fragments-node.js";
 import { DESIGN_SHARE_CLIENT_CAPABILITY, WORKBENCH_DESIGN_SHARE_CAPABILITY, type DesignShareRequest, type DesignShareServerFrame } from "../src/client-protocol/workbench-design-sharing.js";
 import { DesignShareClient, joinDesignShare, openDesignShare } from "../client/src/workbench-design-collaboration.js";
-import { decodeDesignFile, designTextFile } from "../client/src/workbench-design.js";
+import { decodeDesignFile, designTextFile, emptySlides } from "../client/src/workbench-design.js";
 import { memoryDesign } from "../client/tests/design-session-fixture.js";
 
 // Real HubServer, SQLite, signed authentication and loopback WebSockets. The
@@ -74,7 +74,7 @@ describe("Design sharing through the signed App socket", () => {
     return { peer, ready };
   }
   async function open() {
-    const opened = await owner.request({ op: "open", conversationId, designId: "design", windowId: "source", title: "Shared design", format: "canvas", revision: 0 });
+    const opened = await owner.request({ op: "open", conversationId, designId: "design", windowId: "source", title: "Shared design", format: "slides", revision: 0 });
     expect(opened.ok).toBe(true);
     const shareId = opened.result.shareId as string;
     expect((await owner.request({ op: "grant", shareId, userId: "guest", role: "editor" })).ok).toBe(true);
@@ -178,7 +178,7 @@ describe("Design sharing through the signed App socket", () => {
   });
 
   it("roundtrips production source and mirror sessions with large chunked files and trusted authors", async () => {
-    const made = memoryDesign();
+    const made = memoryDesign(emptySlides("design"));
     // A valid shared DB listing exceeds the socket's 1 MiB frame ceiling.
     for (let i = 0; i < 6; i++) expect(await made.session.request("db.write", { op: "set", path: `items/item${i}`, data: { text: "中".repeat(70000) } })).toMatchObject({ status: 200 });
     const source = await openDesignShare(owner.shares, made.session, { conversationId, windowId: "source", title: "Design" });

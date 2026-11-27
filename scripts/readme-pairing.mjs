@@ -19,8 +19,8 @@ export async function prepareReadmePairing(page, hub) {
   const invitation = await hub.auth.issuePairingInvite(await hub.auth.authorize(token, '127.0.0.1'), { requestId: randomBytes(32).toString('base64url') });
   const data = { v: 1, kind: 'connect', hubPublicKey: hub.auth.publicKey, routes: [{ name: 'Direct', url: hub.url }] };
   const link = `tarocub://pair?data=${encodeURIComponent(JSON.stringify(data))}&invite=${invitation.invite}`;
-  await page.getByRole('button', { name: '粘贴连接信息', exact: true }).click();
-  await page.getByLabel('配对信息', { exact: true }).fill(link);
-  await page.getByRole('button', { name: '使用配对信息', exact: true }).click();
-  await page.getByRole('dialog', { name: '粘贴配对信息', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: /^(?:粘贴连接信息|Paste connection details)$/ }).click();
+  await page.getByLabel(/^(?:配对信息|Pairing information)$/).fill(link);
+  await page.getByRole('button', { name: /^(?:使用配对信息|Use pairing information)$/ }).click();
+  await page.getByRole('dialog', { name: /^(?:粘贴配对信息|Paste pairing information)$/ }).waitFor({ state: 'hidden' });
 }

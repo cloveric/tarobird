@@ -2,6 +2,8 @@ import { open, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { AdapterUsage, EngineStreamEvent } from "./adapter.js";
 import { engineRetryReason } from "./turn-retry.js";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "../runtime/locale.js";
 import type {
   PiAssistantMessage, PiContentBlock, PiExtensionUiRequest, PiExtensionUiResponse, PiImageContent, PiMessage,
   PiSessionEntry, PiSessionEvent, PiSessionTreeNode, PiUsage,
@@ -312,23 +314,26 @@ export async function buildPiPrompt(input: { text: string; files: string[]; mode
 /** The host notice for images named by path only, or undefined when every image went as pixels. */
 export function piSkippedImagesNotice(skipped: PiPromptParts["skippedImages"], locale: string | undefined): string | undefined {
   if (!skipped.length) return undefined;
-  const en = locale === "en";
+  const resolved = locale ?? "en";
   if (skipped.some(item => item.reason === "model-has-no-vision")) {
-    return en ? "The current model does not accept images. The image was passed as a file path only." : "当前模型不支持图片输入，图片只以文件路径形式提供。";
+    return hostT(resolved, "当前模型不支持图片输入，图片只以文件路径形式提供。");
   }
   const limit = `${PI_INLINE_IMAGE_TOTAL_BYTES / 1024 / 1024} MiB`;
-  const why: Record<Exclude<PiSkippedImageReason, "model-has-no-vision">, string> = en
-    ? { "too-large": `over ${limit}`, "over-total": `${limit} per-message total reached`, unreadable: "unreadable" }
-    : { "too-large": `单张超过 ${limit}`, "over-total": `本条消息的图片合计超过 ${limit}`, unreadable: "无法读取" };
+  const why: Record<Exclude<PiSkippedImageReason, "model-has-no-vision">, string> = {
+    "too-large": hostT(resolved, "单张超过 {0}", limit),
+    "over-total": hostT(resolved, "本条消息的图片合计超过 {0}", limit),
+    unreadable: hostT(resolved, "无法读取"),
+  };
+  const sep = resolved === "en" ? ", " : "、";
+  const groupSep = resolved === "en" ? "; " : "；";
   const groups = (["too-large", "over-total", "unreadable"] as const).flatMap(reason => {
     const names = skipped.filter(item => item.reason === reason).map(item => path.basename(item.file));
     if (!names.length) return [];
-    const shown = names.slice(0, 5).join(en ? ", " : "、"), more = names.length - 5;
-    return [`${shown}${more > 0 ? (en ? ` and ${more} more` : ` 等 ${names.length} 张`) : ""}${en ? ` (${why[reason]})` : `（${why[reason]}）`}`];
+    const shown = names.slice(0, 5).join(sep), more = names.length - 5;
+    const moreText = more > 0 ? hostT(resolved, " 等 {0} 张", resolved === "zh" ? names.length : more) : "";
+    return [`${shown}${moreText}${hostT(resolved, "（{0}）", why[reason])}`];
   });
-  return en
-    ? `Sent as file paths only, not as images: ${groups.join("; ")}.`
-    : `以下图片没有直接发给模型，只以文件路径提供：${groups.join("；")}。`;
+  return hostT(resolved, "以下图片没有直接发给模型，只以文件路径提供：{0}。", groups.join(groupSep));
 }
 
 export interface PiDialogQuestion {
@@ -345,10 +350,15 @@ export interface PiDialogQuestion {
   required?: false;
 }
 
-const DIALOG_COPY = {
-  en: { yes: "Yes", no: "No", extension: "Extension", untitled: "Pi extension question", empty: "(empty)" },
-  zh: { yes: "是", no: "否", extension: "扩展", untitled: "Pi 扩展问题", empty: "（空）" },
-} as const;
+function dialogCopy(locale: Locale) {
+  return {
+    yes: hostT(locale, "是"),
+    no: hostT(locale, "否"),
+    extension: hostT(locale, "扩展"),
+    untitled: hostT(locale, "Pi 扩展问题"),
+    empty: hostT(locale, "（空）"),
+  };
+}
 
 /**
  * A question's title with its explanation under it. The shared question card
@@ -365,8 +375,8 @@ export function piQuestionWithDetail(title: string, detail: string | undefined):
  * options get visible text: the card drops blank ones, and answers are matched
  * back to the dialog by position (`piQuestionSelection`).
  */
-export function piDialogQuestion(request: PiExtensionUiRequest, locale: "en" | "zh" = "en"): PiDialogQuestion | undefined {
-  const copy = DIALOG_COPY[locale], header = copy.extension;
+export function piDialogQuestion(request: PiExtensionUiRequest, locale: Locale = "en"): PiDialogQuestion | undefined {
+  const copy = dialogCopy(locale), header = copy.extension;
   const title = (value: string) => piQuestionText(value, copy.untitled);
   switch (request.method) {
     case "select": return { question: title(request.title), header, options: request.options.map(label => ({ label: piQuestionText(label, copy.empty) })), multiSelect: false, allowFreeText: false };
@@ -383,7 +393,7 @@ export function piDialogQuestion(request: PiExtensionUiRequest, locale: "en" | "
  * foreign answer cancels the dialog.
  */
 export function piDialogResponse(
-  request: PiExtensionUiRequest, question: PiDialogQuestion, updatedInput: unknown, locale: "en" | "zh" = "en",
+  request: PiExtensionUiRequest, question: PiDialogQuestion, updatedInput: unknown, locale: Locale = "en",
 ): PiExtensionUiResponse {
   const cancelled: PiExtensionUiResponse = { type: "extension_ui_response", id: request.id, cancelled: true };
   const raw = piLabelAnswer(updatedInput, question.question);
@@ -407,7 +417,7 @@ export function piDialogResponse(
       return typeof match === "object" ? { type: "extension_ui_response", id: request.id, value: match.value } : cancelled;
     }
     case "confirm": {
-      const copy = DIALOG_COPY[locale];
+      const copy = dialogCopy(locale);
       if (answer === copy.yes) return { type: "extension_ui_response", id: request.id, confirmed: true };
       return answer === copy.no ? { type: "extension_ui_response", id: request.id, confirmed: false } : cancelled;
     }

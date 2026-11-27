@@ -315,3 +315,54 @@ for(const english of [false,true])test(`a remote disabled screen with a private 
  await expect(page.locator(".screen-entry-help")).not.toContainText("Mac");
  expect(await page.evaluate(()=>(window as any).screenSettingsFixture.state.native)).toEqual([]);
 });
+
+test("UDP boost checkbox is capability-gated on older Hosts and never sends udpBoost in configure",async({page})=>{
+ await page.goto(url("?no-udp-boost&configured"));
+ const udpToggle=page.getByRole("checkbox",{name:"UDP 加速（实验性）",exact:true});
+ await expect(udpToggle).toBeDisabled();
+ await expect(udpToggle).not.toBeChecked();
+ await expect(page.locator(".screen-udp-status")).toHaveText("需更新主机");
+ await expect(page.locator(".screen-udp-boost")).toContainText("此主机需要更新后才能开启 UDP 加速。");
+ // Changing another policy setting on an older Host must never attach udpBoost.
+ await page.getByRole("checkbox",{name:"允许远程屏幕",exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).screenSettingsFixture.state.configured.length)).toBe(1);
+ expect(await page.evaluate(()=>Object.hasOwn((window as any).screenSettingsFixture.state.configured[0].value,"udpBoost"))).toBe(false);
+});
+
+test("UDP boost settings accurately render disabled, connected, and all fallback_tcp reasons with detail",async({page})=>{
+ await page.goto(url("?configured"));
+ const udpToggle=page.getByRole("checkbox",{name:"UDP 加速（实验性）",exact:true});
+ const badge=page.locator(".screen-udp-status");
+ const card=page.locator(".screen-udp-boost");
+ await expect(udpToggle).toBeEnabled();
+ await expect(udpToggle).not.toBeChecked();
+ await expect(badge).toHaveText("未开启 · 当前使用 TCP");
+
+ // Enable UDP boost -> sends udpBoost: true.
+ await udpToggle.click();
+ await expect.poll(()=>page.evaluate(()=>(window as any).screenSettingsFixture.state.configured.length)).toBe(1);
+ expect(await page.evaluate(()=>(window as any).screenSettingsFixture.state.configured[0].value.udpBoost)).toBe(true);
+
+ // Connected state must show connected guidance (never contradictory TCP fallback text) and surface detail.
+ await page.evaluate(()=>{const f=(window as any).screenSettingsFixture;f.state.status.policy.udpBoost=true;f.state.status.udpStatus={enabled:true,state:"connected",route:"udp_vps_relay",detail:"relay 9443/udp active"};window.dispatchEvent(new Event("focus"));});
+ await expect(badge).toHaveText("已连通");
+ await expect(card).toContainText("UDP 媒体通道已连通，对本机所有查看设备生效。");
+ await expect(card).not.toContainText("已自动回退 TCP");
+ await expect(card.locator(".screen-udp-detail")).toHaveText("relay 9443/udp active");
+
+ // Fallback: udp_relay_port_closed (must not hardcode 8443/udp, and surfaces detail).
+ await page.evaluate(()=>{const f=(window as any).screenSettingsFixture;f.state.status.udpStatus={enabled:true,state:"fallback_tcp",route:"tcp_vps_relay",reasonCode:"udp_relay_port_closed",detail:"9443/udp blocked"};window.dispatchEvent(new Event("focus"));});
+ await expect(badge).toHaveText("未连通 · 已自动回退 TCP");
+ await expect(card).toContainText("中继服务器的 UDP 端口未开放");
+ await expect(card).not.toContainText("8443/udp");
+ await expect(card.locator(".screen-udp-detail")).toHaveText("9443/udp blocked");
+
+ // Fallback: peer_unsupported.
+ await page.evaluate(()=>{const f=(window as any).screenSettingsFixture;f.state.status.udpStatus={enabled:true,state:"fallback_tcp",route:"tcp_lan_direct",reasonCode:"peer_unsupported"};window.dispatchEvent(new Event("focus"));});
+ await expect(card).toContainText("当前查看端或对端暂不支持 UDP 媒体通道");
+ await expect(card.locator(".screen-udp-detail")).toHaveCount(0);
+
+ // Fallback: udp_transport_unavailable.
+ await page.evaluate(()=>{const f=(window as any).screenSettingsFixture;f.state.status.udpStatus={enabled:true,state:"fallback_tcp",route:"tcp_tailscale",reasonCode:"udp_transport_unavailable"};window.dispatchEvent(new Event("focus"));});
+ await expect(card).toContainText("当前主机或中继尚未启用 UDP 媒体通道");
+});

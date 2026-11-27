@@ -1,8 +1,10 @@
 import { isLogicalSessionId } from "../runtime/logical-session.js";
-import { AdapterQuotaCache, type EngineQuotaReadOptions, type EngineQuotaReadResult } from "./adapter-account-quota.js";
+import { AdapterQuotaCache, type AdapterQuotaScope, type EngineQuotaReadOptions, type EngineQuotaReadResult } from "./adapter-account-quota.js";
 import { applyClaudeQuotaEvent, claudeQuotaForModel, parseClaudeUsage, QuotaReadError, QUOTA_TTL_MS, unavailableQuota } from "./account-quota.js";
 import type { QuotaSnapshot } from "../client-protocol/engine-quota.js";
 import { claudeAssistantError, claudeError, claudeResultRepeatsError } from "./claude-errors.js";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "../runtime/locale.js";
 import { wholeFilePatch } from "../core/recorded-diff.js";
 import { ClaudeScopedEvents, type ClaudeScope } from "./claude-scoped-events.js";
 import { spawnEngine } from "../runtime/engine-process.js";
@@ -18,6 +20,7 @@ import { ENGINE_DEFAULT_INACTIVITY_TIMEOUT_MS } from "./engine-timeouts.js";
 // than a local SIGTERM-only copy, so a Claude CLI (and its MCP/sandbox children)
 // that ignores SIGTERM is still force-killed — matching the other adapters.
 import { killProcessTree } from "./process-tree.js";
+import { EngineSessionRestarts, observeEngineProcessExit } from "./engine-session-restart.js";
 import { APP_STOP_PROCESS_GRACE_MS, APP_USER_STOP_REASON, appStopKillOptions } from "../runtime/turn-cancellation.js";
 import { sideAttachmentPrompt } from "./side-attachments.js";
 import { prependPrivateTurnInstructions, renderPrivateTurnInstructions } from "./turn-instructions.js";
@@ -63,6 +66,8 @@ import type {
   CodexUserMessageInput,
   AppPlatformTools,
   SideCapability,
+  EngineSessionRestartOptions,
+  EngineSessionRestartResult,
 } from "./adapter.js";
 import {
   ClaudeSideChannelClosedError,
@@ -202,7 +207,7 @@ type PendingTurn = {
   absorbedReview?: boolean;
   compactionId?: string;
   compactionBoundaries?: Set<string>;
-  locale?: "zh" | "en";
+  locale?: Locale;
   appPlatformTools?: AppPlatformTools;
   promptWritten: boolean;
   turnId: number;
@@ -558,7 +563,7 @@ const BACKGROUND_TASK_TURN_SETTLE_GRACE_MS = 1500;
 // (stale only after 12h) and blocking every channel and cron turn on that
 // session. `/timeout off` (disableRuntimeTimeout) disables it per turn.
 export const CLAUDE_STREAM_INACTIVITY_TIMEOUT_MS = ENGINE_DEFAULT_INACTIVITY_TIMEOUT_MS;
-type ClaudeQuotaRecord = { id: number; credentialRevision: string; snapshot?: QuotaSnapshot; usage?: QuotaSnapshot; unasked?: Set<string>;
+type ClaudeQuotaRecord = { id: number; credentialRevision: string; snapshot?: QuotaSnapshot; snapshotSeq?: number; usage?: QuotaSnapshot; unasked?: Set<string>;
   /** The model this process stated when it started a turn. */ model?: string; context?: { sessionId: string | null; usage: EngineContextUsage };
   /** The `get_usage` question this process has not answered yet. One at a time; its answer is kept whenever it comes. */ asking?: Promise<QuotaSnapshot> };
 // Native soft stop (CLI 2.1.307 probes: receipt and interrupted result arrive
@@ -617,9 +622,9 @@ function normalizeExecutableCommand(command: string): string {
   return trimmed;
 }
 
-function buildCommandInvocation(command: string, args: string[]): { command: string; args: string[]; shell?: boolean } {
+export function buildClaudeCommandInvocation(command: string, args: string[], platform: NodeJS.Platform = process.platform): { command: string; args: string[]; shell?: boolean } {
   const normalizedCommand = normalizeExecutableCommand(command);
-  if (process.platform === "win32") return { command: normalizedCommand, args, shell: false };
+  if (platform === "win32") return { command: normalizedCommand, args, shell: false };
 
   if (/\.(cmd|bat)$/i.test(normalizedCommand)) {
     return {
@@ -656,15 +661,15 @@ function sumUsage(a: AdapterUsage | undefined, b: AdapterUsage | undefined): Ada
 
 /** The answer streamed before Claude cut its turn for a send-now input stays
  * as shown; this says why it ends mid-way. */
-function withSendNowCutNotice(text: string, locale: "zh" | "en" | undefined): string {
+function withSendNowCutNotice(text: string, locale: Locale | undefined): string {
   if (!text.trim()) return text;
-  return `${text}\n\n${locale === "en" ? "(Claude stopped this answer to take in a message sent with Send now.)" : "（Claude 为立即发送的消息中断了以上回答。）"}`;
+  return `${text}\n\n${hostT(locale, "（Claude 为立即发送的消息中断了以上回答。）")}`;
 }
 
 /** A cut answer whose send-now input then did not run (stopped or never started). */
-function withInterruptedAnswerNotice(text: string, locale: "zh" | "en" | undefined): string {
+function withInterruptedAnswerNotice(text: string, locale: Locale | undefined): string {
   if (!text.trim()) return text;
-  return `${text}\n\n${locale === "en" ? "(This answer was interrupted.)" : "（以上回答在中途被中断。）"}`;
+  return `${text}\n\n${hostT(locale, "（以上回答在中途被中断。）")}`;
 }
 
 /** A Claude error answer to a native input control: nothing was done. */
@@ -672,11 +677,9 @@ function nativeControlRejection(error: ClaudeControlError): NativeInputControlRe
   return /unsupported|not supported|unrecognized/i.test(error.message) ? { outcome: "rejected", reason: "unsupported" } : { outcome: "rejected", reason: "stale" };
 }
 
-function withDroppedSteerNotice(text: string, dropped: number, locale: "zh" | "en" | undefined): string {
+function withDroppedSteerNotice(text: string, dropped: number, locale: Locale | undefined): string {
   if (dropped <= 0) return text;
-  const notice = locale === "en"
-    ? `(${dropped} message(s) added while Claude was working did not reach this turn. Send again if still needed.)`
-    : `（运行中补充的 ${dropped} 条消息未进入本轮，如仍需要请重新发送。）`;
+  const notice = hostT(locale, "（运行中补充的 {0} 条消息未进入本轮，如仍需要请重新发送。）", dropped);
   return text ? `${text}\n\n${notice}` : notice;
 }
 
@@ -1158,8 +1161,10 @@ export class ClaudeStreamAdapter implements CodexAdapter {
   private readonly disallowedTools: string[];
   private readonly enableChromeIntegration: boolean;
   private readonly nativeSearchMcp?: NativeSearchMcpPlanner;
+  private readonly platform: NodeJS.Platform;
   private readonly idleSweepTimer: ReturnType<typeof setInterval> | undefined;
   private readonly workers = new Map<string, ClaudeWorker>();
+  private readonly sessionRestarts = new EngineSessionRestarts();
   private readonly historyHelper: ClaudeHistoryHelper | undefined;
   /** History helper calls in flight. They belong to no worker, so nothing else would wait for or end them. */
   private readonly historyRuns = new Set<Promise<unknown>>();
@@ -1176,6 +1181,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
   /** How long a `get_usage` question stays out before it is given up (tests shorten it). */
   private usageLateMs = CLAUDE_USAGE_LATE_MS;
   private quotaWorkerSequence = 0;
+  private passiveEventSequence = 0;
   private quotaSource?: ClaudeWorker;
   private readonly sessionUsage: ClaudeSessionUsage;
   private destroyPromise: Promise<void> | undefined;
@@ -1215,6 +1221,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
        * build put next to this module, if there is one. Null: no native history.
        */
       historyHelper?: ClaudeHistoryHelper | null;
+      /** Platform override for tests (defaults to process.platform). */
+      platform?: NodeJS.Platform;
     },
   ) {
     const builtHistoryHelper = options?.historyHelper === undefined ? resolveClaudeHistoryHelperPath() : undefined;
@@ -1229,12 +1237,13 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     })();
 
     this.spawnClaude = options?.spawnFn ?? (spawnEngine as unknown as SpawnClaude);
+    this.platform = options?.platform ?? process.platform;
     this.instructionsPath = options?.instructionsPath;
     this.configPath = options?.configPath;
     this.turnRecovery = new ClaudeTurnRecovery(options?.recoveryStatePath);
     this.sessionUsage = new ClaudeSessionUsage(options?.usageStatePath);
     this.workspacePath = options?.workspacePath;
-    this.quotaCache = new AdapterQuotaCache("claude", claudeExecutable, this.childEnv, this.workspacePath, this.configPath);
+    this.quotaCache = new AdapterQuotaCache("claude", claudeExecutable, this.childEnv, this.workspacePath, this.configPath, this.platform);
     this.idleWorkerTtlMs = options?.idleWorkerTtlMs ?? DEFAULT_IDLE_WORKER_TTL_MS;
     this.turnInactivityTimeoutMs = options?.turnInactivityTimeoutMs === undefined
       ? CLAUDE_STREAM_INACTIVITY_TIMEOUT_MS
@@ -1281,6 +1290,35 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     return this.usageIdle(worker) && !this.quotaWorkers.get(worker)?.unasked?.has(request);
   }
 
+  private isLiveQuotaWorker(worker: ClaudeWorker | undefined): worker is ClaudeWorker {
+    return !!worker && !worker.retired && [...this.workers.values()].includes(worker);
+  }
+
+  private isNewerPassiveSnapshot(candidate: ClaudeQuotaRecord, current: ClaudeQuotaRecord): boolean {
+    const candidateMs = candidate.snapshot?.observedAt ? Date.parse(candidate.snapshot.observedAt) : Number.NaN;
+    const currentMs = current.snapshot?.observedAt ? Date.parse(current.snapshot.observedAt) : Number.NaN;
+    if (Number.isFinite(candidateMs) && Number.isFinite(currentMs)) {
+      if (candidateMs !== currentMs) return candidateMs > currentMs;
+      return (candidate.snapshotSeq ?? 0) > (current.snapshotSeq ?? 0);
+    }
+    return Number.isFinite(candidateMs) && !Number.isFinite(currentMs);
+  }
+
+  private promotePassiveSource(worker: ClaudeWorker, entry: ClaudeQuotaRecord, scope: AdapterQuotaScope): boolean {
+    if (!entry.snapshot || !this.isLiveQuotaWorker(worker) || this.newestUsage(entry.credentialRevision)) return false;
+    const current = this.quotaSource;
+    if (current && current !== worker && this.isLiveQuotaWorker(current)) {
+      const currentEntry = this.quotaWorkers.get(current);
+      if (currentEntry?.snapshot && currentEntry.credentialRevision === entry.credentialRevision && !this.isNewerPassiveSnapshot(entry, currentEntry)) {
+        return false;
+      }
+    }
+    this.keptUsage = undefined;
+    this.quotaSource = worker;
+    this.quotaCache.store(scope, { snapshot: entry.snapshot });
+    return true;
+  }
+
   /** One usage request. Asking is not use: the idle clock of a process that was idle is put back, so a reading
    * never keeps a process alive. Only the CLI's own "Unsupported control request subtype" answer is remembered
    * for the process; any other failure may be asked again. */
@@ -1296,7 +1334,21 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       return await answer;
     } catch (error) {
       const entry = this.quotaWorkers.get(worker);
-      if (entry && error instanceof ClaudeControlError && error.kind === "rejected" && /unsupported control request/i.test(error.message)) (entry.unasked ??= new Set()).add(request);
+      if (entry && error instanceof ClaudeControlError && error.kind === "rejected" && /unsupported control request/i.test(error.message)) {
+        (entry.unasked ??= new Set()).add(request);
+        if (request === "get_usage" && entry.snapshot && !worker.retired && !this.destroyPromise) {
+          const scope = this.quotaCache.capture(String(entry.id));
+          if (scope.verifiable && scope.authMode === "subscription" && scope.credentialRevision === entry.credentialRevision) {
+            this.promotePassiveSource(worker, entry, scope);
+          } else {
+            entry.snapshot = undefined;
+            if (this.quotaSource === worker) {
+              this.quotaSource = undefined;
+              this.quotaCache.invalidate();
+            }
+          }
+        }
+      }
       throw error;
     } finally { if (Date.now() - sentAt <= CLAUDE_USAGE_ACK_TIMEOUT_MS) putBack(); }
   }
@@ -1346,6 +1398,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
         if (this.quotaScope().credentialRevision !== entry.credentialRevision) return usage;
         if (usage.capability.mode === "unsupported") { entry.usage = undefined; this.keptUsage = undefined; }
         else { entry.usage = usage; this.keptUsage = entry; }
+        this.quotaSource = undefined;
+        this.quotaCache.invalidate();
         return usage;
         // One question at a time: nothing else can have taken this slot meanwhile.
       } finally { entry.asking = undefined; }
@@ -1382,8 +1436,16 @@ export class ClaudeStreamAdapter implements CodexAdapter {
         // This read waits only so long. The question stays out; its answer is stored when it comes (usageQuestion).
         usage = await Promise.race([question, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ClaudeControlError("get_usage", "Claude get_usage has not answered yet", "timeout")), Math.max(1, waitMs)); })]);
       } catch (error) {
-        if (entry.unasked?.has("get_usage")) return passive;
-        failure = error instanceof QuotaReadError ? error.reason : error instanceof ClaudeControlError && error.kind === "timeout" ? "timeout" : "native_error";
+        if (entry.unasked?.has("get_usage")) {
+          const fallbackScope = this.quotaScope();
+          if (fallbackScope.credentialRevision !== scope.credentialRevision) return this.quotaCache.failure(fallbackScope, "auth_changed");
+          if (!this.newestUsage(fallbackScope.credentialRevision)) {
+            return this.quotaCache.response(fallbackScope, { ...options, expectedRevision: undefined })
+              ?? this.quotaCache.failure(fallbackScope, "no_passive_event");
+          }
+        } else {
+          failure = error instanceof QuotaReadError ? error.reason : error instanceof ClaudeControlError && error.kind === "timeout" ? "timeout" : "native_error";
+        }
       } finally { clearTimeout(timer); }
       // The login changed while the question was out: the answer cannot be told to be about the current one.
       after = this.quotaScope();
@@ -1408,15 +1470,23 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     const scope = this.quotaCache.capture(String(entry.id));
     if (!scope.verifiable || scope.authMode !== "subscription" || scope.credentialRevision !== entry.credentialRevision) {
       entry.snapshot = undefined;
-      if (this.quotaSource === worker) this.quotaCache.invalidate();
+      if (this.quotaSource === worker) {
+        this.quotaSource = undefined;
+        this.quotaCache.invalidate();
+      }
       return;
     }
     try {
       const snapshot = applyClaudeQuotaEvent(entry.snapshot, value);
       if (!snapshot) return;
       entry.snapshot = snapshot;
-      this.quotaSource = worker;
-      this.quotaCache.store(scope, { snapshot });
+      entry.snapshotSeq = ++this.passiveEventSequence;
+      // Passive stream events only drive the quota cache once this worker refuses `get_usage`.
+      // Promoting them before then changes `quotaScope()`'s revision mid-turn on Windows/Linux
+      // (where `.credentials.json` is verifiable) and lets sparse single-window events shadow `get_usage`.
+      if (entry.unasked?.has("get_usage")) {
+        this.promotePassiveSource(worker, entry, scope);
+      }
     } catch { /* Invalid native quota data must never interrupt the user's conversation. */ }
   }
 
@@ -1523,9 +1593,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
         // Only this typed pre-prompt handshake failure is safe to retry. Never
         // replay a model turn after an engine/tool/publish failure or user stop.
         if (!(error instanceof ClaudeAppMcpInitializationError) || input.abortSignal?.aborted || this.destroyPromise) throw error;
-        const notice = input.locale === "en"
-          ? "Claude native App tools could not initialize. This turn uses compatible file delivery; other conversations are unaffected."
-          : "Claude 原生 App 工具初始化失败，本轮已改用兼容文件交付；其他会话不受影响。";
+        const notice = hostT(input.locale, "Claude 原生 App 工具初始化失败，本轮已改用兼容文件交付；其他会话不受影响。");
         await this.emitEngineEvent(worker, { type: "assistant_text", text: notice, sessionId: worker.currentSessionId ?? undefined }, input.onEngineEvent);
         worker = await this.getOrCreateWorker(sessionId, agentInstructions, input.instructions ?? null, approvalMode, effectiveWorkspace, engineOptions);
         // A deterministic rejection disables only this fallback worker. A slow
@@ -1642,7 +1710,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     const agentInstructions = this.instructionsPath ? await this.loadInstructions() : null;
     const instructionsFile = agentInstructions ? await createClaudeInstructionsFile(agentInstructions) : null;
     const args = claudeSideProcessArgs({ sourceSessionId, forkSessionId, effort: engineOptions.effort, model: engineOptions.model, workspacePath, appendSystemPromptFile: instructionsFile?.path });
-    const invocation = buildCommandInvocation(this.claudeExecutable, args);
+    const invocation = buildClaudeCommandInvocation(this.claudeExecutable, args, this.platform);
     let child: ClaudeChildProcess;
     try {
       child = this.spawnClaude(invocation.command, invocation.args, { stdio: ["pipe", "pipe", "pipe"], shell: invocation.shell, env: this.childEnv, cwd: workspacePath, windowsHide: true });
@@ -1650,7 +1718,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       await instructionsFile?.cleanup().catch(() => {});
       throw error;
     }
-    const side: ClaudeSideProcess = new ClaudeSideProcess(child, { configDir: resolveClaudeConfigDir(this.childEnv), sessionId: forkSessionId }, () => {
+    const side: ClaudeSideProcess = new ClaudeSideProcess(child, { configDir: resolveClaudeConfigDir(this.childEnv, this.platform), sessionId: forkSessionId }, () => {
       this.sideProcesses.delete(side);
       void instructionsFile?.cleanup().catch(() => {});
     });
@@ -1833,6 +1901,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     if (this.destroyPromise) {
       throw new Error("Adapter destroyed");
     }
+    if (this.sessionRestartPending(sessionId)) throw new Error("Claude's old process is still exiting");
     const combinedKey = combineInstructions(agentInstructions, bridgeInstructions);
     const permissionMode = approvalMode === "normal" ? engineOptions?.permissionMode ?? "manual" : "bypassPermissions";
     const chromeIntegration = engineOptions?.chrome ?? this.enableChromeIntegration;
@@ -1955,7 +2024,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       args.push("--append-system-prompt-file", instructionsFile.path);
     }
 
-    const invocation = buildCommandInvocation(this.claudeExecutable, args);
+    const invocation = buildClaudeCommandInvocation(this.claudeExecutable, args, this.platform);
     const quotaCredentialAtSpawn = this.quotaCache.capture("spawn").credentialRevision;
     let child: ClaudeChildProcess;
     try {
@@ -2217,8 +2286,11 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     if (parsed.type === "result") worker.nativeTurnOpen = false;
     if (parsed.type === "system" && parsed.subtype === "init") { const model = (parsed as { model?: unknown }).model, usage = this.quotaWorkers.get(worker); if (usage && typeof model === "string") usage.model = model; }
     this.observeNativeReceipt(worker, parsed);
-    if (parsed.type === "assistant" || parsed.type === "user"
-      || parsed.type === "system" && (parsed.subtype === "init" || parsed.subtype === "status" && parsed.status === "requesting")
+    const isTaskNotificationUserFrame = parsed.type === "user" && Boolean(toUserTaskNotificationMetadata(parsed));
+    const hasActiveTurn = Boolean(worker.pendingTurn || worker.continuationTurn || worker.taskNotificationTurnActive);
+    if (parsed.type === "assistant"
+      || (parsed.type === "user" && !isTaskNotificationUserFrame)
+      || parsed.type === "system" && (parsed.subtype === "init" && hasActiveTurn || parsed.subtype === "status" && parsed.status === "requesting")
       || parsed.type === "stream_event" && (parsed.event as { type?: string } | undefined)?.type === "message_start") worker.nativeTurnOpen = true;
     if (worker.appMcp?.handle(parsed as Record<string, unknown>)) return;
 
@@ -2362,6 +2434,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       this.ensureReviewScope(worker, reviewEntry);
       worker.pendingTaskNotification = reviewEntry;
       worker.taskNotificationTurnActive = true;
+      worker.nativeTurnOpen = true;
       worker.taskNotificationAssistantText = "";
       worker.taskNotificationDeliveryText = "";
       return;
@@ -2400,6 +2473,13 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       this.finishReview(worker, { type: "review_adopted" }, true);
     }
 
+    // Settle any expired grace-window notification before deciding whether a
+    // stray system/init frame belongs to a review turn; otherwise an expired
+    // pendingTaskNotification would permanently latch taskNotificationTurnActive.
+    // Keep zero-grace test fixtures intact when init follows in the same turn batch.
+    if (parsed.type === "system" && parsed.subtype === "init" && this.taskNotificationStartGraceMs > 0) {
+      this.advanceTaskNotificationQueue(worker);
+    }
     // Only arm task-notification suppression when NO real turn is in flight.
     // Otherwise a mid-turn re-init (e.g. /compact re-initializes the session)
     // would arm the flag and swallow the FIRST assistant chunk of the resumed
@@ -2408,6 +2488,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       this.ensureReviewScope(worker, worker.pendingTaskNotification);
       worker.suppressNextTaskNotificationAssistant = true;
       worker.taskNotificationTurnActive = true;
+      worker.nativeTurnOpen = true;
       worker.taskNotificationAssistantText = "";
       worker.taskNotificationDeliveryText = "";
       return;
@@ -2701,6 +2782,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
         this.clearPendingTurnTimeout(pending);
         this.markWorkerActivity(worker);
         this.abandonUnfoldedSteers(worker, pending);
+        this.anchorQueuedTaskNotifications(worker, eventSeenAt);
         pending.reject(claudeNoResponseError(pending.locale));
         return;
       }
@@ -2718,6 +2800,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
         this.markWorkerActivity(worker);
         this.clearPendingTurnTimeout(pending);
         this.abandonUnfoldedSteers(worker, pending);
+        this.anchorQueuedTaskNotifications(worker, eventSeenAt);
         const renderedError = sanitizeClaudeUserVisibleText(
           renderClaudeStreamError(parsed, worker.stderrTail),
         );
@@ -2771,12 +2854,10 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       const turnUsage = earlier ? Promise.all([earlier.usage, segmentUsage]).then(([a, b]) => sumUsage(a, b)) : segmentUsage;
       worker.pendingTurn = null;
       this.markWorkerActivity(worker);
-      if (worker.pendingTaskNotification) {
-        // A review cannot start until this foreground turn closes. Measure its
-        // bounded start window from here, not from the earlier terminal frame.
-        // This also covers an older task that finished during a newer turn.
-        worker.pendingTaskNotification.lastSeenAt = eventSeenAt;
-      }
+      // A review cannot start until this foreground turn closes. Measure the
+      // bounded start window of pending and queued reviewTurn:false entries
+      // from here, not from their earlier pre-turn terminal frames.
+      this.anchorQueuedTaskNotifications(worker, eventSeenAt);
       if (missed.length > 0) {
         // Claude starts a steer that missed the fold as its own native turn
         // (~1 ms later; withdrawing it now is unreliable). That turn continues
@@ -2796,6 +2877,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       worker.taskNotificationTurnActive = false;
       worker.taskNotificationAssistantText = "";
       worker.taskNotificationDeliveryText = "";
+      this.anchorQueuedTaskNotifications(worker, eventSeenAt);
       this.resolveTaskNotificationWaiters(worker);
     }
   }
@@ -2829,6 +2911,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       worker.taskNotificationTurnActive = false;
       worker.taskNotificationAssistantText = "";
       worker.taskNotificationDeliveryText = "";
+      this.anchorQueuedTaskNotifications(worker, eventSeenAt);
       this.resolveTaskNotificationWaiters(worker);
     };
     if (collectedTaskId && worker.collectedBackgroundTaskIds.delete(collectedTaskId)) {
@@ -3195,6 +3278,9 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     }
 
     worker.pendingTaskNotification = null;
+    if (!worker.pendingTurn && !worker.continuationTurn && !worker.taskNotificationTurnActive) {
+      worker.nativeTurnOpen = false;
+    }
     const taskId = pending.taskId;
     const task = taskId ? worker.backgroundTasks.get(taskId) : undefined;
     if (!taskId || !task || !worker.finishedBackgroundTaskIds.has(taskId)) {
@@ -3236,6 +3322,19 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       && worker.pendingTaskNotification.taskId !== taskId;
   }
 
+  /** Anchor the start-grace window of unstarted task notifications to when the
+   *  blocking review or foreground turn actually ended, so a long blocking turn
+   *  does not expire queued notifications with 0ms grace while stale entries
+   *  still expire once grace elapses after turn release. */
+  private anchorQueuedTaskNotifications(worker: ClaudeWorker, now = Date.now()): void {
+    if (worker.pendingTaskNotification && !worker.taskNotificationTurnActive) {
+      worker.pendingTaskNotification.lastSeenAt = now;
+    }
+    for (const queued of worker.queuedTaskNotifications) {
+      if (!queued.reviewTurn) queued.entry.lastSeenAt = now;
+    }
+  }
+
   /** Install the next queued cross-turn notification once the slot is free.
    *  The finished banner already went out when the task completed; installing
    *  only restores the attribution/review bookkeeping the clobber used to
@@ -3252,7 +3351,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       return;
     }
     const next = worker.queuedTaskNotifications.shift()!;
-    worker.pendingTaskNotification = { ...next.entry, lastSeenAt: now };
+    worker.pendingTaskNotification = { ...next.entry, lastSeenAt: next.reviewTurn ? now : next.entry.lastSeenAt };
     if (next.reviewTurn) {
       this.ensureReviewScope(worker, worker.pendingTaskNotification);
       worker.taskNotificationTurnActive = true;
@@ -3910,6 +4009,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
 
   async getHistoryState(sessionId: string, input: { workspaceOverride?: string; signal?: AbortSignal } = {}): Promise<NativeHistoryState> {
     if (isLogicalTelegramSessionId(sessionId) || this.destroyPromise) return { head: null, blocked: "not_ready" };
+    const liveWorker = this.workers.get(sessionId);
+    if (liveWorker && !liveWorker.retired) this.advanceTaskNotificationQueue(liveWorker);
     const workspace = input.workspaceOverride ?? this.workspacePath;
     // Without the helper, or without a project directory to look in, nothing is offered.
     if (!this.historyHelper || !workspace) return { head: null };
@@ -3924,6 +4025,8 @@ export class ClaudeStreamAdapter implements CodexAdapter {
   } = {}): Promise<NativeHistoryResult> {
     if (input.signal?.aborted) return { outcome: "rejected", reason: "cancelled" };
     if (isLogicalTelegramSessionId(sessionId)) return { outcome: "rejected", reason: "not_ready" };
+    const liveWorker = this.workers.get(sessionId);
+    if (liveWorker && !liveWorker.retired) this.advanceTaskNotificationQueue(liveWorker);
     const workspace = input.workspaceOverride ?? this.workspacePath;
     if (!this.historyHelper || !workspace) return { outcome: "rejected", reason: "unsupported" };
     // A retired adapter is refused by historyBlock(), which is asked before anything else and again before the fork.
@@ -3942,11 +4045,15 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     return false;
   }
 
+  private hasPendingQueuedTaskNotifications(worker: ClaudeWorker, now = Date.now()): boolean {
+    return worker.queuedTaskNotifications.some(({ entry, reviewTurn }) => reviewTurn || now - entry.lastSeenAt < this.taskNotificationStartGraceMs);
+  }
+
   private workerHasPendingWork(worker: ClaudeWorker): boolean {
     return Boolean(worker.pendingTurn || worker.continuationTurn || worker.stopFence
       || [...worker.backgroundTasks.keys()].some(taskId => !worker.finishedBackgroundTaskIds.has(taskId))
       || this.unstartedBackgroundCalls(worker).some(owner => Date.now() - owner.lastSeenAt < this.taskNotificationStartGraceMs)
-      || this.taskNotificationTurnBusy(worker) || worker.queuedTaskNotifications.length
+      || this.taskNotificationTurnBusy(worker) || this.hasPendingQueuedTaskNotifications(worker)
       || worker.taskNotificationWaiters.size || worker.scoped.hasPendingDeliveries());
   }
 
@@ -3978,7 +4085,9 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       return owner;
     };
     const liveIds = new Set(live.map((task) => task.taskId));
-    for (const [token, taskId] of worker.taskTokens) if (!all.has(taskId)) { worker.taskTokens.delete(token); worker.tokenByTask.delete(taskId); }
+    for (const [token, taskId] of worker.taskTokens) if (!all.has(taskId) && !worker.backgroundTasks.has(taskId)) {
+      worker.taskTokens.delete(token); worker.tokenByTask.delete(taskId);
+    }
     const view = (task: ClaudeNativeTask | ClaudeEndedTask): ClaudeEngineTask => {
       const running = liveIds.has(task.taskId);
       const parent = task.parentTaskId && all.has(task.parentTaskId) ? this.taskToken(worker, task.parentTaskId) : undefined;
@@ -4005,6 +4114,25 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       foregroundStopScope: this.softStopReady(worker) ? "subagents" : "all",
       ...(fence?.unconfirmed && fence.recoveryToken ? { recovery: { token: fence.recoveryToken, reason: "stop_unconfirmed" as const } } : {}),
     };
+  }
+
+  async listRestartTasks(sessionId: string): Promise<ClaudeEngineTask[]> {
+    const worker = this.workers.get(sessionId);
+    const { tasks } = await this.listTasks(sessionId);
+    const impact = tasks.filter(task => task.mode === "background" && task.status === "running");
+    if (!worker || worker.retired || this.workers.get(sessionId) !== worker) return impact;
+    const reported = new Map(tasks.map(task => [worker.taskTokens.get(task.id), task]));
+    for (const [taskId, task] of worker.backgroundTasks) {
+      const native = reported.get(taskId);
+      if (worker.finishedBackgroundTaskIds.has(taskId) || native && (native.status !== "running" || native.mode === "background")) continue;
+      // Older task_started receipts can be classified as foreground by the
+      // native list, even though the adapter already tracked them as background.
+      impact.push({
+        id: this.taskToken(worker, taskId), label: (task.summary?.trim() || native?.label || "Claude background task").slice(0, 500),
+        kind: native?.kind ?? "unknown", mode: "background", status: "running", canStop: false, updatedAt: task.lastSeenAt,
+      });
+    }
+    return impact;
   }
 
   /** Native `stop_task` for one task token of this session's current worker.
@@ -4042,6 +4170,20 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     if (!worker || !fence?.unconfirmed || !fence.recoveryToken || fence.recoveryToken !== input.token) return { outcome: "rejected", reason: "stale" };
     this.forceStopWorker(worker);
     return { outcome: "accepted" };
+  }
+
+  restartSession(sessionId: string, options?: EngineSessionRestartOptions): Promise<EngineSessionRestartResult> {
+    const worker = this.workers.get(sessionId);
+    return this.sessionRestarts.close(sessionId, worker && !worker.retired && !this.sessionRestartPending(sessionId) ? {
+      exited: observeEngineProcessExit(worker.child),
+      stop: () => worker.retired
+        ? killProcessTree(worker.child.pid, { graceMs: APP_STOP_PROCESS_GRACE_MS })
+        : this.forceStopWorker(worker),
+    } : undefined, options?.beforeStop);
+  }
+
+  sessionRestartPending(sessionId: string): Promise<void> | undefined {
+    return this.sessionRestarts.exiting(sessionId);
   }
 
   async forceStopSession(sessionId: string): Promise<boolean> {
@@ -4163,6 +4305,9 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     const stopped = fence.turn;
     fence.turn = undefined;
     if (stopped) this.settleStoppedTurn(worker, stopped, worker.retired ? "unconfirmed" : fence.tooLate ? "too_late" : "stopped");
+    if (!worker.retired && !worker.pendingTurn && !worker.continuationTurn && !worker.taskNotificationTurnActive) {
+      this.anchorQueuedTaskNotifications(worker);
+    }
     fence.release();
   }
 
@@ -4219,11 +4364,12 @@ export class ClaudeStreamAdapter implements CodexAdapter {
     );
   }
 
-  private forceStopWorker(worker: ClaudeWorker): void {
+  private forceStopWorker(worker: ClaudeWorker): Promise<void> | undefined {
     if (worker.retired) return;
-    killProcessTree(worker.child.pid, { graceMs: APP_STOP_PROCESS_GRACE_MS });
+    const stopped = killProcessTree(worker.child.pid, { graceMs: APP_STOP_PROCESS_GRACE_MS });
     this.failWorker(worker, new Error("Task was stopped by user"));
     this.removeWorker(worker);
+    return stopped;
   }
 
   /** Settled: its progress is final, so no control or later evidence needs it. */
@@ -4634,7 +4780,7 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       }
       this.emitEngineEvent(worker, { type: "result", text: eventText, sessionId: worker.currentSessionId ?? undefined }, pending.onEngineEvent);
     }
-    const finalText = eventText.trim() || (pending.locale === "zh" ? "Claude 本轮已结束，未返回文字回复。" : "Claude ended this turn without a text reply.");
+    const finalText = eventText.trim() || hostT(pending.locale ?? "en", "Claude 本轮已结束，未返回文字回复。");
     const sessionId = worker.currentSessionId ?? undefined;
     void usage.then((value) => pending.resolve({ text: finalText, sessionId, usage: value }), () => pending.resolve({ text: finalText, sessionId }));
   }
@@ -4865,8 +5011,12 @@ export class ClaudeStreamAdapter implements CodexAdapter {
       worker.pendingTaskNotification = null;
       worker.suppressNextTaskNotificationAssistant = false;
       worker.taskNotificationTurnActive = false;
+      if (!worker.pendingTurn && !worker.continuationTurn) {
+        worker.nativeTurnOpen = false;
+      }
       worker.taskNotificationAssistantText = "";
       worker.taskNotificationDeliveryText = "";
+      this.anchorQueuedTaskNotifications(worker, now);
       this.resolveTaskNotificationWaiters(worker);
     }
   }

@@ -27,7 +27,7 @@ async function fixture(page: Page) {
 const panel = (page: Page) => page.getByRole("complementary", { name: "工作台", exact: true });
 
 
-for (const surface of ['canvas-background','canvas-artboard','slides'] as const) test(`wheel motion stays controlled on ${surface}`, async ({page})=>{
+for (const surface of ['slides'] as const) test(`wheel motion stays controlled on ${surface}`, async ({page})=>{
  const f=await fixture(page);
  try {
   const format=surface==='slides'?'slides':'canvas';
@@ -35,7 +35,7 @@ for (const surface of ['canvas-background','canvas-artboard','slides'] as const)
   const editor=page.frameLocator('.workbench-design-frame:visible');
   const heading=format==='canvas'?editor.frameLocator('iframe').locator('h1'):editor.getByRole('heading',{level:1}).first();
   await expect(heading).toHaveText('Wheel probe',{timeout:20000});
-  const target=surface==='canvas-artboard'?heading:editor.locator('[style*="touch-action: none"]').first();
+  const target=surface==='canvas-artboard'?heading:format==='slides'?editor.locator('[data-open-artifact-stage]').first():editor.locator('[style*="touch-action: none"]').first();
   const position=async()=>{const b=await heading.boundingBox();expect(b).not.toBeNull();return b!;};
   const wheel=async(deltaX:number,deltaY:number,deltaMode=0,ctrlKey=false)=>{
    await target.evaluate((node,args)=>{
@@ -45,9 +45,9 @@ for (const surface of ['canvas-background','canvas-artboard','slides'] as const)
   if (format==='slides') {
     // A fitted slide deliberately cannot pan outside its bounds. Enlarge it
     // using the real zoom control before testing scroll travel.
-    await editor.getByRole('button',{name:/%, Zoom/}).click();
-    await editor.getByRole('menuitemradio',{name:'100%',exact:true}).click();
-    await expect(editor.getByRole('button',{name:'100%, Zoom',exact:true})).toBeVisible();
+    await editor.getByRole('button',{name:'Zoom',exact:true}).click();
+    await editor.getByRole('menuitem',{name:'100%',exact:true}).click();
+    await expect(editor.getByRole('button',{name:'Zoom',exact:true})).toContainText('100%');
   }
   let before=await position();
   await target.hover({position:surface==='canvas-artboard'?{x:20,y:10}:{x:8,y:180}});

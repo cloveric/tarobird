@@ -1,3 +1,4 @@
+import { hostT } from "../../locales/index.js";
 import type { BoardPlanTaskInput, BoardTaskPriority } from "../../state/board-store.js";
 import type { Locale } from "../../runtime/locale.js";
 
@@ -5,25 +6,12 @@ const BOARD_PRIORITIES: BoardTaskPriority[] = ["low", "normal", "high", "urgent"
 
 export function renderBoardPlanPrompt(goal: string, locale: Locale): string {
   const schema = `{"tasks":[{"key":"short-key","title":"Task title","description":"optional detail","assignee":"optional-agent","dependsOn":["short-key"],"acceptanceCriteria":["done when ..."],"checklist":["step"],"labels":["tag"],"priority":"normal","review":{"required":false}}]}`;
-  return locale === "zh"
-    ? [
-        "把下面目标拆成一个可执行 Kanban 任务图。",
-        "只返回 JSON，不要 Markdown，不要解释。",
-        "字段必须匹配这个 schema：",
-        schema,
-        "priority 只能是 low/normal/high/urgent。dependsOn 使用 key，不要使用 B1 这种最终 ID。",
-        "",
-        `目标：${goal}`,
-      ].join("\n")
-    : [
-        "Decompose the goal below into an executable Kanban task graph.",
-        "Return JSON only. No Markdown. No explanation.",
-        "The JSON must match this schema:",
-        schema,
-        "priority must be low/normal/high/urgent. dependsOn uses key values, not final B1-style ids.",
-        "",
-        `Goal: ${goal}`,
-      ].join("\n");
+  return hostT(
+    locale,
+    "把下面目标拆成一个可执行 Kanban 任务图。\n只返回 JSON，不要 Markdown，不要解释。\n字段必须匹配这个 schema：\n{0}\npriority 只能是 low/normal/high/urgent。dependsOn 使用 key，不要使用 B1 这种最终 ID。\n\n目标：{1}",
+    schema,
+    goal,
+  );
 }
 
 export function parseBoardPlanOutput(text: string): BoardPlanTaskInput[] {

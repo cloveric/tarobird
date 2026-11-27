@@ -2,6 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { crc32 } from "node:zlib";
 import AdmZip from "adm-zip";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "./locale.js";
 
 type ArchiveErrorCode = "invalid" | "encrypted" | "name" | "path" | "duplicate" | "limit";
 export class ArchiveReadError extends Error {
@@ -82,17 +84,18 @@ export async function extractZipArchive(archivePath: string, targetDir: string):
   }
 }
 
-export function archiveReadErrorMessage(error: unknown, locale: "zh" | "en"): string | undefined {
+const ARCHIVE_ERROR_KEYS: Readonly<Record<ArchiveErrorCode, string>> = {
+  encrypted: "这个 ZIP 需要密码。请先解密，或直接发送里面的文件。",
+  name: "这个 ZIP 的文件名编码无效。请使用 UTF-8 文件名重新压缩后发送。",
+  path: "这个 ZIP 包含不安全的文件路径或符号链接，未解压。请重新打包普通文件。",
+  duplicate: "这个 ZIP 中有重名或冲突的文件路径，未覆盖任何文件。请整理文件名后重新压缩。",
+  limit: "这个 ZIP 解压后超过 500 MiB 或 10,000 个条目，请拆分后发送。",
+  invalid: "无法完整读取这个 ZIP，可能已损坏或使用了不支持的压缩方式。请重新压缩后发送，或直接发送里面的文件。",
+};
+
+export function archiveReadErrorMessage(error: unknown, locale: Locale): string | undefined {
   for (let depth = 0; depth < 4 && error instanceof Error; depth++, error = error.cause) {
     if (!(error instanceof ArchiveReadError)) continue;
-    const messages = {
-      encrypted: ["这个 ZIP 需要密码。请先解密，或直接发送里面的文件。", "This ZIP is password-protected. Decrypt it first, or send the files inside it."],
-      name: ["这个 ZIP 的文件名编码无效。请使用 UTF-8 文件名重新压缩后发送。", "This ZIP has invalid filename encoding. Recreate it with UTF-8 filenames."],
-      path: ["这个 ZIP 包含不安全的文件路径或符号链接，未解压。请重新打包普通文件。", "This ZIP contains an unsafe path or symbolic link. Repackage regular files."],
-      duplicate: ["这个 ZIP 中有重名或冲突的文件路径，未覆盖任何文件。请整理文件名后重新压缩。", "This ZIP contains conflicting file paths. No files were overwritten. Rename the conflicting files and recreate it."],
-      limit: ["这个 ZIP 解压后超过 500 MiB 或 10,000 个条目，请拆分后发送。", "This ZIP exceeds 500 MiB or 10,000 extracted entries. Split it before sending."],
-      invalid: ["无法完整读取这个 ZIP，可能已损坏或使用了不支持的压缩方式。请重新压缩后发送，或直接发送里面的文件。", "This ZIP could not be read completely. It may be damaged or use unsupported compression. Recreate it, or send the files inside it."],
-    };
-    return messages[error.code][locale === "en" ? 1 : 0];
+    return hostT(locale, ARCHIVE_ERROR_KEYS[error.code]);
   }
 }

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { hostRoutesViewSchema, type HostRouteNotice, type HostRoutesView } from "../client-protocol/host-routes.js";
 import { isLoopbackOrUnspecified } from "../client-protocol/loopback-address.js";
 import { networkCanonical, sharedRoutesSchema } from "../client-protocol/private-network.js";
-import { routeSchema, type Route } from "../client-protocol/routes.js";
+import { isDirectRoute, routeSchema, type Route } from "../client-protocol/routes.js";
 import { isTailscaleAddress } from "./network.js";
 import type { PrivateNetwork } from "./private-network.js";
 import { HubError, type HubStore } from "./store.js";
@@ -132,7 +132,7 @@ export function observeHostRoutes(previous: HostRoutesRecord, listeners: readonl
  * this desktop manages (same CA, managed port, same address class) is replaced,
  * and only by a confirmed, currently listening address. Never adds a route. */
 export function sharedRouteReplacement(shared: readonly Route[], record: HostRoutesRecord, listeners: readonly ManagedListener[]): Route[] | undefined {
-  const direct = shared.find(route => route.name !== "VPS");
+  const direct = shared.find(isDirectRoute);
   if (!direct) return;
   const url = new URL(direct.url), mode = managedRouteMode(url.hostname.replace(/^\[|\]$/g, ""));
   const entry = mode && record.modes[mode];

@@ -369,16 +369,16 @@ mod bindings {
         { let _ = request; true }
     }
     #[napi]
-    pub async fn capture_windows(english: bool) -> napi::Result<Option<String>> {
+    pub async fn capture_windows(english: bool, locale: Option<String>) -> napi::Result<Option<String>> {
         #[cfg(target_os = "windows")]
         {
             use base64::{engine::general_purpose::STANDARD, Engine};
-            let bytes = tokio::task::spawn_blocking(move || screenshot_windows::capture(english)).await
+            let bytes = tokio::task::spawn_blocking(move || screenshot_windows::capture(english, locale.as_deref())).await
                 .map_err(|_| error("screenshot_failed".into()))?.map_err(error)?;
             if bytes.as_ref().is_some_and(|data| data.len() > 32 * 1024 * 1024) { return Err(error("screenshot_too_large".into())); }
             Ok(bytes.map(|data| STANDARD.encode(data)))
         }
         #[cfg(not(target_os = "windows"))]
-        { let _ = english; Err(error("screenshot_unavailable".into())) }
+        { let _ = (english, locale); Err(error("screenshot_unavailable".into())) }
     }
 }

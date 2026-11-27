@@ -3,7 +3,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { diagnosticPageSchema, type DiagnosticPage, type DiagnosticQuery } from "../../src/client-protocol/diagnostics.js";
 import type { HubConnection } from "./connection.js";
 import { HubHttpError } from "./http-error.js";
-import { t, useLocale } from "./i18n.js";
+import { localeIntlTag, t, useLocale } from "./i18n.js";
 
 const counterNames = () => ({ retryCount: t("任务重试"), budgetBlockedCount: t("预算拦截"), serviceErrorCount: t("服务错误"),
   serviceHealthCount: t("健康记录"), fileRejectedCount: t("文件拒绝"), workflowFailedCount: t("工作流失败"),
@@ -24,7 +24,7 @@ export function DiagnosticsPanel({ connection, botId, name, back }: { connection
   const [page, setPage] = useState<DiagnosticPage>(), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [applied, setApplied] = useState<DiagnosticQuery>({ source: botId ? "timeline" : "audit", limit: 30 });
   const sequence = useRef(0);
-  const date = (value: string | undefined) => value ? new Date(value).toLocaleString(locale === "zh" ? "zh-CN" : "en-US") : "—";
+  const date = (value: string | undefined) => value ? new Date(value).toLocaleString(localeIntlTag(locale)) : "—";
   async function load(query: DiagnosticQuery, more = false) {
     const id = ++sequence.current; setBusy(true); setError("");
     const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));

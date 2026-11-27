@@ -71,7 +71,7 @@ function View({ scope }: { scope: { host: string; conversationId: string; visibl
   const connection = hosts[scope.host].connection;
   const state = useSyncExternalStore(listener => connection.subscribe(listener), () => connection.state);
   const history = useConversationMessages(connection, scope.conversationId, scope.visible);
-  const queued = useConversationOutbox(connection, scope.conversationId, scope.visible, history.readRevision, history.messages);
+  const queued = useConversationOutbox(connection, scope.conversationId, scope.visible, history.readRevision, history.messages, false, history.deletedClientMsgIds);
   return <><output>{JSON.stringify({ host: scope.host, visible: scope.visible, ready: history.ready, failed: history.failed })}</output>
     <button onClick={history.retry}>retry history</button>
     {scope.visible && <><section id="history">{history.messages.map(message => <div key={message.id} data-id={message.id}>{message.blocks.map(block => block.type === "text" ? block.text : "").join("")}</div>)}</section>

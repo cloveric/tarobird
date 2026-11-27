@@ -72,6 +72,7 @@ type Manifest = z.infer<typeof manifestSchema>;
 const serviceEnvironment = (manifest: Manifest) => ({ ...manifest.environment, ...manifest.extraEnvironment });
 export const SERVICE_EXTRA_ENVIRONMENT_CAPABILITY = "service-extra-environment-v1";
 export const PI_STATE_CAPABILITY = "pi-state-v1";
+export const OMP_STATE_CAPABILITY = "omp-state-v1";
 const refreshSchema = z.object({ before: manifestSchema, after: manifestSchema });
 const manifestFile = (directory: string) => path.join(directory, "host-service.json");
 const refreshFile = (directory: string) => path.join(directory, "host-service-refresh.json");
@@ -276,6 +277,8 @@ async function assertEnvironmentRuntime(entrypoint: string, extraEnvironment?: R
   // not prove that a runtime's strict service/settings readers accept Pi keys.
   const piEnvironment = ["PI_EXECUTABLE", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"]
     .some(key => state?.environment?.[key] !== undefined || extraEnvironment?.[key] !== undefined);
+  const ompEnvironment = ["OMP_EXECUTABLE", "PI_CONFIG_DIR", "OMP_CONFIG_DIR", "OMP_PROFILE"]
+    .some(key => state?.environment?.[key] !== undefined || extraEnvironment?.[key] !== undefined);
   const packageFile = path.resolve(path.dirname(entrypoint), "../../package.json");
   type RuntimeMetadata = { tarobotHostCapabilities?: unknown };
   let metadata: RuntimeMetadata | null = null;
@@ -293,6 +296,15 @@ async function assertEnvironmentRuntime(entrypoint: string, extraEnvironment?: R
     if (piEnvironment || piPath) {
       const recovery = [piPath ? "reset the Pi program path in engine settings" : "", piEnvironment ? "reinstall the service without Pi environment overrides" : ""].filter(Boolean).join(" and ");
       throw new Error(`host_service_runtime_pi_state_incompatible: selected runtime cannot read persisted Pi settings; ${recovery} before selecting an older runtime`);
+    }
+  }
+  if (!Array.isArray(capabilities) || !capabilities.includes(OMP_STATE_CAPABILITY)) {
+    let ompPath = false;
+    try { ompPath = state ? readHostEngineSettings(state.directory).paths.omp !== undefined : false; }
+    catch { throw new Error("host_service_runtime_omp_state_unverified: engine settings could not be inspected; repair their contents or private file permissions before selecting an older runtime"); }
+    if (ompEnvironment || ompPath) {
+      const recovery = [ompPath ? "reset the omp program path in engine settings" : "", ompEnvironment ? "reinstall the service without omp environment overrides" : ""].filter(Boolean).join(" and ");
+      throw new Error(`host_service_runtime_omp_state_incompatible: selected runtime cannot read persisted omp settings; ${recovery} before selecting an older runtime`);
     }
   }
   if (names.length && (!Array.isArray(capabilities) || !capabilities.includes(SERVICE_EXTRA_ENVIRONMENT_CAPABILITY))) throw new Error(`host_service_runtime_environment_incompatible: selected runtime cannot preserve ${names.sort().join(", ")}`);

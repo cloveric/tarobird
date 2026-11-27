@@ -7,7 +7,7 @@ export const groupComposerIntentSchema = z.object({
   id: z.string(), empty: z.boolean(), legacy: z.boolean().optional(),
   discussionAction: z.enum(["resume", "retry", "new"]).optional(),
   target: z.object({
-    conversationId: z.string(), mode: z.enum(["mentions", "parallel", "sequential", "independent"]), revision: z.string(),
+    conversationId: z.string(), mode: z.enum(["designated", "mentions", "parallel", "sequential", "independent"]), revision: z.string(),
     activeRun: z.object({ id: z.string(), conversationId: z.string() }).optional(),
   }).optional(),
 });

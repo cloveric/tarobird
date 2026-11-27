@@ -329,3 +329,26 @@ it("continues after exact child, tool and background receipts, ignoring plan met
   await vi.advanceTimersByTimeAsync(2000); await expect(result).resolves.toMatchObject({ text: "done" });
   expect(f.send).toHaveBeenCalledTimes(2);
 });
+
+it("distinguishes terminal interrupted subagent settlement from an in-flight interrupt request", async () => {
+  const f1 = fixture();
+  f1.send.mockImplementationOnce(async (_id, input) => {
+    await input.onEngineEvent?.({ type: "subagent_activity", id: "a1", kind: "started", agentId: "child-1", label: "sleeper" });
+    await input.onEngineEvent?.({ type: "subagent_activity", id: "a2", kind: "interrupted", agentId: "child-1", label: "sleeper" });
+    throw f1.fail();
+  });
+  await expect(f1.bridge.handleAuthorizedMessage(f1.input)).rejects.toMatchObject({ name: "EngineRecoveryUnconfirmedError", reason: "unfinished-work" });
+  expect(f1.send).toHaveBeenCalledTimes(1);
+
+  const f2 = fixture();
+  f2.send.mockImplementationOnce(async (_id, input) => {
+    await input.onEngineEvent?.({ type: "subagent_activity", id: "a1", kind: "started", agentId: "child-1", label: "sleeper" });
+    await input.onEngineEvent?.({ type: "subagent_activity", id: "a2", kind: "interrupted", terminal: true, agentId: "child-1", label: "sleeper" });
+    throw f2.fail();
+  }).mockResolvedValueOnce({ text: "continued after stopped subagent" });
+  const result = f2.bridge.handleAuthorizedMessage(f2.input);
+  await f2.waiting.promise;
+  await vi.advanceTimersByTimeAsync(2_000);
+  await expect(result).resolves.toMatchObject({ text: "continued after stopped subagent" });
+  expect(f2.send).toHaveBeenCalledTimes(2);
+});

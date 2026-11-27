@@ -8,8 +8,8 @@
     "node": ">=24.0.0"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "node scripts/check-translations.mjs && tsc --noEmit && vite build",
+    "dev": "node ../scripts/acknowledgements.mjs generate --json-only && vite --host 127.0.0.1",
+    "build": "node ../scripts/acknowledgements.mjs check && node ../scripts/acknowledgements.mjs generate --json-only && node scripts/check-translations.mjs && tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test:e2e": "playwright test",
     "test:audit-runner": "node --test scripts/native-audit-runner.test.mjs",

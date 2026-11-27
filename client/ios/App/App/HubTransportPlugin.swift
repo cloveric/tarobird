@@ -142,10 +142,24 @@ public final class HubTransportPlugin: CAPPlugin, CAPBridgedPlugin {
                         if method == "document" { self.activeDocument = value["value"] as? String }
                         call.resolve(value)
                     case .failure(let error):
-                        call.reject((error as? HubNetworkError)?.code ?? "native_transport_failed")
+                        call.reject(HubNetworkError.classify(error, host: Self.requestHost(method, call.options as? [String: Any])))
                     }
                 }
             }
+    }
+    private static func requestHost(_ method: String, _ options: [String: Any]?) -> String? {
+        guard let options = options else { return nil }
+        let rawOrigin: String?
+        if method == "httpOpen", let input = options["input"] as? [String: Any] {
+            rawOrigin = input["origin"] as? String
+        } else if method == "screenOpen", let network = options["network"] as? [String: Any] {
+            rawOrigin = network["url"] as? String
+        } else {
+            rawOrigin = options["origin"] as? String
+        }
+        guard let origin = rawOrigin, let url = URL(string: origin) else { return nil }
+        let host = HubTLS.hostname(url)
+        return host.isEmpty ? nil : host
     }
     @objc func document(_ call: CAPPluginCall) { perform("document", call) }
     @objc func allocate(_ call: CAPPluginCall) { perform("allocate", call) }

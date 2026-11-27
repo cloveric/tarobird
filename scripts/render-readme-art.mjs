@@ -29,7 +29,7 @@ try {
    `.cover{position:relative;width:100%;height:100%;border-radius:28px;background:linear-gradient(115deg,#faf9f7 0%,#f2f0ed 52%,#e7e2dc 100%);overflow:hidden}.copy{position:absolute;top:58px;left:76px}.eyebrow{margin:0;display:flex;align-items:center;gap:12px;font:13px Mono;letter-spacing:2px;color:#766a62}.eyebrow i{width:7px;height:7px;border-radius:50%;background:#a39b91}h1{font:700 126px/1 Brand;margin:29px 0 22px;letter-spacing:-7px;color:#2a2421}h1 span{color:#a39b91}.tagline{font-size:35px;letter-spacing:-.5px;margin:0;color:#564c46}.engines{display:flex;align-items:center;gap:17px;margin:51px 0 0;font-size:18px;color:#84786f}.engines span{color:#bcb1a7}.mascot{position:absolute;width:450px;height:450px;right:84px;top:26px;filter:drop-shadow(0 18px 16px #8a4a1c1f)}.edge{position:absolute;right:79px;bottom:39px;font:12px Mono;letter-spacing:2px;color:#8b7f76}`);
   if (only === '--covers-only') continue;
   await frameReadmeCapture(page, `desktop-${locale}.png`, `workspace-${locale}.png`, 'TAROBIRD / DESKTOP');
-  for (const [source, target, label] of [['remote-screen', 'remote-screen-workspace', 'SCREEN CONTROL'], ['chancellor', 'chancellor-workspace', 'CHANCELLOR']])
+  for (const [source, target, label] of [['remote-screen', 'remote-screen-workspace', 'SCREEN CONTROL'], ['chancellor', 'chancellor-workspace', 'SUPERAGENT']])
    await frameReadmeCapture(page, `${source}-${locale}.png`, `${target}-${locale}.png`, `TAROBIRD / ${label}`);
   for (const [kind,label] of [['canvas','CANVAS'],['browser','BROWSER'],['whiteboard','WHITEBOARD'],['notes','NOTES'],['side','SIDE PANEL']])
    await frameReadmeCapture(page, `workbench-${kind}-${locale}.png`, `workbench-${kind}-framed-${locale}.png`, `TAROBIRD / ${label}`);

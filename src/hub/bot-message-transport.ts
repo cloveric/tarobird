@@ -2,8 +2,8 @@ import { verify } from "node:crypto";
 import { lookup } from "node:dns";
 import { request } from "node:https";
 import { botReplyProof, type SignedBotPassport } from "../client-protocol/bot-messages.js";
-import { orderedRoutes, type Route } from "../client-protocol/routes.js";
-import type { NetworkHost } from "../client-protocol/private-network.js";
+import { isEdgeTlsRoute, orderedRoutes, type Route } from "../client-protocol/routes.js";
+import { networkHostRoutes, type NetworkHost } from "../client-protocol/private-network.js";
 import { parsePublicKey } from "./auth.js";
 import { forgetPeerPin, observePeerCertificate, peerPin, peerTlsOptions, TlsPinMismatch, type PeerTls } from "./peer-tls.js";
 import { certificateAuthority, loopback } from "./network-peer.js";
@@ -27,6 +27,7 @@ async function pacePeer(key: string): Promise<void> {
 function exchange(route: Route, path: string, method: string, body?: Buffer, passport?: SignedBotPassport, tls: PeerTls = {}): Promise<any> {
   const base = new URL(route.url);
   if (base.protocol !== "https:" || loopback(base.hostname)) throw new HubError("network_route_must_be_remote", 400);
+  if (isEdgeTlsRoute(route) && route.certificateAuthority) throw new HubError("network_peer_certificate_invalid", 400);
   const ca = certificateAuthority(route);
   return new Promise((resolve, reject) => {
     const req = request(new URL(path, base), { method, agent: false, rejectUnauthorized: true, ...(ca ? { ca } : {}), ...peerTlsOptions(tls),
@@ -67,15 +68,15 @@ function exchange(route: Route, path: string, method: string, body?: Buffer, pas
 export async function exchangeBotMessage(host: NetworkHost, signed: SignedBotPassport, body: Buffer): Promise<unknown> {
   await pacePeer(host.publicKey);
   for (let attempt = 0; ; attempt++) {
-    let chosen: Route | undefined, pin = "", cached = false;
-    for (const route of orderedRoutes(host.routes)) {
+    let chosen: Route | undefined, pin: string | undefined, cached = false;
+    for (const route of orderedRoutes(networkHostRoutes(host))) {
       try { ({ pin, cached } = await peerPin(host.publicKey, route, (path, tls) => exchange(route, path, "GET", undefined, undefined, tls))); chosen = route; break; }
       catch { /* Probes contain no messages, credentials or files. */ }
     }
     if (!chosen) throw new HubError("bot_message_peer_unavailable_or_upgrade_required", 503);
     if (signed.passport.expiresAt <= Date.now()) throw new HubError("bot_message_passport_expired", 401);
     let reply: any;
-    try { reply = await exchange(chosen, signed.passport.path, signed.passport.method, body, signed, { pin }); }
+    try { reply = await exchange(chosen, signed.passport.path, signed.passport.method, body, signed, pin ? { pin } : {}); }
     catch (error) {
       // The handshake failed before anything was written. A rotated certificate
       // is re-proved once; a fresh pin that already mismatches is not retried.

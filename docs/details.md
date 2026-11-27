@@ -41,7 +41,7 @@ Install and sign in to an engine on the computer that will run the Bot, under th
 | Kimi Code | `kimi` | — | ACP sessions and native compact; no per-turn usage or native goals in the current adapter |
 | DeepSeek Harness | `dsh` | Yes | Native goals and token budgets; no dollar-cost reporting |
 | Antigravity | `agy` | — | Host/account model discovery, including Gemini 4 Argon when available; no manual compact |
-| Pi | `pi` | Yes | Provider-and-model pairs from Pi's own catalog; native `/model`, `/thinking`, `/session`, forks and compaction; ordinary Bots only, not Chancellor dispatch. [Pi engine](client/pi-engine.md) |
+| Pi | `pi` | Yes | Provider-and-model pairs from Pi's own catalog; native `/model`, `/thinking`, `/session`, forks and compaction; ordinary Bots only, not Superagent dispatch. [Pi engine](client/pi-engine.md) |
 
 Before creating a Bot, run a simple request with the chosen CLI in the host's terminal. Detecting an executable does not prove sign-in, quota or model access, and an engine installed on one host is not installed on other hosts or relays.
 

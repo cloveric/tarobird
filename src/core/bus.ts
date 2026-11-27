@@ -20,6 +20,7 @@ import {
   type DelegationCommandContext,
 } from "./shared/delegation-commands.js";
 import { loadInstanceConfig, resolveInstanceWorkspacePath } from "../state/instance-config.js";
+import { hostT } from "../locales/index.js";
 import {
   handleMiniBusCoreCommand,
   type MiniBusCommandBridge,
@@ -592,7 +593,7 @@ export async function handleCoreAgentBusRun(
   const observer = input.runtime.busRuntime?.agentBusRun;
   if (observer?.signal.aborted) {
     const locale = await resolveCoreLocale(input.stateDir);
-    await sendCoreMarkdown(input.channel, normalized.chatId, locale === "zh" ? "协作已停止，任务未启动。" : "Collaboration stopped before the task started.", coreCommandReplyOptions(normalized));
+    await sendCoreMarkdown(input.channel, normalized.chatId, hostT(locale, "协作已停止，任务未启动。"), coreCommandReplyOptions(normalized));
     return true;
   }
   observer?.started();
@@ -608,7 +609,7 @@ export async function handleCoreAgentBusRun(
   }, { ...normalized, attachments: [] }, prompt);
   if (!handled) {
     const locale = await resolveCoreLocale(input.stateDir);
-    await sendCoreMarkdown(input.channel, normalized.chatId, locale === "zh" ? "研究团队任务未启动：成员配置无效。" : "Research crew was not started: invalid members.", coreCommandReplyOptions(normalized));
+    await sendCoreMarkdown(input.channel, normalized.chatId, hostT(locale, "研究团队任务未启动：成员配置无效。"), coreCommandReplyOptions(normalized));
   }
   return true;
 }
@@ -680,7 +681,7 @@ function createCoreBusEngineEventHandler(
   input: CoreBusCommandInput,
   normalized: CoreNormalizedBridgeMessage,
   options: {
-    locale: "en" | "zh";
+    locale: Locale;
     source: string;
     controller?: AbortController;
     signal?: AbortSignal;

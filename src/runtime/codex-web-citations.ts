@@ -1,3 +1,6 @@
+import { hostT } from "../locales/index.js";
+import type { Locale } from "./locale.js";
+
 export interface CodexWebSource {
   refId?: string;
   url: string;
@@ -66,11 +69,11 @@ function link(source: { url: string }): string {
 /** Translate native search controls in prose, preserving fenced and inline Markdown code. */
 export function renderCodexWebCitations(
   text: string,
-  locale: "en" | "zh" = "en",
+  locale: Locale = "en",
   options: CodexWebCitationOptions = {},
 ): string {
   if (!text.includes("")) return text;
-  const unavailable = locale === "en" ? "(Source link unavailable)" : "（来源链接未提供）";
+  const unavailable = hostT(locale, "（来源链接未提供）");
   const renderProse = (prose: string): string => {
     let out = "";
     for (let cursor = 0; cursor < prose.length;) {

@@ -68,8 +68,9 @@ PR merge or messages to another Bot. Follow the user's current scope.
 ## Integrated skills before release
 
 Follow `docs/release-checklist.md`'s upstream gate for editor dependencies AND their
-SKILL.md, references and helper scripts. Include Baoyu Design and Baoyu PPT skill
-manifests. Record checked upstream commits, review diffs, update adapted skills
-with the matching editor and verify packaged/installed references. Explicit Baoyu
-routing and ordinary native PPT routing both need coverage. Metadata discovery
+SKILL.md, references and helper scripts. There is no Baoyu skill manifest any
+more: the Baoyu Design and Baoyu PPT skills were removed with their editors.
+Record checked upstream commits, review diffs, update adapted skills
+with the matching editor and verify packaged/installed references. Workbench
+presentation routing and ordinary native PPT routing both need coverage. Metadata discovery
 is not proof of actual model invocation.

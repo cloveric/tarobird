@@ -111,7 +111,7 @@ export async function importDesktopData(source: ImportSource, target: ImportTarg
       const key = await decodeValue(record.k, getBlob), value = await decodeValue(record.v, getBlob);
       count(record.d, record.s); records++;
       if (record.d === LOCAL_STORAGE) {
-        if (typeof key !== "string" || typeof value !== "string" || !/^(tarocub|tarobot)/.test(key)) fail("migration_record_invalid");
+        if (typeof key !== "string" || typeof value !== "string" || !/^(tarocub|tarobot|tarobird)/.test(key)) fail("migration_record_invalid");
         local.push([key as string, value as string]); continue;
       }
       if (record.d === REGISTRY_DATABASE) {

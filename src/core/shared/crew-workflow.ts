@@ -14,6 +14,7 @@ import {
   type CoreTurnContext,
 } from "./turn-bookkeeping.js";
 import type { Locale } from "../../runtime/locale.js";
+import { hostT } from "../../locales/index.js";
 import { commandReplyChunks } from "./command-reply.js";
 import type { CoreCommandMessage } from "./command-message.js";
 
@@ -115,57 +116,24 @@ function parseCoordinatorSubquestions(text: string, maxQuestions: number): strin
 
 function buildDecompositionPrompt(input: { locale: Locale; userPrompt: string; maxQuestions: number }): string {
   const targetRange = input.maxQuestions >= 3
-    ? `3 to ${input.maxQuestions}`
-    : `up to ${input.maxQuestions}`;
-  if (input.locale === "zh") {
-    return [
-      `你是 coordinator agent。你的唯一工作是把用户研究任务拆成 ${input.maxQuestions >= 3 ? `3 到 ${input.maxQuestions}` : `最多 ${input.maxQuestions} 个`}研究子问题。`,
-      "只返回子问题列表，每行一个。",
-      "不要回答问题本身，不要解释，不要写前言。",
-      `最多返回 ${input.maxQuestions} 个子问题。`,
-      "",
-      "用户任务：",
-      input.userPrompt,
-    ].join("\n");
-  }
-
-  return [
-    `You are the coordinator agent. Your only job is to decompose the user's research task into ${targetRange} research sub-questions.`,
-    "Return only the sub-question list, one per line.",
-    "Do not answer the task. Do not explain. Do not add intro text.",
-    `Return at most ${input.maxQuestions} sub-questions.`,
-    "",
-    "USER TASK:",
+    ? hostT(input.locale, "3 到 {0}", input.maxQuestions)
+    : hostT(input.locale, "最多 {0} 个", input.maxQuestions);
+  return hostT(
+    input.locale,
+    "你是 coordinator agent。你的唯一工作是把用户研究任务拆成 {0}研究子问题。\n只返回子问题列表，每行一个。\n不要回答问题本身，不要解释，不要写前言。\n最多返回 {1} 个子问题。\n\n用户任务：\n{2}",
+    targetRange,
+    input.maxQuestions,
     input.userPrompt,
-  ].join("\n");
+  );
 }
 
 function buildResearchPrompt(input: { locale: Locale; originalPrompt: string; subQuestion: string }): string {
-  if (input.locale === "zh") {
-    return [
-      "你是研究 specialist。你的唯一工作是查找并整理准确、尽量新的信息。",
-      "输出要求：",
-      "- 每条信息尽量标注来源",
-      "- 给每条信息标注置信度（high/medium/low）",
-      "- 如果可能过时，要明确标出",
-      "- 不要分析，不要写总结性 prose",
-      "",
-      `原始任务：${input.originalPrompt}`,
-      `研究子问题：${input.subQuestion}`,
-    ].join("\n");
-  }
-
-  return [
-    "You are the research specialist. Your only job is to find accurate, current information.",
-    "Return structured findings only:",
-    "- include sources whenever possible",
-    "- include confidence (high/medium/low) for each finding",
-    "- flag anything that may be outdated",
-    "- do not analyze and do not write polished prose",
-    "",
-    `Original task: ${input.originalPrompt}`,
-    `Research sub-question: ${input.subQuestion}`,
-  ].join("\n");
+  return hostT(
+    input.locale,
+    "你是研究 specialist。你的唯一工作是查找并整理准确、尽量新的信息。\n输出要求：\n- 每条信息尽量标注来源\n- 给每条信息标注置信度（high/medium/low）\n- 如果可能过时，要明确标出\n- 不要分析，不要写总结性 prose\n\n原始任务：{0}\n研究子问题：{1}",
+    input.originalPrompt,
+    input.subQuestion,
+  );
 }
 
 function buildResearchPacket(entries: ResearchStageEntry[]): string {
@@ -178,35 +146,12 @@ function buildResearchPacket(entries: ResearchStageEntry[]): string {
 }
 
 function buildAnalystPrompt(input: { locale: Locale; originalPrompt: string; researchPacket: string }): string {
-  if (input.locale === "zh") {
-    return [
-      "你是 analyst specialist。你的唯一工作是分析研究结果并提炼洞察。",
-      "给定原始研究数据：",
-      "- 识别 3 到 5 个最重要的模式",
-      "- 标出来源之间的矛盾",
-      "- 标出证据不足的断言",
-      "- 只输出结构化分析，不要写最终报告",
-      "",
-      `原始任务：${input.originalPrompt}`,
-      "",
-      "研究数据：",
-      input.researchPacket,
-    ].join("\n");
-  }
-
-  return [
-    "You are the analyst specialist. Your only job is to analyze research findings and extract insights.",
-    "Given raw research data:",
-    "- identify the 3 to 5 most important patterns",
-    "- note contradictions between sources",
-    "- flag claims that lack sufficient evidence",
-    "- return structured analysis only, not a final report",
-    "",
-    `Original task: ${input.originalPrompt}`,
-    "",
-    "RESEARCH DATA:",
+  return hostT(
+    input.locale,
+    "你是 analyst specialist。你的唯一工作是分析研究结果并提炼洞察。\n给定原始研究数据：\n- 识别 3 到 5 个最重要的模式\n- 标出来源之间的矛盾\n- 标出证据不足的断言\n- 只输出结构化分析，不要写最终报告\n\n原始任务：{0}\n\n研究数据：\n{1}",
+    input.originalPrompt,
     input.researchPacket,
-  ].join("\n");
+  );
 }
 
 function buildWriterPrompt(input: {
@@ -215,43 +160,13 @@ function buildWriterPrompt(input: {
   researchPacket: string;
   analysis: string;
 }): string {
-  if (input.locale === "zh") {
-    return [
-      "你是 writer specialist。你的唯一工作是把分析结果写成清晰、专业、可读的报告。",
-      "要求：",
-      "- 先给 executive summary",
-      "- 然后给结构化章节",
-      "- 尽量引用具体数字和来源",
-      "- 可扫描，3 分钟内能抓住重点",
-      "- 不要做新的研究，不要擅自改变分析结论",
-      "",
-      `原始任务：${input.originalPrompt}`,
-      "",
-      "研究数据：",
-      input.researchPacket,
-      "",
-      "分析结果：",
-      input.analysis,
-    ].join("\n");
-  }
-
-  return [
-    "You are the writer specialist. Your only job is to turn analyzed data into a polished, readable report.",
-    "Requirements:",
-    "- start with an executive summary",
-    "- then write structured sections",
-    "- cite concrete numbers and sources when available",
-    "- keep it scannable",
-    "- do not do new research and do not change the conclusions from the analysis",
-    "",
-    `Original task: ${input.originalPrompt}`,
-    "",
-    "RAW RESEARCH:",
+  return hostT(
+    input.locale,
+    "你是 writer specialist。你的唯一工作是把分析结果写成清晰、专业、可读的报告。\n要求：\n- 先给 executive summary\n- 然后给结构化章节\n- 尽量引用具体数字和来源\n- 可扫描，3 分钟内能抓住重点\n- 不要做新的研究，不要擅自改变分析结论\n\n原始任务：{0}\n\n研究数据：\n{1}\n\n分析结果：\n{2}",
+    input.originalPrompt,
     input.researchPacket,
-    "",
-    "ANALYSIS:",
     input.analysis,
-  ].join("\n");
+  );
 }
 
 function buildReviewerPrompt(input: {
@@ -260,55 +175,13 @@ function buildReviewerPrompt(input: {
   researchPacket: string;
   draft: string;
 }): string {
-  if (input.locale === "zh") {
-    return [
-      "你是 reviewer specialist。你的唯一工作是把完成稿和原始研究对照检查。",
-      "检查：",
-      "- 有无未被研究支持的断言",
-      "- 有无遗漏的重要发现",
-      "- 是否存在逻辑不一致或弱推理",
-      "- 数字和统计是否准确",
-      "- 可读性是否有明显问题",
-      "",
-      "严格按以下格式返回：",
-      "VERDICT: PASS 或 REVISE",
-      "ISSUES:",
-      "- issue 1",
-      "- issue 2",
-      "",
-      `原始任务：${input.originalPrompt}`,
-      "",
-      "原始研究：",
-      input.researchPacket,
-      "",
-      "草稿：",
-      input.draft,
-    ].join("\n");
-  }
-
-  return [
-    "You are the reviewer specialist. Your only job is to check the finished report against the original research.",
-    "Check for:",
-    "- claims not supported by the research",
-    "- important findings omitted from the report",
-    "- logical inconsistencies or weak reasoning",
-    "- accuracy of numbers and statistics",
-    "- clarity and readability issues",
-    "",
-    "Return in this exact format:",
-    "VERDICT: PASS or REVISE",
-    "ISSUES:",
-    "- issue 1",
-    "- issue 2",
-    "",
-    `Original task: ${input.originalPrompt}`,
-    "",
-    "RAW RESEARCH:",
+  return hostT(
+    input.locale,
+    "你是 reviewer specialist。你的唯一工作是把完成稿和原始研究对照检查。\n检查：\n- 有无未被研究支持的断言\n- 有无遗漏的重要发现\n- 是否存在逻辑不一致或弱推理\n- 数字和统计是否准确\n- 可读性是否有明显问题\n\n严格按以下格式返回：\nVERDICT: PASS 或 REVISE\nISSUES:\n- issue 1\n- issue 2\n\n原始任务：{0}\n\n原始研究：\n{1}\n\n草稿：\n{2}",
+    input.originalPrompt,
     input.researchPacket,
-    "",
-    "DRAFT REPORT:",
     input.draft,
-  ].join("\n");
+  );
 }
 
 function parseReviewerVerdict(text: string): { verdict: "pass" | "revise"; issues: string } {
@@ -327,45 +200,15 @@ function buildWriterRevisionPrompt(input: {
   draft: string;
   reviewIssues: string;
 }): string {
-  if (input.locale === "zh") {
-    return [
-      "你是 writer specialist。请基于 reviewer 的问题修订当前报告。",
-      "不要重新研究；只根据已有研究和分析修订。",
-      "",
-      `原始任务：${input.originalPrompt}`,
-      "",
-      "原始研究：",
-      input.researchPacket,
-      "",
-      "分析结果：",
-      input.analysis,
-      "",
-      "当前草稿：",
-      input.draft,
-      "",
-      "Reviewer 提出的问题：",
-      input.reviewIssues,
-    ].join("\n");
-  }
-
-  return [
-    "You are the writer specialist. Revise the current report using the review issues below.",
-    "Do not do new research; only revise using the existing research and analysis.",
-    "",
-    `Original task: ${input.originalPrompt}`,
-    "",
-    "RAW RESEARCH:",
+  return hostT(
+    input.locale,
+    "你是 writer specialist。请基于 reviewer 的问题修订当前报告。\n不要重新研究；只根据已有研究和分析修订。\n\n原始任务：{0}\n\n原始研究：\n{1}\n\n分析结果：\n{2}\n\n当前草稿：\n{3}\n\nReviewer 提出的问题：\n{4}",
+    input.originalPrompt,
     input.researchPacket,
-    "",
-    "ANALYSIS:",
     input.analysis,
-    "",
-    "CURRENT DRAFT:",
     input.draft,
-    "",
-    "REVIEW ISSUES:",
     input.reviewIssues,
-  ].join("\n");
+  );
 }
 
 async function appendCrewTimelineEvent(
@@ -454,9 +297,7 @@ export async function handleCrewCoreWorkflow(input: {
     if (remote.some((id) => !config || !isPeerAllowed(config, id))) {
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh"
-          ? "协作成员无效或尚未获准。请重新选择成员并检查协作权限；任务未启动。"
-          : "Invalid or unauthorized collaboration members. Check the selection and permissions; no task was started.",
+        hostT(locale, "协作成员无效或尚未获准。请重新选择成员并检查协作权限；任务未启动。"),
       );
       return true;
     }
@@ -466,7 +307,7 @@ export async function handleCrewCoreWorkflow(input: {
   if (activeCrewRunKeys.has(activeRunKey)) {
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? "当前聊天已有 crew 正在运行。" : "A crew run is already active for this chat.",
+      hostT(locale, "当前聊天已有 crew 正在运行。"),
     );
     return true;
   }
@@ -555,7 +396,7 @@ export async function handleCrewCoreWorkflow(input: {
 
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? "正在运行 research-report crew..." : "Running research-report crew...",
+      hostT(locale, "正在运行 research-report crew..."),
     );
 
     try {
@@ -578,7 +419,7 @@ export async function handleCrewCoreWorkflow(input: {
         outcome: "success",
       });
       await announce(
-      locale === "zh" ? "Coordinator 正在拆分研究问题..." : "Coordinator is decomposing the research task...",
+      hostT(locale, "Coordinator 正在拆分研究问题..."),
     );
     const decomposition = await runCoordinatorTurn(buildDecompositionPrompt({
       locale,
@@ -587,7 +428,7 @@ export async function handleCrewCoreWorkflow(input: {
     }));
     const subQuestions = parseCoordinatorSubquestions(decomposition, crew.maxResearchQuestions);
     if (subQuestions.length === 0) {
-      throw new Error(locale === "zh" ? "Coordinator 没有生成可用的研究子问题。" : "Coordinator did not produce usable research sub-questions.");
+      throw new Error(hostT(locale, "Coordinator 没有生成可用的研究子问题。"));
     }
     await crewRunStore.update(runId, (record) => {
       record.stages.decomposition = {
@@ -630,7 +471,7 @@ export async function handleCrewCoreWorkflow(input: {
       metadata: { questionCount: subQuestions.length },
     });
     await announce(
-      locale === "zh" ? `研究阶段：${subQuestions.length} 个子问题` : `Research stage: ${subQuestions.length} sub-questions`,
+      hostT(locale, "研究阶段：{0} 个子问题", subQuestions.length),
     );
     const research = await mapWithConcurrency(subQuestions, CREW_RESEARCH_CONCURRENCY, async (question): Promise<ResearchStageEntry> => {
       try {
@@ -680,9 +521,7 @@ export async function handleCrewCoreWorkflow(input: {
     if (research.failure) throw research.failure.error;
     if (successfulResearchFindings.length === 0) {
       throw new Error(
-        locale === "zh"
-          ? "所有 research specialist 子任务都失败了。"
-          : "All research specialist sub-questions failed.",
+        hostT(locale, "所有 research specialist 子任务都失败了。"),
       );
     }
     await crewRunStore.update(runId, (record) => {
@@ -693,9 +532,9 @@ export async function handleCrewCoreWorkflow(input: {
     context.abortSignal?.throwIfAborted();
     if (failedResearch.length > 0) {
       await announce(
-        locale === "zh"
-          ? `研究阶段完成，但有 ${failedResearch.length} 个子问题失败。`
-          : `Research stage completed with ${failedResearch.length} failed sub-question${failedResearch.length === 1 ? "" : "s"}.`,
+        failedResearch.length === 1
+          ? hostT(locale, "研究阶段完成，但有 1 个子问题失败。")
+          : hostT(locale, "研究阶段完成，但有 {0} 个子问题失败。", failedResearch.length),
       );
     }
     await appendCrewTimelineEvent(stateDir, {
@@ -730,7 +569,7 @@ export async function handleCrewCoreWorkflow(input: {
       outcome: "success",
     });
     await announce(
-      locale === "zh" ? "分析阶段..." : "Analysis stage...",
+      hostT(locale, "分析阶段..."),
     );
     const analysisResult = await delegateRole({
       role: "analyst",
@@ -783,7 +622,7 @@ export async function handleCrewCoreWorkflow(input: {
       metadata: { revisionCount: 0 },
     });
     await announce(
-      locale === "zh" ? "写作阶段..." : "Writing stage...",
+      hostT(locale, "写作阶段..."),
     );
     const draftResult = await delegateRole({
       role: "writer",
@@ -837,7 +676,7 @@ export async function handleCrewCoreWorkflow(input: {
       outcome: "success",
     });
     await announce(
-      locale === "zh" ? "审查阶段..." : "Review stage...",
+      hostT(locale, "审查阶段..."),
     );
     const reviewerResultText = await delegateRole({
       role: "reviewer",
@@ -899,7 +738,7 @@ export async function handleCrewCoreWorkflow(input: {
         metadata: { revisionCount, revisionReason: reviewerResult.issues },
       });
       await announce(
-        locale === "zh" ? "Reviewer 提出了问题，正在回写修订..." : "Reviewer flagged issues, sending back for revision...",
+        hostT(locale, "Reviewer 提出了问题，正在回写修订..."),
       );
       const revisionResult = await delegateRole({
         role: "writer",
@@ -1066,8 +905,9 @@ export async function handleCrewCoreWorkflow(input: {
     });
     await context.api.sendMessage(
       normalized.chatId,
-      stopped ? (locale === "zh" ? "研究团队已停止。已完成的结果会保留。" : "Research crew stopped. Completed results are preserved.")
-        : locale === "zh" ? `Crew 执行失败：${detail}` : `Crew execution failed: ${detail}`,
+      stopped
+        ? hostT(locale, "研究团队已停止。已完成的结果会保留。")
+        : hostT(locale, "Crew 执行失败：{0}", detail),
     );
     await appendUpdateHandleAuditEventBestEffort(stateDir, context, normalized, {
       outcome: stopped ? "stopped" : "error",

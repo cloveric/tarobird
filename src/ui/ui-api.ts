@@ -57,13 +57,13 @@ export interface UiApiDeps {
 const EDITABLE_FIELDS = ["engine", "model", "effort", "locale", "verbosity", "budgetUsd"] as const;
 type EditableField = (typeof EDITABLE_FIELDS)[number];
 
-const VALID_ENGINES = new Set(["codex", "claude", "antigravity", "kimi", "deepseek", "pi"]);
+const VALID_ENGINES = new Set(["codex", "claude", "antigravity", "kimi", "deepseek", "pi", "omp"]);
 
 class UiConfigValidationError extends Error {}
 
 function configEngine(config: Record<string, unknown>): InstanceConfig["engine"] {
   return config.engine === "claude" || config.engine === "antigravity" ||
-      config.engine === "kimi" || config.engine === "deepseek" || config.engine === "pi"
+      config.engine === "kimi" || config.engine === "deepseek" || config.engine === "pi" || config.engine === "omp"
     ? config.engine
     : "codex";
 }
@@ -75,8 +75,8 @@ function applyUiConfigPatch(
   const targetEngine = typeof applied.engine === "string"
     ? applied.engine as InstanceConfig["engine"]
     : configEngine(config);
-  if (targetEngine === "pi" && config.role === "dispatcher") {
-    throw new UiConfigValidationError("Pi is available for ordinary Bots, not Chief of Staff Bots.");
+  if ((targetEngine === "pi" || targetEngine === "omp") && config.role === "dispatcher") {
+    throw new UiConfigValidationError(targetEngine === "omp" ? "omp is available for ordinary Bots, not Superagent Bots." : "Pi is available for ordinary Bots, not Superagent Bots.");
   }
   if (typeof applied.engine === "string") {
     applyEngineSelection(config, targetEngine);
@@ -88,9 +88,9 @@ function applyUiConfigPatch(
   }
 
   const compatibilityChanged = "engine" in applied || "model" in applied || "effort" in applied;
-  if (compatibilityChanged && configEngine(config) === "pi" && config.model !== undefined && config.model !== "") {
+  if (compatibilityChanged && (configEngine(config) === "pi" || configEngine(config) === "omp") && config.model !== undefined && config.model !== "") {
     if (typeof config.model !== "string" || config.model.length > 512 || !decodePiModel(config.model)) {
-      throw new UiConfigValidationError("Pi model must be a provider/model pair.");
+      throw new UiConfigValidationError("Model must be a provider/model pair.");
     }
   }
   if (!compatibilityChanged || config.effort === undefined) return;

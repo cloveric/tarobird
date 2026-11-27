@@ -609,14 +609,17 @@ describe("R13: every steer outcome leaves an audit entry", () => {
 });
 
 describe("R15: scope decided by the lead", () => {
-  it("queues for a dispatcher (or worker) recipient", async () => {
+  it("queues for an internal worker recipient while allowing steering on a dispatcher recipient", async () => {
     const chat = await resolve(); await liveTurn(chat.conversationId);
-    for (const role of ["dispatcher", "worker"]) {
-      await resetRate();
-      await b.store.db.run("UPDATE bots SET role=? WHERE id='target'", [role]);
-      expect(await send(chat.conversationId, `Fix ${role}`, { delivery: "steer" })).toMatchObject({ delivery: { actual: "fell_back_to_queue", reason: "unsupported_conversation" } });
-    }
+    await resetRate();
+    await b.store.db.run("UPDATE bots SET role='worker' WHERE id='target'");
+    expect(await send(chat.conversationId, "Fix worker", { delivery: "steer" })).toMatchObject({ delivery: { actual: "fell_back_to_queue", reason: "unsupported_conversation" } });
     expect(fake.status).not.toHaveBeenCalled();
+
+    await resetRate();
+    await b.store.db.run("UPDATE bots SET role='dispatcher' WHERE id='target'");
+    expect(await send(chat.conversationId, "Fix dispatcher", { delivery: "steer" })).toMatchObject({ delivery: { actual: "steered" } });
+    expect(fake.status).toHaveBeenCalled();
   });
 
   it("does not count a Host-written notice that merely carries the sender's Bot source as the sender's turn", async () => {

@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { LocaleSchema } from "../runtime/locale.js";
 import type { Block } from "./index.js";
 
 /** Optional card metadata: older clients still render its ordinary text. */
 export const answerFollowupSchema = z.object({
-  version: z.literal(1), startedAt: z.number().int().nonnegative(), locale: z.enum(["en", "zh"]),
+  version: z.literal(1), startedAt: z.number().int().nonnegative(), locale: LocaleSchema,
   phase: z.enum(["queued", "sent", "processing", "finished", "interrupted", "failed", "skipped", "blocked"]),
 }).strict();
 export type AnswerFollowup = z.infer<typeof answerFollowupSchema>;

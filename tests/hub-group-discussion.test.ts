@@ -75,7 +75,7 @@ describe("group settings and the mention delivery rule", () => {
     // Restarting keeps the saved policy (schema 21 state).
     await hub.close(); hub = await HubServer.start({ stateDir: root }); service = new HubGroupDiscussions(hub.store, { workerCapable: () => undefined, stop });
     expect((await settings(chat.id)).policy.mode).toBe("sequential");
-    expect(await hub.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "26" });
+    expect(await hub.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "28" });
   });
 
   it("delivers group input only to mentioned Bots; direct chats are unchanged", async () => {

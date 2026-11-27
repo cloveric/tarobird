@@ -36,6 +36,8 @@ export interface ResourceDescriptor {
     type: 'image' | 'file' | 'audio' | 'video' | 'sticker';
     fileKey: string;
     fileName?: string;
+    mime?: string;
+    recording?: boolean;
     durationMs?: number;
     coverImageKey?: string;
 }

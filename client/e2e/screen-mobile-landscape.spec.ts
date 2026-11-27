@@ -307,3 +307,39 @@ test("portrait phones and tablets keep the stacked viewer", async ({ browser }) 
     } finally { await context.close(); }
   }
 });
+
+test("landscape performance overlay clears the status pill, stays above the keyboard row, and meets 44px touch targets", async ({ browser }) => {
+  const phone = phones[1]!, text = say(false), { page, errors, close } = await open(browser, phone);
+  try {
+    await connect(page, text);
+    await page.getByRole("button", { name: text("屏幕更多操作"), exact: true }).click();
+    const toggleRow = page.locator(".screen-metrics-toggle"), checkbox = toggleRow.locator('input[type="checkbox"]');
+    const sizes = await toggleRow.evaluate(node => {
+      const r = node.getBoundingClientRect(), input = node.querySelector("input")!.getBoundingClientRect();
+      return { rowH: r.height, inputW: input.width, inputH: input.height };
+    });
+    expect(sizes.rowH).toBeGreaterThanOrEqual(43.99);
+    expect(sizes.inputW).toBeGreaterThanOrEqual(43.99);
+    expect(sizes.inputH).toBeGreaterThanOrEqual(43.99);
+    await checkbox.click();
+    await page.getByRole("button", { name: text("屏幕更多操作"), exact: true }).click();
+    // Open keyboard row too so both status pill (top) and keyboard tray (bottom) are active simultaneously.
+    await page.getByRole("button", { name: text("键盘与快捷键"), exact: true }).click();
+    const overlay = page.getByRole("region", { name: text("屏幕性能数据"), exact: true });
+    await expect(overlay).toBeVisible();
+    const check = await page.evaluate(() => {
+      const o = document.querySelector(".screen-metrics-overlay")!.getBoundingClientRect();
+      const l = document.querySelector(".screen-status-label")!.getBoundingClientRect();
+      const v = document.querySelector(".screen-viewport")!.getBoundingClientRect();
+      const k = document.querySelector(".screen-mobile-keyboard")!.getBoundingClientRect();
+      return {
+        pointerEvents: getComputedStyle(document.querySelector(".screen-metrics-overlay")!).pointerEvents,
+        belowStatusLabel: o.top >= l.bottom - 0.5,
+        aboveKeyboard: o.bottom <= k.top + 0.5,
+        insideViewport: o.left >= v.left - 0.5 && o.right <= v.right + 0.5 && o.top >= v.top - 0.5 && o.bottom <= v.bottom + 0.5,
+      };
+    });
+    expect(check).toEqual({ pointerEvents: "none", belowStatusLabel: true, aboveKeyboard: true, insideViewport: true });
+    expect(errors).toEqual([]);
+  } finally { await close(); }
+});

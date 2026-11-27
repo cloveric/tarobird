@@ -7,7 +7,7 @@ import { REGISTRY_DATABASE } from './desktop-migration-format.js';
 async function run() {
   const source = indexedDbExportSource();
   const sourceExists = await source.database(REGISTRY_DATABASE) || await source.database('tarocub-v1')
-    || [...source.localStorage()].some(([key]) => /^(tarocub|tarobot)/.test(key));
+    || [...source.localStorage()].some(([key]) => /^(tarocub|tarobot|tarobird)/.test(key));
   // A wrong origin/profile must never be accepted as a successful empty import.
   if (!sourceExists) throw new Error('migration_source_empty');
   const sink = tauriExportSink(async (command, args, options) => {

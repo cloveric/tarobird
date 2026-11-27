@@ -11,6 +11,10 @@
   --font-mono:var(--font-sans);
   font-variant-ligatures:none;
 }
+:root[lang^="ja"][data-palette=cli],:root[lang^="ja"] .palette-preview[data-palette=cli],:root[lang^="ja"] .palette-preview[data-palette=cli] .xp-pane{
+  --font-sans:"JetBrains Mono","Hiragino Kaku Gothic ProN","BIZ UDGothic","Yu Gothic","MS Gothic","Noto Sans Mono CJK JP","Sarasa Term SC",ui-monospace,"SF Mono",Consolas,monospace;
+  --font-mono:var(--font-sans);
+}
 /* A terminal uses weight/color for emphasis, not larger headings or smaller
    code. Tables share the compact desktop reading scale; passive previews and
    phones keep their inherited size. Colours are the tokens defined once in

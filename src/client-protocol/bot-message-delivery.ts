@@ -9,7 +9,7 @@ export const BOT_MESSAGE_STEER_CAPABILITY = "bot-messages.steer.v1";
 /** Engines whose adapters natively append input to a running turn. Others
  * (Pi, Kimi, DeepSeek, Antigravity…) never steer a Bot message, even when
  * their adapter has an owner-only steering path. */
-export const BOT_MESSAGE_STEER_ENGINES = ["codex", "claude"] as const;
+export const BOT_MESSAGE_STEER_ENGINES = ["codex", "claude", "omp"] as const;
 export const supportsBotMessageSteerEngine = (engine: string): boolean => (BOT_MESSAGE_STEER_ENGINES as readonly string[]).includes(engine);
 
 /** The sender's choice for one message. Omitted on the wire means queue and

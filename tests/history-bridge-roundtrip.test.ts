@@ -123,8 +123,11 @@ async function fixture(adapter: CodexAdapter) {
   };
   const snapshot = (conversationId = source.id) => request<HistorySnapshot>(conversationId, "?botId=bot");
   const anchors = (messageId: string) => request<HistoryAnchorPage>(source.id, `/anchors?botId=bot&messageId=${messageId}`);
+  // While the Gateway still counts the last turn as running, a snapshot answers
+  // busy without a native read and so without a revision; wait for an idle one.
+  const idleRevision = async () => { let revision: string | undefined; await until(async () => !!(revision = (await snapshot()).revision)); return revision!; };
   const operation = async (requestId: string, action: HistoryAction, revision?: string) => {
-    const change = { botId: "bot", requestId, action, expectedRevision: revision ?? (await snapshot()).revision };
+    const change = { botId: "bot", requestId, action, expectedRevision: revision ?? await idleRevision() };
     return { change, result: await request<HistoryOperation>(source.id, "/operations", change) };
   };
   return { directory, stateDir, hub, source, sessions, warnings, send, snapshot, anchors, operation, request, api, restart };

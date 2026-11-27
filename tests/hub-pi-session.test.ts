@@ -104,7 +104,7 @@ describe("Pi session HTTP authorization and capability boundary", () => {
     const call = await worker.next("instance.call"); expect(call.method).toBe("pi.session.set"); worker.ws.terminate();
     expect(await (await pending).json()).toEqual({ outcome: "unknown", reason: "uncertain" });
   });
-  it("refuses hidden worker and Chief of Staff conversations", async () => {
+  it("refuses hidden worker and Superagent conversations", async () => {
     const worker = await bot();
     for (const role of ["worker", "dispatcher"]) {
       await hub.store.db.run("UPDATE bots SET role=? WHERE id='pi_bot'", [role]);

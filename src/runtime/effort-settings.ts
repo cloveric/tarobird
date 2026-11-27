@@ -27,13 +27,13 @@ export async function effortSettings(stateDir: string, engine: InstanceEngine, a
   const activeCount = () => typeof activeTurns === "function" ? activeTurns() : activeTurns;
   try {
     const file = path.join(stateDir, "config.json");
-    const initial = engine === "pi" || engine === "deepseek" ? await readConfig(file) : undefined;
+    const initial = engine === "pi" || engine === "omp" || engine === "deepseek" ? await readConfig(file) : undefined;
     const workspace = initial?.workspacePath ?? initial?.resume?.workspacePath ?? path.join(stateDir, "workspace");
     const catalog = await readModelCatalog(engine, process.env, workspace, patch !== undefined), models = catalog.choices;
     const settings = await withFileMutex(file, async () => {
       const config = await readConfig(file), before = snapshot(config, engine, activeCount(), models);
       if (engine === "deepseek") before.catalogStatus = catalog.status;
-      if ((engine === "pi" || engine === "deepseek") && (config.workspacePath ?? config.resume?.workspacePath ?? path.join(stateDir, "workspace")) !== workspace) throw new Error("effort_conflict");
+      if ((engine === "pi" || engine === "omp" || engine === "deepseek") && (config.workspacePath ?? config.resume?.workspacePath ?? path.join(stateDir, "workspace")) !== workspace) throw new Error("effort_conflict");
       if (patch === undefined) return before;
       const update = effortPatchSchema.parse(patch);
       if (update.revision !== before.revision) throw new Error("effort_conflict");

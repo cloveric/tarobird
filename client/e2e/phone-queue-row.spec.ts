@@ -27,14 +27,17 @@ for (const platform of ['ios', 'android']) test(`${platform}: queued count and s
     await page.evaluate(platform => { document.documentElement.dataset.platform = platform; }, platform);
     const choice = page.locator('.claude-send-choice');
     await expect(choice.locator('[data-mode=next]')).toBeChecked();
-    const hint = page.locator('.send-choice-summary');
-    await expect(hint).toBeVisible();
-    await expect(hint).toHaveText('等待当前任务结束后再处理');
-    await hint.click(); await expect(page.locator('.send-choice-explanation')).toBeVisible();
+    await expect(page.locator('.send-choice-summary')).toHaveCount(0);
+    const help = choice.getByRole('button', { name: '说明发送方式', exact: true });
+    await expect(help).toBeVisible();
+    const helpBox = (await help.boundingBox())!;
+    expect(helpBox.height).toBeGreaterThanOrEqual(44);
+    expect(helpBox.width).toBeGreaterThanOrEqual(44);
+    await help.click(); await expect(page.locator('.send-choice-explanation')).toBeVisible();
     await page.getByRole('button', { name: '关闭发送方式说明', exact: true }).click();
-    await expect(hint).toBeFocused();
+    await expect(help).toBeFocused();
     await input.focus(); await choice.locator('[data-mode=current]').tap(); await expect(input).toBeFocused();
-    await expect(hint).toHaveText('补充到当前任务，不改变待执行顺序');
+    await expect(page.locator('.composer-accessories')).not.toContainText('补充到当前任务');
     await choice.locator('[data-mode=next]').tap();
     const emptyHeight = (await page.locator('.composer-wrap').boundingBox())!.height;
     await page.screenshot({ path: info.outputPath(`${platform}-empty.png`), animations: 'disabled' });
@@ -47,7 +50,7 @@ for (const platform of ['ios', 'android']) test(`${platform}: queued count and s
     expect(queueBox.x + queueBox.width).toBeLessThanOrEqual(choiceBox.x);
     expect(queueBox.height).toBeGreaterThanOrEqual(44);
     expect((await page.locator('.composer-wrap').boundingBox())!.height).toBeCloseTo(emptyHeight, 0);
-    await expect(hint).toBeHidden();
+    await expect(help).toBeHidden();
     for (const locale of ['zh', 'en']) {
       if (locale === 'en') {
         await openSettings(page); await page.getByLabel('语言', { exact: true }).selectOption('en'); await closeSettings(page, true);

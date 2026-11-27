@@ -1,4 +1,6 @@
 import path from "node:path";
+import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 
 import {
   extractDeliveryTagMatches,
@@ -402,41 +404,33 @@ export function coreDeliveryPreflightRepairPrompt(
 }
 
 export function renderCoreDeliveryPreflightFailure(
-  locale: "en" | "zh",
+  locale: Locale,
   preflight: CoreDeliveryDirectivePreflight,
   originalPreflight?: CoreDeliveryDirectivePreflight,
 ): string {
   const issue = preflight.issues[0] ?? originalPreflight?.issues[0];
   if (!issue) {
-    return locale === "zh"
-      ? "交付失败：自动修复没有生成可执行的文件或图片发送指令。请重新生成后再试。"
-      : "Delivery failed: the automatic repair did not produce an executable file or image directive. Regenerate the artifact and try again.";
+    return hostT(locale, "交付失败：自动修复没有生成可执行的文件或图片发送指令。请重新生成后再试。");
   }
   const fileName = path.basename(issue.path) || issue.path;
   if (issue.reason === "outside-workspace") {
     const workspace = issue.workspaceRoot
-      ? (locale === "zh" ? `允许发送目录：${issue.workspaceRoot}。` : `Allowed workspace: ${issue.workspaceRoot}.`)
+      ? hostT(locale, "允许发送目录：{0}。", issue.workspaceRoot)
       : "";
-    return locale === "zh"
-      ? `交付失败：${fileName} 仍不在允许发送的目录内，自动修复没有成功。${workspace}`
-      : `Delivery failed: ${fileName} is still outside the allowed workspace and automatic repair did not succeed. ${workspace}`.trim();
+    return hostT(locale, "交付失败：{0} 仍不在允许发送的目录内，自动修复没有成功。{1}", fileName, workspace).trim();
   }
   if (issue.reason === "too-large") {
     const uploadLimitMiB = Math.floor(CORE_FILE_UPLOAD_MAX_BYTES / (1024 * 1024));
     const fileSizeMiB = issue.fileBytes === undefined
       ? undefined
       : Math.ceil(issue.fileBytes / (1024 * 1024));
-    return locale === "zh"
-      ? `交付失败：${fileName}${fileSizeMiB === undefined ? "" : ` 有 ${fileSizeMiB}MB，`}仍超过当前接口实测安全上限 ${uploadLimitMiB}MB，自动压缩或拆分没有成功。`
-      : `Delivery failed: ${fileName}${fileSizeMiB === undefined ? "" : ` is ${fileSizeMiB}MB and`} is still above the current tested-safe ${uploadLimitMiB}MB upload limit; automatic compression or splitting did not succeed.`;
+    return fileSizeMiB === undefined
+      ? hostT(locale, "交付失败：{0} 仍超过当前接口实测安全上限 {1}MB，自动压缩或拆分没有成功。", fileName, uploadLimitMiB)
+      : hostT(locale, "交付失败：{0} 有 {1}MB，仍超过当前接口实测安全上限 {2}MB，自动压缩或拆分没有成功。", fileName, fileSizeMiB, uploadLimitMiB);
   }
-  return locale === "zh"
-    ? `交付失败：${fileName} 仍未通过发送前检查（${issue.reason}），自动修复没有成功。`
-    : `Delivery failed: ${fileName} still failed preflight (${issue.reason}) after automatic repair.`;
+  return hostT(locale, "交付失败：{0} 仍未通过发送前检查（{1}），自动修复没有成功。", fileName, issue.reason);
 }
 
-export function renderUnverifiedCoreDeliveryClaim(locale: "en" | "zh"): string {
-  return locale === "zh"
-    ? "交付未确认：引擎声称文件或图片已经发送，但本轮没有提供任何可执行的发送指令，因此该说法已被拦截。请明确要求重新生成或重新发送。"
-    : "Delivery was not confirmed: the engine claimed the files or images were sent, but this turn contained no executable delivery directive. The claim was blocked; ask it to regenerate or resend.";
+export function renderUnverifiedCoreDeliveryClaim(locale: Locale): string {
+  return hostT(locale, "交付未确认：引擎声称文件或图片已经发送，但本轮没有提供任何可执行的发送指令，因此该说法已被拦截。请明确要求重新生成或重新发送。");
 }

@@ -1,0 +1,6 @@
+Electron desktop releases bundle the Electron runtime (MIT), Chromium
+(BSD-3-Clause and component licenses), and Node.js (MIT).
+
+The complete third-party attribution notices for Chromium and bundled
+runtime libraries are distributed alongside the desktop application in
+LICENSES.chromium.html and LICENSE.

@@ -1,6 +1,8 @@
 import path from "node:path";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "./locale.js";
 
-export type CitationLocale = "en" | "zh";
+export type CitationLocale = Locale;
 
 const CODEX_FILE_CITATION_MARKER = ":codex-file-citation{";
 const CODEX_FOLLOWUP_MARKER = ":codex-followup[";
@@ -162,7 +164,7 @@ function sanitizeFollowupLabel(value: string): string {
 }
 
 function unavailableFollowup(locale: CitationLocale): string {
-  return locale === "zh" ? "（后续建议不可用）" : "(Follow-up unavailable)";
+  return hostT(locale, "（后续建议不可用）");
 }
 
 function findCitationEnd(text: string, start: number): number {
@@ -193,21 +195,16 @@ function renderCitationBody(body: string, locale: CitationLocale): string {
   const attributes = parseCitationAttributes(body);
   const fileName = attributes ? citationBasename(attributes.path) : "";
   if (!attributes || !fileName) {
-    return locale === "zh" ? "（文件引用不可用）" : "(File reference unavailable)";
+    return hostT(locale, "（文件引用不可用）");
   }
 
   const sheet = sanitizeInlineCode(attributes.sheet);
   const range = sanitizeInlineCode(attributes.range);
   const location = sheet && range ? `${sheet}!${range}` : sheet || range;
-  const source = locale === "zh" ? "来源" : "Source";
   const renderedFile = inlineCode(fileName);
   return location
-    ? locale === "zh"
-      ? `（${source}：${renderedFile} · ${inlineCode(location)}）`
-      : `(${source}: ${renderedFile} · ${inlineCode(location)})`
-    : locale === "zh"
-      ? `（${source}：${renderedFile}）`
-      : `(${source}: ${renderedFile})`;
+    ? hostT(locale, "（来源：{0} · {1}）", renderedFile, inlineCode(location))
+    : hostT(locale, "（来源：{0}）", renderedFile);
 }
 
 function parseCitationAttributes(body: string): Record<string, string> | null {

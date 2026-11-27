@@ -325,7 +325,9 @@ for (const english of [false, true]) for (const native of [true, false]) test(`e
   const wb = page.getByRole("complementary", { name: english ? "Workbench" : "工作台", exact: true });
   try {
     const empty = wb.locator(".workbench-empty");
-    await expect(empty.getByRole("button")).toHaveCount(native ? 5 : 4);
+    // Desktop: presentation, whiteboard, note, webpage. Phone: whiteboard and note (no canvas since #89;
+    // a presentation is created on desktop only since #90; webpages are desktop-only).
+    await expect(empty.getByRole("button")).toHaveCount(native ? 4 : 2);
     expect.soft(await empty.innerText()).not.toMatch(/baoyu/i);
     await wb.getByRole("button", { name: english ? "New content" : "新建内容", exact: true }).click();
     expect.soft(await wb.getByRole("menu").innerText()).not.toMatch(/baoyu/i);
@@ -355,7 +357,7 @@ for (const english of [false, true]) for (const native of [true, false]) test(`e
         await page.screenshot({ path: info.outputPath(`empty-phone-${width}.png`) });
       }
     }
-    await expect(empty.getByRole("button", { name: english ? "Canvas" : "画布", exact: true })).toBeVisible();
-    await expect(empty.getByRole("button", { name: "PPT", exact: true })).toBeVisible();
+    await expect(empty.getByRole("button", { name: english ? "Canvas" : "画布", exact: true })).toHaveCount(0);
+    await expect(empty.getByRole("button", { name: english ? "Presentation" : "演示文稿", exact: true })).toHaveCount(native ? 1 : 0);
   } finally { await f.close(); }
 });

@@ -7,6 +7,7 @@ import { randomNonce } from "./identity.js";
 import { queueRequest } from "./prompt-queue-request.js";
 import { steerReason, nativeInputReason } from "./steering-reason.js";
 import { t } from "./i18n.js";
+import type { SendTimingTrace } from "./send-timing.js";
 
 /** Only definitive pre-delivery rejection permits ordinary-send fallback. */
 export class SteeringNotDeliveredError extends Error {
@@ -38,7 +39,7 @@ export async function clearNativeInputDraft(connection: HubConnection, conversat
 const pending = new WeakMap<HubConnection, Map<string, Attempt>>();
 /** An uncertain HTTP send is checked with the original ID and target, even
  * after navigation. It is never retried as a fresh instruction or queued turn. */
-export async function sendSteering(connection: HubConnection, conversationId: string, botId: string, text: string, current: () => boolean, ordinary = false, immediately = false, workbench?: WorkbenchContext, expectedTargetId?: string): Promise<Message | undefined> {
+export async function sendSteering(connection: HubConnection, conversationId: string, botId: string, text: string, current: () => boolean, ordinary = false, immediately = false, workbench?: WorkbenchContext, expectedTargetId?: string, timing?: SendTimingTrace): Promise<Message | undefined> {
   let store = pending.get(connection); if (!store) { store = new Map(); pending.set(connection, store); }
   const key = `${conversationId}:${botId}`, route = `/api/conversations/${conversationId}/steer`;
   const persistedKey = ordinary ? draftKey(conversationId, botId) : steeringDraftKey(conversationId, botId);
@@ -82,7 +83,14 @@ export async function sendSteering(connection: HubConnection, conversationId: st
     store.set(key, attempt);
   }
   if (!current()) return;
+  timing?.mark("steeringPreflightDoneAt");
+  timing?.setRoute(ordinary && attempt.mode ? "native_message" : "steer");
+  timing?.setClientMsgId(attempt.requestId);
   const receipt = await deliverAttempt(connection, conversationId, attempt, ordinary);
+  const steeringOutcome = receipt.blocks.find(block => block.type === "steering")?.outcome;
+  if (steeringOutcome !== "rejected") {
+    timing?.setClientMsgId(receipt.clientMsgId ?? attempt.requestId, receipt.id);
+  }
   if (expectedTargetId && attempt.targetId !== expectedTargetId && receipt.blocks.some(block => block.type === "steering" && block.outcome === "accepted")) {
     throw new Error(t("这段文字已补充到之前的任务，未发送给当前任务。如需再次发送，请修改内容。"));
   }

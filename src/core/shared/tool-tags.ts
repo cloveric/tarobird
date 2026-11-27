@@ -1,5 +1,6 @@
 import { executeCoreTool } from "../../tools/tool-executor.js";
 import type { CoreToolContext } from "../../tools/tool-types.js";
+import { hostT } from "../../locales/index.js";
 
 export interface ToolTagMatch {
   tag: string;
@@ -300,14 +301,12 @@ function filterAlreadyDeliveredSendPayload(
 }
 
 function renderToolTagFailure(detail: string, context: CoreToolContext): string {
-  return context.locale === "zh" ? `✗ 工具调用失败：${detail}` : `✗ Tool call failed: ${detail}`;
+  return hostT(context.locale, "✗ 工具调用失败：{0}", detail);
 }
 
 function renderInvalidToolTagJsonFailure(context: CoreToolContext): string {
   return renderToolTagFailure(
-    context.locale === "zh"
-      ? "tool tag JSON 格式无效，未执行。批量文件或长文本请改用 fenced tool-call 代码块。"
-      : "invalid JSON in tool tag; nothing was executed. Use a fenced tool-call block for batch files or long text.",
+    hostT(context.locale, "tool tag JSON 格式无效，未执行。批量文件或长文本请改用 fenced tool-call 代码块。"),
     context,
   );
 }

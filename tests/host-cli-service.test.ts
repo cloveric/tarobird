@@ -778,7 +778,7 @@ it("rejects an old runtime before rollback can strip persisted extra environment
 });
 
 const piEnvironmentKeys = ["PI_EXECUTABLE", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"] as const;
-const piStateCapabilities = ["service-extra-environment-v1", "pi-state-v1"];
+const piStateCapabilities = ["service-extra-environment-v1", "pi-state-v1", "omp-state-v1"];
 
 it.each(process.platform === "win32" ? ["json", "directory"] : ["json", "directory", "permissions"])("keeps a Pi-capable service available for repairing unreadable engine settings: %s", async problem => {
   const f = await fixture("linux");
@@ -794,6 +794,9 @@ it.each(process.platform === "win32" ? ["json", "directory"] : ["json", "directo
   const count = f.calls.length, manifest = await readFile(path.join(f.directory, "host-service.json"));
   // An old reader cannot be declared safe when the settings cannot be inspected.
   await expect(assertManagedServiceRuntimeCompatible(f.directory, { entrypoint: old }, f.options)).rejects.toThrow("host_service_runtime_pi_state_unverified");
+  const preOmp = await packageFixture(path.join(f.root, "pre-omp-package"));
+  await writeFile(path.join(f.root, "pre-omp-package/package.json"), JSON.stringify({ tarobotHostCapabilities: ["service-extra-environment-v1", "pi-state-v1"] }));
+  await expect(assertManagedServiceRuntimeCompatible(f.directory, { entrypoint: preOmp }, f.options)).rejects.toThrow("host_service_runtime_omp_state_unverified");
   expect(f.calls).toHaveLength(count);
   expect(await readFile(path.join(f.directory, "host-service.json"))).toEqual(manifest);
   expect((await stat(settings)).isDirectory()).toBe(problem === "directory");

@@ -54,7 +54,7 @@ struct Id { id: String }
 #[derive(serde::Deserialize)] #[serde(deny_unknown_fields)]
 struct HttpOpen { id: String, input: HttpInput }
 #[derive(serde::Deserialize)] #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SocketOpen { id: String, origin: String, hub_key: Option<String>, certificate_authority: Option<String>, channel: String }
+struct SocketOpen { id: String, origin: String, hub_key: Option<String>, certificate_authority: Option<String>, #[serde(default)] edge_tls: Option<bool>, channel: String }
 #[derive(serde::Deserialize)] #[serde(deny_unknown_fields)]
 struct SocketSend { id: String, text: String }
 #[derive(serde::Deserialize)] #[serde(deny_unknown_fields)]
@@ -117,7 +117,7 @@ async fn dispatch(services: &Services, output: &Output, command: &str, value: Va
                         None => Err("native_view_unavailable".to_owned()),
                     }
                 });
-                match services.transport.socket_open(a.id, a.origin, a.hub_key, a.certificate_authority, emit, VIEW) {
+                match services.transport.socket_open(a.id, a.origin, a.hub_key, a.certificate_authority, a.edge_tls.unwrap_or(false), emit, VIEW) {
                     Ok(start) => (Ok(Value::Null), Some(start)),
                     Err(e) => plain(Err(e)),
                 }
@@ -281,6 +281,86 @@ mod tests {
         h.send(&format!("{{\"id\":1,\"command\":\"net_document\",\"pad\":\"{}\"}}", "a".repeat(MAX_REQUEST_LINE))).await;
         assert_eq!(h.next().await, json!({"id": null, "error": {"code": "request_too_large", "message": "request_too_large"}}));
         assert!(h.call(2, "net_document", json!({})).await["result"].is_string());
+    }
+
+    #[tokio::test]
+    async fn edge_tls_http_and_socket_requests_are_accepted_and_routed_to_edge_verifier() {
+        let mut h = Harness::start();
+        let lease = h.call(1, "net_document", json!({})).await["result"].as_str().unwrap().to_owned();
+
+        // HTTP with edgeTls: true must deserialize (never invalid_arguments) and enforce HTTPS + no custom CA.
+        let http_plain = h.call(2, "net_allocate", json!({"kind": "http", "document": lease})).await["result"].as_str().unwrap().to_owned();
+        assert_eq!(
+            h.call(3, "net_http_open", json!({
+                "id": http_plain,
+                "input": {
+                    "origin": "http://127.0.0.1:8788",
+                    "hubKey": null,
+                    "edgeTls": true,
+                    "path": "/health",
+                    "method": "GET",
+                    "headers": [],
+                    "body": null
+                }
+            })).await["error"]["code"],
+            "https_required"
+        );
+
+        let http_ca = h.call(4, "net_allocate", json!({"kind": "http", "document": lease})).await["result"].as_str().unwrap().to_owned();
+        assert_eq!(
+            h.call(5, "net_http_open", json!({
+                "id": http_ca,
+                "input": {
+                    "origin": "https://hub.example.com",
+                    "hubKey": null,
+                    "certificateAuthority": "AAAA",
+                    "edgeTls": true,
+                    "path": "/health",
+                    "method": "GET",
+                    "headers": [],
+                    "body": null
+                }
+            })).await["error"]["code"],
+            "invalid_host_authority"
+        );
+
+        // WebSocket with edgeTls: true must deserialize (never invalid_arguments) and route through prepare_route.
+        let ws_plain = h.call(6, "net_allocate", json!({"kind": "socket", "document": lease})).await["result"].as_str().unwrap().to_owned();
+        assert_eq!(
+            h.call(7, "net_socket_open", json!({
+                "id": ws_plain,
+                "origin": "http://127.0.0.1:8788",
+                "hubKey": null,
+                "edgeTls": true,
+                "channel": "cf_plain"
+            })).await["result"],
+            Value::Null
+        );
+        let err_event = h.next().await;
+        assert_eq!(err_event["channel"], "cf_plain");
+        assert_eq!(err_event["payload"], json!({"kind": "error", "error": "https_required"}));
+        let close_event = h.next().await;
+        assert_eq!(close_event["channel"], "cf_plain");
+        assert_eq!(close_event["payload"]["kind"], "close");
+
+        let ws_ca = h.call(8, "net_allocate", json!({"kind": "socket", "document": lease})).await["result"].as_str().unwrap().to_owned();
+        assert_eq!(
+            h.call(9, "net_socket_open", json!({
+                "id": ws_ca,
+                "origin": "https://hub.example.com",
+                "hubKey": null,
+                "certificateAuthority": "AAAA",
+                "edgeTls": true,
+                "channel": "cf_ca"
+            })).await["result"],
+            Value::Null
+        );
+        let err_event = h.next().await;
+        assert_eq!(err_event["channel"], "cf_ca");
+        assert_eq!(err_event["payload"], json!({"kind": "error", "error": "invalid_host_authority"}));
+        let close_event = h.next().await;
+        assert_eq!(close_event["channel"], "cf_ca");
+        assert_eq!(close_event["payload"]["kind"], "close");
     }
 
     #[tokio::test]

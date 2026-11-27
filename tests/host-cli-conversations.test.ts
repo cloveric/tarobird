@@ -1,6 +1,8 @@
 import { expect, it, vi } from 'vitest';
-import { runConversationsCommand } from '../src/host-cli/conversations.js';
+import { runConversationsCommand, runConversationPinsCommand } from '../src/host-cli/conversations.js';
 import { CONVERSATION_BATCH_CAPABILITY, CONVERSATION_RESTORE_CAPABILITY } from '../src/client-protocol/conversation-batch.js';
+import { CONVERSATION_PINS_CAPABILITY } from '../src/client-protocol/conversation-pins.js';
+import { ConversationPins } from '../src/hub/conversation-pins.js';
 import { mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -81,4 +83,58 @@ it('adds actionable CLI explanations while retaining the Host error code and sta
   const client = { ready: { serverCapabilities: [CONVERSATION_BATCH_CAPABILITY] }, request: vi.fn().mockRejectedValue(error) } as any;
   await expect(runConversationsCommand(client, 'move', { ids: 'a', unfiled: true, revision: '0' })).rejects.toMatchObject({ code: 'folders_changed', status: 409, message: expect.stringContaining('folders list') });
   expect(client.request).toHaveBeenCalledTimes(1);
+});
+
+it('rejects invalid conversation pins CLI arguments without issuing a request', async () => {
+  const request = vi.fn(), client = { request, ready: { serverCapabilities: [CONVERSATION_PINS_CAPABILITY] } } as any;
+  for (const [action, id, flags] of [
+    ['pins', 'chat_1', {}],
+    ['pins', undefined, { global: true }],
+    ['pins', undefined, { enabled: 'on' }],
+    ['pin', undefined, { enabled: 'on', revision: '0' }],
+    ['pin', '../bad', { enabled: 'on', revision: '0' }],
+    ['pin', 'chat_1', { enabled: 'yes', revision: '0' }],
+    ['pin', 'chat_1', { enabled: 'on', revision: '' }],
+  ] as const) await expect(runConversationPinsCommand(client, action, id, flags)).rejects.toThrow();
+  client.ready.serverCapabilities = [];
+  await expect(runConversationPinsCommand(client, 'pins', undefined, {})).rejects.toThrow('更新主机');
+  expect(request).not.toHaveBeenCalled();
+
+  const pinsError = new HostCliError('pins_changed', 409);
+  const conflictClient = { ready: { serverCapabilities: [CONVERSATION_PINS_CAPABILITY] }, request: vi.fn().mockRejectedValue(pinsError) } as any;
+  await expect(runConversationPinsCommand(conflictClient, 'pin', 'chat_1', { enabled: 'on', revision: '0' })).rejects.toMatchObject({
+    code: 'pins_changed', status: 409, message: expect.stringContaining('conversations pins'),
+  });
+});
+
+it('reads and updates group/global conversation pins through the real CLI and authenticated Host', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'conversation-pins-cli-')); await initializeHost(root, 'Pins fixture');
+  const hub = await HubServer.start({ stateDir: root });
+  let control: (() => Promise<void>) | undefined, client: LocalHostClient | undefined;
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('bot','Bot','fixture')");
+    const a = await hub.store.createConversation('owner', ['bot'], 'A', 'a');
+    const b = await hub.store.createConversation('owner', ['bot'], 'B', 'b');
+    const pinsStore = new ConversationPins(hub.store.db);
+    control = await startHubControl(root, { running: true, pid: process.pid, url: hub.url, instanceUrl: hub.instanceUrl, publicKey: hub.auth.publicKey }, () => {}, { enrollController: value => hub.enrollLocalController(value) });
+    client = await LocalHostClient.connect(root, { enroll: true });
+    const cli = (args: string[]) => runHostCli(['conversations', ...args, '--state-dir', root, '--json']);
+
+    await cli(['pins']);
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toEqual({ revision: 0, pins: [], globalPins: [] });
+
+    await cli(['pin', a.id, '--enabled', 'on', '--revision', '0']);
+    expect(await pinsStore.read('owner')).toEqual({ revision: 1, pins: [a.id], globalPins: [] });
+
+    await cli(['pin', b.id, '--global', '--enabled', 'on', '--revision', '1']);
+    expect(await pinsStore.read('owner')).toEqual({ revision: 2, pins: [a.id], globalPins: [b.id] });
+
+    await expect(cli(['pin', a.id, '--enabled', 'off', '--revision', '1'])).rejects.toThrow('pins_changed');
+
+    await cli(['pin', a.id, '--enabled', 'off', '--revision', '2']);
+    await cli(['pin', b.id, '--global', '--enabled', 'off', '--revision', '3']);
+    await cli(['pins']);
+    expect(JSON.parse(log.mock.calls.at(-1)![0] as string)).toEqual({ revision: 4, pins: [], globalPins: [] });
+  } finally { log.mockRestore(); client?.close(); await control?.(); await hub.close(); await removeTempRoot(root); }
 });

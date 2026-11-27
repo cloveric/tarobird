@@ -4,15 +4,18 @@ import type { SideAttachmentRef } from "../client-protocol/side.js";
 import { SideSessionError } from "../core/side-sessions.js";
 import { SIDE_INLINE_TEXT_LIMIT } from "../core/side-attachments.js";
 import { isCloudAsrCancelledError, type TranscribeMediaOptions } from "../runtime/asr-cloud.js";
+import { isGeneratedVoiceFilename } from "../client-protocol/voice-presentation.js";
 import { hasTranscribableAudioExtension } from "../runtime/media-extensions.js";
 import { formatBridgeMediaTranscript, formatBridgePartialMediaTranscript, isPartialMediaTranscriptionError } from "../runtime/media-transcript.js";
 
 export type SideTranscribe = (file: string, options?: TranscribeMediaOptions) => Promise<string>;
 
-/** Audio an engine could otherwise receive only as opaque bytes. Video keeps
- * its existing binary delivery: this is not a frame or video pipeline. */
+/** Audio recordings an engine could otherwise receive only as opaque bytes.
+ * Uploaded audio files and video keep their existing binary delivery. */
 export function isSideAudio(file: EngineSideAttachment, ref: SideAttachmentRef): boolean {
-  return file.kind === "binary" && (/^audio\//i.test(ref.mime) || hasTranscribableAudioExtension(ref.name));
+  if (file.kind !== "binary" || !/^audio\//i.test(ref.mime)) return false;
+  if (ref.recording !== undefined) return ref.recording;
+  return isGeneratedVoiceFilename(ref.name);
 }
 
 /** Replaces verified private audio copies with host-ASR transcripts, through

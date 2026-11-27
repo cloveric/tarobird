@@ -88,6 +88,14 @@ public class UnifiedPushPlugin extends Plugin {
             call.resolve();
         } catch (Exception error) { call.reject("notification_settings_unavailable"); }
     }
+    @PluginMethod public void clearHostNotifications(PluginCall call) {
+        String hostId = call.getString("hostId");
+        if (!TaroCubNotifications.validHostId(hostId)) { call.reject("unifiedpush_identity_invalid"); return; }
+        try {
+            TaroCubNotifications.clearHost(getContext(), hostId);
+            call.resolve();
+        } catch (Exception error) { reject(call, error); }
+    }
     @PluginMethod public void distributors(PluginCall call) {
         JSArray list = new JSArray();
         for (String id : UnifiedPush.getDistributors(getContext())) {

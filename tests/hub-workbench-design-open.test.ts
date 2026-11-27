@@ -17,13 +17,13 @@ describe('design.open reaches only the frozen opener of the sending App', () => 
   const peerFor = (deviceId: string, userId = 'owner'): WorkbenchPeer => ({ key: {}, userId, deviceId, active: () => true, validate: async () => {},
     send: async frame => { if (frame.type === 'workbench.command') commands.push(frame); else cancels.push(frame.reason); } });
   const openerWindow = (conversation = conversationId, windowId = 'opener', visible = true): WorkbenchRegistration =>
-    ({ windowId, generation: 'opener-gen', conversationId: conversation, capabilities: ['design.open.v1'], tabs: [], visible });
-  const controller = (tabs: WorkbenchRegistration['tabs'] = [{ id: 'design-a', kind: 'design', title: 'A', revision: 3 }], visible = true): WorkbenchRegistration =>
-    ({ windowId: 'controller', generation: 'controller-gen', conversationId, capabilities: ['whiteboard.v1', 'design.v1'], tabs, ...(tabs.length ? { activeTabId: tabs[0]!.id } : {}), visible });
+    ({ windowId, generation: 'opener-gen', conversationId: conversation, capabilities: ['design.open.v1', 'design.slides.v1'], tabs: [], visible });
+  const controller = (tabs: WorkbenchRegistration['tabs'] = [{ id: 'design-a', kind: 'design', title: 'A', revision: 3, designFormat: 'slides' }], visible = true): WorkbenchRegistration =>
+    ({ windowId: 'controller', generation: 'controller-gen', conversationId, capabilities: ['whiteboard.v1', 'design.slides.v1'], tabs, ...(tabs.length ? { activeTabId: tabs[0]!.id } : {}), visible });
   const closedPanel: WorkbenchContext = { target: opener, openTarget: opener };
   const bot = (context: WorkbenchContext | null = closedPanel, sourceMessageId = 'msg_source'): WorkbenchActor =>
     ({ sourceMessageId, userId: 'owner', conversationId, ...(context ? { context } : {}), validate: async () => { if (turn.ended) throw new HubError('workbench_turn_ended', 409); } });
-  const open = (requestId: string, target?: object) => ({ requestId, operation: 'design.open' as const, payload: {}, ...(target ? { target } : {}) });
+  const open = (requestId: string, target?: object) => ({ requestId, operation: 'design.open' as const, payload: { format: 'slides' as const }, ...(target ? { target } : {}) });
   const applied = (frame: WorkbenchCommandFrame, result: unknown = { target: real, created: false }) =>
     ({ requestId: frame.request.requestId, target: frame.target, status: 'applied' as const, saved: true, revision: 3, result: result as never });
   const journal = (requestId: string) => store.db.get<{ value: string }>('SELECT value FROM meta WHERE key=?', [`workbench-command:owner:${conversationId}:${requestId}`]);
@@ -50,7 +50,7 @@ describe('design.open reaches only the frozen opener of the sending App', () => 
     const reply = broker.request(bot(), open('open-1'));
     const frame = await dispatched();
     expect(frame.target).toEqual(opener);
-    expect(frame.request).toMatchObject({ operation: 'design.open', payload: {} });
+    expect(frame.request).toMatchObject({ operation: 'design.open', payload: { format: 'slides' } });
     await broker.admit(peer, frame.dispatchId);
     // The App opens the panel lazily and publishes the real controller first.
     await broker.register(peer, controller());
@@ -241,8 +241,9 @@ describe('design.open reaches only the frozen opener of the sending App', () => 
     expect(workbenchRegistrationSchema.safeParse({ ...openerWindow(), tabs: [{ id: 'x', kind: 'design', title: 'X' }] }).success).toBe(false);
     expect(workbenchRegistrationSchema.safeParse({ ...openerWindow(), activeTabId: 'x' }).success).toBe(false);
     expect(workbenchRegistrationSchema.safeParse({ ...controller(), capabilities: ['whiteboard.v1', 'charts.v1', 'browser.v1', 'markdown.v1', 'design.v1'] }).success).toBe(true);
-    expect(workbenchRequestShapeError({ operation: 'design.open', payload: {} })).toBeUndefined();
-    expect(workbenchRequestShapeError({ operation: 'design.open' })).toBeUndefined();
+    expect(workbenchRequestShapeError({ operation: 'design.open', payload: {} })).toBe('design_canvas_removed');
+    expect(workbenchRequestShapeError({ operation: 'design.open' })).toBe('design_canvas_removed');
+    expect(workbenchRequestShapeError({ operation: 'design.open', payload: { format: 'slides' } })).toBeUndefined();
     expect(workbenchRequestShapeError({ operation: 'design.open', payload: { title: 'x' } })).toBe('invalid_design_payload');
   });
 });

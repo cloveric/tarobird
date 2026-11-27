@@ -20,7 +20,9 @@ function Pane({ chat, visible }: { chat: string; visible: boolean }) {
 }
 function Fixture() {
   const [chat, setChat] = useState("chat"), [visible, setVisible] = useState(true), [mounted, setMounted] = useState(true);
-  Object.assign(window, { turnStopFixture: { evidence, setChat, setVisible, setMounted, nativeTasks: () => {
+  Object.assign(window, { turnStopFixture: { evidence, setChat, setVisible, setMounted, setEngine: (engine: "claude" | "deepseek" | "codex") => {
+    connection.state.bots = [{ id: "bot", engine } as HubConnection["state"]["bots"][number]];
+  }, nativeTasks: () => {
     connection.state.engineTasksAvailable = true;
     connection.http = (async () => {
       evidence.lookups++;

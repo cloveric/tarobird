@@ -7,6 +7,7 @@ import type { ConnectedHost } from "./host-connections.js";
 // The App's authenticated connections supply display names, never authority.
 // The receiving Host independently validates every grant and its network peer.
 export const BotMessageHostsContext = createContext<ConnectedHost[]>([]);
+export const LocalHostKeyContext = createContext("");
 export function botMessageHostId(key: string): string {
   return `hub_${bytesToHex(sha256(decodeBase64(key)))}`;
 }

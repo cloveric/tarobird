@@ -1,6 +1,8 @@
+import { CANVAS_AGENT_HOST_CAPABILITY } from "../client-protocol/infinite-canvas.js";
 import { CONVERSATION_HISTORY_CAPABILITY } from "../client-protocol/conversation-history.js";
 import { BOT_MESSAGE_STEER_CAPABILITY, supportsBotMessageSteerEngine } from "../client-protocol/bot-message-delivery.js";
 import { ENGINE_QUOTA_CAPABILITY } from "../client-protocol/engine-quota.js";
+import { ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY, QUOTA_ACCOUNT_KEY_HEX } from "../runtime/engine-quota-scope.js";
 import { CONTEXT_USAGE_CAPABILITY } from "../client-protocol/context-usage.js";
 import { workbenchContextSchema, workbenchContextOmittedSchema, type WorkbenchContext, type WorkbenchContextOmitted } from "../client-protocol/workbench.js";
 import { WORKBENCH_DESIGN_OPEN_CAPABILITY } from "../client-protocol/workbench-design.js";
@@ -18,12 +20,13 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { WebSocket } from "ws";
 import { z } from "zod";
-import { MAX_FRAME_BYTES, conversationSchema, idSchema, jsonSchema, messageSchema, type Conversation, type Json, type Message } from "../client-protocol/index.js";
+import { AUDIO_RECORDING_CAPABILITY, MAX_FRAME_BYTES, conversationSchema, idSchema, jsonSchema, messageSchema, type Conversation, type Json, type Message } from "../client-protocol/index.js";
 import { JsonStore } from "../state/json-store.js";
 import { isLoopback } from "../hub/network.js";
 import { botRuntimeStatusSchema } from "../client-protocol/instance.js";
 import { AGENT_BUS_WORKER_CAPABILITY, AGENT_BUS_LEGACY_WORKER_CAPABILITY, agentBusDispatchSchema, type AgentBusDispatch } from "../client-protocol/agent-bus.js";
 import { GROUP_DISCUSSION_WORKER_CAPABILITY, groupDiscussionDispatchSchema, type GroupDiscussionDispatch } from "../client-protocol/group-discussion.js";
+import { groupLocalSessionDispatchSchema, type GroupLocalSessionDispatch } from "../client-protocol/group-members.js";
 
 const requestSchema = z.object({ v: z.literal(1), type: z.literal("instance.request"), id: idSchema, method: z.string(), params: jsonSchema });
 const journalSchema = z.object({ requests: z.array(requestSchema) });
@@ -32,18 +35,19 @@ const READY_TIMEOUT_MS = 15_000;
 const HEARTBEAT_MS = 30_000;
 type Request = z.infer<typeof requestSchema>;
 const inboundSchema = z.discriminatedUnion("type", [
-  z.object({ v: z.literal(1), type: z.literal("instance.ready"), capabilities: z.array(z.string()).optional() }),
+  z.object({ v: z.literal(1), type: z.literal("instance.ready"), capabilities: z.array(z.string()).optional(), quotaProofKey: z.string().regex(QUOTA_ACCOUNT_KEY_HEX).optional() }),
   z.object({ v: z.literal(1), type: z.literal("instance.queue"), conversationId: idSchema }),
   z.object({ v: z.literal(1), type: z.literal("instance.result"), id: idSchema, result: jsonSchema.optional(), error: z.string().optional() }),
-  z.object({ v: z.literal(1), type: z.literal("instance.message"), workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional(), message: messageSchema, conversation: conversationSchema, agentBus: agentBusDispatchSchema.optional(), groupDiscussion: groupDiscussionDispatchSchema.optional() }),
+  z.object({ v: z.literal(1), type: z.literal("instance.message"), workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional(), message: messageSchema, conversation: conversationSchema, ticketNotice: z.boolean().optional(), agentBus: agentBusDispatchSchema.optional(), groupDiscussion: groupDiscussionDispatchSchema.optional(), groupSession: groupLocalSessionDispatchSchema.optional(), canvasConnected: z.literal(true).optional() }),
   z.object({ v: z.literal(1), type: z.literal("instance.call"), id: idSchema, method: z.string(), params: jsonSchema }),
   z.object({ v: z.literal(1), type: z.literal("pong") }),
 ]);
-export interface GatewayTransportOptions { url: string; botId: string; secret: string; stateDir: string; engine?: string; model?: string; effort?: string; onWarning?: (code: string) => void }
+export interface GatewayTransportOptions { url: string; botId: string; secret: string; stateDir: string; engine?: string; model?: string; effort?: string; engineQuotaAccountMatch?: boolean; onWarning?: (code: string) => void }
 export class GatewayTransport {
   private ws?: WebSocket; private stopped = false; private ready = false; private attempt = 0;
   private fragments = false;
   capabilities: readonly string[] = [];
+  quotaProofKey?: Uint8Array;
   private readonly replayed = new WeakMap<WebSocket, Set<string>>();
   private replay: Promise<void> = Promise.resolve();
   private boot?: Promise<void>;
@@ -67,7 +71,7 @@ export class GatewayTransport {
   /** Includes admission/approval and publication persistence before runtime
    * activeRuns is populated, so an idle drain cannot cut off accepted work. */
   isBusy(): boolean { return this.receiving > 0 || this.pending.size > 0 || this.journal.length > 0 || this.bootPending || this.partialFrame; }
-  onMessage?: (message: Message, conversation: Conversation, agentBus?: AgentBusDispatch, groupDiscussion?: GroupDiscussionDispatch, workbench?: WorkbenchContext, workbenchContextOmitted?: WorkbenchContextOmitted) => Promise<void>;
+  onMessage?: (message: Message, conversation: Conversation, agentBus?: AgentBusDispatch, groupDiscussion?: GroupDiscussionDispatch, workbench?: WorkbenchContext, workbenchContextOmitted?: WorkbenchContextOmitted, ticketNotice?: boolean, groupSession?: GroupLocalSessionDispatch, canvasConnected?: boolean) => Promise<void>;
   onQueue?: (conversationId: string) => void;
   onCall?: (method: string, params: Json) => Promise<Json>;
   /** Once per process attachment, after old publications and before new input. */
@@ -105,7 +109,7 @@ export class GatewayTransport {
         await this.readStatus();
         // Standalone/manual workers without a Host binding still use their own
         // environment; do not claim that the Host's voice settings apply.
-        if (this.ws === ws && !this.stopped) this.send({ v: 1, type: "instance.hello", capabilities: [ENGINE_QUOTA_CAPABILITY, CONTEXT_USAGE_CAPABILITY, CONVERSATION_HISTORY_CAPABILITY, ...(this.status.engine === "pi" ? [PI_SESSION_CAPABILITY] : []), ...(this.status.engine === "claude" ? [NATIVE_INPUT_CAPABILITY, NATIVE_REVIEW_INPUT_CAPABILITY] : []), ...(process.env.TAROBOT_HOST_DIR ? [VOICE_POLICY_CAPABILITY, WIDGET_POLICY_CAPABILITY] : []), FRAGMENT_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, "conversations.tasks.v1", "bot-messages.v1", ...(supportsBotMessageSteerEngine(this.status.engine) ? [BOT_MESSAGE_STEER_CAPABILITY] : []), AGENT_BUS_WORKER_CAPABILITY, AGENT_BUS_LEGACY_WORKER_CAPABILITY, GROUP_DISCUSSION_WORKER_CAPABILITY, ...((PROMPT_QUEUE_ENGINES as readonly string[]).includes(this.status.engine) ? [PROMPT_QUEUE_CAPABILITY, ...(this.onQueue ? [PROMPT_QUEUE_PULL_CAPABILITY] : [])] : [])], botId: this.options.botId, secret: this.options.secret, ...this.status });
+        if (this.ws === ws && !this.stopped) this.send({ v: 1, type: "instance.hello", capabilities: [CANVAS_AGENT_HOST_CAPABILITY, AUDIO_RECORDING_CAPABILITY, ENGINE_QUOTA_CAPABILITY, ...(this.options.engineQuotaAccountMatch ? [ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY] : []), CONTEXT_USAGE_CAPABILITY, CONVERSATION_HISTORY_CAPABILITY, ...(this.status.engine === "pi" ? [PI_SESSION_CAPABILITY] : []), ...(this.status.engine === "claude" ? [NATIVE_INPUT_CAPABILITY, NATIVE_REVIEW_INPUT_CAPABILITY] : []), ...(process.env.TAROBOT_HOST_DIR ? [VOICE_POLICY_CAPABILITY, WIDGET_POLICY_CAPABILITY] : []), FRAGMENT_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, "conversations.tasks.v1", "bot-messages.v1", ...(supportsBotMessageSteerEngine(this.status.engine) ? [BOT_MESSAGE_STEER_CAPABILITY] : []), AGENT_BUS_WORKER_CAPABILITY, AGENT_BUS_LEGACY_WORKER_CAPABILITY, GROUP_DISCUSSION_WORKER_CAPABILITY, ...((PROMPT_QUEUE_ENGINES as readonly string[]).includes(this.status.engine) ? [PROMPT_QUEUE_CAPABILITY, ...(this.onQueue ? [PROMPT_QUEUE_PULL_CAPABILITY] : [])] : [])], botId: this.options.botId, secret: this.options.secret, ...this.status });
       }).catch(() => undefined);
     });
     ws.on("message", (data) => {
@@ -126,7 +130,7 @@ export class GatewayTransport {
       // A hello followed immediately by Hub-side dispatch failure is not a
       // recovered connection. Retain backoff across these rapid attachments.
       if (this.ready && !this.deliveryRecoveryAttempt && Date.now() - this.readyAt >= 30_000) this.attempt = 0;
-      this.ready = false; if (this.heartbeat) clearInterval(this.heartbeat);
+      this.ready = false; this.quotaProofKey = undefined; if (this.heartbeat) clearInterval(this.heartbeat);
       if (this.readyTimeout) clearTimeout(this.readyTimeout);
       if (!this.stopped) { this.reconnect = setTimeout(() => this.open(), Math.min(15_000, 250 * 2 ** Math.min(this.attempt++, 6))); this.reconnect.unref(); }
     });
@@ -142,8 +146,10 @@ export class GatewayTransport {
       const file = path.join(this.options.stateDir, "config.json");
       const reading = (async () => {
         if ((await stat(file)).size > 256 * 1024) return;
-        const config = z.object({ engine: z.string().max(64).optional(), model: z.string().max(512).optional(), effort: z.string().max(32).optional() }).refine(value => value.engine === "pi" || value.engine === "deepseek" || !value.model || value.model.length <= 128).parse(JSON.parse(await readFile(file, { encoding: "utf8", signal: controller.signal })));
-        return botRuntimeStatusSchema.parse({ engine: config.engine ?? this.options.engine ?? "", model: config.model ?? "", effort: config.effort ?? "" });
+        const config = z.object({ engine: z.string().max(64).optional(), model: z.string().max(512).optional(), effort: z.string().max(32).optional(), workspacePath: z.string().max(4096).optional() }).refine(value => value.engine === "pi" || value.engine === "omp" || value.engine === "deepseek" || !value.model || value.model.length <= 128).parse(JSON.parse(await readFile(file, { encoding: "utf8", signal: controller.signal })));
+        const rawWorkspace = config.workspacePath?.trim();
+        const workspacePath = rawWorkspace ? path.resolve(rawWorkspace) : path.resolve(path.join(this.options.stateDir, "workspace"));
+        return botRuntimeStatusSchema.parse({ engine: config.engine ?? this.options.engine ?? "", model: config.model ?? "", effort: config.effort ?? "", workspacePath });
       })();
       const timeout = new Promise<undefined>(resolve => { timer = setTimeout(() => { controller.abort(); this.options.onWarning?.("gateway_metadata_read_timeout"); resolve(undefined); }, 2000); timer.unref(); });
       const status = await Promise.race([reading, timeout]);
@@ -169,6 +175,7 @@ export class GatewayTransport {
       if (this.ready) return;
       if (this.readyTimeout) clearTimeout(this.readyTimeout);
       this.capabilities = frame.capabilities ?? [];
+      this.quotaProofKey = frame.quotaProofKey ? Buffer.from(frame.quotaProofKey, "hex") : undefined;
       this.ready = true; this.readyAt = Date.now(); this.fragments = frame.capabilities?.includes(FRAGMENT_CAPABILITY) ?? false;
       if (ws) this.replayed.set(ws, new Set());
       this.replay = (async () => { if (ws) for (const request of [...this.journal]) {
@@ -218,7 +225,7 @@ export class GatewayTransport {
       // old callback cross the boot barrier after shutdown or reconnect.
       if (this.stopped || this.ws !== ws || ws?.readyState !== WebSocket.OPEN) return;
       if (frame.type === "instance.queue") { this.onQueue?.(frame.conversationId); return; }
-      await this.onMessage?.(frame.message, frame.conversation, frame.agentBus, frame.groupDiscussion, frame.workbench, frame.workbenchContextOmitted); return;
+      await this.onMessage?.(frame.message, frame.conversation, frame.agentBus, frame.groupDiscussion, frame.workbench, frame.workbenchContextOmitted, frame.ticketNotice, frame.groupSession, frame.canvasConnected); return;
     }
     if (frame.type === "instance.call") {
       try { const result = await this.onCall?.(frame.method, frame.params); if (!this.stopped && this.ws === ws) this.send({ v: 1, type: "instance.result", id: frame.id, result: result ?? null }); }
@@ -253,7 +260,7 @@ export class GatewayTransport {
   /** A pull is a live execution-slot reservation, never a durable command to
    * replay after that slot is gone. A lost claim is recovered as fenced input
    * on reattachment through GatewayReceipts, just like a lost push delivery. */
-  async takeQueued(conversationId: string): Promise<{ message: Message; conversation: Conversation; workbench?: WorkbenchContext; workbenchContextOmitted?: WorkbenchContextOmitted } | null> {
+  async takeQueued(conversationId: string): Promise<{ message: Message; conversation: Conversation; workbench?: WorkbenchContext; workbenchContextOmitted?: WorkbenchContextOmitted; ticketNotice?: boolean; groupSession?: GroupLocalSessionDispatch; canvasConnected?: boolean } | null> {
     this.throwIfStopped();
     if (!this.capabilities.includes(PROMPT_QUEUE_PULL_CAPABILITY)) throw new Error("queue_unsupported");
     const ws = this.ws;
@@ -262,7 +269,7 @@ export class GatewayTransport {
     const result = new Promise<Json>((resolve, reject) => { this.pending.set(id, { resolve, reject }); this.transient.add(id); });
     const timer = setTimeout(() => { this.pending.get(id)?.reject(new Error("gateway_queue_timeout")); this.pending.delete(id); this.transient.delete(id); ws.terminate(); }, 10_000); timer.unref();
     this.send({ v: 1, type: "instance.request", id, method: "queue.take", params: { conversationId } });
-    try { return z.object({ message: messageSchema, conversation: conversationSchema, workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional() }).nullable().parse(await result); }
+    try { return z.object({ message: messageSchema, conversation: conversationSchema, workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional(), ticketNotice: z.boolean().optional(), groupSession: groupLocalSessionDispatchSchema.optional(), canvasConnected: z.literal(true).optional() }).nullable().parse(await result); }
     finally { clearTimeout(timer); }
   }
   /** Separates durable outbox acceptance from the Hub's response. Requests are
@@ -317,7 +324,7 @@ export class GatewayTransport {
   }
   deliverySettled(): void { this.deliveryRecoveryAttempt = 0; this.attempt = 0; }
   async disconnect(): Promise<void> {
-    this.stopped = true; this.ready = false; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat);
+    this.stopped = true; this.ready = false; this.quotaProofKey = undefined; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.readyTimeout) clearTimeout(this.readyTimeout);
     this.ws?.terminate(); for (const p of this.pending.values()) p.reject(new Error("gateway_stopped")); this.pending.clear(); this.transient.clear(); await this.boot; await this.diskTail; await this.statusTail;
   }

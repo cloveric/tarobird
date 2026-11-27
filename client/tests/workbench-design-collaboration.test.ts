@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DesignShareClient, DesignShareError, DesignShareManager, joinDesignShare, type DesignShareTransport } from "../src/workbench-design-collaboration.js";
+import { DesignShareClient, DesignShareError, DesignShareManager, joinDesignShare, openDesignShare, type DesignShareTransport } from "../src/workbench-design-collaboration.js";
 import { DesignSession } from "../src/workbench-design-session.js";
-import { emptyDesign, encodeDesignFile, type DesignDocument } from "../src/workbench-design.js";
+import { emptyDesign, emptySlides, encodeDesignFile, type DesignDocument } from "../src/workbench-design.js";
 import type { DesignShareServerFrame } from "../../src/client-protocol/workbench-design-sharing.js";
 
 function transport(behaviour: { throwing?: string; rejecting?: boolean } = {}) {
@@ -62,16 +62,16 @@ describe("connection status retires share sessions", () => {
 // version and counts fetches, so a cache hit is visible from outside.
 describe("joined copy content cache", () => {
   it("reuses active files, re-fetches superseded ones and keeps no bytes from a refused save", async () => {
-    const path = "project/image.png", base = emptyDesign("cache"), stagedBytes = new Map<string, string>(), fetches = new Map<string, number>();
+    const path = "project/image.png", base = emptySlides("cache"), stagedBytes = new Map<string, string>(), fetches = new Map<string, number>();
     let current: DesignDocument = base, accept = true, receive: (frame: DesignShareServerFrame) => void = () => {};
     const file = (n: number) => encodeDesignFile(new Uint8Array(3000).fill(n), "image/png");
     const install = (n: number) => { const next = file(n); current = { ...current, revision: current.revision + 1, files: { ...current.files, [path]: next } }; return next.sha256; };
     const count = (sha: string) => fetches.get(sha) ?? 0;
     const value: DesignShareTransport = { onFrame: listener => { receive = listener; return () => {}; }, send: frame => {
       const request = frame.request as Record<string, any>; let result: unknown, error: string | undefined;
-      if (request.op === "join") result = { role: "editor", sourceOnline: true };
+      if (request.op === "join") result = { role: "editor", sourceOnline: true, format: "slides" };
       else if (request.op === "leave") result = { left: true };
-      else if (request.op === "call" && request.call === "list") result = { id: current.id, format: "canvas", revision: current.revision, files: Object.fromEntries(Object.entries(current.files).map(([key, { sha256, size, contentType }]) => [key, { sha256, size, contentType }])) };
+      else if (request.op === "call" && request.call === "list") result = { id: current.id, format: "slides", revision: current.revision, files: Object.fromEntries(Object.entries(current.files).map(([key, { sha256, size, contentType }]) => [key, { sha256, size, contentType }])) };
       else if (request.op === "fetch") {
         fetches.set(request.sha256, count(request.sha256) + 1);
         const found = Object.values(current.files).find(item => item.sha256 === request.sha256); if (!found) throw new Error("source holds only active files");
@@ -89,7 +89,7 @@ describe("joined copy content cache", () => {
     const second = install(2); await mirror.resume(); expect(count(second)).toBe(1);
     // An unchanged active file is still served from the cache.
     await mirror.resume(); expect(count(second)).toBe(1);
-    const mainSha = mirror.session.document.files["project/Main.dc.html"]?.sha256; if (mainSha) expect(count(mainSha)).toBe(1);
+    const mainSha = mirror.session.document.files["project/slides/cover.html"]?.sha256; if (mainSha) expect(count(mainSha)).toBe(1);
     // A superseded version is not kept: going back to it fetches again.
     install(1); await mirror.resume(); expect(count(first)).toBe(2);
     // A committed save keeps its own bytes; nothing is fetched for them afterwards.
@@ -108,7 +108,7 @@ describe("joined copy content cache", () => {
 // still on the wire when the window is closed or the design deleted must not
 // leave a source behind, and its cleanup must not touch a later share.
 describe("a first share open cancelled while on the wire", () => {
-  const view = { shareId: `ds_${"c".repeat(24)}`, conversationId: "chat", designId: "doc", format: "canvas", title: "Doc", generation: 1, ownerUserId: "owner", ownerName: "Owner", role: "owner", revision: 0, sourceOnline: true };
+  const view = { shareId: `ds_${"c".repeat(24)}`, conversationId: "chat", designId: "doc", format: "slides", title: "Doc", generation: 1, ownerUserId: "owner", ownerName: "Owner", role: "owner", revision: 0, sourceOnline: true };
   function harness() {
     const calls: string[] = [], held: Array<() => void> = []; let receive: (frame: DesignShareServerFrame) => void = () => {}, holdOpen = true, onOpen = () => {};
     const reply = (requestId: string, result: unknown) => receive({ v: 1, type: "design.share.result", requestId, ok: true, result } as never);
@@ -117,7 +117,7 @@ describe("a first share open cancelled while on the wire", () => {
       if (request.op === "open" && holdOpen) { held.push(() => reply(frame.requestId, view)); onOpen(); return; }
       queueMicrotask(() => reply(frame.requestId, request.op === "open" || request.op === "attach" ? view : {}));
     } }, 2_000);
-    const document = emptyDesign("doc"), session = new DesignSession(document, async () => document, async () => {}, () => {});
+    const document = emptySlides("doc"), session = new DesignSession(document, async () => document, async () => {}, () => {});
     const opened = () => new Promise<void>(resolve => { if (held.length) resolve(); else onOpen = resolve; });
     return { calls, client, session, manager: new DesignShareManager(client), opened, release: () => { holdOpen = false; for (const fn of held.splice(0)) fn(); } };
   }
@@ -182,5 +182,23 @@ describe("a first share open cancelled while on the wire", () => {
     await new Promise(resolve => setTimeout(resolve, 20));
     expect(h.calls).toEqual(["open", "detach"]); expect(h.manager.sourceFor(h.session)).toBeUndefined();
     h.client.dispose();
+  });
+
+  it("refuses canvas sharing on open and join without downloading blobs", async () => {
+    const ops: string[] = []; let receive: (frame: DesignShareServerFrame) => void = () => {};
+    const client = new DesignShareClient({ onFrame: listener => { receive = listener; return () => {}; }, send: frame => {
+      ops.push(frame.request.op);
+      const reply = frame.request.op === "join" ? { role: "viewer", sourceOnline: true, format: "canvas" } : {};
+      queueMicrotask(() => receive({ v: 1, type: "design.share.result", requestId: frame.requestId, ok: true, result: reply } as never));
+    } }, 2_000);
+    const canvasDoc = emptyDesign("legacy"), canvasSession = new DesignSession(canvasDoc, async () => canvasDoc, async () => {}, () => {});
+    await expect(openDesignShare(client, canvasSession, input)).rejects.toMatchObject({ code: "design_canvas_removed" });
+    expect(ops).toEqual([]);
+    const manager = new DesignShareManager(client);
+    await expect(manager.join({ ...view, format: "canvas", role: "viewer", onThisDevice: false }, { windowId: "w", user: () => ({ id: "guest", name: "Guest" }) })).rejects.toMatchObject({ code: "design_canvas_removed" });
+    expect(ops).toEqual([]);
+    await expect(joinDesignShare(client, { shareId: view.shareId, windowId: "w", user: () => ({ id: "guest", name: "Guest" }) })).rejects.toMatchObject({ code: "design_canvas_removed" });
+    expect(ops).toEqual(["join", "leave"]);
+    client.dispose();
   });
 });

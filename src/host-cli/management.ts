@@ -14,7 +14,7 @@ import { HostCliError, LocalHostClient } from "./client.js";
 export class HostManagement {
   constructor(readonly client: LocalHostClient) {}
   bots(): Bot[] { return this.client.bots; }
-  catalog(workspace?: string): Promise<BotCatalog> { return this.client.request(`/api/bots/catalog?includePi=1${workspace ? `&workspace=${encodeURIComponent(workspace)}` : ""}`); }
+  catalog(workspace?: string): Promise<BotCatalog> { return this.client.request(`/api/bots/catalog?includePi=1&includeOmp=1${workspace ? `&workspace=${encodeURIComponent(workspace)}` : ""}`); }
   createBot(input: CreateBotInput): Promise<Bot> { return this.client.request("/api/bots", "POST", createBotSchema.parse(input)); }
   deleteBot(id: string, input: DeleteBotInput) { return this.client.request(`/api/bots/${idSchema.parse(id)}`, "DELETE", deleteBotSchema.parse(input)); }
   renameBot(id: string, input: RenameBotInput) { return this.client.request(`/api/bots/${idSchema.parse(id)}/name`, "PUT", renameBotSchema.parse(input)); }

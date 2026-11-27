@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
 import type { HubEvent } from "../../client-protocol/index.js";
-import { messageSchema } from "../../client-protocol/index.js";
+import { messageSchema, type Message } from "../../client-protocol/index.js";
 import { quietNow, notificationAllowed, notificationOptionsSchema, notificationPreferencesSchema, notificationShowsPreview, type NotificationOptions, type NotificationPreferences, type PushPayload } from "../../client-protocol/push.js";
 import { classifyNotification, encodeNotificationClass, genericNotificationBody, notificationPreview } from "../../client-protocol/notification-content.js";
+import { hasPendingCardAction } from "../../client-protocol/message-clear.js";
 import type { HubDatabase } from "../database.js";
+
+/** A Bot's own open approval or question card (not forwarded, not failed). */
+export const waitsForOwner = (message: Pick<Message, "authorType" | "forwardedFrom" | "status" | "blocks">): boolean =>
+  message.authorType === "bot" && !message.forwardedFrom && message.status !== "error" && message.status !== "deleted" && hasPendingCardAction(message.blocks);
 
 export { quietNow } from "../../client-protocol/push.js";
 export function parsePreferences(raw: string | null | undefined): NotificationPreferences { try { return notificationPreferencesSchema.parse(JSON.parse(raw ?? "{}")); } catch { return notificationPreferencesSchema.parse({}); } }
@@ -20,8 +25,10 @@ export async function enqueueEventPush(db: HubDatabase, event: HubEvent): Promis
   if (event.kind !== "message.created" && event.kind !== "message.updated") return;
   const message = messageSchema.parse(event.payload);
   const notice = classifyNotification(message); if (!notice) return;
-  // Dispatcher worker conversations report through their dispatcher instead.
-  if (await db.get("SELECT 1 FROM conversations WHERE id=? AND hidden=1", [event.conversationId])) return;
+  // Dispatcher worker conversations report through their dispatcher instead,
+  // except an open approval or question there, which waits for the owner (on a
+  // receiving Host nobody else would see it). It pushes like any other approval.
+  if (!waitsForOwner(message) && await db.get("SELECT 1 FROM conversations WHERE id=? AND hidden=1", [event.conversationId])) return;
   const { kind } = notice;
   const recipients = await db.all<{ id: string; preferences_json: string | null; options_json: string | null }>("SELECT d.id,p.preferences_json,o.options_json FROM devices d JOIN conversation_members m ON m.member_type='user' AND m.member_id=d.user_id LEFT JOIN device_preferences p ON p.device_id=d.id LEFT JOIN device_notification_options o ON o.device_id=d.id WHERE m.conversation_id=? AND m.muted=0 AND d.revoked=0 AND d.push_json IS NOT NULL AND NOT EXISTS(SELECT 1 FROM message_deletions x WHERE x.user_id=d.user_id AND x.message_id=?)", [event.conversationId, message.id]);
   let preview: string | undefined;

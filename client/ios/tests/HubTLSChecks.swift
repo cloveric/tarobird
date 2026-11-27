@@ -111,6 +111,92 @@ private final class SocketProbe: HubTaskHandler, @unchecked Sendable {
               let value = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { throw HubNetworkError("invalid_socket_message") }
         return value
     }
+    @inline(never)
+    static func checkClassify(_ error: Error, host: String? = nil, _ expected: String, _ name: String) throws {
+        try check(HubNetworkError.classify(error, host: host) == expected, name)
+    }
+    static func classifyErrorChecks() throws {
+        try checkClassify(HubNetworkError("tls_identity_mismatch"), "tls_identity_mismatch", "classifyPreservesHubCode")
+        try checkClassify(URLError(.timedOut), "native_request_timeout", "classifyUrlTimeout")
+        try checkClassify(URLError(.notConnectedToInternet), "native_network_offline", "classifyUrlOffline")
+        let enetdown = NSError(domain: NSPOSIXErrorDomain, code: Int(ENETDOWN))
+        let offlineWithPosix = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet, userInfo: [NSUnderlyingErrorKey: enetdown])
+        try checkClassify(offlineWithPosix, "native_network_offline", "classifyOfflineBeforePosixEnetdown")
+        let econnreset = NSError(domain: NSPOSIXErrorDomain, code: Int(ECONNRESET))
+        let tlsWithPosix = NSError(domain: NSURLErrorDomain, code: NSURLErrorServerCertificateUntrusted, userInfo: [NSUnderlyingErrorKey: econnreset])
+        try checkClassify(tlsWithPosix, "native_tls_untrusted", "classifyTlsBeforePosix")
+        try checkClassify(URLError(.cannotFindHost), "native_dns_failed", "classifyUrlDns")
+        let econnrefused = NSError(domain: NSPOSIXErrorDomain, code: Int(ECONNREFUSED))
+        let refusedErr = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost, userInfo: [NSUnderlyingErrorKey: econnrefused])
+        try checkClassify(refusedErr, "native_connection_refused", "classifyPosixRefused")
+        try checkClassify(NSError(domain: "kNWErrorDomainPOSIX", code: Int(ECONNREFUSED)), "native_connection_refused", "classifyNwPosixRefused")
+        try checkClassify(NSError(domain: "kNWErrorDomainDNS", code: -65555), "local_network_permission_denied", "classifyNwDnsLocalNetworkDenied")
+        try checkClassify(NSError(domain: "kNWErrorDomainDNS", code: -65554), "native_dns_failed", "classifyNwDnsFailed")
+        let eperm = NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))
+        let epermError = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost, userInfo: [NSUnderlyingErrorKey: eperm])
+        try checkClassify(epermError, host: "192.168.1.100", "local_network_permission_denied", "classifyPosixLocalNetworkDeniedOnLan")
+        let lanUrl = URL(string: "https://192.168.1.100:8788")!
+        let epermWithLanUrl = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost, userInfo: [NSURLErrorFailingURLErrorKey: lanUrl, NSUnderlyingErrorKey: eperm])
+        try checkClassify(epermWithLanUrl, "local_network_permission_denied", "classifyPosixLocalNetworkDeniedFromUrl")
+        try checkClassify(epermError, host: "100.64.0.1", "native_host_unreachable", "classifyPosixEpermNotLocalNetworkOnTailscale")
+        try checkClassify(epermError, "native_host_unreachable", "classifyPosixEpermWithoutHostNotLocalNetwork")
+        try checkClassify(NSError(domain: "kCFErrorDomainDNSServiceDiscovery", code: -65555), "local_network_permission_denied", "classifyDnsServiceLocalNetworkDenied")
+    }
+    static func trustCauseChecks() throws {
+        func status(_ code: OSStatus) -> NSError { NSError(domain: NSOSStatusErrorDomain, code: Int(code)) }
+        try checkClassify(status(errSecHostNameMismatch), "native_tls_hostname_mismatch", "classifyTrustHostnameMismatch")
+        try checkClassify(status(errSecCertificateExpired), "native_tls_cert_expired", "classifyTrustExpired")
+        try checkClassify(status(errSecCertificateNotValidYet), "native_tls_cert_expired", "classifyTrustNotYetValid")
+        try checkClassify(status(errSecInvalidExtendedKeyUsage), "native_tls_cert_policy_rejected", "classifyTrustPolicy")
+        try check(HubNetworkError.classify(status(errSecNotTrusted), fallback: "native_tls_untrusted") == "native_tls_untrusted", "classifyTrustOtherUntrusted")
+        try checkClassify(URLError(.appTransportSecurityRequiresSecureConnection), "native_ats_blocked", "classifyAtsError")
+        try checkClassify(URLError(.clientCertificateRequired), "native_tls_handshake_failed", "classifyHandshakeError")
+        // URL-level TLS errors keep main's single untrusted code.
+        try checkClassify(URLError(.secureConnectionFailed), "native_tls_untrusted", "classifySecureConnectionFailedUntrusted")
+    }
+    static func openSilentLoopbackListener() throws -> (Int32, Int) {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw HubNetworkError("silentListenerSocket") }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        addr.sin_port = 0
+        let addrSize = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound: Int32 = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, addrSize) }
+        }
+        guard bound == 0 && Darwin.listen(fd, 4) == 0 else {
+            Darwin.close(fd)
+            throw HubNetworkError("silentListenerBound")
+        }
+        var actualAddr = sockaddr_in()
+        var actualLen = addrSize
+        _ = withUnsafeMutablePointer(to: &actualAddr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.getsockname(fd, $0, &actualLen) }
+        }
+        return (fd, Int(UInt16(bigEndian: actualAddr.sin_port)))
+    }
+    static func prepareTimeoutCheck(key: String, ca: SecCertificate) async throws {
+        // Verify HubTLSSession.prepare deadline surfaces native_request_timeout rather than URLError.cancelled.
+        let (silentFd, silentPort) = try openSilentLoopbackListener()
+        defer { Darwin.close(silentFd) }
+        var prepareTimeoutCode = ""
+        do {
+            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HubTLSSession, Error>) in
+                queue.async {
+                    do {
+                        _ = try HubTLSSession.prepare(origin: "https://127.0.0.1:\(silentPort)", publicKey: key, queue: queue, anchors: [ca], timeout: 0.25) {
+                            continuation.resume(with: $0)
+                        }
+                    } catch { continuation.resume(throwing: error) }
+                }
+            }
+        } catch {
+            prepareTimeoutCode = HubNetworkError.classify(error)
+        }
+        try check(prepareTimeoutCode == "native_request_timeout", "prepareDeadlineReportsTimeout")
+    }
     static func main() async {
         setbuf(stdout, nil)
         let repo = CommandLine.arguments[1], scratch = CommandLine.arguments[2], receipt = CommandLine.arguments[3]
@@ -120,7 +206,13 @@ private final class SocketProbe: HubTaskHandler, @unchecked Sendable {
             let hub = peer.peers["hub"]!, proxy = peer.peers["proxy"]!, rotating = peer.peers["rotating"]!, key = peer.peers["key"]!
             let ca = SecCertificateCreateWithData(nil, try Data(contentsOf: URL(fileURLWithPath: scratch + "/ca.der")) as CFData)!
             try await rejects("systemTrustRejectsPrivateCa") { _ = try await prepare(hub, key, nil) }
-            try await rejects("hostnameMismatchRejected") { _ = try await prepare(hub.replacingOccurrences(of: "127.0.0.1", with: "localhost"), key, ca) }
+            do { _ = try await prepare(hub.replacingOccurrences(of: "127.0.0.1", with: "localhost"), key, ca); try check(false, "hostnameMismatchRejected") }
+            catch {
+                let code = HubNetworkError.classify(error)
+                try check(code == "native_tls_hostname_mismatch" || code == "native_tls_untrusted", "hostnameMismatchRejected")
+                results["hostnameMismatchCode"] = code
+            }
+            try trustCauseChecks()
             try await rejects("activeProxyRejectedBeforeCredentials") { _ = try await prepare(proxy, key, ca) }
             try await rejects("cleartextLoopbackRejected") { _ = try HubTLS.origin("http://127.0.0.1:1") }
             let real = try await prepare(hub, key, ca); sessions.append(real)
@@ -171,6 +263,8 @@ private final class SocketProbe: HubTaskHandler, @unchecked Sendable {
             try await managerChecks(peer, ca, token: ready["sessionToken"] as! String)
             let stats = try JSONSerialization.jsonObject(with: Data(peer.command("stats").utf8)) as! [String: Any]
             try check(stats["sensitive"] as? Int == 0, "zeroProxySensitiveRequests")
+            try classifyErrorChecks()
+            try await prepareTimeoutCheck(key: key, ca: ca)
             results["proxy"] = stats; results["ok"] = true
         } catch { results["ok"] = false; results["error"] = String(describing: error); print("FAILED", error) }
         queue.sync { sessions.forEach { $0.cancelAll() } }

@@ -48,7 +48,7 @@ it("shares one cloud transcript across parallel-group recipients", async () => {
   const chat = await hub.store.createConversation("owner", bots, "Parallel voice", "pv", { type: "group" });
   const settings = await hub.store.groupSettings("owner", chat.id);
   await hub.store.updateGroup("owner", chat.id, { title: chat.title, expectedTitle: chat.title, botIds: chat.botIds, expectedBotIds: chat.botIds, policy: { ...settings.policy, mode: "parallel" }, expectedRevision: settings.revision });
-  const bytes = Buffer.from("fixture voice note"), upload = await hub.attachments.create("owner", { conversationId: chat.id, name: "voice.webm", mime: "audio/webm", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+  const bytes = Buffer.from("fixture voice note"), upload = await hub.attachments.create("owner", { conversationId: chat.id, name: "voice.webm", mime: "audio/webm", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), recording: true });
   await hub.attachments.putChunk("owner", upload.id, 0, bytes); await hub.attachments.complete("owner", upload.id);
   const sent = await hub.store.sendMessage("owner", { conversationId: chat.id, clientMsgId: "voice-1", text: "", attachments: [upload.id] });
   expect(sent.message.mentions).toEqual(bots);

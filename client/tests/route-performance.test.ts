@@ -17,6 +17,16 @@ it("requires several warm samples and a meaningful sustained latency improvement
   const small = health("small", 220); for (let i = 0; i < 4; i++) quality.observe(small, i * 30000);
   expect(quality.worthwhile(small, active, 90000)).toBe(false);
 });
+it("applies >= 25ms and >= 20% hysteresis without flapping on marginal gains", () => {
+  const quality = new RoutePerformance(), current = health("current", 100), faster = health("faster", 70), marginal = health("marginal", 82);
+  for (let i = 0; i < 4; i++) {
+    quality.observe(current, i * 30000);
+    quality.observe(faster, i * 30000);
+    quality.observe(marginal, i * 30000);
+  }
+  expect(quality.worthwhile(faster, current, 90000)).toBe(true);
+  expect(quality.worthwhile(marginal, current, 90000)).toBe(false);
+});
 it("does not switch to a known poor transfer path merely for lower ping", () => {
   const quality = new RoutePerformance(), active = health("active", 240), next = health("next", 80);
   for (let i = 0; i < 4; i++) { quality.observe(active, i * 30000); quality.observe(next, i * 30000); }

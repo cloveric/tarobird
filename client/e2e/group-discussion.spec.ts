@@ -661,10 +661,9 @@ test("root group controls its active topic discussion without targeting the wron
 });
 
 test("a transient status read error clears when authoritative reads recover", async ({ page }) => {
-  let failed = false;
+  let failReads = true;
   await page.route(/\/api\/conversations\/[^/]+\/discussion(?:\?.*)?$/, route => {
-    if (!failed && route.request().method() === "GET") {
-      failed = true;
+    if (failReads && route.request().method() === "GET") {
       return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "temporarily_unavailable" }) });
     }
     return route.continue();
@@ -672,6 +671,7 @@ test("a transient status read error clears when authoritative reads recover", as
   const f = await setup(page);
   try {
     await expect(page.getByRole("alert").filter({ hasText: "未能读取讨论状态" })).toBeVisible();
+    failReads = false;
     await expect(page.locator(".group-discussion-summary")).toBeEnabled({ timeout: 15_000 });
     await expect(page.getByRole("alert").filter({ hasText: "未能读取讨论状态" })).toHaveCount(0);
     expect(f.calls).toHaveLength(0);

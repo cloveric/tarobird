@@ -12,6 +12,8 @@ export interface CoreResourceDescriptor {
   file_name?: string;
   fileSize?: number | string;
   file_size?: number | string;
+  mime?: string;
+  recording?: boolean;
 }
 
 export interface CoreIncomingMessage {
@@ -52,6 +54,8 @@ export interface CoreNormalizedAttachment {
   fileKey: string;
   fileName?: string;
   fileSize?: number;
+  mime?: string;
+  recording?: boolean;
   /**
    * The Lark message that actually carries this resource. Set when an
    * attachment-burst merge moves attachments onto a merged message whose
@@ -234,6 +238,12 @@ function normalizeCoreResources(resources: CoreResourceDescriptor[]): CoreNormal
       : fileSize;
     if (typeof parsedFileSize === "number" && Number.isFinite(parsedFileSize) && parsedFileSize >= 0) {
       attachment.fileSize = parsedFileSize;
+    }
+    if (resource.mime) {
+      attachment.mime = resource.mime;
+    }
+    if (typeof resource.recording === "boolean") {
+      attachment.recording = resource.recording;
     }
     return [attachment];
   });

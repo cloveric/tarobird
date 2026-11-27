@@ -68,7 +68,7 @@ public class HubTransportPlugin extends Plugin {
     }
     // Control receipts cannot wait behind 32 blocked HTTP reads. These operations
     // only update bounded state / enqueue a socket frame, never wait for network IO.
-    private void complete(PluginCall call,Operation operation) { try { if(transport==null) throw new IOException("native_transport_unavailable"); call.resolve(operation.run()); } catch(Exception error) { call.reject(error instanceof IOException?error.getMessage():"native_transport_failed"); } }
+    private void complete(PluginCall call,Operation operation) { try { if(transport==null) throw new IOException("native_transport_unavailable"); call.resolve(operation.run()); } catch(Exception error) { call.reject(HubTls.classifyError(error)); } }
     private static JSObject value(Object value) { JSObject result=new JSObject(); result.put("value",value); return result; }
     private static String text(PluginCall call, String name) throws IOException { String value=call.getString(name); if(value==null) throw new IOException("invalid_native_input"); return value; }
     // Claim synchronously on the ordered bridge thread before later operations.
@@ -79,7 +79,7 @@ public class HubTransportPlugin extends Plugin {
     @PluginMethod public void httpRead(PluginCall call) { perform(call,()->{ JSObject result=new JSObject(); result.put("data",Base64.toBase64String(transport.httpRead(text(call,"id")))); return result; }); }
     @PluginMethod public void socketOpen(PluginCall call) {
         if(!hasListeners("socket")) { if(transport!=null) transport.cancel(call.getString("id")); call.reject("native_socket_listener_required"); return; }
-        perform(call,()->{ transport.socketOpen(text(call,"id"),text(call,"origin"),call.getString("hubKey"),call.getString("certificateAuthority")); return new JSObject(); });
+        perform(call,()->{ transport.socketOpen(text(call,"id"),text(call,"origin"),call.getString("hubKey"),call.getString("certificateAuthority"),Boolean.TRUE.equals(call.getBoolean("edgeTls",false))); return new JSObject(); });
     }
     @PluginMethod public void socketSend(PluginCall call) { complete(call,()->{ transport.socketSend(text(call,"id"),text(call,"text")); return new JSObject(); }); }
     @PluginMethod public void socketAck(PluginCall call) { complete(call,()->{ Double sequence=call.getDouble("sequence"); if(sequence==null || sequence<0 || sequence>9007199254740991d || sequence!=Math.floor(sequence)) throw new IOException("invalid_socket_receipt"); transport.socketAck(text(call,"id"),sequence.longValue()); return new JSObject(); }); }
@@ -91,7 +91,7 @@ public class HubTransportPlugin extends Plugin {
             JSObject result=operation.run();
             if(epoch.get()!=generation||transport==null||!closing&&!transport.screenCurrent(text(call,"id"))) throw new IOException("native_document_retired");
             call.resolve(result);
-        } catch(Exception error) { call.reject(error instanceof IOException?error.getMessage():"native_transport_failed"); } };
+        } catch(Exception error) { call.reject(HubTls.classifyError(error)); } };
         if(!asynchronous) { run.run(); return; }
         try { io.execute(run); } catch(RejectedExecutionException error) { call.reject("native_transport_busy"); }
     }

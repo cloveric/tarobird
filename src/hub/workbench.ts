@@ -23,7 +23,7 @@ const MAX_EARLY_CANCELS_PER_USER = 64, MAX_EARLY_CANCELS = 1024;
 const MAX_INTAKES_PER_USER = 32, MAX_INTAKES = 128;
 type Intake = { cancelled: boolean; released?: boolean };
 const failure = (error: unknown) => error instanceof HubError ? error.code : "workbench_failed";
-const capability = (operation: WorkbenchRequest["operation"]) => operation.startsWith("design.comments.") ? "design.comments.v1" : operation.startsWith("design.history.") || operation === "design.restore" ? "design.history.v1" : operation === "design.open" ? "design.open.v1" : operation === "browser" ? "browser.v1" : operation.startsWith("chart.") ? "charts.v1" : operation.startsWith("design.") ? "design.v1" : operation.startsWith("markdown.") ? "markdown.v1" : operation === "tabs.list" ? undefined : "whiteboard.v1";
+const capability = (operation: WorkbenchRequest["operation"]) => operation.startsWith("design.comments.") ? "design.comments.v1" : operation.startsWith("design.history.") || operation === "design.restore" ? "design.history.v1" : operation === "design.open" ? "design.open.v1" : operation === "browser" ? "browser.v1" : operation.startsWith("chart.") ? "charts.v1" : operation.startsWith("design.") ? "design.slides.v1" : operation.startsWith("markdown.") ? "markdown.v1" : operation === "tabs.list" ? undefined : "whiteboard.v1";
 export const workbenchContextKey = (messageId: string) => `workbench-context:${messageId}`;
 /** Exactly {target, openTarget} naming the same window: nothing else frozen. */
 const pureOpener = (context: WorkbenchContext) => workbenchOpenerOnly(context) && Object.keys(context).length === 2;
@@ -182,6 +182,7 @@ export class WorkbenchBroker {
     // never replaced by another note. Creates and tabs.list carry no tab.
     const kind = workbenchOperationKind(pending.request.operation), tab = pending.target.tabId ? window.registration.tabs.find(item => item.id === pending.target.tabId) : undefined;
     if (kind && tab && (kind === "design" || tab.kind === "design" || kind === "markdown" || tab.kind === "markdown") && kind !== tab.kind) throw new HubError("workbench_wrong_kind", 409);
+    if (kind === "design" && tab && tab.designFormat !== "slides") throw new HubError("design_canvas_removed", 400);
     if (!applied && (kind === "markdown" || kind === "design") && !pending.request.operation.endsWith(".create") && !opening && !tab) throw new HubError("workbench_target_required", 400);
     const markdownError = workbenchMarkdownError(pending.request) ?? workbenchDesignError(pending.request);
     if (markdownError) throw new HubError(markdownError, 400);
@@ -221,7 +222,7 @@ export class WorkbenchBroker {
     if (pending.request.operation === "design.open" && receipt.status === "applied") {
       const opened = workbenchDesignOpenResultSchema.safeParse(receipt.result);
       const real = opened.success && opened.data.target.deviceId === pending.target.deviceId ? this.windows.get(key(opened.data.target.deviceId, opened.data.target.windowId)) : undefined;
-      if (!opened.success || !real || real.peer.key !== peer.key || real.registration.conversationId !== pending.actor.conversationId || isWorkbenchOpener(real.registration) || !real.registration.visible || !real.registration.capabilities.includes("design.v1") || isSlidesRequest(pending.request) && (!real.registration.capabilities.includes("design.slides.v1") || real.registration.tabs.find(tab => tab.id === opened.data.target.tabId)?.designFormat !== "slides") || real.registration.tabs.find(tab => tab.id === opened.data.target.tabId)?.kind !== "design") {
+      if (!opened.success || !real || real.peer.key !== peer.key || real.registration.conversationId !== pending.actor.conversationId || isWorkbenchOpener(real.registration) || !real.registration.visible || !real.registration.capabilities.includes("design.slides.v1") || real.registration.tabs.find(tab => tab.id === opened.data.target.tabId)?.designFormat !== "slides" || real.registration.tabs.find(tab => tab.id === opened.data.target.tabId)?.kind !== "design") {
         this.cancel(dispatchId, "workbench_open_target_unregistered"); return;
       }
     }
@@ -278,6 +279,7 @@ export class WorkbenchBroker {
       if (journal.fingerprint !== fingerprint || request.operation.startsWith("design.") && journal.sourceMessageId !== actor.sourceMessageId) throw new HubError("request_id_conflict", 409);
       return journal.receipt ?? { requestId: request.requestId, target: journal.target, status: "unknown", error: "workbench_previous_outcome_unknown" };
     }
+    if (workbenchDesignError(request) === "design_canvas_removed") throw new HubError("design_canvas_removed", 400);
     // design.open goes only to the turn's frozen opener (a Bot), or to the
     // owner's explicit opener; never to another window. A context frozen with
     // the panel closed names only that opener and targets nothing else.
@@ -299,7 +301,9 @@ export class WorkbenchBroker {
     // Reads may use the turn's exact frozen context; writes must name their tab.
     if (designMutationOperations.includes(request.operation) && !request.target?.tabId || designReadOperations.includes(request.operation) && !wanted?.tabId) throw new HubError("workbench_target_required", 400);
     const tabId = creates || opening || request.operation === "tabs.list" ? undefined : wanted?.tabId ?? chosen.activeTabId;
-    if (tabId && !chosen.tabs.some(tab => tab.id === tabId)) throw new HubError("workbench_target_closed", 409);
+    const tab = tabId ? chosen.tabs.find(item => item.id === tabId) : undefined;
+    if (tabId && !tab) throw new HubError("workbench_target_closed", 409);
+    if (workbenchOperationKind(request.operation) === "design" && tab && tab.kind === "design" && tab.designFormat !== "slides") throw new HubError("design_canvas_removed", 400);
     const target: WorkbenchTarget = { deviceId: chosen.deviceId, windowId: chosen.windowId, ...(tabId ? { tabId } : {}) };
     // Synchronous with creating the pending command: a later cancel finds it.
     const cancelled = intake.cancelled;

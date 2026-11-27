@@ -33,6 +33,16 @@ it("verifies the native message grant proof and rejects a substituted operation"
 
 it.each(["", "a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64), "device_target", "a".repeat(64) + "\n"])("rejects malformed network mutation hashes: %s", (target) => {
   expect(deviceActionSchema.safeParse({ operation: "network", target }).success).toBe(false);
+  expect(deviceActionSchema.safeParse({ operation: "terminal-grant", target }).success).toBe(false);
+  expect(deviceActionSchema.safeParse({ operation: "cloudflare-tunnel", target }).success).toBe(false);
+});
+
+it("accepts a valid 64-hex digest for terminal-grant", () => {
+  expect(deviceActionSchema.safeParse({ operation: "terminal-grant", target: "a".repeat(64) }).success).toBe(true);
+});
+
+it("accepts valid 64-hex digests for cloudflare-tunnel device actions", () => {
+  expect(deviceActionSchema.safeParse({ operation: "cloudflare-tunnel", target: "a".repeat(64) }).success).toBe(true);
 });
 
 it.each(["hubPublicKey", "deviceId", "sessionHash", "operation", "target"])("refuses substituted %s before a device key is used", (field) => {

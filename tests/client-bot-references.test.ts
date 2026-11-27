@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { annotateBotReferences, botLabels, readableBotReferences, readablePreviewBotReferences } from "../client/src/bot-references.js";
+import { setLocale } from "../client/src/i18n.js";
+
+beforeEach(() => {
+  vi.stubGlobal("document", { documentElement: { lang: "zh-CN" } });
+  setLocale("zh");
+});
+afterEach(() => {
+  setLocale("zh");
+  vi.unstubAllGlobals();
+});
 type Root = Parameters<typeof annotateBotReferences>[0];
 const id = `client_${"a".repeat(24)}`, other = `client_${"b".repeat(24)}`;
 const labels = botLabels([{ id, name: "Research [Bot]" }, { id: "alpha", name: "Legacy" }]);

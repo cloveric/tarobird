@@ -5,7 +5,7 @@ const io = vi.hoisted(() => ({ socket: vi.fn(), platform: "android" }));
 vi.mock("../src/storage.js", () => ({ cache: {}, ClientCache: class {}, defaultPreferences: {} }));
 vi.mock("../src/identity.js", () => ({ randomNonce: () => "nonce", signChallenge: async () => "signature", verifyHub: async () => {} }));
 vi.mock("../src/transport.js", () => ({ hubSocket: io.socket, hubFetch: vi.fn(), usesPinnedTransport: () => true }));
-vi.mock("../src/native.js", () => ({ nativePlatform: () => io.platform }));
+vi.mock("../src/native.js", () => ({ nativePlatform: () => io.platform, isNativeAppActive: () => true, NATIVE_ACTIVE_EVENT: "tarocub:native-active" }));
 vi.mock("../src/share-inbox.js", () => ({ syncShareUploadLimit: async () => {} }));
 import { HubConnection } from "../src/connection.js";
 

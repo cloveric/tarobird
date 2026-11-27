@@ -45,3 +45,44 @@ for (const name of ["Direct", "Tailscale"] as const) test(`${name} offline QR re
     await expect(page.getByLabel(name === "Tailscale" ? "主机的 Tailscale 连接地址（可选）" : "主机的直连地址（可选）", { exact: true })).toHaveValue(replacement);
   } finally { await page.close(); await hub.close(); await rm(dir, { recursive: true, force: true }); }
 });
+
+test("v2 multi-candidate QR repair displays every added direct URL in confirmation and preserves saved routes", async ({ page }) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "route-repair-v2-"));
+  const hub = await HubServer.start({ stateDir: dir, clientDir: path.resolve("dist") });
+  const original = "https://192.0.2.1:8788";
+  const lanA = "https://192.168.1.10:8788", lanB = "https://192.168.1.20:8788";
+  const image = {
+    name: "connection-v2.png",
+    mimeType: "image/png",
+    buffer: await QRCode.toBuffer(pairingLink({
+      v: 2,
+      kind: "connect",
+      hubPublicKey: hub.auth.publicKey,
+      routes: [
+        { name: "Direct", url: lanA },
+        { name: "Direct", url: lanB },
+      ],
+      deployment: "computer",
+    }), { scale: 6, margin: 4 }),
+  };
+  try {
+    await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+    await openSettings(page, "connection");
+    await page.getByLabel("主机的直连地址（可选）", { exact: true }).fill(original);
+    await page.getByRole("button", { name: "保存线路", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("线路已保存");
+    await page.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("button", { name: "扫描二维码更新连接", exact: true }).click();
+    const scan = page.getByRole("dialog", { name: "扫描配对二维码", exact: true });
+    await scan.getByLabel("二维码图片", { exact: true }).setInputFiles(image);
+    const confirm = page.getByRole("dialog", { name: "更新此主机的连接？", exact: true });
+    await expect(confirm).toContainText(lanA);
+    await expect(confirm).toContainText(lanB);
+    await confirm.getByRole("button", { name: "更新连接", exact: true }).click();
+    await expect(page.locator(".saved-routes")).toContainText(lanA);
+    await expect(page.locator(".saved-routes")).toContainText(lanB);
+    await expect(page.locator(".saved-routes")).toContainText(original);
+  } finally { await page.close(); await hub.close(); await rm(dir, { recursive: true, force: true }); }
+});

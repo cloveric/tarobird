@@ -27,16 +27,16 @@ async function fixture(page: Page) {
 }
 const panel = (page: Page) => page.getByRole("complementary", { name: "工作台", exact: true });
 
-test('design follows App and system theme changes without discarding the live canvas', async ({page}) => {
+test('design follows App and system theme changes without discarding the live deck', async ({page}) => {
   const f=await fixture(page);
   try {
     await page.evaluate(()=>{document.documentElement.dataset.theme='light';});
-    await f.command({requestId:'theme-design',operation:'design.create',payload:{title:'Theme probe'}});
+    await f.command({requestId:'theme-design',operation:'design.create',payload:{title:'Theme probe',format:'slides'}});
     const editor=page.frameLocator('.workbench-design-frame');
     await expect(editor.locator('html')).toHaveAttribute('data-theme','light',{timeout:20000});
-    await expect(editor.frameLocator('iframe').locator('h1')).toHaveText('Theme probe',{timeout:20000});
+    await expect(editor.getByRole('heading',{level:1}).first()).toHaveText('Theme probe',{timeout:20000});
     await editor.locator('html').evaluate(node=>{node.dataset.auditIdentity='same-document';});
-    await editor.frameLocator('iframe').locator('h1').dblclick();
+    await editor.getByRole('heading',{level:1}).first().dblclick();
     await page.keyboard.press('Meta+A');await page.keyboard.type('Human theme edit');await page.keyboard.press('Escape');
     await page.evaluate(()=>{document.documentElement.dataset.theme='dark';});
     await expect(editor.locator('html')).toHaveAttribute('data-theme','dark');
@@ -46,9 +46,9 @@ test('design follows App and system theme changes without discarding the live ca
     await page.emulateMedia({colorScheme:'dark'});
     await expect(editor.locator('html')).toHaveAttribute('data-theme','dark');
     await expect(editor.locator('html')).toHaveAttribute('data-audit-identity','same-document');
-    await expect(editor.frameLocator('iframe').locator('h1')).toHaveText('Human theme edit',{timeout:20000});
-    // Theme updates are accepted only from the parent, never a nested artboard.
-    await editor.frameLocator('iframe').locator('h1').evaluate(()=>window.parent.postMessage({type:'tarobot-design-theme',dark:false},'*'));
+    await expect(editor.getByRole('heading',{level:1}).first()).toHaveText('Human theme edit',{timeout:20000});
+    // Theme updates are accepted only from the parent, never from inside the frame.
+    await editor.locator('body').evaluate(()=>window.postMessage({type:'tarobot-design-theme',dark:false},'*'));
     await expect(editor.locator('html')).toHaveAttribute('data-theme','dark');
   }finally{await f.close();}
 });
@@ -56,14 +56,14 @@ test('design follows App and system theme changes without discarding the live ca
 test('design still tracks its surface bounds after a Bot reload', async ({page}) => {
   const f=await fixture(page);
   try {
-    const created=await f.command({requestId:'resize-design',operation:'design.create',payload:{title:'Resize probe'}});
+    const created=await f.command({requestId:'resize-design',operation:'design.create',payload:{title:'Resize probe',format:'slides'}});
     const target={...created.target,tabId:(created.result as {tabId:string}).tabId};
     const editor=page.frameLocator('.workbench-design-frame');
-    await expect(editor.frameLocator('iframe').locator('h1')).toHaveText('Resize probe',{timeout:20000});
-    const read=await f.command({requestId:'resize-read',operation:'design.read',target,payload:{path:'project/Main.dc.html'}});
-    const content=(read.result as {content:string}).content.replace('Resize probe','Reloaded canvas');
-    expect(await f.command({requestId:'resize-publish',operation:'design.publish',target,expectedRevision:read.revision,payload:{files:{'project/Main.dc.html':{content,contentType:'text/html'}}}})).toMatchObject({status:'applied',saved:true});
-    await expect(editor.frameLocator('iframe').locator('h1')).toHaveText('Reloaded canvas',{timeout:20000});
+    await expect(editor.getByRole('heading',{level:1}).first()).toHaveText('Resize probe',{timeout:20000});
+    const read=await f.command({requestId:'resize-read',operation:'design.read',target,payload:{path:'project/slides/cover.html'}});
+    const content=(read.result as {content:string}).content.replace('Resize probe','Reloaded slide');
+    expect(await f.command({requestId:'resize-publish',operation:'design.publish',target,expectedRevision:read.revision,payload:{files:{'project/slides/cover.html':{content,contentType:'text/html'}}}})).toMatchObject({status:'applied',saved:true});
+    await expect(editor.getByRole('heading',{level:1}).first()).toHaveText('Reloaded slide',{timeout:20000});
     // Internal pane resize changes element geometry without resizing the window.
     await page.locator('.workbench-design-surface').evaluate(el=>{el.style.width='230px';});
     await expect.poll(async()=>page.evaluate(()=>{
@@ -80,13 +80,13 @@ test('native quit handshake saves live text, cancellation restores editing, and 
   const f=await fixture(page);
   const reopen=async(text:string)=>{
     page=await page.context().newPage();await page.goto(f.hub.url);await waitForClientOnline(page);await selectConversation(page,f.conversation.title);await page.getByRole('button',{name:'工作台',exact:true}).click();
-    await expect(page.frameLocator('.workbench-design-frame').frameLocator('iframe').locator('h1')).toHaveText(text,{timeout:20000});
+    await expect(page.frameLocator('.workbench-design-frame').getByRole('heading',{level:1}).first()).toHaveText(text,{timeout:20000});
   };
   try {
-    await f.command({requestId:'quit-design',operation:'design.create',payload:{title:'Quit probe'}});
-    let h1=page.frameLocator('.workbench-design-frame').frameLocator('iframe').locator('h1');await expect(h1).toHaveText('Quit probe',{timeout:20000});
+    await f.command({requestId:'quit-design',operation:'design.create',payload:{title:'Quit probe',format:'slides'}});
+    let h1=page.frameLocator('.workbench-design-frame').getByRole('heading',{level:1}).first();await expect(h1).toHaveText('Quit probe',{timeout:20000});
     await h1.click();await page.waitForTimeout(600);
-    await h1.dblclick();await page.keyboard.press('Meta+A');await page.keyboard.type('Saved across App exit');await expect(h1).toHaveText('Saved across App exit');
+    await h1.dblclick();await page.keyboard.press('Meta+A');await page.keyboard.type('Saved across App exit');
     // A direct browser/OS close without the App handshake must remain guarded.
     if(browserName==='chromium') {const dialog=page.waitForEvent('dialog');await page.close({runBeforeUnload:true});await(await dialog).dismiss();expect(page.isClosed()).toBe(false);}
     else expect(await page.evaluate(()=>window.dispatchEvent(new Event('beforeunload',{cancelable:true})))).toBe(false);
@@ -94,8 +94,9 @@ test('native quit handshake saves live text, cancellation restores editing, and 
     await expect(page.locator('.workbench-design-frame')).toHaveJSProperty('inert',true);
     await page.evaluate(DESIGN_CANCEL_SCRIPT);await expect(page.locator('.workbench-design-frame')).toHaveJSProperty('inert',false);
     for(const [text,escape] of [['Second edit after cancelled quit',false],['Escaped edit before quit',true]] as const){
-      h1=page.frameLocator('.workbench-design-frame').frameLocator('iframe').locator('h1');
-      await h1.dblclick();await page.keyboard.press('Meta+A');await page.keyboard.type(text);await expect(h1).toHaveText(text);
+      const editor=page.frameLocator('.workbench-design-frame');
+      h1=editor.getByRole('textbox',{name:'Heading'}).or(editor.getByRole('heading',{level:1})).first();
+      await h1.dblclick();await page.keyboard.press('Meta+A');await page.keyboard.type(text);
       if(escape){await page.keyboard.press('Escape');await panel(page).evaluate(node=>{node.tabIndex=-1;node.focus();});}
       expect(await page.evaluate(DESIGN_PREPARE_SCRIPT)).toBe(true);
       await expect(page.locator('.workbench-design-frame')).toHaveJSProperty('inert',true);
@@ -112,11 +113,11 @@ test('native quit handshake saves live text, cancellation restores editing, and 
 test('a failed Design save keeps quit protection until the editor can save again', async ({page,browserName})=>{
   const f=await fixture(page);
   try {
-    const created=await f.command({requestId:'failed-save-design',operation:'design.create',payload:{title:'Save failure'}});
+    const created=await f.command({requestId:'failed-save-design',operation:'design.create',payload:{title:'Save failure',format:'slides'}});
     const target={...created.target,tabId:(created.result as {tabId:string}).tabId};
-    const h1=page.frameLocator('.workbench-design-frame').frameLocator('iframe').locator('h1');await expect(h1).toHaveText('Save failure',{timeout:20000});
+    const h1=page.frameLocator('.workbench-design-frame').getByRole('heading',{level:1}).first();await expect(h1).toHaveText('Save failure',{timeout:20000});
     await page.evaluate(()=>{const original=IDBObjectStore.prototype.put;(window as any).rejectDesignWrites=true;IDBObjectStore.prototype.put=function(...args:Parameters<IDBObjectStore['put']>){if(this.name==='workbenchDesign'&&(window as any).rejectDesignWrites)throw new DOMException('Fixture full','QuotaExceededError');return original.apply(this,args);};});
-    await h1.dblclick();await page.keyboard.press('Meta+A');await page.keyboard.type('Keep this failed edit');await expect(h1).toHaveText('Keep this failed edit');
+    await h1.dblclick();await page.keyboard.press('Meta+A');await page.keyboard.type('Keep this failed edit');
     const tryQuit=async()=>{
       if(browserName==='chromium'){const warn=page.waitForEvent('dialog');await page.close({runBeforeUnload:true});await(await warn).dismiss();}
       else expect(await page.evaluate(()=>window.dispatchEvent(new Event('beforeunload',{cancelable:true})))).toBe(false);
@@ -129,7 +130,8 @@ test('a failed Design save keeps quit protection until the editor can save again
     await page.evaluate(()=>(window as any).rejectDesignWrites=false);
     expect(await page.evaluate(DESIGN_PREPARE_SCRIPT)).toBe(true);
     await expect(page.locator('.workbench-design-error')).toHaveCount(0,{timeout:20000});
-    await expect(page.frameLocator('.workbench-design-frame').frameLocator('iframe').locator('h1')).toHaveText('Keep this failed edit',{timeout:20000});
-    const read=await f.command({requestId:'failed-save-read',operation:'design.read',target,payload:{path:'project/Main.dc.html'}});expect((read.result as {content:string}).content).toContain('Keep this failed edit');
+    const editor=page.frameLocator('.workbench-design-frame');
+    await expect(editor.getByRole('textbox',{name:'Heading'}).or(editor.getByRole('heading',{level:1})).first()).toHaveText('Keep this failed edit',{timeout:20000});
+    const read=await f.command({requestId:'failed-save-read',operation:'design.read',target,payload:{path:'project/slides/cover.html'}});expect((read.result as {content:string}).content).toContain('Keep this failed edit');
   }finally{await f.close();}
 });

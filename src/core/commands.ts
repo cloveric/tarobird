@@ -1,9 +1,9 @@
 import { getEngineEffortValidationError } from "../state/instance-config.js";
-import { PI_THINKING_LEVELS } from "../codex/pi-models.js";
+import { decodePiModel, PI_THINKING_LEVELS } from "../codex/pi-models.js";
 import { modelSettings } from "../runtime/model-settings.js";
 import { effortValueSchema } from "../client-protocol/effort.js";
 import { effortSettings } from "../runtime/effort-settings.js";
-import { modelCatalog, modelEffortChoices } from "../runtime/model-catalog.js";
+import { modelCatalog, modelEffortChoices, readModelCatalog } from "../runtime/model-catalog.js";
 import { antigravityPresetEffort } from "../codex/antigravity-models.js";
 import path from "node:path";
 import { channelProfile } from "./channel-profile.js";
@@ -18,13 +18,12 @@ import {
   loadCodexUserDefaults,
 } from "../codex/user-defaults.js";
 import {
-  CODEX_EFFORT_COMPATIBILITY_EN,
-  CODEX_EFFORT_COMPATIBILITY_ZH,
   CODEX_MODEL_CHOICES,
   isExtendedCodexEffort,
   knownCodexModelMaxEffort,
   knownCodexModelSupportsEffort,
 } from "../codex/model-capabilities.js";
+import { hostT } from "../locales/index.js";
 import { CronScheduler } from "../runtime/cron-scheduler.js";
 import { renderEngineEffortSetting, renderEngineModelSetting } from "../runtime/engine-settings-display.js";
 import { renderRuntimeTimeoutMessage } from "../runtime/runtime-timeout-message.js";
@@ -37,6 +36,7 @@ import { FileWorkflowStore, type FileWorkflowStatus } from "../state/file-workfl
 import { SessionStore } from "../state/session-store.js";
 import { UsageStore } from "../state/usage-store.js";
 import { handleCronCommand, isCronCommand } from "./shared/cron-commands.js";
+import { parseAntigravityLocalCommand, renderAntigravityLocalCommandReply } from "./shared/antigravity-commands.js";
 import { handleLocalEngineCoreCommand } from "./shared/engine-commands.js";
 import {
   ANTIGRAVITY_EFFORT_LEVELS,
@@ -61,6 +61,7 @@ import {
   listInstanceProcessGroup,
 } from "../runtime/background-processes.js";
 import { renderUsageMessage, type Locale } from "../runtime/message-renderer.js";
+import { isChineseLocale } from "../runtime/locale.js";
 import { handleLocalSessionCoreCommand } from "./shared/session-commands.js";
 
 import type { CommandMessage } from "../runtime/command-message.js";
@@ -92,7 +93,7 @@ const goalPursuitCompletions = new WeakMap<CoreServiceRuntime, Map<string, Promi
 const goalCommandLocks = new WeakMap<CoreServiceRuntime, Map<string, Promise<unknown>>>();
 
 const VALID_LARK_EFFORT_LEVELS: EffortLevel[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
-const LARK_ENGINE_CHOICES: InstanceEngine[] = ["claude", "codex", "kimi", "deepseek", "antigravity", "pi"];
+const LARK_ENGINE_CHOICES: InstanceEngine[] = ["claude", "codex", "kimi", "deepseek", "antigravity", "pi", "omp"];
 
 type RequestCoreApproval = (input: {
   channel: CoreChannelLike;
@@ -135,8 +136,8 @@ export async function handleCoreSimpleCommand(
   const commandLocale = await resolveCoreLocale(input.stateDir);
   if (isHelpCommand(commandText)) {
     const help = channelProfile() === "gateway"
-      ? renderGatewayHelp((await loadInstanceConfig(input.stateDir)).engine, commandLocale)
-      : renderCoreHelpMessage(commandLocale);
+      ? renderGatewayHelp((await loadInstanceConfig(input.stateDir)).engine, commandLocale, input.bridge.supportsConversationRestart?.() ?? false)
+      : renderCoreHelpMessage(commandLocale, input.bridge.supportsConversationRestart?.() ?? false);
     await sendCoreCommandMarkdown(input, normalized, "/help", help);
     return true;
   }
@@ -174,6 +175,16 @@ export async function handleCoreSimpleCommand(
 
   if (await handleCoreLocalEngineCommand(input, normalized, commandText, commandLocale)) {
     return true;
+  }
+
+  const agyLocalAction = parseAntigravityLocalCommand(commandText);
+  if (agyLocalAction) {
+    const cfg = await loadInstanceConfig(input.stateDir);
+    if (cfg.engine === "antigravity") {
+      const { commandLabel, markdown } = await renderAntigravityLocalCommandReply(agyLocalAction, commandLocale);
+      await sendCoreCommandMarkdown(input, normalized, commandLabel, markdown);
+      return true;
+    }
   }
 
   const goalCfg = /^\/goal(?:\s|$)/i.test(commandText.trim()) ? await loadInstanceConfig(input.stateDir) : undefined;
@@ -228,7 +239,7 @@ export async function handleCoreSimpleCommand(
       channel: input.channel,
       chatId: normalized.chatId,
       card,
-      fallbackText: commandLocale === "en"
+      fallbackText: !isChineseLocale(commandLocale)
         ? "Current Lark app status (run `lark wizard` to switch apps)."
         : "当前飞书应用状态（更换 app 请运行 `lark wizard`）。",
       options: coreCommandReplyOptions(normalized),
@@ -438,8 +449,8 @@ export function isCoreLocalEngineCommand(text: string): boolean {
   // here — matching it swallowed the message into a handler that returns false,
   // and it then reached the engine as plain prompt text anyway. Removed from the
   // predicate and from /help; use `/ultrareview` for the deep review path.
-  // Claude-local engine command path.
-  return /^\/(?:compact|context|ultrareview)(?:\s|$)/i.test(text.trim());
+  // Claude-local engine command path, plus Antigravity `/swarm` capability gate.
+  return /^\/(?:compact|context|ultrareview|swarm)(?:\s|$)/i.test(text.trim());
 }
 
 async function handleCoreLocalEngineCommand(
@@ -469,7 +480,7 @@ async function handleCoreLocalEngineCommand(
       role: cfg.role,
       model: cfg.model,
       disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
-      workspacePath: cfg.workspacePath,
+      workspacePath: input.workspaceOverride ?? normalized.workspaceOverride ?? cfg.workspacePath,
       resume: cfg.resume,
       ...(cfg.antigravityRuntime ? { antigravityRuntime: cfg.antigravityRuntime } : {}),
     },
@@ -505,6 +516,7 @@ async function handleCoreSessionCommand(
       cfg.resume,
     )
     : input.conversationResume ?? undefined;
+  const effectiveWorkspace = input.workspaceOverride ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg);
   return await handleLocalSessionCoreCommand({
     stateDir: input.stateDir,
     startedAt: Date.now(),
@@ -513,6 +525,7 @@ async function handleCoreSessionCommand(
       engine: cfg.engine,
       resume: cfg.resume,
     },
+    workspaceOverride: effectiveWorkspace,
     normalized: toSessionCommandMessage(normalized, commandText),
     context: {
       api: {
@@ -530,7 +543,7 @@ async function handleCoreSessionCommand(
     scanRecentSessions: input.runtime.sessionRuntime?.scanRecentSessions,
     scanRecentAntigravitySessions: input.runtime.sessionRuntime?.scanRecentAntigravitySessions,
     scanRecentKimiSessions: input.bridge.listExternalSessions
-      ? async () => (await input.bridge.listExternalSessions!({ limit: 20 })).map((session) => {
+      ? async () => (await input.bridge.listExternalSessions!({ ...(effectiveWorkspace ? { cwd: effectiveWorkspace } : {}), limit: 20 })).map((session) => {
           const modifiedAt = new Date(session.updatedAt ?? 0);
           return {
             sessionId: session.sessionId,
@@ -542,7 +555,7 @@ async function handleCoreSessionCommand(
         })
       : undefined,
     scanRecentDeepSeekSessions: input.bridge.listExternalSessions
-      ? async () => (await input.bridge.listExternalSessions!({ limit: 20 })).map((session) => {
+      ? async () => (await input.bridge.listExternalSessions!({ ...(effectiveWorkspace ? { cwd: effectiveWorkspace } : {}), limit: 20 })).map((session) => {
           const modifiedAt = new Date(session.updatedAt ?? 0);
           return {
             sessionId: session.sessionId,
@@ -554,6 +567,18 @@ async function handleCoreSessionCommand(
         })
       : undefined,
     scanRecentPiSessions: input.bridge.listExternalSessions
+      ? async () => (await input.bridge.listExternalSessions!({ ...(effectiveWorkspace ? { cwd: effectiveWorkspace } : {}), limit: 20 })).map((session) => {
+          const modifiedAt = new Date(session.updatedAt ?? 0);
+          return {
+            sessionId: session.sessionId,
+            dirName: session.sessionId,
+            workspacePath: session.cwd,
+            modifiedAt: Number.isNaN(modifiedAt.getTime()) ? new Date(0) : modifiedAt,
+            displayName: session.title || session.sessionId,
+          };
+        })
+      : undefined,
+    scanRecentOmpSessions: input.bridge.listExternalSessions
       ? async () => (await input.bridge.listExternalSessions!({ limit: 20 })).map((session) => {
           const modifiedAt = new Date(session.updatedAt ?? 0);
           return {
@@ -586,14 +611,14 @@ async function handleCoreSessionCommand(
 }
 
 function renderCoreResumeFallback(
-  kind: "claude" | "antigravity" | "kimi" | "deepseek" | "pi",
+  kind: "claude" | "antigravity" | "kimi" | "deepseek" | "pi" | "omp",
   sessions: ScannedSession[],
   locale: Locale,
 ): string {
   if (sessions.length === 0) {
-    return locale === "en" ? `No recent ${kind} sessions found.` : `未找到最近的 ${kind} session。`;
+    return hostT(locale, "未找到最近的 {0} session。", kind);
   }
-  const title = locale === "en" ? `Recent ${kind} sessions` : `最近的 ${kind} session`;
+  const title = hostT(locale, "最近的 {0} session", kind);
   return [
     title,
     ...sessions.slice(0, 10).map((session, index) => `${index + 1}. ${session.displayName} (${session.sessionId}) @ ${session.modifiedAt.toISOString()}`),
@@ -722,65 +747,55 @@ function parseCoreBgCommand(text: string): CoreBgCommand | null {
   return { action: "usage" };
 }
 
-const LARK_BG_ROLE_LABELS: Record<"zh" | "en", Record<"engine" | "child" | "orphan", string>> = {
-  zh: { engine: "引擎", child: "子进程", orphan: "孤儿" },
-  en: { engine: "engine", child: "child", orphan: "orphan" },
-};
-
 async function handleCoreBgCommand(command: CoreBgCommand, locale: Locale): Promise<string> {
-  const zh = locale === "zh";
   if (command.action === "usage") {
-    return zh
-      ? "用法：`/bg`（列出本实例的引擎/后台进程）· `/bg kill <pid>` 停掉指定进程树 · `/bg killall` 清掉所有孤儿后台进程"
-      : "Usage: `/bg` (list this instance's engine/background processes) · `/bg kill <pid>` kill that process tree · `/bg killall` remove all orphaned background processes";
+    return hostT(locale, "用法：`/bg`（列出本实例的引擎/后台进程）· `/bg kill <pid>` 停掉指定进程树 · `/bg killall` 清掉所有孤儿后台进程");
   }
   if (command.action === "kill") {
     const result = await killInstanceGroupProcess(command.pid);
     if (result.killed) {
-      return zh ? `已停止进程树 pid=${command.pid} ✓` : `Killed process tree pid=${command.pid} ✓`;
+      return hostT(locale, "已停止进程树 pid={0} ✓", command.pid);
     }
     if (result.reason === "not-in-group") {
-      return zh
-        ? `pid=${command.pid} 不在本实例的进程组里（可能已退出）。先用 /bg 看列表。`
-        : `pid=${command.pid} is not in this instance's process group (it may have exited). Run /bg first.`;
+      return hostT(locale, "pid={0} 不在本实例的进程组里（可能已退出）。先用 /bg 看列表。", command.pid);
     }
     if (result.reason === "is-service") {
-      return zh ? "那是服务进程本体，不能从这里杀。" : "That is the service process itself; refusing.";
+      return hostT(locale, "那是服务进程本体，不能从这里杀。");
     }
-    return zh ? "当前平台暂不支持 /bg。" : "/bg is not supported on this platform yet.";
+    return hostT(locale, "当前平台暂不支持 /bg。");
   }
   if (command.action === "killall") {
     const result = await killInstanceGroupOrphans();
     if (result.unsupported) {
-      return zh ? "当前平台暂不支持 /bg。" : "/bg is not supported on this platform yet.";
+      return hostT(locale, "当前平台暂不支持 /bg。");
     }
     if (result.killedPids.length === 0) {
-      return zh ? "没有孤儿后台进程，干净的 ✨" : "No orphaned background processes. Clean ✨";
+      return hostT(locale, "没有孤儿后台进程，干净的 ✨");
     }
-    return zh
-      ? `已清理 ${result.killedPids.length} 个孤儿进程树：${result.killedPids.join(", ")}`
-      : `Removed ${result.killedPids.length} orphaned process tree(s): ${result.killedPids.join(", ")}`;
+    return hostT(locale, "已清理 {0} 个孤儿进程树：{1}", result.killedPids.length, result.killedPids.join(", "));
   }
 
   const group = await listInstanceProcessGroup();
   if (group === null) {
-    return zh ? "当前平台暂不支持 /bg。" : "/bg is not supported on this platform yet.";
+    return hostT(locale, "当前平台暂不支持 /bg。");
   }
   if (group.length === 0) {
-    return zh ? "本实例没有任何引擎/后台进程在跑。" : "No engine/background processes are running for this instance.";
+    return hostT(locale, "本实例没有任何引擎/后台进程在跑。");
   }
-  const labels = LARK_BG_ROLE_LABELS[zh ? "zh" : "en"];
   const lines = group.slice(0, 15).map((proc) => {
     const cmd = proc.command.length > 70 ? `${proc.command.slice(0, 67)}...` : proc.command;
-    return `- \`${proc.pid}\` · ${labels[proc.role]} · ${proc.rssMb}MB · ${proc.etime} · ${cmd}`;
+    const lineKey = proc.role === "engine"
+      ? "- `{0}` · 引擎 · {1}MB · {2} · {3}"
+      : proc.role === "child"
+        ? "- `{0}` · 子进程 · {1}MB · {2} · {3}"
+        : "- `{0}` · 孤儿 · {1}MB · {2} · {3}";
+    return hostT(locale, lineKey, proc.pid, proc.rssMb, proc.etime, cmd);
   });
   const truncated = group.length > 15
-    ? [zh ? `…共 ${group.length} 个，仅显示前 15` : `…${group.length} total, showing 15`]
+    ? [hostT(locale, "…共 {0} 个，仅显示前 15", group.length)]
     : [];
-  const footer = zh
-    ? "停止：`/bg kill <pid>` · 清理孤儿：`/bg killall`（孤儿 = 任务结束后仍残留的后台进程）"
-    : "Kill one: `/bg kill <pid>` · sweep orphans: `/bg killall` (orphans = background work left behind after its turn ended)";
-  const header = zh ? "**本实例进程组**（服务本体除外，按内存排序）" : "**Instance process group** (service itself excluded, sorted by memory)";
+  const footer = hostT(locale, "停止：`/bg kill <pid>` · 清理孤儿：`/bg killall`（孤儿 = 任务结束后仍残留的后台进程）");
+  const header = hostT(locale, "**本实例进程组**（服务本体除外，按内存排序）");
   return [header, ...lines, ...truncated, "", footer].join("\n");
 }
 
@@ -891,25 +906,10 @@ async function handleCoreNewGroupCommand(
 }
 
 function renderCoreNewGroupUsage(locale: Locale): string {
-  return locale === "en"
-    ? [
-        "**Create a Lark chat**",
-        "",
-        "Usage:",
-        "- `/newgroup <name>`: create a normal group chat",
-        "- `/newgroup topic <name>` or `/newtopic <name>`: create a topic-style group",
-        "",
-        "Default bot identity invites the requester; explicit user-OAuth mode creates as the OAuth user. Both paths ensure the instance bot joins and automatically authorize the group. User access remains enforced, and @bot remains the default trigger.",
-      ].join("\n")
-    : [
-        "**创建飞书会话**",
-        "",
-        "用法：",
-        "- `/newgroup <名称>`：创建普通飞书群",
-        "- `/newgroup topic <名称>` 或 `/newtopic <名称>`：创建飞书话题群",
-        "",
-        "默认用实例 bot 创建并拉入发起人；显式用户 OAuth 模式则由 OAuth 用户创建。两条路径都会确保实例 bot 入群并自动授权；用户权限仍会校验，默认仍需 @bot。",
-      ].join("\n");
+  return hostT(
+    locale,
+    "**创建飞书会话**\n\n用法：\n- `/newgroup <名称>`：创建普通飞书群\n- `/newgroup topic <名称>` 或 `/newtopic <名称>`：创建飞书话题群\n\n默认用实例 bot 创建并拉入发起人；显式用户 OAuth 模式则由 OAuth 用户创建。两条路径都会确保实例 bot 入群并自动授权；用户权限仍会校验，默认仍需 @bot。",
+  );
 }
 
 function renderCoreNewGroupWelcome(
@@ -918,28 +918,15 @@ function renderCoreNewGroupWelcome(
   locale: Locale,
   authorized: boolean,
 ): string {
-  if (locale === "en") {
-    return [
-      `**${name}** is connected to TaroCub.`,
-      "",
-      mode === "topic"
-        ? "Each topic is an isolated session. Send `/status` inside a topic to inspect that session."
-        : "This conversation-form group shares one session, including ordinary replies/threads. Send `/status` to inspect it.",
-      authorized
-        ? "The group is authorized; individual user access still applies. Messages require @bot by default. To accept ordinary messages, grant app scopes `im:message` + `im:message.group_msg`, then mention @bot and send `/group all`; a bare command may not be delivered."
-        : "Automatic group authorization failed. An authorized user must mention @bot and send `/group allow` here because a bare command may not be delivered.",
-    ].join("\n");
-  }
-  return [
-    `**${name}** 这个${mode === "topic" ? "话题群" : "群"}已经接入 TaroCub。`,
-    "",
-    mode === "topic"
-      ? "每个话题都是独立 session；在话题内发送 `/status` 可查看该会话。"
-      : "普通对话群全群共享一个 session，普通 reply/thread 也会延续该会话；发送 `/status` 可查看。",
-    authorized
-      ? "新群已授权，但仍只允许已授权用户使用。默认需要 @bot。若要监听普通消息，请先开通应用权限 `im:message` + `im:message.group_msg`，再 @bot 发送 `/group all`；裸命令可能不会投递给 Bot。"
-      : "新群自动授权失败；请由已授权用户先 @bot 发送 `/group allow`，裸命令可能不会投递给 Bot。",
-  ].join("\n");
+  const modeDesc = mode === "topic"
+    ? hostT(locale, "每个话题都是独立 session；在话题内发送 `/status` 可查看该会话。")
+    : hostT(locale, "普通对话群全群共享一个 session，普通 reply/thread 也会延续该会话；发送 `/status` 可查看。");
+  const authDesc = authorized
+    ? hostT(locale, "新群已授权，但仍只允许已授权用户使用。默认需要 @bot。若要监听普通消息，请先开通应用权限 `im:message` + `im:message.group_msg`，再 @bot 发送 `/group all`；裸命令可能不会投递给 Bot。")
+    : hostT(locale, "新群自动授权失败；请由已授权用户先 @bot 发送 `/group allow`，裸命令可能不会投递给 Bot。");
+  return mode === "topic"
+    ? hostT(locale, "**{0}** 这个话题群已经接入 TaroCub。\n\n{1}\n{2}", name, modeDesc, authDesc)
+    : hostT(locale, "**{0}** 这个群已经接入 TaroCub。\n\n{1}\n{2}", name, modeDesc, authDesc);
 }
 
 function renderCoreNewGroupCreated(input: {
@@ -951,41 +938,32 @@ function renderCoreNewGroupCreated(input: {
   authorizationWarning?: string;
   welcomeWarning?: string;
 }): string {
-  const kind = input.mode === "topic"
-    ? input.locale === "en" ? "topic chat" : "飞书话题群"
-    : input.locale === "en" ? "Lark group" : "飞书群";
-  const lines = input.locale === "en"
-    ? [
-        `Created ${kind}: ${input.name}`,
-        `Chat ID: ${input.chatId}`,
-      ]
-    : [
-        `已创建${kind}：${input.name}`,
-        `Chat ID：${input.chatId}`,
-      ];
+  const kind = hostT(input.locale, input.mode === "topic" ? "飞书话题群" : "飞书群");
+  const lines = [
+    hostT(input.locale, "已创建{0}：{1}", kind, input.name),
+    hostT(input.locale, "Chat ID：{0}", input.chatId),
+  ];
   if (input.shareLink) {
-    lines.push(input.locale === "en" ? `Link: ${input.shareLink}` : `链接：${input.shareLink}`);
+    lines.push(hostT(input.locale, "链接：{0}", input.shareLink));
   }
   if (input.authorizationWarning) {
     lines.push("");
-    lines.push(input.locale === "en"
-      ? `Created, but automatic group authorization failed: ${input.authorizationWarning}. Mention @bot and send /group allow inside the new group.`
-      : `已创建，但自动授权新群失败：${input.authorizationWarning}。请在新群内先 @bot 发送 /group allow。`);
+    lines.push(hostT(input.locale, "已创建，但自动授权新群失败：{0}。请在新群内先 @bot 发送 /group allow。", input.authorizationWarning));
   }
   if (input.welcomeWarning) {
     lines.push("");
-    lines.push(input.locale === "en"
-      ? `Created, but the welcome message failed to send: ${input.welcomeWarning}`
-      : `已创建，但欢迎消息发送失败：${input.welcomeWarning}`);
+    lines.push(hostT(input.locale, "已创建，但欢迎消息发送失败：{0}", input.welcomeWarning));
   }
   return lines.join("\n");
 }
 
 function renderCoreNewGroupFailed(locale: Locale, error: unknown): string {
   const detail = redactCoreErrorDetail(error);
-  return locale === "en"
-    ? `Failed to create Lark chat: ${detail}\n\nCheck that the app has im:chat / im:chat:create and rerun lark provision. If chat creation is configured with user identity, also add im:chat:create_by_user.`
-    : `创建飞书群失败：${detail}\n\n请检查应用是否已开通 im:chat / im:chat:create，并重新运行 lark provision。如果配置为用户身份建群，还需要 im:chat:create_by_user。`;
+  return hostT(
+    locale,
+    "创建飞书群失败：{0}\n\n请检查应用是否已开通 im:chat / im:chat:create，并重新运行 lark provision。如果配置为用户身份建群，还需要 im:chat:create_by_user。",
+    detail,
+  );
 }
 
 type CoreGoalCommand =
@@ -1039,8 +1017,8 @@ function parseCoreGoalCommand(text: string, engine: InstanceEngine): CoreGoalCom
   if (!match) return null;
   const rest = match[1]?.trim() ?? "";
   if (!rest || /^status$/i.test(rest)) return { kind: "status" };
-  if (/^(clear|off|reset)$/i.test(rest) || (engine === "claude" && /^(stop|cancel|none)$/i.test(rest))) return { kind: "clear" };
-  if (engine === "codex") {
+  if (/^(clear|off|reset)$/i.test(rest) || ((engine === "claude" || engine === "antigravity") && /^(stop|cancel|none)$/i.test(rest))) return { kind: "clear" };
+  if (engine === "codex" || engine === "omp") {
     if (/^(pause|resume)$/i.test(rest)) return { kind: rest.toLowerCase() as "pause" | "resume" };
     if (/^(pause|resume)\s/i.test(rest)) return { kind: "invalid", reason: "invalid_control" };
     const edit = rest.match(/^edit(?:\s+([\s\S]+))?$/i);
@@ -1062,7 +1040,7 @@ function parseCoreGoalCommand(text: string, engine: InstanceEngine): CoreGoalCom
     }
   }
   const parsed = parseCoreSetGoal(rest);
-  if ((engine === "codex" || engine === "claude") && parsed.kind === "set" && parsed.objective.length > 4000) return { kind: "invalid", reason: "too_long" };
+  if ((engine === "codex" || engine === "claude" || engine === "omp") && parsed.kind === "set" && parsed.objective.length > 4000) return { kind: "invalid", reason: "too_long" };
   return parsed;
 }
 
@@ -1073,78 +1051,23 @@ export function isCoreGoalControlCommand(text: string): boolean {
   return !!action && action.kind !== "set";
 }
 
+export function isRestartCommand(text: string): boolean {
+  return /^\/restart(?:\s|$)/i.test(text.trim());
+}
+
 export function isStopCommand(text: string): boolean {
   return /^\/stop(?:\s|$)/i.test(text.trim());
 }
 
-function renderCoreHelpMessage(locale: Locale = "zh"): string {
-  if (locale === "en") {
-    return [
-      "**TaroCub for Feishu/Lark**",
-      "",
-      "Just message me to start — DMs work directly; in a group, @-mention me. You can also send files, images, or audio/video (short media uses local Qwen ASR; long media uses Aliyun Tingwu when configured). Most settings live in the interactive `/config` panel.",
-      "",
-      "**Session**",
-      "- `/status` current conversation · `/stop` stop the current task (cancel a queued task from its queue card) · `/reset` reset the session",
-      "- `/resume [n]` pick a Claude/Kimi/DeepSeek Harness/Antigravity/Pi session · Claude `/resume <full ID>` · Codex `/resume thread <id>` · Kimi/DeepSeek also support `/resume session <id>` · `/detach` unbind",
-      "- `/goal […]` set a conversation goal · `/btw <q>` ask aside without touching the session · `/continue` resume a waiting archive analysis",
-      "- `/q <message>` force a queued turn — while a Codex/DeepSeek turn is running, plain text steers INTO it; `/q` runs it afterwards instead",
-      "- `/bg` list this instance's engine/background processes · `/bg kill <pid>` · `/bg killall` sweep orphans",
-      "",
-      "**Settings**",
-      "- `/config` interactive panel (recommended) · `/usage` usage · `/account` bound Feishu app",
-      "- `/model` · `/effort` · `/engine [claude|codex|kimi|deepseek|antigravity|pi]` · `/fast` Codex Fast Mode · `/yolo` approval mode",
-      "- `/stream [on|off]` typewriter streaming on run cards (off = full-card refresh)",
-      "- `/timeout [on|off]` engine runtime safeguards (hard cap and/or inactivity watchdog; off disables both)",
-      "- `/steer [on|off|<seconds>|unlimited]` mid-turn steering window (default 30s; later messages queue)",
-      "",
-      "**Groups**",
-      "- `/newgroup <name>` / `/newgroup topic <name>` / `/newtopic <name>` create and authorize a group / topic group (you become its owner)",
-      "- `/group [status|allow|deny|all|at]` group access & reply mode (`all` = reply without `@`, `at` = `@`-only)",
-      "- `/invite group|user @person` · `/remove …` group/user access · `/cron …` reminders & scheduled tasks",
-      "",
-      "**Advanced & collaboration**",
-      "- `/board …` durable kanban · `/mini …` link group threads as peers · `/ask <instance> <prompt>` delegate to another bot",
-      "- `/fan` · `/chain` · `/verify` Agent Bus parallel / sequential / verification flows",
-      "- `/context` Claude/DeepSeek context · `/compact` Claude/Kimi/DeepSeek compaction · `/ultrareview` Claude deep review",
-      "- `/approve [session]` · `/deny` handle approvals by text when card buttons are unavailable",
-      "",
-      "Full list: see the Slash Command Index in the README. Group messages need an `@` by default; `/group all` enables non-`@` replies (the app also needs `im:message` + `im:message.group_msg`). If non-`@` group messages still don't arrive, run `node dist/src/index.js lark doctor`.",
-    ].join("\n");
-  }
-
-  return [
-    "**TaroCub · 飞书/Lark**",
-    "",
-    "直接发消息就能用 —— 私聊直接发，群里 @我 触发。也能发文件、图片、音视频（短音频走本地 Qwen ASR，长音频在已配置时走通义听悟）。大部分设置走 `/config` 交互面板。",
-    "",
-    "**会话**",
-    "- `/status` 当前会话 · `/stop` 停当前任务（排队任务在各自排队卡片上取消）· `/reset` 重置会话",
-    "- `/resume [编号]` 选 Claude/Kimi/DeepSeek Harness/Antigravity/Pi 会话 · Claude `/resume <完整 ID>` · Codex `/resume thread <id>` · Kimi/DeepSeek 也支持 `/resume session <id>` · `/detach` 解绑",
-    "- `/goal […]` 设会话目标 · `/btw <问题>` 旁问不影响会话 · `/continue` 继续等待中的压缩包分析",
-    "- `/q <消息>` 强制排队 — Codex/DeepSeek 任务运行中纯文本会注入当前任务，`/q` 则排在后面单独执行",
-    "- `/bg` 列出本实例引擎/后台进程 · `/bg kill <pid>` 停指定进程树 · `/bg killall` 清理孤儿后台进程",
-    "",
-    "**设置**",
-    "- `/config` 交互配置面板（推荐）· `/usage` 用量 · `/account` 当前绑定的飞书应用",
-    "- `/model` · `/effort` · `/engine [claude|codex|kimi|deepseek|antigravity|pi]` · `/fast` Codex 快速模式 · `/yolo` 审批模式",
-    "- `/stream [on|off]` 回答卡片打字机流式开关（off = 整卡刷新）",
-    "- `/timeout [on|off]` 引擎运行时保护（硬上限和/或静默看门狗；off 会全部关闭）",
-    "- `/steer [on|off|<秒数>|unlimited]` 任务中途引导的资格窗口（默认 30 秒，超窗排队）",
-    "",
-    "**群**",
-    "- `/newgroup <名>` / `/newgroup topic <名>` / `/newtopic <名>` 新建并授权普通群 / 话题群（你是群主）",
-    "- `/group [status|allow|deny|all|at]` 群授权与回复模式（`all`=不@也回，`at`=只@才回）",
-    "- `/invite group|user @某人` · `/remove …` 群/用户授权 · `/cron …` 定时提醒与任务",
-    "",
-    "**进阶与协作**",
-    "- `/board …` 持久任务板 · `/mini …` 把群 thread 注册成 peer 互联 · `/ask <实例> <提示>` 委托给别的 bot",
-    "- `/fan` · `/chain` · `/verify` Agent Bus 并行 / 串联 / 验证",
-    "- `/context` Claude/DeepSeek 上下文 · `/compact` Claude/Kimi/DeepSeek 压缩 · `/ultrareview` Claude 深度审查",
-    "- `/approve [session]` · `/deny` 卡片按钮不可用时用文字处理审批",
-    "",
-    "完整命令表见 README 的 Slash Command Index。群里普通消息默认要@；`/group all` 开非@（应用还需有 `im:message` + `im:message.group_msg`）。若开了非@群消息仍收不到，运行 `node dist/src/index.js lark doctor`。",
-  ].join("\n");
+function renderCoreHelpMessage(locale: Locale = "zh", supportsRestart = false): string {
+  const help = hostT(
+    locale,
+    "**TaroCub · 飞书/Lark**\n\n直接发消息就能用 —— 私聊直接发，群里 @我 触发。也能发文件、图片、音视频（短音频走本地 Qwen ASR，长音频在已配置时走通义听悟）。大部分设置走 `/config` 交互面板。\n\n**会话**\n- `/status` 当前会话 · `/stop` 停当前任务（排队任务在各自排队卡片上取消）· `/reset` 重置会话\n- `/resume [编号]` 选 Claude/Kimi/DeepSeek Harness/Antigravity/Pi 会话 · Claude `/resume <完整 ID>` · Codex `/resume thread <id>` · Kimi/DeepSeek 也支持 `/resume session <id>` · `/detach` 解绑\n- `/goal […]` 设会话目标 · `/btw <问题>` 旁问不影响会话 · `/continue` 继续等待中的压缩包分析\n- `/q <消息>` 强制排队 — Codex/DeepSeek 任务运行中纯文本会注入当前任务，`/q` 则排在后面单独执行\n- `/bg` 列出本实例引擎/后台进程 · `/bg kill <pid>` 停指定进程树 · `/bg killall` 清理孤儿后台进程\n\n**设置**\n- `/config` 交互配置面板（推荐）· `/usage` 用量 · `/account` 当前绑定的飞书应用\n- `/model` · `/effort` · `/engine [claude|codex|kimi|deepseek|antigravity|pi]` · `/fast` Codex 快速模式 · `/yolo` 审批模式\n- `/stream [on|off]` 回答卡片打字机流式开关（off = 整卡刷新）\n- `/timeout [on|off]` 引擎运行时保护（硬上限和/或静默看门狗；off 会全部关闭）\n- `/steer [on|off|<秒数>|unlimited]` 任务中途引导的资格窗口（默认 30 秒，超窗排队）\n\n**群**\n- `/newgroup <名>` / `/newgroup topic <名>` / `/newtopic <名>` 新建并授权普通群 / 话题群（你是群主）\n- `/group [status|allow|deny|all|at]` 群授权与回复模式（`all`=不@也回，`at`=只@才回）\n- `/invite group|user @某人` · `/remove …` 群/用户授权 · `/cron …` 定时提醒与任务\n\n**进阶与协作**\n- `/board …` 持久任务板 · `/mini …` 把群 thread 注册成 peer 互联 · `/ask <实例> <提示>` 委托给别的 bot\n- `/fan` · `/chain` · `/verify` Agent Bus 并行 / 串联 / 验证\n- `/context` Claude/DeepSeek 上下文 · `/compact` Claude/Kimi/DeepSeek 压缩 · `/ultrareview` Claude 深度审查\n- `/approve [session]` · `/deny` 卡片按钮不可用时用文字处理审批\n\n完整命令表见 README 的 Slash Command Index。群里普通消息默认要@；`/group all` 开非@（应用还需有 `im:message` + `im:message.group_msg`）。若开了非@群消息仍收不到，运行 `node dist/src/index.js lark doctor`。",
+  );
+  if (!supportsRestart) return help;
+  // Only engines whose adapter can end a session's process list /restart, under the /status line.
+  const restart = hostT(locale, "- `/restart` 结束引擎进程，保留会话，下次发消息时启动");
+  return help.replace(/^- `\/status`.*$/m, line => `${line}\n${restart}`);
 }
 
 function isGroupCommand(text: string): boolean {
@@ -1251,25 +1174,15 @@ function coreAccessCommandReplyOptions(normalized: CoreNormalizedBridgeMessage):
 }
 
 function renderCoreInviteRemoveUsage(command: "invite" | "remove", locale: Locale): string {
-  if (locale === "en") {
-    return command === "invite"
-      ? "Usage: `/invite group` or `/invite user @person`."
-      : "Usage: `/remove group` or `/remove user @person`.";
-  }
   return command === "invite"
-    ? "用法：`/invite group` 或 `/invite user @某人`。"
-    : "用法：`/remove group` 或 `/remove user @某人`。";
+    ? hostT(locale, "用法：`/invite group` 或 `/invite user @某人`。")
+    : hostT(locale, "用法：`/remove group` 或 `/remove user @某人`。");
 }
 
 function renderCoreInviteRemoveMissingMention(command: "invite" | "remove", locale: Locale): string {
-  if (locale === "en") {
-    return command === "invite"
-      ? "Mention the user to invite: `/invite user @person`."
-      : "Mention the user to remove: `/remove user @person`.";
-  }
   return command === "invite"
-    ? "请 @ 要邀请的用户：`/invite user @某人`。"
-    : "请 @ 要移除的用户：`/remove user @某人`。";
+    ? hostT(locale, "请 @ 要邀请的用户：`/invite user @某人`。")
+    : hostT(locale, "请 @ 要移除的用户：`/remove user @某人`。");
 }
 
 function renderCoreInviteRemoveUserResult(
@@ -1278,14 +1191,9 @@ function renderCoreInviteRemoveUserResult(
   userId: number,
   locale: Locale,
 ): string {
-  if (locale === "en") {
-    return command === "invite"
-      ? `Invited user ${label} (${userId}).`
-      : `Removed user ${label} (${userId}).`;
-  }
   return command === "invite"
-    ? `已邀请用户 ${label} (${userId})。`
-    : `已移除用户 ${label} (${userId})。`;
+    ? hostT(locale, "已邀请用户 {0} ({1})。", label, userId)
+    : hostT(locale, "已移除用户 {0} ({1})。", label, userId);
 }
 
 function extractFirstCoreMentionTarget(mentions: unknown[]): { label: string; bridgeUserId: number } | null {
@@ -1413,13 +1321,9 @@ async function renderAndApplyCoreGroupCommand(
   }
   if (action === "all" || action === "listen-all") {
     if (normalized.bridgeChatType !== "group") {
-      return locale === "en"
-        ? `${status}\n\nSend /group all inside the Lark group you want to switch.`
-        : `${status}\n\n请在要开启全量监听的飞书群里发送 /group all。`;
+      return hostT(locale, "{0}\n\n请在要开启全量监听的飞书群里发送 /group all。", status);
     }
-    const base = locale === "en"
-      ? `${status}\n\nCurrent group switched to ordinary group messages.`
-      : `${status}\n\n当前飞书群已切到：监听所有普通消息。`;
+    const base = hostT(locale, "{0}\n\n当前飞书群已切到：监听所有普通消息。", status);
     // Proactively warn if the app lacks im:message.group_msg — without it,
     // non-@ group messages never arrive, so listen-all has no effect. Best-effort:
     // "unknown" (no creds / API failure) stays silent.
@@ -1430,7 +1334,7 @@ async function renderAndApplyCoreGroupCommand(
     });
     if (scopeStatus === "missing") {
       const warning = renderGroupMsgScopeWarning(
-        locale === "en" ? "en" : "zh",
+        locale,
         input.runtime.appInfo?.appId,
         input.runtime.appInfo?.domain,
         input.instanceName,
@@ -1440,59 +1344,27 @@ async function renderAndApplyCoreGroupCommand(
     return base;
   }
   if (action === "at" || action === "mention" || action === "mentions" || action === "listen-mentions") {
-    if (locale === "en") {
-      return normalized.bridgeChatType === "group"
-        ? `${status}\n\nCurrent group switched to @bot / mention-only mode.`
-        : `${status}\n\nSend /group at inside the Lark group you want to switch.`;
-    }
     return normalized.bridgeChatType === "group"
-      ? `${status}\n\n当前飞书群已切到：只响应 @bot / mention。`
-      : `${status}\n\n请在要恢复 @bot 模式的飞书群里发送 /group at。`;
+      ? hostT(locale, "{0}\n\n当前飞书群已切到：只响应 @bot / mention。", status)
+      : hostT(locale, "{0}\n\n请在要恢复 @bot 模式的飞书群里发送 /group at。", status);
   }
   if (action === "allow" || action === "add") {
-    if (locale === "en") {
-      return normalized.bridgeChatType === "group"
-        ? `${status}\n\nAllowed current Lark group (${normalized.bridgeAccessChatId}). Only authorized users can still use it.`
-        : `${status}\n\nSend /group allow inside the Lark group you want to enable.`;
-    }
     return normalized.bridgeChatType === "group"
-      ? `${status}\n\n已允许当前飞书群 (${normalized.bridgeAccessChatId})。群内仍只有已授权用户可使用。`
-      : `${status}\n\n请在要启用的飞书群里发送 /group allow。`;
+      ? hostT(locale, "{0}\n\n已允许当前飞书群 ({1})。群内仍只有已授权用户可使用。", status, normalized.bridgeAccessChatId)
+      : hostT(locale, "{0}\n\n请在要启用的飞书群里发送 /group allow。", status);
   }
   if (action === "deny" || action === "remove" || action === "rm") {
-    if (locale === "en") {
-      return normalized.bridgeChatType === "group"
-        ? `${status}\n\nRemoved current Lark group (${normalized.bridgeAccessChatId}).`
-        : `${status}\n\nSend /group deny inside the Lark group you want to remove.`;
-    }
     return normalized.bridgeChatType === "group"
-      ? `${status}\n\n已移除当前飞书群 (${normalized.bridgeAccessChatId})。`
-      : `${status}\n\n请在要移除的飞书群里发送 /group deny。`;
+      ? hostT(locale, "{0}\n\n已移除当前飞书群 ({1})。", status, normalized.bridgeAccessChatId)
+      : hostT(locale, "{0}\n\n请在要移除的飞书群里发送 /group deny。", status);
   }
   if (action === "on" || action === "enable") {
-    if (locale === "en") {
-      return `${status}\n\nLark group mode is now on.`;
-    }
-    return `${status}\n\nLark 群聊模式已开启。`;
+    return hostT(locale, "{0}\n\nLark 群聊模式已开启。", status);
   }
   if (action === "off" || action === "disable") {
-    if (locale === "en") {
-      return `${status}\n\nLark group mode is now off.`;
-    }
-    return `${status}\n\nLark 群聊模式已关闭。`;
+    return hostT(locale, "{0}\n\nLark 群聊模式已关闭。", status);
   }
-  if (locale === "en") {
-    return [
-      status,
-      "",
-      "Lark supports `/group status|allow|deny|on|off|all|at`.",
-    ].join("\n");
-  }
-  return [
-    status,
-    "",
-    "Lark 支持 `/group status|allow|deny|on|off|all|at`。",
-  ].join("\n");
+  return hostT(locale, "{0}\n\nLark 支持 `/group status|allow|deny|on|off|all|at`。", status);
 }
 
 function renderCoreGroupModeStatus(input: {
@@ -1505,32 +1377,18 @@ function renderCoreGroupModeStatus(input: {
   allowedCount: number;
   listenAllCount: number;
 }): string {
-  if (input.locale === "en") {
-    return [
-      "**Lark group mode**",
-      "",
-      `- Group mode: ${input.groupEnabled ? "on" : "off"}`,
-      ...(input.isGroup ? [`- Current group: ${input.groupAllowed ? "allowed" : "not allowed"} (${input.bridgeChatId})`] : []),
-      `- Current trigger: ${input.requiresMention ? "requires @bot / mention" : "accepts ordinary group messages"}`,
-      `- Lark groups allowed: ${input.allowedCount}`,
-      `- Lark groups listening to ordinary messages: ${input.listenAllCount}`,
-      "- Access control: authorized users can use `/group allow|deny` inside a Lark group; CLI alias `lark access` still manages users/private chats.",
-      "- Global default: `LARK_REQUIRE_MENTION_IN_GROUP=1` requires @bot unless this chat uses `/group all`.",
-      "- Platform requirement: `/group all` also needs the Feishu/Lark app scopes `im:message` and `im:message.group_msg`; run `lark doctor` if ordinary group messages still do not arrive.",
-    ].join("\n");
-  }
-
+  const { locale } = input;
   return [
-    "**Lark 群聊模式**",
+    hostT(locale, "**Lark 群聊模式**"),
     "",
-    `- 群聊模式：${input.groupEnabled ? "开启" : "关闭"}`,
-    ...(input.isGroup ? [`- 当前群：${input.groupAllowed ? "已允许" : "未允许"} (${input.bridgeChatId})`] : []),
-    `- 当前触发：${input.requiresMention ? "需要 @bot / mention" : "接受普通群消息"}`,
-    `- 已允许的 Lark 群数：${input.allowedCount}`,
-    `- 正在监听普通消息的 Lark 群数：${input.listenAllCount}`,
-    "- 访问控制：授权用户可在 Lark 群内使用 `/group allow|deny`；CLI 侧仍用 `lark access` 管理用户/私聊。",
-    "- 全局默认：`LARK_REQUIRE_MENTION_IN_GROUP=1` 时需要 @bot，除非当前群使用 `/group all`。",
-    "- 平台要求：`/group all` 还需要飞书/Lark 应用权限 `im:message` 和 `im:message.group_msg`；普通群消息仍收不到时，请运行 `lark doctor` 检查。",
+    hostT(locale, "- 群聊模式：{0}", hostT(locale, input.groupEnabled ? "开启" : "关闭")),
+    ...(input.isGroup ? [hostT(locale, "- 当前群：{0} ({1})", hostT(locale, input.groupAllowed ? "已允许" : "未允许"), input.bridgeChatId)] : []),
+    hostT(locale, "- 当前触发：{0}", hostT(locale, input.requiresMention ? "需要 @bot / mention" : "接受普通群消息")),
+    hostT(locale, "- 已允许的 Lark 群数：{0}", input.allowedCount),
+    hostT(locale, "- 正在监听普通消息的 Lark 群数：{0}", input.listenAllCount),
+    hostT(locale, "- 访问控制：授权用户可在 Lark 群内使用 `/group allow|deny`；CLI 侧仍用 `lark access` 管理用户/私聊。"),
+    hostT(locale, "- 全局默认：`LARK_REQUIRE_MENTION_IN_GROUP=1` 时需要 @bot，除非当前群使用 `/group all`。"),
+    hostT(locale, "- 平台要求：`/group all` 还需要飞书/Lark 应用权限 `im:message` 和 `im:message.group_msg`；普通群消息仍收不到时，请运行 `lark doctor` 检查。"),
   ].join("\n");
 }
 
@@ -1603,89 +1461,48 @@ async function renderCoreStatusMessage(
     error: error instanceof Error ? error.message : String(error),
   }));
   const activeRun = runtime.activeRuns.has(normalized.conversationKey);
-  if (locale === "en") {
-    return [
-      channelProfile() === "gateway" ? "**TaroBird App conversation status**" : "**Lark conversation status**",
-      "",
-      `Engine: ${cfg.engine}`,
-      `Model: ${renderEngineModelSetting(cfg.engine, cfg.model, codexDefaults, locale)}`,
-      `Effort: ${renderEngineEffortSetting(cfg.engine, cfg.effort, codexDefaults, locale)}`,
-      `Codex Fast Mode: ${cfg.codexServiceTier === "fast" ? "on" : "off"}`,
-      `Approval mode: ${renderApprovalModeStatus(
-        cfg.engine,
-        rawConfig.approvalMode,
-        locale,
-        rawConfig.kimiAutoNeverAskAcknowledged,
-      )}`,
-      `Budget: ${cfg.budgetUsd !== undefined ? `$${cfg.budgetUsd.toFixed(2)}` : "none"}`,
-      // Kimi omits usage entirely and DeepSeek omits dollar cost. Show those
-      // telemetry limits even without a budget so status never implies complete
-      // accounting; other non-Claude engines need the warning only when a cap exists.
-      ...(cfg.engine === "kimi" || cfg.engine === "deepseek"
-        ? [renderCoreEngineUsageNote(cfg.engine, locale, cfg.budgetUsd !== undefined)]
-        : cfg.budgetUsd !== undefined && cfg.engine !== "claude"
-          ? [renderCoreEngineUsageNote(cfg.engine, locale, true)]
-          : []),
-      `Locale: ${locale}`,
-      `Verbosity: ${cfg.verbosity}`,
-      `Timezone: ${cfg.timezone}`,
-      ...(channelProfile() === "gateway" ? [] : [`Lark CLI: ${renderCoreCliStatus(larkCliStatus, locale)}`]),
-      `Current chat: ${knownChat?.label ?? normalized.chatId}`,
-      `Conversation: ${normalized.conversationKey}`,
-      `Chat type: ${normalized.bridgeChatType}`,
-      ...groupModeLines,
-      session.warning
-        ? `Session bound: unknown (${session.warning})`
-        : `Session bound: ${currentSession ? "yes" : "no"}`,
-      ...(cfg.engine === "codex" && currentSession ? [`Current thread: ${currentSession.codexSessionId}`] : []),
-      ...(cfg.engine === "antigravity" && currentSession ? [`Current conversation: ${currentSession.codexSessionId}`] : []),
-      ...(cfg.engine === "kimi" && currentSession ? [`Current Kimi session: ${currentSession.codexSessionId}`] : []),
-      ...(cfg.engine === "deepseek" && currentSession ? [`Current DeepSeek Harness session: ${currentSession.codexSessionId}`] : []),
-      ...(cfg.engine === "pi" && currentSession ? [`Current Pi session: ${currentSession.codexSessionId}`] : []),
-      ...workflowLines,
-      `Active run: ${activeRun ? "yes" : "no"}`,
-      `Pending approvals: ${runtime.pendingApprovals.size}`,
-    ].join("\n");
-  }
-
   return [
-    channelProfile() === "gateway" ? "**TaroBird App 会话状态**" : "**Lark 会话状态**",
+    hostT(locale, channelProfile() === "gateway" ? "**TaroBird App 会话状态**" : "**Lark 会话状态**"),
     "",
-    `引擎：${cfg.engine}`,
-    `模型：${renderEngineModelSetting(cfg.engine, cfg.model, codexDefaults, locale)}`,
-    `推理强度：${renderEngineEffortSetting(cfg.engine, cfg.effort, codexDefaults, locale)}`,
-    `Codex Fast Mode：${cfg.codexServiceTier === "fast" ? "开启" : "关闭"}`,
-    `审批模式：${renderApprovalModeStatus(
+    hostT(locale, "引擎：{0}", cfg.engine),
+    hostT(locale, "模型：{0}", renderEngineModelSetting(cfg.engine, cfg.model, codexDefaults, locale)),
+    hostT(locale, "推理强度：{0}", renderEngineEffortSetting(cfg.engine, cfg.effort, codexDefaults, locale)),
+    hostT(locale, "Codex Fast Mode：{0}", hostT(locale, cfg.codexServiceTier === "fast" ? "开启" : "关闭")),
+    hostT(locale, "审批模式：{0}", renderApprovalModeStatus(
       cfg.engine,
       rawConfig.approvalMode,
       locale,
       rawConfig.kimiAutoNeverAskAcknowledged,
-    )}`,
-    `预算：${cfg.budgetUsd !== undefined ? `$${cfg.budgetUsd.toFixed(2)}` : "无"}`,
+    )),
+    cfg.budgetUsd !== undefined ? hostT(locale, "预算：{0}", `$${cfg.budgetUsd.toFixed(2)}`) : hostT(locale, "预算：无"),
+    // Kimi omits usage entirely and DeepSeek omits dollar cost. Show those
+    // telemetry limits even without a budget so status never implies complete
+    // accounting; other non-Claude engines need the warning only when a cap exists.
     ...(cfg.engine === "kimi" || cfg.engine === "deepseek"
       ? [renderCoreEngineUsageNote(cfg.engine, locale, cfg.budgetUsd !== undefined)]
       : cfg.budgetUsd !== undefined && cfg.engine !== "claude"
         ? [renderCoreEngineUsageNote(cfg.engine, locale, true)]
         : []),
-    `语言：${locale}`,
-    `详细度：${cfg.verbosity}`,
-    `时区：${cfg.timezone}`,
-    ...(channelProfile() === "gateway" ? [] : [`Lark CLI：${renderCoreCliStatus(larkCliStatus, locale)}`]),
-    `当前聊天：${knownChat?.label ?? normalized.chatId}`,
-    `会话：${normalized.conversationKey}`,
-    `聊天类型：${normalized.bridgeChatType}`,
+    hostT(locale, "语言：{0}", locale),
+    hostT(locale, "详细度：{0}", cfg.verbosity),
+    hostT(locale, "时区：{0}", cfg.timezone),
+    ...(channelProfile() === "gateway" ? [] : [hostT(locale, "Lark CLI：{0}", renderCoreCliStatus(larkCliStatus, locale))]),
+    hostT(locale, "当前聊天：{0}", knownChat?.label ?? normalized.chatId),
+    hostT(locale, "会话：{0}", normalized.conversationKey),
+    hostT(locale, "聊天类型：{0}", normalized.bridgeChatType),
     ...groupModeLines,
     session.warning
-      ? `会话绑定：未知（${session.warning}）`
-      : `会话绑定：${currentSession ? "是" : "否"}`,
-    ...(cfg.engine === "codex" && currentSession ? [`当前 thread：${currentSession.codexSessionId}`] : []),
-    ...(cfg.engine === "antigravity" && currentSession ? [`当前 conversation：${currentSession.codexSessionId}`] : []),
-    ...(cfg.engine === "kimi" && currentSession ? [`当前 Kimi session：${currentSession.codexSessionId}`] : []),
-    ...(cfg.engine === "deepseek" && currentSession ? [`当前 DeepSeek Harness session：${currentSession.codexSessionId}`] : []),
-    ...(cfg.engine === "pi" && currentSession ? [`当前 Pi session：${currentSession.codexSessionId}`] : []),
+      ? hostT(locale, "会话绑定：未知（{0}）", session.warning)
+      : hostT(locale, currentSession ? "会话绑定：是" : "会话绑定：否"),
+    ...(cfg.engine === "codex" && currentSession ? [hostT(locale, "当前 thread：{0}", currentSession.codexSessionId)] : []),
+    ...(cfg.engine === "antigravity" && currentSession ? [hostT(locale, "当前 conversation：{0}", currentSession.codexSessionId)] : []),
+    ...(cfg.engine === "kimi" && currentSession ? [hostT(locale, "当前 Kimi session：{0}", currentSession.codexSessionId)] : []),
+    ...(cfg.engine === "deepseek" && currentSession ? [hostT(locale, "当前 DeepSeek Harness session：{0}", currentSession.codexSessionId)] : []),
+    ...(cfg.engine === "pi" && currentSession ? [hostT(locale, "当前 Pi session：{0}", currentSession.codexSessionId)] : []),
+    ...(cfg.engine === "omp" && currentSession ? [hostT(locale, "当前 omp session：{0}", currentSession.codexSessionId)] : []),
     ...workflowLines,
-    `当前运行：${activeRun ? "是" : "否"}`,
-    `待处理审批：${runtime.pendingApprovals.size}`,
+    hostT(locale, activeRun ? "当前运行：是" : "当前运行：否"),
+    hostT(locale, "待处理审批：{0}", runtime.pendingApprovals.size),
   ].join("\n");
 }
 
@@ -1695,32 +1512,31 @@ async function renderCoreStatusMessage(
  * trip there — pretending otherwise would be a false safety net.
  */
 function renderCoreEngineUsageNote(engine: InstanceConfig["engine"], locale: Locale, budgetConfigured: boolean): string {
-  if (engine === "pi") return locale === "en"
-    ? "Pi reports usage and cost when supplied by the provider. Cost may be estimated; a Host budget check does not impose a native per-turn spending limit."
-    : "Pi 会记录提供商返回的用量和费用，费用可能为估算值；主机预算检查不等于原生单轮费用上限。";
+  if (engine === "pi") {
+    return hostT(locale, "Pi 会记录提供商返回的用量和费用，费用可能为估算值；主机预算检查不等于原生单轮费用上限。");
+  }
+  if (engine === "omp") {
+    return hostT(locale, "omp 会记录提供商返回的用量和费用，费用可能为估算值；主机预算检查不等于原生单轮费用上限。");
+  }
   if (engine === "kimi") {
-    return locale === "en"
-      ? `Note: Kimi ACP does not currently report structured per-turn tokens or cost; Kimi turns are excluded from these totals${budgetConfigured ? " and the configured budget cap cannot track them" : ""}.`
-      : `注意：Kimi ACP 当前不上报结构化的单轮 token 或费用；这些累计数据不包含 Kimi turn${budgetConfigured ? "，已配置的预算上限也无法追踪它们" : ""}。`;
+    const budgetSuffix = budgetConfigured ? hostT(locale, "，已配置的预算上限也无法追踪它们") : "";
+    return hostT(locale, "注意：Kimi ACP 当前不上报结构化的单轮 token 或费用；这些累计数据不包含 Kimi turn{0}。", budgetSuffix);
   }
   if (engine === "deepseek") {
-    return locale === "en"
-      ? `Note: DeepSeek Harness reports token usage but not dollar cost${budgetConfigured ? "; the configured budget cap cannot track or constrain DeepSeek turns" : ""}.`
-      : `注意：DeepSeek Harness 会上报 token 用量，但不上报美元费用${budgetConfigured ? "；已配置的预算上限无法追踪或约束 DeepSeek turn" : ""}。`;
+    const budgetSuffix = budgetConfigured ? hostT(locale, "；已配置的预算上限无法追踪或约束 DeepSeek turn") : "";
+    return hostT(locale, "注意：DeepSeek Harness 会上报 token 用量，但不上报美元费用{0}。", budgetSuffix);
   }
-  return locale === "en"
-    ? "Note: Codex/Antigravity engines do not report dollar cost; the budget cap currently only takes effect on Claude."
-    : "注意：Codex/Antigravity 引擎不上报美元成本，预算上限目前只对 Claude 生效。";
+  return hostT(locale, "注意：Codex/Antigravity 引擎不上报美元成本，预算上限目前只对 Claude 生效。");
 }
 
 function renderCoreCliStatus(status: LarkCliStatus, locale: Locale): string {
   if (status.available) {
     return status.version
-      ? locale === "en" ? `available (${status.version})` : `可用（${status.version}）`
-      : locale === "en" ? "available" : "可用";
+      ? hostT(locale, "可用（{0}）", status.version)
+      : hostT(locale, "可用");
   }
   const detail = status.error ? ` (${truncateCoreStatusDetail(status.error)})` : "";
-  return locale === "en" ? `unavailable${detail}` : `不可用${detail}`;
+  return hostT(locale, "不可用{0}", detail);
 }
 
 function truncateCoreStatusDetail(detail: string): string {
@@ -1735,22 +1551,15 @@ function isBlockingWorkflowStatus(status: FileWorkflowStatus): boolean {
 async function renderCoreWorkflowStatusLines(stateDir: string, chatId: number, locale: Locale): Promise<string[]> {
   const workflowResult = await new FileWorkflowStore(stateDir).inspect();
   if (workflowResult.warning) {
-    return locale === "en"
-      ? [`Workflows: unknown (${workflowResult.warning})`]
-      : [`工作流：未知（${workflowResult.warning}）`];
+    return [hostT(locale, "工作流：未知（{0}）", workflowResult.warning)];
   }
   const records = workflowResult.state.records.filter((record) => record.chatId === chatId);
   const blocking = records.filter((record) => isBlockingWorkflowStatus(record.status)).length;
   const waiting = records.filter((record) => record.status === "awaiting_continue").length;
-  return locale === "en"
-    ? [
-        `Blocking workflows: ${blocking}`,
-        `Waiting workflows: ${waiting}`,
-      ]
-    : [
-        `阻塞工作流：${blocking}`,
-        `等待工作流：${waiting}`,
-      ];
+  return [
+    hostT(locale, "阻塞工作流：{0}", blocking),
+    hostT(locale, "等待工作流：{0}", waiting),
+  ];
 }
 
 async function renderCoreGroupModeStatusLines(input: {
@@ -1769,29 +1578,17 @@ async function renderCoreGroupModeStatusLines(input: {
     isConfiguredCoreListenAll(input.groupMode, input.bridgeChatId, input.bridgeAccessChatId)
   );
   const requiresMention = !input.groupMode.enabled || (input.requireMentionInGroup !== false && !listenAll);
-  if (input.locale === "en") {
-    const source = !input.groupMode.enabled
-      ? "group mode disabled"
-      : listenAll
+  const { locale } = input;
+  const source = !input.groupMode.enabled
+    ? hostT(locale, "群聊模式已关闭")
+    : listenAll
       ? "/group all override"
       : input.requireMentionInGroup === false
-        ? "global mention requirement disabled"
-        : "default mention mode";
-    return [
-      `Group trigger: ${requiresMention ? "requires @bot / mention" : "accepts ordinary group messages"}`,
-      `Group mode source: ${source}`,
-    ];
-  }
-  const source = !input.groupMode.enabled
-    ? "群聊模式已关闭"
-    : listenAll
-    ? "/group all override"
-    : input.requireMentionInGroup === false
-      ? "全局已关闭 @bot 要求"
-      : "默认 @bot 模式";
+        ? hostT(locale, "全局已关闭 @bot 要求")
+        : hostT(locale, "默认 @bot 模式");
   return [
-    `群聊触发：${requiresMention ? "需要 @bot / mention" : "接受普通群消息"}`,
-    `群聊模式来源：${source}`,
+    hostT(locale, requiresMention ? "群聊触发：需要 @bot / mention" : "群聊触发：接受普通群消息"),
+    hostT(locale, "群聊模式来源：{0}", source),
   ];
 }
 
@@ -1814,91 +1611,56 @@ function isSingleTokenCoreModelName(model: string): boolean {
 function renderCoreModelSelectionMessage(cfg: InstanceConfig, locale: Locale): string {
   const current = cfg.model ?? "default";
   if (cfg.engine === "claude") {
-    if (locale === "en") {
-      return [
-        `Current model: \`${current}\``,
-        "Choose a model with /model <name>:",
-        ...CLAUDE_MODEL_CHOICES.map((model) => `\`/model ${model}\``),
-        "`/model off`",
-        "Latest Opus alias: `/model opus[1m]`",
-      ].join("\n");
-    }
-    return [
-      `当前模型: \`${current}\``,
-      "用 /model <名称> 选择模型：",
-      ...CLAUDE_MODEL_CHOICES.map((model) => `\`/model ${model}\``),
-      "`/model off`",
-      "跟随最新 Opus 的别名：`/model opus[1m]`",
-    ].join("\n");
+    return hostT(
+      locale,
+      "当前模型: `{0}`\n用 /model <名称> 选择模型：\n{1}\n`/model off`\n跟随最新 Opus 的别名：`/model opus[1m]`",
+      current,
+      CLAUDE_MODEL_CHOICES.map((model) => `\`/model ${model}\``).join("\n"),
+    );
   }
   if (cfg.engine === "codex") {
-    if (locale === "en") {
-      return [
-        `Current model: ${current}`,
-        "Choose a model with /model <name>:",
-        ...CODEX_MODEL_CHOICES.map((model) => `/model ${model}`),
-        "/model off",
-        CODEX_EFFORT_COMPATIBILITY_EN,
-      ].join("\n");
-    }
-    return [
-      `当前模型: ${current}`,
-      "用 /model <名称> 选择模型：",
-      ...CODEX_MODEL_CHOICES.map((model) => `/model ${model}`),
-      "/model off",
-      CODEX_EFFORT_COMPATIBILITY_ZH,
-    ].join("\n");
+    return hostT(
+      locale,
+      "当前模型: {0}\n用 /model <名称> 选择模型：\n{1}\n/model off\n{2}",
+      current,
+      CODEX_MODEL_CHOICES.map((model) => `/model ${model}`).join("\n"),
+      hostT(locale, "Astra/Sol/Terra 支持 max 和 ultra；Luna 支持 max，但不支持 ultra。"),
+    );
   }
   if (cfg.engine === "kimi") {
-    return locale === "en"
-      ? [
-          `Current model: ${current}`,
-          "Use /model <id> with a model advertised by your Kimi provider configuration.",
-          "/model off",
-          "Kimi validates the exact model ID through ACP when the next turn starts.",
-        ].join("\n")
-      : [
-          `当前模型: ${current}`,
-          "用 /model <id> 设置当前 Kimi provider 配置实际提供的模型。",
-          "/model off",
-          "下一轮开始时会通过 ACP 校验该模型 ID。",
-        ].join("\n");
+    return hostT(
+      locale,
+      "当前模型: {0}\n用 /model <id> 设置当前 Kimi provider 配置实际提供的模型。\n/model off\n下一轮开始时会通过 ACP 校验该模型 ID。",
+      current,
+    );
   }
   if (cfg.engine === "deepseek") {
-    return locale === "en"
-      ? [
-          `Current model: ${current}`,
-          "Use /model <provider/model> or /model <model-id> with a model advertised by DeepSeek Harness.",
-          "/model off",
-          "DeepSeek Harness validates the selection through its session model API.",
-        ].join("\n")
-      : [
-          `当前模型: ${current}`,
-          "用 /model <provider/model> 或 /model <model-id> 选择 DeepSeek Harness 提供的模型。",
-          "/model off",
-          "DeepSeek Harness 会通过 session model API 校验该选择。",
-        ].join("\n");
+    return hostT(
+      locale,
+      "当前模型: {0}\n用 /model <provider/model> 或 /model <model-id> 选择 DeepSeek Harness 提供的模型。\n/model off\nDeepSeek Harness 会通过 session model API 校验该选择。",
+      current,
+    );
   }
-  if (locale === "en") {
-    return [
-      `Current model: ${current}`,
-      "Use /model <id> with a model listed by agy models; agy validates it when the next turn starts.",
-      "/model off",
-    ].join("\n");
+  if (cfg.engine === "omp") {
+    return hostT(
+      locale,
+      "当前模型: {0}\n用 /model <provider/model> 选择 oh-my-pi (omp) 提供的模型。\n/model off\nomp 会通过 RPC 会话模型 API 校验该选择。",
+      current,
+    );
   }
-  return [
-    `当前模型: ${current}`,
-    "用 /model <id> 设置 agy models 列出的模型；下一轮启动时由 agy 校验。",
-    "/model off",
-  ].join("\n");
+  return hostT(
+    locale,
+    "当前模型: {0}\n用 /model <id> 设置 agy models 列出的模型；下一轮启动时由 agy 校验。\n/model off",
+    current,
+  );
 }
 
 function deepSeekSettingsError(code: string, locale: Locale): string {
   const description = code.endsWith("conflict")
-    ? (locale === "en" ? "Settings changed; read them again before retrying." : "设置已变化，请重新读取后再试。")
+    ? hostT(locale, "设置已变化，请重新读取后再试。")
     : code.endsWith("incompatible")
-      ? (locale === "en" ? "This model does not advertise that effort. Use /effort default or choose a supported level." : "当前模型未提供这个推理档位。请用 /effort default 或选择支持的档位。")
-      : (locale === "en" ? "The DeepSeek model catalog or selection is unavailable. Refresh the catalog and check the native provider configuration." : "DeepSeek 模型目录或所选模型暂不可用。请重新读取目录并检查原生提供商配置。");
+      ? hostT(locale, "当前模型未提供这个推理档位。请用 /effort default 或选择支持的档位。")
+      : hostT(locale, "DeepSeek 模型目录或所选模型暂不可用。请重新读取目录并检查原生提供商配置。");
   return `${description} (${code})`;
 }
 
@@ -1915,28 +1677,26 @@ async function handleCoreModelCommand(
       ...(before.settings.catalogStatus === "ready" ? before.settings.choices.filter(choice => choice.id).map(choice => `/model ${choice.id}`) : [deepSeekSettingsError("model_catalog_unavailable", locale)]),
     ].join("\n");
     const selected = ["off", "default"].includes(model) ? "" : model;
-    if (selected && (!isSingleTokenCoreModelName(selected) || selected.length > 512)) return locale === "en" ? "Usage: /model <single-token-name|default>" : "用法: /model <单个模型名|default>";
+    if (selected && (!isSingleTokenCoreModelName(selected) || selected.length > 512)) return hostT(locale, "用法: /model <单个模型名|default>");
     const result = await modelSettings(stateDir, "deepseek", 0, { revision: before.settings.revision, model: selected });
     if (!result.ok) return deepSeekSettingsError(result.error, locale);
-    return result.settings.model ? (locale === "en" ? `Model set to \`${result.settings.model}\`.` : `模型已设为 \`${result.settings.model}\`。`) : (locale === "en" ? "Model reset to default." : "模型已恢复默认。");
+    return result.settings.model ? hostT(locale, "模型已设为 `{0}`。", result.settings.model) : hostT(locale, "模型已恢复默认。");
   }
   if (!model) {
     return renderCoreModelSelectionMessage(cfg, locale);
   }
   const normalizedModel = normalizeModelCommandInput(cfg.engine, model);
   if (!isSingleTokenCoreModelName(normalizedModel)) {
-    return locale === "en" ? "Usage: /model <single-token-name|off>" : "用法: /model <单个模型名|off>";
+    return hostT(locale, "用法: /model <单个模型名|off>");
   }
   if (normalizedModel === "off" || normalizedModel === "default") {
     if (cfg.engine === "codex" && isExtendedCodexEffort(cfg.effort)) {
-      return locale === "en"
-        ? `Cannot restore the default model while effort is ${cfg.effort}; reset /effort first.`
-        : `当前 effort 为 ${cfg.effort}，不能恢复默认模型；请先重置 /effort。`;
+      return hostT(locale, "当前 effort 为 {0}，不能恢复默认模型；请先重置 /effort。", cfg.effort);
     }
     await updateInstanceConfig(stateDir, (config) => {
       delete config.model;
     });
-    return locale === "en" ? "Model reset to default." : "模型已恢复默认。";
+    return hostT(locale, "模型已恢复默认。");
   }
   if (
     cfg.engine === "codex" &&
@@ -1946,22 +1706,21 @@ async function handleCoreModelCommand(
   ) {
     const maxEffort = knownCodexModelMaxEffort(normalizedModel);
     return maxEffort
-      ? locale === "en"
-        ? `${normalizedModel} supports up to ${maxEffort}, which is incompatible with current effort ${cfg.effort}; change /effort first.`
-        : `${normalizedModel} 最高支持 ${maxEffort}，与当前 effort ${cfg.effort} 不兼容；请先调整 /effort。`
-      : locale === "en"
-        ? `Compatibility between ${normalizedModel} and effort ${cfg.effort} is unknown; lower /effort or choose a listed model first.`
-        : `无法确认 ${normalizedModel} 是否支持 ${cfg.effort}；请先降低 /effort 或选择列表中的模型。`;
+      ? hostT(locale, "{0} 最高支持 {1}，与当前 effort {2} 不兼容；请先调整 /effort。", normalizedModel, maxEffort, cfg.effort)
+      : hostT(locale, "无法确认 {0} 是否支持 {1}；请先降低 /effort 或选择列表中的模型。", normalizedModel, cfg.effort);
   }
   if (cfg.engine === "antigravity" && cfg.effort && antigravityPresetEffort(normalizedModel) && antigravityPresetEffort(normalizedModel) !== cfg.effort) {
-    return locale === "en"
-      ? `${normalizedModel} is incompatible with current effort ${cfg.effort}; reset /effort default before changing the model.`
-      : `${normalizedModel} 与当前 effort ${cfg.effort} 不兼容；请先用 /effort default 重置，再切换模型。`;
+    return hostT(locale, "{0} 与当前 effort {1} 不兼容；请先用 /effort default 重置，再切换模型。", normalizedModel, cfg.effort);
+  }
+  if (cfg.engine === "omp" && !decodePiModel(normalizedModel)) {
+    return !isChineseLocale(locale)
+      ? "omp models require a provider prefix, such as /model provider/model (or /model off)."
+      : "omp 模型必须包含提供商前缀，例如 /model provider/model（或 /model off）。";
   }
   await updateInstanceConfig(stateDir, (config) => {
     config.model = normalizedModel;
   });
-  return locale === "en" ? `Model set to \`${normalizedModel}\`.` : `模型已设为 \`${normalizedModel}\`。`;
+  return hostT(locale, "模型已设为 `{0}`。", normalizedModel);
 }
 
 async function handleCoreEffortCommand(
@@ -1972,10 +1731,10 @@ async function handleCoreEffortCommand(
 ): Promise<string> {
   // Pi has a per-conversation level (/thinking) besides this Bot-wide default, so its replies name the scope.
   if (!level) {
-    if (cfg.engine === "pi") return locale === "en"
-      ? `Bot default thinking level: ${cfg.effort ?? "default"}. It is set for the whole Bot: a change replaces the level in all of this Bot's conversations from their next turn. Use /thinking to see or change this conversation's level.`
-      : `Bot 默认思考强度：${cfg.effort ?? "default"}。它作用于整个 Bot：改动后，这个 Bot 的所有对话从下一轮起都改用新档位。查看或调整当前对话请用 /thinking。`;
-    return locale === "en" ? `Current effort: ${cfg.effort ?? "default"}` : `当前 effort: ${cfg.effort ?? "default"}`;
+    if (cfg.engine === "pi") {
+      return hostT(locale, "Bot 默认思考强度：{0}。它作用于整个 Bot：改动后，这个 Bot 的所有对话从下一轮起都改用新档位。查看或调整当前对话请用 /thinking。", cfg.effort ?? "default");
+    }
+    return hostT(locale, "当前 effort: {0}", cfg.effort ?? "default");
   }
   if (cfg.engine === "deepseek") {
     const effort = level === "default" ? "" : level;
@@ -1984,55 +1743,62 @@ async function handleCoreEffortCommand(
     if (!before.ok) return deepSeekSettingsError(before.error, locale);
     const result = await effortSettings(stateDir, "deepseek", 0, { revision: before.settings.revision, effort });
     if (!result.ok) return deepSeekSettingsError(result.error, locale);
-    return effort ? (locale === "en" ? `Effort set to ${effort}.` : `Effort 已设为 ${effort}。`) : (locale === "en" ? "Effort reset to default." : "Effort 已恢复默认。");
+    return effort ? hostT(locale, "Effort 已设为 {0}。", effort) : hostT(locale, "Effort 已恢复默认。");
   }
-  if (level === "default" || level === "off" && cfg.engine !== "pi") {
+  if (level === "default" || level === "off" && cfg.engine !== "pi" && cfg.engine !== "omp") {
     await updateInstanceConfig(stateDir, (config) => {
       delete config.effort;
     });
-    if (cfg.engine === "pi") return locale === "en"
-      ? "Cleared the Bot default thinking level for the whole Bot: conversations still on the level the Bot set go back to the level they had before; a level chosen with /thinking stays. To change only this conversation, use /thinking."
-      : "已清除 Bot 默认思考强度，作用于整个 Bot：仍在用 Bot 所设档位的对话恢复到之前的档位；用 /thinking 自己选的保持不变。只改当前对话请用 /thinking。";
-    return locale === "en" ? "Effort reset to default." : "Effort 已恢复默认。";
+    if (cfg.engine === "pi") {
+      return hostT(locale, "已清除 Bot 默认思考强度，作用于整个 Bot：仍在用 Bot 所设档位的对话恢复到之前的档位；用 /thinking 自己选的保持不变。只改当前对话请用 /thinking。");
+    }
+    return hostT(locale, "Effort 已恢复默认。");
   }
   if (cfg.engine === "pi") {
     const models = await modelCatalog("pi", process.env, cfg.workspacePath ?? cfg.resume?.workspacePath ?? path.join(stateDir, "workspace"));
     const levels = modelEffortChoices("pi", cfg.model ?? "", models);
     if (!PI_THINKING_LEVELS.includes(level as typeof PI_THINKING_LEVELS[number]) || !levels.includes(level as EffortLevel)) {
-      return locale === "en" ? "Pi has not confirmed this thinking level for the selected model. Refresh the model list or use /effort default." : "Pi 尚未确认当前模型支持这个思考档位。请重新读取模型列表，或使用 /effort default。";
+      return hostT(locale, "Pi 尚未确认当前模型支持这个思考档位。请重新读取模型列表，或使用 /effort default。");
     }
     await updateInstanceConfig(stateDir, config => { config.effort = level; });
-    return locale === "en"
-      ? `Bot default thinking level set to ${level} for the whole Bot: all of this Bot's conversations use it from their next turn, including ones that chose a level with /thinking. To change only this conversation, use /thinking ${level}.`
-      : `已把 Bot 默认思考强度设为 ${level}，作用于整个 Bot：这个 Bot 的所有对话从下一轮起都改用这一档，包括在对话里用 /thinking 选过档位的。只改当前对话请用 /thinking ${level}。`;
+    return hostT(locale, "已把 Bot 默认思考强度设为 {0}，作用于整个 Bot：这个 Bot 的所有对话从下一轮起都改用这一档，包括在对话里用 /thinking 选过档位的。只改当前对话请用 /thinking {0}。", level);
+  }
+  if (cfg.engine === "omp") {
+    if (!PI_THINKING_LEVELS.includes(level as typeof PI_THINKING_LEVELS[number])) {
+      return !isChineseLocale(locale)
+        ? `omp thinking level supports only ${PI_THINKING_LEVELS.join(", ")}, or default.`
+        : `omp 思考强度仅支持 ${PI_THINKING_LEVELS.join("、")} 或 default。`;
+    }
+    const catalog = await readModelCatalog("omp", process.env, cfg.workspacePath ?? cfg.resume?.workspacePath ?? path.join(stateDir, "workspace"));
+    if (catalog.status === "ready") {
+      const levels = modelEffortChoices("omp", cfg.model ?? "", catalog.choices);
+      const modelKnown = !cfg.model || catalog.choices.some(choice => choice.id === cfg.model);
+      if (modelKnown && !levels.includes(level as EffortLevel)) {
+        return !isChineseLocale(locale)
+          ? "omp has not confirmed this thinking level for the selected model. Refresh the model list or use /effort default."
+          : "omp 尚未确认当前模型支持这个思考档位。请重新读取模型列表，或使用 /effort default。";
+      }
+    }
+    await updateInstanceConfig(stateDir, config => { config.effort = level; });
+    return !isChineseLocale(locale) ? `Effort set to ${level}.` : `Effort 已设为 ${level}。`;
   }
   if (cfg.engine === "claude" && level === "ultra") {
-    return locale === "en"
-      ? "Claude does not support ultra; use max for its highest effort."
-      : "Claude 不支持 ultra；最高可用 max。";
+    return hostT(locale, "Claude 不支持 ultra；最高可用 max。");
   }
   if (cfg.engine === "kimi" && !KIMI_EFFORT_LEVELS.includes(level as (typeof KIMI_EFFORT_LEVELS)[number])) {
-    return locale === "en"
-      ? "Kimi effort supports only low, high, max, or off."
-      : "Kimi effort 仅支持 low、high、max 或 off。";
+    return hostT(locale, "Kimi effort 仅支持 low、high、max 或 off。");
   }
   if (cfg.engine === "antigravity" && !ANTIGRAVITY_EFFORT_LEVELS.includes(level as (typeof ANTIGRAVITY_EFFORT_LEVELS)[number])) {
-    return locale === "en"
-      ? "Antigravity effort supports only low, medium, high, xhigh, max, or off."
-      : "Antigravity effort 仅支持 low、medium、high、xhigh、max 或 off。";
+    return hostT(locale, "Antigravity effort 仅支持 low、medium、high、xhigh、max 或 off。");
   }
   if (!VALID_LARK_EFFORT_LEVELS.includes(level as EffortLevel)) {
-    return locale === "en"
-      ? "Usage: /effort [low|medium|high|xhigh|max|ultra|off]"
-      : "用法: /effort [low|medium|high|xhigh|max|ultra|off]";
+    return hostT(locale, "用法: /effort [low|medium|high|xhigh|max|ultra|off]");
   }
   if (cfg.engine === "claude" && getEngineEffortValidationError(cfg.engine, level as EffortLevel, cfg.model)) {
-    return locale === "en" ? `The selected Claude model does not support ${level}.` : `当前 Claude 模型不支持 ${level}。`;
+    return hostT(locale, "当前 Claude 模型不支持 {0}。", level);
   }
   if (cfg.engine === "antigravity" && antigravityPresetEffort(cfg.model) && antigravityPresetEffort(cfg.model) !== level) {
-    return locale === "en"
-      ? `${cfg.model} is incompatible with effort ${level}; choose its matching model preset or reset /effort default.`
-      : `${cfg.model} 与 effort ${level} 不兼容；请选择对应强度的模型，或用 /effort default 重置。`;
+    return hostT(locale, "{0} 与 effort {1} 不兼容；请选择对应强度的模型，或用 /effort default 重置。", cfg.model ?? "", level);
   }
   if (cfg.engine === "codex") {
     const effort = level as EffortLevel;
@@ -2040,45 +1806,36 @@ async function handleCoreEffortCommand(
     if (support === false || (support === undefined && isExtendedCodexEffort(effort))) {
       const maxEffort = knownCodexModelMaxEffort(cfg.model);
       return maxEffort
-        ? locale === "en"
-          ? `${cfg.model} does not support ${level}; its highest effort is ${maxEffort}.`
-          : `${cfg.model} 不支持 ${level}；最高可用 ${maxEffort}。`
-        : locale === "en"
-          ? `Select an explicit compatible model before setting ${level} (for example, /model gpt-5.6-sol).`
-          : `请先选择明确兼容的模型再设置 ${level}（例如 /model gpt-5.6-sol）。`;
+        ? hostT(locale, "{0} 不支持 {1}；最高可用 {2}。", cfg.model ?? "", level, maxEffort)
+        : hostT(locale, "请先选择明确兼容的模型再设置 {0}（例如 /model gpt-5.6-sol）。", level);
     }
   }
   await updateInstanceConfig(stateDir, (config) => {
     config.effort = level;
   });
-  return locale === "en" ? `Effort set to ${level}.` : `Effort 已设为 ${level}。`;
+  return hostT(locale, "Effort 已设为 {0}。", level);
 }
 
 async function handleCoreFastCommand(stateDir: string, cfg: InstanceConfig, action: string, locale: Locale): Promise<string> {
   if (cfg.engine !== "codex") {
-    return locale === "en" ? "Fast Mode is Codex-only." : "Fast Mode 仅 Codex 支持。";
+    return hostT(locale, "Fast Mode 仅 Codex 支持。");
   }
   if (action === "on" || action === "enable" || action === "fast") {
     await updateInstanceConfig(stateDir, (config) => {
       config.codexServiceTier = "fast";
     });
-    return locale === "en"
-      ? "Codex Fast Mode enabled. Supported models run faster but consume more credits."
-      : "Codex Fast Mode 已开启。支持的模型会更快，但会消耗更多 credits。";
+    return hostT(locale, "Codex Fast Mode 已开启。支持的模型会更快，但会消耗更多 credits。");
   }
   if (action === "off" || action === "disable" || action === "standard" || action === "default") {
     await updateInstanceConfig(stateDir, (config) => {
       delete config.codexServiceTier;
     });
-    return locale === "en" ? "Codex Fast Mode disabled." : "Codex Fast Mode 已关闭。";
+    return hostT(locale, "Codex Fast Mode 已关闭。");
   }
   if (action === "status") {
-    if (locale === "en") {
-      return `Codex Fast Mode: ${cfg.codexServiceTier === "fast" ? "on" : "off"}`;
-    }
-    return `Codex Fast Mode：${cfg.codexServiceTier === "fast" ? "开启" : "关闭"}`;
+    return hostT(locale, "Codex Fast Mode：{0}", hostT(locale, cfg.codexServiceTier === "fast" ? "开启" : "关闭"));
   }
-  return locale === "en" ? "Usage: /fast [on|off|status]" : "用法: /fast [on|off|status]";
+  return hostT(locale, "用法: /fast [on|off|status]");
 }
 
 // /stream toggles Lark element-level streaming (the native typewriter on run
@@ -2087,34 +1844,25 @@ async function handleCoreFastCommand(stateDir: string, cfg: InstanceConfig, acti
 // turn (the running turn's controller already captured the flag).
 async function handleCoreStreamCommand(stateDir: string, cfg: InstanceConfig, action: string, locale: Locale): Promise<string> {
   const envOff = ["off", "0", "false"].includes((process.env.TAROBOT_ELEMENT_STREAM ?? process.env.CCTB_LARK_ELEMENT_STREAM ?? "").trim().toLowerCase());
-  const envNote = locale === "en"
-    ? "\nNote: env TAROBOT_ELEMENT_STREAM=off currently force-disables streaming regardless of this setting."
-    : "\n注意：环境变量 TAROBOT_ELEMENT_STREAM=off 当前强制关闭流式，此设置暂不生效。";
+  const envNote = hostT(locale, "\n注意：环境变量 TAROBOT_ELEMENT_STREAM=off 当前强制关闭流式，此设置暂不生效。");
   if (action === "on" || action === "enable") {
     await updateInstanceConfig(stateDir, (config) => {
       delete config.elementStream;
     });
-    return (locale === "en"
-      ? "Element streaming (typewriter) enabled. Takes effect from the next turn."
-      : "流式打字机已开启，下一轮回答生效。") + (envOff ? envNote : "");
+    return hostT(locale, "流式打字机已开启，下一轮回答生效。") + (envOff ? envNote : "");
   }
   if (action === "off" || action === "disable") {
     await updateInstanceConfig(stateDir, (config) => {
       config.elementStream = false;
     });
-    return locale === "en"
-      ? "Element streaming disabled — answers update via full-card refresh (the pre-typewriter behavior). Takes effect from the next turn."
-      : "流式打字机已关闭，回答改回整卡刷新模式（打字机之前的行为），下一轮回答生效。";
+    return hostT(locale, "流式打字机已关闭，回答改回整卡刷新模式（打字机之前的行为），下一轮回答生效。");
   }
   if (action === "status") {
     const configured = cfg.elementStream !== false;
     const effective = configured && !envOff;
-    if (locale === "en") {
-      return `Element streaming (typewriter): ${effective ? "on" : "off"}${configured && envOff ? envNote : ""}`;
-    }
-    return `流式打字机：${effective ? "开启" : "关闭"}${configured && envOff ? envNote : ""}`;
+    return hostT(locale, "流式打字机：{0}{1}", hostT(locale, effective ? "开启" : "关闭"), configured && envOff ? envNote : "");
   }
-  return locale === "en" ? "Usage: /stream [on|off|status]" : "用法: /stream [on|off|status]";
+  return hostT(locale, "用法: /stream [on|off|status]");
 }
 
 async function handleCoreTimeoutCommand(stateDir: string, cfg: InstanceConfig, action: string, locale: Locale): Promise<string> {
@@ -2133,7 +1881,7 @@ async function handleCoreTimeoutCommand(stateDir: string, cfg: InstanceConfig, a
   if (action === "status") {
     return renderRuntimeTimeoutMessage(cfg.engine, cfg.disableRuntimeTimeout !== true, "status", locale);
   }
-  return locale === "en" ? "Usage: /timeout [on|off|status]" : "用法: /timeout [on|off|status]";
+  return hostT(locale, "用法: /timeout [on|off|status]");
 }
 
 /**
@@ -2143,33 +1891,22 @@ async function handleCoreTimeoutCommand(stateDir: string, cfg: InstanceConfig, a
  * entirely, `<seconds>` tunes the window, `unlimited` (=0) restores steer-any-time.
  */
 async function handleCoreSteerCommand(stateDir: string, cfg: InstanceConfig, action: string, locale: Locale): Promise<string> {
-  const en = locale === "en";
   // Codex app-server and DeepSeek Harness can steer active turns. The setting
   // still persists on engines without injection support, so explain that their
   // messages continue to queue instead of implying this toggle changes them.
   const engineNote = cfg.engine === "claude"
-    ? (en
-      ? " (Note: this instance runs Claude, which doesn't support mid-turn steering — messages during a turn always queue; this setting only takes effect if the instance switches to Codex or DeepSeek.)"
-      : "（注意：当前是 Claude 引擎，不支持任务中途注入——进行中收到的消息本就一律排队；此设置仅在切换到 Codex 或 DeepSeek 引擎后生效。）")
+    ? hostT(locale, "（注意：当前是 Claude 引擎，不支持任务中途注入——进行中收到的消息本就一律排队；此设置仅在切换到 Codex 或 DeepSeek 引擎后生效。）")
     : cfg.engine === "kimi"
-      ? (en
-        ? " (Note: Kimi ACP does not support mid-turn prompt injection — messages received during a turn queue as separate turns; this setting only takes effect after switching to Codex or DeepSeek.)"
-        : "（注意：Kimi ACP 不支持任务中途注入——进行中收到的消息会排队成为独立 turn；此设置仅在切换到 Codex 或 DeepSeek 后生效。）")
+      ? hostT(locale, "（注意：Kimi ACP 不支持任务中途注入——进行中收到的消息会排队成为独立 turn；此设置仅在切换到 Codex 或 DeepSeek 后生效。）")
       : "";
   const describe = (enabled: boolean, windowSeconds: number): string => {
     if (!enabled) {
-      return en
-        ? "Steering: off — mid-turn messages always queue as their own turn (/steer on to re-enable)."
-        : "引导：已关闭——任务进行中发的消息一律排队作为独立任务执行（/steer on 重新开启）。";
+      return hostT(locale, "引导：已关闭——任务进行中发的消息一律排队作为独立任务执行（/steer on 重新开启）。");
     }
     if (windowSeconds === 0) {
-      return en
-        ? "Steering: on, unlimited window — messages inject into the running turn at any time (/steer 30 to restore the window)."
-        : "引导：开启，不限时——任何时刻发消息都注入当前任务（/steer 30 可恢复窗口限制）。";
+      return hostT(locale, "引导：开启，不限时——任何时刻发消息都注入当前任务（/steer 30 可恢复窗口限制）。");
     }
-    return en
-      ? `Steering: on, window ${windowSeconds}s — a running turn accepts steering only within its first ${windowSeconds}s; later messages queue. (/steer <seconds> to tune, /steer unlimited to lift, /steer off to disable)`
-      : `引导：开启，资格窗口 ${windowSeconds} 秒——任务开跑 ${windowSeconds} 秒内的消息注入当前任务，之后的消息排队独立执行。（/steer <秒数> 调整，/steer unlimited 不限时，/steer off 关闭）`;
+    return hostT(locale, "引导：开启，资格窗口 {0} 秒——任务开跑 {0} 秒内的消息注入当前任务，之后的消息排队独立执行。（/steer <秒数> 调整，/steer unlimited 不限时，/steer off 关闭）", windowSeconds);
   };
   if (action === "off" || action === "disable") {
     await updateInstanceConfig(stateDir, (config) => {
@@ -2212,7 +1949,7 @@ async function handleCoreSteerCommand(stateDir: string, cfg: InstanceConfig, act
       return describe(true, 0) + engineNote;
     }
     if (seconds < 1 || seconds > 86_400) {
-      return en ? "Window must be 1s–24h (or `unlimited`)." : "窗口需在 1 秒～24 小时之间（或用 `unlimited` 不限时）。";
+      return hostT(locale, "窗口需在 1 秒～24 小时之间（或用 `unlimited` 不限时）。");
     }
     await updateInstanceConfig(stateDir, (config) => {
       delete config.steerEnabled;
@@ -2223,9 +1960,7 @@ async function handleCoreSteerCommand(stateDir: string, cfg: InstanceConfig, act
   if (action === "status") {
     return describe(cfg.steerEnabled !== false, cfg.steerWindowSeconds ?? DEFAULT_STEER_WINDOW_SECONDS) + engineNote;
   }
-  return en
-    ? "Usage: /steer [on|off|<seconds>|unlimited|default|status]"
-    : "用法: /steer [on|off|<秒数>|unlimited|default|status]";
+  return hostT(locale, "用法: /steer [on|off|<秒数>|unlimited|default|status]");
 }
 
 async function handleCoreEngineCommand(
@@ -2236,31 +1971,26 @@ async function handleCoreEngineCommand(
   locale: Locale,
 ): Promise<string> {
   const restartNote = channelProfile() === "gateway"
-    ? locale === "en" ? "Use Operations to restart this Bot when idle for the change to take effect." : "请在「运行状态」安排此 Bot 空闲后重启以生效。"
-    : locale === "en" ? "Restart the Lark service after switching for the change to take effect." : "切换后请重启 Lark service 以生效。";
+    ? hostT(locale, "请在「运行状态」安排此 Bot 空闲后重启以生效。")
+    : hostT(locale, "切换后请重启 Lark service 以生效。");
   if (!engine && !invalid) {
-    if (locale === "en") {
-      return [
-        `Current engine: ${cfg.engine}`,
-        "Choose an engine with /engine <name>:",
-        ...LARK_ENGINE_CHOICES.filter(choice => choice !== "pi" || cfg.role !== "dispatcher").map((choice) => `/engine ${choice}`),
-        restartNote,
-      ].join("\n");
-    }
-    return [
-      `当前引擎：${cfg.engine}`,
-      "用 /engine <名称> 选择引擎：",
-      ...LARK_ENGINE_CHOICES.filter(choice => choice !== "pi" || cfg.role !== "dispatcher").map((choice) => `/engine ${choice}`),
+    return hostT(
+      locale,
+      "当前引擎：{0}\n用 /engine <名称> 选择引擎：\n{1}\n{2}",
+      cfg.engine,
+      LARK_ENGINE_CHOICES.filter(choice => (choice !== "pi" && choice !== "omp") || cfg.role !== "dispatcher").map((choice) => `/engine ${choice}`).join("\n"),
       restartNote,
-    ].join("\n");
+    );
   }
   if (invalid || !LARK_ENGINE_CHOICES.includes(engine as InstanceEngine)) {
-    return locale === "en" ? "Usage: /engine [claude|codex|kimi|deepseek|antigravity|pi]" : "用法: /engine [claude|codex|kimi|deepseek|antigravity|pi]";
+    return hostT(locale, "用法: /engine [claude|codex|kimi|deepseek|antigravity|pi|omp]");
   }
 
   const selectedEngine = engine as InstanceEngine;
-  if (selectedEngine === "pi" && cfg.role === "dispatcher") {
-    return locale === "en" ? "Pi is available for ordinary Bots, not Chief of Staff Bots." : "Pi 仅用于普通 Bot，不支持幕僚长。";
+  if ((selectedEngine === "pi" || selectedEngine === "omp") && cfg.role === "dispatcher") {
+    return selectedEngine === "omp"
+      ? (!isChineseLocale(locale) ? "omp is available for ordinary Bots, not Superagent Bots." : "omp 仅用于普通 Bot，不支持幕僚长。")
+      : (!isChineseLocale(locale) ? "Pi is available for ordinary Bots, not Superagent Bots." : "Pi 仅用于普通 Bot，不支持幕僚长。");
   }
   const engineChanged = cfg.engine !== selectedEngine;
   let resetSessionBindings = false;
@@ -2278,20 +2008,19 @@ async function handleCoreEngineCommand(
 
   const details: string[] = [];
   if (clearedModel) {
-    details.push(locale === "en" ? "cleared the previous model override" : "已清除先前的模型覆盖");
+    details.push(hostT(locale, "已清除先前的模型覆盖"));
   }
   if (resetSessionBindings) {
-    details.push(locale === "en" ? "reset this instance's session bindings" : "已重置该实例的会话绑定");
+    details.push(hostT(locale, "已重置该实例的会话绑定"));
   }
   if (enabledFullAuto) {
-    details.push(locale === "en" ? "enabled YOLO/full-auto for Antigravity" : "Antigravity 已自动开启 YOLO/full-auto");
+    details.push(hostT(locale, "Antigravity 已自动开启 YOLO/full-auto"));
   }
-  if (locale === "en") {
-    const suffix = details.length > 0 ? ` ${details.join("; ")}.` : "";
-    return `Engine set to ${selectedEngine}.${suffix} ${channelProfile() === "gateway" ? restartNote : "Restart the Lark service for the change to take effect."}`;
-  }
-  const suffix = details.length > 0 ? ` ${details.join("，")}。` : "";
-  return `引擎已设为 ${selectedEngine}。${suffix}${channelProfile() === "gateway" ? restartNote : "重启 Lark service 后生效。"}`;
+  const suffix = details.length > 0
+    ? (locale === "en" ? ` ${details.join("; ")}.` : ` ${details.join(locale === "ja" ? "、" : "，")}。`)
+    : "";
+  const finalRestartNote = channelProfile() === "gateway" ? restartNote : hostT(locale, "重启 Lark service 后生效。");
+  return hostT(locale, "引擎已设为 {0}。{1}{2}", selectedEngine, suffix, finalRestartNote);
 }
 
 async function handleCoreYoloCommand(stateDir: string, action: string, locale: Locale): Promise<string> {
@@ -2310,94 +2039,64 @@ async function handleCoreYoloCommand(stateDir: string, action: string, locale: L
         locale,
         raw.kimiAutoNeverAskAcknowledged,
       );
-      return locale === "en" ? `Current YOLO: ${label}` : `当前 YOLO: ${label}`;
+      return hostT(locale, "当前 YOLO: {0}", label);
     }
-    if (locale === "en") {
-      const label = mode === "bypass" ? "unsafe/bypass" : mode === "full-auto" ? "full-auto" : "off";
-      return `Current YOLO: ${label}`;
-    }
-    const label = mode === "bypass"
+    const labelKey = mode === "bypass"
       ? "YOLO UNSAFE（跳过审批和 sandbox）"
       : mode === "full-auto" ? "YOLO（full-auto，sandboxed）" : "off（普通审批流程）";
-    return `当前 YOLO: ${label}`;
+    return hostT(locale, "当前 YOLO: {0}", hostT(locale, labelKey));
   }
   if (action === "on") {
-    if (cfg.engine === "pi") return locale === "en"
-      ? "Pi does not provide sandboxed full-auto. Permissions were not changed. Use /yolo off for normal approval or /yolo unsafe to skip approval without an OS sandbox."
-      : "Pi 不提供带沙箱的 full-auto，权限未更改。普通审批请用 /yolo off；跳过审批请用 /yolo unsafe，这不会提供 OS 沙箱。";
+    if (cfg.engine === "pi") {
+      return hostT(locale, "Pi 不提供带沙箱的 full-auto，权限未更改。普通审批请用 /yolo off；跳过审批请用 /yolo unsafe，这不会提供 OS 沙箱。");
+    }
+    if (cfg.engine === "omp") {
+      return hostT(locale, "omp 不提供带沙箱的 full-auto，权限未更改。工具审批请用 /yolo off；原生访问请用 /yolo unsafe，这不会提供 OS 沙箱。");
+    }
     const engine = await updateInstanceApprovalMode(stateDir, "full-auto");
     if (engine === "kimi") {
-      return locale === "en"
-        ? "Kimi YOLO enabled. Regular tools are auto-approved; sensitive commands may still ask. This is not an OS sandbox."
-        : "Kimi YOLO 已开启。普通工具自动批准，敏感命令仍可能询问；这不是 OS 沙箱。";
+      return hostT(locale, "Kimi YOLO 已开启。普通工具自动批准，敏感命令仍可能询问；这不是 OS 沙箱。");
     }
-    return locale === "en"
-      ? `YOLO mode ON (full-auto, sandboxed). Current engine: ${engine}.`
-      : `YOLO mode ON（full-auto，sandboxed）。当前引擎：${engine}。`;
+    return hostT(locale, "YOLO mode ON（full-auto，sandboxed）。当前引擎：{0}。", engine);
   }
   if (action === "off") {
     await updateInstanceApprovalMode(stateDir, "normal");
-    return locale === "en" ? "YOLO mode OFF. Normal approval flow restored." : "YOLO mode OFF。已恢复普通审批流程。";
+    return hostT(locale, "YOLO mode OFF。已恢复普通审批流程。");
   }
   if (action === "unsafe") {
     const engine = await updateInstanceApprovalMode(stateDir, "bypass");
     if (engine === "kimi") {
-      return locale === "en"
-        ? "Kimi Auto enabled in fully unattended mode. Dangerous and unanalyzable commands execute without interruption; there is no OS sandbox."
-        : "Kimi Auto 完全无人值守模式已开启。高危及无法分析的命令也会直接执行，且没有 OS 沙箱。";
+      return hostT(locale, "Kimi Auto 完全无人值守模式已开启。高危及无法分析的命令也会直接执行，且没有 OS 沙箱。");
     }
-    return locale === "en"
-      ? "YOLO UNSAFE enabled. Approvals and sandboxing will be bypassed; use only on a trusted machine and workspace."
-      : "YOLO UNSAFE 已开启。将跳过审批和 sandbox，请只在可信机器和可信 workspace 使用。";
+    return hostT(locale, "YOLO UNSAFE 已开启。将跳过审批和 sandbox，请只在可信机器和可信 workspace 使用。");
   }
-  return locale === "en" ? "Usage: /yolo [on|off|unsafe|status]" : "用法: /yolo [on|off|unsafe|status]";
+  return hostT(locale, "用法: /yolo [on|off|unsafe|status]");
 }
 
 function renderCoreGoal(goal: CodexThreadGoal, locale: Locale): string {
-  if (locale === "en") {
-    const budget = goal.tokenBudget === null ? "Budget: unbounded (no token limit set)" : `Budget: ${goal.tokenBudget} tokens`;
-    const usage = goal.usageScope === "unavailable" ? "Goal usage: unavailable on this host"
-      : goal.tokensUsed === 0 && Math.round(goal.timeUsedSeconds) === 0
-      ? "Goal usage: not recorded yet"
-      : `Goal usage: ${goal.tokensUsed} tokens, ${Math.round(goal.timeUsedSeconds)} seconds`;
-    return [
-      `Objective: ${goal.objective}`,
-      `Status: ${goal.status}`,
-      budget,
-      usage,
-      ...(goal.usageScope === "nativeGoalTurns" ? ["Counts reported tokens from goal rounds only; excludes ordinary chats and background/child tasks."] : []),
-    ].join("\n");
-  }
-
-  const budget = goal.tokenBudget === null ? "预算：不限制（未设置 token 上限）" : `预算：${goal.tokenBudget} token`;
-  const usage = goal.usageScope === "unavailable" ? "目标用量：此主机暂无法统计"
+  const budget = goal.tokenBudget === null
+    ? hostT(locale, "预算：不限制（未设置 token 上限）")
+    : hostT(locale, "预算：{0} token", goal.tokenBudget);
+  const usage = goal.usageScope === "unavailable"
+    ? hostT(locale, "目标用量：此主机暂无法统计")
     : goal.tokensUsed === 0 && Math.round(goal.timeUsedSeconds) === 0
-    ? "Goal 用量：尚未产生统计"
-    : `Goal 用量：${goal.tokensUsed} tokens，${Math.round(goal.timeUsedSeconds)} 秒`;
-  return [
-    `目标：${goal.objective}`,
-    `状态：${goal.status}`,
-    budget,
-    usage,
-    ...(goal.usageScope === "nativeGoalTurns" ? ["仅统计目标轮次已上报的 token；不含普通聊天、后台及子任务。"] : []),
-  ].join("\n");
+      ? hostT(locale, "Goal 用量：尚未产生统计")
+      : hostT(locale, "Goal 用量：{0} tokens，{1} 秒", goal.tokensUsed, Math.round(goal.timeUsedSeconds));
+  const base = hostT(locale, "目标：{0}\n状态：{1}\n{2}\n{3}", goal.objective, goal.status, budget, usage);
+  return goal.usageScope === "nativeGoalTurns"
+    ? `${base}\n${hostT(locale, "仅统计目标轮次已上报的 token；不含普通聊天、后台及子任务。")}`
+    : base;
 }
 
 function renderInvalidCoreGoalCommand(reason: Extract<CoreGoalCommand, { kind: "invalid" }>["reason"], locale: Locale): string {
-  if (reason === "too_long") return locale === "en" ? "A native goal can contain at most 4,000 characters." : "原生目标最多支持 4,000 个字符。";
-  if (reason === "invalid_control") return locale === "en"
-    ? "Use /goal pause or /goal resume without arguments. To edit the objective or budget, use /goal edit."
-    : "请直接使用 /goal pause 或 /goal resume；修改目标或预算请用 /goal edit。";
-  if (locale === "en") {
-    if (reason === "missing_objective") {
-      return "Write the goal, for example: /goal ship release notes. To add a limit, use /goal --budget 50000 ship release notes.";
-    }
-    return "Invalid /goal token budget. Use --budget 50000 or -b 50k.";
+  if (reason === "too_long") return hostT(locale, "原生目标最多支持 4,000 个字符。");
+  if (reason === "invalid_control") {
+    return hostT(locale, "请直接使用 /goal pause 或 /goal resume；修改目标或预算请用 /goal edit。");
   }
   if (reason === "missing_objective") {
-    return "请写目标，例如：/goal 写发布说明；如需限额，用 /goal --budget 50000 写发布说明。";
+    return hostT(locale, "请写目标，例如：/goal 写发布说明；如需限额，用 /goal --budget 50000 写发布说明。");
   }
-  return "无效的 /goal token 预算。用法：--budget 50000 或 -b 50k。";
+  return hostT(locale, "无效的 /goal token 预算。用法：--budget 50000 或 -b 50k。");
 }
 
 function toNativeCoreGoalCommandText(
@@ -2405,8 +2104,8 @@ function toNativeCoreGoalCommandText(
   commandText: string,
   engine: "claude" | "antigravity",
 ): string | null {
-  if (engine === "claude" && action.kind === "status") return "/goal";
-  if (engine === "claude" && action.kind === "clear") return "/goal clear";
+  if ((engine === "claude" || engine === "antigravity") && action.kind === "status") return "/goal";
+  if ((engine === "claude" || engine === "antigravity") && action.kind === "clear") return "/goal clear";
   if (action.kind !== "set") return commandText.trim();
   if (action.tokenBudget === null) {
     return `/goal ${action.objective}`;
@@ -2416,9 +2115,11 @@ function toNativeCoreGoalCommandText(
 }
 
 function renderCoreGoalEdit(goal: CodexThreadGoal, locale: Locale): string {
-  return `${renderCoreGoal(goal, locale)}\n\n${locale === "en"
-    ? "Use /goal edit <new objective>, /goal edit --budget 50000, or /goal edit --unbounded. Edits preserve usage and do not resume a paused goal; use /goal resume to continue."
-    : "使用 /goal edit <新目标>、/goal edit --budget 50000 或 /goal edit --unbounded。修改会保留已用量，暂停的目标不会自动恢复；继续执行请用 /goal resume。"}`;
+  return hostT(
+    locale,
+    "{0}\n\n使用 /goal edit <新目标>、/goal edit --budget 50000 或 /goal edit --unbounded。修改会保留已用量，暂停的目标不会自动恢复；继续执行请用 /goal resume。",
+    renderCoreGoal(goal, locale),
+  );
 }
 
 /** Existing-goal controls share authorization with normal input, but need no
@@ -2427,14 +2128,14 @@ export async function tryHandleCoreGoalControlBeforeQueue(input: CoreCommandInpu
   return withCoreGoalCommandLock(input.runtime, normalized.conversationKey, async () => {
     const cfg = await loadInstanceConfig(input.stateDir);
     const action = parseCoreGoalCommand(text, cfg.engine);
-    if (cfg.engine !== "codex" || !action || action.kind === "set") return false;
+    if ((cfg.engine !== "codex" && cfg.engine !== "omp") || !action || action.kind === "set") return false;
     const current = () => input.channel.canSteerConversation?.(normalized.chatId) ?? true;
     if (!await current()) return false;
     const { record, warning } = await new SessionStore(path.join(input.stateDir, "session.json")).findByConversationKeySafe(normalized.conversationKey);
     cfg.resume = warning ? undefined : resolveConversationResume(record, cfg.resume);
     if (!await current()) return false;
     const handled = await applyCoreGoalCommand({ ...input,
-      workspaceOverride: input.workspaceOverride ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg),
+      workspaceOverride: input.workspaceOverride ?? cfg.resume?.workspacePath ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg),
       isCurrentGoalSession: current,
     }, normalized, cfg, action, text, await resolveCoreLocale(input.stateDir));
     return handled ?? false;
@@ -2471,9 +2172,7 @@ async function applyCoreGoalCommand(
   }
 
   if (cfg.engine === "claude" && action.kind === "set" && action.tokenBudget !== null) {
-    await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
-      ? "Claude's native /goal has no enforceable token budget. No goal was started. Send /goal <completion condition> without --budget, or use Codex for a native token limit."
-      : "Claude 原生 /goal 不支持强制 token 预算，本次未启动目标。请去掉 --budget，使用 /goal <完成条件>；需要原生 token 限额时请使用 Codex。");
+    await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "Claude 原生 /goal 不支持强制 token 预算，本次未启动目标。请去掉 --budget，使用 /goal <完成条件>；需要原生 token 限额时请使用 Codex。"));
     return true;
   }
   if (cfg.engine === "claude" || cfg.engine === "antigravity") {
@@ -2493,18 +2192,14 @@ async function applyCoreGoalCommand(
   }
 
   if (cfg.engine === "kimi") {
-    await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
-      ? "Kimi ACP does not currently provide /goal (the live CLI returns Unknown ACP command), so the bridge will not disguise an ordinary prompt as a goal. Send the task normally or switch to Codex, Claude, or DeepSeek."
-      : "Kimi ACP 当前未提供 /goal 命令（真机返回 Unknown ACP command），bridge 不会把普通聊天伪装成 goal。请直接发送任务，或切换到 Codex、Claude 或 DeepSeek。");
+    await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "Kimi ACP 当前未提供 /goal 命令（真机返回 Unknown ACP command），bridge 不会把普通聊天伪装成 goal。请直接发送任务，或切换到 Codex、Claude 或 DeepSeek。"));
     return true;
   }
 
   if (cfg.engine === "pi") {
     // Pi has no goal mode and its adapter has no structured goal API. Without this the command either
     // threw or opened a run card that failed with a generic error.
-    await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
-      ? "Pi has no /goal mode, so nothing was started and no goal was changed. Send the task as an ordinary message, or switch to Codex, Claude or DeepSeek for a goal."
-      : "Pi 没有 /goal 目标模式，本次没有启动任何任务，也没有改动目标。请直接发送任务；需要目标模式时请切换到 Codex、Claude 或 DeepSeek。");
+    await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "Pi 没有 /goal 目标模式，本次没有启动任何任务，也没有改动目标。请直接发送任务；需要目标模式时请切换到 Codex、Claude 或 DeepSeek。"));
     return true;
   }
 
@@ -2513,7 +2208,7 @@ async function applyCoreGoalCommand(
     userId: normalized.bridgeUserId,
     chatType: normalized.bridgeChatType,
     conversationKey: normalized.conversationKey,
-    workspaceOverride: input.workspaceOverride ?? resolveInstanceWorkspacePath(cfg),
+    workspaceOverride: input.workspaceOverride ?? cfg.resume?.workspacePath ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg),
     ...(input.isCurrentGoalSession ? { isCurrentSession: input.isCurrentGoalSession } : {}),
   };
   // activeRuns key for this conversation — shared by the live watcher (which claims
@@ -2523,23 +2218,19 @@ async function applyCoreGoalCommand(
 
   if (action.kind === "status") {
     if (!input.bridge.getThreadGoal) {
-      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
-        ? "The current runtime does not support structured /goal status."
-        : "当前 runtime 不支持结构化 /goal status。");
+      await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "当前 runtime 不支持结构化 /goal status。"));
       return true;
     }
     const { goal } = await input.bridge.getThreadGoal(goalInput);
     await sendCoreCommandMarkdown(input, normalized, "/goal", goal
       ? renderCoreGoal(goal, locale)
-      : locale === "en" ? "This chat has no active goal." : "当前聊天没有活跃 goal。");
+      : hostT(locale, "当前聊天没有活跃 goal。"));
     return true;
   }
 
   if (action.kind === "clear") {
     if (!input.bridge.clearThreadGoal) {
-      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
-        ? "The current runtime does not support structured /goal clear."
-        : "当前 runtime 不支持结构化 /goal clear。");
+      await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "当前 runtime 不支持结构化 /goal clear。"));
       return true;
     }
     // If a goal WATCHER is actively pursuing this conversation's goal, abort it first
@@ -2547,7 +2238,7 @@ async function applyCoreGoalCommand(
     // run card to interrupted. Guard on goalWatch so a normal turn sharing the
     // activeRuns slot is NOT killed (nor falsely reported "cleared") by /goal clear.
     const activeGoalRun = input.runtime.activeRuns.get(conversationKey);
-    if (cfg.engine !== "codex" && activeGoalRun?.goalWatch) {
+    if (cfg.engine !== "codex" && cfg.engine !== "omp" && activeGoalRun?.goalWatch) {
       // End the PURSUIT specifically: abortGoal bypasses the stop routing that
       // would otherwise divert a plain abort() into an ordinary turn currently
       // running alongside the pursuit — /goal clear must kill the goal, never
@@ -2557,14 +2248,13 @@ async function applyCoreGoalCommand(
       } else {
         activeGoalRun.abortController.abort();
       }
-      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
-        ? "Current goal cleared." : "已清除当前 goal。");
+      await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "已清除当前 goal。"));
       return true;
     }
     const { cleared } = await input.bridge.clearThreadGoal({ ...goalInput, origin: "user" });
     await sendCoreCommandMarkdown(input, normalized, "/goal", cleared
-      ? locale === "en" ? "Current goal cleared." : "已清除当前 goal。"
-      : locale === "en" ? "This chat has no goal to clear." : "当前聊天没有可清除的 goal。");
+      ? hostT(locale, "已清除当前 goal。")
+      : hostT(locale, "当前聊天没有可清除的 goal。"));
     return true;
   }
 
@@ -2572,12 +2262,12 @@ async function applyCoreGoalCommand(
   let resumeSessionId: string | undefined;
   if (action.kind === "pause" || action.kind === "resume" || action.kind === "edit") {
     if (!input.bridge.getThreadGoal || !input.bridge.updateThreadGoal) {
-      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en" ? "This runtime does not support native goal controls." : "当前 runtime 不支持原生目标控制。");
+      await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "当前 runtime 不支持原生目标控制。"));
       return true;
     }
     const { goal } = await input.bridge.getThreadGoal(goalInput);
     if (!goal) {
-      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en" ? "This chat has no goal to control." : "当前聊天没有可控制的目标。");
+      await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "当前聊天没有可控制的目标。"));
       return true;
     }
     if (action.kind === "edit" && action.objective === undefined && action.tokenBudget === undefined) {
@@ -2585,7 +2275,7 @@ async function applyCoreGoalCommand(
       return true;
     }
     if (input.isCurrentGoalSession && !await input.isCurrentGoalSession()) {
-      await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en" ? "The selected session changed. Send the goal command again for the current session." : "所选会话已变化，请为当前会话重新发送目标命令。");
+      await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "所选会话已变化，请为当前会话重新发送目标命令。"));
       return true;
     }
     const active = input.runtime.activeRuns.get(conversationKey);
@@ -2601,7 +2291,7 @@ async function applyCoreGoalCommand(
       const updated = await input.bridge.updateThreadGoal({ ...goalInput, sessionId: goal.threadId, ...changes, origin: "user" });
       if (updated.goal && input.runtime.activeRuns.get(conversationKey) === active) active?.updateGoalObjective?.(updated.goal.objective);
       await sendCoreCommandMarkdown(input, normalized, "/goal", updated.goal ? renderCoreGoal(updated.goal, locale)
-        : locale === "en" ? "The goal is no longer available." : "该目标已不存在。");
+        : hostT(locale, "该目标已不存在。"));
       return true;
     }
   }
@@ -2737,28 +2427,29 @@ async function applyCoreGoalCommand(
           });
           goalSessionId ??= result.sessionId ?? result.goal?.threadId;
           const watched = result.goal;
-          if (abort.signal.aborted || (cfg.engine !== "codex" && watched && !["complete", "budgetLimited"].includes(watched.status))) {
+          const retainsNativeGoal = cfg.engine === "codex" || cfg.engine === "omp";
+          if (abort.signal.aborted || (!retainsNativeGoal && watched && !["complete", "budgetLimited"].includes(watched.status))) {
             // Stopped: clear the goal so the engine halts its autonomous pursuit
             // (aborting the watcher alone only stops us listening), then flip the card to "已中断".
-            if (cfg.engine !== "codex" && goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ } }
+            if (!retainsNativeGoal && goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ } }
             releaseGoalRun();
             await runCard.interrupt();
-          } else if (cfg.engine === "codex" && (!watched || watched.status !== "complete")) {
+          } else if (retainsNativeGoal && (!watched || watched.status !== "complete")) {
             releaseGoalRun();
             const summary = watched ? renderCoreGoal(watched, locale)
-              : locale === "en" ? "Goal cleared." : "目标已清除。";
+              : hostT(locale, "目标已清除。");
             const answer = goalFinalAnswer.trim() || runCard.resolveFinalText("").trim();
             // This run ended; the goal may still be resumable. Never mark the
             // objective completed or destroy its native state and usage.
             await runCard.interrupt(answer ? `${answer}\n\n---\n\n${summary}` : summary);
           } else {
-            // Codex retains completed state for native status/edit/resume. Keep
+            // Codex and omp retain completed state for native status/edit/resume. Keep
             // the existing cleanup contract for other structured adapters.
-            if (cfg.engine !== "codex" && goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ } }
+            if (!retainsNativeGoal && goalSessionId) { try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ } }
             releaseGoalRun();
             const answer = goalFinalAnswer.trim() || runCard.resolveFinalText("").trim();
             const summary = watched ? renderCoreGoal(watched, locale)
-              : locale === "en" ? "Goal finished." : "Goal 已结束。";
+              : hostT(locale, "Goal 已结束。");
             // The card already carries the objective and completion state.
             // Keep a successful answer primary instead of repeating the entire
             // goal definition and raw runtime metadata underneath it.
@@ -2767,7 +2458,7 @@ async function applyCoreGoalCommand(
           }
         } catch (error) {
           if (abort.signal.aborted) {
-            if (cfg.engine !== "codex" && goalSessionId) {
+            if (cfg.engine !== "codex" && cfg.engine !== "omp" && goalSessionId) {
               try { await clearThreadGoal?.({ ...goalInput, sessionId: goalSessionId, origin: "automatic" }); } catch { /* best-effort */ }
             }
             releaseGoalRun();
@@ -2804,13 +2495,11 @@ async function applyCoreGoalCommand(
   if (watchMode === "resume") {
     const { goal } = await input.bridge.updateThreadGoal!({ ...goalInput, sessionId: resumeSessionId, status: "active", origin: "user" });
     await sendCoreCommandMarkdown(input, normalized, "/goal", goal ? renderCoreGoal(goal, locale)
-      : locale === "en" ? "The goal is no longer available." : "该目标已不存在。");
+      : hostT(locale, "该目标已不存在。"));
     return true;
   }
   if (!input.bridge.setThreadGoal) {
-    await sendCoreCommandMarkdown(input, normalized, "/goal", locale === "en"
-      ? "The current runtime does not support structured /goal."
-      : "当前 runtime 不支持结构化 /goal。");
+    await sendCoreCommandMarkdown(input, normalized, "/goal", hostT(locale, "当前 runtime 不支持结构化 /goal。"));
     return true;
   }
   const { goal } = await input.bridge.setThreadGoal({
@@ -2819,8 +2508,8 @@ async function applyCoreGoalCommand(
     tokenBudget: pursuitAction.tokenBudget,
   });
   await sendCoreCommandMarkdown(input, normalized, "/goal", goal
-    ? locale === "en" ? `Goal set.\n\n${renderCoreGoal(goal, locale)}` : `Goal 已设置。\n\n${renderCoreGoal(goal, locale)}`
-    : locale === "en" ? "Goal set." : "Goal 已设置。");
+    ? hostT(locale, "Goal 已设置。\n\n{0}", renderCoreGoal(goal, locale))
+    : hostT(locale, "Goal 已设置。"));
   return true;
 }
 

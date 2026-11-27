@@ -5,11 +5,11 @@ const operation = { requestId: "request", operationId: "operation", state: "unkn
 it("uses the shared owner API and keeps unknown status a GET", async () => {
   const request = vi.fn(async () => operation), client = { request, supports: () => true };
   expect(await runHistoryCommand(client as any, "fork", "chat", { bot: "bot", revision: "revision", requestId: "request" })).toEqual(operation);
-  expect(request.mock.calls[0]).toEqual(["/api/conversations/chat/history/operations", "POST", { botId: "bot", requestId: "request", expectedRevision: "revision", action: { kind: "fork", scope: "whole" } }]);
+  expect(request.mock.calls[0]).toEqual(["/api/conversations/chat/history/operations?sideReason=1", "POST", { botId: "bot", requestId: "request", expectedRevision: "revision", action: { kind: "fork", scope: "whole" } }]);
   await runHistoryCommand(client as any, "status", "chat", { bot: "bot", requestId: "request" });
-  expect(request.mock.calls[1]).toEqual(["/api/conversations/chat/history/operations/request?botId=bot"]);
+  expect(request.mock.calls[1]).toEqual(["/api/conversations/chat/history/operations/request?botId=bot&sideReason=1"]);
   await runHistoryCommand(client as any, "reconcile", "chat", { bot: "bot", action: "fork", revision: "revision", requestId: "request" });
-  expect(request.mock.calls[2]).toEqual(["/api/conversations/chat/history/operations/request/reconcile", "POST", { botId: "bot", requestId: "request", expectedRevision: "revision", action: { kind: "fork", scope: "whole" } }]);
+  expect(request.mock.calls[2]).toEqual(["/api/conversations/chat/history/operations/request/reconcile?sideReason=1", "POST", { botId: "bot", requestId: "request", expectedRevision: "revision", action: { kind: "fork", scope: "whole" } }]);
   expect(HOST_CLI_HELP).toContain("history status");
 });
 it("rejects missing explicit operation identity and old Hosts before sending", async () => {

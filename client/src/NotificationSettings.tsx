@@ -8,7 +8,7 @@ import { Info, MessageCircle, FileText, CircleAlert, Bell, Eye, Volume2, Chevron
 import { openSystemNotificationSettings, supportsSystemNotificationSettings } from "./notification-system-settings.js";
 import { createDesktopNotificationShortcut, DesktopNotificationPermissionError, DesktopNotificationShortcutError, type DesktopNotificationDiagnostics } from "./desktop-notifications.js";
 import { nativePlatform, autostartEnabled, setAutostart } from "./native.js";
-import { enableNotifications, updateNotificationPreferences, type NotificationState } from "./notifications.js";
+import { enableNotifications, SystemNotificationPermissionError, updateNotificationPreferences, type NotificationState } from "./notifications.js";
 import { RuntimeHostContext } from "./RuntimeHost.js";
 import { SettingsGroupHeading } from "./SettingsParts.js";
 import type { UnifiedRegistration } from "./unifiedpush-controller.js";
@@ -104,7 +104,7 @@ export function NotificationSettings({ connection, dirtyChange, busyChange }: { 
       void load();
     } catch (e) {
       if (epoch === lifetime.current) setError({ area: kind === "quiet" ? "quiet" : "status", text: e instanceof Error ? e.message : t("设置失败"),
-        systemPermission: e instanceof DesktopNotificationPermissionError && e.systemSettings, shortcut: e instanceof DesktopNotificationShortcutError,
+        systemPermission: e instanceof DesktopNotificationPermissionError && e.systemSettings || e instanceof SystemNotificationPermissionError, shortcut: e instanceof DesktopNotificationShortcutError,
         diagnostics: e instanceof DesktopNotificationPermissionError || e instanceof DesktopNotificationShortcutError ? e.diagnostics : undefined });
     } finally { if (epoch === lifetime.current) { busyRef.current = false; setBusy(undefined); } }
   };
@@ -155,7 +155,7 @@ export function NotificationSettings({ connection, dirtyChange, busyChange }: { 
       {blocker && <div className="settings-callout" role="note"><Info size={16} aria-hidden="true"/><div><strong>{blocker.title}</strong><details className="settings-help"><summary>{t("如何开启提醒")}</summary><p>{blocker.detail}</p></details>{blocker.recheck && !loadFailed && retry}</div></div>}
     </div>
     <p className="settings-note muted">{desktop ? t("使用其他应用时接收系统通知；点按通知回到对应对话。完全退出 TaroBird 后不再提醒。") : t("离开 TaroBird 或锁屏后接收系统通知；点按通知回到对应对话。")}</p>
-    {enabled && <NotificationReadiness connection={connection} state={state} online={online} working={working} refresh={load} repair={(work) => act("repair", work)} renderDiagnostics={value => <NotificationDiagnostics value={value}/>}/>}
+    {enabled && <NotificationReadiness connection={connection} state={state} online={online} working={working} refresh={load} repair={(work) => act("repair", work)} renderDiagnostics={value => <NotificationDiagnostics value={value}/>} openSystemSettings={platform !== "web" && supportsSystemNotificationSettings() ? () => void systemSettings() : undefined} openingSystem={openingSystem}/>}
     {loadNotice}
     {error?.area === "status" && <>
       <p role="alert" className="error-text">{error.text}</p>
@@ -163,10 +163,10 @@ export function NotificationSettings({ connection, dirtyChange, busyChange }: { 
         <p>{t("TaroBird 会在开始菜单中创建快捷方式，然后发出一条确认通知。")}</p>
         <button type="button" className="primary" disabled={working || !online} onClick={() => { void act("toggle", async () => { await createDesktopNotificationShortcut(); await enableNotifications(connection, currentState); return { ...preferences, enabled: true }; }); }}>{t("创建快捷方式并开启")}</button>
       </div></div>}
-      {desktop && error.systemPermission && <div className="settings-callout notification-permission-help"><Info size={16} aria-hidden="true"/><div>
-        <p>{systemFallback} {t("允许 TaroBird 通知后，返回此页重新开启消息提醒。")}</p>
+      {(desktop || platform === "android" || platform === "ios") && error.systemPermission && <div className="settings-callout notification-permission-help"><Info size={16} aria-hidden="true"/><div>
+        <p>{platform === "android" ? t("允许 TaroBird 通知后，返回此页重新开启消息提醒。") : `${systemFallback} ${t("允许 TaroBird 通知后，返回此页重新开启消息提醒。")}`}</p>
         <button type="button" className="secondary" disabled={openingSystem || !supportsSystemNotificationSettings()} onClick={() => void systemSettings()}>{openingSystem ? t("正在打开…") : t("前往系统设置")}</button>
-        {systemError && <p role={systemError === "failed" ? "alert" : "status"}>{systemError === "failed" ? systemFallback : t("也可手动打开系统设置，选择「通知 → TaroBird」。")}</p>}
+        {systemError && <p role={systemError === "failed" ? "alert" : "status"}>{systemError === "failed" || platform === "android" ? systemFallback : t("也可手动打开系统设置，选择「通知 → TaroBird」。")}</p>}
       </div></div>}
       {platform === "windows" && error.diagnostics && <NotificationDiagnostics value={error.diagnostics}/>}
     </>}

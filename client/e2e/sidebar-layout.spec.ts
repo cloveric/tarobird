@@ -42,7 +42,8 @@ test('empty conversation lists do not mistake hidden Bots for hidden history or 
     await page.reload(); await openMobileHome(page);
     await expect(home).toContainText('未连接的 Bot 已隐藏');
     await home.getByRole('button', { name: '新建对话', exact: true }).click();
-    await expect(page.getByRole('dialog', { name: '选择运行主机', exact: true })).toBeVisible();
+    // With two Hosts a new conversation opens the auto/manual Host dialog, titled like the action itself.
+    await expect(page.getByRole('dialog', { name: '新建对话', exact: true })).toBeVisible();
   } finally { await page.close(); await a.close(); await b.close(); await rm(root, { recursive: true, force: true }); }
 });
 

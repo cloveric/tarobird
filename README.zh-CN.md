@@ -5,13 +5,14 @@
 <h3 align="center">你的 AI 智能体，运行在你自己的电脑上。<br>桌面与手机，延续同一段对话。</h3>
 
 <p align="center">
-  Codex · Claude Code · Kimi Code · DeepSeek Harness · Antigravity · Pi
+  Codex · Claude Code · Kimi Code · DeepSeek Harness · Antigravity · Pi · oh-my-pi (omp)
 </p>
 
 <p align="center">
   <a href="https://github.com/cloveric/tarobird/releases/latest"><b>下载</b></a> &nbsp;·&nbsp;
   <a href="https://apps.apple.com/app/tarobird/id6828071641"><b>iOS App Store 正式版</b></a> &nbsp;·&nbsp;
   <a href="https://testflight.apple.com/join/ByFWEfFW"><b>iOS TestFlight 公测</b></a> &nbsp;·&nbsp;
+  <a href="docs/client/web-client.zh-CN.md"><b>浏览器网页版</b></a> &nbsp;·&nbsp;
   <a href="#快速开始"><b>快速开始</b></a> &nbsp;·&nbsp;
   <a href="#联机方式">联机方式</a> &nbsp;·&nbsp;
   <a href="docs/details.zh-CN.md">详细说明</a> &nbsp;·&nbsp;
@@ -136,15 +137,7 @@ TaroBird 是一款自托管的 AI 智能体工作空间。它把电脑或服务�
 
 <a id="workbench"></a>
 <h3 align="center">工作台 · 把资料和创作放在对话旁</h3>
-<p align="center">网页浏览、画布、白板、Markdown 笔记与 PPT，在同一个工作台切换。<br>每段对话保留自己的工作台，可放在侧边，也可展开到主区。</p>
-
-<h3 align="center">画布 · 从想法到可修改的作品</h3>
-<p align="center">和 Bot 一起制作页面、海报或视觉草稿。<br>双击文字继续编辑，边看效果边完善。</p>
-
-<p align="center">
-  <a href="assets/product/workbench-canvas-zh.png"><img src="assets/product/canvas-demo-zh.gif" width="100%" alt="画布演示：打开一张暖色工作室发布页，双击标题并修改文字，查看更新后的完整画布"></a>
-</p>
-<p align="center"><sub>真实界面录制，使用演示内容 · <a href="assets/product/workbench-canvas-zh.png">查看原图</a> · <a href="docs/client/workbench-design.md">画布说明</a></sub></p>
+<p align="center">网页浏览、白板、Markdown 笔记与演示文稿，在同一个工作台切换。<br>每段对话保留自己的工作台，可放在侧边，也可展开到主区。</p>
 
 <a id="workbench-browser"></a>
 <h3 align="center">浏览器 · 在 App 内打开网页</h3>
@@ -223,6 +216,8 @@ TaroBird 是一款自托管的 AI 智能体工作空间。它把电脑或服务�
 在运行 Bot 的电脑上安装并登录任意一种引擎即可开始使用；TaroBird 不附带 AI 引擎、模型账号或额度。各引擎的适配差异见[引擎对照](docs/details.zh-CN.md#引擎对照)。
 
 **1.6.0 起支持 Pi：** [Pi 原生接入](docs/client/pi-engine.md)，按提供商选择模型，并支持原生对话控制。Pi 仅作为普通 Bot，不加入幕僚长及其派工引擎。
+
+**oh-my-pi（`omp`）原生接入：** [oh-my-pi 引擎接入说明](docs/client/omp-engine.md)，作为独立引擎接入 `omp --mode rpc-ui` 协议（支持 v2 协议协商、`prompt_result` + `session_settled` 轮次边界、三队列 `steer` / `follow_up` / `aside` 及原生子代理任务面板），与 Pi 并存且互不混淆。
 
 <a id="引擎"></a>
 
@@ -343,9 +338,9 @@ flowchart TB
 感谢 [LINUX DO](https://linux.do/) 社区对 TaroBird 的支持。
 
 工作台使用 [Excalidraw](https://github.com/excalidraw/excalidraw) 提供白板、
-[Vditor](https://github.com/Vanessa219/vditor) 提供 Markdown 笔记，并集成
-[宝玉 Jim Liu 的 baoyu-design](https://github.com/JimLiu/baoyu-design) 提供画布、幻灯片编辑器及相应适配技能。
-感谢这些项目的作者与贡献者。Excalidraw 和 Vditor 使用 MIT；baoyu-design 使用[分范围许可声明](client/vendor/baoyu-design/NOTICE.md)，重建编辑器不在其 MIT 授权内。我们保留原始版权、授权范围及依赖许可说明，
+[Vditor](https://github.com/Vanessa219/vditor) 提供 Markdown 笔记，并使用
+[Open Artifact](https://github.com/JimLiu/open-artifact)（`@open-artifact/slides-editor`，Apache-2.0）作为演示文稿编辑器核心。
+感谢这些项目的作者与贡献者。Excalidraw 和 Vditor 使用 MIT；Open Artifact 使用 Apache-2.0（`client/vendor/workbench-slides/` 保留完整 LICENSE 与 NOTICE）。我们保留原始版权、授权范围及依赖许可说明，
 详见[第三方许可](LICENSING.md)和[设计功能说明](docs/client/workbench-design.md)。
 
 ## 许可证

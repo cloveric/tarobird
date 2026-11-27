@@ -25,7 +25,6 @@ test("native PPT skill authors a deck and publishes it to Workbench without a br
   const stateDir = path.join(directory, "bot"), workspace = path.join(stateDir, "workspace");
   await mkdir(path.join(workspace, ".claude/skills"), { recursive: true });
   await symlink(path.resolve(process.env.PPT_NATIVE_SKILL!), path.join(workspace, ".claude/skills/pptx"), "dir");
-  for (const skill of ["baoyu-design", "baoyu-ppt"]) await symlink(path.resolve("../skills", skill), path.join(workspace, ".claude/skills", skill), "dir");
   if (process.env.PPT_NODE_MODULES) await symlink(path.resolve(process.env.PPT_NODE_MODULES), path.join(workspace, "node_modules"), "dir");
   await writeFile(path.join(workspace, "AGENTS.md"), "This is an isolated acceptance workspace. Write only here. Do not access unrelated user files, install software, change global settings or use the network. All slide facts are supplied by the test user. Use the applicable available presentation skill and complete the requested App delivery.\n");
   const model = process.env.PPT_LIVE_MODEL ?? "claude-opus-5-5";

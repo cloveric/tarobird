@@ -50,16 +50,51 @@ export class HubDatabase {
       await result.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL; PRAGMA journal_size_limit=8388608;");
       await result.exec("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
       const version = await result.get<{ value: string }>("SELECT value FROM meta WHERE key='schema_version'");
-      if (version && !["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26"].includes(version.value)) throw new Error("unsupported_hub_schema_version");
+      if (version && !["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28"].includes(version.value)) throw new Error("unsupported_hub_schema_version");
       await result.transaction(async () => {
         await result.exec(SCHEMA);
-        if (version && Number(version.value) < 21) {
-          // Extend the policy CHECK atomically; existing runs keep their mode.
-          await result.exec(`ALTER TABLE group_discussion_settings RENAME TO group_discussion_settings_v20;
+        if (version && Number(version.value) < 27) {
+          // Extend the policy CHECK atomically (v21 parallel, v27 designated); existing runs keep their mode.
+          await result.exec(`ALTER TABLE group_discussion_settings RENAME TO group_discussion_settings_old;
             ${GROUP_SETTINGS_SCHEMA};
-            INSERT INTO group_discussion_settings SELECT * FROM group_discussion_settings_v20;
-            DROP TABLE group_discussion_settings_v20;`);
+            INSERT INTO group_discussion_settings SELECT * FROM group_discussion_settings_old;
+            DROP TABLE group_discussion_settings_old;`);
         }
+        const memberColumns = await result.all<{ name: string }>("PRAGMA table_info(group_session_members)");
+        if (memberColumns.length && !memberColumns.some(c => c.name === "conversation_id")) {
+          await result.exec(`ALTER TABLE group_session_members RENAME TO group_session_members_old;
+            ${GROUP_SESSION_MEMBERS_SCHEMA};
+            INSERT INTO group_session_members(
+              conversation_id, group_id, member_key, kind, host_id, host_name, host_public_key, bot_id,
+              session_id, session_title, name_snapshot, avatar_snapshot, engine_snapshot,
+              joined_at, joined_after_seq, history_visibility_json, history_backfilled, active, removed_at
+            ) SELECT group_id, group_id, member_key, kind, host_id, host_name, host_public_key, bot_id,
+              session_id, session_title, name_snapshot, avatar_snapshot, engine_snapshot,
+              joined_at, joined_after_seq, history_visibility_json, 0, active, removed_at
+            FROM group_session_members_old;
+            DROP TABLE group_session_members_old;`);
+        } else if (memberColumns.length && !memberColumns.some(c => c.name === "history_backfilled")) {
+          await result.exec("ALTER TABLE group_session_members ADD COLUMN history_backfilled INTEGER NOT NULL DEFAULT 0");
+        }
+        const formerColumns = await result.all<{ name: string }>("PRAGMA table_info(group_former_sessions)");
+        if (formerColumns.length && !formerColumns.some(c => c.name === "conversation_id")) {
+          await result.exec(`ALTER TABLE group_former_sessions RENAME TO group_former_sessions_old;
+            ${GROUP_FORMER_SESSIONS_SCHEMA};
+            INSERT INTO group_former_sessions(conversation_id, group_id, session_id, member_key, bot_id, host_id, revoked_at)
+            SELECT group_id, group_id, session_id, member_key, bot_id, host_id, revoked_at
+            FROM group_former_sessions_old;
+            DROP TABLE group_former_sessions_old;`);
+        }
+        const remoteQuestionColumns = await result.all<{ name: string }>("PRAGMA table_info(group_remote_questions)");
+        if (remoteQuestionColumns.length && !remoteQuestionColumns.some(c => c.name === "host_public_key")) {
+          await result.exec("ALTER TABLE group_remote_questions ADD COLUMN host_public_key TEXT");
+        }
+        const inboxColumns = await result.all<{ name: string }>("PRAGMA table_info(group_mail_inbox)");
+        if (inboxColumns.length && !inboxColumns.some(c => c.name === "reply_forwarded")) {
+          await result.exec("ALTER TABLE group_mail_inbox ADD COLUMN reply_forwarded INTEGER NOT NULL DEFAULT 0; ALTER TABLE group_mail_inbox ADD COLUMN reply_attempts INTEGER NOT NULL DEFAULT 0; ALTER TABLE group_mail_inbox ADD COLUMN reply_next_at INTEGER NOT NULL DEFAULT 0;");
+        }
+        await result.exec("CREATE INDEX IF NOT EXISTS group_mail_inbox_retry ON group_mail_inbox(status, reply_forwarded, reply_next_at)");
+        await result.exec("CREATE INDEX IF NOT EXISTS group_remote_questions_sending ON group_remote_questions(created_at) WHERE status='sending' AND answer_message_id IS NULL");
         await retainPushReceipts(result);
         // A rolled-back Hub cannot remove optional rows when recalling a reply.
         // Reconcile its tombstones when returning to a scopes-aware host.
@@ -70,6 +105,7 @@ export class HubDatabase {
         const botColumns = await result.all<{ name: string }>("PRAGMA table_info(bots)");
         if (!botColumns.some(c => c.name === "deleted_at")) await result.exec("ALTER TABLE bots ADD COLUMN deleted_at INTEGER");
         if (!botColumns.some(c => c.name === "role")) await result.exec("ALTER TABLE bots ADD COLUMN role TEXT NOT NULL DEFAULT ''");
+        if (!botColumns.some(c => c.name === "workspace_path")) await result.exec("ALTER TABLE bots ADD COLUMN workspace_path TEXT");
         const messageColumns = await result.all<{ name: string }>("PRAGMA table_info(messages)");
         if (!messageColumns.some(c => c.name === "history_json")) await result.exec("ALTER TABLE messages ADD COLUMN history_json TEXT");
         if (!messageColumns.some(c => c.name === "bot_source_json")) await result.exec("ALTER TABLE messages ADD COLUMN bot_source_json TEXT");
@@ -98,6 +134,19 @@ export class HubDatabase {
         if (!conversationColumns.some((c) => c.name === "binding_id")) await result.exec("ALTER TABLE conversations ADD COLUMN binding_id TEXT");
         if (!conversationColumns.some((c) => c.name === "hidden")) await result.exec("ALTER TABLE conversations ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
         if (!conversationColumns.some((c) => c.name === "ticket_json")) await result.exec("ALTER TABLE conversations ADD COLUMN ticket_json TEXT");
+        if (!conversationColumns.some((c) => c.name === "workspace_path")) await result.exec("ALTER TABLE conversations ADD COLUMN workspace_path TEXT");
+        const ticketColumns = await result.all<{ name: string }>("PRAGMA table_info(dispatch_tickets)");
+        if (!ticketColumns.some((c) => c.name === "batch_id")) await result.exec("ALTER TABLE dispatch_tickets ADD COLUMN batch_id TEXT");
+        if (!ticketColumns.some((c) => c.name === "batch_index")) await result.exec("ALTER TABLE dispatch_tickets ADD COLUMN batch_index INTEGER");
+        if (!ticketColumns.some((c) => c.name === "batch_total")) await result.exec("ALTER TABLE dispatch_tickets ADD COLUMN batch_total INTEGER");
+        if (!ticketColumns.some((c) => c.name === "host_id")) await result.exec("ALTER TABLE dispatch_tickets ADD COLUMN host_id TEXT");
+        if (!ticketColumns.some((c) => c.name === "host_name")) await result.exec("ALTER TABLE dispatch_tickets ADD COLUMN host_name TEXT");
+        if (!ticketColumns.some((c) => c.name === "artifacts_json")) await result.exec("ALTER TABLE dispatch_tickets ADD COLUMN artifacts_json TEXT");
+        if (!ticketColumns.some((c) => c.name === "plan_json")) await result.exec("ALTER TABLE dispatch_tickets ADD COLUMN plan_json TEXT");
+        await result.exec("CREATE INDEX IF NOT EXISTS dispatch_tickets_batch ON dispatch_tickets(batch_id,batch_index) WHERE batch_id IS NOT NULL");
+        const remoteTicketColumns = await result.all<{ name: string }>("PRAGMA table_info(remote_dispatch_tickets)");
+        if (!remoteTicketColumns.some((c) => c.name === "stop_requested")) await result.exec("ALTER TABLE remote_dispatch_tickets ADD COLUMN stop_requested TEXT");
+        await result.exec("CREATE INDEX IF NOT EXISTS remote_dispatch_tickets_conversation ON remote_dispatch_tickets(conversation_id,input_message_id,bot_id)");
         if (version && Number(version.value) < 11) {
           // Old tombstones have empty blocks. Read their own retained events
           // in small pages, using the protocol's attachment traversal so button
@@ -173,7 +222,9 @@ export class HubDatabase {
         // 25: per-message pause must survive restarts. Older Hosts would ignore
         // this bit and dispatch held inputs, so downgrades need a state backup.
         // 26: native history operations keep durable admission fences that old Hosts must not ignore.
-        await result.run("INSERT OR REPLACE INTO meta VALUES('schema_version','26')");
+        // 27: designated group reply mode and cross-host per-session group tables.
+        // 28: cross-host Superagent dispatch writes per-node settings and remote attempt fields into strict JSON columns, plus durable remote stop intents.
+        await result.run("INSERT OR REPLACE INTO meta VALUES('schema_version','28')");
       });
       return result;
     } catch (error) { await result.close().catch(() => undefined); throw error; }
@@ -211,7 +262,103 @@ export class HubDatabase {
   }
 }
 
-const GROUP_SETTINGS_SCHEMA = "CREATE TABLE IF NOT EXISTS group_discussion_settings (group_id TEXT PRIMARY KEY, mode TEXT NOT NULL CHECK(mode IN ('mentions','parallel','sequential','independent')), order_json TEXT NOT NULL, max_rounds INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at INTEGER NOT NULL)";
+const GROUP_SETTINGS_SCHEMA = "CREATE TABLE IF NOT EXISTS group_discussion_settings (group_id TEXT PRIMARY KEY, mode TEXT NOT NULL CHECK(mode IN ('designated','mentions','parallel','sequential','independent')), order_json TEXT NOT NULL, max_rounds INTEGER NOT NULL, updated_by TEXT NOT NULL, updated_at INTEGER NOT NULL)";
+
+const GROUP_SESSION_MEMBERS_SCHEMA = `CREATE TABLE IF NOT EXISTS group_session_members (
+  conversation_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  member_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  host_id TEXT NOT NULL,
+  host_name TEXT NOT NULL,
+  host_public_key TEXT,
+  bot_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  session_title TEXT NOT NULL,
+  name_snapshot TEXT NOT NULL,
+  avatar_snapshot TEXT,
+  engine_snapshot TEXT NOT NULL,
+  joined_at INTEGER NOT NULL,
+  joined_after_seq INTEGER NOT NULL,
+  history_visibility_json TEXT NOT NULL,
+  history_backfilled INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  removed_at INTEGER,
+  PRIMARY KEY (conversation_id, member_key, session_id)
+)`;
+
+const GROUP_FORMER_SESSIONS_SCHEMA = `CREATE TABLE IF NOT EXISTS group_former_sessions (
+  conversation_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  member_key TEXT NOT NULL,
+  bot_id TEXT NOT NULL,
+  host_id TEXT NOT NULL,
+  revoked_at INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, session_id)
+)`;
+
+const CROSS_HOST_GROUP_SCHEMA = `
+${GROUP_SESSION_MEMBERS_SCHEMA};
+CREATE INDEX IF NOT EXISTS group_session_members_group_active ON group_session_members(group_id, active);
+${GROUP_FORMER_SESSIONS_SCHEMA};
+CREATE INDEX IF NOT EXISTS group_former_sessions_group ON group_former_sessions(group_id, revoked_at);
+CREATE TABLE IF NOT EXISTS group_designated_member (
+  group_id TEXT PRIMARY KEY,
+  member_key TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_remote_questions (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  member_key TEXT NOT NULL,
+  host_id TEXT NOT NULL,
+  host_name TEXT NOT NULL,
+  host_public_key TEXT,
+  bot_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  bot_name_snapshot TEXT NOT NULL,
+  source_message_id TEXT NOT NULL,
+  request_id TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL,
+  stopped_unanswered INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  answered_at INTEGER,
+  answer_message_id TEXT
+);
+CREATE INDEX IF NOT EXISTS group_remote_questions_group ON group_remote_questions(group_id, created_at);
+CREATE INDEX IF NOT EXISTS group_remote_questions_source ON group_remote_questions(conversation_id, source_message_id, member_key);
+CREATE INDEX IF NOT EXISTS group_remote_questions_sending ON group_remote_questions(created_at) WHERE status='sending' AND answer_message_id IS NULL;
+CREATE TABLE IF NOT EXISTS group_mail_inbox (
+  request_id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  source_host_id TEXT NOT NULL,
+  source_host_name TEXT NOT NULL,
+  source_public_key TEXT NOT NULL,
+  bot_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  delivered_message_id TEXT NOT NULL,
+  reply_message_id TEXT,
+  reply_text TEXT,
+  status TEXT NOT NULL,
+  received_at INTEGER NOT NULL,
+  answered_at INTEGER,
+  reply_forwarded INTEGER NOT NULL DEFAULT 0,
+  reply_attempts INTEGER NOT NULL DEFAULT 0,
+  reply_next_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS group_mail_inbox_delivered ON group_mail_inbox(delivered_message_id);
+CREATE TABLE IF NOT EXISTS group_mail_nonces (
+  source_public_key TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY (source_public_key, nonce)
+);
+CREATE INDEX IF NOT EXISTS group_mail_nonces_expiry ON group_mail_nonces(expires_at);
+`;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS run_journal (
@@ -251,6 +398,7 @@ CREATE INDEX IF NOT EXISTS group_discussions_conversation ON group_discussions(c
 CREATE TABLE IF NOT EXISTS group_discussion_turns (id TEXT PRIMARY KEY, discussion_id TEXT NOT NULL, seq INTEGER NOT NULL, round INTEGER NOT NULL, position INTEGER NOT NULL, attempt INTEGER NOT NULL, bot_id TEXT NOT NULL, blind INTEGER NOT NULL, input_message_id TEXT NOT NULL UNIQUE, context_json TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('active','settled')), result TEXT, acknowledged INTEGER NOT NULL DEFAULT 0, report_text TEXT, report_truncated INTEGER NOT NULL DEFAULT 0, stance_json TEXT, stop_requested INTEGER NOT NULL DEFAULT 0, stop_sent INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, settled_at INTEGER, UNIQUE(discussion_id,seq), UNIQUE(discussion_id,round,position,attempt));
 CREATE INDEX IF NOT EXISTS group_discussion_turns_active ON group_discussion_turns(bot_id,state);
 CREATE TABLE IF NOT EXISTS group_discussion_requests (user_id TEXT NOT NULL, request_id TEXT NOT NULL, kind TEXT NOT NULL, payload_hash TEXT NOT NULL, result_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
+${CROSS_HOST_GROUP_SCHEMA}
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 INSERT OR IGNORE INTO meta VALUES ('schema_version', '1');
@@ -277,6 +425,7 @@ CREATE TABLE IF NOT EXISTS events (conversation_id TEXT NOT NULL REFERENCES conv
 CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id), author_id TEXT NOT NULL, author_type TEXT NOT NULL, blocks_json TEXT NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL, client_msg_id TEXT, reply_to TEXT, created_at INTEGER NOT NULL, UNIQUE(author_id,client_msg_id));
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, conversation_id UNINDEXED, body, tokenize='trigram');
 CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id), owner_id TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, mime TEXT NOT NULL, name TEXT NOT NULL, stored_name TEXT NOT NULL, complete INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS attachment_recording (attachment_id TEXT PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE, recording INTEGER NOT NULL CHECK(recording IN (0,1)));
 CREATE TABLE IF NOT EXISTS retired_attachments (attachment_id TEXT PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS upload_chunks (attachment_id TEXT NOT NULL REFERENCES attachments(id), chunk_index INTEGER NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL, PRIMARY KEY(attachment_id,chunk_index));
 CREATE TABLE IF NOT EXISTS message_deletions (user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE, deleted_at INTEGER NOT NULL, PRIMARY KEY(user_id,message_id));
@@ -317,6 +466,8 @@ CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id,cre
 -- Ticket settlement checks one input's replies repeatedly, not the worker
 -- conversation's full history. Keep the result order in the same small range.
 CREATE INDEX IF NOT EXISTS messages_bot_replies ON messages(conversation_id,reply_to,author_id,created_at,id) WHERE author_type='bot' AND status!='deleted';
+-- Host Resources reads active bot turns on the shared queue without scanning historical message bodies.
+CREATE INDEX IF NOT EXISTS messages_active_bot_turns ON messages(created_at) WHERE author_type='bot' AND status IN ('pending','streaming');
 -- Personal history is ordered by SQLite insertion order, not created_at. The
 -- implicit rowid suffix avoids sorting every historical body for each page.
 CREATE INDEX IF NOT EXISTS messages_personal_history ON messages(conversation_id) WHERE status!='deleted';
@@ -345,6 +496,13 @@ CREATE INDEX IF NOT EXISTS dispatch_assists_child ON dispatch_assists(child_atte
 CREATE INDEX IF NOT EXISTS dispatch_assists_continuation ON dispatch_assists(continuation_attempt_id) WHERE continuation_attempt_id IS NOT NULL;
 -- Assistance allowed since the ticket's latest dispatch; continuations keep it.
 CREATE TABLE IF NOT EXISTS dispatch_assist_windows (ticket_id TEXT PRIMARY KEY REFERENCES dispatch_tickets(id), attempt_id TEXT NOT NULL, remaining INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS saved_workspaces (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL REFERENCES users(id), name TEXT NOT NULL, path TEXT NOT NULL, created_at INTEGER NOT NULL, last_used_at INTEGER NOT NULL, UNIQUE(owner_id,path));
+CREATE INDEX IF NOT EXISTS saved_workspaces_owner ON saved_workspaces(owner_id,last_used_at DESC,created_at DESC);
+-- Cross-host remote execution ledger on receiving Hosts and idempotent batch summaries.
+CREATE TABLE IF NOT EXISTS remote_dispatch_tickets (id TEXT PRIMARY KEY, source_key TEXT NOT NULL, source_host_id TEXT NOT NULL, source_bot_id TEXT NOT NULL, remote_request_id TEXT NOT NULL, title TEXT NOT NULL, request TEXT NOT NULL, engine TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, bot_id TEXT NOT NULL, conversation_id TEXT NOT NULL, input_message_id TEXT NOT NULL, status TEXT NOT NULL, stop_requested TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(source_key,source_bot_id,remote_request_id));
+CREATE INDEX IF NOT EXISTS remote_dispatch_tickets_status ON remote_dispatch_tickets(status);
+CREATE INDEX IF NOT EXISTS remote_dispatch_tickets_conversation ON remote_dispatch_tickets(conversation_id,input_message_id,bot_id);
+CREATE TABLE IF NOT EXISTS dispatch_batch_summaries (batch_id TEXT PRIMARY KEY, dispatcher_bot_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, created_at INTEGER NOT NULL);
 ${MESSAGE_ACTIVITY_SCHEMA}
 ${EVENT_HISTORY_SCHEMA}
 `;

@@ -7,14 +7,19 @@ import type { InboxRow } from './conversation-inbox.js';
 import {
   applyCrossHostFolderMove,
   applyCrossHostFolderPin,
+  applySingleHostFolderReorder,
   commitCrossHostFolderOrder,
+  crossHostFolderKey,
+  folderHostIdentity,
+  pruneCrossHostDeletedFolder,
+  readCrossHostFolderOrder,
   recordCrossHostFolderPin,
   resolveCrossHostFolderOrder,
   saveCrossHostFolderOrder,
   type CrossHostFolderSource,
   type StoredCrossHostFolderOrder,
 } from './cross-host-folder-order.js';
-import { buildCrossHostFolderSources, useCrossHostFolderOrder, useHostFolderUpdates } from './use-cross-host-folder-order.js';
+import { buildCrossHostFolderSources, useCrossHostFolderOrder, useCrossHostFolderOrderWriteError, useHostFolderUpdates } from './use-cross-host-folder-order.js';
 import { HostSourceBadge } from './HostSourceBadge.js';
 import { FolderOrderEditor, FolderOrderList, useFolderOrder, type FolderOrderRow } from './FolderOrderEditor.js';
 import { CreationDialog } from './CreationDialog.js';
@@ -226,16 +231,32 @@ function FolderActions({ connection, folderId, hostName, showHostBadge = false, 
     const target = destination === 'top' ? first : destination === 'up' ? index - 1 : index + 1;
     if (target < first || target > last || target === index) return;
     const next = [...singleOrder]; next.splice(target, 0, ...next.splice(index, 1));
-    void save({ type: 'reorder', folderIds: next }, done, folders.revision);
+    const hostKey = folderHostIdentity(connection.identity);
+    void save({ type: 'reorder', folderIds: next }, () => {
+      if (hostKey && connection.state.conversationFolders) {
+        applySingleHostFolderReorder(hostKey, connection.state.conversationFolders, next);
+      }
+      done();
+    }, folders.revision);
   };
   const togglePin = () => {
     const sourcesBefore = crossHost?.sources;
     const targetKey = crossHost?.itemKey;
+    const hostKey = folderHostIdentity(connection.identity);
+    const singleSourceBefore = !crossHost && hostKey && connection.state.conversationFolders
+      ? { hostId: hostKey, hostKey, hostName: hostName ?? '', folders: connection.state.conversationFolders, online: true, foldersAuthoritative: true }
+      : undefined;
     void save({ type: 'pin', id: folderId, pinned: !pinned }, () => {
       if (sourcesBefore && targetKey) {
         applyCrossHostFolderPin(sourcesBefore, targetKey, !pinned);
         doneAfterReorder();
       } else {
+        if (singleSourceBefore && hostKey) {
+          const existing = readCrossHostFolderOrder();
+          if (existing.pinned.length > 0 || existing.ordinary.length > 0) {
+            applyCrossHostFolderPin([singleSourceBefore], crossHostFolderKey({ hostKey, folderId }), !pinned);
+          }
+        }
         done();
       }
     }, folders.revision);
@@ -293,7 +314,12 @@ export function FolderManager({ connection, initialView, initialFolder, returnFo
   const back = () => { if (initialView === 'rename') { close(); return; } setError(''); setView('manage'); setTarget(''); setRevision(undefined); };
   const edit = (change: FolderEdit) => {
     const expected = revision ?? ordering.base.revision;
-    void save(change, () => { ordering.acceptEdit(expected); back(); }, expected).then(() => setRevision(connection.state.conversationFolders?.revision));
+    const hostKey = folderHostIdentity(connection.identity);
+    void save(change, () => {
+      if (change.type === 'delete' && hostKey) pruneCrossHostDeletedFolder(hostKey, change.id);
+      ordering.acceptEdit(expected);
+      back();
+    }, expected).then(() => setRevision(connection.state.conversationFolders?.revision));
   };
   useEffect(() => { if (view === 'create' || view === 'rename') input.current?.select(); }, [view]);
   const title = view === 'create' ? t('新建分组') : view === 'rename' ? t('重命名分组') : view === 'delete' ? t('删除分组') : t('管理分组');
@@ -302,14 +328,37 @@ export function FolderManager({ connection, initialView, initialFolder, returnFo
       <p className="folder-order-hint muted">{t('拖动手柄排序后保存；点“…”重命名或删除分组。')}</p>
       {!!ordering.base.pinnedFolderIds?.length && <p className="folder-order-hint muted">{t('置顶分组始终在前；可在置顶或普通分组内排序。')}</p>}
       <FolderOrderEditor ordering={ordering} canEdit={canEdit} canReorder={canReorder} canPin={canEdit && !!state.folderPinAvailable}
-        pin={(id, pinned) => { const expected = ordering.base.revision; void save({ type: 'pin', id, pinned }, () => ordering.acceptEdit(expected), expected); }}
+        pin={(id, pinned) => {
+          const expected = ordering.base.revision;
+          const hostKey = folderHostIdentity(connection.identity);
+          const sourceBefore = hostKey && connection.state.conversationFolders
+            ? { hostId: hostKey, hostKey, hostName: '', folders: connection.state.conversationFolders, online: true, foldersAuthoritative: true }
+            : undefined;
+          void save({ type: 'pin', id, pinned }, () => {
+            ordering.acceptEdit(expected);
+            if (sourceBefore && hostKey) {
+              const existing = readCrossHostFolderOrder();
+              if (existing.pinned.length > 0 || existing.ordinary.length > 0) {
+                applyCrossHostFolderPin([sourceBefore], crossHostFolderKey({ hostKey, folderId: id }), pinned);
+              }
+            }
+          }, expected);
+        }}
         rename={(id, value) => { setTarget(id); setName(value); setRevision(ordering.base.revision); setView('rename'); }}
         remove={id => { setTarget(id); setRevision(ordering.base.revision); setView('delete'); }}/>
       <button type="button" className="folder-new-choice" disabled={!canEdit} onClick={() => { setError(''); setName(''); setRevision(ordering.base.revision); setView('create'); }}><Plus size={18}/>{t('新建分组')}</button>
       {ordering.stale && <div className="folder-order-conflict"><p role="status">{t('分组已在其他设备更新，请载入最新顺序后调整。')}</p><button type="button" disabled={busy} onClick={() => { ordering.reload(); setError(''); }}>{t('载入最新顺序')}</button></div>}
       {allowed && !state.folderReorderAvailable && <p className="muted" role="status">{t('此主机尚未支持调整分组顺序，请更新运行 Bot 的电脑上的 TaroBird。')}</p>}
       {allowed && !state.folderPinAvailable && <p className="muted" role="status">{t('此主机尚未支持置顶分组，请更新运行 Bot 的电脑上的 TaroBird。')}</p>}
-      <div className="folder-dialog-actions"><button type="button" disabled={busy} onClick={close}>{t('取消')}</button><button type="button" className="primary" disabled={!canReorder || !ordering.changed} onClick={() => { void save({ type: 'reorder', folderIds: ordering.order }, close, ordering.base.revision); }}>{busy ? t('正在保存…') : t('保存')}</button></div>
+      <div className="folder-dialog-actions"><button type="button" disabled={busy} onClick={close}>{t('取消')}</button><button type="button" className="primary" disabled={!canReorder || !ordering.changed} onClick={() => {
+        const hostKey = folderHostIdentity(connection.identity);
+        void save({ type: 'reorder', folderIds: ordering.order }, () => {
+          if (hostKey && connection.state.conversationFolders) {
+            applySingleHostFolderReorder(hostKey, connection.state.conversationFolders, ordering.order);
+          }
+          close();
+        }, ordering.base.revision);
+      }}>{busy ? t('正在保存…') : t('保存')}</button></div>
     </> : view === 'delete' ? <><p>{folder ? t('删除「{0}」分组？', folder.name) : t('此分组已删除，请重新选择')}</p><p className="muted">{t('对话将移回“未分组”，聊天记录保留。')}</p><div className="folder-dialog-actions"><button type="button" disabled={busy} onClick={back}>{t('取消')}</button><button type="button" className="danger" disabled={busy || !allowed || !folder} onClick={() => edit({ type: 'delete', id: target })}>{t('删除分组')}</button></div></>
       : <form onSubmit={event => { event.preventDefault(); if (!name.trim()) return; edit(view === 'create' ? { type: 'create', id: crypto.randomUUID(), name: name.trim() } : { type: 'rename', id: target, name: name.trim() }); }}>
         <label>{t('分组名称')}<input ref={input} value={name} maxLength={48} required disabled={busy} onChange={e => setName(e.target.value)} onKeyDown={imeEnter}/></label>
@@ -330,7 +379,9 @@ export function CrossHostFolderManager({ hosts, defaultHostId, returnFocus, clos
   useLocale();
   useHostFolderUpdates(hosts);
   const stored = useCrossHostFolderOrder();
+  const writeError = useCrossHostFolderOrderWriteError();
   const [draft, setDraft] = useState<StoredCrossHostFolderOrder | undefined>();
+  const [discardConfirm, setDiscardConfirm] = useState(false);
   const [view, setView] = useState<'manage' | 'create' | 'rename' | 'delete'>('manage');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [target, setTarget] = useState<CrossHostEditTarget | undefined>();
@@ -344,6 +395,7 @@ export function CrossHostFolderManager({ hosts, defaultHostId, returnFocus, clos
   const sources = buildCrossHostFolderSources(hosts);
   const hostById = new Map(hosts.map(host => [host.id, host]));
   const editableHosts = hosts.filter(host => host.connection.state.status === 'online' && !!host.connection.state.foldersAvailable);
+  const syncSupported = hosts.some(host => host.connection.state.crossHostFolderOrderAvailable && host.connection.state.user?.role === 'owner');
   const savedItems = resolveCrossHostFolderOrder(sources, stored);
   const displayedItems = resolveCrossHostFolderOrder(sources, draft ?? stored);
   const savedKeys = savedItems.map(item => item.key);
@@ -365,6 +417,14 @@ export function CrossHostFolderManager({ hosts, defaultHostId, returnFocus, clos
   }, [view, targetHost]);
 
   const back = () => { setError(''); setView('manage'); setTarget(undefined); };
+  const requestClose = () => {
+    if (busy) return;
+    if (changed) {
+      setDiscardConfirm(true);
+      return;
+    }
+    close();
+  };
   const runHostEdit = async (connection: HubConnection, edit: FolderEdit, revision: number | undefined, onSuccess: () => void) => {
     if (saving.current) return;
     saving.current = true; setBusy(true); setError('');
@@ -406,10 +466,10 @@ export function CrossHostFolderManager({ hosts, defaultHostId, returnFocus, clos
   const dialogHostName = view === 'rename' || view === 'delete' ? targetHost?.name : undefined;
 
   return <RuntimeHostContext.Provider value={dialogHostName}>
-    <CreationDialog mobilePage showHost={!!dialogHostName} onBack={view === 'manage' ? undefined : back} title={title} closeLabel={t('关闭分组')} className="folder-dialog folder-manager-dialog" returnFocus={returnFocus} busy={busy} close={close}>
+    <CreationDialog mobilePage showHost={!!dialogHostName} onBack={view === 'manage' ? undefined : back} title={title} closeLabel={t('关闭分组')} className="folder-dialog folder-manager-dialog" returnFocus={returnFocus} busy={busy} close={requestClose}>
       {view === 'manage' ? <>
         <p className="folder-order-hint muted">{t('拖动手柄排序后保存；点“…”重命名或删除分组。')}</p>
-        <p className="folder-order-hint muted">{t('跨主机显示顺序仅保存在本设备；分组内容和置顶仍归属各自所属主机。')}</p>
+        <p className="folder-order-hint muted">{syncSupported ? t('跨主机显示顺序会在已升级主机间同步；分组内容和置顶仍归属各自所属主机。') : t('跨主机显示顺序暂保存在本设备，升级主机后可跨设备同步；分组内容和置顶仍归属各自所属主机。')}</p>
         {hasPinned && <p className="folder-order-hint muted">{t('置顶分组始终在前；可在置顶或普通分组内排序。')}</p>}
         <FolderOrderList
           rows={rows}
@@ -459,7 +519,12 @@ export function CrossHostFolderManager({ hosts, defaultHostId, returnFocus, clos
           <button type="button" disabled={busy} onClick={back}>{t('取消')}</button>
           <button type="button" className="danger" disabled={busy || !targetAllowed || !targetFolder || !targetHost || !target} onClick={() => {
             if (!targetHost || !target) return;
-            void runHostEdit(targetHost.connection, { type: 'delete', id: target.folderId }, target.revision, back)
+            const hostKey = folderHostIdentity(targetHost.connection.identity, targetHost.id);
+            const deletedId = target.folderId;
+            void runHostEdit(targetHost.connection, { type: 'delete', id: deletedId }, target.revision, () => {
+              if (hostKey) pruneCrossHostDeletedFolder(hostKey, deletedId);
+              back();
+            })
               .then(() => { if (alive.current) setTarget(old => old ? { ...old, revision: targetHost.connection.state.conversationFolders?.revision ?? old.revision } : old); });
           }}>{t('删除分组')}</button>
         </div>
@@ -486,7 +551,14 @@ export function CrossHostFolderManager({ hosts, defaultHostId, returnFocus, clos
           <button type="submit" className="primary" disabled={busy || !name.trim() || (view === 'create' ? !createAllowed : !targetAllowed || !targetFolder)}>{busy ? t('正在保存…') : t('保存')}</button>
         </div>
       </form>}
-      {error && <p className="error-text" role="alert">{error}</p>}
+      {(error || writeError) && <p className="error-text" role="alert">{error || t('未能保存跨主机分组顺序，请检查浏览器存储权限后重试。')}</p>}
     </CreationDialog>
+    {discardConfirm && <CreationDialog title={t('放弃未保存的修改？')} closeLabel={t('关闭确认')} close={() => setDiscardConfirm(false)} showHost={false}>
+      <p>{t('分组顺序尚未保存，放弃这些修改并关闭？')}</p>
+      <div className="quick-actions">
+        <button type="button" onClick={() => setDiscardConfirm(false)}>{t('继续编辑')}</button>
+        <button type="button" className="text-danger" onClick={() => { setDiscardConfirm(false); close(); }}>{t('放弃修改')}</button>
+      </div>
+    </CreationDialog>}
   </RuntimeHostContext.Provider>;
 }

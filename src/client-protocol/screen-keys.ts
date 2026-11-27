@@ -119,20 +119,20 @@ export function screenControllerCode(code: string, controller: ScreenControllerP
   return forTarget(TARGET_CODES, target)(code, controller, mode);
 }
 
-export type ScreenShortcut = { id: string; codes: readonly string[]; label: { zh: string; en: string } };
+export type ScreenShortcut = { id: string; codes: readonly string[]; label: { zh: string; en: string; ja: string } & Partial<Record<string, string>> };
 /** Mac shortcuts the controller's own OS would intercept. The UI sends these as
  * explicit key sequences: modifiers down in order, key down/up, modifiers up reversed. */
 export const SCREEN_SHORTCUTS: ReadonlyArray<ScreenShortcut> = Object.freeze([
-  { id: 'escape', codes: ['Escape'], label: { zh: 'Esc', en: 'Esc' } },
-  { id: 'app-switcher', codes: ['MetaLeft', 'Tab'], label: { zh: '切换应用 ⌘Tab', en: 'Switch app ⌘Tab' } },
-  { id: 'spotlight', codes: ['MetaLeft', 'Space'], label: { zh: '聚焦搜索 ⌘空格', en: 'Spotlight ⌘Space' } },
-  { id: 'input-source', codes: ['ControlLeft', 'Space'], label: { zh: '切换输入法 ⌃空格', en: 'Input source ⌃Space' } },
-  { id: 'force-quit', codes: ['MetaLeft', 'AltLeft', 'Escape'], label: { zh: '强制退出 ⌘⌥Esc', en: 'Force Quit ⌘⌥Esc' } },
-  { id: 'quit-app', codes: ['MetaLeft', 'KeyQ'], label: { zh: '退出应用 ⌘Q', en: 'Quit app ⌘Q' } },
-  { id: 'close-window', codes: ['MetaLeft', 'KeyW'], label: { zh: '关闭窗口 ⌘W', en: 'Close window ⌘W' } },
-  { id: 'hide-app', codes: ['MetaLeft', 'KeyH'], label: { zh: '隐藏应用 ⌘H', en: 'Hide app ⌘H' } },
-  { id: 'mission-control', codes: ['ControlLeft', 'ArrowUp'], label: { zh: '调度中心 ⌃↑', en: 'Mission Control ⌃↑' } },
-  { id: 'show-desktop', codes: ['MetaLeft', 'F3'], label: { zh: '显示桌面 ⌘F3', en: 'Show desktop ⌘F3' } },
+  { id: 'escape', codes: ['Escape'], label: { zh: 'Esc', en: 'Esc', ja: 'Esc' } },
+  { id: 'app-switcher', codes: ['MetaLeft', 'Tab'], label: { zh: '切换应用 ⌘Tab', en: 'Switch app ⌘Tab', ja: 'アプリ切替 ⌘Tab' } },
+  { id: 'spotlight', codes: ['MetaLeft', 'Space'], label: { zh: '聚焦搜索 ⌘空格', en: 'Spotlight ⌘Space', ja: 'Spotlight ⌘Space' } },
+  { id: 'input-source', codes: ['ControlLeft', 'Space'], label: { zh: '切换输入法 ⌃空格', en: 'Input source ⌃Space', ja: '入力ソース ⌃Space' } },
+  { id: 'force-quit', codes: ['MetaLeft', 'AltLeft', 'Escape'], label: { zh: '强制退出 ⌘⌥Esc', en: 'Force Quit ⌘⌥Esc', ja: '強制終了 ⌘⌥Esc' } },
+  { id: 'quit-app', codes: ['MetaLeft', 'KeyQ'], label: { zh: '退出应用 ⌘Q', en: 'Quit app ⌘Q', ja: 'アプリ終了 ⌘Q' } },
+  { id: 'close-window', codes: ['MetaLeft', 'KeyW'], label: { zh: '关闭窗口 ⌘W', en: 'Close window ⌘W', ja: 'ウィンドウを閉じる ⌘W' } },
+  { id: 'hide-app', codes: ['MetaLeft', 'KeyH'], label: { zh: '隐藏应用 ⌘H', en: 'Hide app ⌘H', ja: '非表示 ⌘H' } },
+  { id: 'mission-control', codes: ['ControlLeft', 'ArrowUp'], label: { zh: '调度中心 ⌃↑', en: 'Mission Control ⌃↑', ja: 'Mission Control ⌃↑' } },
+  { id: 'show-desktop', codes: ['MetaLeft', 'F3'], label: { zh: '显示桌面 ⌘F3', en: 'Show desktop ⌘F3', ja: 'デスクトップ ⌘F3' } },
 ]);
 /** Windows shortcuts the controller's own OS would intercept. A button sends
  * key positions, and the target's layout decides what a letter, digit or
@@ -143,13 +143,13 @@ export const SCREEN_SHORTCUTS: ReadonlyArray<ScreenShortcut> = Object.freeze([
  * Nothing that opens an elevated window (which then refuses remote input), and
  * never the secure attention sequence. */
 export const SCREEN_WINDOWS_SHORTCUTS: ReadonlyArray<ScreenShortcut> = Object.freeze([
-  { id: 'escape', codes: ['Escape'], label: { zh: 'Esc', en: 'Esc' } },
-  { id: 'app-switcher', codes: ['AltLeft', 'Tab'], label: { zh: '切换窗口 Alt+Tab', en: 'Switch window Alt+Tab' } },
-  { id: 'start-menu', codes: ['MetaLeft'], label: { zh: '开始菜单 Win', en: 'Start menu Win' } },
-  { id: 'task-view', codes: ['MetaLeft', 'Tab'], label: { zh: '任务视图 Win+Tab', en: 'Task view Win+Tab' } },
-  { id: 'input-source', codes: ['MetaLeft', 'Space'], label: { zh: '切换输入法 Win+空格', en: 'Input language Win+Space' } },
-  { id: 'close-window', codes: ['AltLeft', 'F4'], label: { zh: '关闭窗口 Alt+F4', en: 'Close window Alt+F4' } },
-  { id: 'close-tab', codes: ['ControlLeft', 'F4'], label: { zh: '关闭标签页 Ctrl+F4', en: 'Close tab Ctrl+F4' } },
+  { id: 'escape', codes: ['Escape'], label: { zh: 'Esc', en: 'Esc', ja: 'Esc' } },
+  { id: 'app-switcher', codes: ['AltLeft', 'Tab'], label: { zh: '切换窗口 Alt+Tab', en: 'Switch window Alt+Tab', ja: 'ウィンドウ切替 Alt+Tab' } },
+  { id: 'start-menu', codes: ['MetaLeft'], label: { zh: '开始菜单 Win', en: 'Start menu Win', ja: 'スタート Win' } },
+  { id: 'task-view', codes: ['MetaLeft', 'Tab'], label: { zh: '任务视图 Win+Tab', en: 'Task view Win+Tab', ja: 'タスクビュー Win+Tab' } },
+  { id: 'input-source', codes: ['MetaLeft', 'Space'], label: { zh: '切换输入法 Win+空格', en: 'Input language Win+Space', ja: '入力切替 Win+Space' } },
+  { id: 'close-window', codes: ['AltLeft', 'F4'], label: { zh: '关闭窗口 Alt+F4', en: 'Close window Alt+F4', ja: '閉じる Alt+F4' } },
+  { id: 'close-tab', codes: ['ControlLeft', 'F4'], label: { zh: '关闭标签页 Ctrl+F4', en: 'Close tab Ctrl+F4', ja: 'タブを閉じる Ctrl+F4' } },
 ]);
 const TARGET_SHORTCUTS: Readonly<Record<ScreenTargetPlatform, ReadonlyArray<ScreenShortcut>>> = Object.freeze({ macos: SCREEN_SHORTCUTS, windows: SCREEN_WINDOWS_SHORTCUTS });
 /** The explicit shortcut list offered when controlling a `target` computer. */

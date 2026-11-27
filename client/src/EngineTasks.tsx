@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronRight, CircleStop, GitBranch, MoreHorizontal, RefreshCw, Terminal } from "lucide-react";
-import { engineTaskControlResultSchema, engineTaskSnapshotSchema, type EngineTask, type EngineTaskSnapshot } from "../../src/client-protocol/engine-tasks.js";
+import { AtSign, Bot, Check, ChevronRight, CircleStop, GitBranch, LayoutList, MoreHorizontal, RefreshCw, Terminal } from "lucide-react";
+import { engineTaskControlResultSchema, engineTaskSnapshotSchema, type EngineTask, type EngineTaskSnapshot, type SwarmMember, type SwarmMemberState, type SwarmSnapshot } from "../../src/client-protocol/engine-tasks.js";
 import type { HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
 import { randomNonce } from "./identity.js";
@@ -13,38 +13,102 @@ import "./engine-tasks.css";
 type StopReceipt = { requestId: string; state: "waiting" | "accepted" | "unknown" | "rejected"; retryable?: boolean };
 const receipts = new WeakMap<HubConnection, Map<string, StopReceipt>>();
 function requestStore(connection: HubConnection) { let values = receipts.get(connection); if (!values) { values = new Map(); receipts.set(connection, values); } return values; }
+export function swarmMemberStateLabel(state: SwarmMemberState): string {
+  switch (state) {
+    case "working": return t("工作中");
+    case "waiting": return t("等待中");
+    case "killed": return t("已终止");
+    case "done": return t("已完成");
+    case "paused": return t("受配额暂停");
+    case "unknown": return t("状态待确认");
+  }
+}
+
 export function engineTaskStatus(task: EngineTask) {
+  if (task.swarmState) return swarmMemberStateLabel(task.swarmState);
   return t(task.status === "running" ? "执行中" : task.status === "done" ? "已完成" : task.status === "stopped" ? "已停止" : task.status === "error" ? "失败" : "状态待确认");
+}
+
+function swarmStateTone(state?: SwarmMemberState, fallbackStatus?: EngineTask["status"]): string {
+  if (state) return `is-${state === "working" ? "running" : state === "killed" ? "stopped" : state}`;
+  return `is-${fallbackStatus ?? "unknown"}`;
+}
+
+function swarmSourceLabel(source: SwarmSnapshot["source"]): string {
+  if (source === "merged") return t("来源：ACP + 本地看板");
+  if (source === "files") return t("来源：本地看板");
+  return t("来源：ACP");
+}
+
+function sortTasksForView(tasks: EngineTask[]): EngineTask[] {
+  const rank = (task: EngineTask): number => {
+    if (task.swarmState === "working" || task.status === "running" && task.swarmState !== "waiting" && task.swarmState !== "paused") return 0;
+    if (task.swarmState === "waiting") return 1;
+    if (task.swarmState === "paused") return 2;
+    if (task.status === "done") return 3;
+    return 4;
+  };
+  return [...tasks].sort((a, b) => rank(a) - rank(b) || (a.startedAt ?? a.updatedAt) - (b.startedAt ?? b.updatedAt));
 }
 
 /** Small conversation-local task switcher. Poll only while this pane is visible;
  * a missing/failed poll never manufactures a task completion. */
-export function EngineTasks({ connection, conversationId, botId, active, online, available, activity, openRequest = 0, onOpenRequestConsumed, dock, hasActiveGroups = false, compactLabel = false }: {
-  connection: HubConnection; conversationId: string; botId: string; active: boolean; online: boolean; available: boolean; activity: string; openRequest?: number; onOpenRequestConsumed?: (id: number) => void; dock?: ReactNode; hasActiveGroups?: boolean; compactLabel?: boolean;
+export function EngineTasks({ connection, conversationId, botId, active, online, available, activity, openRequest = 0, openTab, onOpenRequestConsumed, dock, hasActiveGroups = false, compactLabel = false, onMentionWorker, onSwarmMembersChange }: {
+  connection: HubConnection; conversationId: string; botId: string; active: boolean; online: boolean; available: boolean; activity: string; openRequest?: number; openTab?: "tasks" | "board"; onOpenRequestConsumed?: (id: number) => void; dock?: ReactNode; hasActiveGroups?: boolean; compactLabel?: boolean; onMentionWorker?: (name: string) => void; onSwarmMembersChange?: (members: SwarmMember[]) => void;
 }) {
   useLocale();
   const [snapshot, setSnapshot] = useState<EngineTaskSnapshot>(), [opened, setOpened] = useState(false), [refresh, setRefresh] = useState(0);
   const [stale, setStale] = useState(false), [error, setError] = useState(""), [revision, setRevision] = useState(0), [bulk, setBulk] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null), alive = useRef(true), busy = useRef(new Set<string>());
+  const [tab, setTab] = useState<"tasks" | "board">("tasks");
+  const [workerFilter, setWorkerFilter] = useState<string>("all");
+  const trigger = useRef<HTMLButtonElement>(null), alive = useRef(true), busy = useRef(new Set<string>()), pendingMention = useRef<string | undefined>(undefined);
   const route = `/api/conversations/${conversationId}/tasks`, stops = requestStore(connection), receiptKey = (id: string) => `${conversationId}:${botId}:${id}`;
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; onSwarmMembersChange?.([]); }; }, [onSwarmMembersChange]);
   useEffect(() => { if (!active) setOpened(false); }, [active]);
+  // Deliver @worker mention after CreationDialog's useLayoutEffect unmount
+  // cleanup finishes restoring modal focus, so composer focus is not stolen back.
+  useEffect(() => {
+    if (!opened && pendingMention.current) {
+      const name = pendingMention.current;
+      pendingMention.current = undefined;
+      onMentionWorker?.(name);
+    }
+  }, [opened, onMentionWorker]);
+  const triggerMentionWorker = (name: string) => {
+    if (!onMentionWorker) return;
+    pendingMention.current = name;
+    setOpened(false);
+  };
   // Opening is a one-shot UI request. Retaining it in App would reopen a closed
   // dialog when this keyed conversation remounts after navigation or search.
-  useEffect(() => { if (openRequest && active) { setOpened(true); onOpenRequestConsumed?.(openRequest); } }, [openRequest, active, onOpenRequestConsumed]);
+  useEffect(() => {
+    if (openRequest && active) {
+      setOpened(true);
+      if (openTab) setTab(openTab);
+      onOpenRequestConsumed?.(openRequest);
+    }
+  }, [openRequest, openTab, active, onOpenRequestConsumed]);
   useEffect(() => {
     if (!active || !available || !online) return;
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout>; let unsupported = false, hasRunning = false;
     const load = async () => {
       const request = queueRequest([controller.signal], 8000);
       try {
-        const value = engineTaskSnapshotSchema.parse(await request.wait(connection.http(`${route}?botId=${encodeURIComponent(botId)}`, { signal: request.signal })));
+        // `swarmTasks=1`: opt into post-1.6.0 Swarm task metadata and board snapshots; older Hosts ignore it.
+        const value = engineTaskSnapshotSchema.parse(await request.wait(connection.http(`${route}?botId=${encodeURIComponent(botId)}&swarmTasks=1`, { signal: request.signal })));
         if (!controller.signal.aborted) {
           // Only an explicit terminal event can retire a stop receipt. An empty
           // snapshot during reconnect must not permit a duplicate mutation.
           for (const task of value.tasks) if (["done", "error", "stopped"].includes(task.status)) stops.delete(receiptKey(task.id));
           for (const task of value.tasks) { const receipt = stops.get(receiptKey(task.id)); if (receipt?.state === "unknown") receipt.retryable = task.status === "running"; }
-          setSnapshot(value); setStale(false); unsupported = !value.supported; hasRunning = value.tasks.some(task => task.status === "running") || !!value.recovery;
+          if (!value.swarm?.active) stops.delete(receiptKey("swarm"));
+          else {
+            const swarmReceipt = stops.get(receiptKey("swarm"));
+            if (swarmReceipt?.state === "unknown") swarmReceipt.retryable = true;
+          }
+          setSnapshot(value); setStale(false); unsupported = !value.supported;
+          hasRunning = value.tasks.some(task => task.status === "running") || !!value.recovery || !!value.swarm?.active;
+          onSwarmMembersChange?.(value.swarm?.active ? value.swarm.members : []);
         }
       } catch { if (!controller.signal.aborted) setStale(true); }
       finally {
@@ -53,7 +117,12 @@ export function EngineTasks({ connection, conversationId, botId, active, online,
       }
     };
     void load(); return () => { controller.abort(); clearTimeout(timer); };
-  }, [connection, conversationId, botId, active, online, available, activity, opened, refresh]);
+  }, [connection, conversationId, botId, active, online, available, activity, opened, refresh, onSwarmMembersChange]);
+
+  const swarm = snapshot?.swarm;
+  useEffect(() => {
+    if (snapshot && !swarm && tab === "board") setTab("tasks");
+  }, [snapshot, swarm, tab]);
 
   const stop = async (task: EngineTask, retry = false) => {
     if (!online || !active || stale || !task.canStop || task.status !== "running" || busy.current.has(task.id)) return;
@@ -72,9 +141,35 @@ export function EngineTasks({ connection, conversationId, botId, active, online,
       if (alive.current) { setRevision(value => value + 1); setRefresh(value => value + 1); }
     }
   };
+  const stopSwarm = async (retry = false) => {
+    if (!online || !active || stale || !swarm?.active || busy.current.has("swarm")) return;
+    const key = receiptKey("swarm"), previous = stops.get(key);
+    if (retry && !previous?.retryable) return;
+    const entry: StopReceipt = { requestId: previous && !retry && previous.state !== "rejected" ? previous.requestId : randomNonce(), state: "waiting" };
+    stops.set(key, entry); busy.current.add("swarm"); setRevision(value => value + 1); setError("");
+    const request = queueRequest([], 15_000);
+    try {
+      const result = engineTaskControlResultSchema.parse(await request.wait(connection.http(route, { method: "POST", body: JSON.stringify({ botId, taskId: "swarm", requestId: entry.requestId }), signal: request.signal })));
+      entry.state = result.outcome;
+      if (result.outcome === "rejected" && alive.current) setError(t("未能停止 Swarm（可能已结束），请刷新状态。"));
+    } catch { entry.state = "unknown"; }
+    finally {
+      request.dispose(); busy.current.delete("swarm");
+      if (alive.current) { setRevision(value => value + 1); setRefresh(value => value + 1); }
+    }
+  };
+
   const tasks = snapshot?.tasks ?? [], running = tasks.filter(task => task.status === "running"), background = running.filter(task => task.mode === "background" && !task.parentId && task.canStop);
+  const primaryTasks = useMemo(() => sortTasksForView(tasks.filter(task => !task.helper)), [tasks]);
+  const helperTasks = useMemo(() => sortTasksForView(tasks.filter(task => !!task.helper)), [tasks]);
+  const swarmWorkersRunning = tasks.filter(task => task.kind === "subagent" && task.status === "running").length;
   const affected = activity ? affectedBackgroundTasks(snapshot) : [];
-  const stopNotice = affected.length ? t("停止当前轮次也会结束 {0} 个后台{1}；可在任务列表单独停止。", affected.length, t(snapshot?.foregroundStopScope === "all" ? "任务" : "子代理")) : "";
+  const canStopIndividually = affected.some(task => task.canStop);
+  const stopNotice = affected.length
+    ? canStopIndividually
+      ? t("停止当前轮次也会结束 {0} 个后台{1}；可在任务列表单独停止。", affected.length, t(snapshot?.foregroundStopScope === "all" ? "任务" : "子代理"))
+      : t("停止当前轮次也会结束 {0} 个后台{1}。", affected.length, t(snapshot?.foregroundStopScope === "all" ? "任务" : "子代理"))
+    : "";
   const stopBackground = async () => {
     // Capture this explicit selection. Tasks started after the click are not
     // implicitly added to a destructive operation or its retry.
@@ -82,50 +177,225 @@ export function EngineTasks({ connection, conversationId, botId, active, online,
     await Promise.allSettled(selected.map(task => stop(task)));
     if (alive.current) setBulk(false);
   };
-  const showNative = available && (snapshot?.supported !== false || opened) && (tasks.length > 0 || !!snapshot?.recovery || opened);
+  const showNative = available && (snapshot?.supported !== false || opened) && (tasks.length > 0 || !!swarm || !!snapshot?.recovery || opened);
+  const boardWorkers = useMemo(() => {
+    if (!swarm) return [];
+    const seen = new Map<string, string>();
+    for (const member of swarm.members) {
+      if (member.name.toLowerCase() !== "system") seen.set(member.name.toLowerCase(), member.name);
+    }
+    for (const post of swarm.posts) {
+      if (post.author.toLowerCase() !== "system" && !seen.has(post.author.toLowerCase())) seen.set(post.author.toLowerCase(), post.author);
+    }
+    return [...seen.values()];
+  }, [swarm]);
+  const filteredPosts = useMemo(() => {
+    if (!swarm) return [];
+    if (workerFilter === "all") return swarm.posts;
+    const key = workerFilter.toLowerCase();
+    return swarm.posts.filter(post =>
+      post.author.toLowerCase() === key || (post.mentions ?? []).some(mention => mention.toLowerCase() === key),
+    );
+  }, [swarm, workerFilter]);
+
   if (!showNative && !dock) return null;
   // The dock counts one saved group; native tasks cover the whole conversation.
   // Do not sum them or guess correspondence from labels, time, or task counts.
   const compact = !!dock || hasActiveGroups;
   const uncertain = !online || stale;
   const shellCount = running.filter(task => task.kind === "shell" && task.mode === "background" && !task.parentId).length;
+  const swarmRunningCount = swarmWorkersRunning || running.length;
+  const triggerLabel = snapshot?.recovery
+    ? t("停止尚未确认")
+    : swarm?.active
+      ? (compactLabel ? `Swarm (${swarmRunningCount})` : t("Swarm · {0} 运行中", swarmRunningCount))
+      : running.length
+        ? t(compactLabel ? "{0} 运行中" : "{0} 个任务执行中", running.length)
+        : swarm
+          ? (swarm.statusText === "Stopped by user" ? t("Swarm 已停止") : t("Swarm 已结束"))
+          : t(compactLabel ? "任务" : "子代理与后台任务");
   const managementDescription = [t("查看全部任务"), snapshot?.recovery ? t("停止尚未确认") : running.length ? t("{0} 个任务执行中", running.length) : "", uncertain && t("状态待确认")].filter(Boolean).join(" · ");
+  const swarmStopReceipt = stops.get(receiptKey("swarm"));
+  const swarmStopPending = busy.current.has("swarm");
+
+  const renderTaskCard = (task: EngineTask) => {
+    const receipt = stops.get(receiptKey(task.id)), pending = busy.current.has(task.id), parent = task.parentId && tasks.find(candidate => candidate.id === task.parentId);
+    const toneClass = swarmStateTone(task.swarmState, task.status);
+    return <article className={`engine-task ${toneClass}${task.helper ? " is-helper" : ""}`} key={task.id} aria-label={task.label}>
+      <div className="engine-task-title">
+        {task.kind === "shell" ? <Terminal size={16}/> : task.helper ? <Bot size={16}/> : <GitBranch size={16}/>}
+        <strong>{task.label}</strong>
+        <span className="engine-task-status">{(task.status === "done" || task.swarmState === "done") && <Check size={12}/>} {engineTaskStatus(task)}</span>
+      </div>
+      {(task.role || task.model) && (
+        <div className="engine-task-chips">
+          {task.role && <span className="engine-task-chip">{task.role}</span>}
+          {task.model && <span className="engine-task-chip is-model">{task.model}</span>}
+        </div>
+      )}
+      <div className="engine-task-meta">
+        <span>{task.swarmState ? t("Swarm Worker") : t(task.mode === "background" ? "后台执行" : task.status === "running" ? parent ? "父代理正在等待" : "主代理正在等待" : "前台任务")}</span>
+        {(task.startedAt ?? task.updatedAt) ? <time dateTime={new Date(task.startedAt ?? task.updatedAt).toISOString()}>{new Date(task.startedAt ?? task.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time> : null}
+      </div>
+      {parent && <p className="engine-task-parent">{t("所属任务：{0}", parent.label)}</p>}
+      {task.progress && <details className="engine-task-progress" open={Boolean(swarm)}><summary>{t("最近进展")}</summary><p>{task.progress}</p></details>}
+      {swarm?.active && onMentionWorker && task.kind === "subagent" && task.status === "running" && !task.parentId && !task.helper && (
+        <button type="button" className="engine-task-mention" onClick={() => triggerMentionWorker(task.label)}>
+          <AtSign size={12}/>{t("向 @{0} 发消息", task.label)}
+        </button>
+      )}
+      {task.status === "running" && receipt?.state === "accepted" && <p role="status" className="engine-tasks-notice">{t("停止请求已接收，等待任务结束。")}</p>}
+      {task.status === "running" && receipt?.state === "unknown" && <p role="status" className="engine-tasks-notice">{t("停止结果待确认，可核对同一请求。")}</p>}
+      {task.parentId && task.canStop && task.status === "running" && <p className="engine-task-parent">{t("要结束此工作，请停止所属子代理；只停止步骤可能被自动重试。")}</p>}
+      {!task.parentId && task.canStop && task.status === "running" && <button type="button" className="engine-task-stop" disabled={!online || stale || pending || receipt?.state === "accepted"} onClick={() => void stop(task)}><CircleStop size={14}/>{pending ? t("等待停止确认") : receipt?.state === "unknown" ? t("核对停止结果") : t("停止此任务")}</button>}
+      {!task.parentId && task.canStop && task.status === "running" && receipt?.state === "unknown" && receipt.retryable && <button type="button" className="engine-task-stop" disabled={!online || stale || pending} onClick={() => void stop(task, true)}>{t("重新请求停止")}</button>}
+    </article>;
+  };
+
   return <div className="engine-tasks" data-revision={revision}>
     <div className={`conversation-task-bar${dock ? " has-dock" : ""}${compact ? " is-compact" : ""}`}>
       {dock}
-      {showNative && <button key="management" ref={trigger} type="button" className={`engine-tasks-trigger${compact ? " is-compact" : ""}`} aria-label={t("子代理与后台任务")} aria-description={managementDescription} title={managementDescription} aria-haspopup="dialog" onClick={() => setOpened(true)}>
+      {showNative && <button key="management" ref={trigger} type="button" className={`engine-tasks-trigger${compact ? " is-compact" : ""}`} aria-label={t("子代理与后台任务")} aria-description={managementDescription} title={managementDescription} aria-haspopup="dialog" onClick={() => { setTab("tasks"); setOpened(true); }}>
         {compact ? <>
-          {snapshot?.recovery ? <span>{t("停止尚未确认")}</span> : uncertain ? <span>{t("状态待确认")}</span> : shellCount ? <span>{t("{0} 个后台命令", shellCount)}</span> : !dock ? <span>{t("全部任务")}</span> : null}
+          {snapshot?.recovery ? <span>{t("停止尚未确认")}</span> : uncertain ? <span>{t("状态待确认")}</span> : swarm?.active ? <span>Swarm ({swarmRunningCount})</span> : shellCount ? <span>{t("{0} 个后台命令", shellCount)}</span> : !dock ? <span>{t("全部任务")}</span> : null}
           {snapshot?.recovery && uncertain && <small>{t("状态待确认")}</small>}
-          {running.length > 0 && !uncertain && !snapshot?.recovery && <i className="engine-tasks-activity" aria-hidden="true"/>}<MoreHorizontal size={17}/>
+          {(running.length > 0 || swarm?.active) && !uncertain && !snapshot?.recovery && <i className="engine-tasks-activity" aria-hidden="true"/>}<MoreHorizontal size={17}/>
         </> : <>
-          <GitBranch size={14}/><span>{snapshot?.recovery ? t("停止尚未确认") : running.length ? t(compactLabel ? "{0} 运行中" : "{0} 个任务执行中", running.length) : t(compactLabel ? "任务" : "子代理与后台任务")}</span>{uncertain && <small>{t("状态待确认")}</small>}<ChevronRight size={13}/>
+          <GitBranch size={14}/><span>{triggerLabel}</span>{uncertain && <small>{t("状态待确认")}</small>}<ChevronRight size={13}/>
         </>}
       </button>}
+      {showNative && swarm && !compact && (
+        <button type="button" className="engine-tasks-board-pill" onClick={() => { setTab("board"); setOpened(true); }}>
+          <LayoutList size={12}/><span>{t("Swarm 看板")}</span>{swarm.posts.length > 0 && <small>{swarm.posts.length}</small>}
+        </button>
+      )}
     </div>
     {available && opened && active && createPortal(<CreationDialog title={t("子代理与后台任务")} close={() => setOpened(false)} closeLabel={t("关闭任务列表")} returnFocus={trigger} className="engine-tasks-dialog">
       <div className="engine-tasks-body">
-      <div className="engine-tasks-toolbar"><p>{t("主对话可以继续，后台任务会独立返回结果。")}</p><button type="button" aria-label={t("刷新任务列表")} disabled={!online} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={15}/></button></div>
+      <div className="engine-tasks-toolbar">
+        <p>{swarm ? (swarm.title || t("主对话可以继续，后台任务会独立返回结果。")) : t("主对话可以继续，后台任务会独立返回结果。")}</p>
+        <button type="button" aria-label={t("刷新任务列表")} disabled={!online} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={15}/></button>
+      </div>
+      {swarm && (
+        <div className="engine-tasks-tabs" role="tablist" aria-label={t("Swarm 状态")}>
+          <button type="button" role="tab" aria-selected={tab === "tasks"} onClick={() => setTab("tasks")}>
+            {t("Worker 与任务")} ({tasks.length})
+          </button>
+          <button type="button" role="tab" aria-selected={tab === "board"} onClick={() => setTab("board")}>
+            {t("Swarm 看板")} ({swarm.posts.length})
+          </button>
+        </div>
+      )}
       {(!online || stale) && <p role="status" className="engine-tasks-notice">{t("连接中断，当前状态待确认")}</p>}
+      {swarm && swarm.active && tab === "tasks" && (
+        <div className="swarm-banner">
+          <div className="swarm-banner-info">
+            <span className="swarm-banner-badge is-active">{t("执行中")}</span>
+            <span>{swarmSourceLabel(swarm.source)}</span>
+          </div>
+          <div className="swarm-banner-actions">
+            <button type="button" className="swarm-stop-btn" disabled={!online || stale || swarmStopPending || swarmStopReceipt?.state === "accepted"} onClick={() => void stopSwarm()}>
+              <CircleStop size={14}/>{swarmStopPending ? t("正在停止…") : swarmStopReceipt?.state === "unknown" ? t("核对停止结果") : t("停止 Swarm")}
+            </button>
+            {swarmStopReceipt?.state === "unknown" && swarmStopReceipt.retryable && (
+              <button type="button" className="swarm-stop-btn" disabled={!online || stale || swarmStopPending} onClick={() => void stopSwarm(true)}>
+                {t("重新请求停止")}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {swarmStopReceipt?.state === "accepted" && swarm?.active && <p role="status" className="engine-tasks-notice">{t("已发送停止 Swarm 请求，等待 worker 结束。")}</p>}
+      {swarmStopReceipt?.state === "unknown" && swarm?.active && <p role="status" className="engine-tasks-notice">{t("停止 Swarm 结果待确认，可核对同一请求。")}</p>}
       {stopNotice && <p className="engine-tasks-notice">{stopNotice}</p>}
       {snapshot?.recovery && <SessionRecovery key={snapshot.recovery.token} connection={connection} conversationId={conversationId} botId={botId} token={snapshot.recovery.token} enabled={online && !stale} tasks={running}/>}
       {error && <p role="alert" className="engine-tasks-notice">{error}</p>}
-      {!snapshot ? <p className="engine-tasks-empty">{t("正在加载…")}</p> : !snapshot.supported ? <p className="engine-tasks-empty">{t("当前 Bot 尚不支持原生任务列表。")}</p> : !tasks.length ? <p className="engine-tasks-empty">{t("当前会话还没有子代理或后台任务。")}</p> : <div className="engine-tasks-list">{[...tasks].sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || (a.startedAt ?? a.updatedAt) - (b.startedAt ?? b.updatedAt)).map(task => {
-        const receipt = stops.get(receiptKey(task.id)), pending = busy.current.has(task.id), parent = task.parentId && tasks.find(candidate => candidate.id === task.parentId);
-        return <article className={`engine-task is-${task.status}`} key={task.id} aria-label={task.label}>
-          <div className="engine-task-title">{task.kind === "shell" ? <Terminal size={16}/> : <GitBranch size={16}/>}<strong>{task.label}</strong><span className="engine-task-status">{task.status === "done" && <Check size={12}/>} {engineTaskStatus(task)}</span></div>
-          <div className="engine-task-meta"><span>{t(task.mode === "background" ? "后台执行" : task.status === "running" ? parent ? "父代理正在等待" : "主代理正在等待" : "前台任务")}</span>{task.startedAt && <time dateTime={new Date(task.startedAt).toISOString()}>{new Date(task.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>}</div>
-          {parent && <p className="engine-task-parent">{t("所属任务：{0}", parent.label)}</p>}
-          {task.progress && <details className="engine-task-progress"><summary>{t("最近进展")}</summary><p>{task.progress}</p></details>}
-          {task.status === "running" && receipt?.state === "accepted" && <p role="status" className="engine-tasks-notice">{t("停止请求已接收，等待任务结束。")}</p>}
-          {task.status === "running" && receipt?.state === "unknown" && <p role="status" className="engine-tasks-notice">{t("停止结果待确认，可核对同一请求。")}</p>}
-          {task.parentId && task.canStop && task.status === "running" && <p className="engine-task-parent">{t("要结束此工作，请停止所属子代理；只停止步骤可能被自动重试。")}</p>}
-          {!task.parentId && task.canStop && task.status === "running" && <button type="button" className="engine-task-stop" disabled={!online || stale || pending || receipt?.state === "accepted"} onClick={() => void stop(task)}><CircleStop size={14}/>{pending ? t("等待停止确认") : receipt?.state === "unknown" ? t("核对停止结果") : t("停止此任务")}</button>}
-          {!task.parentId && task.canStop && task.status === "running" && receipt?.state === "unknown" && receipt.retryable && <button type="button" className="engine-task-stop" disabled={!online || stale || pending} onClick={() => void stop(task, true)}>{t("重新请求停止")}</button>}
-        </article>;
-      })}</div>}
+
+      {tab === "tasks" ? (
+        !snapshot ? <p className="engine-tasks-empty">{t("正在加载…")}</p>
+          : !snapshot.supported ? <p className="engine-tasks-empty">{t("当前 Bot 尚不支持原生任务列表。")}</p>
+            : !tasks.length ? <p className="engine-tasks-empty">{t("当前会话还没有子代理或后台任务。")}</p>
+              : <div className="engine-tasks-list">
+                {primaryTasks.map(renderTaskCard)}
+                {helperTasks.length > 0 && (
+                  <section className="engine-tasks-group" aria-label={t("辅助角色（Monitor / Narrator）")}>
+                    <h4 className="engine-tasks-group-title">{t("辅助角色（Monitor / Narrator）")}</h4>
+                    {helperTasks.map(renderTaskCard)}
+                  </section>
+                )}
+              </div>
+      ) : !snapshot ? (
+        <p className="engine-tasks-empty">{t("正在加载…")}</p>
+      ) : swarm ? (
+        <div className="swarm-board-view">
+          <div className="swarm-board-meta">
+            <span className="engine-task-chip">{t("只读看板")}</span>
+            <span className="swarm-board-source">{swarmSourceLabel(swarm.source)}</span>
+          </div>
+          {swarm.formatUnknown && (
+            <p role="status" className="engine-tasks-notice">{t("看板文件格式暂不支持完整解析，已展示可用的状态信息。")}</p>
+          )}
+          {boardWorkers.length > 0 && (
+            <div className="swarm-board-filters" role="group" aria-label={t("按 worker 筛选")}>
+              <button type="button" className="swarm-filter-pill" aria-pressed={workerFilter === "all"} onClick={() => setWorkerFilter("all")}>
+                {t("全部")} ({swarm.posts.length})
+              </button>
+              {boardWorkers.map(name => (
+                <button type="button" key={name} className="swarm-filter-pill" aria-pressed={workerFilter.toLowerCase() === name.toLowerCase()} onClick={() => setWorkerFilter(name)}>
+                  @{name}
+                </button>
+              ))}
+            </div>
+          )}
+          {!swarm.posts.length ? (
+            <p className="engine-tasks-empty">{t("暂无看板动态。")}</p>
+          ) : !filteredPosts.length ? (
+            <p className="engine-tasks-empty">{t("暂无匹配的 worker 动态。")}</p>
+          ) : (
+            <div className="swarm-board-posts">
+              {filteredPosts.map(post => {
+                const member = swarm.members.find(m => m.name.toLowerCase() === post.author.toLowerCase());
+                const canMentionAuthor = Boolean(
+                  swarm.active
+                  && onMentionWorker
+                  && post.author.toLowerCase() !== "system"
+                  && member
+                  && !member.helper
+                  && (member.state === "working" || member.state === "waiting" || member.state === "paused"),
+                );
+                return (
+                  <article className="swarm-post-card" key={post.id} aria-label={`${post.author}`}>
+                    <header className="swarm-post-header">
+                      <span className="swarm-post-author">@{post.author}</span>
+                      {member?.role && <span className="engine-task-chip">{member.role}</span>}
+                      {member?.model && <span className="engine-task-chip is-model">{member.model}</span>}
+                      <time dateTime={new Date(post.createdAt).toISOString()}>
+                        {new Date(post.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </time>
+                    </header>
+                    {post.title && <div className="swarm-post-title">{post.title}</div>}
+                    <p className="swarm-post-content">{post.content}</p>
+                    {((post.mentions ?? []).length > 0 || canMentionAuthor) && (
+                      <footer className="swarm-post-footer">
+                        <div className="swarm-post-mentions">
+                          {(post.mentions ?? []).map(m => <span key={m} className="engine-task-chip">@{m}</span>)}
+                        </div>
+                        {canMentionAuthor && member && (
+                          <button type="button" className="engine-task-mention" onClick={() => triggerMentionWorker(member.name)}>
+                            <AtSign size={12}/>{t("向 @{0} 发消息", member.name)}
+                          </button>
+                        )}
+                      </footer>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : null}
       </div>
-      {background.length > 1 && <footer><button type="button" className="engine-task-stop" disabled={!online || stale || bulk} onClick={() => void stopBackground()}><CircleStop size={15}/>{t("停止全部后台任务")}</button></footer>}
+      {tab === "tasks" && background.length > 1 && <footer><button type="button" className="engine-task-stop" disabled={!online || stale || bulk} onClick={() => void stopBackground()}><CircleStop size={15}/>{t("停止全部后台任务")}</button></footer>}
     </CreationDialog>, document.body)}
   </div>;
 }

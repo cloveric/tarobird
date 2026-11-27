@@ -6,7 +6,7 @@ import { HubStore } from "../src/hub/store.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "../src/hub/workbench-design-sharing.js";
 import type { DesignShareServerFrame } from "../src/client-protocol/workbench-design-sharing.js";
 import { DesignShareClient, joinDesignShare, openDesignShare, type DesignShareTransport } from "../client/src/workbench-design-collaboration.js";
-import { designTextFile, type DesignDocument } from "../client/src/workbench-design.js";
+import { designTextFile, emptySlides, type DesignDocument } from "../client/src/workbench-design.js";
 import { memoryDesign } from "../client/tests/design-session-fixture.js";
 
 let broker: DesignShareBroker;
@@ -27,7 +27,7 @@ describe("joining while the owner keeps saving", () => {
   afterEach(async () => { broker.close(); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
 
   it("restarts an obsolete manifest read and joins the current snapshot", async () => {
-    const made = memoryDesign();
+    const made = memoryDesign(emptySlides("design"));
     const ownerListeners = new Set<(frame: DesignShareServerFrame) => void>();
     const ownerPeer: DesignSharePeer = { key: {}, userId: "owner", deviceId: "mac", active: () => true, validate: async () => undefined, send: async frame => { for (const l of [...ownerListeners]) l(frame); } };
     const owner = new DesignShareClient({ send: frame => { void broker.handle(ownerPeer, frame).then(result => ownerPeer.send(result)); }, onFrame: l => { ownerListeners.add(l); return () => { ownerListeners.delete(l); }; }, onStatus: () => () => {} }, 5_000);

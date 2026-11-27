@@ -1,12 +1,14 @@
-import { createDecipheriv, createECDH, generateKeyPairSync, hkdfSync, randomBytes, verify } from "node:crypto";
+import { createDecipheriv, createECDH, generateKeyPairSync, hkdfSync, randomBytes, sign, verify } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { WebSocket } from "ws";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { notificationPreferencesSchema, type PushPayload } from "../src/client-protocol/push.js";
 import { HubStore } from "../src/hub/store.js";
+import { HubServer } from "../src/hub/server.js";
 import { HubMaintenance } from "../src/hub/maintenance.js";
-import { HubAuth, hashSecret } from "../src/hub/auth.js";
+import { HubAuth, deviceProof, hashSecret } from "../src/hub/auth.js";
 import { PushWorker } from "../src/hub/push/worker.js";
 import { quietNow } from "../src/hub/push/model.js";
 import { createPushSender, validatePushDestination } from "../src/hub/push/providers.js";
@@ -65,6 +67,27 @@ test.each(["partial", "interrupted", "stopped", "error"])("a %s run cannot send 
   const result = await store.publishBotMessage("alpha", { conversationId: conversation, status: "complete", blocks: [{ type: "card", elements: [], extra: { nativeRun: { version: 1, id: "run_one", revision: 2, phase, startedAt: 1, updatedAt: 2, count: 1, completed: 0, failed: 0, truncated: false } } }] });
   const row = await store.db.get<{ payload_json: string }>("SELECT payload_json FROM push_outbox LIMIT 1");
   expect(JSON.parse(row!.payload_json)).toMatchObject({ messageId: result.id, kind: "error", body: "「Private conversation」 · Alpha\n任务未完成：点按查看当前进展。" });
+});
+
+test("a hidden ticket conversation pushes an open approval like an ordinary one, and nothing else", async () => {
+  const approval = (disabled = false) => [{ type: "card" as const, elements: [{ type: "markdown" as const, text: "Run the build?" }, { type: "button" as const, text: "Allow", actionId: "allow", disabled, value: { requestId: "req_1", cctb_lark: "approval", decision: "allow_once" } }] }];
+  const payloads = async () => (await store.db.all<{ payload_json: string }>("SELECT payload_json FROM push_outbox ORDER BY rowid")).map(row => JSON.parse(row.payload_json) as PushPayload);
+  const ordinary = await store.publishBotMessage("alpha", { conversationId: conversation, status: "complete", blocks: approval() });
+  const [visible] = await payloads();
+  expect(visible).toMatchObject({ messageId: ordinary.id, kind: "action" });
+  await store.db.run("DELETE FROM push_outbox"); await store.db.run("DELETE FROM push_receipts");
+  await store.db.run("UPDATE conversations SET hidden=1 WHERE id=?", [conversation]);
+  // An ordinary answer in the hidden conversation still reports through the dispatcher only.
+  await message("worker progress");
+  expect(await payloads()).toEqual([]);
+  const waiting = await store.publishBotMessage("alpha", { conversationId: conversation, status: "complete", blocks: approval() });
+  const [hidden] = await payloads();
+  // Same fields and wording as the ordinary approval push: kind, body shape, conversation and message only.
+  expect(Object.keys(hidden!).sort()).toEqual(Object.keys(visible!).sort());
+  expect(hidden).toMatchObject({ messageId: waiting.id, conversationId: conversation, kind: "action", body: visible!.body });
+  // Once answered (actions disabled) nothing more is pushed.
+  await store.publishBotMessage("alpha", { id: waiting.id, conversationId: conversation, status: "complete", blocks: approval(true) });
+  expect(await payloads()).toHaveLength(1);
 });
 
 test.each(["thinking", "working", "answering", "waiting_approval", "waiting_answer", "stopping", "delivering"])("an older Gateway's complete envelope during %s waits for the terminal notification", async phase => {
@@ -188,6 +211,88 @@ test("device-supplied endpoints cannot redirect push to local services or anothe
   expect(() => validatePushDestination({ provider: "unifiedpush", endpoint: "https://127.0.0.1/abcdefghijklmnop" }, {})).toThrow();
   expect(() => validatePushDestination({ provider: "unifiedpush", endpoint: "https://ntfy.example.test.evil.test/abcdefghijklmnop" }, { unifiedpush: { origins: ["https://ntfy.example.test"] } })).toThrow();
   expect(validatePushDestination({ provider: "unifiedpush", endpoint: "https://ntfy.example.test/abcdefghijklmnop" }, { unifiedpush: { origins: ["https://ntfy.example.test"] } }).provider).toBe("unifiedpush");
+});
+
+test("UnifiedPush accepts real distributor endpoints (ntfy, Sunup, NextPush, Gotify) and rejects unsafe paths", () => {
+  const config = {
+    unifiedpush: {
+      origins: [
+        "https://ntfy.example.test/",
+        "https://updates.example.test",
+        "https://cloud.example.test",
+        "https://gotify.example.test",
+      ],
+    },
+  };
+  // ntfy generates 14-char topics (`up` + 12 random chars) with `?up=1`.
+  expect(validatePushDestination({ provider: "unifiedpush", endpoint: "https://ntfy.example.test/upAbCdEf123456?up=1" }, config).provider).toBe("unifiedpush");
+  // Sunup / Mozilla Autopush multi-segment paths.
+  expect(validatePushDestination({ provider: "unifiedpush", endpoint: "https://updates.example.test/wpush/v2/gAAAAABk_test-token" }, config).provider).toBe("unifiedpush");
+  // NextPush paths containing `.` and multiple segments.
+  expect(validatePushDestination({ provider: "unifiedpush", endpoint: "https://cloud.example.test/index.php/apps/uppush/push/token123" }, config).provider).toBe("unifiedpush");
+  // Gotify-UP short path with query token.
+  expect(validatePushDestination({ provider: "unifiedpush", endpoint: "https://gotify.example.test/UP?token=abc123" }, config).provider).toBe("unifiedpush");
+  // Root, traversal, encoded slash/dot, empty segments, and http configured origins remain rejected.
+  for (const bad of [
+    "https://ntfy.example.test/",
+    "https://ntfy.example.test/a//b",
+    "https://ntfy.example.test/up/../secret",
+    "https://ntfy.example.test/up/%2e%2e/secret",
+    "https://ntfy.example.test/up/%2fsecret",
+    "https://ntfy.example.test/up/%5csecret",
+  ]) {
+    expect(() => validatePushDestination({ provider: "unifiedpush", endpoint: bad }, config)).toThrow();
+  }
+  expect(() => validatePushDestination({ provider: "unifiedpush", endpoint: "https://ntfy.example.test/upAbCdEf123456" }, { unifiedpush: { origins: ["http://ntfy.example.test"] } })).toThrow();
+});
+
+test("Hub stops suppressing pushes when a silent foreground socket goes stale (e.g. Android Doze)", async () => {
+  const hubDir = await mkdtemp(path.join(os.tmpdir(), "push-presence-"));
+  const hub = await HubServer.start({ stateDir: hubDir, foregroundTimeoutMs: 120 });
+  const keys = generateKeyPairSync("ed25519");
+  const pair = await hub.auth.pair({ deviceId: "android_phone", name: "Phone", platform: "android", publicKey: keys.publicKey.export({ type: "spki", format: "der" }).toString("base64") }, "local");
+  await hub.auth.approve(pair.code, "local-owner");
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('bot_presence','Alpha',?)", [hashSecret("test-secret")]);
+  await hub.store.db.run("UPDATE devices SET push_json=? WHERE id='android_phone'", [JSON.stringify(subscription)]);
+  await hub.store.db.run("INSERT INTO device_preferences VALUES('android_phone',?)", [JSON.stringify(notificationPreferencesSchema.parse({ enabled: true }))]);
+  const chat = (await hub.store.createConversation("owner", ["bot_presence"], "Presence chat", "create")).id;
+  const ws = new WebSocket(hub.url.replace(/^http/, "ws") + "/ws");
+  const nonce = randomBytes(16).toString("hex");
+  const ready = new Promise<void>((resolve, reject) => {
+    ws.on("error", reject);
+    ws.on("open", () => ws.send(JSON.stringify({ v: 1, type: "hello", deviceId: "android_phone", nonce, protocolVersions: [1], capabilities: [], cursors: {} })));
+    ws.on("message", (raw) => {
+      const frame = JSON.parse(raw.toString()) as { type: string; nonce?: string };
+      if (frame.type === "challenge") {
+        ws.send(JSON.stringify({ v: 1, type: "auth", signature: sign(null, deviceProof("android_phone", frame.nonce!, nonce), keys.privateKey).toString("base64") }));
+      } else if (frame.type === "ready") {
+        resolve();
+      }
+    });
+  });
+  try {
+    await ready;
+    ws.send(JSON.stringify({ v: 1, type: "presence", foreground: true }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Active foreground device suppresses push delivery.
+    const first = await hub.store.publishBotMessage("bot_presence", { conversationId: chat, blocks: [{ type: "text", text: "first while active" }] });
+    await hub.store.db.run("UPDATE push_outbox SET next_at=0 WHERE device_id='android_phone'");
+    await (hub as unknown as { pushWorker: PushWorker }).pushWorker.tick();
+    const firstRow = await hub.store.db.get<{ status: string }>("SELECT status FROM push_outbox WHERE payload_json LIKE ?", [`%${first.id}%`]);
+    expect(firstRow?.status).toBe("suppressed");
+    // Wait beyond foregroundTimeoutMs without sending any pings (simulates frozen background WebView).
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const second = await hub.store.publishBotMessage("bot_presence", { conversationId: chat, blocks: [{ type: "text", text: "second while frozen" }] });
+    await hub.store.db.run("UPDATE push_outbox SET next_at=0 WHERE device_id='android_phone' AND status='pending'");
+    await (hub as unknown as { pushWorker: PushWorker }).pushWorker.tick();
+    const secondRow = await hub.store.db.get<{ status: string }>("SELECT status FROM push_outbox WHERE payload_json LIKE ?", [`%${second.id}%`]);
+    // Because FCM isn't configured on this test Hub, a non-suppressed delivery stays pending (deferred unconfigured) instead of being permanently suppressed.
+    expect(secondRow?.status).toBe("pending");
+  } finally {
+    ws.close();
+    await hub.close();
+    await rm(hubDir, { recursive: true, force: true });
+  }
 });
 test("FCM uses signed short-lived tokens and non-collapsible data messages with independent ids", async () => {
   const keys = generateKeyPairSync("rsa", { modulusLength: 2048 }); const file = path.join(root, "fcm.json");

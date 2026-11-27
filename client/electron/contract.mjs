@@ -16,7 +16,7 @@ export const DESKTOP_COMMANDS = Object.freeze([
   'desktop_migration_inspect', 'desktop_migration_prepare', 'desktop_migration_read', 'desktop_migration_complete',
   'desktop_canvas_network', 'desktop_recover', 'desktop_native_state', 'desktop_window_read', 'desktop_window_size', 'desktop_window_position', 'desktop_window_side_minimum',
   'desktop_window_fullscreen', 'desktop_window_focus', 'desktop_context_menu', 'desktop_open_url', 'desktop_clipboard_image',
-  'desktop_launch_links', 'desktop_autostart_get', 'desktop_autostart_set', 'unread_count', 'desktop_notification_settings',
+  'desktop_launch_links', 'desktop_autostart_get', 'desktop_autostart_set', 'unread_count', 'desktop_notification_settings', 'desktop_network_settings',
   'desktop_save_begin', 'desktop_save_write', 'desktop_save_commit', 'desktop_save_cancel', 'open_saved_file', 'reveal_saved_file',
   'desktop_notifications_supported', 'desktop_notification_permission', 'desktop_notification_context', 'desktop_notification_show',
   'desktop_notification_clear', 'desktop_notification_peek', 'desktop_notification_ack', 'desktop_notification_diagnostics',

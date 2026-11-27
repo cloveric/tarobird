@@ -1,6 +1,14 @@
+import { openDB, type DBSchema } from 'idb';
 import { conversationFolderOrder, isFolderPinned, type ConversationFoldersState } from '../../src/client-protocol/conversation-folders.js';
 
 export const CROSS_HOST_FOLDER_ORDER_KEY = 'tarobird-cross-host-folder-order-v1';
+const REGISTRY_DATABASE = 'tarocub-hosts-v1';
+
+interface RegistryMetaSchema extends DBSchema {
+  hosts: { key: string; value: unknown };
+  meta: { key: string; value: string };
+  networkCandidates: { key: string; value: unknown };
+}
 
 export type CrossHostFolderRef = {
   hostKey: string;
@@ -8,12 +16,14 @@ export type CrossHostFolderRef = {
   folderId: string | null;
 };
 
-/** App-local cross-host folder display order. Stored only on this device; does
- * not alter any Hub's per-host folder order or sync contract. */
+/** Cross-host folder display order keyed by `[hostKey, folderId]`.
+ * Mirrored across `localStorage` and IndexedDB (`tarocub-hosts-v1` `meta`) and
+ * synced across the owner's devices via upgraded Hubs. */
 export type StoredCrossHostFolderOrder = {
   version: 1;
   pinned: string[];
   ordinary: string[];
+  updatedAt?: number;
 };
 
 export type CrossHostFolderSource = {
@@ -65,6 +75,10 @@ export const emptyCrossHostFolderOrder = (): StoredCrossHostFolderOrder => ({
   ordinary: [],
 });
 
+export function crossHostFolderOrderUpdatedAt(order: StoredCrossHostFolderOrder): number {
+  return order.updatedAt ?? 0;
+}
+
 function uniqueValidKeys(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const seen = new Set<string>(), out: string[] = [];
@@ -80,10 +94,14 @@ export function parseStoredCrossHostFolderOrder(raw: unknown): StoredCrossHostFo
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return emptyCrossHostFolderOrder();
   const value = raw as Record<string, unknown>;
   if (value.version !== 1) return emptyCrossHostFolderOrder();
+  const updatedAt = typeof value.updatedAt === 'number' && Number.isSafeInteger(value.updatedAt) && value.updatedAt > 0
+    ? value.updatedAt
+    : undefined;
   return {
     version: 1,
     pinned: uniqueValidKeys(value.pinned),
     ordinary: uniqueValidKeys(value.ordinary),
+    ...(updatedAt !== undefined ? { updatedAt } : {}),
   };
 }
 
@@ -177,7 +195,7 @@ function resolveTier(
   return result.map(key => liveByKey.get(key)!);
 }
 
-/** Merge live per-host folder snapshots with the App-local cross-host order.
+/** Merge live per-host folder snapshots with the cross-host order.
  * Pinned folders across all hosts stay first; newly created folders land beside
  * their host's canonical neighbors; offline or hidden hosts are never dropped. */
 export function resolveCrossHostFolderOrder(
@@ -291,6 +309,7 @@ export function commitCrossHostFolderOrder(
     ordinary: nextOrdinary.length
       ? mergeTierOrder(stored.ordinary, resolvedOrdinary, nextOrdinary, isDeleted)
       : uniqueValidKeys(stored.ordinary).filter(key => !isDeleted(key)),
+    ...(stored.updatedAt ? { updatedAt: stored.updatedAt } : {}),
   };
 }
 
@@ -320,9 +339,9 @@ export function moveCrossHostFolderOrder(
   return commitCrossHostFolderOrder(stored, sources, nextKeys, active.map(entry => entry.key));
 }
 
-/** Update App-local pinned/ordinary placement after a Hub confirms a folder pin
- * or unpin. Pinning remembers the folder's current cross-host ordinary slot so
- * unpinning restores it while keeping any other ordinary reorders intact. */
+/** Update pinned/ordinary placement after a Hub confirms a folder pin or unpin.
+ * Pinning remembers the folder's current cross-host ordinary slot so unpinning
+ * restores it while keeping any other ordinary reorders intact. */
 export function recordCrossHostFolderPin(
   stored: StoredCrossHostFolderOrder,
   sourcesBeforePin: readonly CrossHostFolderSource[],
@@ -338,12 +357,58 @@ export function recordCrossHostFolderPin(
       ? mergeTierOrder(stored.ordinary, resolvedOrdinaryBefore, resolvedOrdinaryBefore, isDeleted)
       : uniqueValidKeys(stored.ordinary).filter(key => !isDeleted(key));
     const nextPinned = [targetKey, ...uniqueValidKeys(stored.pinned).filter(key => key !== targetKey && !isDeleted(key))];
-    return { version: 1, pinned: nextPinned, ordinary };
+    return {
+      version: 1,
+      pinned: nextPinned,
+      ordinary,
+      ...(stored.updatedAt ? { updatedAt: stored.updatedAt } : {}),
+    };
   }
   return {
     version: 1,
     pinned: uniqueValidKeys(stored.pinned).filter(key => key !== targetKey && !isDeleted(key)),
     ordinary: uniqueValidKeys(stored.ordinary).filter(key => !isDeleted(key)),
+    ...(stored.updatedAt ? { updatedAt: stored.updatedAt } : {}),
+  };
+}
+
+/** Propagate a single-host FolderManager/FolderActions reorder into an existing
+ * cross-host order while keeping other hosts' slots anchored in place. */
+export function reorderSingleHostCrossHostFolderOrder(
+  stored: StoredCrossHostFolderOrder,
+  hostKey: string,
+  folders: ConversationFoldersState,
+  folderIds: readonly (string | null)[],
+): StoredCrossHostFolderOrder {
+  if (!hostKey || (!stored.pinned.length && !stored.ordinary.length)) return stored;
+  const source: CrossHostFolderSource = {
+    hostId: hostKey,
+    hostKey,
+    hostName: '',
+    folders,
+    online: true,
+    foldersAuthoritative: true,
+  };
+  const nextHostKeys = folderIds.map(folderId => crossHostFolderKey({ hostKey, folderId }));
+  return commitCrossHostFolderOrder(stored, [source], nextHostKeys, nextHostKeys);
+}
+
+/** Remove a deleted custom folder key from saved cross-host order if present. */
+export function pruneCrossHostFolderOrderFolder(
+  stored: StoredCrossHostFolderOrder,
+  hostKey: string,
+  folderId: string,
+): StoredCrossHostFolderOrder {
+  if (!hostKey || !folderId) return stored;
+  const target = crossHostFolderKey({ hostKey, folderId });
+  const pinned = stored.pinned.filter(key => key !== target);
+  const ordinary = stored.ordinary.filter(key => key !== target);
+  if (pinned.length === stored.pinned.length && ordinary.length === stored.ordinary.length) return stored;
+  return {
+    version: 1,
+    pinned,
+    ordinary,
+    ...(stored.updatedAt ? { updatedAt: stored.updatedAt } : {}),
   };
 }
 
@@ -357,7 +422,12 @@ export function pruneCrossHostFolderOrderHost(
   const pinned = stored.pinned.filter(keep);
   const ordinary = stored.ordinary.filter(keep);
   if (pinned.length === stored.pinned.length && ordinary.length === stored.ordinary.length) return stored;
-  return { version: 1, pinned, ordinary };
+  return {
+    version: 1,
+    pinned,
+    ordinary,
+    ...(stored.updatedAt ? { updatedAt: stored.updatedAt } : {}),
+  };
 }
 
 /** Filter resolved cross-host folder items down to the ones that should render
@@ -378,11 +448,40 @@ export function visibleCrossHostFolders(
   });
 }
 
-// --- App-local storage store (localStorage + in-memory fallback + cross-window sync) ---
+// --- Hybrid storage store (localStorage + IndexedDB tarocub-hosts-v1 meta + in-memory cache) ---
 
 let cachedOrder: StoredCrossHostFolderOrder | undefined;
 const listeners = new Set<() => void>();
 let storageListenerAttached = false;
+let localWriteEpoch = 0;
+let idbHydration: Promise<StoredCrossHostFolderOrder> | undefined;
+let idbWriteQueue: Promise<void> = Promise.resolve();
+let serverTimeOffset = 0;
+let lastWriteError: string | undefined;
+
+export function setCrossHostServerTimeOffset(offset: number): void {
+  if (Number.isFinite(offset)) serverTimeOffset = Math.round(offset);
+}
+
+export function nextCrossHostFolderUpdatedAt(prevUpdatedAt = 0): number {
+  return Math.max(1, Math.round(Date.now() + serverTimeOffset), prevUpdatedAt + 1);
+}
+
+export function crossHostFolderOrderWriteError(): string | undefined {
+  return lastWriteError;
+}
+
+function isCompletelyEmpty(order: StoredCrossHostFolderOrder): boolean {
+  return !order.pinned.length && !order.ordinary.length && !(order.updatedAt && order.updatedAt > 0);
+}
+
+function sameStoredOrder(a: StoredCrossHostFolderOrder, b: StoredCrossHostFolderOrder): boolean {
+  return (a.updatedAt ?? 0) === (b.updatedAt ?? 0)
+    && a.pinned.length === b.pinned.length
+    && a.ordinary.length === b.ordinary.length
+    && a.pinned.every((v, i) => v === b.pinned[i])
+    && a.ordinary.every((v, i) => v === b.ordinary[i]);
+}
 
 function readFromStorage(): StoredCrossHostFolderOrder {
   if (typeof localStorage === 'undefined') return emptyCrossHostFolderOrder();
@@ -395,9 +494,130 @@ function readFromStorage(): StoredCrossHostFolderOrder {
   }
 }
 
+function writeToLocalStorage(order: StoredCrossHostFolderOrder): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    if (isCompletelyEmpty(order)) {
+      localStorage.removeItem(CROSS_HOST_FOLDER_ORDER_KEY);
+    } else {
+      localStorage.setItem(CROSS_HOST_FOLDER_ORDER_KEY, JSON.stringify(order));
+    }
+    return true;
+  } catch {
+    console.warn('cross_host_folder_order_local_storage_failed');
+    return false;
+  }
+}
+
+async function openOrderDb() {
+  return openDB<RegistryMetaSchema>(REGISTRY_DATABASE, 2, {
+    upgrade(db, version) {
+      if (version < 1) {
+        db.createObjectStore('hosts', { keyPath: 'id' });
+        db.createObjectStore('meta');
+      }
+      if (version < 2) {
+        db.createObjectStore('networkCandidates', { keyPath: 'id' });
+      }
+    },
+  });
+}
+
+async function readFromIndexedDb(): Promise<StoredCrossHostFolderOrder | undefined> {
+  if (typeof indexedDB === 'undefined') return undefined;
+  const db = await openOrderDb();
+  try {
+    const raw = await db.get('meta', CROSS_HOST_FOLDER_ORDER_KEY);
+    if (typeof raw !== 'string') return undefined;
+    return parseStoredCrossHostFolderOrder(JSON.parse(raw));
+  } finally {
+    db.close();
+  }
+}
+
+async function writeToIndexedDb(order: StoredCrossHostFolderOrder): Promise<void> {
+  if (typeof indexedDB === 'undefined') return;
+  const db = await openOrderDb();
+  try {
+    if (isCompletelyEmpty(order)) {
+      await db.delete('meta', CROSS_HOST_FOLDER_ORDER_KEY);
+    } else {
+      await db.put('meta', JSON.stringify(order), CROSS_HOST_FOLDER_ORDER_KEY);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+function enqueueIdbWrite(order: StoredCrossHostFolderOrder, localStorageOk: boolean): Promise<void> {
+  if (typeof indexedDB === 'undefined') {
+    if (!localStorageOk && typeof localStorage !== 'undefined') {
+      lastWriteError = 'cross_host_folder_order_persist_failed';
+    } else {
+      lastWriteError = undefined;
+    }
+    return Promise.resolve();
+  }
+  const work = idbWriteQueue.then(async () => {
+    try {
+      await writeToIndexedDb(order);
+      if (lastWriteError !== undefined) {
+        lastWriteError = undefined;
+        for (const listener of listeners) listener();
+      }
+    } catch {
+      console.warn('cross_host_folder_order_idb_failed');
+      if (!localStorageOk) {
+        lastWriteError = 'cross_host_folder_order_persist_failed';
+        for (const listener of listeners) listener();
+      }
+    }
+  });
+  idbWriteQueue = work;
+  return work;
+}
+
+export function readyCrossHostFolderOrder(): Promise<StoredCrossHostFolderOrder> {
+  if (!cachedOrder) cachedOrder = readFromStorage();
+  if (typeof indexedDB === 'undefined') return Promise.resolve(cachedOrder);
+  if (idbHydration) return idbHydration;
+  const startEpoch = localWriteEpoch;
+  idbHydration = (async () => {
+    try {
+      const idbOrder = await readFromIndexedDb();
+      if (localWriteEpoch !== startEpoch) {
+        return cachedOrder ?? readFromStorage();
+      }
+      const current = cachedOrder ?? readFromStorage();
+      if (idbOrder) {
+        const idbTs = idbOrder.updatedAt ?? 0;
+        const curTs = current.updatedAt ?? 0;
+        const curEmpty = !current.pinned.length && !current.ordinary.length;
+        const idbHasEntries = idbOrder.pinned.length > 0 || idbOrder.ordinary.length > 0;
+        if (idbTs > curTs || (idbTs === curTs && curEmpty && idbHasEntries)) {
+          cachedOrder = idbOrder;
+          writeToLocalStorage(idbOrder);
+          for (const listener of listeners) listener();
+          return idbOrder;
+        }
+        if (!sameStoredOrder(current, idbOrder) && !isCompletelyEmpty(current)) {
+          await enqueueIdbWrite(current, true);
+        }
+      } else if (!isCompletelyEmpty(current)) {
+        await enqueueIdbWrite(current, true);
+      }
+      return current;
+    } catch {
+      return cachedOrder ?? readFromStorage();
+    }
+  })();
+  return idbHydration;
+}
+
 function handleStorageEvent(event: StorageEvent): void {
   if (event.key !== null && event.key !== CROSS_HOST_FOLDER_ORDER_KEY) return;
   cachedOrder = readFromStorage();
+  localWriteEpoch++;
   for (const listener of listeners) listener();
 }
 
@@ -409,32 +629,40 @@ function listenForStorageChanges(): void {
 
 export function readCrossHostFolderOrder(): StoredCrossHostFolderOrder {
   listenForStorageChanges();
+  if (typeof indexedDB !== 'undefined' && !idbHydration) {
+    void readyCrossHostFolderOrder();
+  }
   if (cachedOrder) return cachedOrder;
   cachedOrder = readFromStorage();
   return cachedOrder;
 }
 
-export function writeCrossHostFolderOrder(next: StoredCrossHostFolderOrder): void {
+export function writeCrossHostFolderOrder(
+  next: StoredCrossHostFolderOrder,
+  options?: { updatedAt?: number; fromSync?: boolean },
+): void {
   listenForStorageChanges();
-  const sanitized = parseStoredCrossHostFolderOrder(next);
+  const prev = cachedOrder ?? readFromStorage();
+  const sanitizedBase = parseStoredCrossHostFolderOrder(next);
+  const updatedAt = options?.fromSync
+    ? (sanitizedBase.updatedAt ?? 0)
+    : (options?.updatedAt ?? nextCrossHostFolderUpdatedAt(prev.updatedAt ?? 0));
+  const sanitized: StoredCrossHostFolderOrder = updatedAt > 0
+    ? { version: 1, updatedAt, pinned: sanitizedBase.pinned, ordinary: sanitizedBase.ordinary }
+    : { version: 1, pinned: sanitizedBase.pinned, ordinary: sanitizedBase.ordinary };
   cachedOrder = sanitized;
-  if (typeof localStorage !== 'undefined') {
-    try {
-      if (!sanitized.pinned.length && !sanitized.ordinary.length) {
-        localStorage.removeItem(CROSS_HOST_FOLDER_ORDER_KEY);
-      } else {
-        localStorage.setItem(CROSS_HOST_FOLDER_ORDER_KEY, JSON.stringify(sanitized));
-      }
-    } catch {
-      /* Memory still keeps this session's choice. */
-    }
-  }
+  localWriteEpoch++;
+  const localOk = writeToLocalStorage(sanitized);
+  void enqueueIdbWrite(sanitized, localOk);
   for (const listener of listeners) listener();
 }
 
 export function subscribeCrossHostFolderOrder(listener: () => void): () => void {
   listeners.add(listener);
   listenForStorageChanges();
+  if (typeof indexedDB !== 'undefined' && !idbHydration) {
+    void readyCrossHostFolderOrder();
+  }
   // The cached store outlives its views, including host removal without a view.
   // Keep one document-lifetime listener so hidden views cannot miss remote
   // changes; reloading storage on remount would discard failed-write fallback.
@@ -444,7 +672,9 @@ export function subscribeCrossHostFolderOrder(listener: () => void): () => void 
 export function removeCrossHostFolderOrderHost(hostKey: string): void {
   const current = readCrossHostFolderOrder();
   const next = pruneCrossHostFolderOrderHost(current, hostKey);
-  if (next !== current) writeCrossHostFolderOrder(next);
+  // Device-local unpairing ("从此设备移除") must not bump updatedAt or broadcast
+  // a destructive global deletion to other devices still paired with this host.
+  if (next !== current) writeCrossHostFolderOrder(next, { fromSync: true });
 }
 
 export function saveCrossHostFolderOrder(
@@ -474,8 +704,33 @@ export function applyCrossHostFolderPin(
   writeCrossHostFolderOrder(recordCrossHostFolderPin(readCrossHostFolderOrder(), sourcesBeforePin, targetKey, pinned));
 }
 
+export function applySingleHostFolderReorder(
+  hostKey: string,
+  folders: ConversationFoldersState,
+  folderIds: readonly (string | null)[],
+): void {
+  const current = readCrossHostFolderOrder();
+  const next = reorderSingleHostCrossHostFolderOrder(current, hostKey, folders, folderIds);
+  if (next !== current) writeCrossHostFolderOrder(next);
+}
+
+export function pruneCrossHostDeletedFolder(hostKey: string, folderId: string): void {
+  const current = readCrossHostFolderOrder();
+  const next = pruneCrossHostFolderOrderFolder(current, hostKey, folderId);
+  if (next !== current) writeCrossHostFolderOrder(next);
+}
+
+export async function flushCrossHostFolderOrderPersistence(): Promise<void> {
+  await readyCrossHostFolderOrder();
+  await idbWriteQueue;
+}
+
 export function resetCrossHostFolderOrderCache(): void {
   cachedOrder = undefined;
+  idbHydration = undefined;
+  localWriteEpoch = 0;
+  serverTimeOffset = 0;
+  lastWriteError = undefined;
   if (storageListenerAttached && typeof window !== 'undefined') {
     window.removeEventListener('storage', handleStorageEvent);
     storageListenerAttached = false;

@@ -1,0 +1,5 @@
+Pi project mark from https://pi.dev (https://github.com/badlogic/pi-mono)
+
+Used in monochrome in assets/product/engines.png to identify the supported Pi engine.
+The Pi name and logo remain the trademarks/property of their respective owners.
+Use here is solely for nominative identification of the supported engine.

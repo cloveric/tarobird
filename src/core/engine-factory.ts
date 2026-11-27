@@ -10,6 +10,7 @@ import { prepareBotInstructions } from "../runtime/bot-instructions.js";
 import { ProcessCodexAdapter } from "../codex/process-adapter.js";
 import { ClaudeStreamAdapter } from "../codex/claude-stream-adapter.js";
 import { PiRpcAdapter } from "../codex/pi-rpc-adapter.js";
+import { OmpRpcAdapter } from "../codex/omp-rpc-adapter.js";
 import { hasCorePostTurnDelivery } from "./delivery.js";
 import { KimiAcpAdapter } from "../codex/kimi-acp-adapter.js";
 import { ProcessAntigravityAdapter } from "../codex/antigravity-adapter.js";
@@ -260,7 +261,7 @@ async function seedIsolatedClaudeConfig(
   ]);
 }
 
-export type EngineType = "codex" | "claude" | "antigravity" | "kimi" | "deepseek" | "pi";
+export type EngineType = "codex" | "claude" | "antigravity" | "kimi" | "deepseek" | "pi" | "omp";
 type CodexRuntime = "app-server" | "process";
 type AntigravityRuntime = "print" | "acp";
 
@@ -272,7 +273,7 @@ export async function readInstanceRuntimeConfig(configPath: string): Promise<{
   claudeChrome: boolean;
 }> {
   const parsed = await readValidatedConfigFile(configPath);
-  const engine = parsed.engine === "claude" || parsed.engine === "antigravity" || parsed.engine === "kimi" || parsed.engine === "deepseek" || parsed.engine === "pi"
+  const engine = parsed.engine === "claude" || parsed.engine === "antigravity" || parsed.engine === "kimi" || parsed.engine === "deepseek" || parsed.engine === "pi" || parsed.engine === "omp"
     ? parsed.engine
     : "codex";
   const approvalMode = resolveApprovalModeForEngine(
@@ -307,7 +308,7 @@ export function resolveEngineRuntime(
   codexRuntime?: CodexRuntime,
   antigravityRuntime?: AntigravityRuntime,
 ): "app-server" | "process" | "stream" | "acp" | "web" | "rpc" {
-  if (engine === "pi") return "rpc";
+  if (engine === "pi" || engine === "omp") return "rpc";
   if (engine === "claude") {
     return "stream";
   }
@@ -485,6 +486,11 @@ export function buildEngineEnvironment(env: EnvSource, transport: BridgeDependen
     ["KIMI_CODE_HOME", "KIMI_CODE_HOME"],
     ["DSH_HOME", "DSH_HOME"],
     ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR"],
+    ["PI_CODING_AGENT_SESSION_DIR", "PI_CODING_AGENT_SESSION_DIR"],
+    ["PI_CONFIG_DIR", "PI_CONFIG_DIR"],
+    ["OMP_EXECUTABLE", "OMP_EXECUTABLE"],
+    ["OMP_CONFIG_DIR", "OMP_CONFIG_DIR"],
+    ["OMP_PROFILE", "OMP_PROFILE"],
     ["TAROBOT_STATE_DIR", "TAROBOT_STATE_DIR"],
     ["TAROBOT_INSTANCE", "TAROBOT_INSTANCE"],
     ["TAROCUB_INSTANCE", "TAROCUB_INSTANCE"],
@@ -533,6 +539,17 @@ async function createAdapter(
   const childEnv = buildEngineEnvironment(env, options.transport);
   const searchRouting = await resolveSearchRouting(childEnv);
   const nativeSearchMcp = createNativeSearchMcpPlanner(childEnv);
+
+  if (engine === "omp") {
+    await mkdir(workspacePath, { recursive: true });
+    return new OmpRpcAdapter({
+      launch: { command: config.ompExecutable, args: [] },
+      workspacePath,
+      stateDir: config.stateDir,
+      childEnv,
+      configPath,
+    });
+  }
 
   if (engine === "pi") {
     await mkdir(workspacePath, { recursive: true });
@@ -638,6 +655,8 @@ async function createAdapter(
       gateway: host,
       searchMcpEnabled: searchRouting.enabled && Boolean(searchMcpInvocation),
       workspacePath,
+      sharedHome: config.deepseekHome,
+      childEnv: searchRouting.env,
       configPath,
       goalStatePath: path.join(config.stateDir, "deepseek-goals.json"),
       permissionPreset: deepSeekPermissionPreset(approvalMode),

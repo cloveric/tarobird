@@ -86,13 +86,16 @@ export type InstalledPluginRecord = {
   grantedDomains: string[];
 };
 
-function matchesPinnedCanvas(record: InstalledPluginRecord): boolean {
-  const pinned = OFFICIAL_PLUGIN_CATALOG.find(entry => entry.manifest.id === OFFICIAL_CANVAS_PLUGIN_ID)!;
-  return record.sourceKind === "official" && JSON.stringify(record.manifest) === JSON.stringify(pinned.manifest);
+function pinnedCanvasManifest(catalog: readonly PluginCatalogEntry[]): PluginManifest | undefined {
+  return catalog.find(entry => entry.manifest.id === OFFICIAL_CANVAS_PLUGIN_ID && entry.manifest.official)?.manifest;
+}
+
+function matchesPinnedCanvas(record: InstalledPluginRecord, pinned: PluginManifest | undefined): boolean {
+  return !!pinned && record.sourceKind === "official" && JSON.stringify(record.manifest) === JSON.stringify(pinned);
 }
 
 export function isPinnedCanvas(record: InstalledPluginRecord): boolean {
-  return record.enabled && record.bundleHtml !== "" && matchesPinnedCanvas(record);
+  return record.enabled && record.bundleHtml !== "" && matchesPinnedCanvas(record, pinnedCanvasManifest(OFFICIAL_PLUGIN_CATALOG));
 }
 
 export type PreparedLocalDevPlugin = {
@@ -447,8 +450,12 @@ export class PluginRegistry {
           }
         }
         if (this.scopeId !== scope) return;
-        if (html && id === OFFICIAL_CANVAS_PLUGIN_ID && (!matchesPinnedCanvas(current) ||
-          new TextEncoder().encode(html).length !== canvasArtifact.size || !(await verifyPluginArtifactHash(html, canvasArtifact.sha256)))) html = null;
+        if (html && id === OFFICIAL_CANVAS_PLUGIN_ID) {
+          const pinned = pinnedCanvasManifest(this.catalog);
+          if (!pinned || !matchesPinnedCanvas(current, pinned) ||
+            new TextEncoder().encode(html).length !== pinned.artifact.sizeBytes ||
+            !(await verifyPluginArtifactHash(html, pinned.artifact.sha256))) html = null;
+        }
         if (this.scopeId !== scope) return;
         const latest = this.state.installed[id];
         // Toggling an installation while the digest is pending does not

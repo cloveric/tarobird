@@ -3,9 +3,9 @@ import type { ClientCache, Identity, OutboxEntry } from "../src/storage.js";
 import type { ClientFrame, Message } from "../../src/client-protocol/index.js";
 import { CONVERSATION_SYNC_CAPABILITY } from "../../src/client-protocol/snapshot.js";
 
-// Outbox writes touch only the durable queue. They must refresh the affected
-// conversation (receipts fence against cacheRevision) without making every
-// other conversation reread its history or directory.
+// Outbox writes touch only the durable queue. They must advance outboxRevision
+// and notify subscribers without marking any conversation's message history
+// dirty or advancing cacheRevision / conversationRevision.
 const io = vi.hoisted(() => ({ socket: vi.fn(), notify: vi.fn() }));
 vi.mock("../src/storage.js", () => ({ cache: {}, ClientCache: class {}, defaultPreferences: {} }));
 vi.mock("../src/identity.js", () => ({ randomNonce: () => "nonce", signChallenge: async () => "signature", verifyHub: async () => {} }));
@@ -38,7 +38,9 @@ async function connected({ independent = true, complete = true } = {}) {
     outbox: vi.fn(async () => outbox.map(entry => ({ ...entry }))),
     enqueue: vi.fn(async (frame: ClientFrame) => { outbox.push({ id: frameId(frame), order: ++order, frame } as OutboxEntry); }),
     acknowledge: vi.fn(async (id: string) => { const index = outbox.findIndex(entry => entry.id === id); return index < 0 ? undefined : outbox.splice(index, 1)[0]; }),
+    acknowledgeReceipt: vi.fn(async (id: string) => { const index = outbox.findIndex(entry => entry.id === id); return { entry: index < 0 ? undefined : outbox.splice(index, 1)[0], alreadyDeleted: false }; }),
     discardFailed: vi.fn(async (id: string) => { const index = outbox.findIndex(entry => entry.id === id && entry.error); return index < 0 ? undefined : outbox.splice(index, 1)[0]; }),
+    retryFailed: vi.fn(async (id: string) => { const entry = outbox.find(item => item.id === id && item.error); if (!entry) return false; delete entry.error; return true; }),
     fail: vi.fn(async (id: string, error: string) => { const entry = outbox.find(item => item.id === id); if (entry) entry.error = error; }),
     apply: vi.fn(async (event: { payload: Message }) => event.payload), claimNotification: vi.fn(async () => true),
   };
@@ -66,52 +68,68 @@ const send = (conversationId: string, clientMsgId: string): ClientFrame => ({ v:
 const others = (before: Record<string, number>, after: Record<string, number>, target: string) =>
   Object.fromEntries(Object.entries(after).filter(([id]) => id !== target).map(([id, value]) => [id, value - before[id]!]));
 
-it("queues and acknowledges a message without invalidating other conversations", async () => {
-  const { connection, ws, receive, revisions } = await connected();
+it("queues and acknowledges a message without invalidating any conversation history", async () => {
+  const { connection, ws, receive, reply, revisions } = await connected();
   const changes = vi.fn(); connection.subscribe(changes);
   const queueBefore = connection.outboxRevision, before = revisions(), cacheBefore = connection.state.cacheRevision;
   await connection.send(send("live", "client_send_1"));
-  // One cache publication per queue mutation; reading/flushing the queue adds none.
-  expect(connection.state.cacheRevision - cacheBefore).toBe(1);
+  // Queue mutations advance outboxRevision and notify listeners without
+  // bumping cacheRevision or any conversationRevision.
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
   expect(ws.send).toHaveBeenCalledWith(expect.stringContaining("client_send_1"));
   expect(connection.state.outbox).toBe(1);
   expect(connection.outboxRevision).toBe(queueBefore + 1);
   expect(changes).toHaveBeenCalled();
   const queued = revisions();
-  // The queued conversation advances so its pending row and history fences refresh.
-  expect(queued.live).toBeGreaterThan(before.live!);
-  expect(others(before, queued, "live")).toEqual({ history: 0, c3: 0, c4: 0, c5: 0 });
+  expect(queued).toEqual(before);
 
-  const receipts: { revision: number; messageAccepted: boolean }[] = [];
+  const receipts: { revision: number; queueRevision: number; messageAccepted: boolean }[] = [];
   connection.subscribeOutboxSettlement(receipt => receipts.push(receipt));
-  const cacheQueued = connection.state.cacheRevision;
   await receive({ type: "message.ack", clientMsgId: "client_send_1" });
   const acknowledged = revisions();
-  expect(connection.state.cacheRevision - cacheQueued).toBe(1);
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
   expect(connection.state.outbox).toBe(0);
   expect(connection.outboxRevision).toBe(queueBefore + 2);
-  expect(receipts).toEqual([expect.objectContaining({ messageAccepted: true })]);
-  // conversation-outbox clears an ACK receipt only after a read started at a
-  // later revision. The acknowledged conversation must therefore advance.
-  expect(acknowledged.live).toBeGreaterThan(receipts[0]!.revision);
-  expect(connection.state.cacheRevision).toBeGreaterThan(receipts[0]!.revision);
-  expect(others(queued, acknowledged, "live")).toEqual({ history: 0, c3: 0, c4: 0, c5: 0 });
+  expect(receipts).toEqual([expect.objectContaining({
+    revision: cacheBefore,
+    queueRevision: queueBefore + 1,
+    messageAccepted: true,
+  })]);
+  expect(acknowledged).toEqual(before);
+
+  // When the canonical message event arrives, only the owning conversation's
+  // history revision advances.
+  await reply("live", "server_msg_1", 1);
+  const delivered = revisions();
+  expect(connection.state.cacheRevision).toBe(cacheBefore + 1);
+  expect(delivered.live).toBeGreaterThan(before.live!);
+  expect(others(before, delivered, "live")).toEqual({ history: 0, c3: 0, c4: 0, c5: 0 });
 });
 
-it("scopes a rejected queued operation and its discard to the owning conversation", async () => {
+it("rejects, retries, and discards queued operations via outboxRevision without invalidating history", async () => {
   const { connection, receive, revisions } = await connected();
+  const before = revisions(), cacheBefore = connection.state.cacheRevision, queueBefore = connection.outboxRevision;
   await connection.send(send("history", "client_reject_1"));
-  const before = revisions(), queueBefore = connection.outboxRevision;
-  await receive({ type: "error", code: "conversation_archived", message: "archived", retryable: false, requestId: "client_reject_1" });
-  const failed = revisions();
   expect(connection.outboxRevision).toBe(queueBefore + 1);
-  expect(failed.history).toBeGreaterThan(before.history!);
-  expect(others(before, failed, "history")).toEqual({ live: 0, c3: 0, c4: 0, c5: 0 });
-  await connection.discardFailed("client_reject_1");
-  const discarded = revisions();
-  expect(connection.state.outbox).toBe(0);
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
+  expect(revisions()).toEqual(before);
+
+  await receive({ type: "error", code: "conversation_archived", message: "archived", retryable: false, requestId: "client_reject_1" });
   expect(connection.outboxRevision).toBe(queueBefore + 2);
-  expect(others(failed, discarded, "history")).toEqual({ live: 0, c3: 0, c4: 0, c5: 0 });
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
+  expect(revisions()).toEqual(before);
+
+  await connection.retryFailed("client_reject_1");
+  expect(connection.outboxRevision).toBe(queueBefore + 3);
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
+  expect(revisions()).toEqual(before);
+
+  await receive({ type: "error", code: "conversation_archived", message: "archived", retryable: false, requestId: "client_reject_1" });
+  await connection.discardFailed("client_reject_1");
+  expect(connection.state.outbox).toBe(0);
+  expect(connection.outboxRevision).toBe(queueBefore + 5);
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
+  expect(revisions()).toEqual(before);
 });
 
 it("synchronizes each conversation independently without a global history invalidation", async () => {
@@ -147,9 +165,16 @@ it("keeps explicit and unknown-scope refreshes global", async () => {
   after = revisions();
   for (const id of ids) expect(after[id]).toBeGreaterThan(before[id]!);
 
-  // A conversation creation has no existing conversation scope.
+  // A conversation creation queued via send() updates outboxRevision without
+  // invalidating existing message histories; retryFailed() on an entry already
+  // removed elsewhere still triggers refreshCache().
   before = revisions();
+  const queueBefore = connection.outboxRevision;
   await connection.send({ v: 1, type: "conversation.create", clientActionId: "create_1", botIds: ["bot"], title: "New" });
+  expect(connection.outboxRevision).toBe(queueBefore + 1);
+  expect(revisions()).toEqual(before);
+
+  await connection.retryFailed("missing_elsewhere");
   after = revisions();
   for (const id of ids) expect(after[id]).toBeGreaterThan(before[id]!);
 });
@@ -210,4 +235,43 @@ it.each(["message.created", "message.updated"])("publishes a deletion invalidati
   await receive({ type: "event", conversationId: "live", seq: 1, kind, at: Date.now(),
     payload: { id: "deleted-in-other-window", conversationId: "live", authorId: "bot", authorType: "bot", blocks: [], status: "deleted", version: 2, createdAt: Date.now() } });
   expect(connection.groupDiscussionRevision).toBe(before + 1);
+});
+
+it("retires an already-deleted message ACK without bridging a phantom sent receipt or invalidating history", async () => {
+  const { connection, cache, outbox, receive, revisions } = await connected();
+  const before = revisions(), cacheBefore = connection.state.cacheRevision, queueBefore = connection.outboxRevision;
+  await connection.send(send("live", "client_deleted_1"));
+  expect(connection.outboxRevision).toBe(queueBefore + 1);
+
+  cache.acknowledgeReceipt.mockImplementationOnce(async (id: string) => {
+    const index = outbox.findIndex(entry => entry.id === id);
+    return { entry: index < 0 ? undefined : outbox.splice(index, 1)[0], alreadyDeleted: true };
+  });
+  const receipts: { entry: OutboxEntry; revision: number; queueRevision: number; messageAccepted: boolean }[] = [];
+  connection.subscribeOutboxSettlement(receipt => receipts.push(receipt));
+
+  await receive({ type: "message.ack", clientMsgId: "client_deleted_1", messageId: "msg_deleted_1" });
+  expect(cache.acknowledgeReceipt).toHaveBeenCalledWith("client_deleted_1", true, { messageId: "msg_deleted_1" });
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
+  expect(connection.state.outbox).toBe(0);
+  expect(connection.outboxRevision).toBe(queueBefore + 2);
+  expect(revisions()).toEqual(before);
+  expect(receipts).toEqual([expect.objectContaining({
+    entry: expect.objectContaining({ id: "client_deleted_1" }),
+    revision: cacheBefore,
+    queueRevision: queueBefore + 1,
+    messageAccepted: false,
+  })]);
+
+  // Same when another window already removed the outbox entry while inflightEntry matches.
+  await connection.send(send("live", "client_deleted_2"));
+  outbox.length = 0;
+  cache.acknowledgeReceipt.mockResolvedValueOnce({ entry: undefined, alreadyDeleted: true });
+  await receive({ type: "message.ack", clientMsgId: "client_deleted_2", messageId: "msg_deleted_2" });
+  expect(connection.state.cacheRevision).toBe(cacheBefore);
+  expect(revisions()).toEqual(before);
+  expect(receipts.at(-1)).toEqual(expect.objectContaining({
+    entry: expect.objectContaining({ id: "client_deleted_2" }),
+    messageAccepted: false,
+  }));
 });

@@ -1,4 +1,5 @@
 import { decodeBase64 } from "../../src/client-protocol/base64.js";
+import { normalizeLocale, t, useLocale, type Locale } from "./i18n.js";
 import { useEffect, useRef, useState } from "react";
 import { Excalidraw, CaptureUpdateAction, convertToExcalidrawElements, exportToBlob, restoreElements, serializeAsJSON } from "@excalidraw/excalidraw";
 import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
@@ -15,7 +16,7 @@ import "./workbench-canvas.css";
 (window as Window & { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH = new URL("/excalidraw/0.18.1/", window.location.href).href;
 
 export type WorkbenchCanvasProps = {
-  scope: string; document: BoardDocument; visible?: boolean; lang?: "zh" | "en";
+  scope: string; document: BoardDocument; visible?: boolean; lang?: Locale;
   /** The stored revision of `document` (lower when it carries a retained unsaved edit). */
   savedRevision?(): number | undefined;
   persist(expectedRevision: number, next: BoardDocument): Promise<void>;
@@ -81,7 +82,7 @@ export function WorkbenchCanvas(props: WorkbenchCanvasProps) {
     void previous.finally(() => { clearTimeout(timer); if (alive) setReady(true); });
     return () => { alive = false; clearTimeout(timer); };
   }, [name, ready]);
-  if (!ready) return <div className="workbench-canvas" data-board-id={props.document.id}><span className="workbench-canvas-status" role="status">{(props.lang ?? (globalThis.document.documentElement.lang.startsWith("en") ? "en" : "zh")) === "en" ? "Saving the previous edit…" : "正在保存上一次编辑…"}</span></div>;
+  if (!ready) return <div className="workbench-canvas" data-board-id={props.document.id}><span className="workbench-canvas-status" role="status">{t("正在保存上一次编辑…")}</span></div>;
   return <BoardEditor key={epoch} {...props} restart={() => setEpoch(value => value + 1)}/>;
 }
 const settledWithin = (promise: Promise<void>, ms: number) => new Promise<void>(resolve => { const timer = setTimeout(resolve, ms); void promise.finally(() => { clearTimeout(timer); resolve(); }); });
@@ -99,23 +100,24 @@ function BoardEditor(props: WorkbenchCanvasProps & { restart?(): void }) {
   const sessionRef = useRef<BoardSession | null>(null), controllerRef = useRef<BoardController | null>(null);
   const signature = useRef(""), fileSnapshot = useRef<{ input: BinaryFiles; json: BoardDocument["files"] } | null>(null);
   const pointerDown = useRef(false);
-  const language = props.lang ?? (globalThis.document.documentElement.lang.startsWith("en") ? "en" : "zh"), en = language === "en";
-  const label = (zh: string, english: string) => en ? english : zh;
+  const activeLocale = useLocale();
+  const normalizedLanguage = normalizeLocale(props.lang ?? activeLocale, "en");
+  const excalidrawLang = normalizedLanguage === "ja" ? "ja-JP" : normalizedLanguage === "zh" ? "zh-CN" : "en";
   const errorText = (code: string) => {
-    const messages: Record<string, [string, string]> = {
-      whiteboard_image_limit: ["支持 PNG、JPEG、WebP 和 GIF，单张图片不超过 16 MB。", "Use PNG, JPEG, WebP or GIF images up to 16 MB each."],
-      whiteboard_storage_limit: ["白板已超过 32 MB，请减少图片或导出备份后另建白板。", "This board exceeds 32 MB. Remove images or export a backup and create another board."],
-      whiteboard_image_dimensions: ["图片分辨率过大，请使用不超过 6400 万像素的图片。", "Use an image with no more than 64 million pixels."],
-      whiteboard_invalid_import: ["无法读取此白板文件，请选择有效的 Excalidraw 文件或图片。", "Choose a valid Excalidraw file or image."],
-      whiteboard_import_requires_workspace: ["请在工作台中导入此文件，它将打开为一张新白板。", "Import this file from the workbench to open it as a new board."],
-      whiteboard_unsupported_image: ["此图片格式暂不支持，请使用 PNG、JPEG、WebP 或 GIF。", "This image format is unsupported. Use PNG, JPEG, WebP or GIF."],
-      whiteboard_unsupported_element: ["文件中包含不支持的嵌入内容，原白板仍保留。", "The file contains unsupported embedded content. Your previous board is retained."],
-      whiteboard_image_required: ["先在白板中放入要修改的图片。", "Add an image to the board first."],
-      whiteboard_reference_limit: ["请将本次选区中的参考图减少到 6 张以内。", "Select no more than 6 reference images."],
-      whiteboard_revision_conflict: ["白板已经改变，请重新读取后再修改。", "The board has changed. Read the current version before editing."],
-      whiteboard_read_only: ["另一窗口正在编辑此白板，请在该窗口修改。", "Another window is editing this board. Make changes there."],
+    const messages: Record<string, string> = {
+      whiteboard_image_limit: t("支持 PNG、JPEG、WebP 和 GIF，单张图片不超过 16 MB。"),
+      whiteboard_storage_limit: t("白板已超过 32 MB，请减少图片或导出备份后另建白板。"),
+      whiteboard_image_dimensions: t("图片分辨率过大，请使用不超过 6400 万像素的图片。"),
+      whiteboard_invalid_import: t("无法读取此白板文件，请选择有效的 Excalidraw 文件或图片。"),
+      whiteboard_import_requires_workspace: t("请在工作台中导入此文件，它将打开为一张新白板。"),
+      whiteboard_unsupported_image: t("此图片格式暂不支持，请使用 PNG、JPEG、WebP 或 GIF。"),
+      whiteboard_unsupported_element: t("文件中包含不支持的嵌入内容，原白板仍保留。"),
+      whiteboard_image_required: t("先在白板中放入要修改的图片。"),
+      whiteboard_reference_limit: t("请将本次选区中的参考图减少到 6 张以内。"),
+      whiteboard_revision_conflict: t("白板已经改变，请重新读取后再修改。"),
+      whiteboard_read_only: t("另一窗口正在编辑此白板，请在该窗口修改。"),
     };
-    return messages[code]?.[en ? 1 : 0] ?? label("未能完成操作，请重试。尚未保存的更改仍保留在当前白板。", "The operation could not finish. Retry; unsaved changes remain in this board.");
+    return messages[code] ?? t("未能完成操作，请重试。尚未保存的更改仍保留在当前白板。");
   };
   const session = sessionRef.current ??= new BoardSession(props.document,
     (expected, next) => callbacks.current.persist(expected, next), {
@@ -256,7 +258,7 @@ function BoardEditor(props: WorkbenchCanvasProps & { restart?(): void }) {
     validateScene(scene, files);
     const normalized = { ...scene, elements: jsonCopy<BoardScene["elements"]>(restoreElements(scene.elements as unknown as ExcalidrawElement[], null)) };
     if (!callbacks.current.onImportBoard) throw new Error("whiteboard_import_requires_workspace");
-    await callbacks.current.onImportBoard({ scene: normalized, files, title: file.name.replace(/\.(?:excalidraw|json)$/i, "").slice(0, 128) || label("导入的白板", "Imported board") });
+    await callbacks.current.onImportBoard({ scene: normalized, files, title: file.name.replace(/\.(?:excalidraw|json)$/i, "").slice(0, 128) || t("导入的白板") });
   };
   const exportFile = async (kind: "scene" | "png") => {
     await flush(); const current = session.document;
@@ -290,24 +292,24 @@ function BoardEditor(props: WorkbenchCanvasProps & { restart?(): void }) {
     onDragOverCapture={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); event.stopPropagation(); } }}
     onDropCapture={event => { if (!event.dataTransfer.files.length) return; event.preventDefault(); event.stopPropagation(); if (writable) { const files = Array.from(event.dataTransfer.files); run(async () => { for (const file of files) await importFile(file); }); } }}>
     <div className="workbench-canvas-tools">
-      <span className="workbench-canvas-status" role="status">{!writable ? label(ownership === "waiting" ? "正在打开…" : ownership === "other_window" ? "另一窗口正在编辑 · 只读" : "无法取得编辑锁 · 只读", ownership === "waiting" ? "Opening…" : ownership === "other_window" ? "Editing in another window · Read only" : "Editing lock unavailable · Read only") : dirty ? label("尚未保存", "Unsaved") : label("已保存在本机", "Saved on this device")}</span>
-      <button type="button" disabled={!writable || busy || (!view.undo.length && !dirty)} onClick={() => run(() => history("undo"))}>{label("撤销", "Undo")}</button>
-      <button type="button" disabled={!writable || busy || !view.redo.length} onClick={() => run(() => history("redo"))}>{label("重做", "Redo")}</button>
-      <button type="button" disabled={(!writable && !props.onImportBoard) || busy} onClick={() => importer.current?.click()}>{label("导入", "Import")}</button>
-      <button type="button" disabled={busy} onClick={() => run(() => exportFile("scene"))}>{label("导出", "Export")}</button>
+      <span className="workbench-canvas-status" role="status">{!writable ? t(ownership === "waiting" ? "正在打开…" : ownership === "other_window" ? "另一窗口正在编辑 · 只读" : "无法取得编辑锁 · 只读") : dirty ? t("尚未保存") : t("已保存在本机")}</span>
+      <button type="button" disabled={!writable || busy || (!view.undo.length && !dirty)} onClick={() => run(() => history("undo"))}>{t("撤销")}</button>
+      <button type="button" disabled={!writable || busy || !view.redo.length} onClick={() => run(() => history("redo"))}>{t("重做")}</button>
+      <button type="button" disabled={(!writable && !props.onImportBoard) || busy} onClick={() => importer.current?.click()}>{t("导入")}</button>
+      <button type="button" disabled={busy} onClick={() => run(() => exportFile("scene"))}>{t("导出")}</button>
       <button type="button" disabled={busy || !view.scene.elements.length} onClick={() => run(() => exportFile("png"))}>PNG</button>
-      {props.onAnnotate && <button className="workbench-canvas-send" type="button" disabled={busy || !writable} onClick={() => run(startAnnotation)}>{label("发给 Bot", "Send to Bot")}</button>}
+      {props.onAnnotate && <button className="workbench-canvas-send" type="button" disabled={busy || !writable} onClick={() => run(startAnnotation)}>{t("发给 Bot")}</button>}
       <input ref={importer} type="file" accept=".excalidraw,.json,image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; run(async () => { for (const file of files) await importFile(file); }); }} />
     </div>
-    {error && <div className="workbench-canvas-error" role="alert" title={error}>{errorText(error)}{dirty && <button type="button" onClick={() => run(flush)}>{label("重新保存", "Retry save")}</button>}</div>}
-    <div className="workbench-canvas-editor"><Excalidraw initialData={{ elements: props.document.scene.elements as unknown as ExcalidrawElement[], appState: props.document.scene.appState as Partial<AppState>, files: props.document.files as unknown as BinaryFiles }} excalidrawAPI={value => { apiRef.current = value; setApi(value); }} onChange={change} viewModeEnabled={!writable} langCode={en ? "en" : "zh-CN"} handleKeyboardGlobally={false} autoFocus={false} validateEmbeddable={false} aiEnabled={false} theme={theme}
+    {error && <div className="workbench-canvas-error" role="alert" title={error}>{errorText(error)}{dirty && <button type="button" onClick={() => run(flush)}>{t("重新保存")}</button>}</div>}
+    <div className="workbench-canvas-editor"><Excalidraw initialData={{ elements: props.document.scene.elements as unknown as ExcalidrawElement[], appState: props.document.scene.appState as Partial<AppState>, files: props.document.files as unknown as BinaryFiles }} excalidrawAPI={value => { apiRef.current = value; setApi(value); }} onChange={change} viewModeEnabled={!writable} langCode={excalidrawLang} handleKeyboardGlobally={false} autoFocus={false} validateEmbeddable={false} aiEnabled={false} theme={theme}
       UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: false, saveAsImage: false, toggleTheme: false } }} onPointerDown={() => { pointerDown.current = true; clearTimeout(timer.current); }} onPointerUp={() => { pointerDown.current = false; clearTimeout(timer.current); timer.current = setTimeout(() => void flush().catch(() => undefined), 0); }} /></div>
-    {annotation && <div className="workbench-annotation-backdrop"><div role="dialog" aria-modal="true" aria-label={label("发送改图材料", "Image editing materials")} className="workbench-annotation-dialog">
-      <h3>{label("发送改图材料", "Image editing materials")}</h3><p>{label("原图、标注预览和参考图将加入当前聊天草稿。标注仅说明修改要求，不属于最终图片。", "The original, annotation preview and references will be added to your current draft. Annotations describe edits and are not part of the final image.")}</p>
-      <label>{label("要修改的原图", "Original image to edit")}<select value={annotation.original} onChange={event => setAnnotation({ ...annotation, original: event.currentTarget.value })}>{view.scene.elements.filter(element => element.type === "image").map((element, index) => <option key={String(element.id)} value={String(element.id)}>{label("图片", "Image")} {index + 1}</option>)}</select></label>
-      {annotationPreview && <img className="workbench-annotation-preview" src={annotationPreview} alt={label("本次标注材料预览", "Preview of annotation materials")} />}
-      <p>{annotation.selected.length ? label(`包含选中的 ${annotation.selected.length} 个元素及完整原图。`, `Includes ${annotation.selected.length} selected elements and the complete original.`) : label("未选区，将包含整张白板。", "No selection: includes the entire whiteboard.")}</p>
-      <div><button type="button" disabled={busy} onClick={() => setAnnotation(null)}>{label("取消", "Cancel")}</button><button type="button" disabled={busy} onClick={() => run(sendAnnotation)}>{label("加入聊天草稿", "Add to draft")}</button></div>
+    {annotation && <div className="workbench-annotation-backdrop"><div role="dialog" aria-modal="true" aria-label={t("发送改图材料")} className="workbench-annotation-dialog">
+      <h3>{t("发送改图材料")}</h3><p>{t("原图、标注预览和参考图将加入当前聊天草稿。标注仅说明修改要求，不属于最终图片。")}</p>
+      <label>{t("要修改的原图")}<select value={annotation.original} onChange={event => setAnnotation({ ...annotation, original: event.currentTarget.value })}>{view.scene.elements.filter(element => element.type === "image").map((element, index) => <option key={String(element.id)} value={String(element.id)}>{t("图片")} {index + 1}</option>)}</select></label>
+      {annotationPreview && <img className="workbench-annotation-preview" src={annotationPreview} alt={t("本次标注材料预览")} />}
+      <p>{annotation.selected.length ? t("包含选中的 {0} 个元素及完整原图。", annotation.selected.length) : t("未选区，将包含整张白板。")}</p>
+      <div><button type="button" disabled={busy} onClick={() => setAnnotation(null)}>{t("取消")}</button><button type="button" disabled={busy} onClick={() => run(sendAnnotation)}>{t("加入聊天草稿")}</button></div>
     </div></div>}
   </div>;
 }

@@ -7,7 +7,8 @@ export async function runTasksCommand(client: Pick<LocalHostClient, "request">, 
   const conversationId = idSchema.parse(conversation), botId = idSchema.parse(options.bot), route = `/api/conversations/${conversationId}/tasks`;
   if (command === "list") {
     if (options.task !== undefined || options.token !== undefined || options.yes || options["request-id"] !== undefined) throw new Error("tasks list 只接受 --bot。");
-    return engineTaskSnapshotSchema.parse(await client.request(`${route}?botId=${botId}`));
+    // `swarmTasks=1`: opt into post-1.6.0 Swarm metadata; older Hosts ignore it.
+    return engineTaskSnapshotSchema.parse(await client.request(`${route}?botId=${botId}&swarmTasks=1`));
   }
   if (command === "recover") {
     if (!options.yes || options.task) throw new Error("强制结束此会话及其全部后台任务，需要 --token TOKEN --yes；先用 tasks list 核对。");

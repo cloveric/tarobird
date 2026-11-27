@@ -1,4 +1,4 @@
-import { WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, isSlidesRequest, designOperationCapability } from "../client-protocol/workbench-design.js";
+import { WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, isSlidesRequest, designOperationCapability, workbenchDesignError } from "../client-protocol/workbench-design.js";
 import { WORKBENCH_CAPABILITY, WORKBENCH_MARKDOWN_CAPABILITY, workbenchReceiptSchema, workbenchPublishedSource, workbenchContextSchema, workbenchContextOmittedSchema, type WorkbenchSource, type WorkbenchRequest, type WorkbenchContext, type WorkbenchContextOmitted } from "../client-protocol/workbench.js";
 import { widgetsEnabled } from "../runtime/widget-policy.js";
 import { backgroundTaskSchema } from "../client-protocol/background-task.js";
@@ -7,7 +7,9 @@ import { scopedTaskLabelSchema } from "../client-protocol/engine-tasks.js";
 import { summarizeRecordedChanges } from "../core/recorded-diff.js";
 import { RUN_CHANGES_CAPABILITY } from "../client-protocol/run-changes.js";
 import { queueNoticeSchema } from "../client-protocol/queue-notice.js";
+import { transcriptionStateSchema } from "../client-protocol/voice-presentation.js";
 import { publicThinkingPreview } from "../client-protocol/run-thinking.js";
+import { publicPlanPreview } from "../client-protocol/run-plan.js";
 import { attachmentMime } from "../client-protocol/attachment-mime.js";
 import { RUN_CAPABILITY, RUN_SCOPES_CAPABILITY, isRunActive, anyRun, runSummarySchema, scopedJournal, type RunEntry, type ScopedJournal } from "../client-protocol/run.js";
 import { routeAlertSchema } from "../hub/route-monitor.js";
@@ -29,11 +31,12 @@ import { GatewayTransport } from "./transport.js";
 import { GatewayReceipts } from "./receipts.js";
 import { GatewayRunWriter } from "./run-writer.js";
 import type { GroupDiscussionDispatch } from "../client-protocol/group-discussion.js";
+import type { GroupLocalSessionDispatch } from "../client-protocol/group-members.js";
 import type { AgentBusDispatch } from "../client-protocol/agent-bus.js";
 import { groupDiscussionPrompt } from "./group-discussion.js";
 import type { CronExecutor } from "../runtime/cron-scheduler.js";
 
-const context = new AsyncLocalStorage<{ conversationId: string; messageId?: string; workbench?: WorkbenchContext; workbenchContextOmitted?: WorkbenchContextOmitted; queueSlot?: boolean; ticket?: Conversation["ticket"]; botSource?: Message["botSource"]; groupDiscussion?: GroupDiscussionDispatch; admit?: () => void }>();
+const context = new AsyncLocalStorage<{ conversationId: string; messageId?: string; workbench?: WorkbenchContext; workbenchContextOmitted?: WorkbenchContextOmitted; queueSlot?: boolean; canvasConnected?: boolean; ticket?: Conversation["ticket"]; botSource?: Message["botSource"]; ticketNotice?: boolean; groupDiscussion?: GroupDiscussionDispatch; groupSession?: GroupLocalSessionDispatch; admit?: () => void }>();
 const inputSchema = z.object({ widget: z.unknown().optional(), text: z.string().optional(), markdown: z.string().optional(), card: z.unknown().optional(), post: z.unknown().optional(), image: z.unknown().optional(), file: z.unknown().optional(), audio: z.unknown().optional(), video: z.unknown().optional() });
 /** Upload failed before any publish request. Safe to repair with a new call ID. */
 export class GatewayArtifactUploadError extends Error {
@@ -50,6 +53,22 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
   private readonly conversations = new Map<string, Conversation>();
   private readonly processing = new Set<string>();
   private readonly processingConversations = new Map<string, string>();
+  async conversationWorkspace(conversationId: string): Promise<string | undefined> {
+    const activeTurn = context.getStore();
+    const boundSession = activeTurn && activeTurn.conversationId === conversationId && !activeTurn.groupDiscussion
+      ? activeTurn.groupSession
+      : undefined;
+    if (boundSession?.workspacePath) return boundSession.workspacePath;
+    const targetId = boundSession?.sessionId ?? conversationId;
+    const cached = this.conversations.get(targetId);
+    const known = cached?.ticket?.workspace ?? cached?.workspacePath;
+    if (known) return known;
+    try {
+      const fetched = conversationSchema.parse(await this.transport.request("conversation", { conversationId: targetId }));
+      this.conversations.set(fetched.id, fetched);
+      return fetched.ticket?.workspace ?? fetched.workspacePath;
+    } catch { return undefined; }
+  }
   isConversationProcessing(conversationId: string): boolean { return [...this.processingConversations.values()].includes(conversationId); }
   private readonly processingAgentBus = new Map<string, string>();
   private readonly admissions = new Map<string, Promise<void>>();
@@ -58,7 +77,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
   private scopedRunWriter: GatewayRunWriter;
   private readonly updates = new Map<string, Promise<void>>();
   private readonly tasks = new Set<Promise<void>>();
-  private receiveMessage!: (message: Message, conversation: Conversation, agentBus?: AgentBusDispatch, groupDiscussion?: GroupDiscussionDispatch, queueSlot?: boolean, workbench?: WorkbenchContext, workbenchContextOmitted?: WorkbenchContextOmitted) => Promise<void>;
+  private receiveMessage!: (message: Message, conversation: Conversation, agentBus?: AgentBusDispatch, groupDiscussion?: GroupDiscussionDispatch, queueSlot?: boolean, workbench?: WorkbenchContext, workbenchContextOmitted?: WorkbenchContextOmitted, ticketNotice?: boolean, groupSession?: GroupLocalSessionDispatch, canvasConnected?: boolean) => Promise<void>;
   prepareConversation?: (chatId: string) => Promise<void>;
   canSteerConversation?: (chatId: string) => Promise<boolean>;
   /** A replayed Agent Bus input can carry a stop issued while it was running. */
@@ -75,7 +94,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     this.receipts = new GatewayReceipts(transport.options.stateDir);
     this.runWriter = new GatewayRunWriter(input => transport.request("run.write", input));
     this.scopedRunWriter = new GatewayRunWriter(input => transport.request("run.scope.write", input));
-    this.receiveMessage = async (message, conversation, agentBus, groupDiscussion, queueSlot = false, workbench, workbenchContextOmitted) => {
+    this.receiveMessage = async (message, conversation, agentBus, groupDiscussion, queueSlot = false, workbench, workbenchContextOmitted, ticketNotice, groupSession, canvasConnected) => {
       if (this.processing.has(message.id)) { if (agentBus?.stopRequested) this.onAgentBusStopRequested?.(agentBus.runId); return; }
       this.processing.add(message.id); this.processingConversations.set(message.id, conversation.id); if (agentBus) this.processingAgentBus.set(message.id, agentBus.runId); this.rememberMessage(message); this.conversations.set(conversation.id, conversation);
       const previous = this.admissions.get(conversation.id);
@@ -86,13 +105,25 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       // Only a Hub-dispatched turn record selects discussion execution, and only
       // for the conversation the Hub froze it for.
       const discussion = groupDiscussion?.conversationId === conversation.id && conversation.type === "group" ? groupDiscussion : undefined;
-      const task = withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, workbench: workbenchContextOmitted ? undefined : workbench, workbenchContextOmitted, queueSlot, ticket: conversation.ticket, botSource: message.botSource, ...(discussion ? { groupDiscussion: discussion } : {}), admit }, async () => {
+      // Prefer the explicit Hub-stamped ticketNotice signal; when talking to an
+      // older Hub, require the Hub-owned `tn_` clientMsgId prefix so caller-controlled
+      // Bot-message request IDs (`bm_*`) can never spoof a Host ticket notice.
+      const resolvedTicketNotice = typeof ticketNotice === "boolean"
+        ? ticketNotice
+        : message.authorType === "user" && !!message.botSource && /^tn_/.test(message.clientMsgId ?? "") && /^tk_/.test(message.botSource.requestId);
+      const task = withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, workbench: workbenchContextOmitted ? undefined : workbench, workbenchContextOmitted, queueSlot, canvasConnected, ticket: conversation.ticket, botSource: message.botSource, ticketNotice: resolvedTicketNotice, ...(discussion ? { groupDiscussion: discussion } : {}), ...(groupSession ? { groupSession } : {}), admit }, async () => {
         try {
           await previous;
           let executed = false;
           const receipt = await this.receipts.run(`message:${message.id}`, async () => {
           executed = true;
-          const incoming = this.incoming(message, conversation);
+          // A session-bound local group turn runs inside the member's single-chat session:
+          // use that session's saved workspace folder rather than the group conversation's folder.
+          const boundGroupSession = !discussion ? groupSession : undefined;
+          const sessionWorkspace = boundGroupSession
+            ? (boundGroupSession.workspacePath ?? await this.conversationWorkspace(boundGroupSession.sessionId))
+            : undefined;
+          const incoming = this.incoming(message, conversation, boundGroupSession ? { hasSessionOverride: true, workspacePath: sessionWorkspace } : undefined);
           // A discussion input is addressed to this Bot by the Hub. Its engine
           // text is the user's topic; the topic message is the reference parent
           // for attachments only, not a quoted reply context.
@@ -134,7 +165,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       void task.finally(() => this.tasks.delete(task)).catch(() => undefined);
       return task;
     };
-    transport.onMessage = async (message, conversation, agentBus, groupDiscussion, workbench, workbenchContextOmitted) => { void this.receiveMessage(message, conversation, agentBus, groupDiscussion, false, workbench, workbenchContextOmitted).catch(() => transport.reconnectAfterDeliveryFailure()); };
+    transport.onMessage = async (message, conversation, agentBus, groupDiscussion, workbench, workbenchContextOmitted, ticketNotice, groupSession, canvasConnected) => { void this.receiveMessage(message, conversation, agentBus, groupDiscussion, false, workbench, workbenchContextOmitted, ticketNotice, groupSession, canvasConnected).catch(() => transport.reconnectAfterDeliveryFailure()); };
     transport.onCall = async (method, params) => withChannelProfile("gateway", async () => {
       const p = z.record(z.string(), z.json()).parse(params);
       if (method === "interaction") {
@@ -178,9 +209,10 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     if (!turn?.messageId || turn.botSource || turn.groupDiscussion) throw new Error("workbench_user_turn_required");
     if (turn.workbenchContextOmitted) throw new Error("workbench_context_unavailable");
     if (!this.transport.capabilities.includes(WORKBENCH_CAPABILITY)) throw new Error("workbench_host_update_required");
+    const designError = workbenchDesignError(request); if (designError) throw new Error(designError);
     const feature = designOperationCapability(request.operation); if(feature && !this.transport.capabilities.includes(feature)) throw new Error("workbench_design_suite_host_update_required");
     if (isSlidesRequest(request) && !this.transport.capabilities.includes(WORKBENCH_SLIDES_CAPABILITY)) throw new Error("workbench_slides_host_update_required");
-    if (request.operation.startsWith("design.") && !this.transport.capabilities.includes(WORKBENCH_DESIGN_CAPABILITY)) throw new Error("workbench_design_host_update_required");
+    if (request.operation.startsWith("design.") && !this.transport.capabilities.includes(WORKBENCH_SLIDES_CAPABILITY)) throw new Error("workbench_slides_host_update_required");
     // The Host resolves the opener of the latest input that reached this turn.
     if (request.operation === "design.open" && !this.transport.capabilities.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY)) throw new Error("workbench_design_open_host_update_required");
     if (request.operation.startsWith("markdown.") && !this.transport.capabilities.includes(WORKBENCH_MARKDOWN_CAPABILITY)) throw new Error("workbench_markdown_host_update_required");
@@ -190,12 +222,10 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       throw error;
     }
   }
-  async canvasAgentStatus(signal?: AbortSignal): Promise<{ connected: boolean; projectId?: string; title?: string }> {
+  hasCanvasForTurn(): boolean {
     const turn = context.getStore();
-    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion || turn.workbenchContextOmitted || this.processingAgentBus.has(turn.messageId)) return { connected: false };
-    return z.object({ connected: z.boolean(), projectId: z.string().optional(), title: z.string().optional() }).parse(
-      await this.transport.requestLive("canvas.agent.status", { conversationId: turn.conversationId, contextMessageId: turn.messageId }, signal),
-    );
+    return !!turn?.canvasConnected && !!turn.messageId && !turn.botSource && !turn.groupDiscussion
+      && !turn.workbenchContextOmitted && !this.processingAgentBus.has(turn.messageId);
   }
   async canvasAgentTools(signal?: AbortSignal): Promise<unknown> {
     const turn = context.getStore();
@@ -235,7 +265,9 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
   }
   isProcessingAgentBus(runId: string, messageId: string): boolean { return this.processingAgentBus.get(messageId) === runId; }
   currentBotSource(): Message["botSource"] { return context.getStore()?.botSource; }
+  currentTicketNotice(): boolean { return context.getStore()?.ticketNotice === true; }
   currentGroupDiscussion(): GroupDiscussionDispatch | undefined { return context.getStore()?.groupDiscussion; }
+  currentGroupSession(): GroupLocalSessionDispatch | undefined { return context.getStore()?.groupSession; }
   releaseMessageAdmission(): void { context.getStore()?.admit?.(); }
   /** Read-only: an input for this conversation was received but its Core turn
    * has not been admitted to the Core queue yet. */
@@ -261,12 +293,12 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     const designOpen = this.transport.capabilities.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY), lease = { conversationId: conversation.id, messageId: message.id };
     const begin = async () => {
       if (!designOpen) return undefined;
-      try { return z.object({ workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional() }).parse(await this.transport.requestLive("workbench.turn.begin", lease, AbortSignal.timeout(5_000))); }
+      try { return z.object({ workbench: workbenchContextSchema.optional(), workbenchContextOmitted: workbenchContextOmittedSchema.optional(), canvasConnected: z.literal(true).optional() }).parse(await this.transport.requestLive("workbench.turn.begin", lease, AbortSignal.timeout(5_000))); }
       catch { return undefined; }
     };
     // Also after an uncertain begin; before the turn releases its slot.
     const end = async () => { if (designOpen) await this.transport.requestLive("workbench.turn.end", lease, AbortSignal.timeout(2_000)).catch(() => undefined); };
-    const task = begin().then(turn => withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, admit, ...(turn?.workbenchContextOmitted ? { workbenchContextOmitted: turn.workbenchContextOmitted } : turn?.workbench ? { workbench: turn.workbench } : {}) }, async () => {
+    const task = begin().then(turn => withChannelProfile("gateway", () => context.run({ conversationId: conversation.id, messageId: message.id, admit, canvasConnected: turn?.canvasConnected, ...(turn?.workbenchContextOmitted ? { workbenchContextOmitted: turn.workbenchContextOmitted } : turn?.workbench ? { workbench: turn.workbench } : {}) }, async () => {
       try {
         await previous;
         await this.receipts.run(`native-turn:${message.id}`, async () => {
@@ -285,7 +317,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     const next = await this.transport.takeQueued(conversationId);
     if (!next) return false;
     if (next.conversation.id !== conversationId || next.message.conversationId !== conversationId) throw new Error("gateway_queue_scope_mismatch");
-    await this.receiveMessage(next.message, next.conversation, undefined, undefined, true, next.workbench, next.workbenchContextOmitted);
+    await this.receiveMessage(next.message, next.conversation, undefined, undefined, true, next.workbench, next.workbenchContextOmitted, next.ticketNotice, next.groupSession, next.canvasConnected);
     return true;
   }
   async disconnect(): Promise<void> {
@@ -311,10 +343,16 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     return Readable.from(await this.downloadResource(fileKey));
   }
   private attachmentIds(blocks: Block[]): string[] { const ids: string[] = []; for (const b of blocks) { if ("attachmentId" in b) ids.push(b.attachmentId); if (b.type === "card") { const walk = (elements: typeof b.elements) => { for (const e of elements) { if (e.attachmentId) ids.push(e.attachmentId); walk(e.children ?? []); } }; walk(b.elements); } } return ids; }
-  private incoming(message: Message, conversation: Conversation): NormalizedMessage {
+  private incoming(message: Message, conversation: Conversation, sessionOverride?: { hasSessionOverride: true; workspacePath: string | undefined }): NormalizedMessage {
     const resources: NormalizedMessage["resources"] = [];
     for (const b of message.blocks) {
-      if ("attachmentId" in b) resources.push({ type: b.type === "image" ? "image" : b.type === "audio" ? "audio" : "file", fileKey: b.attachmentId, fileName: "name" in b ? b.name : b.type === "image" ? b.title : undefined });
+      if ("attachmentId" in b) resources.push({
+        type: b.type === "image" ? "image" : b.type === "audio" ? "audio" : "file",
+        fileKey: b.attachmentId,
+        fileName: "name" in b ? b.name : b.type === "image" ? b.title : undefined,
+        ...(b.type === "file" ? { mime: b.mime } : {}),
+        ...(b.type === "audio" && b.recording !== undefined ? { recording: b.recording } : {}),
+      });
       if (b.type === "card") {
         const walk = (elements: typeof b.elements) => { for (const e of elements) { if (e.attachmentId && !resources.some((r) => r.fileKey === e.attachmentId)) resources.push({ type: "image", fileKey: e.attachmentId, fileName: e.text }); walk(e.children ?? []); } };
         walk(b.elements);
@@ -327,8 +365,10 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     // Bot delegation, card label, filename or any other presentation envelope.
     const asrRoutingText = message.authorType === "user" && !message.forwardedFrom && !message.botSource
       ? message.blocks.flatMap(block => block.type === "text" ? [block.text] : []).join("\n") : "";
-    // Hub-owned ticket marker: the worker Bot's config.json stays unchanged.
-    const model = conversation.ticket?.model?.trim(), effort = conversation.ticket?.effort || undefined, workspace = conversation.ticket?.workspace;
+    // Hub-owned ticket marker and conversation-pinned folder: the worker Bot's config.json stays unchanged.
+    const model = conversation.ticket?.model?.trim(), effort = conversation.ticket?.effort || undefined;
+    const workspace = conversation.ticket?.workspace
+      ?? (sessionOverride?.hasSessionOverride ? sessionOverride.workspacePath : conversation.workspacePath);
     return { ...(message.botSource ? { botSource: message.botSource } : {}), ...(model || effort ? { engineOverride: { ...(model ? { model } : {}), ...(effort ? { effort } : {}) } } : {}), ...(workspace ? { workspaceOverride: workspace } : {}), messageId: message.id, chatId: message.conversationId, chatType: conversation.type === "direct" ? "p2p" : "group", senderId: `gwuser_${message.authorId}`, content: prefix + content, asrRoutingText, rawContentType: "text", resources, mentions: [], mentionedBot: conversation.type === "direct" || !!message.mentions?.includes(this.transport.options.botId), mentionAll: false, ...(message.replyTo ? { replyToMessageId: message.replyTo } : {}), createTime: message.createdAt };
   }
   private forgetMessage(id: string): void {
@@ -376,11 +416,14 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     const raw = z.record(z.string(), z.unknown()).parse(card);
     // Always consume producer-only grouping: translation would otherwise keep it
     // as an unknown property and bypass the Hub capability gate.
-    const { appRun, appBackgroundTask, appScopedTask, appScopedGroup, appQueue, ...fallback } = raw;
+    const { appRun, appBackgroundTask, appScopedTask, appScopedGroup, appQueue, appTranscription, ...fallback } = raw;
     let translated = translateCard(fallback, () => this.transport.options.onWarning?.("card_property_preserved"));
     const queue = queueNoticeSchema.safeParse(appQueue);
     if (queue.success) translated = { ...translated, extra: { ...translated.extra, appQueue: queue.data } };
     else if (appQueue !== undefined) translated = { ...translated, extra: { ...translated.extra, appQueue: null } }; // Do not reinterpret an unknown version as a historical queue notice.
+    const transcription = transcriptionStateSchema.safeParse(appTranscription);
+    if (transcription.success) translated = { ...translated, extra: { ...translated.extra, appTranscription: transcription.data } };
+    else if (appTranscription !== undefined) translated = { ...translated, extra: { ...translated.extra, appTranscription: null } };
     const background = backgroundTaskSchema.safeParse(appBackgroundTask);
     if (background.success) translated = { ...translated, extra: { ...translated.extra, backgroundTask: background.data } };
     const taskLabel = scopedTaskLabelSchema.safeParse(appScopedTask);
@@ -434,13 +477,14 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       ? { v: 1, runId: summary.id, revision: summary.revision, ...summarizeRecordedChanges(bundle.entries) } : undefined;
     if (changes) changes.partial ||= summary.truncated || ["stopped", "error", "interrupted", "partial"].includes(summary.phase);
     const thinking = !bundle.background ? publicThinkingPreview(bundle.entries, summary) : undefined;
+    const plan = !bundle.background ? publicPlanPreview(bundle.entries, summary) : undefined;
     const goalTurnEnded = !bundle.background && bundle.goalTurnEnded === true && summary.phase === "done"
       ? { runId: summary.id, revision: summary.revision } : undefined;
     // A presentation hint for bound background reports only, bound to this
     // scoped summary. Each member keeps its own message, journal and status.
     const group = scopesSupported && bundle.background && background.success && background.data.origin === "bound" && this.transport.capabilities.includes(BACKGROUND_TASK_GROUP_CAPABILITY)
       ? backgroundTaskGroupSourceSchema.safeParse(appScopedGroup) : undefined;
-    return { block: { ...translated, extra: { ...translated.extra, ...(goalTurnEnded ? { goalTurnEnded } : {}), ...(thinking ? { nativeRunThinking: thinking } : {}), ...(changes ? { runChanges: changes } : {}), ...(sync ? { scopedJournal: sync } : {}), ...(group?.success ? { backgroundTaskGroup: { ...group.data, runId: summary.id } } : {}), [bundle.background ? "scopedRun" : "nativeRun"]: JSON.parse(JSON.stringify(summary)) } }, afterPublish };
+    return { block: { ...translated, extra: { ...translated.extra, ...(goalTurnEnded ? { goalTurnEnded } : {}), ...(thinking ? { nativeRunThinking: thinking } : {}), ...(plan ? { nativeRunPlan: plan } : {}), ...(changes ? { runChanges: changes } : {}), ...(sync ? { scopedJournal: sync } : {}), ...(group?.success ? { backgroundTaskGroup: { ...group.data, runId: summary.id } } : {}), [bundle.background ? "scopedRun" : "nativeRun"]: JSON.parse(JSON.stringify(summary)) } }, afterPublish };
   }
 
   async send(to: string, raw: unknown, opts: CoreSendOptions = {}): Promise<{ messageId: string }> {
@@ -560,6 +604,8 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
     // including on older clients that only inspect the message envelope.
     if (native.success && native.data.appRun.background) return "complete";
     if (native.success) return isRunActive(native.data.appRun.summary.phase) ? "streaming" : "complete";
+    const transcription = z.object({ appTranscription: transcriptionStateSchema }).safeParse(card);
+    if (transcription.success) return transcription.data.appTranscription.active ? "streaming" : "complete";
     const parsed = z.object({ config: z.object({ streaming_mode: z.boolean().optional() }).optional() }).safeParse(card);
     return parsed.success && parsed.data.config?.streaming_mode ? "streaming" : "complete";
   }

@@ -4,8 +4,10 @@ The Workbench editor is built from the complete upstream commit listed in
 `UPSTREAM.json`. The build extracts the web application, workbench, shared,
 model runtime, SDK and three bundled node contributions from that commit.
 The upstream pnpm lock is verified before frozen installation with lifecycle
-scripts disabled. The upstream MIT notice is retained beside this integration
-and included in the optional HTML artifact.
+scripts disabled. The upstream MIT notice and the complete bundled dependency notices ship in
+the optional HTML artifact and are available in the canvas under Settings →
+Plugins → Open-source licenses. The same texts appear in the App
+acknowledgements.
 
 `node scripts/build-infinite-canvas-plugin.mjs` builds the optional artifact.
 Set `TAROBIRD_INFINITE_CANVAS_SOURCE` to a local Git checkout containing the
@@ -23,8 +25,8 @@ The release manifest and compiled installer catalog use the same
 actual artifact bytes for the digest and size. The installer pins them from
 `client/src/infinite-canvas-artifact.json`.
 
-The verified asset is 15,117,305 bytes with SHA-256
-`488bcfe034e3f1a739e594b7ac05316e6f89b60d9362f2fe33e140a746c90fe2`.
+The verified asset is 15,465,105 bytes with SHA-256
+`074c2ffe6e64fac41220bbc7b114d5e6969a5fc47f65f41eafd8242387979f0d`.
 
 `patch-upstream.mjs` records the changes to the imported source. It uses the
 native upstream routes, views and canvas commands. The `overlay` contains the
@@ -55,8 +57,8 @@ TaroBird-specific adapters.
 
 ## Third-party node files
 
-Third-party nodes are disabled by default. Enable them under Settings → Plugins
-after reviewing the warning. For each installation, review the source address
+Third-party nodes are disabled by default. Open the canvas, then open its
+Settings → Plugins tab. Review the warning and enable them there. For each installation, review the source address
 in the canvas, then the verified immutable source and SHA-256 in the App
 confirmation. Supported URLs use the form
 `https://raw.githubusercontent.com/<owner>/<repository>/<full-commit-sha>/<file>.js`.
@@ -77,9 +79,12 @@ The canvas only renders the returned text and approved hex color.
 
 ## Dependency notice sources
 
-The notice build reads licenses from packages in the bundled inputs. These
-repositories supply complete texts for packages whose tarballs only reference
-the license or omit its text.
+The notice build reads licenses from packages in the bundled inputs and
+checks that the result matches the copy used by App acknowledgements,
+`notices/BUNDLED_DEPENDENCIES.txt`. To update that copy after a dependency change,
+run the builder with `--refresh-notices`, review the diff, and then build the
+artifact normally. The following repositories supply complete texts for
+packages whose tarballs only reference the license or omit its text.
 
 - `@ai-sdk/provider-utils@5.0.70` uses the [AI SDK release notice](https://raw.githubusercontent.com/vercel/ai/@ai-sdk/provider-utils@5.0.70/LICENSE).
 - `@uiw/codemirror-extensions-basic-setup@4.25.12` and `@uiw/react-codemirror@4.25.12` use the [React CodeMirror release license](https://raw.githubusercontent.com/uiwjs/react-codemirror/v4.25.12/LICENSE).

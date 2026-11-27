@@ -1,3 +1,4 @@
+import { subscribeMediaQuery } from "./global-event-hub.js";
 import { WorkbenchLibrary } from "./WorkbenchLibrary.js";
 import type { WorkbenchFileTarget } from "./workbench-library-context.js";
 import { useDialogDrag } from "./dialog-drag.js";
@@ -20,12 +21,13 @@ import { FontSizeSlider } from "./FontSizeSlider.js";
 import { LayoutDensityPicker } from "./LayoutDensityPicker.js";
 import { useBackAction } from "./back-navigation.js";
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
-import { AudioLines, Bell, Database, FolderOpen, Check, ChevronLeft, ChevronRight, Globe, Link, Monitor, MonitorCog, Plus, Puzzle, QrCode, ScanLine, Settings2, ShieldCheck, Gauge, X } from "lucide-react";
+import { AudioLines, Bell, Database, FolderOpen, Check, ChevronLeft, ChevronRight, Globe, Info, Link, Monitor, MonitorCog, Plus, Puzzle, QrCode, ScanLine, Settings2, ShieldCheck, Gauge, X } from "lucide-react";
 import { PluginsView } from "./PluginsPanel.js";
 import { getPluginRegistry, resolvePluginScopeId } from "./plugin-registry.js";
 import { ConnectionPanel } from "./ConnectionPanel.js";
 import { ScreenControlPanel } from "./ScreenControlPanel.js";
 import { hasScreenViewer } from "./mobile-screen-viewer-transport.js";
+import { HostTerminalSettings } from "./TerminalPanel.js";
 import type { OpenNetwork } from "./network-navigation.js";
 import "./network-settings.css";
 import { CreationDialog } from "./CreationDialog.js";
@@ -42,13 +44,15 @@ import { PlatformIcon, SettingsGroupHeading, SettingsScope, platformName } from 
 import { deviceOperationError } from "./device-errors.js";
 import { HubHttpError } from "./http-error.js";
 import type { HubConnection } from "./connection.js";
-import { t, useLocale } from "./i18n.js";
+import { localeIntlTag, SUPPORTED_LANGUAGES, t, useLocale } from "./i18n.js";
 import type { Preferences } from "./storage.js";
 import { ambiguousDeviceName, deviceDisplayName, deviceRevokeScope } from "./device-presentation.js";
 import "./device-settings.css";
 import { BotMessageGrants } from "./BotMessageGrants.js";
+import { AboutSettings, type AboutNavigationState } from "./AboutSettings.js";
+import { LoadBalancingSettings } from "./LoadBalancingSettings.js";
 
-type Section = "workbench" | "plugins" | "backups" | "general" | "network" | "notifications" | "devices" | "botMessages" | "voice" | "engines" | "quota";
+type Section = "workbench" | "plugins" | "backups" | "general" | "network" | "notifications" | "devices" | "botMessages" | "voice" | "engines" | "quota" | "about";
 /** `created_at`/`last_seen` come from the host; 0 or missing means never recorded. */
 type Device = { id: string; name: string; nameSource?: "host"; platform: string; revoked: number; created_at?: number | string | null; last_seen?: number | string | null };
 /** Messages appear beside the control that produced them, not at the page end. */
@@ -57,7 +61,7 @@ type Feedback = { area: "pair" | "devices" | "danger"; text: string | (() => str
 type Operation = { kind: "approve"; code: string } | { kind: "revoke"; id: string; label: string } | { kind: "rename" };
 const loopback = (url: string) => { try { const host = new URL(url).hostname; return host === "localhost" || host === "[::1]" || host.startsWith("127."); } catch { return false; } };
 const phoneQuery = "(max-width:760px),(hover:none) and (pointer:coarse)";
-const subscribePhone = (notify: () => void) => { const query = matchMedia(phoneQuery); query.addEventListener("change", notify); return () => query.removeEventListener("change", notify); };
+const subscribePhone = (notify: () => void) => subscribeMediaQuery(phoneQuery, notify);
 const phoneLayout = () => matchMedia(phoneQuery).matches;
 const pairingCode = /^[0-9]{8}$/;
 const spacedCode = (code: string) => `${code.slice(0, 4)} ${code.slice(4)}`;
@@ -112,7 +116,7 @@ function FlowDialog({ title, closeLabel, busy, back, close, returnFocus, classNa
 }
 
 export function PreferencesPanel({ connection, preferences, update, close, forget, manageNetwork, manageConnections, openWorkbenchFile, onOpenPluginContribution, returnFocus, initialSection = "general", backLabel, initialPairingStep, singleSection = false }: { openWorkbenchFile?: (file: WorkbenchFileTarget) => Promise<void>; onOpenPluginContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void; initialPairingStep?: 0 | 1; singleSection?: boolean; returnFocus?: RefObject<HTMLElement | null>; initialSection?: Section; backLabel?: string; connection: HubConnection; preferences: Preferences; update: (next: Preferences) => void; close: () => void; forget: () => Promise<void>; manageNetwork?: OpenNetwork; manageConnections?: OpenNetwork }) {
-  useLocale(); const hostName = useContext(RuntimeHostContext);
+  const activeLocale = useLocale(); const hostName = useContext(RuntimeHostContext);
   const state = useSyncExternalStore((notify) => connection.subscribe(notify), () => connection.state);
   const intentionalClose = useRef(false);
   const pluginsBackRef = useRef<(() => boolean) | null>(null);
@@ -122,6 +126,8 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   // A request for a category this build hides (Model quotas) opens the default one.
   const startSection: Section = startingSettingsSection(initialSection);
   const [section, setSection] = useState<Section>(startSection), [overview, setOverview] = useState(startSection === "general");
+  const aboutBackRef = useRef<(() => boolean) | undefined>(undefined);
+  const [aboutNav, setAboutNav] = useState<AboutNavigationState>({ inSubView: false });
   const [connectionOpen, setConnectionOpen] = useState(false), [screenOpen, setScreenOpen] = useState(false);
   useSceneMotion(dialog, `${overview}:${section}`, phone, overview ? -1 : 1, overview ? ".settings-navigation" : ".settings-content");
   // A category opened directly (Devices from the phone home) is the first phone page:
@@ -138,10 +144,11 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [voiceDirty, setVoiceDirty] = useState(false), [voiceBusy, setVoiceBusy] = useState(false);
   const [messageGrantsDirty, setMessageGrantsDirty] = useState(false), [messageGrantsBusy, setMessageGrantsBusy] = useState(false);
+  const [terminalBusy, setTerminalBusy] = useState(false);
   const [deviceDrafts, setDeviceDrafts] = useState<Record<string, boolean>>({});
   const deviceDirty = Object.values(deviceDrafts).some(Boolean);
   const deviceDraftChange = useCallback((id: string, value: boolean) => setDeviceDrafts(previous => previous[id] === value ? previous : { ...previous, [id]: value }), []);
-  const dirty = notificationDirty || deviceDirty || messageGrantsDirty || voiceDirty || backupDirty || engineDirty, settingsBusy = libraryBusy || notificationBusy || messageGrantsBusy || voiceBusy || widgetBusy || backupBusy || engineBusy;
+  const dirty = notificationDirty || deviceDirty || messageGrantsDirty || voiceDirty || backupDirty || engineDirty, settingsBusy = libraryBusy || notificationBusy || messageGrantsBusy || terminalBusy || voiceBusy || widgetBusy || backupBusy || engineBusy;
   const [scan, setScan] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]), [code, setCode] = useState("");
   const [selectedDevice, setSelectedDevice] = useState<string>(), [discardDeviceDraft, setDiscardDeviceDraft] = useState(false);
@@ -156,7 +163,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   // `reveal` lands on it once, after the flow closes and the list contains it.
   const [wizard, setWizard] = useState(initialPairingStep !== undefined), [step, setStep] = useState<number>(initialPairingStep ?? 0), [approvedHere, setApprovedHere] = useState(false), [added, setAdded] = useState<string>();
   const addButton = useRef<HTMLButtonElement>(null), stepHeading = useRef<HTMLHeadingElement>(null), deviceList = useRef<HTMLDivElement>(null), reveal = useRef(false);
-  const locale = preferences.locale === "en" ? "en" : "zh-CN";
+  const locale = localeIntlTag(activeLocale);
 
   // The owner only; a build can leave it out (engine-quota-feature.ts): then no entry, no page, no quota reads.
   const quotaPage = engineQuotaPageVisible(state.user?.role);
@@ -172,6 +179,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
     { id: "notifications" as const, title: t("通知"), detail: t("此设备的提醒与勿扰时段"), icon: Bell },
     { id: "devices" as const, title: t("设备与安全"), detail: t("查看设备、修改名称与撤销授权"), icon: ShieldCheck },
     { id: "botMessages" as const, title: t("Bot 消息授权"), detail: t("管理本机与跨主机 Bot 的直接消息权限"), icon: Link },
+    { id: "about" as const, title: t("关于"), detail: t("版本、协议与开源致谢"), icon: Info },
   ];
   useEffect(() => { if (section === "quota" && !quotaPage) { setSection("general"); setOverview(true); } }, [section, quotaPage]);
   const requestClose = () => {
@@ -200,9 +208,18 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   // about unsaved settings. Desktop keeps its sidebar and closes from any page.
   const page = phone && !overview, upToCategories = page && !direct;
   const pageTitle = sections.find(({ id }) => id === section)?.title;
+  const aboutActive = section === "about" && (!phone || !overview);
+  const aboutSubActive = aboutActive && aboutNav.inSubView;
+  const headerBackLabel = phone && aboutSubActive && aboutNav.backLabel
+    ? aboutNav.backLabel
+    : upToCategories ? t("返回设置分类") : backLabel ?? t("关闭设置");
+  const headerTitle = phone && aboutSubActive && aboutNav.title
+    ? aboutNav.title
+    : (page || backLabel && !overview ? pageTitle : t("设置"));
   const goBack = () => {
     if (settingsBusy || busy) return;
     if (section === "plugins" && (!phone || !overview) && pluginsBackRef.current?.()) return;
+    if (aboutActive && aboutBackRef.current?.()) return;
     if (upToCategories) setOverview(true);
     else requestClose();
   };
@@ -402,6 +419,11 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
   };
   return <>{initialPairingStep === undefined && <dialog ref={dialog} className={`preferences-dialog is-movable ${overview ? "settings-overview" : "settings-detail"}${singleSection ? " preferences-single-section" : ""}${section === "plugins" ? " preferences-plugins-section" : ""}`} aria-label={backLabel && !overview ? pageTitle : t("设置")} onClose={(event) => {
     if (event.target !== event.currentTarget || intentionalClose.current || event.currentTarget.open) return;
+    // A repeated Escape can close a dialog without firing cancel; unwind sub-views first.
+    if (aboutActive && aboutBackRef.current?.()) {
+      event.currentTarget.showModal();
+      return;
+    }
     if (dirty || settingsBusy || busy) {
       event.currentTarget.showModal();
       if (dirty && !settingsBusy && !busy) { setConfirmationKey((value) => value + 1); setConfirmation({ kind: "discard" }); }
@@ -411,7 +433,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
     event.preventDefault(); if (scan) setScan(false); else goBack();
   }}>
     {/* Keep one button mounted across rotation; CSS places desktop Close last. */}
-    <header ref={header} className="preferences-header"><button className={`icon-button${phone ? " settings-back" : ""}`} aria-label={upToCategories ? t("返回设置分类") : backLabel ?? t("关闭设置")} disabled={busy || settingsBusy} onClick={goBack}>{phone || backLabel ? <ChevronLeft size={24}/> : <X size={20}/>}</button><h2 ref={heading}>{page || backLabel && !overview ? pageTitle : t("设置")}</h2></header>
+    <header ref={header} className="preferences-header"><button className={`icon-button${phone ? " settings-back" : ""}`} aria-label={headerBackLabel} disabled={busy || settingsBusy} onClick={phone ? goBack : requestClose}>{phone || backLabel ? <ChevronLeft size={24}/> : <X size={20}/>}</button><h2 ref={heading}>{headerTitle}</h2></header>
     <div className="preferences-body">
       {!singleSection && <nav className="settings-navigation" aria-label={t("设置分类")}>
         {sections.map(({ id, title, detail, icon: Icon }) => <button key={id} type="button" data-section={id} disabled={busy || settingsBusy} aria-current={!phone && section === id ? "page" : undefined} onClick={() => select(id)}><Icon size={20}/><span><strong>{title}</strong><small>{detail}</small></span>{((id === "notifications" && notificationDirty) || (id === "devices" && deviceDirty) || (id === "botMessages" && messageGrantsDirty) || (id === "voice" && voiceDirty) || (id === "backups" && backupDirty) || (id === "engines" && engineDirty)) && <span role="img" className="settings-unsaved-dot" aria-label={t("有未保存的修改")}/>}<ChevronRight className="settings-chevron" size={17}/></button>)}
@@ -441,6 +463,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
             </button>
           </div>
           <details className="network-settings-help"><summary>{t("第一次连接，应该从哪里开始？")}</summary><p>{t("新手机或电脑：点击「添加设备」展示二维码，让新设备扫码，再输入新设备上的 8 位配对码确认。")}</p><p>{t("外出时需要访问主机：到「连接状态与线路」配置可用的 VPS 中转或 Tailscale。填写地址不会自动部署服务器和隧道。")}</p></details>
+          <LoadBalancingSettings value={preferences.loadBalancing} onChange={loadBalancing => update({ ...preferences, loadBalancing })} active={section === "network" && (!phone || !overview)}/>
         </section>
         <section hidden={section !== "engines"} aria-label={t("引擎程序")}><h3>{t("引擎程序")}</h3><EngineSettings key={connection.identity.hubPublicKey} connection={connection} active={section === "engines" && (!phone || !overview)} onDirty={setEngineDirty} onBusy={setEngineBusy}/></section>
         {quotaPage && <section hidden={section !== "quota"} aria-label={t("模型额度")}><h3>{t("模型额度")}</h3><EngineQuota key={connection.identity.hubPublicKey} connection={connection} active={section === "quota" && (!phone || !overview)}/></section>}
@@ -453,13 +476,22 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
           {hostName && <p className="device-host-scope">{t("管理主机：{0}", hostName)}</p>}
           <BotMessageGrants key={connection.identity.hubPublicKey} connection={connection} active={section === "botMessages" && (!phone || !overview)} online={online} onDirty={setMessageGrantsDirty} onBusy={setMessageGrantsBusy}/>
         </section>
+        <section hidden={section !== "about"} aria-label={t("关于")}>
+          <h3 hidden={aboutSubActive}>{t("关于")}</h3>
+          <AboutSettings
+            active={aboutActive}
+            phone={phone}
+            backActionRef={aboutBackRef}
+            onNavigationChange={setAboutNav}
+          />
+        </section>
         <section hidden={section !== "general"} aria-label={t("通用")}>
           <h3>{t("通用")}</h3>
           <p className="settings-lede">{t("语言和外观只改变此设备；个人资料会同步到你的其他设备。")}</p>
           <div className="settings-group">
             <div className="settings-row">
               <div className="settings-row-text"><label htmlFor="language">{t("语言")}</label><small id="language-scope">{t("应用界面文字")}</small></div>
-              <select id="language" aria-describedby="language-scope language-note" value={preferences.locale} onChange={(e) => update({ ...preferences, locale: e.target.value as Preferences["locale"] })}><option value="zh" lang="zh-CN">中文</option><option value="en" lang="en">English</option></select>
+              <select id="language" aria-describedby="language-scope language-note" value={preferences.locale} onChange={(e) => update({ ...preferences, locale: e.target.value as Preferences["locale"] })}><option value="system">{t("跟随系统")}</option>{SUPPORTED_LANGUAGES.map((item) => <option key={item.code} value={item.code} lang={item.bcp47}>{item.nativeName}</option>)}</select>
             </div>
           </div>
           <p id="language-note" className="settings-note muted">{t("切换后立即生效，草稿和当前页面都会保留。只翻译应用界面，Bot 回复和你写的内容保持原文。")}</p>
@@ -473,7 +505,7 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
           <p id="link-preview-style-note" className="settings-note muted">{t("卡片显示标题、摘要和封面（网页提供时）；标题仅显示标题和域名。")}</p>
           <p id="link-preview-style-scope" className="settings-note muted">{t("用于此设备新发送的链接，已发送消息保持原样。")}</p>
           {state.dispatchAvailable && <><div className="settings-group"><div className="settings-row"><span id="ticket-conversations-setting">{t("在列表里显示工单对话")}</span><button type="button" className="model-brand-toggle" role="switch" aria-labelledby="ticket-conversations-setting" aria-describedby="ticket-conversations-note" aria-checked={preferences.showTicketConversations === true} onClick={() => update({ ...preferences, showTicketConversations: preferences.showTicketConversations !== true })}><span className="model-brand-toggle-track" aria-hidden="true"/></button></div></div>
-          <p id="ticket-conversations-note" className="settings-note muted">{t("调试用：显示幕僚长派活时开的内部对话。")}</p></>}
+          <p id="ticket-conversations-note" className="settings-note muted">{t("在接收主机开启此选项，然后从会话列表打开同名工单，在互动卡片上处理审批或回答问题。")}</p></>}
           <SettingsGroupHeading scope="device">{t("外观")}</SettingsGroupHeading>
           <div className="settings-group">
             {preferences.palette === "cli" ? <div className="settings-row"><span>{t("主题")}</span><span>{t("深色")}</span></div> : <div className="settings-row"><label htmlFor="theme">{t("主题")}</label><select id="theme" value={preferences.theme} onChange={(e) => update({ ...preferences, theme: e.target.value as Preferences["theme"] })}><option value="system">{t("跟随系统")}</option><option value="light">{t("浅色")}</option><option value="dark">{t("深色")}</option></select></div>}
@@ -544,6 +576,12 @@ export function PreferencesPanel({ connection, preferences, update, close, forge
           </div>
           {!detailDevice && message("devices")}
           {!wizard && message("pair")}
+          <HostTerminalSettings
+            connection={connection}
+            active={section === "devices"}
+            refreshKey={devices.map((device) => `${device.id}:${device.revoked}:${device.name}`).join("|")}
+            busyChange={setTerminalBusy}
+          />
           <MobileLockSettings/>
           {!hostName && <div className="settings-danger">
             <h4>{t("危险操作")}</h4>

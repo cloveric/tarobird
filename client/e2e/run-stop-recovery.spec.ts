@@ -54,6 +54,27 @@ test("native stop lookup timeout stays unverified after a late reply", async ({p
   }finally{await page.close();await server.close();}
 });
 
+test("DeepSeek stop triggers native tasks lookup and stop-impact confirmation", async ({ page }) => {
+  const server = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await server.listen();
+  try {
+    await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/turn-stop.html");
+    await page.getByRole("button", { name: "停止", exact: true }).waitFor();
+    await page.evaluate(() => {
+      const f = (window as any).turnStopFixture;
+      f.setEngine("deepseek");
+      f.nativeTasks();
+    });
+    await page.getByRole("button", { name: "停止", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).turnStopFixture.evidence.lookups)).toBe(1);
+    await page.evaluate(() => (window as any).turnStopFixture.evidence.releaseLookup());
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("原生后台检查");
+    await dialog.getByRole("button", { name: "继续运行", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).turnStopFixture.evidence.results)).toEqual([false]);
+    expect(await page.evaluate(() => (window as any).turnStopFixture.evidence.sent)).toEqual([]);
+  } finally { await page.close(); await server.close(); }
+});
+
 for (const change of ["hide", "chat", "unmount", "double-click"] as const) test(`confirmed stop is fenced during delayed cache read: ${change}`, async ({ page }) => {
   const server = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await server.listen();
   try {

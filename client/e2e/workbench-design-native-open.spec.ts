@@ -62,8 +62,8 @@ for (const retireDuringSend of [false, true]) test(retireDuringSend
           sourceId = channel!.currentMessageId();
           inTurn = AsyncResource.bind((request: WorkbenchRequest) => channel!.workbench(request));
           input.nativeInput!.onProgress({ state: "received" });
-          if (retireDuringSend) await expect(inTurn({ requestId: "native-open", operation: "design.open", payload: {} })).rejects.toThrow("workbench_open_target_unavailable");
-          else receipt = await inTurn({ requestId: "native-open", operation: "design.open", payload: {} });
+          if (retireDuringSend) await expect(inTurn({ requestId: "native-open", operation: "design.open", payload: { format: "slides" } })).rejects.toThrow("workbench_open_target_unavailable");
+          else receipt = await inTurn({ requestId: "native-open", operation: "design.open", payload: { format: "slides" } });
           const text = retireDuringSend ? "普通聊天继续；原页面已关闭，本轮未打开设计。" : "设计页已打开。";
           await input.onEngineEvent?.({ type: "assistant_text", text, delta: true });
           ordinaryContinued = true;
@@ -72,11 +72,25 @@ for (const retireDuringSend of [false, true]) test(retireDuringSend
         finally { turnDone = true; }
       },
     } });
+    const confirmedWindows = new Set<string>();
+    page.on("response", async response => {
+      if (!response.ok() || !response.url().endsWith("/workbench/targets")) return;
+      if (new URL(response.url()).pathname !== `/api/conversations/${conversation.id}/workbench/targets`) return;
+      try {
+        const list = await response.json() as Array<{ windowId?: string; capabilities?: string[] }>;
+        for (const item of list) {
+          if (typeof item.windowId === "string" && item.capabilities?.includes("design.open.v1")) confirmedWindows.add(item.windowId);
+        }
+      } catch { /* ignore aborted/closed page responses */ }
+    });
     await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
     await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
     await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
     await waitForClientOnline(page); await selectConversation(page, conversation.title);
     await expect(page.locator(".composer-hint")).toHaveText("发送后由 CLI 适时读入");
+    const opener = async () => (await broker.list({ userId: "owner", conversationId: conversation.id, validate: async () => {} }))
+      .find(window => window.capabilities.includes("design.open.v1") && confirmedWindows.has(window.windowId));
+    await expect.poll(opener).toBeTruthy();
     const posts: any[] = [];
     page.on("request", request => { if (request.method() === "POST" && new URL(request.url()).pathname === `/api/conversations/${conversation.id}/steer`) posts.push(request.postDataJSON()); });
     await page.getByRole("textbox", { name: "消息", exact: true }).fill("请用 Design 做一个页面");
@@ -102,7 +116,7 @@ for (const retireDuringSend of [false, true]) test(retireDuringSend
     await expect.poll(() => (channel as unknown as { processing: Set<string> }).processing.has(sourceId!)).toBe(false);
     // A callback can retain AsyncLocalStorage after the run has returned. The
     // Host must still refuse it; persisted native input is not a lasting grant.
-    await expect(inTurn!({ requestId: "after-native-end", operation: "design.open", payload: {} }))
+    await expect(inTurn!({ requestId: "after-native-end", operation: "design.open", payload: { format: "slides" } }))
       .rejects.toThrow(/workbench_(turn_ended|user_turn_required|context_unavailable)/);
   } finally {
     releaseCapture(); release(); broker.validateContext = validateContext;

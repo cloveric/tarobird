@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const botCapabilitiesSchema = z.object({
   generatedAt: z.iso.datetime(),
-  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi"]).nullable(),
+  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"]).nullable(),
   workspace: z.string().nullable(),
   runtime: z.literal("unverified"),
   coverage: z.literal("partial"),

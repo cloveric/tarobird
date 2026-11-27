@@ -226,4 +226,71 @@ describe("tarobot groups entry point", () => {
     await expect(runHostCli(["groups", "status", "g", "--participants", "a,b", "--state-dir", root])).rejects.toThrow("不支持 --participants");
     expect(request).not.toHaveBeenCalled();
   });
+
+  it("parses and forwards cross-host group flags (--member, --history, --new-session, --host, --bot, --session, --title) and gates on groups.cross-host.v1", async () => {
+    await initializeHost(root, "CLI cross-host fixture");
+    const request = vi.fn().mockImplementation(async (route: string) => {
+      if (route === "/api/groups/g1/members") {
+        return { groupId: "g1", designatedMemberKey: null, members: [], formerSessionIds: [], formerSessions: [], questions: [] };
+      }
+      return { ok: true };
+    });
+    const close = vi.fn();
+    const capabilities = ["groups.discussion.v1", "groups.parallel.v1", "groups.cross-host.v1"];
+    vi.spyOn(LocalHostClient, "connect").mockResolvedValue({ request, close, ready: { serverCapabilities: capabilities } } as unknown as LocalHostClient);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    expect(HOST_CLI_HELP).toContain("groups add-member GROUP");
+    expect(HOST_CLI_HELP).toContain("groups switch-session GROUP --member KEY");
+
+    // 1. members
+    await runHostCli(["groups", "members", "g1", "--state-dir", root]);
+    expect(request).toHaveBeenLastCalledWith("/api/groups/g1/members");
+
+    // 2. add-member with --host, --bot, --session, --history
+    await runHostCli(["groups", "add-member", "g1", "--host", "peer_b", "--bot", "bot_rem", "--session", "sess_1", "--history", "recent:10", "--state-dir", root]);
+    expect(request).toHaveBeenLastCalledWith("/api/groups/g1/members", "POST", {
+      hostId: "peer_b",
+      botId: "bot_rem",
+      sessionId: "sess_1",
+      historyVisibility: { kind: "recent", count: 10 },
+    });
+
+    // 3. switch-session with --member and --new-session
+    await runHostCli(["groups", "switch-session", "g1", "--member", "remote:peer_b:bot_rem", "--new-session", "--state-dir", root]);
+    expect(request).toHaveBeenLastCalledWith("/api/groups/g1/members/remote%3Apeer_b%3Abot_rem/session", "PATCH", {
+      createNew: true,
+    });
+
+    // 4. remove-member with --member
+    await runHostCli(["groups", "remove-member", "g1", "--member", "remote:peer_b:bot_rem", "--state-dir", root]);
+    expect(request).toHaveBeenLastCalledWith("/api/groups/g1/members/remote%3Apeer_b%3Abot_rem", "DELETE");
+
+    // 5. room with --title & stop
+    await runHostCli(["groups", "room", "g1", "--title", "Sprint Room", "--state-dir", root]);
+    expect(request).toHaveBeenLastCalledWith("/api/groups/g1/rooms", "POST", { title: "Sprint Room" });
+    await runHostCli(["groups", "stop", "g1", "--state-dir", root]);
+    expect(request).toHaveBeenLastCalledWith("/api/groups/g1/stop", "POST", {});
+
+    // 6. Older Host without groups.cross-host.v1 refuses new subcommands and designated mode before any request!
+    request.mockClear();
+    const legacy = { ready: { serverCapabilities: ["groups.discussion.v1", "groups.parallel.v1"] }, request, putChunk: vi.fn() };
+    await expect(runGroupsCommand(legacy, "members", "g1", {})).rejects.toThrow("更新主机");
+    await expect(runGroupsCommand(legacy, "add-member", "g1", { bot: "b1" })).rejects.toThrow("更新主机");
+    await expect(runGroupsCommand(legacy, "remove-member", "g1", { member: "local:b1" })).rejects.toThrow("更新主机");
+    await expect(runGroupsCommand(legacy, "switch-session", "g1", { member: "local:b1", "new-session": true })).rejects.toThrow("更新主机");
+    await expect(runGroupsCommand(legacy, "room", "g1", {})).rejects.toThrow("更新主机");
+    await expect(runGroupsCommand(legacy, "stop", "g1", {})).rejects.toThrow("更新主机");
+    const designatedFile = path.join(root, "designated.json");
+    await writeFile(designatedFile, JSON.stringify({
+      title: "G",
+      expectedTitle: "G",
+      botIds: ["a"],
+      expectedBotIds: ["a"],
+      policy: { mode: "designated", botOrder: ["a"], maxRounds: 3 },
+      expectedRevision: "gs_1",
+    }));
+    await expect(runGroupsCommand(legacy, "update", "g1", { from: designatedFile })).rejects.toThrow("指定 Bot 回复");
+    expect(request).not.toHaveBeenCalled();
+  });
 });

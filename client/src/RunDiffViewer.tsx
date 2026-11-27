@@ -9,6 +9,7 @@ import { readRunEvidence as readEvidence } from "./run-changes-read.js";
 import { CreationDialog } from "./CreationDialog.js";
 import DiffViewer from "./DiffViewer.js";
 import { DiffCode } from "./DiffCode.js";
+import { DiffCounts } from "./DiffCounts.js";
 import { adhdSupported } from "./adhd-board-state.js";
 import { nativePlatform } from "./native.js";
 import { useDiffReview } from "./use-diff-review.js";
@@ -28,9 +29,6 @@ function failure(error: unknown): string {
     if ([404, 410].includes(error.status)) return t("这条消息或修改记录已不可用。");
   }
   return t("暂时无法读取修改记录，请稍后重试。");
-}
-function Counts({ value }: { value: { additions: number | null; deletions: number | null } }) {
-  return <span className="diff-counts"><span>+{value.additions ?? "—"}</span><span>−{value.deletions ?? "—"}</span></span>;
 }
 export default function RunDiffViewer({ connection, conversationId, botId, messageId, runId, snapshotKey, close }: {
   connection: HubConnection; conversationId: string; botId: string; messageId: string; runId: string; snapshotKey?: string; close: () => void;
@@ -95,7 +93,7 @@ export default function RunDiffViewer({ connection, conversationId, botId, messa
   const act = async (fn: () => Promise<unknown>) => { setSending(true); setActionError(""); try { await fn(); } catch { setActionError(t("操作未完成，批注仍保留，请检查连接、草稿状态或内容长度后重试。")); } finally { setSending(false); } };
   const doClose = () => { if (review.error === "read") close(); else void review.flush().then(close).catch(() => setDiscard(true)); };
   const empty = !permitted ? t("没有权限查看此工作区，请检查连接和对话权限。") : !online ? t("连接恢复后即可查看修改记录。") : state.runChangesAvailable !== true ? t("请更新主机以查看本轮修改记录。") : error || (list?.state === "active" ? t("本轮仍在进行，完成后可查看已确认的修改。") : list?.state === "expired" ? t("这轮修改记录已超过保存期限，无法恢复当时的差异。") : list?.state === "not_recorded" ? t("这轮没有保存可查看的差异，不代表没有修改文件。") : "");
-  const fileButton = (file: RunChanges["items"][number]) => <button type="button" aria-label={file.path} className={`diff-file run-diff-file ${selected === file.key ? "is-selected" : ""}`} key={file.key} title={file.path} onClick={() => choose(file.key)}><FileCode2 size={15}/><span className="diff-file-path"><strong>{file.path.replaceAll("\\", "/").split("/").pop()}</strong><small>{file.path.replaceAll("\\", "/").split("/").slice(0, -1).join("/")}</small></span><Counts value={file}/></button>;
+  const fileButton = (file: RunChanges["items"][number]) => <button type="button" aria-label={file.path} className={`diff-file run-diff-file ${selected === file.key ? "is-selected" : ""}`} key={file.key} title={file.path} onClick={() => choose(file.key)}><FileCode2 size={15}/><span className="diff-file-path"><strong>{file.path.replaceAll("\\", "/").split("/").pop()}</strong><small>{file.path.replaceAll("\\", "/").split("/").slice(0, -1).join("/")}</small></span><DiffCounts additions={file.additions} deletions={file.deletions}/></button>;
   if (live) return <DiffViewer connection={connection} conversationId={conversationId} botId={botId} sharedReview={review} close={() => setLive(false)}/>;
   return <><CreationDialog title={t("本轮改动")} close={doClose} onBack={() => { if (selected) setSelected(undefined); else doClose(); }} closeLabel={t("关闭改动查看器")} showHost={false} className={`diff-viewer ${desktop ? "is-desktop" : "is-mobile"} ${selected ? "has-file" : ""}`}>
     <div className="diff-toolbar"><div><strong>{state.bots.find(bot => bot.id === botId)?.name ?? botId}</strong><span title={t("多次编辑按已记录步骤累计，不等于文件最终净变化。")}>{t("本轮已记录的修改")}</span><button type="button" className="run-diff-live" onClick={() => void review.flush().then(() => setLive(true)).catch(() => setActionError(t("批注状态暂不可用，请先复制意见并重新读取草稿。")))}>{t("当前工作区（实时）")}</button></div><button type="button" className="icon-button" aria-label={t("刷新修改记录")} disabled={!online || loading || fileLoading} onClick={() => { setPreview(false); setRevision(value => value + 1); }}><RefreshCw size={17}/></button></div>
@@ -105,7 +103,7 @@ export default function RunDiffViewer({ connection, conversationId, botId, messa
         {list?.partial && <p className="diff-hint">{t("记录不完整，仅展示已保存的部分。")}</p>}{!!list?.unavailable && <p className="diff-hint">{t("有修改未保存差异或未确认成功，未计入增删统计。")}</p>}{!!list?.childEdits && <p className="diff-hint">{t("子任务的修改另见运行过程，未混入本轮统计。")}</p>}{list?.truncated && <p className="diff-hint">{t("文件过多，仅显示前 200 个文件。")}</p>}
       </nav>
       <section className="diff-content" aria-label={t("文件差异")}>{!selected ? <div className="diff-empty"><FileCode2 size={30}/><p>{empty || t("选择一个文件查看改动")}</p></div> : <>
-        <div className="diff-file-toolbar"><button type="button" className="icon-button diff-back" aria-label={t("返回改动文件")} onClick={() => setSelected(undefined)}><ArrowLeft size={18}/></button><strong title={detail?.file.path}>{detail?.file.path ?? list?.items.find(file => file.key === selected)?.path}</strong>{detail && <Counts value={detail.operation}/>} {desktop && <button type="button" className="icon-button" aria-label={split ? t("切换单栏差异") : t("切换左右对比")} onClick={() => setSplit(!split)}>{split ? <Rows3 size={17}/> : <Columns2 size={17}/>}</button>}</div>
+        <div className="diff-file-toolbar"><button type="button" className="icon-button diff-back" aria-label={t("返回改动文件")} onClick={() => setSelected(undefined)}><ArrowLeft size={18}/></button><strong title={detail?.file.path}>{detail?.file.path ?? list?.items.find(file => file.key === selected)?.path}</strong>{detail && <DiffCounts additions={detail.operation.additions} deletions={detail.operation.deletions}/>} {desktop && <button type="button" className="icon-button" aria-label={split ? t("切换单栏差异") : t("切换左右对比")} onClick={() => setSplit(!split)}>{split ? <Rows3 size={17}/> : <Columns2 size={17}/>}</button>}</div>
         {fileLoading ? <div className="diff-empty" role="status">{t("正在读取文件改动…")}</div> : fileError || empty ? <div className="diff-empty" role="alert">{fileError || empty}</div> : detail && <>
           <div className="run-diff-operation"><label>{t("修改步骤")} <select aria-label={t("修改步骤")} value={detail.operation.id} onChange={event => { setOperation(event.target.value); setPreview(false); }}>{detail.operations.map(op => <option key={op.id} value={op.id}>{t("步骤 {0}", op.seq)} · {new Date(op.at).toLocaleTimeString()}</option>)}</select></label>{detail.operationsTruncated && <span>{t("仅列出前 200 次修改。")}</span>}</div>
           {detail.operation.format !== "unified" && <p className="diff-hint">{t("记录未提供可靠行号；仅展示原始内容，不能添加行内批注。")}</p>}

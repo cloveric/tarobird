@@ -12,8 +12,10 @@ export const designOperationCapability = (operation:string) => operation.startsW
 export const designReadOperations: readonly string[] = ["design.read","design.comments.read","design.history.list","design.history.diff"];
 export const designMutationOperations: readonly string[] = ["design.publish","design.restore","design.comments.reply","design.comments.resolve"];
 export const designFormatSchema = z.enum(["canvas", "slides"]);
-export const designFormatTitle = (format: DesignFormat = "canvas") => ({ canvas: "画布", slides: "PPT" })[format];
+export const designFormatTitle = (format: DesignFormat = "slides") => ({ canvas: "画布", slides: "PPT" })[format];
 export type DesignFormat = z.infer<typeof designFormatSchema>;
+export const isCanvasRequest = (request: { operation: string; payload?: unknown }) =>
+  ["design.create", "design.open"].includes(request.operation) && (!request.payload || typeof request.payload !== "object" || !("format" in request.payload) || request.payload.format === undefined || request.payload.format === "canvas");
 export const isSlidesRequest = (request: { operation: string; payload?: unknown }) =>
   ["design.create", "design.open"].includes(request.operation) && !!request.payload && typeof request.payload === "object" && "format" in request.payload && request.payload.format === "slides";
 export const DESIGN_FILE_BYTES = 8 * 1024 * 1024;
@@ -42,5 +44,6 @@ export function workbenchDesignError(request: { operation: string; payload?: unk
   if (!request.operation.startsWith("design.")) return;
   const schema = designPayloads[request.operation];
   if (!schema?.safeParse(request.payload ?? {}).success) return "invalid_design_payload";
+  if (isCanvasRequest(request)) return "design_canvas_removed";
   if (["design.publish","design.restore"].includes(request.operation) && request.expectedRevision === undefined) return "workbench_revision_required";
 }

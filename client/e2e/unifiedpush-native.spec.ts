@@ -5,7 +5,7 @@ import { createServer } from "./fixtures/vite.js";
 import { generateKeyPairSync } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-type Fixture = { clear(): Promise<void>; firebase: { clearHold: boolean; releaseClear?: () => void; calls: string[]; hold: boolean; error: string; token: string; release(index: number, error?: string): void; emit(event: string, value: unknown): void }; setup(keys: string[]): void; render(index: number): void; renderMain(index: number): void; preferences(index: number): { quietStart: string }; migrateOffline(): Promise<{ migrateLegacy?: boolean }[]>; enable(index: number): Promise<void>; fcm(index: number): Promise<void>; resume(index: number): Promise<void>; remove(index: number): Promise<void>; maintain(): Promise<void>; rotate(index: number): void; controls(options: { nativeRead?: boolean; refresh?: boolean; cleanupBefore?: boolean; put?: boolean; delete?: boolean; cleanup?: boolean; holdPut?: boolean; holdPreferences?: boolean; oldNative?: boolean }): void; release(): void; snapshot(): { records: { instance: string; registrationId: string; phase: string; remoteRemoval?: boolean }[]; remote: (string | undefined)[]; log: string[] } };
+type Fixture = { clear(): Promise<void>; clearHost(index: number): Promise<void>; firebase: { permission: "granted" | "denied"; clearHold: boolean; releaseClear?: () => void; calls: string[]; hold: boolean; error: string; token: string; release(index: number, error?: string): void; emit(event: string, value: unknown): void }; setup(keys: string[]): void; render(index: number): void; renderMain(index: number): void; preferences(index: number): { quietStart: string }; migrateOffline(): Promise<{ migrateLegacy?: boolean }[]>; enable(index: number): Promise<void>; fcm(index: number): Promise<void>; resume(index: number): Promise<void>; remove(index: number): Promise<void>; maintain(): Promise<void>; rotate(index: number): void; controls(options: { nativeRead?: boolean; refresh?: boolean; cleanupBefore?: boolean; put?: boolean; delete?: boolean; cleanup?: boolean; holdPut?: boolean; holdPreferences?: boolean; oldNative?: boolean }): void; release(): void; snapshot(): { records: { instance: string; registrationId: string; phase: string; remoteRemoval?: boolean }[]; remote: (string | undefined)[]; log: string[]; clearedHostNotifications: string[] } };
 declare global { interface Window { unifiedNativeFixture: Fixture; operationResult?: string } }
 let server: ViteDevServer;
 test.beforeAll(async () => { server = await createServer({ resolve: { alias: [
@@ -236,4 +236,18 @@ test("whole-device cleanup keeps new registrations behind actual Firebase and de
   await expect.poll(() => page.evaluate(() => window.operationResult)).toBe("enabled");
   const calls = await page.evaluate(() => window.unifiedNativeFixture.firebase.calls);
   expect(calls.indexOf("clear delivered")).toBeLessThan(calls.indexOf("getToken"));
+});
+
+test("Android host removal clears delivered notifications for only the removed host", async ({ page }) => {
+  await page.evaluate(async () => { await window.unifiedNativeFixture.enable(0); await window.unifiedNativeFixture.enable(1); await window.unifiedNativeFixture.clearHost(0); });
+  const state = await page.evaluate(() => window.unifiedNativeFixture.snapshot());
+  expect(state.records).toHaveLength(1);
+  expect(state.clearedHostNotifications).toHaveLength(1);
+  expect(state.clearedHostNotifications[0]).toMatch(/^hub_[0-9a-f]{64}$/);
+});
+
+test("UnifiedPushSettings explains missing notification permission clearly", async ({ page }) => {
+  await page.evaluate(() => { window.unifiedNativeFixture.firebase.permission = "denied"; window.unifiedNativeFixture.render(0); });
+  await page.getByRole("button", { name: "连接分发器", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("通知权限未开启，请在系统设置中允许 TaroBird 通知。");
 });

@@ -1,36 +1,72 @@
 import canvasArtifact from "./infinite-canvas-artifact.json";
-import { CONVERSATION_HISTORY_CAPABILITY, historySnapshotSchema, historyAnchorPageSchema, historyChangeSchema, historyOperationSchema, type HistoryChange, type HistoryOperation } from "../../src/client-protocol/conversation-history.js";
+import { HOST_BALANCE_RESOURCES_CAPABILITY } from "../../src/client-protocol/host-balance-resources.js";
+import { WORKSPACE_FILES_CAPABILITY } from "../../src/client-protocol/workspace-files.js";
+import { CONVERSATION_HISTORY_CAPABILITY, HISTORY_SIDE_REASON_QUERY, historyClientSnapshotSchema, historyAnchorPageSchema, historyChangeSchema, historyClientOperationSchema, type HistoryChange, type HistoryClientOperation } from "../../src/client-protocol/conversation-history.js";
+import { CROSS_HOST_GROUPS_CAPABILITY } from "../../src/client-protocol/group-members.js";
 import { CONVERSATION_BOT_COMMS_CAPABILITY } from "../../src/client-protocol/workspace-comms.js";
+import {
+  HOST_RESOURCES_CAPABILITY,
+  HOST_RESOURCES_PATH,
+  HOST_RESOURCES_STOP_PATH,
+  hostResourcesSnapshotSchema,
+  hostResourceStopRequestSchema,
+  hostResourceStopResultSchema,
+  type HostResourceStopRequest,
+} from "../../src/client-protocol/host-resources.js";
 import { historyPendingSchema, historyRecordKey } from "./conversation-history-state.js";
-import { ENGINE_QUOTA_CAPABILITY, quotaDirectorySchema, quotaScopeSchema, type QuotaScope } from "../../src/client-protocol/engine-quota.js";
+import { ENGINE_QUOTA_CAPABILITY, ENGINE_QUOTA_CURRENCY_CAPABILITY, quotaDirectorySchema, quotaScopeSchema, type QuotaScope } from "../../src/client-protocol/engine-quota.js";
 import { CONTEXT_USAGE_CAPABILITY, contextUsageSchema } from "../../src/client-protocol/context-usage.js";
 import { WORKBENCH_DESIGN_SHARE_CAPABILITY, designShareRequestFrameSchema, designShareResultFrameSchema, designShareEventFrameSchema, designShareDispatchFrameSchema, designShareCancelFrameSchema, type DesignShareRequest, type DesignShareServerFrame } from "../../src/client-protocol/workbench-design-sharing.js";
 import { DesignShareClient, type DesignShareTransport } from "./workbench-design-collaboration.js";
 import type { WorkbenchDraft } from "./workbench-draft.js";
 import type { DesignCommentAcceptance } from "./design-comment-delivery.js";
 import { WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_DESIGN_COMMENTS_CAPABILITY, WORKBENCH_DESIGN_HISTORY_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY } from "../../src/client-protocol/workbench-design.js";
-import { DISPATCH_CAPABILITY } from "../../src/client-protocol/dispatch.js";
-import { ticketConversationsVisible } from "./dispatcher.js";
-import { screenStatusSchema, screenJoinSchema, screenConfigureSchema, screenConfigureText, screenPolicySchema, REMOTE_SCREEN_FLIGHT_CAPABILITY, REMOTE_SCREEN_QUALITY_CAPABILITY, type ScreenConfigure } from "../../src/client-protocol/remote-screen.js";
+import { DISPATCH_CAPABILITY, DISPATCH_CROSS_HOST_CAPABILITY, dispatchWireRoute, crossHostDispatchGrantCommandSchema, crossHostDispatchGrantsSnapshotSchema, type CrossHostDispatchGrantCommand } from "../../src/client-protocol/dispatch.js";
+import { notifiesWhileHidden } from "./dispatcher.js";
+import { screenStatusSchema, screenJoinSchema, screenConfigureSchema, screenConfigureText, screenPolicySchema, REMOTE_SCREEN_FLIGHT_CAPABILITY, REMOTE_SCREEN_QUALITY_CAPABILITY, REMOTE_SCREEN_UDP_BOOST_CAPABILITY, type ScreenConfigure } from "../../src/client-protocol/remote-screen.js";
+import { estimateServerTimeOffset } from "../../src/client-protocol/screen-metrics.js";
+import {
+  HOST_TERMINAL_CAPABILITY,
+  HOST_TERMINAL_CONFIGURE_PATH,
+  HOST_TERMINAL_STATUS_PATH,
+  HOST_TERMINALS_PATH,
+  terminalConfigureSchema,
+  terminalConfigureText,
+  terminalCreateSchema,
+  terminalOutputSchema,
+  terminalPolicySchema,
+  terminalSessionInfoSchema,
+  terminalStatusSchema,
+  type TerminalConfigure,
+  type TerminalCreate,
+} from "../../src/client-protocol/host-terminal.js";
 import type { ScreenQuality } from "../../src/client-protocol/screen-quality.js";
 import { routeTrust } from "./route-trust.js";
 import { PAIRING_INVITES_CAPABILITY } from "../../src/client-protocol/pairing-invites.js";
+import { SAVED_WORKSPACES_CAPABILITY } from "../../src/client-protocol/saved-workspaces.js";
 import { WORKBENCH_MARKDOWN_CAPABILITY, WORKBENCH_CAPABILITY, workbenchCommandFrameSchema, workbenchCancelFrameSchema, type WorkbenchCommandFrame, type WorkbenchCancelFrame } from "../../src/client-protocol/workbench.js";
 import { CANVAS_AGENT_HOST_CAPABILITY, canvasAgentEventFrameSchema, type CanvasAgentEventFrame } from "../../src/client-protocol/infinite-canvas.js";
 import { CONVERSATION_BATCH_CAPABILITY, conversationBatchResultSchema, type ConversationBatch } from '../../src/client-protocol/conversation-batch.js';
 import { groupReplyWireFrame, changedGroupReply } from "./group-reply-guard.js";
 import { rememberGroupReplyCapabilities } from "./group-reply-mode-cache.js";
 import { UNAVAILABLE_CARD_ACTION, outboxFailureBlocks } from "./outbox-failure.js";
+import { clearRememberedPendingPreviews } from "./pending-messages.js";
+import { markSendTimingByClientMsgId } from "./send-timing.js";
 import { clearMessagesPlanSchema, clearMessagesResultSchema, MESSAGE_CLEAR_CAPABILITY } from "../../src/client-protocol/message-clear.js";
 import { deleteMessagesSchema, deleteMessagesResultSchema, MESSAGE_DELETE_CAPABILITY } from "../../src/client-protocol/message-deletion.js";
 import { timeoutSignal, anySignal } from "./abort-signals.js";
+import { addGlobalListener } from "./global-event-hub.js";
 import { conversationFoldersSchema, emptyConversationFolders, type ConversationFoldersState, type FolderEdit } from "../../src/client-protocol/conversation-folders.js";
+import { CONVERSATION_PINS_CAPABILITY, conversationPinsSchema, emptyConversationPins, type ConversationPinsState, type PinScope } from "../../src/client-protocol/conversation-pins.js";
+import { CROSS_HOST_FOLDER_ORDER_CAPABILITY, crossHostFolderOrderSchema, type CrossHostFolderOrderState } from "../../src/client-protocol/cross-host-folder-order.js";
 import { connectionTiming } from "./connection-timing.js";
 import { RoutePerformance, ROUTE_OBSERVATION_MS, ROUTE_DWELL_MS, ROUTE_STABLE_PROBE_MS, ROUTE_CANDIDATE_PROBE_MS } from "./route-performance.js";
 import { rememberRouteTrust } from "./route-trust.js";
-import { connectionErrorMessage, connectionVerificationFailure, connectionVerificationMessage, preferredVerificationFailure } from "./connection-verification.js";
+import { connectionErrorMessage, connectionVerificationFailure, nativeLifecycleErrorCode } from "./connection-verification.js";
+import { classifyRouteTransportFailure, diagnoseRouteFailures, type RouteDiagnosis } from "./route-diagnostics.js";
 import { runtimeHostId } from "./host-registry.js";
-import { orderedRoutes, localRoutesSchema, deploymentSchema, deploymentMatchesRoutes, type Deployment, type RouteHealth } from "../../src/client-protocol/routes.js";
+import { isEdgeTlsRoute, orderedRoutes, localRoutesSchema, deploymentSchema, deploymentMatchesRoutes, type Deployment, type RouteHealth } from "../../src/client-protocol/routes.js";
+import { HOST_CLOUDFLARE_CAPABILITY, HOST_CLOUDFLARE_PATH, HOST_CLOUDFLARE_QUICK_PATH, cloudflareQuickActionProofText, cloudflareQuickActionSchema, cloudflareUpdateProofText, cloudflareUpdateSchema, cloudflareViewSchema, type CloudflareQuickAction, type CloudflareUpdate, type CloudflareView } from "../../src/client-protocol/cloudflare.js";
 import { avatarSchema, avatarKey, profileUserSchema, type ProfileAvatar, type ProfileCache, type AvatarTarget } from "../../src/client-protocol/avatars.js";
 import type { CreateBotInput } from "../../src/client-protocol/bots.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -38,22 +74,22 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { FrameReader } from "../../src/client-protocol/fragments.js";
 import { messageStreamSchema } from "../../src/client-protocol/stream.js";
 import { syncShareUploadLimit } from "./share-inbox.js";
-import { t } from "./i18n.js";
+import { getLocale, t } from "./i18n.js";
 import type { DiffReviewScope } from "./diff-review-draft.js";
 import { assertMessageTextSize } from "./message-validation.js";
 import { quietNow } from "../../src/client-protocol/push.js";
 import { BACKGROUND_TASK_GROUP_CAPABILITY } from "../../src/client-protocol/background-task-group.js";
 import { RUN_SCOPES_CAPABILITY, RUN_TAIL_CAPABILITY } from "../../src/client-protocol/run.js";
-import { desktopNotice } from "./message-notification.js";
+import { desktopNotice, desktopNotificationLocale } from "./message-notification.js";
 import { desktopNotification, type NotificationState } from "./notifications.js";
-import { nativePlatform } from "./native.js";
-import { PRIVATE_NETWORK_CAPABILITY, networkCanonical, networkCommandSchema, networkCommandResultSchema, networkViewSchema, type NetworkCommandInput, type NetworkView, type SignedNetworkManifest, type SignedNetworkProposal } from "../../src/client-protocol/private-network.js";
+import { isNativeAppActive, NATIVE_ACTIVE_EVENT, nativePlatform } from "./native.js";
+import { PRIVATE_NETWORK_CAPABILITY, PRIVATE_NETWORK_RECOVERY_CAPABILITY, networkCanonical, networkCommandSchema, networkCommandResultSchema, networkViewSchema, type NetworkCommandInput, type NetworkView, type SignedNetworkManifest, type SignedNetworkProposal } from "../../src/client-protocol/private-network.js";
 import { hostProfileSchema, type HostProfileState } from "../../src/client-protocol/host-profile.js";
 import { verifyNetworkMembership } from "./network-identity.js";
 import { z } from "zod";
-import { CAPABILITIES, MAX_FRAME_BYTES, MAX_FILE_BYTES, uploadLimitsSchema, clientFrameSchema, conversationSchema, eventSchema, type ClientFrame, type Conversation, type Json } from "../../src/client-protocol/index.js";
+import { AUDIO_RECORDING_CAPABILITY, CAPABILITIES, REQUEST_LOCALES_CAPABILITY, MAX_FRAME_BYTES, MAX_FILE_BYTES, uploadLimitsSchema, clientFrameSchema, conversationSchema, eventSchema, type ClientFrame, type Conversation, type Json } from "../../src/client-protocol/index.js";
 import { CONVERSATION_SYNC_CAPABILITY, SNAPSHOT_ACTIVITY_CAPABILITY, SYNC_LINEAGE_CAPABILITY, snapshotFrameSchema } from "../../src/client-protocol/snapshot.js";
-import { cache as legacyCache, type ClientCache, type OutboxEntry, type Identity, type Route, type PendingPairing } from "./storage.js";
+import { cache as legacyCache, type ClientCache, type OutboxEntry, type Identity, type Route, type PendingPairing, type PendingPinChange } from "./storage.js";
 import { randomNonce, signChallenge, signDeviceAction, verifyHub, verifyRevocation } from "./identity.js";
 import { boundDeviceActionStatement, deviceActionSchema } from "../../src/client-protocol/device-actions.js";
 import { botMessageGrantsCommandSchema, botMessageGrantsSnapshotSchema, type BotMessageGrantsCommand, crossHostMessageGrantsCommandSchema, crossHostMessageGrantsSnapshotSchema, type CrossHostMessageGrantsCommand } from "../../src/client-protocol/bot-message-grants.js";
@@ -69,16 +105,27 @@ import type { StopReceipt } from "./run-stop.js";
 import { memoryAttachment, sweepTemporaryDownloads, type AttachmentSource } from "./download-buffer.js";
 import { DISK_CACHE_MIN_BYTES, diskCacheKey, forgetCachedAttachments, readCachedAttachment, storeCachedAttachment } from "./attachment-disk-cache.js";
 
-export type Bot = { id: string; name: string; engine: string; model: string; effort: string; online: number; managed?: number; deletedAt?: number; defaultAvatar?: string; role?: string };
+export type Bot = { id: string; name: string; engine: string; model: string; effort: string; online: number; managed?: number; deletedAt?: number; defaultAvatar?: string; role?: string; workspacePath?: string };
 // `role` is open-ended so a newer Host role cannot reject the whole directory; only "dispatcher" has meaning here.
-const botSchema = z.object({ id: z.string(), name: z.string(), engine: z.string(), model: z.string(), effort: z.string(), online: z.number(), managed: z.number().optional(), deletedAt: z.number().optional(), defaultAvatar: z.string().max(64).optional(), role: z.string().max(32).optional() });
-const readySchema = z.object({ serverCapabilities: z.array(z.string()).default([]), conversationFolders: conversationFoldersSchema.optional(), uploadLimits: uploadLimitsSchema.optional(), user: profileUserSchema, avatars: z.array(avatarSchema).default([]), sessionToken: z.string(), expiresAt: z.number(), serverTime: z.number().optional(), bots: z.array(botSchema), conversations: z.array(conversationSchema) });
-/** Queued frames refresh only their own conversation; creation has no existing scope. */
-const frameConversation = (frame: ClientFrame): string | undefined => "conversationId" in frame ? frame.conversationId : "groupId" in frame ? frame.groupId : undefined;
+const botSchema = z.object({ id: z.string(), name: z.string(), engine: z.string(), model: z.string(), effort: z.string(), online: z.number(), managed: z.number().optional(), deletedAt: z.number().optional(), defaultAvatar: z.string().max(64).optional(), role: z.string().max(32).optional(), workspacePath: z.string().max(4096).optional() });
+const readySchema = z.object({ serverCapabilities: z.array(z.string()).default([]), conversationFolders: conversationFoldersSchema.optional(), conversationPins: conversationPinsSchema.optional(), crossHostFolderOrder: crossHostFolderOrderSchema.optional(), uploadLimits: uploadLimitsSchema.optional(), user: profileUserSchema, avatars: z.array(avatarSchema).default([]), sessionToken: z.string(), expiresAt: z.number(), serverTime: z.number().optional(), bots: z.array(botSchema), conversations: z.array(conversationSchema) });
 export type RouteSyncSource = "host" | "network";
 export type RouteSyncResult = { limited: boolean };
-export type ConnectionState = ProfileCache & { canvasAgentAvailable?: boolean; dispatchAvailable?: boolean; screenAvailable?: boolean; /** Host accepts `screenOpen({ flight })` and an `ack` with `heldMs`. */ screenFlightAvailable?: boolean; /** Host accepts `screenOpen({ quality })`; the target may still refuse (`screen_quality_unsupported`). */ screenQualityAvailable?: boolean; workbenchAvailable?: boolean; workbenchMarkdownAvailable?: boolean; workbenchDesignAvailable?: boolean; workbenchDesignOpenAvailable?: boolean; workbenchSlidesAvailable?: boolean; workbenchDesignCommentsAvailable?: boolean; workbenchDesignHistoryAvailable?: boolean; workbenchDesignShareAvailable?:boolean; pairingInvitesAvailable?: boolean; conversationBatchAvailable?: boolean; routeSync?: Partial<Record<RouteSyncSource, RouteSyncResult>>; engineTasksAvailable?: boolean; botCommsAvailable?: boolean; historyAvailable?: boolean; piSessionAvailable?: boolean; sideAvailable?: boolean; syncProgress?: { completed: number; total: number; indeterminate?: boolean }; groupDiscussionAvailable?: boolean; groupDiscussionComposerAvailable?: boolean; groupDiscussionRecoveryAvailable?: boolean; groupReplyGuardAvailable?: boolean; groupParallelAvailable?: boolean; voiceSettingsAvailable?: boolean; widgetSettingsAvailable?: boolean; engineSettingsAvailable?: boolean; engineQuotaAvailable?: boolean; /** Host serves a conversation's context usage. */ contextUsageAvailable?: boolean; backupSettingsAvailable?: boolean; routeSelection?: { reason: "initial" | "reconnected" | "failover" | "quality"; changedAt: number }; hostRoutesAvailable?: boolean; hostLanSelectionAvailable?: boolean; /** Host serves owner File Center › 附件管理 (`attachments.admin.v1`). */ attachmentAdminAvailable?: boolean; /** Bumped when this device deleted host attachments. */ attachmentDeletions?: number; workspaceDiffAvailable?: boolean; runChangesAvailable?: boolean; asrSetupAvailable?: boolean; navigationGraceUntil?: number; serverTimeOffset?: number; network?: NetworkView; networkChange?: NetworkView; networkAvailable?: boolean; hostProfile?: HostProfileState; conversationFolders?: ConversationFoldersState; foldersAvailable?: boolean; runScopesAvailable?: boolean; runGroupsAvailable?: boolean; runTailAvailable?: boolean; folderReorderAvailable?: boolean; folderPinAvailable?: boolean; conversationAvatarsAvailable?: boolean; cacheRevision: number; notifications?: NotificationState; routeHealth?: RouteHealth[]; maxFileBytes?: number; status: "offline" | "connecting" | "online"; route?: Route; latency?: number; error?: string; awaitingApproval?: boolean; bots: Bot[]; deletedBots?: Bot[]; /** A dispatcher's hidden engine workers: named in their ticket chats, never listed. */ dispatchWorkers?: Bot[]; botDeletionAvailable?: boolean; promptQueueAvailable?: boolean; messageDeletionAvailable?: boolean; messageClearAvailable?: boolean; outbox: number };
-export type OutboxSettlement = { entry: OutboxEntry; revision: number; messageAccepted: boolean };
+export type ConnectionState = ProfileCache & { canvasAgentAvailable?: boolean; /** Host accepts UI locales other than "zh"/"en" in requests. */ requestLocalesAvailable?: boolean; hostResourcesAvailable?: boolean;hostTerminalAvailable?: boolean; savedWorkspacesAvailable?: boolean; audioRecordingMarkerAvailable?: boolean; dispatchAvailable?: boolean; crossHostDispatchAvailable?: boolean; screenAvailable?: boolean; /** Host accepts `screenOpen({ flight })` and an `ack` with `heldMs`. */ screenFlightAvailable?: boolean; /** Host accepts `screenOpen({ quality })`; the target may still refuse (`screen_quality_unsupported`). */ screenQualityAvailable?: boolean; /** Host accepts `screenConfigure({ udpBoost })` and `includeUdpStatus=1`. */ screenUdpBoostAvailable?: boolean; workbenchAvailable?: boolean; workbenchMarkdownAvailable?: boolean; workbenchDesignAvailable?: boolean; workbenchDesignOpenAvailable?: boolean; workbenchSlidesAvailable?: boolean; workbenchDesignCommentsAvailable?: boolean; workbenchDesignHistoryAvailable?: boolean; workbenchDesignShareAvailable?:boolean; pairingInvitesAvailable?: boolean; conversationBatchAvailable?: boolean; routeSync?: Partial<Record<RouteSyncSource, RouteSyncResult>>; engineTasksAvailable?: boolean; botCommsAvailable?: boolean; historyAvailable?: boolean; piSessionAvailable?: boolean; sideAvailable?: boolean; syncProgress?: { completed: number; total: number; indeterminate?: boolean }; groupDiscussionAvailable?: boolean; groupDiscussionComposerAvailable?: boolean; groupDiscussionRecoveryAvailable?: boolean; groupReplyGuardAvailable?: boolean; groupParallelAvailable?: boolean; crossHostGroupsAvailable?: boolean; voiceSettingsAvailable?: boolean; widgetSettingsAvailable?: boolean; engineSettingsAvailable?: boolean; engineQuotaAvailable?: boolean; engineQuotaCurrencyAvailable?: boolean; /** Host serves a conversation's context usage. */ contextUsageAvailable?: boolean; backupSettingsAvailable?: boolean; routeSelection?: { reason: "initial" | "reconnected" | "failover" | "quality"; changedAt: number }; hostRoutesAvailable?: boolean; hostBalanceResourcesAvailable?: boolean; hostLanSelectionAvailable?: boolean; cloudflareRoutesAvailable?: boolean; /** Host serves owner File Center › 附件管理 (`attachments.admin.v1`). */ attachmentAdminAvailable?: boolean; /** Bumped when this device deleted host attachments. */ attachmentDeletions?: number; workspaceDiffAvailable?: boolean; workspaceFilesAvailable?: boolean; runChangesAvailable?: boolean; asrSetupAvailable?: boolean; navigationGraceUntil?: number; serverTimeOffset?: number; network?: NetworkView; networkChange?: NetworkView; networkAvailable?: boolean; networkRecoveryAvailable?: boolean; hostProfile?: HostProfileState; conversationFolders?: ConversationFoldersState; foldersAvailable?: boolean; conversationPins?: ConversationPinsState; pinsAvailable?: boolean; crossHostFolderOrder?: CrossHostFolderOrderState; crossHostFolderOrderAvailable?: boolean; runScopesAvailable?: boolean; runGroupsAvailable?: boolean; runTailAvailable?: boolean; folderReorderAvailable?: boolean; folderPinAvailable?: boolean; conversationAvatarsAvailable?: boolean; cacheRevision: number; notifications?: NotificationState; routeHealth?: RouteHealth[]; routeDiagnosis?: RouteDiagnosis; maxFileBytes?: number; status: "offline" | "connecting" | "online"; route?: Route; latency?: number; error?: string; awaitingApproval?: boolean; bots: Bot[]; deletedBots?: Bot[]; /** A dispatcher's hidden engine workers: named in their ticket chats, never listed. */ dispatchWorkers?: Bot[]; botDeletionAvailable?: boolean; promptQueueAvailable?: boolean; messageDeletionAvailable?: boolean; messageClearAvailable?: boolean; outbox: number };
+class RouteDiagnosisError extends Error {
+  constructor(readonly diagnosis: RouteDiagnosis) {
+    super(diagnosis.message);
+  }
+}
+export type OutboxSettlement = { entry: OutboxEntry; revision: number; queueRevision: number; messageAccepted: boolean };
+function isPermanentPinRejection(error: unknown): boolean {
+  if (!(error instanceof HubHttpError)) return false;
+  if (error.status === 400 && (error.code === "invalid_request" || error.code === "invalid_json")) return true;
+  if (error.status === 404 && error.code === "conversation_not_available") return true;
+  if (error.status === 409 && error.code === "pin_limit") return true;
+  if (error.status === 413 && error.code === "body_too_large") return true;
+  return false;
+}
 export class HubConnection {
   state: ConnectionState = { cacheRevision: 0, status: "offline", bots: [], outbox: 0, avatars: [] };
   private navigationGraceTimer?: ReturnType<typeof setTimeout>;
@@ -86,23 +133,45 @@ export class HubConnection {
   /** Invalidates discussion views without treating every streamed text token as a change. */
   groupDiscussionRevision = 0;
   get outboxRevision(): number { return this.outboxVersion; }
+  private invalidateCachedMessages(conversationId?: string): void {
+    (this.cache as { invalidateMessages?: (id?: string) => void }).invalidateMessages?.(conversationId);
+  }
   /** Request fresh local views without reconnecting or sending application data. */
-  refreshCache(): void { this.update({}, true); }
-  async pinConversation(id: string, pinned: boolean, scope: "group" | "global" = "group"): Promise<void> {
-    await this.cache.setPinned(id, pinned, scope);
+  refreshCache(): void { this.invalidateCachedMessages(); this.update({}, true); }
+  async pinConversation(id: string, pinned: boolean, scope: PinScope = "group"): Promise<void> {
+    const synced = await this.cache.conversationPins?.();
+    const isOnline = this.state.status === "online" && !!this.state.pinsAvailable && !this.closed;
+    const queuePending = !!synced || isOnline;
+    const liveEpoch = isOnline ? this.authenticatedSessionEpoch : undefined;
+    const offset = this.state.serverTimeOffset ?? await this.cache.serverTimeOffset?.() ?? 0;
+    const at = Math.max(0, Math.round(Date.now() + offset));
+    const seq = await this.cache.setPinned(id, pinned, scope, queuePending ? { at, identity: this.identity, queuePending: true } : undefined);
+    const key = `${scope}:${id}`;
+    if (typeof seq === "number" && liveEpoch !== undefined && !this.closed && this.state.status === "online" && this.state.pinsAvailable && this.authenticatedSessionEpoch === liveEpoch) {
+      this.livePinChanges.set(key, { seq, epoch: liveEpoch });
+    } else {
+      this.livePinChanges.delete(key);
+    }
     this.refreshCache();
+    if (this.state.status === "online" && this.state.pinsAvailable && !this.closed) {
+      void this.syncPinsWithHost(this.generation);
+    }
+  }
+  async syncPins(): Promise<void> {
+    if (this.state.status === "online" && this.state.pinsAvailable && !this.closed) {
+      await this.syncPinsWithHost(this.generation);
+    } else {
+      await this.pinSyncQueue;
+    }
   }
   /** Request fresh local views of one conversation (pending rows, history fences). */
-  refreshConversation(id: string): void { this.changedConversations.add(id); this.update({}, true, true); }
-  /** Outbox writes change only the durable queue. The owning conversation still
-   * advances because pending rows and ACK receipts fence on cacheRevision; other
-   * conversations keep their history. Unknown ownership keeps the global refresh. */
-  private outboxChanged(...conversations: (string | undefined)[]): void {
+  refreshConversation(id: string): void { this.invalidateCachedMessages(id); this.changedConversations.add(id); this.update({}, true, true); }
+  /** Outbox writes change only the durable queue, not cached message history.
+   * Notify outbox observers via `outboxRevision` without marking any
+   * conversation's message history dirty or advancing `cacheRevision`. */
+  private outboxChanged(): void {
     this.outboxVersion++;
-    const owners = conversations.filter((id): id is string => !!id);
-    if (!owners.length) { this.refreshCache(); return; }
-    for (const id of owners) this.changedConversations.add(id);
-    this.update({}, true, true);
+    this.update();
   }
   private outboxSettlements = new Set<(receipt: OutboxSettlement) => void>();
   private outboxQueued = new Set<(frame: ClientFrame) => void>();
@@ -115,6 +184,7 @@ export class HubConnection {
     },
   );
   private listeners = new Set<() => void>(); private ws?: HubSocket; private closed = false; private generation = 0; private stopFailures = 0;
+  private globalCleanups: (() => void)[] = [];
   private signing?: Promise<string>;
   private closingReceive?: { generation: number; resume: boolean };
   private userId?: string; private notificationRequest = 0;
@@ -129,9 +199,14 @@ export class HubConnection {
   private globalConversationRevision = 0;
   private readonly conversationRevisions = new Map<string, number>();
   private readonly changedConversations = new Set<string>();
+  private readonly urgentConversationRevisions = new Map<string, number>();
+  private readonly urgentConversations = new Set<string>();
   /** A board pane only rereads history touched by an event. Global invalidations
    * (snapshot, reconnect, local outbox reconciliation) still refresh every pane. */
   conversationRevision(id: string): number { return Math.max(this.globalConversationRevision, this.conversationRevisions.get(id) ?? 0); }
+  /** Monotonic per-conversation revision bumped on urgent user-message arrivals
+   * so active views bypass streaming read-gap throttling immediately. */
+  conversationImmediateRevision(id: string): number { return this.urgentConversationRevisions.get(id) ?? 0; }
   private outboxRetry?: ReturnType<typeof setTimeout>;
   private probeTimer?: ReturnType<typeof setInterval>; private handshake?: ReturnType<typeof setTimeout>; private probing = false;
   private preferredProbeAt = 0; private preferredProbeMisses = 0; private preferredProbeStarted = -Infinity;
@@ -151,6 +226,14 @@ export class HubConnection {
   private lifecycle = 0;
   private folderUpdates: Promise<void> = Promise.resolve();
   private folderVersion = 0;
+  private pinUpdates: Promise<void> = Promise.resolve();
+  private pinVersion = 0;
+  private pinSyncQueue: Promise<void> = Promise.resolve();
+  private pinSyncPending = false;
+  private pinSyncTargetGeneration = -1;
+  private readonly livePinChanges = new Map<string, { seq: number; epoch: number }>();
+  private crossHostFolderOrderUpdates: Promise<void> = Promise.resolve();
+  private crossHostFolderOrderVersion = 0;
   networkKnown?: SignedNetworkManifest;
   networkRemote?: SignedNetworkManifest;
   networkDeparture?: SignedNetworkManifest;
@@ -161,14 +244,16 @@ export class HubConnection {
   private pairingRequired = false;
   private networkRevision = 0;
   pinNetwork(id:string, authorityKey:string): void { this.networkPin = {id, authorityKey}; }
-  suspendNetwork(): void { this.networkBlocked = true; this.close(true); this.update({error:t("网络授权已失效")}); }
+  suspendNetwork(): void { this.networkBlocked = true; this.close(true); this.update({error:t("网络授权已失效"), routeDiagnosis: undefined}); }
   get isNetworkBlocked(): boolean { return this.networkBlocked; }
+  get isRevoked(): boolean { return this.deviceRevoked; }
   get isReadOnly(): boolean { return this.networkBlocked || this.deviceRevoked || this.pairingRequired; }
   get isClosed(): boolean { return this.closed; }
   beginFileTransfer(): () => void { this.fileTransfers++; let released = false; return () => { if (!released) { released = true; this.fileTransfers--; this.lastTraffic = Date.now(); } }; }
   private readonly presence = (event?: Event) => {
-    void this.send({ v: 1, type: "presence", foreground: document.visibilityState === "visible" && document.hasFocus() }).catch(() => undefined);
-    if (document.hidden) {
+    const active = isNativeAppActive();
+    void this.send({ v: 1, type: "presence", foreground: document.visibilityState === "visible" && document.hasFocus() && active }).catch(() => undefined);
+    if (document.hidden || !active) {
       this.preferred = undefined;
       // A new foreground after a real background transition gets a fresh probe;
       // an earlier wake's timer must not consume that opportunity to answer.
@@ -243,7 +328,7 @@ export class HubConnection {
   subscribeOutboxQueued(listener: (frame: ClientFrame) => void): () => void { this.outboxQueued.add(listener); return () => this.outboxQueued.delete(listener); }
   private settleOutbox(entry: OutboxEntry | undefined, messageAccepted: boolean): void {
     if (!entry || this.closed) return;
-    const receipt = { entry, revision: this.state.cacheRevision, messageAccepted };
+    const receipt = { entry, revision: this.state.cacheRevision, queueRevision: this.outboxVersion, messageAccepted };
     this.outboxSettlements.forEach(listener => listener(receipt));
   }
   private update(changes: Partial<ConnectionState> = {}, cacheChanged = false, scoped = false): void {
@@ -269,11 +354,14 @@ export class HubConnection {
       if (cacheChanged && !scoped) { this.globalConversationRevision = revision; this.conversationRevisions.clear(); }
       else for (const id of this.changedConversations) this.conversationRevisions.set(id, revision);
       this.changedConversations.clear();
+      for (const id of this.urgentConversations) this.urgentConversationRevisions.set(id, revision);
+      this.urgentConversations.clear();
     }
     this.state = { ...this.state, ...changes, cacheRevision: this.state.cacheRevision + Number(changed) }; this.listeners.forEach((f) => f());
   }
-  private eventApplied(conversationId: string, coalesce = false, receiving: () => boolean = () => false): void {
+  private eventApplied(conversationId: string, coalesce = false, receiving: () => boolean = () => false, urgent = false): void {
     this.changedConversations.add(conversationId);
+    if (urgent) this.urgentConversations.add(conversationId);
     const replaying = this.syncing && this.state.status === "online" && (!this.independentSync || this.pendingSync.has(conversationId));
     // History clears and plain-text streams can contain many small updates.
     // Keep every cache write/cursor durable, but avoid rereading the entire
@@ -303,9 +391,16 @@ export class HubConnection {
     if (this.started) return this.starting ?? Promise.resolve();
     this.started = true; this.closed = false; const lifecycle = ++this.lifecycle;
     if (this.httpEpoch.signal.aborted) this.httpEpoch = new AbortController();
-    window.addEventListener("online", this.networkOnline); document.addEventListener("visibilitychange", this.presence); window.addEventListener("focus", this.presence); window.addEventListener("blur", this.presence);
+    this.globalCleanups.forEach(fn => fn());
+    this.globalCleanups = [
+      addGlobalListener(window, "online", this.networkOnline),
+      addGlobalListener(document, "visibilitychange", this.presence),
+      addGlobalListener(window, "focus", this.presence),
+      addGlobalListener(window, "blur", this.presence),
+    ];
+    window.addEventListener(NATIVE_ACTIVE_EVENT, this.presence);
     const work = (async () => {
-      const [active, profiles, revoked, stored, outbox, conversationFolders, membership] = await Promise.all([this.cache.activeMessages(), this.cache.profiles(), this.cache.identityRevoked(this.identity), this.cache.identity(), this.cache.outbox(), this.cache.conversationFolders(), this.cache.networkMembership()]);
+      const [active, profiles, revoked, stored, outbox, conversationFolders, conversationPins, crossHostFolderOrder, membership] = await Promise.all([this.cache.activeMessages(), this.cache.profiles(), this.cache.identityRevoked(this.identity), this.cache.identity(), this.cache.outbox(), this.cache.conversationFolders(), this.cache.conversationPins?.(), this.cache.crossHostFolderOrder?.(), this.cache.networkMembership()]);
       if (this.closed || lifecycle !== this.lifecycle) return;
       if (!stored || stored.deviceId !== this.identity.deviceId || stored.hubPublicKey !== this.identity.hubPublicKey) throw new Error("host_cache_identity_mismatch");
       if (await this.cache.pendingReset()) throw new Error("local_reset_in_progress");
@@ -316,9 +411,9 @@ export class HubConnection {
         const host = membership.manifest.hosts.find(value => value.publicKey === this.identity.hubPublicKey)!;
         cachedNetwork = { host, membership, sync: host.revoked ? "removed" : "waiting", lastSyncedAt: 0 };
       }
-      this.activeMessages = new Set(active); this.update({ ...profiles, conversationFolders, outbox: outbox.length, ...(cachedNetwork ? { network: cachedNetwork } : {}) }, true);
+      this.activeMessages = new Set(active); this.update({ ...profiles, conversationFolders, conversationPins, crossHostFolderOrder, outbox: outbox.length, ...(cachedNetwork ? { network: cachedNetwork } : {}) }, true);
       if (this.networkBlocked) { this.suspendNetwork(); return; }
-      if (revoked) { this.deviceRevoked = true; if (this.networkPin) this.networkBlocked = true; this.close(); this.update({ error: t("此设备已被吊销，请重新配对") }); return; }
+      if (revoked) { this.deviceRevoked = true; if (this.networkPin) this.networkBlocked = true; this.close(); this.update({ error: t("此设备已被吊销，请重新配对"), routeDiagnosis: undefined }); return; }
       void this.downloadCheckpoints.sweep().catch(() => undefined);
       void sweepTemporaryDownloads().catch(() => undefined);
       await this.connect();
@@ -326,7 +421,7 @@ export class HubConnection {
     this.starting = work.catch((error: unknown) => {
       if (lifecycle === this.lifecycle) {
         if (this.cache.isClosed) { this.cacheUnavailable(); throw new Error(connectionErrorMessage("local_cache_unavailable")); }
-        else { this.close(); this.update({ error: error instanceof Error ? error.message : t("连接失败") }); }
+        else { this.close(); this.update({ error: error instanceof Error ? error.message : t("连接失败"), routeDiagnosis: undefined }); }
       }
       throw error;
     }).finally(() => { if (lifecycle === this.lifecycle) this.starting = undefined; });
@@ -394,15 +489,21 @@ export class HubConnection {
   private cacheUnavailable(): void {
     if (this.closed) return;
     this.close(true);
-    this.update({ error: connectionErrorMessage("local_cache_unavailable") });
+    this.update({ error: connectionErrorMessage("local_cache_unavailable"), routeDiagnosis: undefined });
   }
   private async selectRoute(allowCooldown = false, generation = this.generation): Promise<{ route: Route; latency: number }> {
     rememberRouteTrust(this.identity.routes, this.identity.hubPublicKey);
     const configuredRoutes = this.identity.routes, routes = orderedRoutes(configuredRoutes);
     // Probe the last working path first. At most four requests per host enter
     // the shared transport queue, so a large route list cannot monopolize it.
+    // Reserve the 4th initial slot for the first VPS relay when 4+ direct routes
+    // would otherwise starve relay fallback behind unreachable LAN candidates.
     const last = routes.findIndex(route => route.url === this.lastConnectedUrl);
     if (last > 0) routes.unshift(...routes.splice(last, 1));
+    if (routes.length > 4 && !routes.slice(0, 4).some(route => route.name === "VPS")) {
+      const firstRelay = routes.findIndex(route => route.name === "VPS");
+      if (firstRelay >= 4) routes.splice(3, 0, ...routes.splice(firstRelay, 1));
+    }
     const batch = ++this.probeBatch;
     const current = () => !this.closed && generation === this.generation && configuredRoutes === this.identity.routes && batch === this.probeBatch;
     // Drain canceled work before another batch enters the queue. Cold-start
@@ -411,6 +512,7 @@ export class HubConnection {
     if (!current()) throw new Error("route_probe_superseded");
     const controller = new AbortController(); this.probeAbort = controller;
     const settled: (RouteHealth | undefined)[] = [];
+    const attemptErrors = new Map<string, unknown>();
     let localFailure: string | undefined, cursor = 0;
     let release: (() => void) | undefined, grace: ReturnType<typeof setTimeout> | undefined;
     const early = allowCooldown ? new Promise<void>(resolve => { release = resolve; }) : undefined;
@@ -420,13 +522,18 @@ export class HubConnection {
         const response = await hubFetch(route.url, "/health", this.identity.hubPublicKey, { signal: anySignal([controller.signal, timeoutSignal(connectionTiming(route, usesPinnedTransport()).probeMs)]), cache: "no-store" });
         const result = z.object({ publicKey: z.string(), ok: z.literal(true) }).parse(await response.json());
         if (!response.ok) throw new Error("route_unavailable");
-        if (result.publicKey !== this.identity.hubPublicKey) return { url: route.url, status: "wrong-hub", failure: "identity-mismatch" };
+        if (result.publicKey !== this.identity.hubPublicKey) {
+          attemptErrors.set(route.url, "tls_identity_mismatch");
+          return { url: route.url, status: "wrong-hub", failure: "identity-mismatch" };
+        }
         return { url: route.url, status: (this.failedRoutes.get(route.url)?.until ?? 0) > Date.now() ? "cooldown" : "reachable", latency: Math.round(performance.now() - started) };
       } catch (error) {
-        const code = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-        if (["native_document_retired", "native_document_unavailable", "native_view_unavailable"].includes(code)) localFailure = connectionErrorMessage(code);
+        attemptErrors.set(route.url, error);
+        const localCode = nativeLifecycleErrorCode(error);
+        if (localCode) localFailure = connectionErrorMessage(localCode);
         const failure = connectionVerificationFailure(error);
-        return { url: route.url, status: failure === "identity-mismatch" ? "wrong-hub" : "unreachable", ...(failure ? { failure } : {}) };
+        const reason = failure ? undefined : classifyRouteTransportFailure(error, route);
+        return { url: route.url, status: failure === "identity-mismatch" ? "wrong-hub" : "unreachable", ...(failure ? { failure } : {}), ...(reason ? { reason } : {}) };
       }
     };
     const worker = async () => {
@@ -451,8 +558,13 @@ export class HubConnection {
       ?? (allowCooldown ? probes.filter(probe => probe.status === "cooldown")
         .sort((a, b) => (this.failedRoutes.get(a.url)?.until ?? 0) - (this.failedRoutes.get(b.url)?.until ?? 0))[0] : undefined);
     if (!candidate) {
-      const name = this.hostName?.()?.trim() || this.state.hostProfile?.name || this.state.network?.host.name || t("此主机");
-      throw new Error(localFailure ?? connectionVerificationMessage(preferredVerificationFailure(probes.map(probe => probe.failure)), "paired") ?? t("暂时无法连接「{0}」，正在自动重试。", name));
+      if (localFailure) throw new Error(localFailure);
+      const name = this.hostName?.()?.trim() || this.state.hostProfile?.name || this.state.network?.host.name || undefined;
+      const diagnosis = diagnoseRouteFailures(
+        probes.map(probe => ({ route: routes.find(route => route.url === probe.url)!, error: attemptErrors.get(probe.url) ?? probe.failure ?? probe.reason ?? "unreachable" })),
+        { context: "paired", hostName: name, configuredRoutes },
+      );
+      throw new RouteDiagnosisError(diagnosis);
     }
     return { route: routes.find(route => route.url === candidate.url)!, latency: candidate.latency! };
   }
@@ -472,7 +584,7 @@ export class HubConnection {
       // A system credential prompt can outlive its socket. Wait for that one
       // operation instead of issuing another native read on every reconnect.
       if (this.signing) {
-        this.update({ error: connectionErrorMessage("device_signature_pending") });
+        this.update({ error: connectionErrorMessage("device_signature_pending"), routeDiagnosis: undefined });
         await this.signing.catch(() => undefined);
         if (generation !== this.generation || this.closed) return;
       }
@@ -485,12 +597,12 @@ export class HubConnection {
         ? { route: handoff.route, latency: handoff.latency } : await this.selectRoute(true, generation);
       if (generation !== this.generation || this.closed) return;
       const handshakeStarted = performance.now();
-      this.update(chosen); const ws = hubSocket(chosen.route.url, this.identity.hubPublicKey); this.ws = ws;
+      this.update({ ...chosen, routeDiagnosis: undefined, ...(this.state.routeDiagnosis ? { error: undefined } : {}) }); const ws = hubSocket(chosen.route.url, this.identity.hubPublicKey); this.ws = ws;
       let preparation: "socket" | "cache" | "host" | "signature" = "socket";
       this.handshake = setTimeout(() => {
         if (generation !== this.generation || this.closed) return;
         if (this.cache.isClosed) { this.cacheUnavailable(); return; }
-        this.update({ error: connectionErrorMessage(preparation === "signature" ? "device_signature_pending" : preparation === "cache" ? "local_cache_preparation_timeout" : "connection_handshake_timeout") });
+        this.update({ error: connectionErrorMessage(preparation === "signature" ? "device_signature_pending" : preparation === "cache" ? "local_cache_preparation_timeout" : "connection_handshake_timeout"), routeDiagnosis: undefined });
         this.abandon(ws, generation, preparation !== "signature" && preparation !== "cache");
       }, connectionTiming(chosen.route, usesPinnedTransport()).handshakeMs);
       const nonce = randomNonce(); let chain = Promise.resolve(), renewing = false, receiveFailed = false, localFailure = false, signingWait = 0, pendingFrames = 0;
@@ -510,13 +622,14 @@ export class HubConnection {
         // Cache preparation can fail before hello is sent. Surface that failure
         // instead of presenting an endless, unexplained network reconnect.
         this.cacheFull = error instanceof Error && error.name === "QuotaExceededError";
-        this.update({ error: connectionErrorMessage(error) });
+        this.update({ error: connectionErrorMessage(error), routeDiagnosis: undefined });
         this.abandon(ws, generation, preparation !== "cache");
       }); };
       ws.onmessage = (event) => {
         if (generation !== this.generation) return;
         // Incoming traffic is observed before IndexedDB/render work; a busy
         // catch-up queue must not be mistaken for a blackholed transport.
+        const receivedAt = Date.now();
         this.lastPong = performance.now();
         this.awaitingForegroundProbe = false;
         this.clearForegroundProbe();
@@ -556,13 +669,19 @@ export class HubConnection {
           if (!canvasAgentAvailable) this.closeCanvasAgentSessions("canvas_agent_unavailable");
           this.independentSync = ready.serverCapabilities.includes(CONVERSATION_SYNC_CAPABILITY);
           lineageCapable = ready.serverCapabilities.includes(SYNC_LINEAGE_CAPABILITY);
-          this.update({ screenFlightAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_FLIGHT_CAPABILITY), workbenchDesignShareAvailable:ready.serverCapabilities.includes(WORKBENCH_DESIGN_SHARE_CAPABILITY), workbenchDesignCommentsAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_COMMENTS_CAPABILITY), workbenchDesignHistoryAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_HISTORY_CAPABILITY), workbenchSlidesAvailable: ready.serverCapabilities.includes(WORKBENCH_SLIDES_CAPABILITY), screenQualityAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_QUALITY_CAPABILITY), workbenchDesignOpenAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY), workbenchDesignAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_CAPABILITY), workbenchAvailable: ready.serverCapabilities.includes(WORKBENCH_CAPABILITY), workbenchMarkdownAvailable: ready.serverCapabilities.includes(WORKBENCH_MARKDOWN_CAPABILITY), historyAvailable: ready.serverCapabilities.includes(CONVERSATION_HISTORY_CAPABILITY), sideAvailable: ready.serverCapabilities.includes("conversations.side.v1"), engineTasksAvailable: ready.serverCapabilities.includes("conversations.tasks.v1"), botCommsAvailable: ready.serverCapabilities.includes(CONVERSATION_BOT_COMMS_CAPABILITY), piSessionAvailable: ready.serverCapabilities.includes("pi.session.v1") });
+          this.update({ savedWorkspacesAvailable: ready.serverCapabilities.includes(SAVED_WORKSPACES_CAPABILITY), screenFlightAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_FLIGHT_CAPABILITY), workbenchDesignShareAvailable:ready.serverCapabilities.includes(WORKBENCH_DESIGN_SHARE_CAPABILITY), workbenchDesignCommentsAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_COMMENTS_CAPABILITY), workbenchDesignHistoryAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_HISTORY_CAPABILITY), workbenchSlidesAvailable: ready.serverCapabilities.includes(WORKBENCH_SLIDES_CAPABILITY), screenQualityAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_QUALITY_CAPABILITY), workbenchDesignOpenAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY), workbenchDesignAvailable: ready.serverCapabilities.includes(WORKBENCH_DESIGN_CAPABILITY), workbenchAvailable: ready.serverCapabilities.includes(WORKBENCH_CAPABILITY), workbenchMarkdownAvailable: ready.serverCapabilities.includes(WORKBENCH_MARKDOWN_CAPABILITY), historyAvailable: ready.serverCapabilities.includes(CONVERSATION_HISTORY_CAPABILITY), sideAvailable: ready.serverCapabilities.includes("conversations.side.v1"), engineTasksAvailable: ready.serverCapabilities.includes("conversations.tasks.v1"), botCommsAvailable: ready.serverCapabilities.includes(CONVERSATION_BOT_COMMS_CAPABILITY), piSessionAvailable: ready.serverCapabilities.includes("pi.session.v1") });screenUdpBoostAvailable: ready.serverCapabilities.includes(REMOTE_SCREEN_UDP_BOOST_CAPABILITY), 
           this.pendingSync = new Set(ready.conversations.map(c => c.id));
           this.update({ syncProgress: { completed: 0, total: ready.conversations.length, indeterminate: !this.independentSync } }); handshakeState = "ready";
           // Identity metadata is also needed while draining received read events
           // after a close; only transport activation waits for the cache writes.
           this.userId = ready.user.id; await this.cache.saveConversations(ready.conversations);
+          const serverTimeOffset = ready.serverTime !== undefined ? ready.serverTime - receivedAt : 0;
           if (ready.conversationFolders) await this.acceptConversationFolders(ready.conversationFolders, generation, true);
+          if (ready.conversationPins) await this.acceptConversationPins(ready.conversationPins, generation, true);
+          if (ready.crossHostFolderOrder) await this.acceptCrossHostFolderOrder(ready.crossHostFolderOrder, generation, true);
+          if (ready.serverTime !== undefined && this.cache.saveServerTimeOffset) {
+            void this.cache.saveServerTimeOffset(serverTimeOffset, this.identity).catch(() => undefined);
+          }
           await this.cache.saveProfiles({ user: ready.user, avatars: ready.avatars }, this.identity);
           // Close can race either cache write. Draining accepted frames must not
           // restore a dead socket's token, timers, route health or online state.
@@ -573,7 +692,8 @@ export class HubConnection {
           if (this.lastConnectedUrl !== chosen.route.url) this.lastRouteChange = Date.now();
           this.lastConnectedUrl = chosen.route.url;
           this.update({ routeSelection: { reason, changedAt: Date.now() } });
-          this.update({ dispatchAvailable: ready.serverCapabilities.includes(DISPATCH_CAPABILITY), screenAvailable: ready.serverCapabilities.includes("desktop.screen.v1"), pairingInvitesAvailable: ready.serverCapabilities.includes(PAIRING_INVITES_CAPABILITY), conversationBatchAvailable: ready.serverCapabilities.includes(CONVERSATION_BATCH_CAPABILITY), groupReplyGuardAvailable: ready.serverCapabilities.includes("groups.reply-guard.v1"), groupDiscussionAvailable: ready.serverCapabilities.includes("groups.discussion.v1"), groupDiscussionComposerAvailable: ready.serverCapabilities.includes("groups.discussion.composer.v1"), groupDiscussionRecoveryAvailable: ready.serverCapabilities.includes("groups.discussion.recovery.v1"), groupParallelAvailable: ready.serverCapabilities.includes("groups.parallel.v1"), voiceSettingsAvailable: ready.serverCapabilities.includes("integrations.voice.v2"), widgetSettingsAvailable: ready.serverCapabilities.includes("widgets.settings.v1"), engineSettingsAvailable: ready.serverCapabilities.includes("engines.settings.v1"), engineQuotaAvailable: ready.serverCapabilities.includes(ENGINE_QUOTA_CAPABILITY), contextUsageAvailable: ready.serverCapabilities.includes(CONTEXT_USAGE_CAPABILITY), backupSettingsAvailable: ready.serverCapabilities.includes("backups.settings.v1"), hostRoutesAvailable: ready.serverCapabilities.includes("host-routes.v1"), hostLanSelectionAvailable: ready.serverCapabilities.includes("host-routes.select-lan.v1"), attachmentAdminAvailable: ready.serverCapabilities.includes("attachments.admin.v1"), asrSetupAvailable: ready.serverCapabilities.includes("integrations.asr.v1"), workspaceDiffAvailable: ready.serverCapabilities.includes("workspace.diff.v1"), runChangesAvailable: ready.serverCapabilities.includes("runs.changes.v1"), runScopesAvailable: ready.serverCapabilities.includes(RUN_SCOPES_CAPABILITY), runGroupsAvailable: ready.serverCapabilities.includes(BACKGROUND_TASK_GROUP_CAPABILITY), runTailAvailable: ready.serverCapabilities.includes(RUN_TAIL_CAPABILITY), serverTimeOffset: (ready.serverTime ?? Date.now()) - Date.now(), networkAvailable: ready.serverCapabilities.includes(PRIVATE_NETWORK_CAPABILITY), folderReorderAvailable: ready.serverCapabilities.includes("conversation-folders.reorder.v1"), folderPinAvailable: ready.serverCapabilities.includes("conversation-folders.pin.v1"), conversationAvatarsAvailable: ready.serverCapabilities.includes("conversation-avatars.v1"), foldersAvailable: !!ready.conversationFolders, user: ready.user, avatars: ready.avatars, status: "online", bots: ready.bots.filter(bot => !bot.deletedAt && bot.role !== "worker"), deletedBots: ready.bots.filter(bot => !!bot.deletedAt && bot.role !== "worker"), dispatchWorkers: ready.bots.filter(bot => !bot.deletedAt && bot.role === "worker"), botDeletionAvailable: ready.serverCapabilities.includes("bots.delete.v1"), promptQueueAvailable: ready.serverCapabilities.includes("prompt-queue.v1"), messageDeletionAvailable: ready.serverCapabilities.includes(MESSAGE_DELETE_CAPABILITY), messageClearAvailable: ready.serverCapabilities.includes(MESSAGE_CLEAR_CAPABILITY), maxFileBytes: ready.uploadLimits?.maxFileBytes ?? MAX_FILE_BYTES, error: undefined }, true); void rememberGroupReplyCapabilities(this).catch(() => undefined); void syncShareUploadLimit(this.state.maxFileBytes ?? MAX_FILE_BYTES).catch(() => console.warn("share_limit_cache_failed")); this.lastPong = performance.now(); this.presence(); void this.refreshNotificationPreferences().catch(() => undefined); if (canvasAgentAvailable && this.canvasAgentSessions.size > 0) void this.reattachCanvasAgentSessions();
+          this.update({ requestLocalesAvailable: ready.serverCapabilities.includes(REQUEST_LOCALES_CAPABILITY), hostResourcesAvailable: ready.serverCapabilities.includes(HOST_RESOURCES_CAPABILITY),hostTerminalAvailable: ready.serverCapabilities.includes(HOST_TERMINAL_CAPABILITY), audioRecordingMarkerAvailable: ready.serverCapabilities.includes(AUDIO_RECORDING_CAPABILITY), dispatchAvailable: ready.serverCapabilities.includes(DISPATCH_CAPABILITY), crossHostDispatchAvailable: ready.serverCapabilities.includes(DISPATCH_CROSS_HOST_CAPABILITY), screenAvailable: ready.serverCapabilities.includes("desktop.screen.v1"), pairingInvitesAvailable: ready.serverCapabilities.includes(PAIRING_INVITES_CAPABILITY), conversationBatchAvailable: ready.serverCapabilities.includes(CONVERSATION_BATCH_CAPABILITY), groupReplyGuardAvailable: ready.serverCapabilities.includes("groups.reply-guard.v1"), groupDiscussionAvailable: ready.serverCapabilities.includes("groups.discussion.v1"), groupDiscussionComposerAvailable: ready.serverCapabilities.includes("groups.discussion.composer.v1"), groupDiscussionRecoveryAvailable: ready.serverCapabilities.includes("groups.discussion.recovery.v1"), groupParallelAvailable: ready.serverCapabilities.includes("groups.parallel.v1"), crossHostGroupsAvailable: ready.serverCapabilities.includes(CROSS_HOST_GROUPS_CAPABILITY), voiceSettingsAvailable: ready.serverCapabilities.includes("integrations.voice.v2"), widgetSettingsAvailable: ready.serverCapabilities.includes("widgets.settings.v1"), engineSettingsAvailable: ready.serverCapabilities.includes("engines.settings.v1"), engineQuotaAvailable: ready.serverCapabilities.includes(ENGINE_QUOTA_CAPABILITY), engineQuotaCurrencyAvailable: ready.serverCapabilities.includes(ENGINE_QUOTA_CURRENCY_CAPABILITY), contextUsageAvailable: ready.serverCapabilities.includes(CONTEXT_USAGE_CAPABILITY), backupSettingsAvailable: ready.serverCapabilities.includes("backups.settings.v1"), hostRoutesAvailable: ready.serverCapabilities.includes("host-routes.v1"), hostBalanceResourcesAvailable: ready.serverCapabilities.includes(HOST_BALANCE_RESOURCES_CAPABILITY), hostLanSelectionAvailable: ready.serverCapabilities.includes("host-routes.select-lan.v1"), cloudflareRoutesAvailable: ready.serverCapabilities.includes(HOST_CLOUDFLARE_CAPABILITY), attachmentAdminAvailable: ready.serverCapabilities.includes("attachments.admin.v1"), asrSetupAvailable: ready.serverCapabilities.includes("integrations.asr.v1"), workspaceDiffAvailable: ready.serverCapabilities.includes("workspace.diff.v1"), workspaceFilesAvailable: ready.serverCapabilities.includes(WORKSPACE_FILES_CAPABILITY), runChangesAvailable: ready.serverCapabilities.includes("runs.changes.v1"), runScopesAvailable: ready.serverCapabilities.includes(RUN_SCOPES_CAPABILITY), runGroupsAvailable: ready.serverCapabilities.includes(BACKGROUND_TASK_GROUP_CAPABILITY), runTailAvailable: ready.serverCapabilities.includes(RUN_TAIL_CAPABILITY), serverTimeOffset, networkAvailable: ready.serverCapabilities.includes(PRIVATE_NETWORK_CAPABILITY), networkRecoveryAvailable: ready.serverCapabilities.includes(PRIVATE_NETWORK_RECOVERY_CAPABILITY), folderReorderAvailable: ready.serverCapabilities.includes("conversation-folders.reorder.v1"), folderPinAvailable: ready.serverCapabilities.includes("conversation-folders.pin.v1"), conversationAvatarsAvailable: ready.serverCapabilities.includes("conversation-avatars.v1"), foldersAvailable: !!ready.conversationFolders, pinsAvailable: ready.serverCapabilities.includes(CONVERSATION_PINS_CAPABILITY) && !!ready.conversationPins, crossHostFolderOrderAvailable: ready.serverCapabilities.includes(CROSS_HOST_FOLDER_ORDER_CAPABILITY) && !!ready.crossHostFolderOrder, user: ready.user, avatars: ready.avatars, status: "online", bots: ready.bots.filter(bot => !bot.deletedAt && bot.role !== "worker"), deletedBots: ready.bots.filter(bot => !!bot.deletedAt && bot.role !== "worker"), dispatchWorkers: ready.bots.filter(bot => !bot.deletedAt && bot.role === "worker"), botDeletionAvailable: ready.serverCapabilities.includes("bots.delete.v1"), promptQueueAvailable: ready.serverCapabilities.includes("prompt-queue.v1"), messageDeletionAvailable: ready.serverCapabilities.includes(MESSAGE_DELETE_CAPABILITY), messageClearAvailable: ready.serverCapabilities.includes(MESSAGE_CLEAR_CAPABILITY), maxFileBytes: ready.uploadLimits?.maxFileBytes ?? MAX_FILE_BYTES, error: undefined, routeDiagnosis: undefined }, true); void rememberGroupReplyCapabilities(this).catch(() => undefined); void syncShareUploadLimit(this.state.maxFileBytes ?? MAX_FILE_BYTES).catch(() => console.warn("share_limit_cache_failed")); this.lastPong = performance.now(); this.presence(); void this.refreshNotificationPreferences().catch(() => undefined); if (canvasAgentAvailable && this.canvasAgentSessions.size > 0) void this.reattachCanvasAgentSessions();
+          if (ready.conversationPins && ready.serverCapabilities.includes(CONVERSATION_PINS_CAPABILITY)) void this.syncPinsWithHost(generation);
           const timing = connectionTiming(chosen.route, usesPinnedTransport());
           let heartbeatAt = performance.now();
           this.heartbeat = setInterval(() => {
@@ -641,7 +761,7 @@ export class HubConnection {
             const preferences = this.state.notifications?.preferences;
             // Topic and preview choices are the same device preferences the Hub applies to phone pushes.
             const notice = preferences?.enabled ? desktopNotice(message, preferences) : undefined;
-            if ((!this.syncing || this.independentSync && !this.pendingSync.has(message.conversationId)) && preferences && notice && !quietNow(preferences, Date.now()) && !this.state.notifications?.mutedConversations?.includes(message.conversationId) && (document.visibilityState !== "visible" || !document.hasFocus()) && ["macos", "windows"].includes(nativePlatform()) && (ticketConversationsVisible() || !(await this.cache.conversation(message.conversationId).catch(() => undefined))?.hidden) && await this.cache.claimNotification(message.id)) {
+            if ((!this.syncing || this.independentSync && !this.pendingSync.has(message.conversationId)) && preferences && notice && !quietNow(preferences, Date.now()) && !this.state.notifications?.mutedConversations?.includes(message.conversationId) && (document.visibilityState !== "visible" || !document.hasFocus()) && ["macos", "windows"].includes(nativePlatform()) && (notifiesWhileHidden(message) || !(await this.cache.conversation(message.conversationId).catch(() => undefined))?.hidden) && await this.cache.claimNotification(message.id)) {
               const title = notice.preview ? (await this.cache.conversation(message.conversationId).catch(() => undefined))?.title : undefined;
               const resolve = () => {
                 const current = this.state.notifications;
@@ -651,7 +771,7 @@ export class HubConnection {
                 // enabled while it waits, matching already-redacted phone pushes.
                 const latest = desktopNotice(message, { ...current.preferences, showPreview: notice.preview && current.preferences.showPreview !== false });
                 if (!latest) return;
-                const body = latest.body({ title, botName: this.state.bots.find(bot => bot.id === message.authorId)?.name, locale: document.documentElement?.lang?.startsWith("en") ? "en" : "zh" });
+                const body = latest.body({ title, botName: this.state.bots.find(bot => bot.id === message.authorId)?.name, locale: desktopNotificationLocale(document.documentElement?.lang, getLocale()) });
                 return { hostId: runtimeHostId(this.identity.hubPublicKey!), id: message.id, title: "TaroCub" as const, body, conversationId: message.conversationId, messageId: message.id, kind: latest.kind, at: Date.now() };
               };
               const payload = resolve();
@@ -664,6 +784,7 @@ export class HubConnection {
           // read the committed cache, never unvalidated event payload content.
           const payload = event.payload;
           const deleted = (event.kind === "message.created" || event.kind === "message.updated") && !!payload && typeof payload === "object" && !Array.isArray(payload) && payload.status === "deleted";
+          const userMessage = !deleted && (event.kind === "message.created" || event.kind === "message.updated") && (message?.authorType === "user" || !!payload && typeof payload === "object" && !Array.isArray(payload) && payload.authorType === "user");
           const delta = event.kind === "message.stream" ? messageStreamSchema.safeParse(payload) : undefined;
           // Only plain text may wait for a short batch. First messages, terminal
           // status updates and every card/interactive operation stay immediate.
@@ -671,7 +792,7 @@ export class HubConnection {
             op.op === "appendText" && !op.path || op.op === "replaceBlock" && op.value.type === "text");
           if (deleted) this.groupDiscussionRevision++;
           if (event.kind === "turn.state" && typeof event.payload === "object" && event.payload && !Array.isArray(event.payload) && ("groupDiscussion" in event.payload || "groupSettings" in event.payload)) this.groupDiscussionRevision++;
-          this.eventApplied(event.conversationId, deleted || textStream, () => pendingFrames > 0); return;
+          this.eventApplied(event.conversationId, deleted || textStream, () => pendingFrames > 0, userMessage); return;
         }
         if (["snapshot.begin", "snapshot.message", "snapshot.end"].includes(frame.type)) {
           if (!this.syncing) throw new Error("unexpected_snapshot");
@@ -710,6 +831,8 @@ export class HubConnection {
         }
         if (frame.type === "sync.complete") { if (receiveFailed) return; this.syncing = false; this.pendingSync.clear(); this.update({ syncProgress: undefined }, false, true); await this.flush(); return; }
         if (frame.type === "conversation-folders.updated") { await this.acceptConversationFolders(conversationFoldersSchema.parse(frame.folders), generation); return; }
+        if (frame.type === "conversation-pins.updated") { await this.acceptConversationPins(conversationPinsSchema.parse(frame.pins), generation); return; }
+        if (frame.type === "cross-host-folder-order.updated") { await this.acceptCrossHostFolderOrder(crossHostFolderOrderSchema.parse(frame.order), generation); return; }
         if (frame.type === "conversation.updated") { this.groupDiscussionRevision++; await this.cache.saveConversations([conversationSchema.parse(frame.conversation)]); if (typeof frame.clientActionId === "string") await this.ack(frame.clientActionId); this.update({}, true); return; }
         if (frame.type === "message.ack" && typeof frame.clientMsgId === "string") {
           // An earlier event/parse/cache failure invalidates the local-history
@@ -756,13 +879,13 @@ export class HubConnection {
             // This is a local installation boundary, not a signed Host revocation
             // or network outage. Keep cached drafts/history, stop automatic retry
             // and never drain this identity's outbox into a fresh pairing.
-            this.pairingRequired = true; this.close(); this.update({ error: connectionErrorMessage(error) }); return;
+            this.pairingRequired = true; this.close(); this.update({ error: connectionErrorMessage(error), routeDiagnosis: undefined }); return;
           }
           if (this.cache.isClosed) { this.cacheUnavailable(); return; }
           this.cacheFull = error instanceof Error && error.name === "QuotaExceededError";
           localFailure = this.cacheFull || error instanceof Error && ["local_reset_in_progress", "sync_lineage_mismatch", "snapshot_lineage_mismatch"].includes(error.message)
             || preparation === "signature";
-          this.update({ error: connectionErrorMessage(error) });
+          this.update({ error: connectionErrorMessage(error), routeDiagnosis: undefined });
         }
         ws.close();
       }).finally(() => { pendingFrames--; }); };
@@ -785,8 +908,13 @@ export class HubConnection {
         };
         void chain.then(drained, drained);
       };
-      ws.onerror = (event) => { if (generation === this.generation && !this.closed) this.update({ error: connectionErrorMessage(event instanceof ErrorEvent ? event.message : undefined) }); this.abandon(ws, generation); };
-    } catch (error) { if (generation !== this.generation || this.closed) return; this.update({ error: connectionErrorMessage(error) }); this.offline(); }
+      ws.onerror = (event) => { if (generation === this.generation && !this.closed) this.update({ error: connectionErrorMessage(event instanceof ErrorEvent ? event.message : undefined), routeDiagnosis: undefined }); this.abandon(ws, generation); };
+    } catch (error) {
+      if (generation !== this.generation || this.closed) return;
+      if (error instanceof RouteDiagnosisError) this.update({ error: error.diagnosis.message, routeDiagnosis: error.diagnosis });
+      else this.update({ error: connectionErrorMessage(error), routeDiagnosis: undefined });
+      this.offline();
+    }
   }
   private abandon(ws: HubSocket, generation: number, failed = true): void {
     if (generation !== this.generation) return;
@@ -797,6 +925,7 @@ export class HubConnection {
   private offline(scheduleReconnect = true, preserveHttp = false): void {
     this.awaitingForegroundProbe = false;
     this.clearForegroundProbe();
+    this.livePinChanges.clear();
     if (this.reconnect) clearTimeout(this.reconnect); this.reconnect = undefined;
     if (this.outboxRetry) clearTimeout(this.outboxRetry);
     if (!preserveHttp) { this.httpEpoch.abort(); this.httpEpoch = new AbortController(); }
@@ -861,6 +990,225 @@ export class HubConnection {
     this.folderUpdates = work.catch(() => undefined);
     return work;
   }
+  private acceptCrossHostFolderOrder(
+    value: CrossHostFolderOrderState,
+    generation: number,
+    authoritative = false,
+    observedVersion?: number,
+  ): Promise<void> {
+    const work = this.crossHostFolderOrderUpdates.then(async () => {
+      if (this.closed || generation !== this.generation) return;
+      const replace = authoritative && (observedVersion === undefined || observedVersion === this.crossHostFolderOrderVersion);
+      if (!replace && value.revision < (this.state.crossHostFolderOrder?.revision ?? 0)) return;
+      if (this.cache.saveCrossHostFolderOrder) {
+        const accepted = await this.cache.saveCrossHostFolderOrder(value, this.identity, replace);
+        if (!accepted || this.closed || generation !== this.generation) return;
+      }
+      this.crossHostFolderOrderVersion++;
+      this.update({ crossHostFolderOrder: value }, true);
+    });
+    this.crossHostFolderOrderUpdates = work.catch(() => undefined);
+    return work;
+  }
+  async saveCrossHostFolderOrder(
+    order: { updatedAt: number; pinned: readonly string[]; ordinary: readonly string[] },
+    expectedRevision?: number,
+  ): Promise<CrossHostFolderOrderState> {
+    if (this.state.status !== "online" || !this.state.crossHostFolderOrderAvailable) {
+      throw new Error("cross_host_folder_order_unavailable");
+    }
+    const generation = this.generation;
+    const revision = expectedRevision ?? this.state.crossHostFolderOrder?.revision ?? 0;
+    try {
+      const next = crossHostFolderOrderSchema.parse(await this.http("/api/cross-host-folder-order", {
+        method: "PATCH",
+        body: JSON.stringify({
+          revision,
+          updatedAt: order.updatedAt,
+          pinned: [...order.pinned],
+          ordinary: [...order.ordinary],
+        }),
+        signal: timeoutSignal(20_000),
+      }));
+      await this.acceptCrossHostFolderOrder(next, generation);
+      return next;
+    } catch (error) {
+      if (error instanceof HubHttpError && error.code === "cross_host_folder_order_changed" && !this.closed && generation === this.generation) {
+        const observedVersion = this.crossHostFolderOrderVersion;
+        try {
+          const latest = crossHostFolderOrderSchema.parse(await this.http("/api/cross-host-folder-order", { signal: timeoutSignal(20_000) }));
+          await this.acceptCrossHostFolderOrder(latest, generation, true, observedVersion);
+        } catch { /* keep last confirmed view */ }
+      }
+      throw error;
+    }
+  }
+  private acceptConversationPins(
+    value: ConversationPinsState,
+    generation: number,
+    authoritative = false,
+    observedVersion?: number,
+    options?: { markMigrated?: boolean; clearPending?: readonly PendingPinChange[] },
+  ): Promise<void> {
+    const work = this.pinUpdates.then(async () => {
+      if (this.closed || generation !== this.generation || !this.cache.acceptConversationPins) return;
+      const replace = authoritative && (observedVersion === undefined || observedVersion === this.pinVersion);
+      if (!replace && !options?.markMigrated && !options?.clearPending?.length && value.revision < (this.state.conversationPins?.revision ?? 0)) return;
+      const outcome = await this.cache.acceptConversationPins(value, this.identity, replace, options);
+      if (this.closed || generation !== this.generation) return;
+      if (outcome.accepted) {
+        this.pinVersion++;
+        this.update({ conversationPins: value }, true);
+      } else if (outcome.cacheChanged) {
+        this.update({}, true);
+      }
+    });
+    this.pinUpdates = work.catch(() => undefined);
+    return work;
+  }
+  private syncPinsWithHost(generation: number): Promise<void> {
+    if (generation !== this.generation) return this.pinSyncQueue;
+    if (generation > this.pinSyncTargetGeneration) this.pinSyncTargetGeneration = generation;
+    if (this.pinSyncPending) return this.pinSyncQueue;
+    this.pinSyncPending = true;
+    const work = this.pinSyncQueue.then(async () => {
+      this.pinSyncPending = false;
+      const targetGeneration = this.pinSyncTargetGeneration;
+      await this.runPinSync(targetGeneration);
+    });
+    this.pinSyncQueue = work.catch(() => { this.pinSyncPending = false; });
+    return work;
+  }
+  private async runPinSync(generation: number): Promise<void> {
+    if (!this.cache.conversationPins || !this.cache.pendingPinChanges || !this.cache.acceptConversationPins) return;
+    let conflicts = 0;
+    let triedTrimmedMerge = false;
+    let trimmedMergePayload: { pins: string[]; globalPins: string[] } | undefined;
+    for (let step = 0; step < 256; step++) {
+      if (this.closed || generation !== this.generation || this.state.status !== "online" || !this.state.pinsAvailable || !this.token) return;
+      await this.pinUpdates;
+      if (this.closed || generation !== this.generation || this.state.status !== "online" || !this.state.pinsAvailable || !this.token) return;
+      const [synced, preUpgrade, pending] = await Promise.all([
+        this.cache.conversationPins(),
+        this.cache.preUpgradePins?.() ?? Promise.resolve(undefined),
+        this.cache.pendingPinChanges(),
+      ]);
+      if (!synced || preUpgrade) {
+        const base = synced ?? this.state.conversationPins ?? emptyConversationPins();
+        const mergeSource = trimmedMergePayload ?? preUpgrade ?? {
+          pins: await this.cache.pins("group"),
+          globalPins: await this.cache.pins("global"),
+        };
+        if (!mergeSource.pins.length && !mergeSource.globalPins.length) {
+          await this.acceptConversationPins(base, generation, false, undefined, { markMigrated: true });
+          trimmedMergePayload = undefined;
+          conflicts = 0;
+          continue;
+        }
+        try {
+          const next = conversationPinsSchema.parse(await this.http("/api/conversation-pins", {
+            method: "PATCH",
+            body: JSON.stringify({ type: "merge", revision: base.revision, pins: mergeSource.pins, globalPins: mergeSource.globalPins }),
+            signal: timeoutSignal(20_000),
+          }));
+          await this.acceptConversationPins(next, generation, false, undefined, { markMigrated: true });
+          trimmedMergePayload = undefined;
+          conflicts = 0;
+          continue;
+        } catch (error) {
+          if (error instanceof HubHttpError && error.code === "pins_changed" && !this.closed && generation === this.generation) {
+            if (++conflicts > 8) return;
+            const observedVersion = this.pinVersion;
+            try {
+              const latest = conversationPinsSchema.parse(await this.http("/api/conversation-pins", { signal: timeoutSignal(20_000) }));
+              await this.acceptConversationPins(latest, generation, true, observedVersion);
+              continue;
+            } catch { return; }
+          }
+          if (isPermanentPinRejection(error) && !this.closed && generation === this.generation) {
+            const observedVersion = this.pinVersion;
+            let latest: ConversationPinsState | undefined;
+            try {
+              latest = conversationPinsSchema.parse(await this.http("/api/conversation-pins", { signal: timeoutSignal(20_000) }));
+            } catch { /* fallback to base */ }
+            if (error instanceof HubHttpError && error.code === "pin_limit" && !triedTrimmedMerge && latest) {
+              triedTrimmedMerge = true;
+              await this.acceptConversationPins(latest, generation, true, observedVersion);
+              const existingPins = new Set(latest.pins);
+              const existingGlobal = new Set(latest.globalPins);
+              const trimmedPins = mergeSource.pins.filter(id => !existingPins.has(id)).slice(0, Math.max(0, 2048 - latest.pins.length));
+              const trimmedGlobal = mergeSource.globalPins.filter(id => !existingGlobal.has(id)).slice(0, Math.max(0, 2048 - latest.globalPins.length));
+              if (trimmedPins.length || trimmedGlobal.length) {
+                trimmedMergePayload = { pins: trimmedPins, globalPins: trimmedGlobal };
+                continue;
+              }
+            }
+            if (latest) {
+              await this.acceptConversationPins(latest, generation, true, observedVersion, { markMigrated: true });
+            } else {
+              await this.acceptConversationPins(base, generation, false, undefined, { markMigrated: true });
+            }
+            trimmedMergePayload = undefined;
+            conflicts = 0;
+            continue;
+          }
+          return;
+        }
+      }
+      if (!pending.length) return;
+      const epoch = this.authenticatedSessionEpoch;
+      const isLiveItem = (item: PendingPinChange): boolean => {
+        if (item.seq === undefined) return false;
+        const live = this.livePinChanges.get(`${item.scope}:${item.conversationId}`);
+        return !!live && live.seq === item.seq && live.epoch === epoch;
+      };
+      const offlineItems = pending.filter(item => !isLiveItem(item));
+      const liveItems = pending.filter(isLiveItem);
+      const batch: PendingPinChange[] = offlineItems.length ? offlineItems : [liveItems[0]!];
+      const singleLive = !offlineItems.length ? liveItems[0]! : undefined;
+      try {
+        const body = singleLive
+          ? { type: "set" as const, revision: synced.revision, scope: singleLive.scope, conversationId: singleLive.conversationId, pinned: singleLive.pinned }
+          : { type: "reconcile" as const, revision: synced.revision, changes: offlineItems.map(({ scope, conversationId, pinned, at }) => ({ scope, conversationId, pinned, at })) };
+        const next = conversationPinsSchema.parse(await this.http("/api/conversation-pins", {
+          method: "PATCH",
+          body: JSON.stringify(body),
+          signal: timeoutSignal(20_000),
+        }));
+        if (singleLive) {
+          const key = `${singleLive.scope}:${singleLive.conversationId}`;
+          if (this.livePinChanges.get(key)?.seq === singleLive.seq) this.livePinChanges.delete(key);
+        }
+        await this.acceptConversationPins(next, generation, false, undefined, { clearPending: batch });
+        conflicts = 0;
+      } catch (error) {
+        if (error instanceof HubHttpError && error.code === "pins_changed" && !this.closed && generation === this.generation) {
+          if (++conflicts > 8) return;
+          const observedVersion = this.pinVersion;
+          try {
+            const latest = conversationPinsSchema.parse(await this.http("/api/conversation-pins", { signal: timeoutSignal(20_000) }));
+            await this.acceptConversationPins(latest, generation, true, observedVersion);
+            continue;
+          } catch { return; }
+        }
+        if (isPermanentPinRejection(error) && !this.closed && generation === this.generation) {
+          if (singleLive) {
+            const key = `${singleLive.scope}:${singleLive.conversationId}`;
+            if (this.livePinChanges.get(key)?.seq === singleLive.seq) this.livePinChanges.delete(key);
+          }
+          await this.acceptConversationPins(synced, generation, false, undefined, { clearPending: batch });
+          try {
+            const observedVersion = this.pinVersion;
+            const latest = conversationPinsSchema.parse(await this.http("/api/conversation-pins", { signal: timeoutSignal(20_000) }));
+            await this.acceptConversationPins(latest, generation, true, observedVersion);
+          } catch { /* keep synced snapshot */ }
+          conflicts = 0;
+          continue;
+        }
+        return;
+      }
+    }
+  }
   async batchConversations(input: ConversationBatch) {
     if (this.state.status !== 'online' || !this.state.conversationBatchAvailable) throw new Error(t('连接恢复并升级此主机后可批量整理对话。'));
     const generation = this.generation;
@@ -903,6 +1251,7 @@ export class HubConnection {
     const input = deleteMessagesSchema.parse({ messageIds });
     const result = deleteMessagesResultSchema.parse(await this.http(`/api/conversations/${conversationId}/messages`, { method: "DELETE", body: JSON.stringify(input), signal: timeoutSignal(20_000) }));
     if (new Set(result.deletedIds).size !== new Set(messageIds).size || result.deletedIds.some(id => !messageIds.includes(id))) throw new Error("message_deletion_unconfirmed");
+    this.invalidateCachedMessages(conversationId);
     return result;
   }
   async planClearMessages(conversationId: string) {
@@ -911,7 +1260,9 @@ export class HubConnection {
   }
   async clearMessagesBatch(conversationId: string, throughId: string) {
     if (!this.state.messageClearAvailable || this.isReadOnly) throw new Error("message_clear_unavailable");
-    return clearMessagesResultSchema.parse(await this.http(`/api/conversations/${conversationId}/messages/clear`, { method: "POST", body: JSON.stringify({ throughId }), signal: timeoutSignal(20_000) }));
+    const result = clearMessagesResultSchema.parse(await this.http(`/api/conversations/${conversationId}/messages/clear`, { method: "POST", body: JSON.stringify({ throughId }), signal: timeoutSignal(20_000) }));
+    this.invalidateCachedMessages(conversationId);
+    return result;
   }
   async confirmHistoryClear(conversationId: string, seq: number): Promise<void> {
     // An empty retry may follow a lost HTTP receipt. Confirm the committed
@@ -919,6 +1270,7 @@ export class HubConnection {
     const deadline = performance.now() + 20_000;
     while (performance.now() < deadline) {
       if (await this.cache.cursor(conversationId) >= seq) {
+        this.invalidateCachedMessages(conversationId);
         if (this.replayEvents) this.update({}, true, true);
         return;
       }
@@ -935,11 +1287,13 @@ export class HubConnection {
     this.refreshCache();
   }
   async readEngineQuotas(signal?: AbortSignal) {
-    return quotaDirectorySchema.parse(await this.http("/api/engine-quotas", { signal }));
+    const query = this.state.engineQuotaCurrencyAvailable ? "?includeOmp=1&balances=currency" : "?includeOmp=1";
+    return quotaDirectorySchema.parse(await this.http(`/api/engine-quotas${query}`, { signal }));
   }
   /** One Bot's quota as the Host holds it now; nothing is asked of the engine. */
   async readEngineQuota(botId: string, signal?: AbortSignal) {
-    const value = quotaScopeSchema.parse(await this.http(`/api/engine-quotas/${encodeURIComponent(botId)}`, { signal }));
+    const query = this.state.engineQuotaCurrencyAvailable ? "?includeOmp=1&balances=currency" : "?includeOmp=1";
+    const value = quotaScopeSchema.parse(await this.http(`/api/engine-quotas/${encodeURIComponent(botId)}${query}`, { signal }));
     if (value.id !== botId) throw new Error("quota_scope_mismatch");
     return value;
   }
@@ -948,7 +1302,8 @@ export class HubConnection {
     return contextUsageSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/context-usage?botId=${encodeURIComponent(botId)}`, { signal }));
   }
   async refreshEngineQuota(scope: Pick<QuotaScope, "id" | "revision">, signal?: AbortSignal) {
-    const query = new URLSearchParams({ refresh: "1", revision: scope.revision });
+    const query = new URLSearchParams({ refresh: "1", revision: scope.revision, includeOmp: "1" });
+    if (this.state.engineQuotaCurrencyAvailable) query.set("balances", "currency");
     const value = quotaScopeSchema.parse(await this.http(`/api/engine-quotas/${encodeURIComponent(scope.id)}?${query}`, { signal }));
     if (value.id !== scope.id) throw new Error("quota_scope_mismatch");
     return value;
@@ -961,7 +1316,7 @@ export class HubConnection {
   }
   async historySnapshot(conversationId: string, botId: string, signal?: AbortSignal) {
     if (!this.state.historyAvailable) throw new Error("history_unavailable");
-    return historySnapshotSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history?botId=${encodeURIComponent(botId)}`, { signal: signal ?? timeoutSignal(15_000) }));
+    return historyClientSnapshotSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history?botId=${encodeURIComponent(botId)}&${HISTORY_SIDE_REASON_QUERY}=1`, { signal: signal ?? timeoutSignal(15_000) }));
   }
   async historyAnchors(conversationId: string, botId: string, messageId: string, signal?: AbortSignal) {
     if (!this.state.historyAvailable) throw new Error("history_unavailable");
@@ -970,21 +1325,21 @@ export class HubConnection {
   async changeHistory(conversationId: string, change: HistoryChange) {
     if (!this.state.historyAvailable || this.isReadOnly || this.state.status !== "online") throw new Error("history_unavailable");
     const body = historyChangeSchema.parse(change);
-    return historyOperationSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history/operations`, { method: "POST", body: JSON.stringify(body), signal: timeoutSignal(20_000) }));
+    return historyClientOperationSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history/operations?${HISTORY_SIDE_REASON_QUERY}=1`, { method: "POST", body: JSON.stringify(body), signal: timeoutSignal(20_000) }));
   }
   /** Receipt lookup only: recovery must never repeat a native history operation. */
   async historyOperation(conversationId: string, botId: string, requestId: string) {
     if (!this.state.historyAvailable) throw new Error("history_unavailable");
-    return historyOperationSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history/operations/${encodeURIComponent(requestId)}?botId=${encodeURIComponent(botId)}`, { signal: timeoutSignal(15_000) }));
+    return historyClientOperationSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history/operations/${encodeURIComponent(requestId)}?botId=${encodeURIComponent(botId)}&${HISTORY_SIDE_REASON_QUERY}=1`, { signal: timeoutSignal(15_000) }));
   }
   /** Explicit recovery may tombstone a never-admitted request. The Host only
    * reconciles this exact receipt and never reapplies a native history action. */
   async reconcileHistory(conversationId: string, change: HistoryChange) {
     if (!this.state.historyAvailable || this.isReadOnly || this.state.status !== "online") throw new Error("history_unavailable");
     const body = historyChangeSchema.parse(change);
-    return historyOperationSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history/operations/${encodeURIComponent(body.requestId)}/reconcile`, { method: "POST", body: JSON.stringify(body), signal: timeoutSignal(20_000) }));
+    return historyClientOperationSchema.parse(await this.http(`/api/conversations/${encodeURIComponent(conversationId)}/history/operations/${encodeURIComponent(body.requestId)}/reconcile?${HISTORY_SIDE_REASON_QUERY}=1`, { method: "POST", body: JSON.stringify(body), signal: timeoutSignal(20_000) }));
   }
-  async acceptHistoryOperation(conversationId: string, result: HistoryOperation): Promise<Conversation | undefined> {
+  async acceptHistoryOperation(conversationId: string, result: HistoryClientOperation): Promise<Conversation | undefined> {
     if (result.state !== "applied") return;
     const scope = historyRecordKey(this, conversationId);
     const assertScope = () => { if (historyRecordKey(this, conversationId) !== scope) throw new Error("history_owner_changed"); };
@@ -1021,6 +1376,7 @@ export class HubConnection {
     if ("conversationId" in frame && ["message.send", "message.forward", "interaction.submit", "conversation.bind"].includes(frame.type)) {
       const owner = this.state.user?.id;
       await this.assertHistorySettled(frame.conversationId);
+      markSendTimingByClientMsgId(frame, "historySettledDoneAt");
       if (this.isReadOnly || this.state.user?.id !== owner) throw new Error(t("连接状态已变化，请核对后重试。"));
     }
     if (frame.type === "message.send") assertMessageTextSize(frame.text);
@@ -1028,7 +1384,7 @@ export class HubConnection {
     if (new TextEncoder().encode(JSON.stringify(frame)).byteLength > MAX_FRAME_BYTES) throw new Error(t("消息过大，请作为文件发送"));
     if ("clientMsgId" in frame || "clientActionId" in frame) {
       if (this.cache.isClosed) { this.cacheUnavailable(); throw new Error(connectionErrorMessage("local_cache_unavailable")); }
-      await this.cache.enqueue(frame, designComments ? { identity: this.identity, userId: this.state.user?.id ?? "", draft: designComments } : undefined); this.outboxQueued.forEach(listener => listener(frame)); this.outboxChanged(frameConversation(frame)); this.update({ outbox: (await this.cache.outbox()).length }); await this.flush();
+      await this.cache.enqueue(frame, designComments ? { identity: this.identity, userId: this.state.user?.id ?? "", draft: designComments } : undefined); markSendTimingByClientMsgId(frame, "enqueueDoneAt"); this.outboxQueued.forEach(listener => listener(frame)); this.outboxChanged(); this.update({ outbox: (await this.cache.outbox()).length }); await this.flush();
     }
     else { if (this.ws?.readyState !== WebSocket.OPEN || this.state.status !== "online") throw new Error(t("连接恢复后即可操作")); this.ws.send(JSON.stringify(frame)); }
   }
@@ -1036,19 +1392,19 @@ export class HubConnection {
     if (this.isReadOnly || this.state.user?.role !== "owner") throw new Error("diff_review_forbidden");
     const result = await this.cache.enqueueDiffReview(scope, this.identity, expectedRevision);
     if (!result.reused) this.outboxQueued.forEach(listener => listener(result.frame));
-    this.outboxChanged(scope.conversationId); this.update({ outbox: (await this.cache.outbox()).length }); await this.flush();
+    this.outboxChanged(); this.update({ outbox: (await this.cache.outbox()).length }); await this.flush();
     return result;
   }
   async retryDiffReview(scope: DiffReviewScope, clientMsgId: string) {
     if (this.isReadOnly || this.state.user?.role !== "owner") throw new Error("diff_review_forbidden");
     const result = await this.cache.retryDiffReview(scope, this.identity, clientMsgId);
-    this.outboxChanged(scope.conversationId); await this.flush(); return result;
+    this.outboxChanged(); await this.flush(); return result;
   }
   async abandonDiffReview(scope: DiffReviewScope, clientMsgId: string) {
     const draft = await this.cache.abandonDiffReview(scope, this.identity, clientMsgId);
     if (this.inflightEntry?.id === clientMsgId) this.inflightEntry = undefined;
     if (this.inflight === clientMsgId) this.inflight = undefined;
-    this.outboxChanged(scope.conversationId); await this.flush(); return draft;
+    this.outboxChanged(); await this.flush(); return draft;
   }
   /** Take before sending turn.stop: it is never queued or replayed, and the Hub
    * reports only stop_incomplete (without a request ID) to the sending socket. */
@@ -1068,6 +1424,7 @@ export class HubConnection {
       : frame.code === "group_discussion_start_required" ? t("此群按顺序讨论。请在输入框发起讨论，转发时只能选择一位 Bot 回复。")
       : frame.code === "group_reply_mode_changed" ? changedGroupReply()
       : frame.code === "group_parallel_client_update_required" ? t("此群已开启并行回复，请更新 App 后发送，或先指定回复的 Bot。")
+      : frame.code === "group_designated_client_update_required" ? t("此群已开启指定 Bot 回复，请更新 App 后发送，或先 @ 指定回复的 Bot。")
       : frame.code === "attachment_unavailable" ? t("原附件已丢失或损坏，请重新上传后发送。")
       : frame.code === "binding_conflict" ? t("另一台设备已更改会话选择，请确认最新状态后重试。")
       : frame.retryable !== false && typeof frame.requestId === "string" ? t("暂时未能确认操作，正在稍后重试。")
@@ -1076,34 +1433,36 @@ export class HubConnection {
     const groupMessageError = typeof frame.requestId === "string" && ["group_discussion_active", "group_discussion_start_required", "group_reply_mode_changed"].includes(String(frame.code));
     if (!expired && !groupMessageError) this.update({ error });
     if (typeof frame.requestId === "string") {
-      const owner = this.inflightEntry?.id === frame.requestId ? this.inflightEntry : (await this.cache.outbox()).find(item => item.id === frame.requestId);
       if (frame.retryable === false) await this.cache.fail(frame.requestId, error);
       else await this.cache.retryableFailure(frame.requestId, t("多次发送未确认，请检查消息记录后重试或移除待发送项。"));
-      this.outboxChanged(owner && frameConversation(owner.frame));
+      this.outboxChanged();
       if (frame.retryable === false && this.inflightEntry?.id === frame.requestId) this.inflightEntry = undefined;
       if (this.inflight === frame.requestId) this.inflight = undefined;
       await this.flush();
     }
   }
-  clearError(): void { this.update({ error: undefined }); }
+  clearError(): void { this.update({ error: undefined, routeDiagnosis: undefined }); }
   async retryFailed(id: string): Promise<void> {
     if (await this.cache.retryFailed(id)) {
-      const entry = (await this.cache.outbox()).find(item => item.id === id);
-      this.outboxChanged(entry && frameConversation(entry.frame)); await this.flush();
+      this.outboxChanged(); await this.flush();
     } else this.refreshCache();
   }
   async discardFailed(id: string): Promise<void> {
     const removed = await this.cache.discardFailed(id);
     if (removed && this.inflightEntry?.id === removed.id && this.inflightEntry.order === removed.order) this.inflightEntry = undefined;
-    this.settleOutbox(removed, false); if (removed) this.outboxChanged(frameConversation(removed.frame)); await this.flush();
+    this.settleOutbox(removed, false); if (removed) this.outboxChanged(); await this.flush();
   }
   private async ack(id: string, messageAccepted = false, acceptance?: DesignCommentAcceptance): Promise<void> {
-    const removed = await this.cache.acknowledge(id, messageAccepted, acceptance);
+    const settled = typeof this.cache.acknowledgeReceipt === "function"
+      ? await this.cache.acknowledgeReceipt(id, messageAccepted, acceptance)
+      : { entry: await this.cache.acknowledge(id, messageAccepted, acceptance), alreadyDeleted: false };
     // Another window sharing this cache may have committed the deletion first.
     // Our own sent entry still proves what this authenticated ACK confirms.
-    this.settleOutbox(removed ?? (messageAccepted && this.inflightEntry?.id === id ? this.inflightEntry : undefined), messageAccepted);
-    const owner = removed ?? (this.inflightEntry?.id === id ? this.inflightEntry : undefined);
-    this.outboxChanged(owner && frameConversation(owner.frame));
+    // An already-committed deletion tombstone retires immediately without
+    // bridging a phantom "sent" row into the outbox UI.
+    const entry = settled.entry ?? (messageAccepted && this.inflightEntry?.id === id ? this.inflightEntry : undefined);
+    this.settleOutbox(entry, messageAccepted && !settled.alreadyDeleted);
+    this.outboxChanged();
     if (this.inflightEntry?.id === id) this.inflightEntry = undefined;
     if (this.inflight === id) this.inflight = undefined;
     await this.flush();
@@ -1132,9 +1491,9 @@ export class HubConnection {
       try { wire = groupReplyWireFrame(entry.frame, this.state); }
       catch (cause) {
         const error = cause instanceof Error ? cause.message : changedGroupReply();
-        await this.cache.fail(entry.id, error); this.outboxChanged(conversation); blocked.add(conversation); continue;
+        await this.cache.fail(entry.id, error); this.outboxChanged(); blocked.add(conversation); continue;
       }
-      this.inflight = entry.id; this.inflightEntry = entry; this.ws.send(JSON.stringify(wire)); return;
+      this.inflight = entry.id; this.inflightEntry = entry; markSendTimingByClientMsgId(entry.frame, "outboxFlushSentAt"); this.ws.send(JSON.stringify(wire)); return;
     }
     if (Number.isFinite(wakeAt)) this.outboxRetry = setTimeout(() => { void this.flush().catch(() => undefined); }, Math.max(1, wakeAt - Date.now()));
   }
@@ -1152,14 +1511,17 @@ export class HubConnection {
         this.identity.pendingPairing = options.pairing.next;
       } else await this.cache.saveIdentityRoutes({ ...this.identity }, routes, deployment);
       this.identity.routes = routes; this.identity.deployment = deployment;
+      rememberRouteTrust(routes, this.identity.hubPublicKey);
       this.routeHandoff = undefined;
       this.routePerformance.retain(routes.map(route => route.url));
       if (this.preferred && !routes.some(route => route.url === this.preferred!.url)) this.preferred = undefined;
       for (const url of this.failedRoutes.keys()) if (!routes.some(route => route.url === url)) this.failedRoutes.delete(url);
       this.preferredProbeAt = 0;
-      const current = routes.find(route => route.url === this.state.route?.url);
-      this.update({ routeSync: undefined, route: current ?? this.state.route, routeHealth: this.state.routeHealth?.filter(health => routes.some(route => route.url === health.url)) });
-      if (this.state.status !== "online" || !current) this.resume(true);
+      const previous = this.state.route;
+      const current = routes.find(route => route.url === previous?.url);
+      const trustChanged = !!previous && !!current && (isEdgeTlsRoute(current) !== isEdgeTlsRoute(previous) || current.certificateAuthority !== previous.certificateAuthority);
+      this.update({ routeSync: undefined, route: current ?? this.state.route, routeHealth: this.state.routeHealth?.filter(health => routes.some(route => route.url === health.url)), routeDiagnosis: undefined, ...(this.state.routeDiagnosis ? { error: undefined } : {}) });
+      if (this.state.status !== "online" || !current || trustChanged) this.resume(true);
       else void this.pollPreferredRoute(this.generation, true);
     });
     this.routeWrites = work.catch(() => undefined);
@@ -1202,7 +1564,8 @@ export class HubConnection {
   async http<T = unknown>(route: string, init: RequestInit = {}): Promise<T> {
     if (init.method?.toUpperCase() === "POST" && ["/api/devices/approve", "/api/devices/revoke"].includes(route)) return this.duringMutation(() => this.deviceAction<T>(route, init));
     const epoch = this.httpEpoch, generation = this.generation;
-    const value = await this.httpRequest<T>(route, init);
+    const wireRoute = dispatchWireRoute(route, this.state.crossHostDispatchAvailable);
+    const value = await this.httpRequest<T>(wireRoute, init);
     if (route === "/api/host-profile" && ["GET", "PATCH"].includes(init.method?.toUpperCase() ?? "GET")) {
       const profile = hostProfileSchema.parse(value);
       // An older in-flight refresh must not undo a confirmed rename. Publish
@@ -1217,8 +1580,9 @@ export class HubConnection {
   async refreshNetwork(): Promise<NetworkView | undefined> {
     if (!this.state.networkAvailable || this.state.status !== "online" || this.state.user?.role !== "owner") return;
     const epoch = this.httpEpoch, generation = this.generation, networkRevision = this.networkRevision;
+    const networkRoute = this.state.networkRecoveryAvailable ? "/api/network?capabilities=1" : "/api/network";
     const [view] = await Promise.all([
-      this.httpRequest<NetworkView>("/api/network").then(value => { if (value.membership) verifyNetworkMembership(value.membership, this.identity.hubPublicKey); return networkViewSchema.parse(value); }),
+      this.httpRequest<NetworkView>(networkRoute).then(value => { if (value.membership) verifyNetworkMembership(value.membership, this.identity.hubPublicKey); return networkViewSchema.parse(value); }),
       this.http("/api/host-profile"),
     ]);
     if (this.closed || epoch !== this.httpEpoch || generation !== this.generation || networkRevision !== this.networkRevision) return;
@@ -1236,7 +1600,8 @@ export class HubConnection {
   }
   async confirmNetworkChange(review: NetworkView): Promise<void> {
     const epoch = this.httpEpoch, revision = ++this.networkRevision;
-    const value = await this.httpRequest<NetworkView>("/api/network");
+    const networkRoute = this.state.networkRecoveryAvailable ? "/api/network?capabilities=1" : "/api/network";
+    const value = await this.httpRequest<NetworkView>(networkRoute);
     if (value.membership) verifyNetworkMembership(value.membership, this.identity.hubPublicKey);
     const fresh = networkViewSchema.parse(value);
     if (fresh.host.publicKey !== this.identity.hubPublicKey || networkCanonical(fresh.membership ?? null) !== networkCanonical(review.membership ?? null)) throw new Error("network_review_changed");
@@ -1261,11 +1626,13 @@ export class HubConnection {
     return this.duringMutation(() => this.performNetworkCommand(raw));
   }
   private async performNetworkCommand(raw: NetworkCommandInput): Promise<{ view: NetworkView; membership?: SignedNetworkManifest; proposal?: SignedNetworkProposal }> {
-    const command = networkCommandSchema.parse(["routes", "attest", "remove", "leave"].includes(raw.operation) ? {networkId: this.networkPin?.id ?? "", ...(["remove", "leave"].includes(raw.operation) ? {expectedState: this.state.network?.membership?.manifest.hosts.find(h => h.publicKey === (raw.operation === "remove" ? raw.publicKey : this.identity.hubPublicKey))?.state ?? "standalone"} : {}), ...raw} : raw), token = this.token, epoch = this.httpEpoch;
+    const command = networkCommandSchema.parse(["routes", "attest", "reinstate", "remove", "leave"].includes(raw.operation) ? {networkId: this.networkPin?.id ?? "", ...(["remove", "leave"].includes(raw.operation) ? {expectedState: this.state.network?.membership?.manifest.hosts.find(h => h.publicKey === (raw.operation === "remove" ? raw.publicKey : this.identity.hubPublicKey))?.state ?? "standalone"} : {}), ...raw} : raw), token = this.token, epoch = this.httpEpoch;
     let revision = this.networkRevision;
+    const explicit = ["create", "join", "leave"].includes(command.operation)
+      || (command.operation === "propose" && command.recover === true);
     const current = () => { if (!token || this.closed || this.token !== token || epoch !== this.httpEpoch || epoch.signal.aborted || revision !== this.networkRevision) throw new HubHttpError(409, "device_action_cancelled"); };
     current();
-    if (["create", "join", "leave"].includes(command.operation)) revision = ++this.networkRevision;
+    if (explicit) revision = ++this.networkRevision;
     const action = deviceActionSchema.parse({ operation: "network", target: bytesToHex(sha256(new TextEncoder().encode(networkCanonical(command)))) });
     const statement = boundDeviceActionStatement(await this.httpRequest("/api/devices/challenge", { method: "POST", body: JSON.stringify(action) }), {
       action, hubPublicKey: this.identity.hubPublicKey ?? "", deviceId: this.identity.deviceId, sessionHash: bytesToHex(sha256(new TextEncoder().encode(token!))),
@@ -1281,14 +1648,15 @@ export class HubConnection {
     };
     try {
       const body = JSON.stringify({ command, proof: { nonce: statement.nonce, signature } });
+      const manageRoute = this.state.networkRecoveryAvailable ? "/api/network/manage?capabilities=1" : "/api/network/manage";
       // Active leave can revoke this very session. Its one signed departure
       // receipt may finish across transport revocation; ordinary close/reset
       // still cancels it. No other action bypasses the authenticated epoch.
       const result = departure ? await (async () => {
-        const response = await hubFetch(this.state.route!.url, "/api/network/manage", this.identity.hubPublicKey, {method:"POST",body,headers:{Authorization:`Bearer ${token}`},signal:departure.signal});
+        const response = await hubFetch(this.state.route!.url, manageRoute, this.identity.hubPublicKey, {method:"POST",body,headers:{Authorization:`Bearer ${token}`},signal:departure.signal});
         if (!response.ok) { const failure = await response.json().catch(() => ({})) as {error?:string}; throw new HubHttpError(response.status, failure.error ?? t("请求失败")); }
         return await response.json() as {view:NetworkView;membership?:SignedNetworkManifest;proposal?:SignedNetworkProposal};
-      })() : await this.httpRequest<{view:NetworkView;membership?:SignedNetworkManifest;proposal?:SignedNetworkProposal}>("/api/network/manage", {method:"POST",body});
+      })() : await this.httpRequest<{view:NetworkView;membership?:SignedNetworkManifest;proposal?:SignedNetworkProposal}>(manageRoute, {method:"POST",body});
       stillCurrent();
       if (result.view.membership) {
         verifyNetworkMembership(result.view.membership, this.identity.hubPublicKey, command.operation === "create" ? undefined : expected);
@@ -1302,7 +1670,7 @@ export class HubConnection {
         if (!expected || !result.membership?.manifest.hosts.some(host => host.publicKey === this.identity.hubPublicKey && host.revoked)
           || view.membership || view.sync !== "standalone") throw new Error("network_departure_unconfirmed");
       }
-      await this.acceptNetworkView(view, ["create", "join", "leave"].includes(command.operation), () => {
+      await this.acceptNetworkView(view, explicit, () => {
         try { stillCurrent(); return true; } catch { return false; }
       });
       stillCurrent(); if (departure) this.networkDeparture = result.membership;
@@ -1320,11 +1688,60 @@ export class HubConnection {
   private screenRequest<T>(route: string, init: RequestInit = {}): Promise<T> {
     return this.httpRequest<T>(route, init, { ms: SCREEN_REQUEST_TIMEOUT_MS, code: "screen_request_timeout" });
   }
+  async hostResources(options?: { force?: boolean; signal?: AbortSignal }) {
+    const query = options?.force ? "?force=1" : "";
+    return hostResourcesSnapshotSchema.parse(await this.httpRequest(HOST_RESOURCES_PATH + query, { signal: options?.signal }, { ms: 10_000, code: "host_resources_timeout" }));
+  }
+  async stopHostResource(raw: HostResourceStopRequest) {
+    const body = JSON.stringify(hostResourceStopRequestSchema.parse(raw));
+    return hostResourceStopResultSchema.parse(await this.httpRequest(HOST_RESOURCES_STOP_PATH, { method: "POST", body }, { ms: 15_000, code: "host_resources_stop_timeout" }));
+  }
   /** `includeWindows=1` tells the Host this App can read a Windows desktop. A
    * Host shows one only to such a request (an App from before Windows targets
    * parses the reply as a Mac's and would fail on all of it); a Host from
-   * before Windows targets ignores the query. */
-  async screenStatus() { return screenStatusSchema.parse(await this.screenRequest("/api/screens/status?includeWindows=1")); }
+   * before Windows targets ignores the query. `includeUdpStatus=1` is added
+   * only when the Host advertises `REMOTE_SCREEN_UDP_BOOST_CAPABILITY`. */
+  async terminalStatus(signal?: AbortSignal) {
+    return terminalStatusSchema.parse(await this.httpRequest(HOST_TERMINAL_STATUS_PATH, { signal }, { ms: 10_000, code: "terminal_request_timeout" }));
+  }
+  async terminalConfigure(raw: TerminalConfigure) {
+    return this.duringMutation(async () => {
+      const command = terminalConfigureSchema.parse(raw), token = this.token, epoch = this.httpEpoch;
+      const current = () => { if (!token || this.closed || this.token !== token || this.httpEpoch !== epoch || epoch.signal.aborted) throw new HubHttpError(409, "device_action_cancelled"); };
+      current();
+      const action = deviceActionSchema.parse({ operation: "terminal-grant", target: bytesToHex(sha256(new TextEncoder().encode(terminalConfigureText(command)))) });
+      const statement = boundDeviceActionStatement(await this.httpRequest("/api/devices/challenge", { method: "POST", body: JSON.stringify(action) }),
+        { action, hubPublicKey: this.identity.hubPublicKey ?? "", deviceId: this.identity.deviceId, sessionHash: bytesToHex(sha256(new TextEncoder().encode(token!))) });
+      current(); const signature = await signDeviceAction(this.identity, statement); current();
+      const result = await this.httpRequest(HOST_TERMINAL_CONFIGURE_PATH, { method: "POST", body: JSON.stringify({ command, proof: { nonce: statement.nonce, signature } }) });
+      current(); return terminalPolicySchema.parse(result);
+    });
+  }
+  async terminalList(conversationId: string, signal?: AbortSignal) {
+    const res = await this.httpRequest<{ sessions: unknown[] }>(`${HOST_TERMINALS_PATH}?conversationId=${encodeURIComponent(conversationId)}`, { signal }, { ms: 10_000, code: "terminal_request_timeout" });
+    return z.array(terminalSessionInfoSchema).parse(res.sessions);
+  }
+  async terminalCreate(input: TerminalCreate, signal?: AbortSignal) {
+    const body = JSON.stringify(terminalCreateSchema.parse(input));
+    const res = await this.httpRequest<{ terminal: unknown }>(HOST_TERMINALS_PATH, { method: "POST", body, signal }, { ms: 15_000, code: "terminal_request_timeout" });
+    return terminalSessionInfoSchema.parse(res.terminal);
+  }
+  async terminalReadOutput(id: string, after: number, wait = 0, signal?: AbortSignal) {
+    const res = await this.httpRequest(`${HOST_TERMINALS_PATH}/${encodeURIComponent(id)}/output?after=${after}&wait=${wait}`, { signal }, { ms: wait + 10_000, code: "terminal_request_timeout" });
+    return terminalOutputSchema.parse(res);
+  }
+  async terminalWriteInput(id: string, data: string) {
+    await this.httpRequest(`${HOST_TERMINALS_PATH}/${encodeURIComponent(id)}/input`, { method: "POST", body: JSON.stringify({ data }) }, { ms: 10_000, code: "terminal_request_timeout" });
+  }
+  async terminalResize(id: string, cols: number, rows: number) {
+    await this.httpRequest(`${HOST_TERMINALS_PATH}/${encodeURIComponent(id)}/resize`, { method: "POST", body: JSON.stringify({ cols, rows }) }, { ms: 10_000, code: "terminal_request_timeout" });
+  }
+  async terminalClose(id: string) {
+    await this.httpRequest(`${HOST_TERMINALS_PATH}/${encodeURIComponent(id)}`, { method: "DELETE" }, { ms: 10_000, code: "terminal_request_timeout" });
+  }
+  async screenStatus() {
+    return screenStatusSchema.parse(await this.screenRequest(this.state.screenUdpBoostAvailable ? "/api/screens/status?includeWindows=1&includeUdpStatus=1" : "/api/screens/status?includeWindows=1"));
+  }
   async screenConfigure(raw: ScreenConfigure) {
     return this.duringMutation(async () => {
       const command = screenConfigureSchema.parse(raw), token = this.token, epoch = this.httpEpoch;
@@ -1334,7 +1751,7 @@ export class HubConnection {
       const statement = boundDeviceActionStatement(await this.httpRequest("/api/devices/challenge", { method: "POST", body: JSON.stringify(action) }),
         { action, hubPublicKey: this.identity.hubPublicKey ?? "", deviceId: this.identity.deviceId, sessionHash: bytesToHex(sha256(new TextEncoder().encode(token!))) });
       current(); const signature = await signDeviceAction(this.identity, statement); current();
-      const result = await this.httpRequest("/api/screens/configure", { method: "POST", body: JSON.stringify({ command, proof: { nonce: statement.nonce, signature } }) });
+      const result = await this.httpRequest(this.state.screenUdpBoostAvailable ? "/api/screens/configure?includeUdpStatus=1" : "/api/screens/configure", { method: "POST", body: JSON.stringify({ command, proof: { nonce: statement.nonce, signature } }) });
       current(); return screenPolicySchema.parse(result);
     });
   }
@@ -1342,11 +1759,42 @@ export class HubConnection {
   async screenOpen(input: { desktopId: string; displayId: string; displayRevision: number; requestId: string; codecs: ("h264" | "vp8")[]; quality?: ScreenQuality; flight?: number }) {
     const route = this.state.route, epoch = this.httpEpoch;
     if (!route || !this.identity.hubPublicKey) throw new Error("screen_host_offline");
+    const openStartMs = Date.now(), openMonoStart = performance.now();
     const join = screenJoinSchema.parse(await this.screenRequest("/api/screens/sessions?includeWindows=1", { method: "POST", body: JSON.stringify(input) }));
+    const openEndMs = Date.now(), openMonoRtt = Math.max(0, performance.now() - openMonoStart);
+    const serverTimeOffsetMs = estimateServerTimeOffset(join.serverTime, openStartMs, openEndMs, openMonoRtt);
     if (this.closed || epoch !== this.httpEpoch || this.state.route?.url !== route.url) { void this.screenStop(join.session.id).catch(() => undefined); throw new Error("screen_route_changed"); }
-    return { join, network: { url: route.url, publicKey: this.identity.hubPublicKey, ...routeTrust(route.url, this.identity.hubPublicKey) } };
+    return { join, network: { url: route.url, publicKey: this.identity.hubPublicKey, ...routeTrust(route.url, this.identity.hubPublicKey) }, serverTimeOffsetMs };
   }
   async screenStop(sessionId?: string) { return this.screenRequest("/api/screens/stop", { method: "POST", body: JSON.stringify({ sessionId }) }); }
+
+  async updateCloudflareSettings(raw: CloudflareUpdate): Promise<CloudflareView> {
+    return this.duringMutation(async () => {
+      const command = cloudflareUpdateSchema.parse(raw), token = this.token, epoch = this.httpEpoch;
+      const current = () => { if (!token || this.closed || this.token !== token || this.httpEpoch !== epoch || epoch.signal.aborted) throw new HubHttpError(409, "device_action_cancelled"); };
+      current();
+      const action = deviceActionSchema.parse({ operation: "cloudflare-tunnel", target: bytesToHex(sha256(new TextEncoder().encode(cloudflareUpdateProofText(command)))) });
+      const statement = boundDeviceActionStatement(await this.httpRequest("/api/devices/challenge", { method: "POST", body: JSON.stringify(action) }),
+        { action, hubPublicKey: this.identity.hubPublicKey ?? "", deviceId: this.identity.deviceId, sessionHash: bytesToHex(sha256(new TextEncoder().encode(token!))) });
+      current(); const signature = await signDeviceAction(this.identity, statement); current();
+      const result = await this.httpRequest(HOST_CLOUDFLARE_PATH, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command, proof: { nonce: statement.nonce, signature } }) });
+      current(); return cloudflareViewSchema.parse(result);
+    });
+  }
+
+  async cloudflareQuickAction(raw: CloudflareQuickAction): Promise<CloudflareView> {
+    return this.duringMutation(async () => {
+      const command = cloudflareQuickActionSchema.parse(raw), token = this.token, epoch = this.httpEpoch;
+      const current = () => { if (!token || this.closed || this.token !== token || this.httpEpoch !== epoch || epoch.signal.aborted) throw new HubHttpError(409, "device_action_cancelled"); };
+      current();
+      const action = deviceActionSchema.parse({ operation: "cloudflare-tunnel", target: bytesToHex(sha256(new TextEncoder().encode(cloudflareQuickActionProofText(command)))) });
+      const statement = boundDeviceActionStatement(await this.httpRequest("/api/devices/challenge", { method: "POST", body: JSON.stringify(action) }),
+        { action, hubPublicKey: this.identity.hubPublicKey ?? "", deviceId: this.identity.deviceId, sessionHash: bytesToHex(sha256(new TextEncoder().encode(token!))) });
+      current(); const signature = await signDeviceAction(this.identity, statement); current();
+      const result = await this.httpRequest(HOST_CLOUDFLARE_QUICK_PATH, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command, proof: { nonce: statement.nonce, signature } }) });
+      current(); return cloudflareViewSchema.parse(result);
+    });
+  }
 
   async saveBotMessageGrants(raw: BotMessageGrantsCommand, signal?: AbortSignal, submitting?: () => void) {
     return this.duringMutation(async () => botMessageGrantsSnapshotSchema.parse(await this.performMessageGrantRequest("/api/bot-messages/grants", botMessageGrantsCommandSchema.parse(raw), signal, submitting)));
@@ -1354,12 +1802,15 @@ export class HubConnection {
   async saveCrossHostMessageGrants(raw: CrossHostMessageGrantsCommand, signal?: AbortSignal, submitting?: () => void) {
     return this.duringMutation(async () => crossHostMessageGrantsSnapshotSchema.parse(await this.performMessageGrantRequest("/api/bot-messages/cross-host-grants", crossHostMessageGrantsCommandSchema.parse(raw), signal, submitting)));
   }
+  async saveCrossHostDispatchGrants(raw: CrossHostDispatchGrantCommand, signal?: AbortSignal, submitting?: () => void) {
+    return this.duringMutation(async () => crossHostDispatchGrantsSnapshotSchema.parse(await this.performMessageGrantRequest("/api/dispatch/cross-host-grants", crossHostDispatchGrantCommandSchema.parse(raw), signal, submitting)));
+  }
   /** Receiving owner's "allow other Bots to steer this Bot" switch (issue #62). */
   async saveBotMessageSteering(raw: BotMessageSteeringCommand, signal?: AbortSignal) {
     const command = botMessageSteeringCommandSchema.parse(raw);
     return this.duringMutation(async () => botMessageSteeringSnapshotSchema.parse(await this.performMessageGrantRequest("/api/bot-messages/steering", command, signal, undefined, botMessageSteeringProofPayload(command))));
   }
-  private async performMessageGrantRequest(route: string, command: BotMessageGrantsCommand | CrossHostMessageGrantsCommand | BotMessageSteeringCommand, signal?: AbortSignal, submitting?: () => void, payload = networkCanonical(command)) {
+  private async performMessageGrantRequest(route: string, command: BotMessageGrantsCommand | CrossHostMessageGrantsCommand | CrossHostDispatchGrantCommand | BotMessageSteeringCommand, signal?: AbortSignal, submitting?: () => void, payload = networkCanonical(command)) {
     const token = this.token, epoch = this.httpEpoch;
     const current = () => { if (!token || this.closed || this.token !== token || this.httpEpoch !== epoch || epoch.signal.aborted || signal?.aborted) throw new HubHttpError(409, "device_action_cancelled"); };
     current();
@@ -1712,7 +2163,7 @@ export class HubConnection {
   private async acceptRevocation(): Promise<void> {
     this.deviceRevoked = true;
     if (this.networkPin) this.networkBlocked = true;
-    this.close(true); this.update({ error: t("此设备已被吊销，请重新配对") });
+    this.close(true); this.update({ error: t("此设备已被吊销，请重新配对"), routeDiagnosis: undefined });
     await this.cache.markIdentityRevoked(this.identity).catch(() => console.warn("device_revocation_cache_failed"));
   }
   private closeCanvasAgentSessions(reason: string): void {
@@ -1728,6 +2179,6 @@ export class HubConnection {
   }
   close(preserveDeparture = false): void {
     this.closeCanvasAgentSessions("canvas_agent_closed");
-    this.clearForegroundProbe(); this.probeAbort?.abort(); if (!preserveDeparture) this.departureRequest?.abort(); this.inflightEntry = undefined; window.removeEventListener("online", this.networkOnline); document.removeEventListener("visibilitychange", this.presence); window.removeEventListener("focus", this.presence); window.removeEventListener("blur", this.presence); this.started = false; this.starting = undefined; ++this.lifecycle; this.closed = true; this.passiveAttachments.cancelAll(new Error(t("连接已关闭，下载已停止。"))); if (this.outboxRetry) clearTimeout(this.outboxRetry); this.httpEpoch.abort(); this.update({ status: "offline", syncProgress: undefined, routeSync: undefined }); ++this.generation; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.ws?.close();
+    clearRememberedPendingPreviews(this); this.clearForegroundProbe(); this.livePinChanges.clear(); this.probeAbort?.abort(); if (!preserveDeparture) this.departureRequest?.abort(); this.inflightEntry = undefined; this.globalCleanups.forEach(fn => fn()); this.globalCleanups = []; window.removeEventListener(NATIVE_ACTIVE_EVENT, this.presence); this.started = false; this.starting = undefined; ++this.lifecycle; this.closed = true; this.passiveAttachments.cancelAll(new Error(t("连接已关闭，下载已停止。"))); if (this.outboxRetry) clearTimeout(this.outboxRetry); this.httpEpoch.abort(); this.update({ status: "offline", syncProgress: undefined, routeSync: undefined }); ++this.generation; if (this.reconnect) clearTimeout(this.reconnect); if (this.heartbeat) clearInterval(this.heartbeat); if (this.renewal) clearTimeout(this.renewal); if (this.probeTimer) clearInterval(this.probeTimer); if (this.handshake) clearTimeout(this.handshake); this.ws?.close();
   }
 }

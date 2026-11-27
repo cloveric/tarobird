@@ -28,7 +28,7 @@ impl Statement {
         match self.action.operation.as_str() {
             "approve" if self.action.target.len() == 8 && self.action.target.bytes().all(|c| c.is_ascii_digit()) => {},
             "revoke" if id(&self.action.target) => {},
-            "network" | "bot-message-grant" | "screen-grant" if digest(&self.action.target) => {},
+            "network" | "bot-message-grant" | "screen-grant" | "cloudflare-tunnel" | "terminal-grant" if digest(&self.action.target) => {},
             _ => return Err("invalid_device_action".into()),
         }
         serde_json::to_string(&("tarocub/device-action/v1", &self.hub_public_key, &self.device_id, &self.session_hash,
@@ -71,6 +71,17 @@ mod tests {
         assert_eq!(sign(&SigningKey::from_bytes(&[7; 32]), &statement).unwrap(), v["signature"].as_str().unwrap());
         let mut bad = v["statement"].clone(); bad["action"]["target"] = "../bot".into();
         assert!(serde_json::from_value::<Statement>(bad).unwrap().proof().is_err());
+    }
+    #[test]
+    fn signs_cloudflare_tunnel_digests_and_rejects_non_hex_targets() {
+        let mut s = serde_json::from_str::<serde_json::Value>(include_str!("../../../tests/fixtures/device-message-grant-vector.json")).unwrap()["statement"].clone();
+        s["action"]["operation"] = "cloudflare-tunnel".into();
+        let valid: Statement = serde_json::from_value(s.clone()).unwrap();
+        let proof = valid.proof().unwrap();
+        assert!(proof.contains("\"cloudflare-tunnel\""));
+        assert!(sign(&SigningKey::from_bytes(&[7; 32]), &valid).is_ok());
+        s["action"]["target"] = "not-a-digest".into();
+        assert!(serde_json::from_value::<Statement>(s).unwrap().proof().is_err());
     }
     #[test]
     fn rejects_invalid_or_ambiguous_signing_requests() {

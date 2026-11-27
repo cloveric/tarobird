@@ -2,6 +2,7 @@
 const listeners = new Map<string, Set<(value: any) => void>>();
 export const firebaseFixture = {
   clearHold: false, releaseClear: undefined as (() => void) | undefined,
+  permission: "granted" as "granted" | "denied",
   calls: [] as string[], hold: false, error: "", token: "fixture-shared-device-token",
   pending: [] as { resolve(value: { token: string }): void; reject(error: Error): void }[],
   async clear() { this.calls.push("clearFirebase"); if (this.clearHold) await new Promise<void>((resolve) => { this.releaseClear = resolve; }); },
@@ -18,7 +19,7 @@ export const firebaseFixture = {
 };
 export const PushNotifications = {
   removeAllDeliveredNotifications: async () => { firebaseFixture.calls.push("clear delivered"); },
-  requestPermissions: async () => ({ receive: "granted" }),
+  requestPermissions: async () => ({ receive: firebaseFixture.permission }),
   addListener: async (event: string, listener: (data: any) => void) => {
     firebaseFixture.calls.push(`listen ${event}`);
     const group = listeners.get(event) ?? new Set(); listeners.set(event, group); group.add(listener);

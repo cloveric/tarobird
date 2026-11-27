@@ -1,6 +1,6 @@
 import { QrCode, ScanLine } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
-import { deploymentMatchesRoutes, localRoutesSchema, type Deployment } from "../../src/client-protocol/routes.js";
+import { deploymentMatchesRoutes, isDirectRoute, isRelayRoute, localRoutesSchema, MAX_DIRECT_ROUTES, type Deployment } from "../../src/client-protocol/routes.js";
 import { CreationDialog } from "./CreationDialog.js";
 import { PairingScanner, type PairingPayload } from "./PairingCode.js";
 import { routeTitle } from "./RouteFields.js";
@@ -11,45 +11,87 @@ import type { Identity, Route } from "./storage.js";
 const loopback = (url: string) => { const host = new URL(url).hostname; return host === "localhost" || host === "[::1]" || host.startsWith("127."); };
 const ipv4Octets = (host: string) => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) && host.split(".").every(value => Number(value) <= 255) ? host.split(".").map(Number) : undefined;
 const privateLan = (url: string) => { const ip = ipv4Octets(new URL(url).hostname); return !!ip && (ip[0] === 10 || ip[0] === 192 && ip[1] === 168 || ip[0] === 172 && ip[1]! >= 16 && ip[1]! <= 31); };
-export type RouteRepair = { routes: Route[]; deployment?: Deployment; direct: Route; replaced?: Route; relays: number; certificateChanged: boolean };
+const tailnetUrl = (url: string) => { const host = new URL(url).hostname, ip = ipv4Octets(host); return !!ip && ip[0] === 100 && ip[1]! >= 64 && ip[1]! <= 127 || /^\[fd7a:115c:a1e0:/i.test(host); };
+export type RouteRepair = { routes: Route[]; deployment?: Deployment; direct: Route; directs: Route[]; replaced?: Route; relays: number; certificateChanged: boolean; certificateChangedDirects: Route[] };
 
 /** Refresh one access type from a QR of the same Hub key. The other access
  * types and paired device identity stay; undefined means nothing changes. */
 export function repairRoutes(identity: Pick<Identity, "hubPublicKey" | "routes" | "deployment">, payload: PairingPayload): RouteRepair | undefined {
   if (payload.kind !== "connect") throw new Error(t("请扫描已信任设备显示的 Hub 二维码"));
   if (!identity.hubPublicKey || payload.hubPublicKey !== identity.hubPublicKey) throw new Error(t("这不是当前主机的二维码。请扫描此主机显示的连接二维码。"));
-  const scanned = payload.routes.find((route) => route.name !== "VPS");
+  const scannedAll = payload.routes.filter(isDirectRoute);
+  const scanned = scannedAll[0];
   if (!scanned) throw new Error(t("此二维码不含直连地址。如需修改中转，请使用「编辑线路」。"));
-  if (loopback(scanned.url)) throw new Error(t("二维码中的地址只能在主机本机使用。请在主机上开启局域网配对后重新扫描。"));
+  if (scannedAll.some(route => loopback(route.url))) throw new Error(t("二维码中的地址只能在主机本机使用。请在主机上开启局域网配对后重新扫描。"));
   const managedMatches = identity.routes.filter(route => route.name === scanned.name
     && !!scanned.certificateAuthority && route.certificateAuthority === scanned.certificateAuthority
     && new URL(route.url).port === new URL(scanned.url).port
     && (scanned.name === "Tailscale" || privateLan(route.url) && privateLan(scanned.url)));
   // A public HTTPS host can also be called Direct. A route label/type alone
   // cannot identify a stale LAN address; append when ownership is ambiguous.
-  const replaced = identity.routes.find(route => route.name === scanned.name && route.url === scanned.url)
+  const replaced = identity.routes.find(route => isDirectRoute(route) && route.url === scanned.url)
     ?? (managedMatches.length === 1 ? managedMatches[0] : undefined);
-  const relays = identity.routes.filter((route) => route.name === "VPS");
+  const relays = identity.routes.filter(isRelayRoute);
   // A refreshed address keeps the user's own name for the same origin.
-  const direct: Route = { ...scanned, ...(!scanned.label && replaced?.url === scanned.url && replaced.label ? { label: replaced.label } : {}) };
+  const refreshedDirects: Route[] = scannedAll.map(item => {
+    const existing = identity.routes.find(route => isDirectRoute(route) && route.url === item.url);
+    return { ...item, ...(!item.label && existing?.label ? { label: existing.label } : {}) };
+  });
+  // Preserve every untouched saved direct route (such as Tailscale or a custom
+  // public Direct origin) instead of letting extra scanned candidates evict it.
+  const existingDirects = identity.routes.filter(route => isDirectRoute(route) && route !== replaced);
+  const keptDirects = existingDirects.filter(route => !refreshedDirects.some(next => next.url === route.url));
+  const refreshedExistingCount = refreshedDirects.filter((next, idx) => idx > 0 && existingDirects.some(route => route.url === next.url)).length;
+  const extraSlots = Math.max(0, MAX_DIRECT_ROUTES - (1 + refreshedExistingCount + keptDirects.length));
+  const extraNewUrls = new Set(
+    refreshedDirects
+      .filter((next, idx) => idx > 0 && !existingDirects.some(route => route.url === next.url))
+      .slice(0, extraSlots)
+      .map(route => route.url),
+  );
+  const appliedDirects = refreshedDirects.filter((next, idx) => idx === 0 || existingDirects.some(route => route.url === next.url) || extraNewUrls.has(next.url));
   // Only the address and its trust anchor matter; a differing display name alone is no repair.
-  if (replaced?.url === direct.url && replaced.certificateAuthority === direct.certificateAuthority) return undefined;
-  const parsed = localRoutesSchema.safeParse([direct, ...identity.routes.filter(route => route !== replaced)]);
+  const noChange = appliedDirects.every(item =>
+    identity.routes.some(route => isDirectRoute(route) && route.url === item.url && route.certificateAuthority === item.certificateAuthority)
+  ) && (!replaced || appliedDirects.some(item => item.url === replaced.url));
+  if (noChange) return undefined;
+  const mergedDirects = [...appliedDirects, ...keptDirects];
+  const candidateRoutes = [...mergedDirects, ...relays];
+  const parsed = localRoutesSchema.safeParse(candidateRoutes);
   if (!parsed.success) throw new Error(t("无法添加此地址：地址重复或线路数量已达上限。请使用「编辑线路」调整。"));
   const routes = parsed.data, deployment = payload.deployment ?? (deploymentMatchesRoutes(identity.deployment, routes) ? identity.deployment : undefined);
   if (!deploymentMatchesRoutes(deployment, routes)) throw new Error(t("二维码中的连接方式与已保存的线路不一致，请使用「编辑线路」调整。"));
-  return { routes, deployment, direct: routes[0]!, replaced, relays: relays.length, certificateChanged: replaced?.url === direct.url && replaced.certificateAuthority !== direct.certificateAuthority };
+  const parsedAppliedDirects = routes.slice(0, appliedDirects.length);
+  const certificateChangedDirects = parsedAppliedDirects.filter(item => {
+    const existing = identity.routes.find(route => isDirectRoute(route) && route.url === item.url);
+    return !!existing && existing.certificateAuthority !== item.certificateAuthority;
+  });
+  return {
+    routes,
+    deployment,
+    direct: parsedAppliedDirects[0]!,
+    directs: parsedAppliedDirects,
+    replaced,
+    relays: relays.length,
+    certificateChanged: certificateChangedDirects.length > 0,
+    certificateChangedDirects,
+  };
 }
 
 /** Renewing a pending private-network invitation can carry the host's new
  * address. Public endpoint/trust changes still require the explicit repair UI. */
 export function renewedPairingRoutes(identity: Pick<Identity, "hubPublicKey" | "routes" | "deployment">, payload: PairingPayload): RouteRepair | undefined {
   const repair = repairRoutes(identity, payload);
-  const host = repair && new URL(repair.direct.url).hostname;
-  const ip = host ? ipv4Octets(host) : undefined;
-  const tailnet = !!host && (!!ip && ip[0] === 100 && ip[1]! >= 64 && ip[1]! <= 127 || /^\[fd7a:115c:a1e0:/.test(host));
-  const knownAuthority = repair && repair.direct.certificateAuthority && identity.routes.some(route => route.name !== "VPS" && route.certificateAuthority === repair.direct.certificateAuthority);
-  if (repair && ((!privateLan(repair.direct.url) && !tailnet) || !knownAuthority || repair.certificateChanged)) {
+  if (payload.kind !== "connect") return repair;
+  const scannedDirects = payload.routes.filter(isDirectRoute);
+  const requiresConfirmation = !!repair?.certificateChanged || scannedDirects.some(route => {
+    const existing = identity.routes.find(saved => isDirectRoute(saved) && saved.url === route.url);
+    if (existing && existing.certificateAuthority === route.certificateAuthority) return false;
+    const trustedNetwork = privateLan(route.url) || tailnetUrl(route.url);
+    const knownAuthority = !!route.certificateAuthority && identity.routes.some(saved => isDirectRoute(saved) && saved.certificateAuthority === route.certificateAuthority);
+    return !trustedNetwork || !knownAuthority || (!!existing && existing.certificateAuthority !== route.certificateAuthority);
+  });
+  if (requiresConfirmation) {
     throw new Error("pairing_route_confirmation_required");
   }
   return repair;
@@ -62,7 +104,7 @@ export function RepairHostRoute({ connection, online, busyChange }: { connection
   const busyRef = useRef(false), button = useRef<HTMLButtonElement>(null), titleId = useId();
   useLayoutEffect(() => { busyChange?.(busy); }, [busy, busyChange]);
   useLayoutEffect(() => () => { busyChange?.(false); }, [busyChange]);
-  const identity = connection.identity, current = identity.routes.find((route) => route.name !== "VPS");
+  const identity = connection.identity, current = identity.routes.find(isDirectRoute);
   // The host's own loopback connection never needs a LAN address.
   if (!identity.hubPublicKey || (current && loopback(current.url))) return null;
   const unchanged = () => online ? t("已保存的地址与二维码一致，无需更新。") : t("已保存的地址与二维码一致，无需更新。如仍无法连接，请确认此设备与主机在同一网络，且主机正在运行。");
@@ -99,9 +141,9 @@ export function RepairHostRoute({ connection, online, busyChange }: { connection
       <p className="muted">{t("二维码来自同一台主机。只更新此设备的直连地址，无需重新配对，聊天记录保持不变。")}</p>
       <dl className="device-facts">
         <div><dt>{t("主机身份")}</dt><dd>{t("已核对，尾号 {0}", identity.hubPublicKey.slice(-8))}</dd></div>
-        <div><dt>{t("直连地址")}</dt><dd>{shown.direct.url}</dd></div>
+        <div><dt>{t("直连地址")}</dt><dd>{shown.directs.length === 1 ? shown.direct.url : shown.directs.map(route => <div key={route.url}>{route.url}</div>)}</dd></div>
         {moved && <div><dt>{t("原地址")}</dt><dd>{shown.replaced!.url}</dd></div>}
-        {shown.certificateChanged && <div><dt>{t("主机证书")}</dt><dd>{shown.direct.certificateAuthority ? t("使用二维码中的证书") : t("改用系统证书")}</dd></div>}
+        {shown.certificateChanged && <div><dt>{t("主机证书")}</dt><dd>{shown.certificateChangedDirects.every(route => !!route.certificateAuthority) ? t("使用二维码中的证书") : shown.certificateChangedDirects.every(route => !route.certificateAuthority) ? t("改用系统证书") : t("使用二维码中的证书或系统证书")}</dd></div>}
         {shown.relays > 0 && <div><dt>{t("备用中转")}</dt><dd>{t("保留 {0} 条", shown.relays)}</dd></div>}
       </dl>
       {moved && !privateLan(shown.replaced!.url) && <p className="settings-warning">{t("「{0}」不是局域网地址，可能用于外网连接。更新后此设备不再使用它。", routeTitle(shown.replaced!, identity.routes, identity.deployment))}</p>}

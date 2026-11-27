@@ -39,30 +39,7 @@ async function fixture(page: Page) {
 }
 const panel = (page: Page) => page.getByRole("complementary", { name: "工作台", exact: true });
 
-test("canvas comments bind a Unicode page and create a durable exact-design chat draft",async({page},info)=>{
- test.setTimeout(90000);const f=await fixture(page);try{
- const fileName="中文 页面 (第一版)+é.dc.html";
- const created=await f.command({requestId:"comment-create",operation:"design.create",payload:{title:"Commented design"}});const target={...created.target,tabId:(created.result as {tabId:string}).tabId};const editor=page.frameLocator(".workbench-design-frame:visible");
- const first=await f.command({requestId:"comment-file",operation:"design.read",target,payload:{path:"project/Main.dc.html"}});
- const index=await f.command({requestId:"comment-index",operation:"design.read",target,payload:{path:"project/canvas.json"}});const canvas=JSON.parse((index.result as {content:string}).content);
- canvas.boards[fileName]=canvas.boards["Main.dc.html"];delete canvas.boards["Main.dc.html"];canvas.order=canvas.order.map((file:string)=>file==="Main.dc.html"?fileName:file);
- expect(await f.command({requestId:"comment-unicode",operation:"design.publish",target,expectedRevision:index.revision,payload:{files:{"project/canvas.json":{content:JSON.stringify(canvas),contentType:"application/json"},["project/"+fileName]:{content:(first.result as {content:string}).content,contentType:"text/html"},"project/Main.dc.html":null}}})).toMatchObject({status:"applied",saved:true});
- await expect(editor.locator("#root")).not.toBeEmpty({timeout:40000});
- await expect(editor.getByRole("button",{name:"Comments",exact:true})).toBeVisible({timeout:25000});await editor.getByRole("button",{name:"Comments",exact:true}).click();const commentTarget=editor.getByRole("button",{name:"Comment on artboard Commented design",exact:true});const bounds=await commentTarget.boundingBox();expect(bounds).not.toBeNull();await page.mouse.click(bounds!.x+bounds!.width/2,bounds!.y+bounds!.height/2);await expect(editor.getByRole("textbox",{name:"Comment",exact:true})).toBeVisible();
- const note="请把标题变大 — Keep the English subtitle 🌿";
- await editor.getByRole("textbox",{name:"Comment",exact:true}).fill(note);await editor.getByRole("checkbox",{name:"Send to Agent",exact:true}).check();await editor.getByRole("button",{name:"Send",exact:true}).click();
- await expect(page.getByRole("textbox",{name:"消息",exact:true})).toHaveValue(new RegExp("Keep the English subtitle"),{timeout:15000});
- await expect(page.getByText("设计请求已加入草稿；修改回到原设计项目。",{exact:true})).toBeVisible();
- const comments=await f.command({requestId:"comments-read",operation:"design.comments.read",target,payload:{}});expect(comments.status).toBe("success");console.log("COMMENT_READ",JSON.stringify(comments.result));expect((comments.result as {threads:{file:string}[]}).threads[0].file).toBe("project/"+fileName);
- const draft=await page.getByRole("textbox",{name:"消息",exact:true}).inputValue();expect(draft).toContain(note);expect(draft).toContain("project/"+fileName);
- const messages=await f.hub.store.db.get<{n:number}>("SELECT count(*) AS n FROM messages WHERE conversation_id=?",[f.conversation.id]);expect(messages?.n).toBe(0);
- await page.reload();await waitForClientOnline(page);await selectConversation(page,f.conversation.title);await expect(page.getByRole("textbox",{name:"消息",exact:true})).toHaveValue(draft);
- await expect(page.getByText("设计请求已加入草稿；修改回到原设计项目。",{exact:true})).toBeVisible();
- await page.screenshot({path:info.outputPath("comments-draft.png")});
- }finally{await f.close();}
-});
-
-for (const format of ["canvas","slides"] as const) test(`history UI restores an old ${format} as a new saved version`,async({page},info)=>{
+for (const format of ["slides"] as const) test(`history UI restores an old ${format} as a new saved version`,async({page},info)=>{
  test.setTimeout(120000);const f=await fixture(page);const documentPath=format==="slides"?"project/slides/cover.html":"project/Main.dc.html";try{
  const created=await f.command({requestId:"history-create",operation:"design.create",payload:{title:"History original",format}});const target={...created.target,tabId:(created.result as {tabId:string}).tabId};
  const editor=page.frameLocator(".workbench-design-frame:visible");await expect(editor.locator("#root")).not.toBeEmpty({timeout:40000});
@@ -91,9 +68,9 @@ test("PPT comments create a durable exact-slide chat draft",async({page},info)=>
   const target={...made.target,tabId:(made.result as {tabId:string}).tabId};const editor=page.frameLocator(".workbench-design-frame:visible");
   const heading=editor.getByText(title,{exact:true}).first();await expect(heading).toBeVisible({timeout:45000});
   await editor.getByRole("button",{name:"Comments",exact:true}).click();
-  const bounds=await heading.boundingBox();expect(bounds).not.toBeNull();await page.mouse.click(bounds!.x+bounds!.width/2,bounds!.y+bounds!.height/2);
+  const bounds=await heading.boundingBox();expect(bounds).not.toBeNull();await page.mouse.click(bounds!.x+Math.min(40,bounds!.width/2),bounds!.y+bounds!.height/2);
   await expect(editor.getByRole("textbox",{name:"Comment",exact:true})).toBeVisible();
-  await editor.getByRole("textbox",{name:"Comment",exact:true}).fill(note);await editor.getByRole("checkbox",{name:"Send to Agent",exact:true}).check();await editor.getByRole("button",{name:"Send",exact:true}).click();
+  await editor.getByRole("textbox",{name:"Comment",exact:true}).fill(note);await editor.getByRole("checkbox",{name:/^Send to (?:Agent|Bot)$/}).check();await editor.getByRole("button",{name:"Send",exact:true}).click();
   const composer=page.getByRole("textbox",{name:"消息",exact:true});await expect(composer).toHaveValue(/Keep the English figures/,{timeout:15000});
   const draft=await composer.inputValue();expect(draft).toContain(note);expect(draft).toContain("project/slides/cover.html");
   const comments=await f.command({requestId:"ppt-comment-read",operation:"design.comments.read",target,payload:{}});expect(comments.status).toBe("success");expect((comments.result as {threads:{file:string}[]}).threads[0].file).toBe("project/slides/cover.html");

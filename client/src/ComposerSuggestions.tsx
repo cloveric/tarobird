@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { addGlobalListener } from "./global-event-hub.js";
 
 /** Keep completions anchored to the composer without covering the chat header.
  * Measure actual space: an IME candidate bar, quote or attachment can all change
@@ -29,13 +30,13 @@ export function ComposerSuggestions({ label, children, piCommands }: { label: st
     // not flash across the header while the keyboard/candidate bar animates.
     const observer = new ResizeObserver(measure);
     for (const element of [anchor, column, header, messages]) observer.observe(element);
-    window.addEventListener("resize", schedule);
+    const stopResize = addGlobalListener(window, "resize", schedule);
     const visual = window.visualViewport;
     visual?.addEventListener("resize", schedule);
     visual?.addEventListener("scroll", schedule);
     return () => {
       observer.disconnect(); cancelAnimationFrame(frame);
-      window.removeEventListener("resize", schedule);
+      stopResize();
       visual?.removeEventListener("resize", schedule);
       visual?.removeEventListener("scroll", schedule);
     };

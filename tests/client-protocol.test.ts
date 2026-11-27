@@ -1,14 +1,31 @@
 import { notificationLink, pushPayloadSchema } from "../src/client-protocol/push.js";
+import { CONVERSATION_PINS_CAPABILITY } from "../src/client-protocol/conversation-pins.js";
+import { CROSS_HOST_FOLDER_ORDER_CAPABILITY, crossHostFolderOrderSchema, isCanonicalCrossHostFolderKey } from "../src/client-protocol/cross-host-folder-order.js";
 import { describe, expect, it } from "vitest";
 import { blocksText, CAPABILITIES, SERVER_CAPABILITIES, MAX_FRAME_BYTES, parseClientFrame, textSchema, uploadSchema } from "../src/client-protocol/index.js";
+import { ATTACHMENT_ADMIN_CAPABILITY } from "../src/client-protocol/attachment-admin.js";
+import { CROSS_HOST_GROUPS_CAPABILITY } from "../src/client-protocol/group-members.js";
 import { SNAPSHOT_ACTIVITY_CAPABILITY } from "../src/client-protocol/snapshot.js";
 
 describe("client protocol v1 boundaries", () => {
   it("advertises Pi controls from the host without overflowing legacy client hello limits", () => {
     const capabilities = [...CAPABILITIES, SNAPSHOT_ACTIVITY_CAPABILITY];
     expect(capabilities.length).toBeLessThanOrEqual(64);
+    expect(CAPABILITIES).toContain(CROSS_HOST_GROUPS_CAPABILITY);
+    expect(SERVER_CAPABILITIES).toContain(CROSS_HOST_GROUPS_CAPABILITY);
+    expect(SERVER_CAPABILITIES).toContain(ATTACHMENT_ADMIN_CAPABILITY);
     expect(SERVER_CAPABILITIES).toContain("pi.session.v1");
     expect(CAPABILITIES).not.toContain("pi.session.v1");
+    expect(SERVER_CAPABILITIES).toContain("conversations.tasks.swarm.v1");
+    expect(CAPABILITIES).not.toContain("conversations.tasks.swarm.v1");
+    expect(SERVER_CAPABILITIES).toContain(CONVERSATION_PINS_CAPABILITY);
+    expect(CAPABILITIES).not.toContain(CONVERSATION_PINS_CAPABILITY);
+    expect(SERVER_CAPABILITIES).toContain(CROSS_HOST_FOLDER_ORDER_CAPABILITY);
+    expect(CAPABILITIES).not.toContain(CROSS_HOST_FOLDER_ORDER_CAPABILITY);
+    expect(isCanonicalCrossHostFolderKey(JSON.stringify(["hubA", "work"]))).toBe(true);
+    expect(isCanonicalCrossHostFolderKey(JSON.stringify(["hubA", null]))).toBe(true);
+    expect(isCanonicalCrossHostFolderKey('["hubA", "work"]')).toBe(false);
+    expect(crossHostFolderOrderSchema.safeParse({ version: 1, revision: 1, updatedAt: 1000, pinned: [], ordinary: [JSON.stringify(["hubA", null])] }).success).toBe(true);
     expect(parseClientFrame(JSON.stringify({ v: 1, type: "hello", deviceId: "device", protocolVersions: [1], capabilities, cursors: {}, nonce: "a".repeat(32) }))).toHaveProperty("frame.type", "hello");
   });
   it("keeps queue cancellation status out of copied and indexed prompt text", () => {

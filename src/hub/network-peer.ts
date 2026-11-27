@@ -2,8 +2,8 @@ import { X509Certificate, verify } from "node:crypto";
 import { lookup } from "node:dns";
 import { request } from "node:https";
 import { isIP } from "node:net";
-import { MAX_NETWORK_BYTES, networkCanonical, networkHostSchema, networkManifestProof, signedNetworkManifestSchema, signedNetworkPeerRequestSchema, type NetworkHost, type SignedNetworkManifest, type SignedNetworkPeerRequest } from "../client-protocol/private-network.js";
-import { orderedRoutes, type Route } from "../client-protocol/routes.js";
+import { MAX_NETWORK_BYTES, networkCanonical, networkHostRoutes, networkHostSchema, networkManifestProof, signedNetworkManifestSchema, signedNetworkPeerRequestSchema, type NetworkHost, type SignedNetworkManifest, type SignedNetworkPeerRequest } from "../client-protocol/private-network.js";
+import { isEdgeTlsRoute, orderedRoutes, type Route } from "../client-protocol/routes.js";
 import { parsePublicKey } from "./auth.js";
 import { HubError } from "./store.js";
 import { isLoopbackOrUnspecified as loopback } from "../client-protocol/loopback-address.js";
@@ -33,6 +33,7 @@ export function certificateAuthority(route: Route): string | undefined {
 function send(route: Route, path: string, body: Buffer | undefined, signal: AbortSignal, timeoutMs: number, tls: PeerTls): Promise<unknown> {
   const url = new URL(route.url);
   if (url.protocol !== "https:" || loopback(url.hostname)) throw new HubError("network_route_must_be_remote", 400);
+  if (isEdgeTlsRoute(route) && route.certificateAuthority) throw new HubError("network_peer_certificate_invalid", 400);
   const ca = certificateAuthority(route);
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -53,7 +54,7 @@ function send(route: Route, path: string, body: Buffer | undefined, signal: Abor
       }),
       headers: { ...(body ? { "Content-Type": "application/json", "Content-Length": body.length } : {}), Accept: "application/json" },
     }, res => {
-      if (res.statusCode !== 200) { res.destroy(); finish(new HubError("network_peer_rejected", 502)); return; }
+      if (res.statusCode !== 200) { res.destroy(); finish(new HubError("network_peer_rejected", body && res.statusCode === 400 ? 400 : 502)); return; }
       const unobserved = observePeerCertificate(res, tls);
       if (unobserved) { res.destroy(); finish(unobserved); return; }
       const declared = Number(res.headers["content-length"]);
@@ -80,14 +81,15 @@ function send(route: Route, path: string, body: Buffer | undefined, signal: Abor
 export async function exchangeNetworkPeer(rawHost: NetworkHost, rawRequest: SignedNetworkPeerRequest, options: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<SignedNetworkManifest> {
   const host = networkHostSchema.parse(rawHost), signed = signedNetworkPeerRequestSchema.parse(rawRequest);
   if (networkCanonical(host) !== networkCanonical(rawHost) || networkCanonical(signed) !== networkCanonical(rawRequest)) throw new HubError("network_peer_request_invalid", 400);
-  if (host.revoked || host.state !== "active" || !host.routes.length) throw new HubError("network_peer_unavailable", 503);
+  const candidateRoutes = networkHostRoutes(host);
+  if (host.revoked || host.state !== "active" || !candidateRoutes.length) throw new HubError("network_peer_unavailable", 503);
   if (signed.request.known && (signed.request.known.manifest.authorityKey !== host.publicKey || signed.request.known.manifest.id !== signed.request.networkId)) throw new HubError("network_peer_identity_mismatch", 403);
   const body = Buffer.from(JSON.stringify(signed));
   if (body.length > MAX_NETWORK_BYTES) throw new HubError("network_peer_request_too_large", 413);
   const signal = options.signal ?? new AbortController().signal;
   const deadline = Date.now() + Math.min(REQUEST_TIMEOUT_MS, Math.max(1, options.timeoutMs ?? REQUEST_TIMEOUT_MS));
   let lastError: unknown = new HubError("network_peer_unavailable", 503);
-  for (const route of orderedRoutes(host.routes)) {
+  for (const route of orderedRoutes(candidateRoutes)) {
     if (signal.aborted) throw new HubError("network_peer_cancelled", 503);
     const remaining = Math.min(deadline - Date.now(), signed.request.expiresAt - Date.now());
     if (remaining <= 0) throw new HubError("network_peer_timeout", 504);
@@ -99,7 +101,7 @@ export async function exchangeNetworkPeer(rawHost: NetworkHost, rawRequest: Sign
         if (left() <= 0) throw new HubError("network_peer_timeout", 504);
         const { pin, cached } = await peerPin(host.publicKey, route, (path, tls) => send(route, path, undefined, signal, left(), tls));
         if (left() <= 0) throw new HubError("network_peer_timeout", 504);
-        try { raw = await send(route, "/api/network/peer", body, signal, left(), { pin }); break; }
+        try { raw = await send(route, "/api/network/peer", body, signal, left(), pin ? { pin } : {}); break; }
         catch (error) {
           if (error instanceof TlsPinMismatch) { forgetPeerPin(host.publicKey, route); if (cached && attempt === 0) continue; }
           throw error;
@@ -113,7 +115,10 @@ export async function exchangeNetworkPeer(rawHost: NetworkHost, rawRequest: Sign
         || result.manifest.revision < (signed.request.known?.manifest.revision ?? 0)
         || !verify(null, Buffer.from(networkManifestProof(result.manifest)), parsePublicKey(host.publicKey), Buffer.from(result.signature, "base64"))) throw new HubError("network_peer_identity_mismatch", 403);
       return result;
-    } catch (error) { lastError = error; }
+    } catch (error) {
+      if (error instanceof HubError && error.code === "network_peer_rejected" && error.status === 400) throw error;
+      lastError = error;
+    }
   }
   throw lastError instanceof HubError ? lastError : new HubError("network_peer_response_invalid", 502);
 }

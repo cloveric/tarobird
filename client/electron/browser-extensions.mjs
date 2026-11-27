@@ -8,6 +8,7 @@ import { verifyCrx3 } from './crx3.mjs';
 import { ARCHIVE_LIMITS, stageFolder, stageZip } from './extension-archive.mjs';
 import { ExtensionBridge } from './extension-bridge.mjs';
 import { OPTIONS_LIMITS, OptionsWindows, optionsPath, optionsURL } from './extension-options.mjs';
+import { normalizeElectronLocale, resolveElectronLocale, pickElectronCopy } from './locale.mjs';
 
 // The person's Chrome extensions for workbench pages. Electron loads unpacked
 // extensions per session and forgets them on exit, so main keeps its own copies
@@ -23,14 +24,14 @@ const printable = max => z.string().min(1).max(max).regex(/^[\x21-\x7e]+$/);
 const PAGE_SCOPE = z.object({ host: printable(256), user: printable(256), conversation: printable(256) }).strict();
 export const EXTENSION_ACTION = z.discriminatedUnion('action', [
   z.object({ action: z.literal('list') }).strict(),
-  z.object({ action: z.literal('install'), source: z.enum(['folder', 'file', 'store']), store: z.string().min(1).max(2048).optional(), english: z.boolean().optional() }).strict(),
-  z.object({ action: z.literal('set'), id: ID, enabled: z.boolean().optional(), scope: SCOPE.optional(), english: z.boolean().optional() }).strict(),
+  z.object({ action: z.literal('install'), source: z.enum(['folder', 'file', 'store']), store: z.string().min(1).max(2048).optional(), english: z.boolean().optional(), locale: z.string().max(32).optional() }).strict(),
+  z.object({ action: z.literal('set'), id: ID, enabled: z.boolean().optional(), scope: SCOPE.optional(), english: z.boolean().optional(), locale: z.string().max(32).optional() }).strict(),
   z.object({ action: z.literal('reload'), id: ID }).strict(),
   z.object({ action: z.literal('remove'), id: ID }).strict(),
   z.object({ action: z.literal('compat'), scope: PAGE_SCOPE }).strict(),
-  z.object({ action: z.literal('compat_set'), scope: PAGE_SCOPE, enabled: z.boolean(), english: z.boolean().optional() }).strict(),
+  z.object({ action: z.literal('compat_set'), scope: PAGE_SCOPE, enabled: z.boolean(), english: z.boolean().optional(), locale: z.string().max(32).optional() }).strict(),
   // The extension's settings page in this exact page scope (never a wider one).
-  z.object({ action: z.literal('options'), id: ID, scope: PAGE_SCOPE, english: z.boolean().optional() }).strict(),
+  z.object({ action: z.literal('options'), id: ID, scope: PAGE_SCOPE, english: z.boolean().optional(), locale: z.string().max(32).optional() }).strict(),
 ]);
 const FEATURE = z.object({ code: z.string().max(64), status: z.enum(['supported', 'not_enforced', 'unavailable']) }).strict();
 const REPORT = z.object({ manifestVersion: z.union([z.literal(2), z.literal(3)]), description: z.string().max(512), hostAccess: z.enum(['all', 'some', 'none']),
@@ -348,7 +349,8 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
     this.#compatEnabling.add(partition);
     try { return await this.#enableCompatNow(partition, options); } finally { this.#compatEnabling.delete(partition); }
   }
-  async #enableCompatNow(partition, { interactive = false, english = false, window } = {}) {
+  async #enableCompatNow(partition, { interactive = false, english = false, locale, window } = {}) {
+    const loc = resolveElectronLocale({ locale, english });
     const session = this.#sessions.get(partition), api = this.#api(partition), token = randomUUID().replace(/-/g, '');
     const generation = this.#generation, scoped = this.#scopeGenerations.get(partition) ?? 0;
     // Still this run's session of this partition, with no reset or Host removal since.
@@ -370,7 +372,7 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
     // is deciding) and the filter is removed in the same step that confirms
     // none is left. Any refusal or failure keeps the filter.
     let drain;
-    try { drain = await this.#drain(session, { interactive, english, window }); } catch { drain = { ok: false, reason: 'failed' }; }
+    try { drain = await this.#drain(session, { interactive, english, locale: loc, window }); } catch { drain = { ok: false, reason: 'failed' }; }
     if (!drain.ok) { unload(); return drain.reason === 'cancelled' || interactive && drain.reason === 'changed' ? 'cancelled' : fail(); }
     // Settings pages are documents of this session too: gone before the filter
     // can go (none can open meanwhile: opening waits for this queue). One not
@@ -462,26 +464,38 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
     const report = { ...entry.report, features, verdict: features.some(item => item.status !== 'supported') ? 'limited' : 'works' };
     return { ...entry, report, loaded: sessions, optionsAvailable, ...(this.#errors.has(entry.id) ? { error: this.#errors.get(entry.id) } : {}) };
   }
-  async #confirm(window, english, message, detail, action) {
+  async #confirm(window, loc, message, detail, action) {
     const { response } = await this.#electron.dialog.showMessageBox(window, { type: 'question', title: 'TaroBird', message, detail,
-      buttons: english ? ['Cancel', action] : ['取消', action], defaultId: 0, cancelId: 0, noLink: true });
+      buttons: [pickElectronCopy(loc, { zh: '取消', en: 'Cancel', ja: 'キャンセル' }), action], defaultId: 0, cancelId: 0, noLink: true });
     return response === 1;
   }
 
   /** `prepare(scope)` (from WorkbenchBrowser) creates that page session with page policy first. */
-  request(input, { window, english = false, prepare = () => {} } = {}) {
+  request(input, { window, english = false, locale, prepare = () => {} } = {}) {
     const checked = EXTENSION_ACTION.safeParse(input);
     if (!checked.success) throw new Error('invalid_extension_args');
-    const args = checked.data, words = args.english ?? english;
+    const args = checked.data;
+    const loc = normalizeElectronLocale(args.locale)
+      ?? (typeof args.english === 'boolean' ? (args.english ? 'en' : 'zh') : resolveElectronLocale({ locale, english }));
     switch (args.action) {
       case 'list': return this.#serial(async () => ({ status: 'ok', extensions: await Promise.all((await this.#read()).extensions.map(entry => this.#summary(entry))) }));
-      case 'install': prepare(PERSONAL_BROWSER_SCOPE); return this.#install(args, window, words);
+      case 'install': prepare(PERSONAL_BROWSER_SCOPE); return this.#install(args, window, loc);
       case 'set': return this.#serial(async () => {
         const registry = await this.#read(), entry = registry.extensions.find(item => item.id === args.id);
         if (!entry) throw new Error('extension_not_found');
         // Conversation pages are the ones Bots read and operate; say so first.
-        if (args.scope === 'all' && entry.scope !== 'all' && !await this.#confirm(window, words, words ? `Also run “${entry.name}” in conversation webpages?` : `也在对话网页中运行“${entry.name}”吗？`,
-          words ? 'Bots read and operate those pages. This extension will be able to read and change them too, which can affect what a Bot sees and does there.' : 'Bot 会读取和操作这些网页。此扩展也将能读取和更改它们，可能影响 Bot 在其中看到的内容和操作结果。', words ? 'Allow' : '允许')) return { status: 'cancelled' };
+        if (args.scope === 'all' && entry.scope !== 'all' && !await this.#confirm(window, loc,
+          pickElectronCopy(loc, {
+            zh: `也在对话网页中运行“${entry.name}”吗？`,
+            en: `Also run “${entry.name}” in conversation webpages?`,
+            ja: `会話内の Web ページでも「${entry.name}」を実行しますか？`,
+          }),
+          pickElectronCopy(loc, {
+            zh: 'Bot 会读取和操作这些网页。此扩展也将能读取和更改它们，可能影响 Bot 在其中看到的内容和操作结果。',
+            en: 'Bots read and operate those pages. This extension will be able to read and change them too, which can affect what a Bot sees and does there.',
+            ja: 'Bot はそれらのページを読み取り・操作します。この拡張機能もページを読み取り・変更できるようになり、Bot の見え方や操作結果に影響する場合があります。',
+          }),
+          pickElectronCopy(loc, { zh: '允许', en: 'Allow', ja: '許可' }))) return { status: 'cancelled' };
         const next = { ...entry, ...(args.enabled === undefined ? {} : { enabled: args.enabled }), ...(args.scope ? { scope: args.scope } : {}) };
         await this.#save({ ...registry, extensions: registry.extensions.map(item => item.id === entry.id ? next : item) });
         await this.#syncAll(); this.#changed();
@@ -505,8 +519,8 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
         return { status: 'ok' };
       });
       case 'compat': return this.#serial(async () => this.#compatState(partitionFor(args.scope), await this.#read()));
-      case 'compat_set': prepare(args.scope); return this.#compatSet(args, window, words);
-      case 'options': prepare(args.scope); return this.#openOptions(args, window, words);
+      case 'compat_set': prepare(args.scope); return this.#compatSet(args, window, loc);
+      case 'options': prepare(args.scope); return this.#openOptions(args, window, loc);
     }
     throw new Error('invalid_extension_args');
   }
@@ -514,17 +528,41 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
     return { status: 'ok', enabled: (registry.compatible ?? []).includes(partition), active: this.#compatible.has(partition),
       ...(this.#compatErrors.has(partition) ? { error: this.#compatErrors.get(partition) } : {}) };
   }
-  async #compatSet(args, window, english) {
+  async #compatSet(args, window, loc) {
     const partition = partitionFor(args.scope), personal = partition === PERSONAL_PARTITION, generation = this.#generation, scoped = this.#scopeGenerations.get(partition) ?? 0;
     if (args.enabled) {
-      const where = personal ? (english ? 'the personal browser' : '个人浏览器') : (english ? 'this conversation’s webpages' : '此对话的网页');
-      if (!await this.#confirm(window, english, english ? `Turn on extension compatibility mode for ${where}?` : `为${where}开启扩展兼容模式？`, [
-        english ? 'Extensions’ ad and request blocking rules can then take effect.' : '开启后，扩展的广告/请求拦截规则可以生效。',
-        english ? 'Trade-off: extensions you added (their background scripts and settings pages) will be able to connect to services on this computer and your local network, including the TaroBird Host. Webpages themselves stay blocked from this computer’s local services by TaroBird’s policy rules.'
-          : '代价：你添加的扩展（其后台脚本和设置页）将能连接本机和局域网中的服务，包括 TaroBird 主机。网页本身访问本机服务仍会被 TaroBird 的策略规则拦截。',
-        english ? `Open pages in ${where} reload when it takes effect; pages that may have unsaved input are listed first.` : `生效时，${where}中已打开的网页会重新加载；可能有未保存内容的网页会先列出。`,
-        english ? `Applies only to ${where} on this device. You can turn it off at any time to restore the default protection. Bots cannot change this.` : `只影响此设备上的${where}，可随时关闭以恢复默认保护。Bot 无法更改此设置。`,
-      ].join('\n'), english ? 'Turn on' : '开启')) return { status: 'cancelled' };
+      const where = personal
+        ? pickElectronCopy(loc, { zh: '个人浏览器', en: 'the personal browser', ja: '個人ブラウザ' })
+        : pickElectronCopy(loc, { zh: '此对话的网页', en: 'this conversation’s webpages', ja: 'この会話の Web ページ' });
+      if (!await this.#confirm(window, loc,
+        pickElectronCopy(loc, {
+          zh: `为${where}开启扩展兼容模式？`,
+          en: `Turn on extension compatibility mode for ${where}?`,
+          ja: `${where}で拡張機能互換モードを有効にしますか？`,
+        }),
+        [
+          pickElectronCopy(loc, {
+            zh: '开启后，扩展的广告/请求拦截规则可以生效。',
+            en: 'Extensions’ ad and request blocking rules can then take effect.',
+            ja: '有効にすると、拡張機能の広告ブロックやリクエスト制御ルールが機能するようになります。',
+          }),
+          pickElectronCopy(loc, {
+            zh: '代价：你添加的扩展（其后台脚本和设置页）将能连接本机和局域网中的服务，包括 TaroBird 主机。网页本身访问本机服务仍会被 TaroBird 的策略规则拦截。',
+            en: 'Trade-off: extensions you added (their background scripts and settings pages) will be able to connect to services on this computer and your local network, including the TaroBird Host. Webpages themselves stay blocked from this computer’s local services by TaroBird’s policy rules.',
+            ja: '注意点：追加した拡張機能（バックグラウンドスクリプトおよび設定ページ）は、この端末やローカルネットワーク上のサービス（TaroBird Host を含む）に接続できるようになります。Web ページ自体は引き続き TaroBird のポリシールールによりローカルサービスへのアクセスが遮断されます。',
+          }),
+          pickElectronCopy(loc, {
+            zh: `生效时，${where}中已打开的网页会重新加载；可能有未保存内容的网页会先列出。`,
+            en: `Open pages in ${where} reload when it takes effect; pages that may have unsaved input are listed first.`,
+            ja: `適用時に${where}で開いているページは再読み込みされます。未保存の入力があるページは先に一覧表示されます。`,
+          }),
+          pickElectronCopy(loc, {
+            zh: `只影响此设备上的${where}，可随时关闭以恢复默认保护。Bot 无法更改此设置。`,
+            en: `Applies only to ${where} on this device. You can turn it off at any time to restore the default protection. Bots cannot change this.`,
+            ja: `このデバイス上の${where}のみに適用され、いつでもオフにして標準の保護に戻せます。Bot がこの設定を変更することはできません。`,
+          }),
+        ].join('\n'),
+        pickElectronCopy(loc, { zh: '开启', en: 'Turn on', ja: '有効にする' }))) return { status: 'cancelled' };
     }
     return this.#serial(async () => {
       if (generation !== this.#generation || scoped !== (this.#scopeGenerations.get(partition) ?? 0)) return { status: 'cancelled', error: 'extensions_reset' };
@@ -535,7 +573,7 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
       // The person is deciding now: pages that may hold input are listed before
       // they reload, and declining saves nothing and keeps the protection.
       if (args.enabled && this.#sessions.has(partition) && !this.#compatible.has(partition)) {
-        const outcome = await this.#enableCompat(partition, { interactive: true, english, window });
+        const outcome = await this.#enableCompat(partition, { interactive: true, english: loc === 'en', locale: loc, window });
         if (outcome === 'cancelled') return { status: 'cancelled' };
         if (outcome === 'stale') return { status: 'cancelled', error: 'extensions_reset' };
       }
@@ -569,7 +607,7 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
    * background worker is started outside it (bounded), so the page's first
    * messages are answered; then everything is checked again and the window is
    * created in that same queue step. Its page loads outside the queue. */
-  async #openOptions(args, window, english) {
+  async #openOptions(args, window, loc) {
     const partition = partitionFor(args.scope), generation = this.#generation, scoped = this.#scopeGenerations.get(partition) ?? 0, key = `${partition}\0${args.id}`;
     const parentGeneration = this.#windowGenerations.get(window?.id) ?? 0;
     let parentClosed = !!window?.isDestroyed?.();
@@ -589,7 +627,8 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
         // Nothing awaits from these checks to the window.
         if (gone()) return { status: 'cancelled', error: 'options_closed' };
         if (this.#options.full) return { status: 'failed', error: 'options_limit' };
-        try { opening = this.#options.open({ key, partition, id: args.id, session: again.session, url: again.url, title: `${again.entry.name} — ${english ? 'Settings' : '扩展设置'}`, parent: window }); }
+        const settingsLabel = pickElectronCopy(loc, { zh: '扩展设置', en: 'Settings', ja: '拡張機能設定' });
+        try { opening = this.#options.open({ key, partition, id: args.id, session: again.session, url: again.url, title: `${again.entry.name} — ${settingsLabel}`, parent: window }); }
         catch { return { status: 'failed', error: 'options_load_failed' }; }
         return undefined;
       });
@@ -647,7 +686,7 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
   }
   /** Fetch or pick, verify and stage outside the queue; review the staged copy;
    * commit under the queue only if no reset happened meanwhile. */
-  async #install(args, window, english) {
+  async #install(args, window, loc) {
     const generation = this.#generation, staging = path.join(this.#root, 'staging', randomUUID());
     let key, origin, source, signature;
     try {
@@ -661,8 +700,9 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
         key = Buffer.from(crx.publicKey, 'base64'); source = 'store'; signature = 'store'; origin = createHash('sha256').update(`tarobot-extension-store-v1\0${id}`).digest('hex');
       } else {
         const { canceled, filePaths } = await this.#electron.dialog.showOpenDialog(window, args.source === 'folder'
-          ? { title: english ? 'Choose an unpacked extension folder' : '选择已解压的扩展文件夹', properties: ['openDirectory'] }
-          : { title: english ? 'Choose an extension package' : '选择扩展安装包', properties: ['openFile'], filters: [{ name: english ? 'Chrome extension' : 'Chrome 扩展', extensions: ['crx', 'zip'] }] });
+          ? { title: pickElectronCopy(loc, { zh: '选择已解压的扩展文件夹', en: 'Choose an unpacked extension folder', ja: '展開済みの拡張機能フォルダを選択' }), properties: ['openDirectory'] }
+          : { title: pickElectronCopy(loc, { zh: '选择扩展安装包', en: 'Choose an extension package', ja: '拡張機能パッケージを選択' }), properties: ['openFile'],
+              filters: [{ name: pickElectronCopy(loc, { zh: 'Chrome 扩展', en: 'Chrome extension', ja: 'Chrome 拡張機能' }), extensions: ['crx', 'zip'] }] });
         if (canceled || !filePaths?.[0]) return { status: 'cancelled' };
         if (generation !== this.#generation) return { status: 'cancelled', error: 'extensions_reset' };
         const chosen = filePaths[0];
@@ -696,36 +736,117 @@ chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map(rule 
       const unavailable = report.features.filter(item => item.status === 'unavailable').length;
       // An update keeps the installed scope and on/off state (#commit), so the review states them.
       const rank = { none: 0, developer: 1, store: 2 }, downgraded = !!existing && rank[signature] < rank[existing.signature];
+      const sigName = existing?.signature === 'store'
+        ? pickElectronCopy(loc, { zh: ' Chrome 应用商店', en: 'Chrome Web Store', ja: 'Chrome ウェブストア' })
+        : pickElectronCopy(loc, { zh: '开发者', en: 'developer', ja: '開発者' });
       const detail = [
-        signature === 'store' ? (english ? 'Signed by the Chrome Web Store (verified).' : '已验证 Chrome 应用商店签名。') : signature === 'developer' ? (english ? 'Signed by its developer (verified); not a Chrome Web Store signature.' : '已验证开发者签名（非 Chrome 应用商店签名）。') : (english ? 'Not signed: install only from a source you trust.' : '未签名：请只安装可信来源的扩展。'),
-        report.hostAccess === 'all' ? (english ? 'Can read and change every website in the pages where it runs.' : '可读取和更改它所运行网页中的所有网站。')
-          : report.hostAccess === 'some' ? (english ? `Can read and change: ${report.hosts.slice(0, 3).join(', ')}` : `可读取和更改：${report.hosts.slice(0, 3).join('，')}`) : '',
-        report.features.some(item => item.status === 'not_enforced') ? (english ? 'Its network blocking does not take effect in TaroBird unless you turn on compatibility mode for a browser; some extensions can still hide page elements.' : '此扩展的网络拦截功能在当前 TaroBird 中不生效（可为某个浏览器开启兼容模式）；部分扩展仍可隐藏页面元素。') : '',
-        unavailable ? (english ? `${unavailable} declared feature(s) are not available in TaroBird. Details are listed in Extensions.` : `${unavailable} 项声明的功能在 TaroBird 中不可用，详见扩展列表。`) : '',
-        downgraded ? (english ? `This replaces a version whose ${existing.signature === 'store' ? 'Chrome Web Store' : 'developer'} signature was verified.` : `这会替换已验证${existing.signature === 'store' ? ' Chrome 应用商店' : '开发者'}签名的版本。`) : '',
+        signature === 'store'
+          ? pickElectronCopy(loc, { zh: '已验证 Chrome 应用商店签名。', en: 'Signed by the Chrome Web Store (verified).', ja: 'Chrome ウェブストアによる署名（検証済み）です。' })
+          : signature === 'developer'
+            ? pickElectronCopy(loc, { zh: '已验证开发者签名（非 Chrome 应用商店签名）。', en: 'Signed by its developer (verified); not a Chrome Web Store signature.', ja: '開発者による署名（検証済み）です。Chrome ウェブストアの署名ではありません。' })
+            : pickElectronCopy(loc, { zh: '未签名：请只安装可信来源的扩展。', en: 'Not signed: install only from a source you trust.', ja: '未署名です：信頼できるソースからのみインストールしてください。' }),
+        report.hostAccess === 'all'
+          ? pickElectronCopy(loc, { zh: '可读取和更改它所运行网页中的所有网站。', en: 'Can read and change every website in the pages where it runs.', ja: '実行されるページ内のすべてのウェブサイトを読み取り・変更できます。' })
+          : report.hostAccess === 'some'
+            ? pickElectronCopy(loc, {
+                zh: `可读取和更改：${report.hosts.slice(0, 3).join('，')}`,
+                en: `Can read and change: ${report.hosts.slice(0, 3).join(', ')}`,
+                ja: `読み取り・変更が可能：${report.hosts.slice(0, 3).join('、')}`,
+              })
+            : '',
+        report.features.some(item => item.status === 'not_enforced')
+          ? pickElectronCopy(loc, {
+              zh: '此扩展的网络拦截功能在当前 TaroBird 中不生效（可为某个浏览器开启兼容模式）；部分扩展仍可隐藏页面元素。',
+              en: 'Its network blocking does not take effect in TaroBird unless you turn on compatibility mode for a browser; some extensions can still hide page elements.',
+              ja: 'ブラウザの互換モードを有効にしない限り、この拡張機能のネットワーク遮断は TaroBird では機能しません（一部の拡張機能はページ要素の非表示のみ動作する場合があります）。',
+            })
+          : '',
+        unavailable
+          ? pickElectronCopy(loc, {
+              zh: `${unavailable} 项声明的功能在 TaroBird 中不可用，详见扩展列表。`,
+              en: `${unavailable} declared feature(s) are not available in TaroBird. Details are listed in Extensions.`,
+              ja: `宣言された機能のうち ${unavailable} 件は TaroBird で利用できません。詳細は拡張機能一覧をご覧ください。`,
+            })
+          : '',
+        downgraded
+          ? pickElectronCopy(loc, {
+              zh: `这会替换已验证${sigName}签名的版本。`,
+              en: `This replaces a version whose ${sigName} signature was verified.`,
+              ja: `これにより、${sigName}署名が検証済みのバージョンが置き換えられます。`,
+            })
+          : '',
         existing?.scope === 'all'
-          ? (english ? 'It runs in the personal browser and in conversation webpages on this device. Bots read and operate those pages; this extension can read and change them too.' : '它将在此设备的个人浏览器和对话网页中运行。Bot 会读取和操作对话网页，此扩展也能读取和更改它们。')
-          : (english ? 'It runs in the personal browser on this device.' : '它将在此设备的个人浏览器中运行。'),
-        existing && !existing.enabled ? (english ? 'It stays turned off until you enable it.' : '它将保持停用，直到你启用。') : '',
-        english ? 'Bots cannot install or manage extensions.' : 'Bot 无法安装或管理扩展。',
+          ? pickElectronCopy(loc, {
+              zh: '它将在此设备的个人浏览器和对话网页中运行。Bot 会读取和操作对话网页，此扩展也能读取和更改它们。',
+              en: 'It runs in the personal browser and in conversation webpages on this device. Bots read and operate those pages; this extension can read and change them too.',
+              ja: 'このデバイス上の個人ブラウザと会話内の Web ページの両方で動作します。Bot が会話ページを読み取り・操作するため、この拡張機能もそれらを読み取り・変更できます。',
+            })
+          : pickElectronCopy(loc, {
+              zh: '它将在此设备的个人浏览器中运行。',
+              en: 'It runs in the personal browser on this device.',
+              ja: 'このデバイス上の個人ブラウザで動作します。',
+            }),
+        existing && !existing.enabled
+          ? pickElectronCopy(loc, { zh: '它将保持停用，直到你启用。', en: 'It stays turned off until you enable it.', ja: '有効化するまで無効のままになります。' })
+          : '',
+        pickElectronCopy(loc, { zh: 'Bot 无法安装或管理扩展。', en: 'Bots cannot install or manage extensions.', ja: 'Bot は拡張機能をインストールまたは管理できません。' }),
       ].filter(Boolean).join('\n');
-      const verb = existing ? (english ? 'Update' : '更新') : (english ? 'Add' : '添加');
-      if (!await this.#confirm(window, english, english ? `${verb} “${prepared.name}” ${prepared.version}?` : `${verb}“${prepared.name}” ${prepared.version}？`, detail, verb)) return { status: 'cancelled' };
+      const verb = existing
+        ? pickElectronCopy(loc, { zh: '更新', en: 'Update', ja: '更新' })
+        : pickElectronCopy(loc, { zh: '添加', en: 'Add', ja: '追加' });
+      if (!await this.#confirm(window, loc,
+        pickElectronCopy(loc, {
+          zh: `${verb}“${prepared.name}” ${prepared.version}？`,
+          en: `${verb} “${prepared.name}” ${prepared.version}?`,
+          ja: `「${prepared.name}」 ${prepared.version} を${verb}しますか？`,
+        }), detail, verb)) return { status: 'cancelled' };
       // Replacing a verified package with a less verified one under the same ID is
       // its own decision: what is lost, what carries over, where it keeps running.
       // Cancelling leaves the installed package, scope and data untouched.
-      if (downgraded && !await this.#confirm(window, english,
-        english ? `Replace the verified “${existing.name}” with ${signature === 'none' ? 'an unsigned' : 'a developer-signed'} package?` : `用${signature === 'none' ? '未签名' : '开发者签名'}安装包替换已验证的“${existing.name}”吗？`, [
+      const pkgKind = signature === 'none'
+        ? pickElectronCopy(loc, { zh: '未签名', en: 'an unsigned', ja: '未署名の' })
+        : pickElectronCopy(loc, { zh: '开发者签名', en: 'a developer-signed', ja: '開発者署名付きの' });
+      if (downgraded && !await this.#confirm(window, loc,
+        pickElectronCopy(loc, {
+          zh: `用${pkgKind}安装包替换已验证的“${existing.name}”吗？`,
+          en: `Replace the verified “${existing.name}” with ${pkgKind} package?`,
+          ja: `検証済みの「${existing.name}」を${pkgKind}パッケージで置き換えますか？`,
+        }), [
           signature === 'none'
-            ? (english ? `Its ${existing.signature === 'store' ? 'Chrome Web Store' : 'developer'} signature will no longer be verified: TaroBird cannot confirm who made the new files.` : `它将不再有已验证的${existing.signature === 'store' ? ' Chrome 应用商店' : '开发者'}签名：TaroBird 无法确认新文件的来源。`)
-            : (english ? 'It will no longer be verified by the Chrome Web Store; only its developer signature is verified.' : '它将不再有 Chrome 应用商店验证，只验证开发者签名。'),
-          english ? 'The new package keeps this extension’s ID and saved data (its storage in TaroBird pages) and can read and change that data.' : '新安装包沿用此扩展的 ID 和已保存数据（它在 TaroBird 网页中的存储），并可读取和更改这些数据。',
+            ? pickElectronCopy(loc, {
+                zh: `它将不再有已验证的${sigName}签名：TaroBird 无法确认新文件的来源。`,
+                en: `Its ${sigName} signature will no longer be verified: TaroBird cannot confirm who made the new files.`,
+                ja: `検証済みの${sigName}署名は失われ、TaroBird は新しいファイルの作成元を確認できなくなります。`,
+              })
+            : pickElectronCopy(loc, {
+                zh: '它将不再有 Chrome 应用商店验证，只验证开发者签名。',
+                en: 'It will no longer be verified by the Chrome Web Store; only its developer signature is verified.',
+                ja: 'Chrome ウェブストアによる検証は失われ、開発者署名のみが検証されます。',
+              }),
+          pickElectronCopy(loc, {
+            zh: '新安装包沿用此扩展的 ID 和已保存数据（它在 TaroBird 网页中的存储），并可读取和更改这些数据。',
+            en: 'The new package keeps this extension’s ID and saved data (its storage in TaroBird pages) and can read and change that data.',
+            ja: '新しいパッケージはこの拡張機能の ID と保存済みデータ（TaroBird ページ内のストレージ）を引き継ぎ、それらを読み取り・変更できます。',
+          }),
           existing.scope === 'all'
-            ? (english ? 'It keeps running in conversation webpages as well as the personal browser. Bots read and operate those pages; it can read and change them too.' : '它将继续在对话网页和个人浏览器中运行。Bot 会读取和操作对话网页，它也能读取和更改这些网页。')
-            : (english ? 'It runs in the personal browser only.' : '它只在个人浏览器中运行。'),
-          existing.enabled ? '' : (english ? 'It stays turned off until you enable it.' : '它将保持停用，直到你启用。'),
-          english ? 'Cancel keeps the current version, its signature, data and where it runs. You can change where it runs in Extensions at any time.' : '取消将保留当前版本、签名、数据和运行范围。运行范围可随时在扩展列表中更改。',
-        ].filter(Boolean).join('\n'), english ? 'Replace' : '替换')) return { status: 'cancelled' };
+            ? pickElectronCopy(loc, {
+                zh: '它将继续在对话网页和个人浏览器中运行。Bot 会读取和操作对话网页，它也能读取和更改这些网页。',
+                en: 'It keeps running in conversation webpages as well as the personal browser. Bots read and operate those pages; it can read and change them too.',
+                ja: '個人ブラウザに加えて会話内の Web ページでも引き続き動作します。Bot が操作するページをこの拡張機能も読み取り・変更できます。',
+              })
+            : pickElectronCopy(loc, {
+                zh: '它只在个人浏览器中运行。',
+                en: 'It runs in the personal browser only.',
+                ja: '個人ブラウザのみで動作します。',
+              }),
+          existing.enabled ? '' : pickElectronCopy(loc, { zh: '它将保持停用，直到你启用。', en: 'It stays turned off until you enable it.', ja: '有効化するまで無効のままになります。' }),
+          pickElectronCopy(loc, {
+            zh: '取消将保留当前版本、签名、数据和运行范围。运行范围可随时在扩展列表中更改。',
+            en: 'Cancel keeps the current version, its signature, data and where it runs. You can change where it runs in Extensions at any time.',
+            ja: 'キャンセルすると現在のバージョン、署名、データ、および実行範囲が維持されます。実行範囲は拡張機能一覧からいつでも変更できます。',
+          }),
+        ].filter(Boolean).join('\n'),
+        pickElectronCopy(loc, { zh: '替换', en: 'Replace', ja: '置き換える' }))) return { status: 'cancelled' };
       // What the person reviewed: whether it was installed and in which state.
       const reviewed = existing ? { version: existing.version, signature: existing.signature, scope: existing.scope, enabled: existing.enabled, installedAt: existing.installedAt } : null;
       return await this.#serial(() => this.#commit({ generation, staging, prepared, source, signature, origin, reviewed }));

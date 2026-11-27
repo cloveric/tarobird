@@ -757,3 +757,127 @@ for (const rejection of ["string", "error"] as const) test(`retired installation
   await page.waitForTimeout(600);
   expect(await page.evaluate(() => (window as any).installationFixture.counters())).toEqual({ signatures: 1, sockets: 1, auth: 0 });
 });
+
+test("paired route probe timeouts stay unavailable and preserve host name without claiming security timeout", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const fixture = window.nativeTransportFixture; let id = 0;
+    fixture.mockIPC((cmd, args) => {
+      if (cmd === "net_allocate") return `timeout-${++id}`;
+      if (cmd === "net_http_open") {
+        const origin = (args!.input as { origin: string }).origin;
+        if (origin.includes("primary")) throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+        throw new Error("native_request_timeout");
+      }
+    });
+    const connection = new fixture.HubConnection(
+      { deviceId: "fixture", name: "Fixture", publicKey: "device", hubPublicKey: "trusted", routes: [{ name: "Direct", url: "https://primary.invalid" }, { name: "VPS", label: "Backup", url: "https://backup.invalid" }] },
+      undefined,
+      () => "macmini",
+    );
+    const error = await (connection as unknown as { selectRoute(allow: boolean): Promise<unknown> }).selectRoute(true).then(() => "unexpected success", (e: Error) => e.message);
+    fixture.renderRoutes(connection);
+    return { error, health: connection.state.routeHealth };
+  });
+  expect(result).toEqual({
+    error: "无法通过中转或公网地址连接「macmini」，正在自动重试。请确认主机未休眠、TaroBird 正在运行，且中转服务在线。",
+    health: [
+      { url: "https://primary.invalid", status: "unreachable", reason: "timeout" },
+      { url: "https://backup.invalid", status: "unreachable", reason: "timeout" },
+    ],
+  });
+  await expect(page.getByText("连接超时", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("安全验证超时", { exact: true })).toHaveCount(0);
+});
+
+test("multi-route pairing aligns technical diagnostic code with the preferred failure route", async ({ page }) => {
+  const key = "MCowBQYDK2VwAyEAAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+  await page.evaluate(() => {
+    const fixture = window.nativeTransportFixture; let id = 0;
+    fixture.mockIPC((cmd, args) => {
+      if (cmd === "desktop_host") return { available: true, running: true, hostName: "Fixture host" };
+      if (cmd === "net_allocate") return `multi-${++id}`;
+      if (cmd === "net_http_open") {
+        const origin = (args!.input as { origin: string }).origin;
+        if (origin.includes("192.168.1.50")) throw new Error("native_host_unreachable");
+        throw new Error("native_tls_hostname_mismatch");
+      }
+    });
+    fixture.renderPairing({ localHostReady: true });
+  });
+  await page.getByRole("button", { name: "连接已有主机", exact: true }).click();
+  const link = `tarocub://pair?data=${encodeURIComponent(JSON.stringify({ v: 1, kind: "connect", hubPublicKey: key, routes: [{ name: "Direct", url: "https://192.168.1.50:8788" }, { name: "VPS", url: "https://relay.invalid" }] }))}&invite=${"i".repeat(43)}`;
+  await page.getByRole("button", { name: "粘贴连接信息", exact: true }).click();
+  await page.getByLabel("配对信息", { exact: true }).fill(link);
+  await page.getByRole("button", { name: "使用配对信息", exact: true }).click();
+  await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("主机 TLS 证书未覆盖当前连接域名或 IP（SAN 不匹配），请更新主机证书后重试。");
+  await page.getByText("技术诊断", { exact: true }).click();
+  await expect(page.locator(".pairing-diagnostic")).toContainText("诊断码：native_tls_hostname_mismatch");
+  await expect(page.locator(".pairing-diagnostic")).not.toContainText("native_host_unreachable");
+});
+
+test("pairing clears stale diagnostics across navigation and surfaces /api/pair transport diagnostics", async ({ page }) => {
+  const key = "MCowBQYDK2VwAyEAAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+  await page.evaluate(key => {
+    const fixture = window.nativeTransportFixture; let id = 0, healthAttempt = 0, pairAttempt = 0;
+    const paths = new Map<string, string>(), read = new Set<string>(), statuses = new Map<string, number>();
+    fixture.mockIPC((cmd, args) => {
+      if (cmd === "desktop_host") return { available: true, running: true, hostName: "Fixture host" };
+      if (cmd === "net_allocate") return `diag-${++id}`;
+      if (cmd === "net_http_open") {
+        const input = args!.input as { path: string };
+        const op = String(args!.id);
+        paths.set(op, input.path);
+        if (input.path === "/health") {
+          healthAttempt++;
+          if (healthAttempt === 1) throw new Error("native_tls_untrusted");
+          statuses.set(op, 200);
+          return { status: 200, headers: [] };
+        }
+        if (input.path === "/api/pair") {
+          pairAttempt++;
+          if (pairAttempt === 1) throw new Error("native_tls_hostname_mismatch");
+          statuses.set(op, 409);
+          return { status: 409, headers: [] };
+        }
+      }
+      if (cmd === "net_http_read") {
+        const op = String(args!.id);
+        if (read.has(op)) return new ArrayBuffer(0);
+        read.add(op);
+        if (paths.get(op) === "/health") return new TextEncoder().encode(JSON.stringify({ ok: true, publicKey: key, pairingInvites: 1 })).buffer;
+        return new TextEncoder().encode(JSON.stringify({ error: "pairing_already_pending" })).buffer;
+      }
+      if (cmd === "device_create") return { deviceId: "device_diag_fixture", keyRef: "device_diag_fixture", publicKey: key };
+    });
+    fixture.renderPairing({ localHostReady: true });
+  }, key);
+
+  await page.getByRole("button", { name: "连接已有主机", exact: true }).click();
+  await importNativeInvitation(page, key);
+  // First attempt fails with native_tls_untrusted and surfaces its diagnostic code
+  await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("主机证书不受信任");
+  await page.getByText("技术诊断", { exact: true }).click();
+  await expect(page.locator(".pairing-diagnostic")).toContainText("诊断码：native_tls_untrusted");
+
+  // Navigating back to start clears error and stale diagnostic
+  await page.getByRole("button", { name: "返回开始", exact: true }).click();
+  await page.getByRole("button", { name: "连接已有主机", exact: true }).click();
+  await expect(page.locator(".pairing-diagnostic")).toHaveCount(0);
+
+  // Second attempt succeeds on /health, enters pending, then /api/pair fails with hostname mismatch
+  await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("主机 TLS 证书未覆盖当前连接域名或 IP（SAN 不匹配），请更新主机证书后重试。");
+  await page.getByText("技术诊断", { exact: true }).click();
+  await expect(page.locator(".pairing-diagnostic")).toContainText("诊断码：native_tls_hostname_mismatch");
+
+  // Retrying /api/pair returns a PairingRequestError; stale TLS diagnostic must not linger
+  await page.getByRole("button", { name: "核对上次申请", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("这里尚未收到配对码");
+  await expect(page.locator(".pairing-diagnostic")).toHaveCount(0);
+
+  // "重新检查连接" clears the error cleanly
+  await page.getByRole("button", { name: "重新检查连接", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});

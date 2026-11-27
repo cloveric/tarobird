@@ -4,7 +4,7 @@ import "./connection-notice.css";
 
 /** Phone reading space is scarce. Keep routine connectivity in one disclosure;
  * permission, trust and message errors retain their separate actionable alert. */
-export function ConnectionNotice({ host, pending, retrying }: { host: string; pending: number; retrying: boolean }) {
+export function ConnectionNotice({ host, pending, retrying, reason }: { host: string; pending: number; retrying: boolean; reason?: string }) {
   return <details className="phone-connection-notice">
     <summary>
       {retrying ? <RefreshCw size={14} aria-hidden="true"/> : <WifiOff size={14} aria-hidden="true"/>}
@@ -14,6 +14,7 @@ export function ConnectionNotice({ host, pending, retrying }: { host: string; pe
     </summary>
     <div>
       <p>{t("与「{0}」的连接已断开，已缓存的消息仍可阅读。", host)}</p>
+      {reason && <p className="connection-notice-reason">{reason}</p>}
       <p>{t("手机断开连接不会取消已提交给主机的任务。")}</p>
       {pending > 0 && <p>{t("{0} 条消息将在重连后发送。", pending)}</p>}
     </div>

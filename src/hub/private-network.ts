@@ -1,9 +1,10 @@
 import { createHash, randomBytes, verify } from "node:crypto";
 import { z } from "zod";
 import {
+  PRIVATE_NETWORK_RECOVERY_CAPABILITY, manifestUsesGenerations, unreadyRecoveryHosts,
   networkCanonical, networkCommandSchema, networkPublishedEnrollmentSchema, networkManifestProof, networkManifestSchema, networkGenesisText, networkMemberText, networkBindingKey, networkDeviceRetiredByHosts,
   networkPeerProof, networkProposalProof, sharedRoutesSchema, signedNetworkManifestSchema, signedNetworkPeerRequestSchema,
-  signedNetworkProposalSchema, type NetworkCommandResult, type NetworkDevice, type NetworkEnrollment, type NetworkPublishedEnrollment, type NetworkHost,
+  signedNetworkProposalSchema, type NetworkCommandResult, type NetworkDevice, type NetworkEnrollment, type NetworkPublishedEnrollment, type NetworkHost, type NetworkHostCapabilities, type NetworkPeerCapability,
   type NetworkManifest, type NetworkPeerRequest, type NetworkView, type NetworkHostDescriptor, type SignedNetworkManifest, type SignedNetworkPeerRequest,
   type SignedNetworkProposal,
 } from "../client-protocol/private-network.js";
@@ -21,14 +22,31 @@ const stateSchema = z.object({
   v: z.literal(1), routes: sharedRoutesSchema, membership: signedNetworkManifestSchema.optional(), proposal: signedNetworkProposalSchema.optional(),
   accepted: z.object({ nonce: z.string(), networkId: z.string(), authorityKey: z.string() }).strict().optional(),
   imported: z.record(z.string(), z.object({ publicKey: z.string(), memberId: z.string(), networkId: z.string() }).strict()),
-  revokedMembers: z.array(z.string()), revokedHosts: z.array(z.string()), retiredNetworks: z.array(z.string()), retiredAccessNetworks: z.array(z.string()).default([]), upgradedHosts: z.array(z.string()).default([]),
+  revokedMembers: z.array(z.string()), revokedHosts: z.array(z.string()), retiredNetworks: z.array(z.string()), retiredAccessNetworks: z.array(z.string()).default([]), upgradedHosts: z.array(z.string()).default([]), generationAwareHosts: z.array(z.string()).default([]),
   admissions: z.array(memoSchema), peers: z.array(memoSchema), proofs: z.array(memoSchema), lastSyncedAt: z.number(), waiting: z.boolean(),
   intents: z.record(z.string(), z.object({ networkId: z.string(), authorityKey: z.string(), deviceId: z.string(), devicePublicKey: z.string(), memberId: z.string(), commandHash: z.string(), expiresAt: z.number() }).strict()),
 }).strict();
 type NetworkState = z.infer<typeof stateSchema>;
 export type NetworkExchange = (host: NetworkHost, request: SignedNetworkPeerRequest) => Promise<SignedNetworkManifest>;
 export type PrivateNetworkOptions = { exchange?: NetworkExchange; now?: () => number };
-export const networkMemberId = (host: string, deviceId: string): string => `pm_${createHash("sha256").update(networkMemberText(host, deviceId)).digest("base64url")}`;
+export const hostGeneration = (host: { generation?: number }) => host.generation ?? 1;
+export const deviceGeneration = (device: { generation?: number }) => device.generation ?? 1;
+export const deviceOriginGeneration = (device: { originGeneration?: number }) => device.originGeneration ?? 1;
+export const deviceAttestedGeneration = (device: { attestedGeneration?: number }) => device.attestedGeneration ?? 1;
+export const revokedHostKey = (network: string, host: string, generation = 1) => generation > 1 ? `${network}:${host}:${generation}` : `${network}:${host}`;
+function maxRevokedHostGeneration(revokedHosts: readonly string[], network: string, host: string): number {
+  const base = `${network}:${host}`, prefix = `${base}:`;
+  let max = 0;
+  for (const entry of revokedHosts) {
+    if (entry === base) max = Math.max(max, 1);
+    else if (entry.startsWith(prefix)) {
+      const gen = Number(entry.slice(prefix.length));
+      if (Number.isSafeInteger(gen) && gen >= 2) max = Math.max(max, gen);
+    }
+  }
+  return max;
+}
+export const networkMemberId = (host: string, deviceId: string, generation = 1): string => `pm_${createHash("sha256").update(networkMemberText(host, deviceId, generation)).digest("base64url")}`;
 export const networkId = (authority: string, nonce: string): string => `net_${hashSecret(networkGenesisText(authority, nonce))}`;
 const same = (a: unknown, b: unknown) => networkCanonical(a) === networkCanonical(b);
 
@@ -40,7 +58,9 @@ function originNames(manifest: NetworkManifest): Map<string, NetworkDevice> {
   const blockedKeys = new Set(manifest.blockedKeys ?? []);
   return new Map(manifest.devices.filter(d => !d.revoked && !revoked.has(d.memberId) && activeHosts.has(d.host)
     && !blocked.has(networkBindingKey(d.host, d.id)) && !blockedKeys.has(hashSecret(d.publicKey))
-    && d.originHost === d.host && d.attestedBy === d.host && d.memberId === networkMemberId(d.host, d.id)).map(d => [d.memberId, d]));
+    && d.originHost === d.host && d.attestedBy === d.host
+    && deviceOriginGeneration(d) === deviceGeneration(d) && deviceAttestedGeneration(d) === deviceGeneration(d)
+    && d.memberId === networkMemberId(d.host, d.id, deviceOriginGeneration(d))).map(d => [d.memberId, d]));
 }
 
 /** Pure two-phase union: additions survive restores, revocations never reverse,
@@ -53,27 +73,34 @@ export function mergeNetworkManifests(a: NetworkManifest, b: NetworkManifest): N
   for (const host of b.hosts) {
     const old = hosts.get(host.publicKey);
     if (!old) { hosts.set(host.publicKey, structuredClone(host)); continue; }
+    const oldGen = hostGeneration(old), nextGen = hostGeneration(host);
+    if (oldGen !== nextGen) { hosts.set(host.publicKey, structuredClone(nextGen > oldGen ? host : old)); continue; }
     const descriptor = pick({ name: old.name, routes: old.routes }, { name: host.name, routes: host.routes });
-    const base = { publicKey: host.publicKey, ...descriptor, ...(old.protocol === 2 || host.protocol === 2 ? { protocol: 2 as const } : {}), revoked: old.revoked || host.revoked };
+    const revoked = old.revoked || host.revoked;
+    const reinstated = revoked ? Math.max(old.reinstated ?? 0, host.reinstated ?? 0) : 0;
+    const base = { publicKey: host.publicKey, ...descriptor, ...(old.protocol === 2 || host.protocol === 2 ? { protocol: 2 as const } : {}), ...(oldGen > 1 ? { generation: oldGen } : {}), revoked, ...(revoked && reinstated === oldGen + 1 ? { reinstated } : {}) };
     if (old.state === "active" || host.state === "active") hosts.set(host.publicKey, { ...base, state: "active" });
     else if (old.proposalNonce === host.proposalNonce) hosts.set(host.publicKey, { ...base, state: "pending", proposalNonce: host.proposalNonce!, expiresAt: Math.min(old.expiresAt!, host.expiresAt!) });
     else { const pending = (old.expiresAt! > host.expiresAt! || old.expiresAt === host.expiresAt && old.proposalNonce! > host.proposalNonce!) ? old : host; hosts.set(host.publicKey, { ...base, state: "pending", proposalNonce: pending.proposalNonce!, expiresAt: pending.expiresAt! }); }
   }
-  const pending = new Map<string, { host: string; nonce: string; expiresAt: number }>();
+  const pending = new Map<string, { host: string; nonce: string; expiresAt: number; generation?: number }>();
   const cancelled = new Map([...a.cancelledProposals ?? [], ...b.cancelledProposals ?? []].map(proposal => [networkBindingKey(proposal.host, proposal.nonce), proposal]));
   for (const manifest of [a, b]) {
     const history = [...manifest.pendingProposals ?? []];
     // Existing signed snapshots without the new fields remain verifiable.
     // Their current pending descriptor is the initial history entry.
-    for (const host of manifest.hosts) if (host.state === "pending" && !history.some(p => p.host === host.publicKey && p.nonce === host.proposalNonce)) history.push({ host: host.publicKey, nonce: host.proposalNonce!, expiresAt: host.expiresAt! });
+    for (const host of manifest.hosts) if (host.state === "pending" && !history.some(p => p.host === host.publicKey && p.nonce === host.proposalNonce)) history.push({ host: host.publicKey, nonce: host.proposalNonce!, expiresAt: host.expiresAt!, ...(hostGeneration(host) > 1 ? { generation: hostGeneration(host) } : {}) });
     for (const proposal of history) {
       const slot = networkBindingKey(proposal.host, proposal.nonce), old = pending.get(slot);
-      if (old && old.expiresAt !== proposal.expiresAt || proposal.expiresAt === 1) cancelled.set(slot, { host: proposal.host, nonce: proposal.nonce });
-      pending.set(slot, { ...proposal, expiresAt: Math.max(old?.expiresAt ?? 0, proposal.expiresAt) });
+      const oldGen = old ? (old.generation ?? 1) : undefined, nextGen = proposal.generation ?? 1;
+      if (old && (old.expiresAt !== proposal.expiresAt || oldGen !== nextGen) || proposal.expiresAt === 1) cancelled.set(slot, { host: proposal.host, nonce: proposal.nonce });
+      const chosenGen = Math.max(oldGen ?? 1, nextGen);
+      pending.set(slot, { host: proposal.host, nonce: proposal.nonce, expiresAt: Math.max(old?.expiresAt ?? 0, proposal.expiresAt), ...(chosenGen > 1 ? { generation: chosenGen } : {}) });
     }
   }
   for (const host of hosts.values()) if (host.state === "pending") {
-    const all = [...pending.values()].filter(proposal => proposal.host === host.publicKey).sort((x, y) => y.expiresAt - x.expiresAt || (x.nonce < y.nonce ? 1 : -1));
+    const gen = hostGeneration(host);
+    const all = [...pending.values()].filter(proposal => proposal.host === host.publicKey && (proposal.generation ?? 1) === gen).sort((x, y) => y.expiresAt - x.expiresAt || (x.nonce < y.nonce ? 1 : -1));
     const usable = all.find(proposal => !cancelled.has(networkBindingKey(proposal.host, proposal.nonce))), selected = usable ?? all[0]!;
     host.proposalNonce = selected.nonce; host.expiresAt = usable ? selected.expiresAt : 1;
   }
@@ -85,10 +112,18 @@ export function mergeNetworkManifests(a: NetworkManifest, b: NetworkManifest): N
   for (const device of b.devices) {
     const slot = networkBindingKey(device.host, device.id), old = devices.get(slot);
     if (!old) { devices.set(slot, structuredClone(device)); continue; }
-    const conflict = old.publicKey !== device.publicKey || old.memberId !== device.memberId || old.originHost !== device.originHost || old.attestedBy !== device.attestedBy;
+    const oldGen = deviceGeneration(old), nextGen = deviceGeneration(device);
+    const conflict = old.publicKey !== device.publicKey || old.originHost !== device.originHost || old.attestedBy !== device.attestedBy
+      || (oldGen === nextGen
+        ? (old.memberId !== device.memberId || deviceOriginGeneration(old) !== deviceOriginGeneration(device) || deviceAttestedGeneration(old) !== deviceAttestedGeneration(device))
+        : (old.originHost !== old.host || old.attestedBy !== old.host || deviceOriginGeneration(old) !== oldGen || deviceAttestedGeneration(old) !== oldGen || deviceOriginGeneration(device) !== nextGen || deviceAttestedGeneration(device) !== nextGen));
     if (conflict) { blocked.set(slot, { host: device.host, id: device.id }); conflictMembers.add(old.memberId); conflictMembers.add(device.memberId); blockedKeys.add(hashSecret(old.publicKey)); blockedKeys.add(hashSecret(device.publicKey)); }
-    const preferred = pick({ ...old, scope: undefined, revoked: false }, { ...device, scope: undefined, revoked: false });
-    devices.set(slot, { ...preferred, revoked: old.revoked || device.revoked || conflict });
+    if (oldGen !== nextGen && !conflict) {
+      devices.set(slot, structuredClone(nextGen > oldGen ? device : old));
+    } else {
+      const preferred = pick({ ...old, scope: undefined, revoked: false }, { ...device, scope: undefined, revoked: false });
+      devices.set(slot, { ...preferred, revoked: old.revoked || device.revoked || conflict });
+    }
   }
   const scopes = new Map<string, Set<"host" | "network">>();
   for (const device of [...a.devices, ...b.devices]) if (device.scope) {
@@ -107,46 +142,92 @@ export function mergeNetworkManifests(a: NetworkManifest, b: NetworkManifest): N
   merged.devices = [...devices.values()].sort((x, y) => networkBindingKey(x.host, x.id).localeCompare(networkBindingKey(y.host, y.id)));
   merged.revokedMembers = [...new Set([...a.revokedMembers, ...b.revokedMembers, ...conflictMembers])].sort();
   merged.blockedBindings = [...blocked.values()].sort((x, y) => networkBindingKey(x.host, x.id).localeCompare(networkBindingKey(y.host, y.id)));
+  const hostGens = new Map(merged.hosts.map(host => [host.publicKey, hostGeneration(host)]));
   const removed = new Set(merged.hosts.filter(host => host.revoked).map(host => host.publicKey));
-  for (const binding of merged.devices) if (binding.scope !== "network" && removed.has(binding.originHost)) merged.revokedMembers.push(binding.memberId);
+  for (const binding of merged.devices) {
+    if (binding.scope !== "network" && (removed.has(binding.originHost) || deviceOriginGeneration(binding) < (hostGens.get(binding.originHost) ?? 1))) merged.revokedMembers.push(binding.memberId);
+  }
   merged.revokedMembers = [...new Set(merged.revokedMembers)].sort();
   const revokedMembers = new Set(merged.revokedMembers);
-  for (const binding of merged.devices) if (networkDeviceRetiredByHosts(binding, removed) || revokedMembers.has(binding.memberId) || blocked.has(networkBindingKey(binding.host, binding.id))) binding.revoked = true;
+  for (const binding of merged.devices) {
+    if (networkDeviceRetiredByHosts(binding, removed)
+      || deviceGeneration(binding) < (hostGens.get(binding.host) ?? 1)
+      || (binding.scope !== "network" && (deviceOriginGeneration(binding) < (hostGens.get(binding.originHost) ?? 1) || deviceAttestedGeneration(binding) < (hostGens.get(binding.attestedBy) ?? 1)))
+      || revokedMembers.has(binding.memberId) || blocked.has(networkBindingKey(binding.host, binding.id))) binding.revoked = true;
+  }
   return networkManifestSchema.parse(merged);
 }
 
 /** A signed directory is shared, while each Hub continues to own its runtime,
  * database and private key. Only the creating Hub signs directory revisions. */
 export class PrivateNetwork {
+  private static readonly LEGACY_AUTHORITY_TTL_MS = 60_000;
   private readonly now: () => number;
   private closed = false;
   private ticking?: Promise<void>;
   private commandTail: Promise<unknown> = Promise.resolve();
   private commandsPending = 0;
   private pendingExchanges = 0;
+  private readonly legacyAuthorities = new Map<string, number>();
   constructor(private readonly store: HubStore, private readonly auth: HubAuth, private readonly profile: HostProfile, private readonly options: PrivateNetworkOptions = {}) {
     this.now = options.now ?? Date.now;
+  }
+  private authorityScope(manifest: NetworkManifest): string { return `${manifest.id}:${manifest.authorityKey}`; }
+  private isLegacyAuthority(manifest: NetworkManifest): boolean {
+    const until = this.legacyAuthorities.get(this.authorityScope(manifest));
+    if (until === undefined) return false;
+    if (until <= this.now()) { this.legacyAuthorities.delete(this.authorityScope(manifest)); return false; }
+    return true;
+  }
+  private rememberLegacyAuthority(manifest: NetworkManifest): void {
+    const scope = this.authorityScope(manifest);
+    if (!this.legacyAuthorities.has(scope) && this.legacyAuthorities.size >= 64) {
+      const oldest = this.legacyAuthorities.keys().next().value;
+      if (oldest !== undefined) this.legacyAuthorities.delete(oldest);
+    }
+    this.legacyAuthorities.set(scope, this.now() + PrivateNetwork.LEGACY_AUTHORITY_TTL_MS);
+  }
+  private isLegacyPeerRequestRejection(error: unknown): boolean {
+    return error instanceof z.ZodError || (error instanceof HubError && error.code === "network_peer_rejected" && error.status === 400);
   }
   private checkOpen() { if (this.closed) throw new HubError("network_closed", 503); }
   private async load(): Promise<NetworkState> {
     const row = await this.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key=?", [STATE_KEY]);
-    return row ? stateSchema.parse(JSON.parse(row.value)) : { v: 1, routes: [], imported: {}, revokedMembers: [], revokedHosts: [], retiredNetworks: [], retiredAccessNetworks: [], upgradedHosts: [], admissions: [], peers: [], proofs: [], intents: {}, lastSyncedAt: 0, waiting: false };
+    return row ? stateSchema.parse(JSON.parse(row.value)) : { v: 1, routes: [], imported: {}, revokedMembers: [], revokedHosts: [], retiredNetworks: [], retiredAccessNetworks: [], upgradedHosts: [], generationAwareHosts: [], admissions: [], peers: [], proofs: [], intents: {}, lastSyncedAt: 0, waiting: false };
   }
   private async save(state: NetworkState) {
     this.checkOpen();
     await this.store.db.run("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [STATE_KEY, JSON.stringify(stateSchema.parse(state))]);
   }
-  private descriptor(state: NetworkState, name: string): NetworkHostDescriptor { return { publicKey: this.auth.publicKey, name, routes: state.routes, protocol: 2 }; }
+  private descriptor(state: NetworkState, name: string): NetworkHostDescriptor {
+    const own = state.membership?.manifest.hosts.find(host => host.publicKey === this.auth.publicKey);
+    const generation = own && !own.revoked ? hostGeneration(own) : 1;
+    return { publicKey: this.auth.publicKey, name, routes: state.routes, protocol: 2, ...(generation > 1 ? { generation } : {}) };
+  }
   private host(state: NetworkState, name: string): NetworkHost { return { ...this.descriptor(state, name), state: "active", revoked: false }; }
-  private asView(state: NetworkState, name: string): NetworkView {
+  private hostCapabilities(state: NetworkState): NetworkHostCapabilities {
+    const capabilities: NetworkHostCapabilities = { [this.auth.publicKey]: [PRIVATE_NETWORK_RECOVERY_CAPABILITY] };
+    const manifest = state.membership?.manifest;
+    if (manifest && manifest.authorityKey === this.auth.publicKey) {
+      const confirmed = new Set(state.generationAwareHosts);
+      for (const host of manifest.hosts) {
+        if (!host.revoked && host.state === "active" && host.publicKey !== this.auth.publicKey && confirmed.has(`${manifest.id}:${host.publicKey}`)) {
+          capabilities[host.publicKey] = [PRIVATE_NETWORK_RECOVERY_CAPABILITY];
+        }
+      }
+    }
+    return capabilities;
+  }
+  private asView(state: NetworkState, name: string, includeCapabilities = false): NetworkView {
     const own = state.membership?.manifest.hosts.find(host => host.publicKey === this.auth.publicKey);
     return { host: own ? { ...own, name, routes: state.routes } : this.host(state, name), ...(state.membership ? { membership: state.membership } : {}),
-      sync: !state.membership ? "standalone" : own?.revoked ? "removed" : state.waiting || own?.state === "pending" ? "waiting" : "current", lastSyncedAt: state.lastSyncedAt };
+      sync: !state.membership ? "standalone" : own?.revoked ? "removed" : state.waiting || own?.state === "pending" ? "waiting" : "current", lastSyncedAt: state.lastSyncedAt,
+      ...(includeCapabilities ? { hostCapabilities: this.hostCapabilities(state) } : {}) };
   }
-  async view(validate?: () => Promise<unknown>): Promise<NetworkView> {
+  async view(validate?: () => Promise<unknown>, options: { includeCapabilities?: boolean } = {}): Promise<NetworkView> {
     this.checkOpen();
     const { name } = await this.profile.read();
-    return this.store.db.serial(async () => { this.checkOpen(); await validate?.(); return this.asView(await this.load(), name); });
+    return this.store.db.serial(async () => { this.checkOpen(); await validate?.(); return this.asView(await this.load(), name, options.includeCapabilities); });
   }
   /** This host's signed single-direct descriptor routes, for its own views. */
   async sharedRoutes(validate?: () => Promise<unknown>): Promise<Route[]> {
@@ -182,8 +263,9 @@ export class PrivateNetwork {
   async requireMessagePeerInTransaction(publicKey: string): Promise<void> {
     if (publicKey === this.auth.publicKey) return;
     const state = await this.load(), manifest = this.active(state);
-    if (state.retiredNetworks.includes(manifest.id) || !manifest.hosts.some(h => h.publicKey === publicKey && h.state === "active" && !h.revoked)
-      || state.revokedHosts.includes(`${manifest.id}:${publicKey}`)) throw new HubError("bot_message_peer_revoked", 403);
+    const target = manifest.hosts.find(h => h.publicKey === publicKey && h.state === "active" && !h.revoked);
+    if (state.retiredNetworks.includes(manifest.id) || !target
+      || hostGeneration(target) <= maxRevokedHostGeneration(state.revokedHosts, manifest.id, publicKey)) throw new HubError("bot_message_peer_revoked", 403);
   }
   private active(state: NetworkState, allowPending = false): NetworkManifest {
     const manifest = state.membership?.manifest;
@@ -202,11 +284,15 @@ export class PrivateNetwork {
     if (manifest.id !== networkId(manifest.authorityKey, manifest.genesisNonce)) throw new HubError("network_identity_mismatch", 403);
     if (!verify(null, Buffer.from(networkManifestProof(manifest)), parsePublicKey(manifest.authorityKey), Buffer.from(signed.signature, "base64"))) throw new HubError("network_signature_invalid", 403);
     const blockedKeys = new Set(manifest.blockedKeys ?? []);
-    const origins = new Map(manifest.devices.filter(device => device.memberId === networkMemberId(device.host, device.id) && device.originHost === device.host && device.attestedBy === device.host).map(device => [device.memberId, device.host]));
+    const origins = new Map(manifest.devices.filter(device => device.memberId === networkMemberId(device.host, device.id, deviceOriginGeneration(device))
+      && device.originHost === device.host && device.attestedBy === device.host
+      && deviceOriginGeneration(device) === deviceGeneration(device) && deviceAttestedGeneration(device) === deviceGeneration(device))
+      .map(device => [device.memberId, { host: device.host, generation: deviceOriginGeneration(device) }]));
     for (const host of manifest.hosts) parsePublicKey(host.publicKey);
     for (const device of manifest.devices) {
       parsePublicKey(device.publicKey);
-      if (!device.revoked && (origins.get(device.memberId) !== device.originHost || blockedKeys.has(hashSecret(device.publicKey)))) throw new HubError("network_membership_invalid", 403);
+      const origin = origins.get(device.memberId);
+      if (!device.revoked && (!origin || origin.host !== device.originHost || origin.generation !== deviceOriginGeneration(device) || blockedKeys.has(hashSecret(device.publicKey)))) throw new HubError("network_membership_invalid", 403);
     }
     return signed;
   }
@@ -237,8 +323,9 @@ export class PrivateNetwork {
     const preferred = incoming.revision > current.revision ? incoming : current;
     const descriptors = new Map(preferred.hosts.filter(host => host.state === "active").map(host => [host.publicKey, host]));
     for (const host of merged.hosts) {
+      if (host.state !== "active") continue;
       const descriptor = descriptors.get(host.publicKey);
-      if (descriptor) { host.name = descriptor.name; host.routes = structuredClone(descriptor.routes); }
+      if (descriptor && hostGeneration(descriptor) === hostGeneration(host)) { host.name = descriptor.name; host.routes = structuredClone(descriptor.routes); }
     }
     const devices = new Map(preferred.devices.map(device => [networkBindingKey(device.host, device.id), device]));
     for (const device of merged.devices) {
@@ -250,42 +337,54 @@ export class PrivateNetwork {
     }
     return merged;
   }
-  private async originals(state: NetworkState, manifest = state.membership?.manifest): Promise<NetworkPublishedEnrollment[]> {
+  private async originals(state: NetworkState, manifest = state.membership?.manifest, generation?: number): Promise<NetworkPublishedEnrollment[]> {
+    const gen = generation ?? (manifest ? hostGeneration(manifest.hosts.find(host => host.publicKey === this.auth.publicKey) ?? {}) : 1);
     const rows = await this.store.db.all<Device>("SELECT d.* FROM devices d JOIN users u ON u.id=d.user_id WHERE u.role='owner' ORDER BY d.id");
     const scopes = await this.auth.originalDeviceScopesInTransaction();
-    return rows.filter(device => !device.revoked && !state.imported[device.id] && !state.revokedMembers.includes(networkMemberId(this.auth.publicKey, device.id))
-      && !manifest?.devices.some(binding => binding.host === this.auth.publicKey && binding.id === device.id && (binding.memberId !== networkMemberId(this.auth.publicKey, device.id) || binding.revoked)))
+    return rows.filter(device => !device.revoked && !state.imported[device.id] && !state.revokedMembers.includes(networkMemberId(this.auth.publicKey, device.id, gen))
+      && !manifest?.devices.some(binding => binding.host === this.auth.publicKey && binding.id === device.id && (binding.publicKey !== device.public_key || deviceGeneration(binding) >= gen && (binding.memberId !== networkMemberId(this.auth.publicKey, device.id, gen) || binding.revoked))))
       .map(device => networkPublishedEnrollmentSchema.parse({ id: device.id, publicKey: device.public_key, host: this.auth.publicKey, name: device.name, platform: device.platform, ...(scopes.has(device.id) ? { scope: scopes.get(device.id) } : {}) }));
   }
-  private async localRevocations(state: NetworkState): Promise<string[]> {
+  private async localRevocations(state: NetworkState, manifest?: NetworkManifest): Promise<string[]> {
     const bindings = state.membership?.manifest.devices.filter(device => device.host === this.auth.publicKey) ?? [];
     const revoked = new Set(state.revokedMembers);
     for (const binding of bindings) {
       const row = await this.store.db.get<Device>("SELECT * FROM devices WHERE id=?", [binding.id]);
       // A manifest may retire an old target key while the member remains active.
       // Only a newly revoked, previously active local binding revokes the member.
-      if (!binding.revoked && row?.revoked && row.public_key === binding.publicKey) revoked.add(binding.memberId);
+      if (!binding.revoked && row?.revoked && row.public_key === binding.publicKey) {
+        revoked.add(binding.memberId);
+        if (manifest) manifest.blockedKeys = [...new Set([...(manifest.blockedKeys ?? []), hashSecret(binding.publicKey)])].sort();
+      }
     }
     state.revokedMembers = [...revoked];
     return bindings.filter(binding => revoked.has(binding.memberId)).map(binding => binding.id);
   }
   private rememberTombstones(state: NetworkState, manifest: NetworkManifest): void {
     state.revokedMembers = [...new Set([...state.revokedMembers, ...manifest.revokedMembers])];
-    state.revokedHosts = [...new Set([...state.revokedHosts, ...manifest.hosts.filter(host => host.revoked).map(host => `${manifest.id}:${host.publicKey}`)])];
+    state.revokedHosts = [...new Set([...state.revokedHosts, ...manifest.hosts.filter(host => host.revoked).map(host => revokedHostKey(manifest.id, host.publicKey, hostGeneration(host)))])];
   }
   private applyTombstones(state: NetworkState, manifest: NetworkManifest): void {
-    const revokedHosts = new Set(state.revokedHosts);
-    for (const host of manifest.hosts) if (revokedHosts.has(`${manifest.id}:${host.publicKey}`)) host.revoked = true;
+    for (const host of manifest.hosts) if (hostGeneration(host) <= maxRevokedHostGeneration(state.revokedHosts, manifest.id, host.publicKey)) host.revoked = true;
+    const hostGens = new Map(manifest.hosts.map(host => [host.publicKey, hostGeneration(host)]));
     const removed = new Set(manifest.hosts.filter(host => host.revoked).map(host => host.publicKey));
-    const revoked = new Set([...state.revokedMembers, ...manifest.revokedMembers, ...manifest.devices.filter(device => device.scope !== "network" && removed.has(device.originHost)).map(device => device.memberId)]);
+    const revoked = new Set([...state.revokedMembers, ...manifest.revokedMembers,
+      ...manifest.devices.filter(device => device.scope !== "network" && (removed.has(device.originHost) || deviceOriginGeneration(device) < (hostGens.get(device.originHost) ?? 1))).map(device => device.memberId)]);
     const blocked = new Set(manifest.blockedBindings.map(binding => networkBindingKey(binding.host, binding.id))), blockedKeys = new Set(manifest.blockedKeys ?? []);
     manifest.revokedMembers = [...revoked].sort();
-    for (const device of manifest.devices) if (networkDeviceRetiredByHosts(device, removed) || revoked.has(device.memberId) || blocked.has(networkBindingKey(device.host, device.id)) || blockedKeys.has(hashSecret(device.publicKey))) device.revoked = true;
+    for (const device of manifest.devices) {
+      if (networkDeviceRetiredByHosts(device, removed)
+        || deviceGeneration(device) < (hostGens.get(device.host) ?? 1)
+        || (device.scope !== "network" && (deviceOriginGeneration(device) < (hostGens.get(device.originHost) ?? 1) || deviceAttestedGeneration(device) < (hostGens.get(device.attestedBy) ?? 1)))
+        || revoked.has(device.memberId) || blocked.has(networkBindingKey(device.host, device.id)) || blockedKeys.has(hashSecret(device.publicKey))) device.revoked = true;
+    }
     this.rememberTombstones(state, manifest);
   }
   private publish(manifest: NetworkManifest, host: NetworkHostDescriptor, devices: NetworkPublishedEnrollment[]): void {
     const target = manifest.hosts.find(item => item.publicKey === host.publicKey);
     if (!target || target.revoked || target.state !== "active") throw new HubError("network_host_removed", 403);
+    const targetGen = hostGeneration(target);
+    if ((host.generation ?? 1) !== targetGen) throw new HubError("network_host_state_changed", 409);
     Object.assign(target, manifest.v === 2 ? host : { publicKey: host.publicKey, name: host.name, routes: host.routes });
     if (new Set(devices.map(device => device.id)).size !== devices.length) throw new HubError("network_device_conflict", 409);
     for (const published of devices) {
@@ -294,9 +393,21 @@ export class PrivateNetwork {
       if (device.host !== host.publicKey) throw new HubError("network_device_origin_invalid", 403);
       parsePublicKey(device.publicKey);
       if (manifest.blockedKeys?.includes(hashSecret(device.publicKey))) throw new HubError("network_device_key_blocked", 409);
-      const memberId = networkMemberId(host.publicKey, device.id), existing = manifest.devices.find(item => item.id === device.id && item.host === device.host);
+      const memberId = networkMemberId(host.publicKey, device.id, targetGen), existing = manifest.devices.find(item => item.id === device.id && item.host === device.host);
       if (existing) {
-        if (existing.publicKey !== device.publicKey || existing.memberId !== memberId || existing.originHost !== host.publicKey || existing.attestedBy !== host.publicKey) throw new HubError("network_device_conflict", 409);
+        if (deviceGeneration(existing) < targetGen) {
+          if (existing.publicKey !== device.publicKey || existing.originHost !== host.publicKey || existing.attestedBy !== host.publicKey
+            || deviceOriginGeneration(existing) !== deviceGeneration(existing) || deviceAttestedGeneration(existing) !== deviceGeneration(existing)
+            || manifest.blockedBindings.some(binding => binding.host === device.host && binding.id === device.id)
+            || manifest.blockedKeys?.includes(hashSecret(device.publicKey))) throw new HubError("network_device_conflict", 409);
+          existing.memberId = memberId;
+          if (targetGen > 1) { existing.generation = targetGen; existing.originGeneration = targetGen; existing.attestedGeneration = targetGen; }
+          else { delete existing.generation; delete existing.originGeneration; delete existing.attestedGeneration; }
+          existing.revoked = manifest.revokedMembers.includes(memberId);
+        } else {
+          if (existing.publicKey !== device.publicKey || existing.memberId !== memberId || existing.originHost !== host.publicKey || existing.attestedBy !== host.publicKey
+            || deviceOriginGeneration(existing) !== targetGen || deviceAttestedGeneration(existing) !== targetGen) throw new HubError("network_device_conflict", 409);
+        }
         if (device.scope) {
           const member = manifest.devices.filter(binding => binding.memberId === memberId);
           if (member.some(binding => binding.scope && binding.scope !== device.scope)) throw new HubError("network_device_scope_conflict", 409);
@@ -305,15 +416,18 @@ export class PrivateNetwork {
         existing.name = device.name; existing.platform = device.platform;
       } else {
         if (manifest.hosts.some(item => item.publicKey === device.publicKey) || manifest.devices.some(item => item.publicKey === device.publicKey)) throw new HubError("network_device_key_reused", 409);
-        manifest.devices.push({ ...device, memberId, originHost: host.publicKey, attestedBy: host.publicKey, revoked: manifest.revokedMembers.includes(memberId) || manifest.blockedBindings.some(binding => binding.host === device.host && binding.id === device.id) });
+        manifest.devices.push({ ...device, ...(targetGen > 1 ? { generation: targetGen, originGeneration: targetGen, attestedGeneration: targetGen } : {}), memberId, originHost: host.publicKey, attestedBy: host.publicKey, revoked: manifest.revokedMembers.includes(memberId) || manifest.blockedBindings.some(binding => binding.host === device.host && binding.id === device.id) });
       }
     }
     networkManifestSchema.parse(manifest);
   }
   private attest(manifest: NetworkManifest, sourceHost: string, sourceDeviceId: string, device: NetworkEnrollment): void {
     const source = manifest.devices.find(binding => binding.id === sourceDeviceId && binding.host === sourceHost && !binding.revoked && !manifest.revokedMembers.includes(binding.memberId));
-    if (!source || !manifest.hosts.some(host => host.publicKey === sourceHost && !host.revoked && host.state === "active")) throw new HubError("network_source_device_invalid", 403);
-    if (!manifest.hosts.some(host => host.publicKey === device.host && !host.revoked && host.state === "active")) throw new HubError("network_target_host_invalid", 403);
+    const sourceHostEntry = manifest.hosts.find(host => host.publicKey === sourceHost && !host.revoked && host.state === "active");
+    if (!source || !sourceHostEntry) throw new HubError("network_source_device_invalid", 403);
+    const targetHost = manifest.hosts.find(host => host.publicKey === device.host && !host.revoked && host.state === "active");
+    if (!targetHost) throw new HubError("network_target_host_invalid", 403);
+    const targetGen = hostGeneration(targetHost), originGen = deviceOriginGeneration(source), attestedGen = hostGeneration(sourceHostEntry);
     parsePublicKey(device.publicKey);
     if (manifest.blockedKeys?.includes(hashSecret(device.publicKey))) throw new HubError("network_device_key_blocked", 409);
     if (manifest.blockedBindings.some(binding => binding.host === device.host && binding.id === device.id)) throw new HubError("network_device_conflict", 409);
@@ -326,7 +440,7 @@ export class PrivateNetwork {
     if (byKey && byKey.memberId === source.memberId && byKey.host === device.host && !byKey.revoked) return;
     if (byKey || manifest.hosts.some(host => host.publicKey === device.publicKey)) throw new HubError("network_device_key_reused", 409);
     for (const binding of manifest.devices) if (binding.host === device.host && binding.memberId === source.memberId && !binding.revoked) binding.revoked = true;
-    manifest.devices.push({ ...device, memberId: source.memberId, originHost: source.originHost, attestedBy: sourceHost, ...(source.scope ? { scope: source.scope } : {}), revoked: false });
+    manifest.devices.push({ ...device, ...(targetGen > 1 ? { generation: targetGen } : {}), ...(originGen > 1 ? { originGeneration: originGen } : {}), ...(attestedGen > 1 ? { attestedGeneration: attestedGen } : {}), memberId: source.memberId, originHost: source.originHost, attestedBy: sourceHost, ...(source.scope ? { scope: source.scope } : {}), revoked: false });
     networkManifestSchema.parse(manifest);
   }
   private async revokeRow(id: string, revoked: string[]): Promise<void> {
@@ -341,6 +455,10 @@ export class PrivateNetwork {
     const self = manifest.hosts.find(host => host.publicKey === this.auth.publicKey);
     if (!self) throw new HubError("network_host_missing", 403);
     if (self.revoked) { await this.retireLocalAccess(state, manifest.id, revoked); return; }
+    // A pending host has not committed this generation yet; do not materialize
+    // new grants or revoke local controllers from prior-generation tombstones.
+    if (self.state !== "active") return;
+    const selfGen = hostGeneration(self), blockedKeys = new Set(manifest.blockedKeys ?? []);
     const nativeNames = await this.auth.localDesktopControllersInTransaction(true);
     for (const binding of manifest.devices.filter(device => device.host === this.auth.publicKey)) {
       const row = await this.store.db.get<Device & { role: string }>("SELECT d.*,u.role FROM devices d JOIN users u ON u.id=d.user_id WHERE d.id=?", [binding.id]);
@@ -351,7 +469,7 @@ export class PrivateNetwork {
         await this.revokeRow(binding.id, revoked);
         continue;
       }
-      if (row && (row.public_key !== binding.publicKey || row.role !== "owner" || (origin ? origin.publicKey !== binding.publicKey || origin.memberId !== binding.memberId || origin.networkId !== manifest.id : binding.memberId !== networkMemberId(this.auth.publicKey, binding.id)))) throw new HubError("network_device_conflict", 409);
+      if (row && (row.public_key !== binding.publicKey || row.role !== "owner" || (origin ? origin.publicKey !== binding.publicKey || origin.memberId !== binding.memberId || origin.networkId !== manifest.id : binding.memberId !== networkMemberId(this.auth.publicKey, binding.id, deviceOriginGeneration(binding))))) throw new HubError("network_device_conflict", 409);
       const pending = await this.store.db.get<{ public_key: string }>("SELECT public_key FROM pairing_requests WHERE device_id=? AND status='pending' AND expires_at>?", [binding.id, this.now()]);
       if (pending && pending.public_key !== binding.publicKey) throw new HubError("network_device_conflict", 409);
       if (!row && !binding.revoked && !self.revoked && self.state === "active" && !state.revokedMembers.includes(binding.memberId)) {
@@ -365,7 +483,8 @@ export class PrivateNetwork {
         await syncImportedDeviceName(this.store.db, row ?? { id: binding.id, name: binding.name, public_key: binding.publicKey },
           { networkId: manifest.id, memberId: binding.memberId, name: source.name }, !row);
       }
-      if (binding.revoked || self.revoked || state.revokedMembers.includes(binding.memberId)) await this.revokeRow(binding.id, revoked);
+      if ((binding.revoked || self.revoked || state.revokedMembers.includes(binding.memberId))
+        && (deviceGeneration(binding) >= selfGen || !!origin || blockedKeys.has(hashSecret(binding.publicKey)))) await this.revokeRow(binding.id, revoked);
     }
   }
   private async importMembership(state: NetworkState, signed: SignedNetworkManifest, revoked: string[]): Promise<void> {
@@ -374,10 +493,22 @@ export class PrivateNetwork {
     if (prior.v === 2 && manifest.v !== 2) throw new HubError("network_revocation_rollback", 409);
     if (manifest.revision < prior.revision) throw new HubError("network_manifest_stale", 409);
     if (manifest.revision === prior.revision && !same(manifest, prior)) throw new HubError("network_manifest_conflict", 409);
-    for (const old of prior.hosts) if (!manifest.hosts.some(host => host.publicKey === old.publicKey && (!old.revoked || host.revoked) && (old.state !== "active" || host.state === "active"))) throw new HubError("network_revocation_rollback", 409);
-    for (const old of prior.devices) if (!manifest.devices.some(device => device.id === old.id && device.host === old.host && (!old.revoked || device.revoked) && (device.publicKey === old.publicKey && device.memberId === old.memberId && device.originHost === old.originHost && (device.attestedBy === old.attestedBy && (!old.scope || device.scope === old.scope || manifest.revokedMembers.includes(old.memberId))) || manifest.blockedBindings.some(binding => binding.host === old.host && binding.id === old.id)))) throw new HubError("network_revocation_rollback", 409);
+    const hostMap = new Map(manifest.hosts.map(host => [host.publicKey, host]));
+    for (const old of prior.hosts) if (!manifest.hosts.some(host => host.publicKey === old.publicKey && (hostGeneration(host) > hostGeneration(old) || hostGeneration(host) === hostGeneration(old) && (!old.revoked || host.revoked) && (old.state !== "active" || host.state === "active")))) throw new HubError("network_revocation_rollback", 409);
+    for (const old of prior.devices) {
+      const nextHost = hostMap.get(old.host);
+      if (!manifest.devices.some(device => device.id === old.id && device.host === old.host && (
+        (deviceGeneration(device) > deviceGeneration(old) && old.originHost === old.host && old.attestedBy === old.host
+          && !!nextHost && hostGeneration(nextHost) >= deviceGeneration(device)
+          && deviceOriginGeneration(device) === deviceGeneration(device) && deviceAttestedGeneration(device) === deviceGeneration(device)
+          && device.publicKey === old.publicKey && device.originHost === old.originHost && device.attestedBy === old.attestedBy)
+        || (deviceGeneration(device) === deviceGeneration(old) && deviceOriginGeneration(device) === deviceOriginGeneration(old) && deviceAttestedGeneration(device) === deviceAttestedGeneration(old)
+          && (!old.revoked || device.revoked) && (device.publicKey === old.publicKey && device.memberId === old.memberId && device.originHost === old.originHost && (device.attestedBy === old.attestedBy && (!old.scope || device.scope === old.scope || manifest.revokedMembers.includes(old.memberId)))))
+        || manifest.blockedBindings.some(binding => binding.host === old.host && binding.id === old.id)
+      ))) throw new HubError("network_revocation_rollback", 409);
+    }
     if ((prior.cancelledProposals ?? []).some(old => !manifest.cancelledProposals?.some(item => item.host === old.host && item.nonce === old.nonce))
-      || (prior.pendingProposals ?? []).some(old => !manifest.pendingProposals?.some(item => item.host === old.host && item.nonce === old.nonce && item.expiresAt >= old.expiresAt))) throw new HubError("network_revocation_rollback", 409);
+      || (prior.pendingProposals ?? []).some(old => !manifest.pendingProposals?.some(item => item.host === old.host && item.nonce === old.nonce && item.expiresAt >= old.expiresAt && (item.generation ?? 1) >= (old.generation ?? 1)))) throw new HubError("network_revocation_rollback", 409);
     if ((prior.blockedKeys ?? []).some(key => !manifest.blockedKeys?.includes(key))) throw new HubError("network_revocation_rollback", 409);
     if (prior.revokedMembers.some(memberId => !manifest.revokedMembers.includes(memberId)) || prior.blockedBindings.some(old => !manifest.blockedBindings.some(binding => binding.host === old.host && binding.id === old.id))) throw new HubError("network_revocation_rollback", 409);
     state.membership = signed;
@@ -393,10 +524,30 @@ export class PrivateNetwork {
     manifest.v = 2;
     for (const host of manifest.hosts) if (!host.revoked && host.state === "active") host.protocol = 2;
   }
+  private recordPeerCapabilities(state: NetworkState, manifest: NetworkManifest, peer?: { publicKey: string; capabilities?: readonly NetworkPeerCapability[] }): void {
+    const next = new Set(state.generationAwareHosts);
+    next.add(`${manifest.id}:${this.auth.publicKey}`);
+    if (peer && peer.publicKey !== this.auth.publicKey) {
+      const entry = `${manifest.id}:${peer.publicKey}`;
+      if (peer.capabilities?.includes(PRIVATE_NETWORK_RECOVERY_CAPABILITY)) next.add(entry);
+      else next.delete(entry);
+    }
+    state.generationAwareHosts = [...next].sort();
+  }
+  private forgetPeerCapabilities(state: NetworkState, network: string, publicKey?: string): void {
+    const prefix = publicKey ? `${network}:${publicKey}` : `${network}:`;
+    state.generationAwareHosts = state.generationAwareHosts.filter(entry => publicKey ? entry !== prefix : !entry.startsWith(prefix));
+  }
+  private requireRecoveryPeersReady(state: NetworkState, manifest: NetworkManifest): void {
+    if (manifest.v !== 2 || unreadyRecoveryHosts(manifest, this.hostCapabilities(state)).length > 0) {
+      throw new HubError("network_recovery_upgrade_required", 409);
+    }
+  }
   private async refreshAuthority(state: NetworkState, name: string, revoked: string[]): Promise<void> {
     const manifest = structuredClone(this.authority(state));
     this.upgradeProtocol(state, manifest);
-    await this.localRevocations(state);
+    this.recordPeerCapabilities(state, manifest);
+    await this.localRevocations(state, manifest);
     this.publish(manifest, this.descriptor(state, name), await this.originals(state));
     this.applyTombstones(state, manifest);
     this.next(state, manifest);
@@ -409,11 +560,13 @@ export class PrivateNetwork {
     // route/name changes made while an exchange was offline publish on the
     // next active sync; they cannot silently rewrite the approved descriptor.
     const descriptor = self.state === "pending"
-      ? { publicKey: self.publicKey, name: self.name, routes: self.routes, ...(self.protocol ? { protocol: self.protocol } : {}) }
+      ? { publicKey: self.publicKey, name: self.name, routes: self.routes, ...(self.protocol ? { protocol: self.protocol } : {}), ...(self.generation ? { generation: self.generation } : {}) }
       : this.descriptor(state, name);
+    const advertiseCapabilities = !this.isLegacyAuthority(manifest);
     const request: NetworkPeerRequest = { v: 1, networkId: manifest.id, publicKey: this.auth.publicKey,
       nonce: randomBytes(32).toString("base64url"), expiresAt: this.now() + REQUEST_MS, host: descriptor, devices: await this.originals(state),
-      revoked: [...new Set(await this.localRevocations(state))], known: state.membership!, ...(attest ? { attest } : {}), ...(action === "retire" ? { retire: true as const } : self.state === "pending" ? action === "cancel" ? { cancel: self.proposalNonce! } : { commit: self.proposalNonce! } : {}) };
+      revoked: [...new Set(await this.localRevocations(state))], known: state.membership!, ...(advertiseCapabilities ? { capabilities: [PRIVATE_NETWORK_RECOVERY_CAPABILITY] } : {}),
+      ...(attest ? { attest } : {}), ...(action === "retire" ? { retire: true as const } : self.state === "pending" ? action === "cancel" ? { cancel: self.proposalNonce! } : { commit: self.proposalNonce! } : {}) };
     return { request, signature: this.auth.signNetworkPeer(request) };
   }
   private async exchange(state: NetworkState, request: SignedNetworkPeerRequest): Promise<SignedNetworkManifest> {
@@ -421,10 +574,26 @@ export class PrivateNetwork {
     const manifest = this.active(state, true), authority = manifest.hosts.find(host => host.publicKey === manifest.authorityKey)!;
     if (!this.options.exchange) throw new HubError("network_authority_unavailable", 503);
     if (request.request.commit) this.pendingExchanges++;
-    try { const returned = await this.options.exchange(authority, request); this.checkOpen(); return this.verifyMembership(returned); }
+    try {
+      let returned: SignedNetworkManifest;
+      try {
+        returned = await this.options.exchange(authority, request);
+        if (request.request.capabilities?.length) this.legacyAuthorities.delete(this.authorityScope(manifest));
+      } catch (error) {
+        if (!request.request.capabilities?.length || !this.isLegacyPeerRequestRejection(error)) throw error;
+        // 1.6.0 coordinators reject unknown fields on NetworkPeerRequest with
+        // HTTP 400 before touching state. Fall back once to a 1.6.0-strict peer
+        // request and retry advertising capabilities after LEGACY_AUTHORITY_TTL_MS.
+        this.rememberLegacyAuthority(manifest);
+        const { capabilities: _capabilities, ...legacyBody } = request.request;
+        const retryBody: NetworkPeerRequest = { ...legacyBody, nonce: randomBytes(32).toString("base64url") };
+        returned = await this.options.exchange(authority, { request: retryBody, signature: this.auth.signNetworkPeer(retryBody) });
+      }
+      this.checkOpen(); return this.verifyMembership(returned);
+    }
     finally { if (request.request.commit) this.pendingExchanges--; }
   }
-  command(raw: unknown, session: AuthSession, proof?: DeviceActionProof): Promise<NetworkCommandResult> {
+  command(raw: unknown, session: AuthSession, proof?: DeviceActionProof, options: { includeCapabilities?: boolean } = {}): Promise<NetworkCommandResult> {
     // A sync must not import a command's receipt first: joining could then see
     // a stale revision, and departure could revoke the requesting phone before
     // its own authorized operation returns. Keep network I/O outside the DB
@@ -432,12 +601,12 @@ export class PrivateNetwork {
     this.commandsPending++;
     const work = this.commandTail.then(async () => {
       await this.ticking?.catch(() => undefined);
-      return this.applyCommand(raw, session, proof);
+      return this.applyCommand(raw, session, proof, options.includeCapabilities);
     });
     this.commandTail = work.catch(() => undefined);
     return work.finally(() => { this.commandsPending--; });
   }
-  private async applyCommand(raw: unknown, session: AuthSession, proof?: DeviceActionProof): Promise<NetworkCommandResult> {
+  private async applyCommand(raw: unknown, session: AuthSession, proof?: DeviceActionProof, includeCapabilities = false): Promise<NetworkCommandResult> {
     this.checkOpen();
     const command = networkCommandSchema.parse(raw), { name } = await this.profile.read(), revoked: string[] = [];
     if (!same(command, raw)) throw new HubError("network_noncanonical", 400);
@@ -447,7 +616,7 @@ export class PrivateNetwork {
       const commandHash = hashSecret(networkCanonical(command));
       const statement = await this.auth.consumeNetworkAction(session, commandHash, proof);
       const state = await this.load();
-      if (["routes", "attest", "remove", "leave"].includes(command.operation) && "networkId" in command && command.networkId !== (state.membership?.manifest.id ?? "")) throw new HubError("network_identity_mismatch", 403);
+      if (["routes", "attest", "reinstate", "remove", "leave"].includes(command.operation) && "networkId" in command && command.networkId !== (state.membership?.manifest.id ?? "")) throw new HubError("network_identity_mismatch", 403);
       let proposal: SignedNetworkProposal | undefined, departure: SignedNetworkManifest | undefined;
       if (command.operation === "create") {
         if (state.membership) throw new HubError("network_already_joined", 409);
@@ -455,6 +624,7 @@ export class PrivateNetwork {
         const manifest: NetworkManifest = { v: 2, id: networkId(this.auth.publicKey, genesisNonce), name: command.name, authorityKey: this.auth.publicKey, genesisNonce, revision: 0,
           hosts: [this.host(state, name)], devices: (await this.originals(state)).map(device => ({ ...device, memberId: networkMemberId(this.auth.publicKey, device.id), originHost: this.auth.publicKey, attestedBy: this.auth.publicKey, revoked: false })), revokedMembers: [], blockedBindings: [], blockedKeys: [], pendingProposals: [], cancelledProposals: [] };
         state.membership = this.sign(manifest); state.lastSyncedAt = this.now(); state.waiting = false;
+        this.recordPeerCapabilities(state, manifest);
         delete state.proposal; delete state.accepted;
       } else if (command.operation === "routes") {
         state.routes = command.routes;
@@ -463,10 +633,20 @@ export class PrivateNetwork {
       } else if (command.operation === "propose") {
         if (state.imported[session.deviceId]) throw new HubError("network_local_owner_required", 403);
         if (command.authorityKey === this.auth.publicKey) throw new HubError("network_invalid_destination", 409);
-        if (state.membership && (state.membership.manifest.authorityKey !== this.auth.publicKey || state.membership.manifest.hosts.some(host => host.publicKey !== this.auth.publicKey && !host.revoked && (host.state === "active" || host.expiresAt! > this.now())))) throw new HubError("network_already_joined", 409);
-        if (state.retiredNetworks.includes(command.networkId)) throw new HubError("network_retired", 403);
+        const ownMember = state.membership?.manifest.hosts.find(host => host.publicKey === this.auth.publicKey);
+        const recoveringRemoved = !!command.recover && state.membership?.manifest.id === command.networkId && !!ownMember?.revoked;
+        if (state.membership && !recoveringRemoved && (state.membership.manifest.authorityKey !== this.auth.publicKey || state.membership.manifest.hosts.some(host => host.publicKey !== this.auth.publicKey && !host.revoked && (host.state === "active" || host.expiresAt! > this.now())))) throw new HubError("network_already_joined", 409);
+        const targetGen = command.generation ?? 1;
+        const minGen = Math.max(
+          maxRevokedHostGeneration(state.revokedHosts, command.networkId, this.auth.publicKey),
+          ownMember?.revoked && state.membership?.manifest.id === command.networkId ? hostGeneration(ownMember) : 0,
+        );
+        if ((state.retiredNetworks.includes(command.networkId) || minGen > 0) && !command.recover) throw new HubError("network_retired", 403);
+        if (targetGen <= minGen) throw new HubError("network_retired", 403);
+        if (recoveringRemoved) await this.leave(state, revoked);
         parsePublicKey(command.authorityKey);
-        const unsigned = { v: 1 as const, host: this.descriptor(state, name), devices: await this.originals(state), networkId: command.networkId,
+        const descriptor = targetGen > 1 ? { ...this.descriptor(state, name), generation: targetGen } : this.descriptor(state, name);
+        const unsigned = { v: 1 as const, host: descriptor, devices: await this.originals(state, undefined, targetGen), networkId: command.networkId,
           authorityKey: command.authorityKey, seenManifestHash: command.seenManifestHash, nonce: randomBytes(32).toString("base64url"), expiresAt: this.now() + REQUEST_MS };
         proposal = { proposal: unsigned, signature: this.auth.signNetworkProposal(unsigned) }; state.proposal = proposal;
       } else if (command.operation === "admit") {
@@ -481,16 +661,24 @@ export class PrivateNetwork {
           if (proposed.seenManifestHash !== hashSecret(networkCanonical(manifest))) throw new HubError("network_review_changed", 409);
           if (manifest.cancelledProposals?.some(item => item.host === proposed.host.publicKey && item.nonce === proposed.nonce)) throw new HubError("network_proposal_cancelled", 409);
           const existing = manifest.hosts.find(host => host.publicKey === proposed.host.publicKey);
-          if (existing?.revoked || state.revokedHosts.includes(`${manifest.id}:${proposed.host.publicKey}`)) throw new HubError("network_host_removed", 403);
-          if (existing?.state === "active") throw new HubError("network_host_already_joined", 409);
+          if (existing?.state === "active" && !existing.revoked) throw new HubError("network_host_already_joined", 409);
+          const existingGen = existing ? hostGeneration(existing) : 1, targetGen = proposed.host.generation ?? 1;
+          const maxRevoked = maxRevokedHostGeneration(state.revokedHosts, manifest.id, proposed.host.publicKey);
+          if (existing?.revoked) {
+            if (existing.reinstated !== existingGen + 1 || targetGen !== existing.reinstated || targetGen <= maxRevoked) throw new HubError("network_host_removed", 403);
+          } else if (existing?.state === "pending") {
+            if (targetGen !== existingGen || targetGen <= maxRevoked) throw new HubError("network_host_removed", 403);
+          } else {
+            if (targetGen !== 1 || maxRevoked > 0) throw new HubError("network_host_removed", 403);
+          }
           if (manifest.hosts.filter(host => host.state === "pending" && !host.revoked && host.expiresAt! > this.now() && host.publicKey !== proposed.host.publicKey).length >= 16) throw new HubError("network_pending_limit", 409);
-          this.rememberPending(manifest, proposed.host.publicKey, proposed.nonce, proposed.expiresAt);
-          if (existing?.state === "pending" && existing.proposalNonce !== proposed.nonce) {
-            this.rememberPending(manifest, existing.publicKey, existing.proposalNonce!, existing.expiresAt!);
+          this.rememberPending(manifest, proposed.host.publicKey, proposed.nonce, proposed.expiresAt, targetGen);
+          if (existing?.state === "pending" && !existing.revoked && existing.proposalNonce !== proposed.nonce) {
+            this.rememberPending(manifest, existing.publicKey, existing.proposalNonce!, existing.expiresAt!, existingGen);
             this.cancelPending(manifest, existing.publicKey, existing.proposalNonce!);
           }
           const pending: NetworkHost = { ...proposed.host, state: "pending", revoked: false, proposalNonce: proposed.nonce, expiresAt: proposed.expiresAt };
-          if (existing) Object.assign(existing, pending); else manifest.hosts.push(pending);
+          if (existing) { Object.assign(existing, pending); delete existing.reinstated; } else manifest.hosts.push(pending);
           // Validate the reviewed devices now, without making a pending host or
           // any of its devices usable before the host's signed commit arrives.
           const checked = structuredClone(manifest), checkedHost = checked.hosts.find(host => host.publicKey === pending.publicKey)!;
@@ -509,8 +697,14 @@ export class PrivateNetwork {
           this.validDeadline(proposed.expiresAt);
           if (proposed.nonce !== command.nonce || proposed.networkId !== manifest.id || proposed.authorityKey !== manifest.authorityKey) throw new HubError("network_proposal_mismatch", 403);
           const own = manifest.hosts.find(host => host.publicKey === this.auth.publicKey);
-          if (!own || own.revoked || own.state !== "pending" || own.proposalNonce !== proposed.nonce || own.expiresAt !== proposed.expiresAt || !same({ publicKey: own.publicKey, name: own.name, routes: own.routes, ...(own.protocol ? { protocol: own.protocol } : {}) }, proposed.host)) throw new HubError("network_proposal_mismatch", 403);
-          if (state.retiredNetworks.includes(manifest.id)) throw new HubError("network_retired", 403);
+          if (!own || own.revoked || own.state !== "pending" || own.proposalNonce !== proposed.nonce || own.expiresAt !== proposed.expiresAt || !same({ publicKey: own.publicKey, name: own.name, routes: own.routes, ...(own.protocol ? { protocol: own.protocol } : {}), ...(own.generation ? { generation: own.generation } : {}) }, proposed.host)) throw new HubError("network_proposal_mismatch", 403);
+          const minGen = maxRevokedHostGeneration(state.revokedHosts, manifest.id, this.auth.publicKey);
+          const recovering = state.retiredNetworks.includes(manifest.id) || minGen > 0;
+          if (recovering && !(hostGeneration(own) > Math.max(1, minGen) && (proposed.host.generation ?? 1) === hostGeneration(own))) throw new HubError("network_retired", 403);
+          if (recovering) {
+            state.retiredNetworks = state.retiredNetworks.filter(item => item !== manifest.id);
+            state.retiredAccessNetworks = state.retiredAccessNetworks.filter(item => item !== manifest.id);
+          }
           state.revokedMembers = [];
           state.membership = signed; state.accepted = { nonce: command.nonce, networkId: manifest.id, authorityKey: manifest.authorityKey };
           delete state.proposal; state.lastSyncedAt = this.now(); state.waiting = true;
@@ -525,6 +719,30 @@ export class PrivateNetwork {
           this.attest(next, this.auth.publicKey, session.deviceId, command.device); this.applyTombstones(state, next); this.next(state, next);
           await this.materialize(state, revoked);
         } else outgoing = { state: structuredClone(state), request: await this.request(state, name, { sourceDeviceId: session.deviceId, device: command.device, statement, proof: proof! }) };
+      } else if (command.operation === "reinstate") {
+        const manifest = structuredClone(this.authority(state));
+        if (command.publicKey === this.auth.publicKey) throw new HubError("network_cannot_reinstate_authority", 409);
+        const host = manifest.hosts.find(item => item.publicKey === command.publicKey);
+        if (!host) throw new HubError("network_host_missing", 404);
+        if (!host.revoked) throw new HubError("network_host_not_revoked", 409);
+        const currentGen = hostGeneration(host);
+        if (command.expectedGeneration !== undefined && command.expectedGeneration !== currentGen) throw new HubError("network_host_state_changed", 409);
+        if (command.seenManifestHash !== undefined && command.seenManifestHash !== hashSecret(networkCanonical(manifest))) throw new HubError("network_review_changed", 409);
+        this.requireRecoveryPeersReady(state, manifest);
+        if (host.reinstated !== currentGen + 1) {
+          host.reinstated = currentGen + 1;
+          const blockedKeys = new Set(manifest.blockedKeys ?? []);
+          for (const device of manifest.devices) {
+            if (device.revoked && (
+              device.host === host.publicKey && (device.host !== device.originHost || device.scope !== "host")
+              || (device.originHost === host.publicKey || device.attestedBy === host.publicKey) && device.host !== device.originHost
+            )) {
+              blockedKeys.add(hashSecret(device.publicKey));
+            }
+          }
+          manifest.blockedKeys = [...blockedKeys].sort();
+          this.applyTombstones(state, manifest); this.next(state, manifest); await this.materialize(state, revoked);
+        }
       } else if (command.operation === "remove") {
         const manifest = structuredClone(this.authority(state));
         if (command.publicKey === this.auth.publicKey) throw new HubError("network_cannot_remove_authority", 409);
@@ -533,7 +751,7 @@ export class PrivateNetwork {
         if (manifest.v !== 2) throw new HubError("network_upgrade_required", 409);
         if (host.state !== command.expectedState) throw new HubError("network_host_state_changed", 409);
         if (host.state === "pending") throw new HubError("network_pending_requires_local_cancel", 409);
-        host.revoked = true; this.applyTombstones(state, manifest); this.next(state, manifest); await this.cacheRemoval(state.membership!, host.publicKey); await this.materialize(state, revoked);
+        host.revoked = true; delete host.reinstated; this.forgetPeerCapabilities(state, manifest.id, host.publicKey); this.applyTombstones(state, manifest); this.next(state, manifest); await this.cacheRemoval(state.membership!, host.publicKey, hostGeneration(host)); await this.materialize(state, revoked);
       } else {
         const own = state.membership?.manifest.hosts.find(host => host.publicKey === this.auth.publicKey);
         if (state.membership && state.membership.manifest.v !== 2) throw new HubError("network_upgrade_required", 409);
@@ -552,11 +770,12 @@ export class PrivateNetwork {
         state.intents = Object.fromEntries(Object.entries(state.intents).filter(([, value]) => value.expiresAt > this.now()));
         if (Object.keys(state.intents).length >= 64) throw new HubError("network_request_limit", 429);
         intentNonce = statement.nonce;
+        const ownHost = manifest.hosts.find(host => host.publicKey === this.auth.publicKey), ownGen = hostGeneration(ownHost ?? {});
         state.intents[intentNonce] = { networkId: manifest.id, authorityKey: manifest.authorityKey, deviceId: session.deviceId, devicePublicKey: row.public_key,
-          memberId: manifest.devices.find(binding => binding.host === this.auth.publicKey && binding.id === session.deviceId)?.memberId ?? networkMemberId(this.auth.publicKey, session.deviceId), commandHash, expiresAt: statement.expiresAt };
+          memberId: manifest.devices.find(binding => binding.host === this.auth.publicKey && binding.id === session.deviceId && deviceGeneration(binding) >= ownGen)?.memberId ?? networkMemberId(this.auth.publicKey, session.deviceId, ownGen), commandHash, expiresAt: statement.expiresAt };
       }
       await this.save(state);
-      return { view: this.asView(state, name), ...(proposal ? { proposal } : {}), ...(state.membership || departure ? { membership: state.membership ?? departure } : {}) };
+      return { view: this.asView(state, name, includeCapabilities), ...(proposal ? { proposal } : {}), ...(state.membership || departure ? { membership: state.membership ?? departure } : {}) };
     });
     this.auth.notifyRevokedDevices(revoked);
     if (!outgoing) return result;
@@ -573,6 +792,7 @@ export class PrivateNetwork {
           && own.expiresAt === 1 && returned.manifest.cancelledProposals?.some(item => item.host === own.publicKey && item.nonce === own.proposalNonce);
         const retired = command.expectedState === "active" && own?.revoked;
         if (!(cancelled || retired) || returned.manifest.id !== manifest.id || returned.manifest.authorityKey !== manifest.authorityKey) throw new HubError("network_host_state_changed", 409);
+        if (retired) this.rememberTombstones(state, returned.manifest);
         await this.leave(state, afterRevoked);
       } else {
         await this.importMembership(state, returned, afterRevoked);
@@ -581,7 +801,7 @@ export class PrivateNetwork {
       }
       delete state.intents[intentNonce!];
       await this.save(state);
-      return { view: this.asView(state, name), ...(state.membership ? { membership: state.membership } : command.operation === "leave" && command.expectedState === "active" ? { membership: returned } : {}) };
+      return { view: this.asView(state, name, includeCapabilities), ...(state.membership ? { membership: state.membership } : command.operation === "leave" && command.expectedState === "active" ? { membership: returned } : {}) };
     });
     this.auth.notifyRevokedDevices(afterRevoked);
     if (denied) throw new HubError("device_revoked", 401);
@@ -604,17 +824,20 @@ export class PrivateNetwork {
     for (const device of manifest.devices) if (device.host === departing && !device.revoked && (device.scope === undefined || device.scope === "network" && !continued.has(device.memberId))) throw new HubError("network_devices_not_ready", 409);
   }
   private async leave(state: NetworkState, revoked: string[]): Promise<void> {
-    if (state.membership && state.membership.manifest.hosts.find(host => host.publicKey === this.auth.publicKey)?.state === "active") {
+    const own = state.membership?.manifest.hosts.find(host => host.publicKey === this.auth.publicKey);
+    if (state.membership && own?.state === "active") {
       await this.retireLocalAccess(state, state.membership.manifest.id, revoked);
       state.retiredNetworks = [...new Set([...state.retiredNetworks, state.membership.manifest.id])];
+      state.revokedHosts = [...new Set([...state.revokedHosts, revokedHostKey(state.membership.manifest.id, this.auth.publicKey, hostGeneration(own))])];
     }
+    if (state.membership) this.forgetPeerCapabilities(state, state.membership.manifest.id);
     delete state.membership; delete state.proposal; delete state.accepted; state.revokedMembers = []; state.admissions = []; state.peers = []; state.proofs = []; state.intents = {}; state.lastSyncedAt = 0; state.waiting = false;
   }
-  private rememberPending(manifest: NetworkManifest, host: string, nonce: string, expiresAt: number): void {
+  private rememberPending(manifest: NetworkManifest, host: string, nonce: string, expiresAt: number, generation = 1): void {
     manifest.pendingProposals ??= [];
     const prior = manifest.pendingProposals.find(item => item.host === host && item.nonce === nonce);
-    if (!prior) manifest.pendingProposals.push({ host, nonce, expiresAt });
-    else if (expiresAt !== 1 && prior.expiresAt !== expiresAt) throw new HubError("network_proposal_mismatch", 409);
+    if (!prior) manifest.pendingProposals.push({ host, nonce, expiresAt, ...(generation > 1 ? { generation } : {}) });
+    else if (expiresAt !== 1 && prior.expiresAt !== expiresAt || (prior.generation ?? 1) !== generation) throw new HubError("network_proposal_mismatch", 409);
   }
   private cancelPending(manifest: NetworkManifest, host: string, nonce: string): void {
     manifest.cancelledProposals ??= [];
@@ -629,12 +852,13 @@ export class PrivateNetwork {
     if (next.length >= 4096) throw new HubError("network_request_limit", 429);
     return [...next, item];
   }
-  private removalKey(network: string, host: string): string { return `private-network:removed:${network}:${hashSecret(host)}`; }
-  private async cacheRemoval(signed: SignedNetworkManifest, host: string): Promise<void> {
-    await this.store.db.run("INSERT OR IGNORE INTO meta(key,value) VALUES(?,?)", [this.removalKey(signed.manifest.id, host), JSON.stringify(signed)]);
+  private removalKey(network: string, host: string, generation = 1): string { return generation > 1 ? `private-network:removed:${network}:${hashSecret(host)}:${generation}` : `private-network:removed:${network}:${hashSecret(host)}`; }
+  private async cacheRemoval(signed: SignedNetworkManifest, host: string, generation = 1): Promise<void> {
+    await this.store.db.run("INSERT OR IGNORE INTO meta(key,value) VALUES(?,?)", [this.removalKey(signed.manifest.id, host, generation), JSON.stringify(signed)]);
   }
   private async removedResponse(current: SignedNetworkManifest, host: string, known?: SignedNetworkManifest): Promise<SignedNetworkManifest> {
-    const row = await this.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key=?", [this.removalKey(current.manifest.id, host)]);
+    const currentHost = current.manifest.hosts.find(item => item.publicKey === host);
+    const row = await this.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key=?", [this.removalKey(current.manifest.id, host, hostGeneration(currentHost ?? {}))]);
     const cached = row ? this.verifyMembership(JSON.parse(row.value)) : undefined;
     if (cached && cached.manifest.revision >= (known?.manifest.revision ?? 0)) return cached;
     if (!known || !known.manifest.hosts.some(item => item.publicKey === host)) throw new HubError("network_host_removed", 403);
@@ -697,6 +921,7 @@ export class PrivateNetwork {
         return this.removedResponse(state.membership!, issuer.publicKey, known);
       }
       if (manifest.v === 2 && request.host.protocol !== 2) throw new HubError("network_upgrade_required", 409);
+      if (manifestUsesGenerations(manifest) && !request.capabilities?.includes(PRIVATE_NETWORK_RECOVERY_CAPABILITY)) throw new HubError("network_recovery_upgrade_required", 409);
       const digest = hashSecret(networkCanonical(signed)), replayKey = networkBindingKey(request.publicKey, request.nonce), prior = state.peers.find(item => item.nonce === replayKey);
       if (prior) {
         if (prior.digest !== digest) throw new HubError("network_request_replayed", 403);
@@ -708,22 +933,24 @@ export class PrivateNetwork {
         const binding = manifest.devices.find(device => device.host === request.publicKey && device.id === id);
         if (!binding) throw new HubError("network_revocation_invalid", 403);
         state.revokedMembers = [...new Set([...state.revokedMembers, binding.memberId])];
+        if (!binding.revoked) manifest.blockedKeys = [...new Set([...(manifest.blockedKeys ?? []), hashSecret(binding.publicKey)])].sort();
       }
       this.upgradeProtocol(state, manifest, request.host);
+      this.recordPeerCapabilities(state, manifest, { publicKey: request.publicKey, capabilities: request.capabilities });
       if (request.retire) {
         if (manifest.v !== 2 || request.host.protocol !== 2) throw new HubError("network_upgrade_required", 409);
         if (issuer.publicKey === manifest.authorityKey || issuer.state !== "active") throw new HubError("network_host_state_changed", 409);
         this.publish(manifest, request.host, request.devices);
         this.applyTombstones(state, manifest);
         this.requireDepartureReady(manifest, issuer.publicKey);
-        issuer.revoked = true; this.applyTombstones(state, manifest); this.next(state, manifest, sameRevisionFork);
-        await this.cacheRemoval(state.membership!, issuer.publicKey); await this.materialize(state, revoked);
+        issuer.revoked = true; delete issuer.reinstated; this.forgetPeerCapabilities(state, manifest.id, issuer.publicKey); this.applyTombstones(state, manifest); this.next(state, manifest, sameRevisionFork);
+        await this.cacheRemoval(state.membership!, issuer.publicKey, hostGeneration(issuer)); await this.materialize(state, revoked);
         state.peers = this.memo(state.peers, { nonce: replayKey, digest, expiresAt: request.expiresAt });
         await this.save(state); return state.membership!;
       }
       if (request.cancel) {
         if (issuer.state !== "pending" || issuer.proposalNonce !== request.cancel) throw new HubError("network_host_state_changed", 409);
-        this.rememberPending(manifest, issuer.publicKey, issuer.proposalNonce!, issuer.expiresAt!);
+        this.rememberPending(manifest, issuer.publicKey, issuer.proposalNonce!, issuer.expiresAt!, hostGeneration(issuer));
         this.cancelPending(manifest, issuer.publicKey, issuer.proposalNonce!); issuer.expiresAt = 1;
         this.next(state, manifest, sameRevisionFork);
         state.peers = this.memo(state.peers, { nonce: replayKey, digest, expiresAt: request.expiresAt });
@@ -731,12 +958,12 @@ export class PrivateNetwork {
       }
       if (issuer.state === "pending") {
         if (!request.commit || request.commit !== issuer.proposalNonce || issuer.expiresAt! <= this.now() || manifest.cancelledProposals?.some(item => item.host === issuer.publicKey && item.nonce === request.commit) || request.attest
-          || !same(request.host, { publicKey: issuer.publicKey, name: issuer.name, routes: issuer.routes, ...(issuer.protocol ? { protocol: issuer.protocol } : {}) })) throw new HubError("network_commit_invalid", 403);
-        this.rememberPending(manifest, issuer.publicKey, issuer.proposalNonce!, issuer.expiresAt!);
+          || !same(request.host, { publicKey: issuer.publicKey, name: issuer.name, routes: issuer.routes, ...(issuer.protocol ? { protocol: issuer.protocol } : {}), ...(issuer.generation ? { generation: issuer.generation } : {}) })) throw new HubError("network_commit_invalid", 403);
+        this.rememberPending(manifest, issuer.publicKey, issuer.proposalNonce!, issuer.expiresAt!, hostGeneration(issuer));
         issuer.state = "active"; delete issuer.proposalNonce; delete issuer.expiresAt;
       }
       this.publish(manifest, request.host, request.devices);
-      await this.localRevocations(state);
+      await this.localRevocations(state, manifest);
       this.publish(manifest, this.descriptor(state, name), await this.originals(state, manifest));
       this.applyTombstones(state, manifest);
       if (request.attest) { this.forwardedProof(state, manifest, request); this.attest(manifest, request.publicKey, request.attest.sourceDeviceId, request.attest.device); }

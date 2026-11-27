@@ -193,3 +193,29 @@ describe("conversation history native transaction", () => {
     expect(f.adapter.forkHistory).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("conversation history reads without the native step", () => {
+  it("answers busy from the last capabilities and the binding, without a native read", async () => {
+    const f = await setup();
+    f.adapter.getHistoryState.mockClear();
+    const generation = (await f.store.inspectHistory(scope.conversationKey))!.record.historyGeneration;
+    // A turn for this conversation is queued: the Gateway asks without the native step,
+    // so the turn never waits behind a slow transcript read.
+    expect(await f.controller.get(scope, { turnPending: true })).toEqual({ supported: true, blocked: "busy", cachedWhilePending: true,
+      capabilities: { rewind: true, fork: true, anchoredFork: true }, sourceSessionId: anchor.sessionId, bindingGeneration: generation });
+    expect(f.adapter.getHistoryState).not.toHaveBeenCalled();
+    // An ordinary read still reads natively afterwards.
+    expect(await f.controller.get(scope)).toMatchObject({ supported: true, revision: expect.any(String) });
+    expect(f.adapter.getHistoryState).toHaveBeenCalledOnce();
+  });
+  it("reads once as usual while a turn is pending if nothing is known yet in this process", async () => {
+    const f = await setup();
+    const fresh = new ConversationHistoryController(f.sessions, f.adapter);
+    f.adapter.getHistoryState.mockClear();
+    expect(await fresh.get(scope, { turnPending: true })).toMatchObject({ supported: true, revision: expect.any(String),
+      capabilities: { rewind: true, fork: true, anchoredFork: true } });
+    expect(f.adapter.getHistoryState).toHaveBeenCalledOnce();
+    expect(await fresh.get(scope, { turnPending: true })).toMatchObject({ supported: true, blocked: "busy" });
+    expect(f.adapter.getHistoryState).toHaveBeenCalledOnce();
+  });
+});

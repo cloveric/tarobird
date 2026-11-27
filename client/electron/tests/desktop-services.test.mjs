@@ -178,3 +178,47 @@ test('side width minimum is scaled, monitor bounded, and restored on close or do
   await service.request('desktop_window_side_minimum',{width:2400},()=>true);service.retire();assert.deepEqual(minimum,[600,480]);
   service.dispose();assert.equal(calls.length,5);
 });
+
+test('desktop_network_settings opens the allowlisted Windows network status URI only on win32', async () => {
+  const window = new EventEmitter(), opened = [];
+  Object.assign(window, { isDestroyed: () => false, webContents: { send() {} } });
+  const electron = { shell: { openExternal: async url => { opened.push(url); } } };
+  assert.doesNotThrow(() => validateViewRequest({ command: 'desktop_network_settings', args: {} }, { controller: true }));
+  assert.throws(() => validateViewRequest({ command: 'desktop_network_settings', args: {} }), /native_controller_required/);
+  const service = new DesktopServices(window, electron, { platform: 'win32' });
+  try {
+    assert.equal(await service.request('desktop_network_settings', {}, () => true), null);
+    assert.deepEqual(opened, ['ms-settings:network-status']);
+    await assert.rejects(service.request('desktop_network_settings', { url: 'ms-settings:network-status' }, () => true), /invalid_desktop_args/);
+    await assert.rejects(service.request('desktop_network_settings', {}, () => false), /native_document_retired/);
+    for (const platform of ['darwin', 'linux']) {
+      service.platform = platform;
+      await assert.rejects(service.request('desktop_network_settings', {}, () => true), /network_settings_unavailable/);
+    }
+    assert.deepEqual(opened, ['ms-settings:network-status']);
+  } finally { service.dispose(); }
+});
+
+test('Windows screenshot capture forwards normalized locale including Japanese and stays compatible with english-only calls', async () => {
+  const window = new EventEmitter();
+  Object.assign(window, { isDestroyed: () => false, isVisible: () => true, isFocused: () => true, hide() {}, show() {}, focus() {}, webContents: { send() {} } });
+  const calls = [];
+  const addon = { initializeNotifications() {}, notificationActivity: () => false, retireNotifications() {}, screenCaptureAccess: () => true, captureWindows: async (english, locale) => { calls.push([english, locale]); return null; } };
+  const service = new DesktopServices(window, {}, { addon, platform: 'win32' });
+  try {
+    assert.equal(await service.request('capture_screenshot', { english: true, locale: 'ja' }, () => true), null);
+    assert.equal(await service.request('capture_screenshot', { english: true, locale: 'ja-JP' }, () => true), null);
+    assert.equal(await service.request('capture_screenshot', { english: false, locale: 'zh-CN' }, () => true), null);
+    assert.equal(await service.request('capture_screenshot', { english: true }, () => true), null);
+    assert.equal(await service.request('capture_screenshot', { english: false }, () => true), null);
+    assert.deepEqual(calls, [
+      [true, 'ja'],
+      [true, 'ja'],
+      [false, 'zh'],
+      [true, 'en'],
+      [false, 'zh'],
+    ]);
+    await assert.rejects(service.request('capture_screenshot', { english: true, locale: 42 }, () => true), /invalid_screenshot_args/);
+    await assert.rejects(service.request('capture_screenshot', { english: true, extra: true }, () => true), /invalid_screenshot_args/);
+  } finally { service.dispose(); }
+});

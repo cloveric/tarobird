@@ -237,6 +237,8 @@ pub struct HttpInput {
     origin: String,
     hub_key: Option<String>,
     certificate_authority: Option<String>,
+    #[serde(default)]
+    edge_tls: Option<bool>,
     path: String,
     method: String,
     headers: Vec<(String, String)>,
@@ -306,7 +308,12 @@ impl Transport {
             }
             let route = self
                 .network
-                .prepare_with_ca(&input.origin, input.hub_key.as_deref(), input.certificate_authority.as_deref())
+                .prepare_route(
+                    &input.origin,
+                    input.hub_key.as_deref(),
+                    input.certificate_authority.as_deref(),
+                    input.edge_tls.unwrap_or(false),
+                )
                 .await?;
             let mut request = route
                 .client
@@ -322,11 +329,11 @@ impl Transport {
             }
             let response = match request.send().await {
                 Ok(value) => value,
-                Err(_) => {
+                Err(err) => {
                     self.network
                         .forget(&input.origin, input.hub_key.as_deref())
                         .await;
-                    return Err("native_request_failed".into());
+                    return Err(pinned::classify_reqwest_error(&err, "native_request_failed").into());
                 }
             };
             let head = HttpHead {
@@ -418,6 +425,7 @@ impl Transport {
         origin: String,
         hub_key: Option<String>,
         certificate_authority: Option<String>,
+        edge_tls: bool,
         emit: Emit,
         owner: &str,
     ) -> Result<oneshot::Sender<()>, String> {
@@ -438,7 +446,9 @@ impl Transport {
             let document = slot.document.clone();
             let send = |event: SocketEvent| emit(&document, event);
             let result = if !started { Err("native_view_unavailable".to_owned()) } else { cancellable(&slot, async {
-                let route = network.prepare_with_ca(&origin, hub_key.as_deref(), certificate_authority.as_deref()).await?;
+                let route = network
+                    .prepare_route(&origin, hub_key.as_deref(), certificate_authority.as_deref(), edge_tls)
+                    .await?;
                 let socket = match pinned::websocket(&route).await {
                     Ok(socket) => socket,
                     Err(error) => {
@@ -616,7 +626,7 @@ mod tests {
         let expiry = Instant::now() + Duration::from_secs(2);
         Arc::get_mut(state.slots.lock().unwrap().get_mut(&id).unwrap()).unwrap().expires = expiry;
         let (events, mut received) = mpsc::unbounded_channel();
-        state.socket_open(id.clone(), origin, None, None, Arc::new(move |_, event| events.send(event).map_err(|_| "lost_view".into())), VIEW).unwrap().send(()).unwrap();
+        state.socket_open(id.clone(), origin, None, None, false, Arc::new(move |_, event| events.send(event).map_err(|_| "lost_view".into())), VIEW).unwrap().send(()).unwrap();
         assert_eq!(tokio::time::timeout(Duration::from_secs(1), received.recv()).await.unwrap(), Some(SocketEvent::Open));
         tokio::time::sleep_until((expiry + Duration::from_millis(25)).into()).await;
         assert!(received.try_recv().is_err(), "healthy socket must not expire on its allocation timer");

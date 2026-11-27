@@ -12,5 +12,6 @@ Object.assign(window,{...(platform === "ios" ? {webkit:{messageHandlers:{bridge:
   nativeCallback:(_plugin:string,method:string,args:{eventName:string},callback:(event:unknown)=>void)=>{if(method!=="addListener")throw Error("unexpected callback");if(platform === "ios" && args.eventName !== `socket:${(window as unknown as Record<string,unknown>).__TAROCUB_NATIVE_PAGE_TOKEN__}`)throw Error("unscoped listener");listener=callback;return "listener";},
 }});
 const transport=await import("../../src/transport");
-Object.assign(window,{androidTransportFixture:{...transport,handle:(next:typeof handler)=>{handler=next;},emit:(value:unknown)=>listener(value)}});
+const { rememberRouteTrust } = await import("../../src/route-trust");
+Object.assign(window,{androidTransportFixture:{...transport,rememberRouteTrust,handle:(next:typeof handler)=>{handler=next;},emit:(value:unknown)=>listener(value)}});
 export {};

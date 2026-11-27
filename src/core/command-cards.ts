@@ -1,5 +1,6 @@
 import type { ScannedSession } from "../runtime/session-scanner.js";
-import type { Locale } from "../runtime/locale.js";
+import { localeIntlTag, type Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import type { UsageRecord } from "../state/usage-store.js";
 import { channelProfile } from "./channel-profile.js";
 
@@ -9,36 +10,33 @@ export function renderCommandResultCard(command: string, markdown: string): Reco
 }
 
 export function renderCommandUsageCard(usage: UsageRecord, locale: Locale, note = ""): Record<string, unknown> {
-  const en = locale === "en";
   const unmetered = usage.unmeteredRequestCount ?? 0;
-  const number = (value: number) => value.toLocaleString(en ? "en-US" : "zh-CN");
+  const number = (value: number) => value.toLocaleString(localeIntlTag(locale));
   const metric = (label: string, value: string) => ({
     tag: "column", width: "weighted", weight: 1, background_style: "grey", padding: "10px", corner_radius: "6px",
     elements: [{ tag: "markdown", content: `${label}\n**${value}**` }],
   });
   const row = (...columns: unknown[]) => ({ tag: "column_set", flex_mode: "flow", columns });
-  const elements: unknown[] = [{ tag: "markdown", content: en ? "Cumulative totals for this Bot across conversations" : "当前 Bot · 所有对话累计", text_size: "notation", text_color: "grey" }];
+  const elements: unknown[] = [{ tag: "markdown", content: hostT(locale, "当前 Bot · 所有对话累计"), text_size: "notation", text_color: "grey" }];
   if (usage.requestCount === 0 && unmetered === 0) {
-    elements.push({ tag: "markdown", content: en ? "No usage data yet — run a request first." : "暂无用量数据——处理完一轮请求后再查。" });
+    elements.push({ tag: "markdown", content: hostT(locale, "暂无用量数据——处理完一轮请求后再查。") });
   } else {
-    elements.push(row(metric(en ? "Metered requests" : "可计量请求", number(usage.requestCount)), metric(en ? "Without token details" : "未返回 token 明细", number(unmetered))));
+    elements.push(row(metric(hostT(locale, "可计量请求"), number(usage.requestCount)), metric(hostT(locale, "未返回 token 明细"), number(unmetered))));
     if (usage.requestCount > 0) {
       elements.push(
-        row(metric(en ? "Input tokens" : "输入 tokens", number(usage.totalInputTokens)), metric(en ? "Output tokens" : "输出 tokens", number(usage.totalOutputTokens))),
-        row(metric(en ? "Cached tokens" : "缓存 tokens", number(usage.totalCachedTokens)), metric(en ? "Reported cost (USD)" : "已记录费用（美元）", `$${usage.totalCostUsd.toFixed(4)}`)),
+        row(metric(hostT(locale, "输入 tokens"), number(usage.totalInputTokens)), metric(hostT(locale, "输出 tokens"), number(usage.totalOutputTokens))),
+        row(metric(hostT(locale, "缓存 tokens"), number(usage.totalCachedTokens)), metric(hostT(locale, "已记录费用（美元）"), `$${usage.totalCostUsd.toFixed(4)}`)),
       );
     }
-    if (unmetered > 0) elements.push({ tag: "markdown", content: en
-      ? "Some completed requests did not return token details. Their tokens and cost are unknown, not zero."
-      : "部分已完成请求没有返回 token 明细，其 token 和费用未知，不能按 0 计算。" });
+    if (unmetered > 0) elements.push({ tag: "markdown", content: hostT(locale, "部分已完成请求没有返回 token 明细，其 token 和费用未知，不能按 0 计算。") });
     if (usage.lastUpdatedAt) {
       const date = new Date(usage.lastUpdatedAt);
       const updated = Number.isFinite(date.getTime()) ? `${date.toISOString().slice(0, 19).replace("T", " ")} UTC` : usage.lastUpdatedAt;
-      elements.push({ tag: "markdown", text_size: "notation", text_color: "grey", content: `${en ? "Last updated" : "最近更新"}：${updated}` });
+      elements.push({ tag: "markdown", text_size: "notation", text_color: "grey", content: hostT(locale, "最近更新：{0}", updated) });
     }
   }
   if (note) elements.push({ tag: "hr" }, { tag: "markdown", content: note, text_size: "notation", text_color: "grey" });
-  return commandCard(en ? "/usage · Cumulative usage" : "/usage · 累计用量", elements);
+  return commandCard(hostT(locale, "/usage · 累计用量"), elements);
 }
 
 function commandCard(title: string, elements: unknown[]): Record<string, unknown> {
@@ -105,7 +103,7 @@ export function renderCoreStatusCard(input: {
 }
 
 export function renderCoreResumeScanCard(input: {
-  kind: "claude" | "antigravity" | "kimi" | "deepseek" | "pi";
+  kind: "claude" | "antigravity" | "kimi" | "deepseek" | "pi" | "omp";
   sessions: ScannedSession[];
   locale: Locale;
   conversationKey: string;
@@ -189,60 +187,36 @@ export function renderCoreResumeScanCard(input: {
 }
 
 function statusLabels(locale: Locale): { title: string; config: string; resume: string } {
-  if (channelProfile() === "gateway") return locale === "en"
-    ? { title: "/status · Conversation status", config: "Open config", resume: "Resume session" }
-    : { title: "/status · 会话状态", config: "打开配置", resume: "恢复会话" };
-  return locale === "en"
-    ? { title: "Lark conversation status", config: "Open config", resume: "Resume session" }
-    : { title: "飞书会话状态", config: "打开配置", resume: "恢复会话" };
+  return {
+    title: hostT(locale, channelProfile() === "gateway" ? "/status · 会话状态" : "飞书会话状态"),
+    config: hostT(locale, "打开配置"),
+    resume: hostT(locale, "恢复会话"),
+  };
 }
 
-function resumeLabels(locale: Locale, kind: "claude" | "antigravity" | "kimi" | "deepseek" | "pi"): {
+function resumeLabels(locale: Locale, kind: "claude" | "antigravity" | "kimi" | "deepseek" | "pi" | "omp"): {
   title: string;
   hint: string;
   empty: string;
   resumeButton: string;
   workspaceUnknown: string;
 } {
-  if (locale === "en") {
-    return {
-      title: kind === "pi" ? "Pi sessions" : kind === "antigravity"
-        ? "Recent Antigravity conversations"
-        : kind === "deepseek"
-          ? "Resume DeepSeek Harness sessions"
-        : kind === "kimi"
-          ? "Resume Kimi sessions"
-          : "Resume local sessions",
-      hint: "Pick one session below. The current conversation will bind to that history.",
-      empty: kind === "pi" ? "No Pi sessions found." : kind === "antigravity"
-        ? "No Antigravity conversations found in the last 24 hours."
-        : kind === "deepseek"
-          ? "No DeepSeek Harness sessions found."
-        : kind === "kimi"
-          ? "No Kimi sessions found."
-          : "No local sessions found in the last hour.",
-      resumeButton: kind === "antigravity" ? "Attach this conversation" : "Resume this session",
-      workspaceUnknown: "unknown",
-    };
-  }
+  const titleKey = kind === "omp" ? "恢复 oh-my-pi 会话" : kind === "pi" ? "恢复 Pi 会话"
+    : kind === "antigravity" ? "最近的 Antigravity conversation"
+    : kind === "deepseek" ? "恢复 DeepSeek Harness session"
+    : kind === "kimi" ? "恢复 Kimi session"
+    : "恢复历史会话";
+  const emptyKey = kind === "omp" ? "没有找到 oh-my-pi 会话。" : kind === "pi" ? "没有找到 Pi 会话。"
+    : kind === "antigravity" ? "最近 24 小时内没有找到 Antigravity conversation。"
+    : kind === "deepseek" ? "没有找到 DeepSeek Harness session。"
+    : kind === "kimi" ? "没有找到 Kimi session。"
+    : "最近 1 小时内没有找到本地 session。";
   return {
-    title: kind === "pi" ? "恢复 Pi 会话" : kind === "antigravity"
-      ? "最近的 Antigravity conversation"
-      : kind === "deepseek"
-        ? "恢复 DeepSeek Harness session"
-      : kind === "kimi"
-        ? "恢复 Kimi session"
-        : "恢复历史会话",
-    hint: "选择一个历史会话，当前飞书会话会绑定到这段上下文。",
-    empty: kind === "pi" ? "没有找到 Pi 会话。" : kind === "antigravity"
-      ? "最近 24 小时内没有找到 Antigravity conversation。"
-      : kind === "deepseek"
-        ? "没有找到 DeepSeek Harness session。"
-      : kind === "kimi"
-        ? "没有找到 Kimi session。"
-        : "最近 1 小时内没有找到本地 session。",
-    resumeButton: kind === "antigravity" ? "绑定此 conversation" : "恢复此会话",
-    workspaceUnknown: "未知",
+    title: hostT(locale, titleKey),
+    hint: hostT(locale, "选择一个历史会话，当前飞书会话会绑定到这段上下文。"),
+    empty: hostT(locale, emptyKey),
+    resumeButton: hostT(locale, kind === "antigravity" ? "绑定此 conversation" : "恢复此会话"),
+    workspaceUnknown: hostT(locale, "未知"),
   };
 }
 
@@ -276,11 +250,11 @@ function optionMarker(index: number): string {
 
 function formatTimeAgo(ms: number, locale: Locale): string {
   const minutes = Math.max(0, Math.floor(ms / 60_000));
-  if (minutes < 1) return locale === "en" ? "<1m ago" : "刚刚";
-  if (minutes < 60) return locale === "en" ? `${minutes}m ago` : `${minutes} 分钟前`;
+  if (minutes < 1) return hostT(locale, "刚刚");
+  if (minutes < 60) return hostT(locale, "{0} 分钟前", minutes);
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
-  return locale === "en" ? `${hours}h${rest}m ago` : `${hours} 小时 ${rest} 分钟前`;
+  return hostT(locale, "{0} 小时 {1} 分钟前", hours, rest);
 }
 
 function escapeCode(value: string): string {

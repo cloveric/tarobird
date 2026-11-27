@@ -5,7 +5,7 @@ import { idSchema, messageSchema, textSchema } from "./index.js";
 export const PROMPT_QUEUE_CAPABILITY = "prompt-queue.v1";
 /** Workers claim ordinary direct-chat input only while holding its execution slot. */
 export const PROMPT_QUEUE_PULL_CAPABILITY = "prompt-queue.pull.v1";
-export const PROMPT_QUEUE_ENGINES = ["codex", "claude", "antigravity", "kimi", "deepseek", "pi"] as const;
+export const PROMPT_QUEUE_ENGINES = ["codex", "claude", "antigravity", "kimi", "deepseek", "pi", "omp"] as const;
 export const promptQueueActionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("move"), messageId: idSchema, beforeId: idSchema.nullable() }).strict(),
   z.object({ type: z.literal("edit"), messageId: idSchema, text: textSchema }).strict(),

@@ -30,11 +30,13 @@ export class HubAttachments {
       await validateInTransaction?.();
       await this.store.requireMember(userId, input.conversationId);
       this.checkSize(input.size);
-      // Repeating upload-init is resumable by (owner, conversation, hash, size).
-      const old = await this.store.db.get<AttachmentRow>("SELECT * FROM attachments a WHERE owner_id=? AND conversation_id=? AND sha256=? AND size=? AND name=? AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)", [userId, input.conversationId, input.sha256, input.size, input.name]);
+      // Repeating upload-init is resumable by (owner, conversation, hash, size, recording).
+      const expectedRecording = input.recording === undefined ? null : input.recording ? 1 : 0;
+      const old = await this.store.db.get<AttachmentRow & { recording: number | null }>("SELECT a.*, ar.recording AS recording FROM attachments a LEFT JOIN attachment_recording ar ON ar.attachment_id=a.id WHERE a.owner_id=? AND a.conversation_id=? AND a.sha256=? AND a.size=? AND a.name=? AND ar.recording IS ? AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)", [userId, input.conversationId, input.sha256, input.size, input.name, expectedRecording]);
       if (old) return { id: old.id, chunkBytes: CHUNK_BYTES };
       const id = newId("att");
       await this.store.db.run("INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,0,?)", [id, input.conversationId, userId, input.sha256, input.size, input.mime, input.name, `${id}.blob`, Date.now()]);
+      if (expectedRecording !== null) await this.store.db.run("INSERT INTO attachment_recording(attachment_id, recording) VALUES(?, ?)", [id, expectedRecording]);
       return { id, chunkBytes: CHUNK_BYTES };
     });
   }
@@ -169,6 +171,63 @@ export class HubAttachments {
     try { const info = await stat(file); if (!info.isFile() || info.size !== size) throw new HubError("attachment_unavailable", 410); }
     catch (error) {
       if (["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new HubError("attachment_unavailable", 410);
+      throw error;
+    }
+  }
+  /** Hardlink (or copy) a complete attachment into another conversation with an independent row and blob lifetime. */
+  async copyToConversation(sourceAttachmentId: string, targetConversationId: string, ownerId: string): Promise<string> {
+    const source = await this.store.db.serial(async () => {
+      const row = await this.store.db.get<AttachmentRow>(
+        "SELECT * FROM attachments a WHERE id=? AND complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)",
+        [sourceAttachmentId],
+      );
+      if (!row) throw new HubError("attachment_not_found", 404);
+      await this.store.requireMember(ownerId, targetConversationId);
+      if (row.conversation_id === targetConversationId) return { row, existingId: row.id };
+      const existing = await this.store.db.get<{ id: string }>(
+        "SELECT id FROM attachments a WHERE owner_id=? AND conversation_id=? AND sha256=? AND size=? AND name=? AND complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)",
+        [ownerId, targetConversationId, row.sha256, row.size, row.name],
+      );
+      return { row, existingId: existing?.id };
+    });
+    if (source.existingId) {
+      await this.requireBlob(path.join(this.directory, `${source.existingId}.blob`), source.row.size);
+      return source.existingId;
+    }
+    const id = newId("att");
+    const from = path.join(this.directory, `${source.row.id}.blob`);
+    const to = path.join(this.directory, `${id}.blob`);
+    await this.requireBlob(from, source.row.size);
+    let linked = false;
+    try {
+      try { await link(from, to); }
+      catch (error) {
+        if (["ENOENT", "ENOTDIR", "EACCES"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new HubError("attachment_unavailable", 410);
+        if (!["EXDEV", "EPERM", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+        try { await copyFile(from, to, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE); }
+        catch (copyError) {
+          if (["ENOENT", "ENOTDIR", "EACCES", "EPERM"].includes((copyError as NodeJS.ErrnoException).code ?? "")) throw new HubError("attachment_unavailable", 410);
+          throw copyError;
+        }
+      }
+      linked = true;
+      const inserted = await this.store.db.transaction(async () => {
+        await this.store.requireMember(ownerId, targetConversationId);
+        const dup = await this.store.db.get<{ id: string }>(
+          "SELECT id FROM attachments a WHERE owner_id=? AND conversation_id=? AND sha256=? AND size=? AND name=? AND complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)",
+          [ownerId, targetConversationId, source.row.sha256, source.row.size, source.row.name],
+        );
+        if (dup) return dup.id;
+        await this.store.db.run(
+          "INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,1,?)",
+          [id, targetConversationId, ownerId, source.row.sha256, source.row.size, source.row.mime, source.row.name, `${id}.blob`, Date.now()],
+        );
+        return id;
+      });
+      if (inserted !== id) await rm(to, { force: true });
+      return inserted;
+    } catch (error) {
+      if (linked) await rm(to, { force: true });
       throw error;
     }
   }

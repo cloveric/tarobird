@@ -33,7 +33,7 @@ it.each([{ CODEX_HOME: "relative-private-location" }, { HTTPS_PROXY: "private\np
   const root = await mkdtemp(path.join(os.tmpdir(), "doctor-environment-")); roots.push(root);
   const result = await inspectHost(root, { PATH: "/usr/bin", ...invalid });
   expect(result.environmentCheck).toEqual({ error: "host_environment_invalid", variables: [Object.keys(invalid)[0]] });
-  expect(result.engines.map(row => row.engine).sort()).toEqual(["antigravity", "claude", "codex", "deepseek", "kimi", "pi"]);
+  expect(result.engines.map(row => row.engine).sort()).toEqual(["antigravity", "claude", "codex", "deepseek", "kimi", "omp", "pi"]);
   expect(JSON.stringify(result)).not.toContain(Object.values(invalid)[0]);
 });
 

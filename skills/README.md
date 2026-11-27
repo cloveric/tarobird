@@ -36,20 +36,17 @@ skill (MIT); the tool-routing section is TaroBot-specific.
 Temporary App storage and safe post-publication retirement. Install through the
 same script above; see [the operator guide](../docs/macos-artifact-retention.md).
 
-## Baoyu Design and Baoyu PPT
+## Workbench presentations
 
-These are TaroBot adapters for the separately pinned canvas and slides editors.
-They operate App projects with `app_workbench` / `tarobot workbench run`; they do
-not run the upstream filesystem server. Explicit Baoyu/宝玉 requests select them;
-ordinary design/PPT requests retain each engine's usual skills.
+Workbench presentations need no skill. Bots use TaroBird's built-in slide format
+directly through `app_workbench` / `tarobot workbench run`; shared App/CLI
+capability guidance describes it to supported engines without relying on global
+skill discovery. Both former Baoyu adapters are gone: `baoyu-design` with its
+canvas editor (#89; canvas projects kept from earlier versions can only be
+exported in the App) and `baoyu-ppt` with the Baoyu slides editor (#90). The
+installer does not remove copies of them that a user installed earlier.
 
-```bash
-bash scripts/install-skills.sh --skill baoyu-design --skill baoyu-ppt
-```
-
-To use an engine-specific skill location, pass `--destination /path/to/skills`
-(repeat for multiple locations). Existing sessions may cache their catalog; do not
-reset user conversations just to refresh metadata. Shared App/CLI capability guidance
-also exposes the route to supported engines without relying on global skill discovery.
-Standalone/App Host packages carry these adapters and their references. Check both
-UPSTREAM.json files, upstream skills and editors at every release.
+To install into an engine-specific skill location, pass
+`--destination /path/to/skills` to `scripts/install-skills.sh` (repeat for
+multiple locations). Existing sessions may cache their catalog; do not reset user
+conversations just to refresh metadata.

@@ -7,18 +7,19 @@ import { CLAUDE_MODEL_CHOICES, getEngineEffortValidationError, type InstanceEngi
 import type { ModelSettings } from "../client-protocol/model.js";
 import { discoverCliModels } from "./cli-model-discovery.js";
 import { discoverPiModels } from "./pi-model-discovery.js";
+import { discoverOmpModels } from "./omp-model-discovery.js";
 import { discoverDeepSeekModels } from "./deepseek-model-discovery.js";
 import { findDeepSeekModel } from "../codex/deepseek-models.js";
 
 export function modelEffortChoices(engine: InstanceEngine, model: string, discovered: ModelSettings["choices"] = []): ModelSettings["customEfforts"] {
   if (engine === "deepseek") return findDeepSeekModel(discovered, model)?.efforts ?? [""];
-  if (engine === "kimi" || engine === "claude" || engine === "codex" || engine === "pi") {
+  if (engine === "kimi" || engine === "claude" || engine === "codex" || engine === "pi" || engine === "omp") {
     const known = discovered.find(choice => choice.id === model);
     if (known) return known.efforts;
   }
-  // Native Pi model metadata is authoritative. Unknown models can follow their
+  // Native Pi/omp model metadata is authoritative. Unknown models can follow their
   // native default, but must not advertise invented reasoning capabilities.
-  if (engine === "pi") return [""];
+  if (engine === "pi" || engine === "omp") return [""];
   return engine === "antigravity" ? antigravityEffortChoices(discovered, model) : ["", ...EFFORT_LEVELS.filter(effort => !getEngineEffortValidationError(engine, effort, model || undefined))];
 }
 export type ModelCatalogRead = {
@@ -51,6 +52,10 @@ export async function readModelCatalogAnswer(engine: InstanceEngine, env = proce
   }
   if (engine === "pi") {
     const result = await (reread ? discoverPiModels(env, cwd, true) : discoverPiModels(env, cwd)), selected = result.models.find(model => model.id === result.defaultModel);
+    return { choices: [{ id: "", ...(selected ? { label: selected.label } : {}), efforts: selected?.efforts ?? [""] }, ...result.models], status: result.status, answered: result.status !== "unavailable" };
+  }
+  if (engine === "omp") {
+    const result = await (reread ? discoverOmpModels(env, cwd, true) : discoverOmpModels(env, cwd)), selected = result.models.find(model => model.id === result.defaultModel);
     return { choices: [{ id: "", ...(selected ? { label: selected.label } : {}), efforts: selected?.efforts ?? [""] }, ...result.models], status: result.status, answered: result.status !== "unavailable" };
   }
   return legacyModelCatalog(engine, env, reread);
@@ -90,7 +95,7 @@ async function legacyModelCatalog(engine: InstanceEngine, env: NodeJS.ProcessEnv
 /** What an engine offers when its catalog cannot be read in time: the same
  * choices an unanswered read yields, never another engine's or an invented list. */
 export function fallbackModelCatalog(engine: InstanceEngine): ModelCatalogRead {
-  if (engine === "deepseek" || engine === "pi") return { choices: [{ id: "", efforts: [""] }], status: "unavailable", answered: false };
+  if (engine === "deepseek" || engine === "pi" || engine === "omp") return { choices: [{ id: "", efforts: [""] }], status: "unavailable", answered: false };
   if (engine === "codex" || engine === "claude") return { choices: ["", ...(engine === "codex" ? CODEX_MODEL_CHOICES : CLAUDE_MODEL_CHOICES)].map(id => ({ id, efforts: modelEffortChoices(engine, id) })), answered: false };
   return { choices: [{ id: "", efforts: engine === "kimi" ? modelEffortChoices(engine, "") : [""] }], answered: false };
 }

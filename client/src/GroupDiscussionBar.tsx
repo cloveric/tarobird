@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, ChevronRight, ListOrdered, LoaderCircle, MessageSquare, MessagesSquare, Paperclip, Pause, Play, Settings2, Square } from "lucide-react";
+import { addGlobalListener } from "./global-event-hub.js";
+import { Check, ChevronRight, ListOrdered, LoaderCircle, MessageSquare, MessagesSquare, Paperclip, Pause, Play, Settings2, Square, UserCheck } from "lucide-react";
 import { groupDiscussionActive, groupDiscussionViewSchema, groupDiscussionStepSchema, GROUP_DISCUSSION_TEXT_LIMIT, hasVisibleGroupText, type GroupDiscussionAction, type GroupDiscussionRun, type GroupDiscussionStep, type GroupDiscussionView } from "../../src/client-protocol/group-discussion.js";
+import { groupMembersStateSchema } from "../../src/client-protocol/group-members.js";
 import type { Conversation } from "../../src/client-protocol/index.js";
 import type { HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
@@ -18,7 +20,7 @@ import { discussionSendProblem as problem, groupReplyModeFromView, type GroupRep
 import { t, useLocale } from "./i18n.js";
 import "./group-discussion.css";
 
-const modeLabel = (mode: string) => mode === "parallel" ? t("并行回复") : mode === "independent" ? t("独立评议") : mode === "sequential" ? t("轮流讨论") : t("普通群聊");
+const modeLabel = (mode: string) => mode === "designated" ? t("指定 Bot 回复") : mode === "parallel" ? t("并行回复") : mode === "independent" ? t("独立评议") : mode === "sequential" ? t("轮流讨论") : t("普通群聊");
 function stanceLabel(step?: GroupDiscussionStep): string {
   const stance = step?.stance;
   if (!stance) return step ? t("未明确表态") : t("尚未发言");
@@ -50,6 +52,7 @@ export function GroupDiscussionBar({ connection, conversation, group, active, se
   useLocale();
   const state = useSyncExternalStore(notify => connection.subscribe(notify), () => connection.state);
   const [view, setView] = useState<GroupDiscussionView>(), [error, setError] = useState("");
+  const [designatedName, setDesignatedName] = useState<string>();
   const [readError, setReadError] = useState(false);
   const [dialog, setDialog] = useState<"start" | "details" | "settings">(), [confirmEnd, setConfirmEnd] = useState(false);
   const [text, setText] = useState(""), [draftReady, setDraftReady] = useState(false), [draftError, setDraftError] = useState(false);
@@ -78,7 +81,25 @@ export function GroupDiscussionBar({ connection, conversation, group, active, se
   const participantProblem = !participants.ready || participants.error ? t("参与者选择尚未读取或保存，请重新选择后发送。")
     : selectedOrder.length < 2 ? t("发起讨论至少需要两位 Bot；只点名一位时，请从输入框发送。")
     : !state.groupDiscussionRecoveryAvailable && selectedOrder.length !== view?.settings.policy.botOrder.length ? t("更新主机后可选择本次讨论的参与者，内容已保留。") : "";
-  useEffect(() => { if (view) modeChanged?.(groupReplyModeFromView(conversation.id, view)); }, [conversation.id, view, modeChanged]);
+  useEffect(() => {
+    if (!view || view.settings.policy.mode !== "designated" || !state.crossHostGroupsAvailable || !online) {
+      setDesignatedName(undefined);
+      return;
+    }
+    let cancelled = false;
+    void connection.http(`/api/groups/${group.id}/members?directory=0`, { signal: timeoutSignal(10_000) })
+      .then(raw => {
+        if (cancelled) return;
+        const parsed = groupMembersStateSchema.parse(raw);
+        const target = parsed.designatedMemberKey ? parsed.members.find(m => m.memberKey === parsed.designatedMemberKey) : undefined;
+        setDesignatedName(target ? target.nameSnapshot : undefined);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [connection, group.id, online, state.crossHostGroupsAvailable, view?.settings.policy.mode, view?.settings.revision, dialog]);
+  useEffect(() => {
+    if (view) modeChanged?.({ ...groupReplyModeFromView(conversation.id, view), ...(designatedName ? { designatedName } : {}) });
+  }, [conversation.id, view, designatedName, modeChanged]);
   const canStart = online && !group.archived && !conversation.archived;
   const canControl = canStart && (state.user?.id === group.ownerId || state.user?.id === run?.createdBy);
   const routeScope = useRef(0), lastReadRevision = useRef(-1), liveRun = useRef(false);
@@ -135,8 +156,8 @@ export function GroupDiscussionBar({ connection, conversation, group, active, se
       if (lastReadRevision.current === connection.groupDiscussionRevision || eventTimer !== undefined) return;
       eventTimer = setTimeout(() => { eventTimer = undefined; if (timer) clearTimeout(timer); void read(); }, 300);
     });
-    void read(); document.addEventListener("visibilitychange", wake);
-    return () => { cancelled = true; if (timer) clearTimeout(timer); if (eventTimer) clearTimeout(eventTimer); unsubscribe(); document.removeEventListener("visibilitychange", wake); };
+    void read(); const stopVisibility = addGlobalListener(document, "visibilitychange", wake);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); if (eventTimer) clearTimeout(eventTimer); unsubscribe(); stopVisibility(); };
   }, [active, online, state.groupDiscussionAvailable, refresh]);
   const editText = (value: string) => {
     setText(value);
@@ -274,12 +295,13 @@ export function GroupDiscussionBar({ connection, conversation, group, active, se
   return <>
     <section className={`group-discussion-strip${running ? " is-active" : ""}`} aria-label={t("群聊方式与讨论状态")}>
       <button ref={trigger} className="group-discussion-summary" aria-label={t("群聊方式与讨论状态")} disabled={!view} onClick={() => setDialog(run ? "details" : "settings")}>
-        {running ? <span className={`group-discussion-dot${run.status === "paused" ? " is-paused" : ""}`}/> : mode === "mentions" ? <MessageSquare size={15}/> : mode === "parallel" ? <MessagesSquare size={15}/> : <ListOrdered size={15}/>}
-        <span role="status" aria-live="polite">{!view ? t("正在读取讨论状态…") : run && mode !== "parallel" ? runLabel(run) : modeLabel(mode)}</span>
+        {running ? <span className={`group-discussion-dot${run.status === "paused" ? " is-paused" : ""}`}/> : mode === "designated" ? <UserCheck size={15}/> : mode === "mentions" ? <MessageSquare size={15}/> : mode === "parallel" ? <MessagesSquare size={15}/> : <ListOrdered size={15}/>}
+        <span role="status" aria-live="polite">{!view ? t("正在读取讨论状态…") : run && mode !== "parallel" && mode !== "designated" ? runLabel(run) : modeLabel(mode)}</span>
         {running && <small>{t("第 {0}/{1} 轮", run.round, run.maxRounds)}</small>}<ChevronRight size={14}/>
       </button>
       {(!!startReceipt || receiptError || !running && (mode === "sequential" || mode === "independent")) && <button className="group-discussion-start" disabled={!canStart || !view} onClick={() => void openStart()}><Play size={13}/>{startReceipt || receiptError ? t("核对上次发送") : t("发起讨论")}</button>}
       {!running && view && mode === "mentions" && <small className="group-mention-hint">{t("不 @ 仅记录")}</small>}
+      {!running && view && mode === "designated" && <small className="group-mention-hint">{designatedName ? t("默认 {0} 回复 · @ 可切换", designatedName) : t("默认指定成员回复 · @ 可切换")}</small>}
       {!running && view && mode === "parallel" && <small className="group-mention-hint">{t("不 @ 全员回复 · @ 仅点名")}</small>}
       <button className="group-discussion-settings" aria-label={t("设置群聊方式")} title={t("设置群聊方式")} onClick={showSettings}><Settings2 size={16}/></button>
     </section>

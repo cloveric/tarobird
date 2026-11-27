@@ -20,6 +20,7 @@ import type {
 import { EngineIncompleteResponseError } from "./adapter.js";
 import { AdapterQuotaCache } from "./adapter-account-quota.js";
 import { cancelOwnedAntigravityQuotaReads, readOwnedAntigravityQuota } from "./antigravity-account-quota.js";
+import type { AntigravityLocalProbeDeps } from "./antigravity-local-server.js";
 import { killProcessTree } from "./process-tree.js";
 import { appStopKillOptions } from "../runtime/turn-cancellation.js";
 import { renderPrivateTurnInstructions } from "./turn-instructions.js";
@@ -190,6 +191,7 @@ type AntigravityWorker = {
   userEchoMode: "unknown" | "present" | "absent";
   pendingTurn: AntigravityPendingTurn | null;
   lastActivityAt: number;
+  quotaCredentialAtSpawn: string;
   logDir?: string;
   removed: boolean;
 };
@@ -317,6 +319,12 @@ function isNativeGoalCommand(text: string): boolean {
   return /^\/goal(?:\s|$)/i.test(text.trimStart());
 }
 
+/** Matches any native Antigravity slash command (`/swarm`, `/grill-me`, `/plan`, `/goal`, etc.)
+ * while rejecting absolute file paths such as `/workspace/src/file.ts` (second `/` before whitespace). */
+function isNativeAntigravitySlashCommand(text: string): boolean {
+  return /^\/[A-Za-z][\w.:-]*(?:\s|$)/.test(text.trimStart());
+}
+
 function buildAntigravityPrompt(input: {
   instructions: string | null;
   turnInstructions?: string;
@@ -324,12 +332,12 @@ function buildAntigravityPrompt(input: {
   files: string[];
 }): string {
   const parts: string[] = [];
-  const nativeGoal = isNativeGoalCommand(input.text);
-  if (nativeGoal) parts.push(input.text.trimStart());
+  const nativeSlash = isNativeAntigravitySlashCommand(input.text);
+  if (nativeSlash) parts.push(input.text.trimStart());
   if (input.instructions) parts.push(renderPrivateInstructions(input.instructions));
   const turnInstructions = renderPrivateTurnInstructions(input.turnInstructions);
   if (turnInstructions) parts.push(turnInstructions);
-  if (!nativeGoal) parts.push(["<user_message>", input.text, "</user_message>"].join("\n"));
+  if (!nativeSlash) parts.push(["<user_message>", input.text, "</user_message>"].join("\n"));
   if (input.files.length > 0) {
     parts.push(input.files.map((file) => `Attachment: ${file}`).join("\n"));
   }
@@ -425,6 +433,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
     private readonly inactivityTimeoutMs: number | null = ANTIGRAVITY_PROCESS_INACTIVITY_TIMEOUT_MS,
     private readonly idleWorkerTtlMs: number = DEFAULT_IDLE_WORKER_TTL_MS,
     idleSweepIntervalMs: number = DEFAULT_IDLE_SWEEP_INTERVAL_MS,
+    private readonly localQuotaProbe?: boolean | Partial<AntigravityLocalProbeDeps>,
   ) {
     const buildChildEnv = () => {
       const env = { ...process.env };
@@ -449,9 +458,14 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
   async getAccountQuota(options: EngineQuotaReadOptions): Promise<EngineQuotaReadResult> {
     const captureScope = () => this.quotaCache.capture("process");
     const scope = captureScope();
-    if (this.destroyed) return this.quotaCache.failure(scope, "cancelled");
+    if (this.destroyed || this.destroyPromise) return this.quotaCache.failure(scope, "cancelled");
     const cached = this.quotaCache.response(scope, options);
     if (cached) return cached;
+    const preferredPids = [...new Set([...this.workers.values()]
+      .filter(worker => !worker.removed
+        && worker.quotaCredentialAtSpawn === scope.credentialRevision
+        && typeof worker.child.pid === "number" && worker.child.pid > 0)
+      .map(worker => worker.child.pid as number))];
     return readOwnedAntigravityQuota({
       executable: this.antigravityExecutable,
       cwd: this.workspacePath ?? process.cwd(),
@@ -461,6 +475,8 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       scope,
       options,
       captureScope,
+      preferredPids,
+      localProbe: this.localQuotaProbe ?? (this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity)),
     });
   }
 
@@ -525,18 +541,20 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
 
     const workspace = input.workspaceOverride ?? this.workspacePath;
     let logicalSession = isLogicalTelegramSessionId(sessionId);
+    const nativeSlash = isNativeAntigravitySlashCommand(input.text);
     const nativeGoal = isNativeGoalCommand(input.text);
-    if (nativeGoal) {
+    if (nativeSlash) {
       const requestedGoalSessionId = sessionId;
+      const commandKind = nativeGoal ? "/goal" : "slash command";
       if (this.nativeGoalSessions.has(sessionId) || this.pendingWorkers.has(sessionId)) {
-        throw new Error("Antigravity session already has a native /goal in flight");
+        throw new Error(`Antigravity session already has a native ${commandKind} in flight`);
       }
       this.nativeGoalSessions.add(requestedGoalSessionId);
       try {
         const existing = this.workers.get(sessionId);
         if (existing && !existing.removed) {
           if (existing.pendingTurn) {
-            throw new Error("Cannot run Antigravity /goal while another turn is in flight");
+            throw new Error(`Cannot run Antigravity ${commandKind} while another turn is in flight`);
           }
           sessionId = existing.currentSessionId ?? sessionId;
           logicalSession = isLogicalTelegramSessionId(sessionId);
@@ -752,6 +770,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       ...(workspace ? ["--add-dir", workspace] : []),
     ];
     const invocation = buildCommandInvocation(this.antigravityExecutable, args);
+    const quotaCredentialAtSpawn = this.quotaCache.capture("spawn").credentialRevision;
     let child: ProcessChildLike;
     try {
       child = this.spawnAntigravity(invocation.command, invocation.args, {
@@ -784,6 +803,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       userEchoMode: "unknown",
       pendingTurn: null,
       lastActivityAt: Date.now(),
+      quotaCredentialAtSpawn,
       ...(logDir ? { logDir } : {}),
       removed: false,
     };

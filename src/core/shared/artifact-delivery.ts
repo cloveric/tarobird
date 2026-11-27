@@ -1,4 +1,5 @@
 import { renderCodexWebCitations } from "../../runtime/codex-web-citations.js";
+import { hostT } from "../../locales/index.js";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 
@@ -114,31 +115,17 @@ export type DeliveryRejectReason =
   | "send-error";
 
 function renderRejectReason(reason: DeliveryRejectReason, detail: string | undefined, locale: Locale): string {
-  if (locale === "zh") {
-    switch (reason) {
-      case "outside-workspace": return "超出工作目录";
-      case "outside-request-output": return "不在当前请求输出目录中";
-      case "credentials-file": return "凭据或私钥文件禁止发送";
-      case "not-a-file": return "不是普通文件";
-      case "too-large": return `文件过大（${detail} > 50MB）`;
-      case "placeholder-path": return "示例占位路径，不是真实文件";
-      case "not-found": return "文件不存在";
-      case "permission-denied": return "无读取权限";
-      case "read-error": return "读取失败";
-      case "send-error": return detail ? `发送失败（${detail}）` : "发送失败";
-    }
-  }
   switch (reason) {
-    case "outside-workspace": return "outside workspace";
-    case "outside-request-output": return "outside current request output";
-    case "credentials-file": return "credentials and private-key files are not sendable";
-    case "not-a-file": return "not a regular file";
-    case "too-large": return `too large (${detail} > 50MB)`;
-    case "placeholder-path": return "placeholder path, not a real file";
-    case "not-found": return "file not found";
-    case "permission-denied": return "permission denied";
-    case "read-error": return "read error";
-    case "send-error": return detail ? `send failed (${detail})` : "send failed";
+    case "outside-workspace": return hostT(locale, "超出工作目录");
+    case "outside-request-output": return hostT(locale, "不在当前请求输出目录中");
+    case "credentials-file": return hostT(locale, "凭据或私钥文件禁止发送");
+    case "not-a-file": return hostT(locale, "不是普通文件");
+    case "too-large": return hostT(locale, "文件过大（{0} > 50MB）", detail);
+    case "placeholder-path": return hostT(locale, "示例占位路径，不是真实文件");
+    case "not-found": return hostT(locale, "文件不存在");
+    case "permission-denied": return hostT(locale, "无读取权限");
+    case "read-error": return hostT(locale, "读取失败");
+    case "send-error": return detail ? hostT(locale, "发送失败（{0}）", detail) : hostT(locale, "发送失败");
   }
 }
 
@@ -172,9 +159,7 @@ export async function deliverArtifactResponse(
     if (isCredentialStylePath(fileName.trim())) {
       await api.sendMessage(
         chatId,
-        locale === "zh"
-          ? `拒绝发送凭据或私钥文件：${fileName.trim()}`
-          : `Refusing to send a credentials or private-key file: ${fileName.trim()}`,
+        hostT(locale, "拒绝发送凭据或私钥文件：{0}", fileName.trim()),
       );
       return 0;
     }
@@ -251,9 +236,7 @@ export async function deliverArtifactResponse(
       await (api as ReplyChannel)
         .sendMessage(
           chatId,
-          locale === "zh"
-            ? "⚠️ 部分回复内容投递失败,上文可能不完整。"
-            : "⚠️ Part of the response failed to deliver; the message above may be incomplete.",
+          hostT(locale, "⚠️ 部分回复内容投递失败,上文可能不完整。"),
         )
         .catch(() => undefined);
     }
@@ -379,13 +362,11 @@ export async function deliverArtifactResponse(
     const MAX_SHOWN = 5;
     const shown = rejected.slice(0, MAX_SHOWN);
     const extra = rejected.length - shown.length;
-    const header = locale === "zh"
-      ? `⚠ 有 ${rejected.length} 个文件未能送达：`
-      : `⚠ ${rejected.length} file${rejected.length === 1 ? "" : "s"} not delivered:`;
-    const moreLine = locale === "zh" ? `…还有 ${extra} 个` : `… and ${extra} more`;
-    const footer = locale === "zh"
-      ? "fallback 标签引用的文件必须位于本 Bot 的工作目录内（或通过 /resume 指定的项目目录）。请核对文件位置和附件权限，再使用当前对话可用的附件发送工具。"
-      : "Fallback tag files must live under the Bot workspace (or a /resume'd project directory). Check the file location and attachment permissions, then use the attachment tools available in the current conversation.";
+    const header = rejected.length === 1
+      ? hostT(locale, "⚠ 有 1 个文件未能送达：")
+      : hostT(locale, "⚠ 有 {0} 个文件未能送达：", rejected.length);
+    const moreLine = hostT(locale, "…还有 {0} 个", extra);
+    const footer = hostT(locale, "fallback 标签引用的文件必须位于本 Bot 的工作目录内（或通过 /resume 指定的项目目录）。请核对文件位置和附件权限，再使用当前对话可用的附件发送工具。");
     const lines = [header, ...shown.map(({ path: p, reason, detail }) => `• ${p} — ${renderRejectReason(reason, detail, locale)}`)];
     if (extra > 0) lines.push(moreLine);
     lines.push(footer);

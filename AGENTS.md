@@ -113,8 +113,11 @@ scan or unavailable evidence blocks that upload.
   copy hook settings. Preserve and review existing hooks before changing them.
 - Run `npm run privacy:staged` before committing. The pre-push hook scans the
   actual outgoing range, author/committer and tag identities, intermediate
-  blobs, personal paths/hostnames/emails/IPs, media review records, full-history
-  Gitleaks and retired ancestry. Run `npm run version:check` as well.
+  blobs, personal paths/hostnames/emails/IPs, media review records, Gitleaks
+  over those outgoing commits and retired ancestry. It does not rescan commits
+  the remote already has; the all-history Gitleaks scan
+  (`node scripts/check-secrets.mjs history`) belongs to CI, the pre-completion
+  script and release preparation. Run `npm run version:check` as well.
 - Review **PR/issue titles, bodies, comments, commit messages, screenshots,
   recordings, logs, attachments, Actions artifacts and release assets** before
   uploading. They are not all Git files. Scan publication text with

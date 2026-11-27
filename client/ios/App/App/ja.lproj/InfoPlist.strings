@@ -1,0 +1,6 @@
+"NSFaceIDUsageDescription" = "本人確認を行い、TaroBird 内の会話のロックを解除します。";
+"NSLocalNetworkUsageDescription" = "ローカルネットワーク上の承認済みホストに接続し、メッセージの送信と添付ファイルの転送を行います。";
+"NSMicrophoneUsageDescription" = "音声メッセージを録音して、選択した Bot に送信します。";
+"NSCameraUsageDescription" = "写真を撮影して、メッセージの添付ファイルとして送信します。";
+"NSPhotoLibraryUsageDescription" = "写真を選択して、メッセージの添付ファイルとして送信します。";
+"NSPhotoLibraryAddUsageDescription" = "接続用 QR コードを写真に保存します。";

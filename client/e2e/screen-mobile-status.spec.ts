@@ -127,3 +127,34 @@ for(const platform of ["android","ios"]) test(`a renew refused because the Hub a
   expect((await log(page)).calls.filter((call:any)=>call.method==="screenClose")).toHaveLength(0);expect((await log(page)).opens).toBe(opens);
   await expect(page.getByRole("button",{name:"断开",exact:true})).toBeVisible();await expect(page.getByRole("button",{name:"连接屏幕",exact:true})).toHaveCount(0);
 });
+
+for(const english of [false,true]) test(`mobile quality menu shows actual stream resolution before and after lease expiry (${english?"en":"zh"})`,async({browser})=>{
+  const context=await browser.newContext({viewport:{width:390,height:844},locale:english?"en-US":"zh-CN",hasTouch:true,isMobile:true});const page=await context.newPage();
+  const text=(key:string)=>english?(en as Record<string,string>)[key]??key:key;
+  const actual=english?"Current 1280×720":"当前 1280×720";
+  const hint=text("720p 节省带宽，最高 3K 保留更多文字细节");
+  try{
+    await page.goto(url("ios"));await ready(page);
+    await page.getByRole("button",{name:text("屏幕更多操作"),exact:true}).click();
+    const select=page.getByLabel(text("画面清晰度"),{exact:true});
+    await expect(select).toHaveValue("smooth");
+    await expect(select.locator("option")).toHaveText(["720p","1080p",text("最高 3K")]);
+    await expect(page.locator(".screen-quality-actual")).toHaveCount(0);
+    await expect(select).toHaveAttribute("title",hint);
+    await page.getByRole("button",{name:text("连接屏幕"),exact:true}).click();
+    await expect(page.getByRole("button",{name:text("开始控制"),exact:true})).toBeEnabled();
+    await expect(page.locator(".screen-quality-actual")).toHaveText(actual);
+    await expect(select).toHaveAttribute("title",`${actual} · ${hint}`);
+    await page.getByRole("button",{name:text("开始控制"),exact:true}).click();
+    await expect(page.getByRole("button",{name:text("停止控制"),exact:true})).toBeVisible();
+    await page.evaluate(()=>{(window as any).screenMobileFixture.withdrawOnRenew=true;});
+    await expect.poll(async()=>(await log(page)).withdrawOnRenew,{timeout:5000}).toBe(false);
+    await expect(status(page)).toHaveText(text(LEASE_EXPIRED));
+    await expect(page.getByRole("button",{name:text("断开"),exact:true})).toBeVisible();
+    await expect(page.locator(".screen-quality-actual")).toHaveText(actual);
+    await expect(select).toHaveAttribute("title",`${actual} · ${hint}`);
+    await page.getByRole("button",{name:text("断开"),exact:true}).click();
+    await expect(page.locator(".screen-quality-actual")).toHaveCount(0);
+    await expect(select).toHaveAttribute("title",hint);
+  }finally{await context.close();}
+});

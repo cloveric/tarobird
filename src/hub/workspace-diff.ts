@@ -314,7 +314,7 @@ export async function inspectWorkspaceGitMetadata(gitDir: string, signal: AbortS
 export class HubWorkspaceDiff {
   private readonly operations = new Set<AbortController>();
   private stopped = false;
-  constructor(private readonly stateDirectory: (botId: string, remainingMs: number) => Promise<string>, private readonly options: { env?: NodeJS.ProcessEnv; runGit?: WorkspaceGitCommand; deadlineMs?: number } = {}) {}
+  constructor(private readonly stateDirectory: (botId: string, remainingMs: number) => Promise<string>, private readonly options: { env?: NodeJS.ProcessEnv; runGit?: WorkspaceGitCommand; deadlineMs?: number; conversationWorkspace?: (conversationId: string) => Promise<string | undefined> } = {}) {}
   close(): void { this.stopped = true; for (const controller of this.operations) controller.abort(new HubError("hub_stopping", 503)); }
   private async operation<T>(scope: Scope, signal: AbortSignal, authorize: () => Promise<void>, work: (op: Operation) => Promise<T>): Promise<T> {
     if (this.stopped) throw new HubError("hub_stopping", 503);
@@ -348,14 +348,15 @@ export class HubWorkspaceDiff {
       config = parsed as Record<string, unknown>;
     }
     const resume = config.resume && typeof config.resume === "object" ? config.resume as Record<string, unknown> : {};
-    const configured = config.workspacePath ?? resume.workspacePath ?? path.join(canonicalState, "workspace");
+    const pinned = await this.options.conversationWorkspace?.(scope.conversationId);
+    const configured = pinned ?? config.workspacePath ?? resume.workspacePath ?? path.join(canonicalState, "workspace");
     if (typeof configured !== "string" || !path.isAbsolute(configured)) throw new HubError("workspace_diff_workspace_unavailable", 409);
     const workspace = await realpath(configured);
     const workspaceIdentity = await lstat(workspace, { bigint: true });
     if (workspace === path.parse(workspace).root || !workspaceIdentity.isDirectory()) throw new HubError("workspace_diff_workspace_unavailable", 409);
     if (requestedPath && isCredentialStylePath(path.join(configured, requestedPath), path.join(workspace, requestedPath))) throw new HubError("workspace_diff_protected", 403);
     op.verify = async () => {
-      await recheck(configIdentity);
+      if (!pinned) await recheck(configIdentity);
       if (await realpath(configured) !== workspace || !sameNode(workspaceIdentity, await lstat(workspace, { bigint: true }))) throw new HubError("workspace_diff_changed_during_read", 409);
     };
     const run = this.options.runGit ?? createWorkspaceGitRunner(await resolveWorkspaceGit(workspace, this.options.env, { signal: op.signal }), this.options.env);

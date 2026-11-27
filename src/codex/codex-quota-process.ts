@@ -49,7 +49,7 @@ export async function readOwnedCodexQuota(input: {
   const began = performance.now();
   let result: EngineQuotaReadResult;
   try {
-    const native = await adapter.readAccountQuotaFromOwnedProcess({ signal: abort.signal, timeoutMs, proofKey: input.cache.proofKey,
+    const native = await adapter.readAccountQuotaFromOwnedProcess({ signal: abort.signal, timeoutMs, proofKey: input.options.accountProofKey ?? input.cache.proofKey,
       captureScope: () => input.captureScope().revision,
       remainingMs: () => Math.max(1, timeoutMs - (performance.now() - began)),
     });
@@ -73,5 +73,5 @@ export async function readOwnedCodexQuota(input: {
   // A read is not complete while its owned process is still alive.
   const after = input.captureScope();
   if (after.revision !== input.scope.revision) return input.cache.failure(after, "auth_changed");
-  return input.cache.store(after, { snapshot: result.snapshot, ...(result.proof ? { proof: { ...result.proof, scopeStamp: after.revision } } : {}) });
+  return input.cache.store(after, { snapshot: result.snapshot, ...(result.proof ? { proof: { ...result.proof, scopeStamp: after.revision } } : {}) }, input.options.accountProofKey);
 }

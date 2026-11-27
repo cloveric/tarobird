@@ -4,7 +4,7 @@ export const permissionChoiceSchema = z.enum(PERMISSION_CHOICES);
 export const permissionOptionSchema = z.object({ id: permissionChoiceSchema, label: z.string(), description: z.string() }).strict();
 export const permissionSettingsSchema = z.object({
   scope: z.literal("bot"), revision: z.string().regex(/^[a-f0-9]{64}$/),
-  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi"]),
+  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"]),
   choice: permissionChoiceSchema, defaultChoice: permissionChoiceSchema,
   choices: z.array(permissionOptionSchema), activeTurns: z.number().int().nonnegative(),
 }).strict();

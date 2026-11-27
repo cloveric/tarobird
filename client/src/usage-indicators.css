@@ -1,4 +1,4 @@
-/* Context ring and quota battery (issue 68). The drawn part is always what is left. */
+/* Context ring and quota battery (issue 68 & 137). The drawn part is always what is left. */
 .usage-ring{flex:none;transform:rotate(-90deg)}
 .usage-ring-track{stroke:var(--border)}
 .usage-ring-left{stroke:var(--mono-mark,var(--muted))}
@@ -11,6 +11,13 @@
 .usage-battery[data-tone=empty] .usage-battery-left{fill:var(--red)}
 [data-tone=low]:is(.usage-pair,b){color:var(--orange)}
 [data-tone=empty]:is(.usage-pair,b){color:var(--red)}
+
+/* Stale/cached readings stay visible, clearly desaturated/greyed instead of disappearing. */
+.usage-battery[data-stale=true]{opacity:.58;color:var(--muted)}
+.usage-battery[data-stale=true] .usage-battery-body{stroke:var(--muted);opacity:.85}
+.usage-battery[data-stale=true] .usage-battery-left{fill:var(--muted)}
+.usage-pair[data-stale=true]{color:var(--muted);opacity:.72}
+.usage-stale-banner{margin:0 0 10px;padding:6px 9px;border-radius:8px;background:var(--surface);color:var(--muted);font-size:11.5px;line-height:1.4}
 
 /* Doubled class: the toolbar styles its plain buttons as larger, heavier pills; this one matches the model controls beside it. */
 .composer-toolbar>button.usage-indicators.usage-indicators{display:inline-flex;align-items:center;gap:8px;flex:none;min-height:28px;padding:4px 7px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:11px;font-weight:400;line-height:1.4;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -25,11 +32,16 @@
 .usage-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:0 0 5px}
 .usage-row>b{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
 .usage-row>span{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums;text-align:right}
+.usage-row>span.usage-window-label{color:var(--text);font-size:12px;font-weight:600;text-align:left}
+.usage-reset-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:3px;font-size:11.5px;color:var(--muted)}
+.usage-reset-row>strong{font-weight:600;color:var(--text)}
+.usage-reset-row>span{font-variant-numeric:tabular-nums;text-align:right}
 .usage-gap{display:inline-block;width:1em}
 .usage-bar{height:5px;margin:0 0 4px;border-radius:99px;background:var(--surface);overflow:hidden}
 .usage-bar>i{display:block;height:100%;border-radius:99px;background:var(--mono-mark,var(--muted))}
 .usage-bar>i[data-tone=low]{background:var(--orange)}
 .usage-bar>i[data-tone=empty]{background:var(--red)}
+.usage-bar[data-stale=true]>i{background:var(--muted);opacity:.65}
 .usage-window+.usage-window{margin-top:8px}
 .usage-note{margin:0;color:var(--muted);font-size:11.5px}
 .usage-read-at{margin-top:9px;text-align:right}
@@ -39,6 +51,7 @@
 /* Phone: a row in the chat actions sheet, its details, and the battery in the header. */
 .mobile-chat-action-list>button>.action-value[data-tone=low]{color:var(--orange)}
 .mobile-chat-action-list>button>.action-value[data-tone=empty]{color:var(--red)}
+.mobile-chat-action-list>button>.action-value[data-stale=true]{color:var(--muted)}
 .mobile-chat-action-list>button>svg.usage-battery{width:22px;height:15px;color:var(--grey)}
 .usage-sheet{padding:16px;border-radius:16px;background:var(--raised);box-shadow:var(--elev-1);font-size:14px}
 .usage-sheet .usage-details h4{font-size:13px}

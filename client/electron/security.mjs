@@ -15,6 +15,7 @@ export function internalResource(raw) {
 // https/wss only, without URL credentials or hosts written as loopback,
 // private, link-local or local names. The App document itself stays offline.
 const WIDGET_RELAY = 'tarobot-widget://sandbox/widget-sandbox.html';
+const PLUGIN_RELAY = 'tarobot-widget://sandbox/plugin-sandbox.html';
 export function localHost(name) {
   const host = String(name).toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (host === 'localhost' || /\.(?:localhost|local|internal|lan|home\.arpa)$/.test(host) || !host.includes('.') && !host.includes(':')) return true;
@@ -92,8 +93,21 @@ export function secureContents(contents) {
   contents.on('will-attach-webview', event => event.preventDefault());
   contents.on('will-navigate', (event, url) => { if (!isEntryURL(url ?? event.url)) event.preventDefault(); });
   contents.on('will-frame-navigate', event => {
+    if (!event.isMainFrame && event.frame) {
+      try {
+        // The App may open the fixed relay. Only that relay may initialize its
+        // one opaque srcdoc, and no renderer may navigate further descendants.
+        const parent = event.frame.parent;
+        if (event.url === PLUGIN_RELAY && !isEntryURL(parent?.url)) { event.preventDefault(); return; }
+        for (let ancestor = parent; ancestor; ancestor = ancestor.parent) {
+          if (ancestor.url !== PLUGIN_RELAY) continue;
+          if (ancestor !== parent || event.url !== 'about:srcdoc' || event.initiator?.url !== PLUGIN_RELAY) event.preventDefault();
+          return;
+        }
+      } catch { event.preventDefault(); return; }
+    }
     if (event.isMainFrame ? !isEntryURL(event.url)
-      : !['tarobot-widget://sandbox/widget-sandbox.html', 'tarobot-widget://sandbox/plugin-sandbox.html', 'tarobot-widget://sandbox/design-loader.html', 'about:blank', 'about:srcdoc'].includes(event.url) && !event.url.startsWith('data:text/html;charset=utf-8,')) event.preventDefault();
+      : ![WIDGET_RELAY, PLUGIN_RELAY, 'tarobot-widget://sandbox/design-loader.html', 'about:blank', 'about:srcdoc'].includes(event.url) && !event.url.startsWith('data:text/html;charset=utf-8,')) event.preventDefault();
   });
 }
 

@@ -32,7 +32,7 @@ describe('Baoyu suite authenticated protocol boundary', () => {
   let directory: string, hub: HubServer, conversationId: string, peer: Peer, token: string;
   const peers: Peer[] = [], channels: GatewayChannel[] = [], secret = 'suite-fixture-' + 'a'.repeat(40);
   const target = { deviceId: 'desktop', windowId: 'suite-window', tabId: 'design-a' };
-  const full: WorkbenchRegistration['capabilities'] = ['design.v1', 'design.slides.v1', 'design.comments.v1', 'design.history.v1'];
+  const full: WorkbenchRegistration['capabilities'] = ['design.slides.v1', 'design.comments.v1', 'design.history.v1'];
   beforeEach(async () => {
     directory = await mkdtemp(path.join(os.tmpdir(), 'workbench-suite-protocol-'));
     hub = await HubServer.start({ stateDir: directory });
@@ -51,7 +51,7 @@ describe('Baoyu suite authenticated protocol boundary', () => {
   const api = (route: string, body?: unknown, bearer = token) => fetch(hub.url + route, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const command = (request: object, conv = conversationId, bearer = token) => api(`/api/conversations/${conv}/workbench/commands`, request, bearer);
   async function register(capabilities = full, conv = conversationId, windowId = target.windowId) {
-    peer.send({ type: 'workbench.register', registration: { windowId, generation: 'suite-generation', conversationId: conv, capabilities, tabs: [{ id: target.tabId, kind: 'design', title: 'Design A', revision: 3 }, { id: 'design-b', kind: 'design', title: 'Design B', revision: 3 }], activeTabId: 'design-b', visible: true } });
+    peer.send({ type: 'workbench.register', registration: { windowId, generation: 'suite-generation', conversationId: conv, capabilities, tabs: [{ id: target.tabId, kind: 'design', designFormat: 'slides', title: 'PPT A', revision: 3 }, { id: 'design-b', kind: 'design', designFormat: 'slides', title: 'PPT B', revision: 3 }], activeTabId: 'design-b', visible: true } });
     await until(async () => { const list = await (await api(`/api/conversations/${conv}/workbench/targets`)).json(); return list.some((item: any) => item.windowId === windowId && JSON.stringify(item.capabilities) === JSON.stringify(capabilities)) || undefined; });
   }
   async function accept(frame: any, applied: boolean, revision = 3) {
@@ -72,9 +72,8 @@ describe('Baoyu suite authenticated protocol boundary', () => {
       { requestId: 'comments-reply', operation: 'design.comments.reply', target, payload: { threadId: 'c_0123456789', text: 'Checked' } },
       { requestId: 'comments-resolve', operation: 'design.comments.resolve', target, payload: { threadId: 'c_0123456789', status: 'resolved' } },
       { requestId: 'history-list', operation: 'design.history.list', target, payload: { limit: 5 } },
-      { requestId: 'history-diff', operation: 'design.history.diff', target, payload: { version: 1, path: 'project/Main.dc.html' } },
+      { requestId: 'history-diff', operation: 'design.history.diff', target, payload: { version: 1, path: 'project/slides/cover.html' } },
       { requestId: 'history-restore', operation: 'design.restore', target, expectedRevision: 3, payload: { version: 1 } },
-      { requestId: 'canvas-create', operation: 'design.create', target: { deviceId: target.deviceId, windowId: target.windowId }, payload: { format: 'canvas', title: 'Canvas' } },
       { requestId: 'slides-create', operation: 'design.create', target: { deviceId: target.deviceId, windowId: target.windowId }, payload: { format: 'slides', title: 'PPT' } },
     ];
     channel.on('error', error => failures.push(error));
@@ -97,7 +96,7 @@ describe('Baoyu suite authenticated protocol boundary', () => {
   });
 
   it('comments-only targets still receive Host-stamped authors without history capability', async () => {
-    await register(['design.v1', 'design.comments.v1']);
+    await register(['design.slides.v1', 'design.comments.v1']);
     const worker = await Peer.connect(hub.instanceUrl.replace(/^http/, 'ws') + '/instance'); peers.push(worker);
     worker.send({ type: 'instance.hello', botId: 'bot', secret, engine: 'claude', model: '', effort: '', capabilities: [] }); await worker.next('instance.ready');
     peer.send({ type: 'message.send', conversationId, clientMsgId: 'comments-only-turn', text: 'Reply to this comment', attachments: [], workbench: { target, kind: 'design', revision: 3 } });

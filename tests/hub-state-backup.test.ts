@@ -332,7 +332,7 @@ it("preserves schema-24 assistance receipts, parent session and remaining allowa
     }; } finally { await db.close(); }
   };
   const expected = await readLedger(source), original = await readFile(path.join(source, "hub.sqlite"));
-  expect(expected.schema).toEqual({ value: "26" });
+  expect(expected.schema).toEqual({ value: "28" });
   await backupHubState(source, bundle);
   expect(await readFile(path.join(source, "hub.sqlite"))).toEqual(original);
   await hideSource();
@@ -363,9 +363,9 @@ it("preserves paused inputs and mutation receipts through schema-25 backup and r
 
 it("refuses a newer schema before backup writes and leaves its database bytes unchanged", async () => {
   const store = await HubStore.open(source);
-  await store.db.run("UPDATE meta SET value='27' WHERE key='schema_version'"); await store.db.close();
+  await store.db.run("UPDATE meta SET value='29' WHERE key='schema_version'"); await store.db.close();
   const original = await readFile(path.join(source, "hub.sqlite")), files = (await readdir(source)).sort();
-  await expect(backupHubState(source, bundle)).rejects.toThrow("host_schema_incompatible:27");
+  await expect(backupHubState(source, bundle)).rejects.toThrow("host_schema_incompatible:29");
   expect((await readFile(path.join(source, "hub.sqlite"))).equals(original)).toBe(true);
   expect((await readdir(source)).filter(file => !["hub.sqlite-shm", "hub.sqlite-wal"].includes(file)).sort()).toEqual(files.filter(file => !["hub.sqlite-shm", "hub.sqlite-wal"].includes(file)));
   await expect(lstat(bundle)).rejects.toMatchObject({ code: "ENOENT" });

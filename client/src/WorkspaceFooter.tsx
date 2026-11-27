@@ -1,20 +1,21 @@
 import type { RefObject } from "react";
-import { Activity, Archive, CalendarClock, ChevronsUpDown, FolderOpen, Monitor, MonitorCog, PanelsTopLeft, Plug, Plus, Puzzle, Settings, Wifi } from "lucide-react";
+import { Activity, Archive, CalendarClock, ChevronsUpDown, Cpu, FolderOpen, Monitor, MonitorCog, PanelsTopLeft, Plug, Plus, Puzzle, Settings, Wifi } from "lucide-react";
 import { Avatar } from "./Avatar.js";
 import { DesktopMenu } from "./DesktopMenu.js";
 import { t, useLocale } from "./i18n.js";
 import { hasScreenViewer } from "./mobile-screen-viewer-transport.js";
 
-export type WorkspaceTool = "profile" | "settings" | "connection" | "screen" | "files" | "capabilities" | "schedules" | "operations" | "archives" | "plugins";
+export type WorkspaceTool = "profile" | "settings" | "connection" | "screen" | "files" | "capabilities" | "schedules" | "operations" | "resources" | "archives" | "plugins";
 type Props = {
   hostName: string; status: string; userId?: string; archivedCount: number;
   menuId: string; menuOpen: boolean; trigger: RefObject<HTMLButtonElement | null>;
   toggleMenu: () => void; closeMenu: () => void; open: (tool: WorkspaceTool) => void;
   openAdhd?: () => void; adhdBlocked?: boolean; manageHosts?: () => void; addHost?: () => void;
+  resourcesAvailable?: boolean;
 };
 
 /** One footer for the ordinary inbox and ADHD; actions retain their owning host. */
-export function WorkspaceFooter({ hostName, status, userId, archivedCount, menuId, menuOpen, trigger, toggleMenu, closeMenu, open, openAdhd, adhdBlocked, manageHosts, addHost }: Props) {
+export function WorkspaceFooter({ hostName, status, userId, archivedCount, menuId, menuOpen, trigger, toggleMenu, closeMenu, open, openAdhd, adhdBlocked, manageHosts, addHost, resourcesAvailable }: Props) {
   useLocale();
   const statusLabel = status === "online" ? t("已连接") : status === "connecting" ? t("连接中") : t("离线");
   return <div className="sidebar-footer">
@@ -28,6 +29,7 @@ export function WorkspaceFooter({ hostName, status, userId, archivedCount, menuI
       <button onClick={() => open("plugins")}><Puzzle size={16}/><span className="desktop-menu-label">{t("插件市场")}</span></button>
       <button onClick={() => open("schedules")}><CalendarClock size={16}/><span className="desktop-menu-label">{t("定时任务")}</span></button>
       <button onClick={() => open("operations")}><Activity size={16}/><span className="desktop-menu-label">{t("运行状态")}</span></button>
+      {resourcesAvailable && <button onClick={() => open("resources")}><Cpu size={16}/><span className="desktop-menu-label">{t("资源管理")}</span></button>}
       <button onClick={() => open("archives")}><Archive size={16}/><span className="desktop-menu-label">{t("已归档对话")}</span>{archivedCount > 0 && <span className="desktop-menu-value">{archivedCount}</span>}</button>
       <hr/><button data-settings-entry="connection" onClick={() => open("connection")}><Wifi size={16}/><span className="desktop-menu-label">{t("连接状态与线路")}</span></button>
       {hasScreenViewer() && <button data-settings-entry="screen" onClick={() => open("screen")}><MonitorCog size={16}/><span className="desktop-menu-label">{t("屏幕控制设置")}</span></button>}

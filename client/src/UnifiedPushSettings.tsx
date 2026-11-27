@@ -11,6 +11,7 @@ function registrationError(error: unknown): string {
   if (error instanceof Error && error.message === "unifiedpush_distributor_in_use") return t("分发器由所有主机共用。请先断开已有主机的分发器连接，再更换分发器。");
   if (error instanceof Error && error.message === "unifiedpush_distributor_unavailable") return t("原分发器不可用，请重新安装它，或先断开使用它的主机再更换。");
   if (error instanceof Error && error.message === "unifiedpush_removal_pending") return t("请先完成此主机的推送清理，再重新连接。");
+  if (error instanceof Error && error.message === "unifiedpush_permission_required") return t("通知权限未开启，请在系统设置中允许 TaroBird 通知。");
   return t("推送注册未完成。请检查通知权限、分发器网络及 Hub 允许的分发器域名，再重试。");
 }
 

@@ -8,7 +8,7 @@ import { HubServer } from '../src/hub/server.js';
 import { deviceProof, hashSecret } from '../src/hub/auth.js';
 import { nodeFrameReader } from '../src/client-protocol/fragments-node.js';
 import { WORKBENCH_CAPABILITY } from '../src/client-protocol/workbench.js';
-import { WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY } from '../src/client-protocol/workbench-design.js';
+import { WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY } from '../src/client-protocol/workbench-design.js';
 import { NATIVE_INPUT_CAPABILITY, NATIVE_REVIEW_INPUT_CAPABILITY } from '../src/client-protocol/native-input.js';
 
 class Peer {
@@ -33,17 +33,17 @@ describe('design.open source for native inputs', () => {
     await hub.auth.approve(pair.code, 'local-owner');
     const peer = await Peer.connect(hub.url.replace(/^http/, 'ws') + '/ws'); peers.push(peer);
     const nonce = randomBytes(32).toString('base64url');
-    peer.send({ type: 'hello', deviceId, nonce, protocolVersions: [1], capabilities: [WORKBENCH_CAPABILITY, WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY], cursors: {} });
+    peer.send({ type: 'hello', deviceId, nonce, protocolVersions: [1], capabilities: [WORKBENCH_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY], cursors: {} });
     const c = await peer.next('challenge');
     peer.send({ type: 'auth', signature: sign(null, deviceProof(deviceId, c.nonce, nonce), keys.privateKey).toString('base64') });
     const ready = await peer.next('ready'); await peer.next('sync.complete');
-    peer.send({ type: 'workbench.register', registration: { windowId: `${deviceId}-opener`, generation: 'g', conversationId, capabilities: ['design.open.v1'], tabs: [], visible: true } });
+    peer.send({ type: 'workbench.register', registration: { windowId: `${deviceId}-opener`, generation: 'g', conversationId, capabilities: ['design.open.v1', 'design.slides.v1'], tabs: [], visible: true } });
     return { peer, token: ready.sessionToken as string };
   }
   const steer = (body: object, token: string) => fetch(`${hub.url}/api/conversations/${conversationId}/steer`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ botId: 'bot', targetId: 'run-token', mode: 'message', text: 'Use Design now', ...body }) });
   let rpc = 0;
   const request = (method: string, params: object) => { const id = `req_${++rpc}`; worker.send({ type: 'instance.request', id, method, params }); return worker.next('instance.result', frame => frame.id === id); };
-  const open = (contextMessageId: string, requestId = `open_${++rpc}`) => request('workbench.command', { conversationId, contextMessageId, request: { requestId, operation: 'design.open', payload: {}, contextMessageId } });
+  const open = (contextMessageId: string, requestId = `open_${++rpc}`) => request('workbench.command', { conversationId, contextMessageId, request: { requestId, operation: 'design.open', payload: { format: 'slides' }, contextMessageId } });
   /** Answers the App side so a dispatched command settles; returns its target. */
   async function dispatchedTo(app: Peer) { const frame = await app.next('workbench.command'); app.send({ type: 'workbench.receipt', dispatchId: frame.dispatchId, receipt: { requestId: frame.request.requestId, target: frame.target, status: 'not_executed', error: 'test' } }); return frame.target; }
   async function source() {

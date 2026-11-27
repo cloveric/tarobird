@@ -15,6 +15,7 @@ export async function buildUpstreamEditor(sourceDir) {
   const favicon = `data:image/svg+xml;base64,${logo}`;
   const version = (await readFile(path.join(sourceDir, 'VERSION'), 'utf8')).trim();
 
+  const cssInputs = new Set();
   const result = await build({
     absWorkingDir: sourceDir,
     entryPoints: [path.join(webDir, 'src/tarobird/main.ts')],
@@ -52,6 +53,9 @@ export async function buildUpstreamEditor(sourceDir) {
         builder.onLoad({ filter: /[\/]styles[\/]app\.css$/ }, async args => {
           const css = await readFile(args.path, 'utf8');
           const compiled = await postcss([tailwind({ base: sourceDir, optimize: true })]).process(css, { from: args.path });
+          for (const message of compiled.messages) {
+            if (message.type === 'dependency' && message.file) cssInputs.add(path.relative(sourceDir, message.file));
+          }
           return { contents: compiled.css, loader: 'css', resolveDir: path.dirname(args.path) };
         });
       },
@@ -63,6 +67,8 @@ export async function buildUpstreamEditor(sourceDir) {
   const safeJs = js.text.replace(/<\/script/gi, '<\\/script');
   const safeCss = css.text.replace(/<\/style/gi, '<\\/style');
   const license = await readFile(path.join(sourceDir, 'LICENSE'), 'utf8');
+  const notices = await readDependencyNotices(sourceDir, [...Object.keys(result.metafile.inputs), ...cssInputs]);
+  const attribution = (license.trimEnd() + '\n\n' + notices).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   const html = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -75,11 +81,11 @@ export async function buildUpstreamEditor(sourceDir) {
 <body>
 <div id="root"></div>
 <script>${safeJs}</script>
-<!-- ${license.trim()} -->
+<template id="tarobird-canvas-acknowledgements">${attribution}</template>
 </body>
 </html>
 `;
-  return { bytes: Buffer.from(html), notices: await readDependencyNotices(sourceDir, result.metafile.inputs) };
+  return { bytes: Buffer.from(html), notices };
 }
 
 
@@ -94,7 +100,7 @@ const supplementaryNotices = {
 async function readDependencyNotices(source, buildInputs) {
   const nodeModules = '/node_modules/';
   const packageDirs = new Set();
-  for (const input of Object.keys(buildInputs)) {
+  for (const input of buildInputs) {
     const normalized = '/' + input.replaceAll('\\', '/');
     const marker = normalized.lastIndexOf(nodeModules);
     if (marker === -1) continue;
@@ -126,5 +132,5 @@ async function readDependencyNotices(source, buildInputs) {
   const license = await readFile(new URL('./notices/Apache-2.0.txt', import.meta.url), 'utf8');
   return [...notices.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, notice]) => notice)
     .concat(['Apache-2.0 license text for the dependencies identified above\n\n' + license.trim()])
-    .join('\n\n---\n\n') + '\n';
+    .join('\n\n---\n\n').replace(/[ \t]+$/gm, '') + '\n';
 }

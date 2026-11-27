@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, ListOrdered, MessageSquare, MessagesSquare, PanelsTopLeft } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ListOrdered, MessageSquare, MessagesSquare, PanelsTopLeft, UserCheck } from "lucide-react";
 import { useRef } from "react";
 import type { GroupDiscussionPolicy } from "../../src/client-protocol/group-discussion.js";
 import { GROUP_DISCUSSION_MAX_MEMBERS, automaticGroupDiscussion } from "../../src/client-protocol/group-discussion.js";
@@ -9,13 +9,14 @@ import type { Bot } from "./connection.js";
 import "./group-discussion.css";
 
 /** Only edits a draft. Saving or selecting a mode never starts a discussion. */
-export function GroupDiscussionOptions({ value, change, bots, disabled, parallelAvailable }: {
+export function GroupDiscussionOptions({ value, change, bots, disabled, parallelAvailable, crossHostAvailable = false }: {
   value: GroupDiscussionPolicy; change: (value: GroupDiscussionPolicy) => void;
-  bots: Bot[]; disabled: boolean; parallelAvailable: boolean;
+  bots: Bot[]; disabled: boolean; parallelAvailable: boolean; crossHostAvailable?: boolean;
 }) {
   const orderList = useRef<HTMLOListElement>(null);
   const modes = [
     { id: "mentions" as const, title: t("普通群聊"), description: t("@ 谁，谁回应；不 @ 时只记录发言。"), icon: MessageSquare },
+    { id: "designated" as const, title: t("指定 Bot 回复"), description: t("默认由一位指定成员回复，@ 其他成员时由对方回应。"), icon: UserCheck },
     { id: "parallel" as const, title: t("并行回复"), description: t("不 @ 时全员各自回复你；@ 谁就只让谁回复，不互相讨论。"), icon: MessagesSquare },
     { id: "sequential" as const, title: t("轮流讨论"), description: t("按顺序回应，参考前面的观点。"), icon: ListOrdered },
     { id: "independent" as const, title: t("独立评议"), description: t("先各自思考，收齐观点后再讨论。"), icon: PanelsTopLeft },
@@ -35,12 +36,13 @@ export function GroupDiscussionOptions({ value, change, bots, disabled, parallel
       <legend>{t("群聊方式")}</legend>
       <div className="group-mode-choices">{modes.map(({ id, title, description, icon: Icon }) =>
         <label key={id} className={`group-mode-choice${value.mode === id ? " is-selected" : ""}`}>
-          <input type="radio" name="group-discussion-mode" value={id} disabled={id === "parallel" && !parallelAvailable} checked={value.mode === id} onChange={() => change({ ...value, mode: id })}/>
+          <input type="radio" name="group-discussion-mode" value={id} disabled={(id === "parallel" && !parallelAvailable) || (id === "designated" && !crossHostAvailable)} checked={value.mode === id} onChange={() => change({ ...value, mode: id })}/>
           <Icon size={19} aria-hidden="true"/><span><strong>{title}</strong><small>{description}</small></span>
           <Check size={15} className="group-mode-check" aria-hidden="true"/>
         </label>)}</div>
     </fieldset>
     {!parallelAvailable && <p className="group-mode-footnote">{t("更新主机后可使用并行回复。")}</p>}
+    {!crossHostAvailable && <p className="group-mode-footnote">{t("更新主机后可使用指定 Bot 回复。")}</p>}
     {value.mode === "parallel" && <p className="group-mode-footnote">{t("保存后，直接在群里发消息即可。各 Bot 保留自己的对话上下文，回复不会自动触发其他 Bot。")}</p>}
     {automaticGroupDiscussion(value.mode) && <div className="group-discussion-properties">
       <div className="group-order-heading"><strong>{t("发言顺序")}</strong><span>{t("{0} 位参与者", value.botOrder.length)}</span></div>

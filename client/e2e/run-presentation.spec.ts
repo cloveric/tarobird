@@ -14,6 +14,13 @@ import { nativeRun } from "../../src/client-protocol/run.js";
 import { waitForClientOnline, enterMobileChat } from "./fixtures/mobile.js";
 import { expectOneDisclosure } from "./fixtures/disclosure-assertions.js";
 
+async function expectPausedThinking(preview: ReturnType<Page["locator"]>, text: string) {
+  await expect(preview).toContainText(text);
+  await expect(preview.locator(".run-thinking-label")).toHaveText("公开思考摘要");
+  await expect(preview.locator(".run-thinking-dots")).toHaveCount(0);
+  expect(await preview.locator("p > span").evaluate(node => getComputedStyle(node, "::after").content)).toBe("none");
+}
+
 async function pair(page: Page, hub: HubServer) {
   await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
   await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
@@ -40,7 +47,9 @@ for (const width of [390, 1360]) test(`live foreground thinking preview updates 
     gateway = await attachGateway({ stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: "alpha", engine: "claude", runtime: createCoreServiceRuntime(), bridge: {
       handleAuthorizedMessage: async value => { input = value; await new Promise<void>(resolve => { finish = resolve; value.abortSignal?.addEventListener("abort", resolve, { once: true }); }); return { text: "核对完成。" }; },
     } });
-    await page.setViewportSize({ width, height: 844 }); await pair(page, hub); await enterMobileChat(page, chat.title);
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await pair(page, hub); await enterMobileChat(page, chat.title);
     await page.getByRole("textbox", { name: "消息", exact: true }).fill("核对归档文件");
     await page.getByRole("button", { name: "发送消息", exact: true }).click();
     await expect.poll(() => !!input).toBe(true);
@@ -49,11 +58,19 @@ for (const width of [390, 1360]) test(`live foreground thinking preview updates 
     await expect(preview).toHaveCount(0);
     await emit({ type: "thinking", text: "先检查归档位置。", delta: false });
     await expect(preview).toContainText("先检查归档位置。");
+    await expect(preview.locator(".run-thinking-label")).toHaveText("思考中");
+    await expect(preview.locator(".run-thinking-dots")).toHaveCount(1);
+    const caretAnimation = () => preview.locator("p > span").evaluate(node => getComputedStyle(node, "::after").animationName);
+    expect(await caretAnimation()).toBe("run-thinking-caret");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect.poll(caretAnimation).toBe("none");
+    await expect(preview.locator(".run-thinking-dots > b").first()).toHaveCSS("animation-name", "none");
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await emit({ type: "thinking", text: "已找到归档记录，接下来核对文件对应关系。", delta: true });
     await expect(preview).toContainText("先检查归档位置。已找到归档记录，接下来核对文件对应关系。");
     await emit({ type: "tool_use", toolName: "Read", toolUseId: "read", toolInput: { file_path: "/workspace/trace-index.json" } });
     await expect(page.locator(".native-run-status")).toContainText("读取文件 · trace-index.json");
-    await expect(preview).toContainText("已找到归档记录");
+    await expectPausedThinking(preview, "已找到归档记录");
     await expect(page.locator(".native-run-prose")).toHaveText("");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await page.screenshot({ path: info.outputPath(`thinking-${width}.png`), animations: "disabled" });
@@ -67,6 +84,22 @@ for (const width of [390, 1360]) test(`live foreground thinking preview updates 
     await expect(preview).toContainText("对应关系已确认，准备给出结论。");
     await expect(preview).not.toContainText("先检查归档位置");
     await expect(preview).not.toContainText("DO_NOT_SHOW_TOOL_OUTPUT");
+    const lastThought = "对应关系已确认，准备给出结论。";
+    const run = page.locator(".native-run");
+    await gateway.transport.disconnect();
+    await expect(page.locator(".native-run-status")).toContainText("连接中断");
+    await expectPausedThinking(preview, lastThought);
+    await gateway.transport.connect();
+    await expect(preview.locator(".run-thinking-label")).toHaveText("思考中");
+    for (const [toolName, phase] of [["Bash", "waiting_approval"], ["AskUserQuestion", "waiting_answer"]] as const) {
+      await emit({ type: "permission_request", toolName, toolUseId: toolName });
+      await expect(run).toHaveAttribute("data-phase", phase);
+      await expectPausedThinking(preview, lastThought);
+      await emit({ type: "tool_result", toolUseId: toolName });
+    }
+    await emit({ type: "assistant_text", text: "开始整理结论。" });
+    await expect(run).toHaveAttribute("data-phase", "answering");
+    await expectPausedThinking(preview, lastThought);
     finish!(); await expect(page.locator(".native-run-status")).toContainText("已完成");
     await expect(preview).toHaveCount(0); await expect(page.locator(".native-run-prose")).toContainText("核对完成。");
     await page.getByRole("button", { name: "查看运行过程", exact: true }).click();
@@ -250,22 +283,151 @@ for (const phone of [false, true]) test(`${engine} ${phone ? "phone" : "desktop"
     await expect.poll(() => input !== previous).toBe(true);
     await emit({ type: "tool_use", toolName: native.command, toolUseId: "slow", toolInput: { description: "执行慢速任务" } });
     const last = page.locator(".native-run").last(); await expect(last).toContainText("执行慢速任务");
+    if (engine === "claude") {
+      await emit({ type: "thinking", text: "正在检查慢速任务。", delta: false });
+      await expect(last.locator(".run-thinking-label")).toHaveText("思考中");
+    }
     await last.getByRole("button", { name: "停止", exact: true }).click();
     const stopWarning = page.getByRole("dialog", { name: "停止当前消息？", exact: true });
-    if (engine === "claude") {
-      // Only a Claude stop first reads the worker's native tasks. This worker
-      // cannot list them, so what the stop reaches is unverified: nothing is
-      // sent, and the card does not wait, until the user confirms.
+    if (engine === "claude" || engine === "deepseek") {
+      // Engines whose foreground stop reaches background subagents first read
+      // the worker's native tasks. This worker cannot list them, so what the
+      // stop reaches is unverified: nothing is sent, and the card does not
+      // wait, until the user confirms.
       await expect(stopWarning).toContainText("后台任务列表暂时无法核对");
-      await expect(last.locator(".run-stop")).toHaveText("停止"); await expect(last).toHaveAttribute("data-phase", "working");
+      await expect(last.locator(".run-stop")).toHaveText("停止"); await expect(last).toHaveAttribute("data-phase", "thinking");
       expect(input.abortSignal?.aborted).toBe(false);
       await stopWarning.getByRole("button", { name: "确认停止", exact: true }).click();
     }
     await expect(last).toContainText("等待停止确认"); await expect(last.locator(".native-run-status")).not.toContainText("已停止");
+    if (engine === "claude") await expectPausedThinking(last.locator(".run-thinking-preview"), "正在检查慢速任务。");
     await expect(stopWarning).toHaveCount(0);
     await expect.poll(() => input.abortSignal?.aborted).toBe(true); finish();
     await expect(last.locator(".native-run-status")).toContainText("已停止");
+    await expect(last.locator(".run-thinking-preview")).toHaveCount(0);
     await expect(page.locator(".message.user [data-reply-state=stopped]")).toHaveText("已停止");
     expect(errors).toEqual([]);
   } finally { finish?.(); await observerContext.close(); await context.close(); await gateway?.disconnect(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("to-do plan panel handles reconnect collapse, settled badges, a11y, truncation, focus ring, and system dark mode", async ({ browser }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "run-plan-ui-")), stateDir = path.join(root, "bot"); await mkdir(stateDir);
+  await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "antigravity", locale: "zh" }));
+  const hub = await HubServer.start({ stateDir: path.join(root, "hub"), clientDir: path.resolve("dist") });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, colorScheme: "dark" });
+  const page = await context.newPage(), errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  let gateway: GatewayChannel | undefined, finish: (() => void) | undefined;
+  let input: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0] | undefined;
+  try {
+    const secret = randomBytes(32).toString("base64url");
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,engine) VALUES('alpha','清单助手',?,'antigravity')", [hashSecret(secret)]);
+    const chat = await hub.store.createConversation("owner", ["alpha"], "清单验收", "direct");
+    gateway = await attachGateway({ stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: "alpha", engine: "antigravity", runtime: createCoreServiceRuntime(), bridge: {
+      handleAuthorizedMessage: async value => { input = value; await new Promise<void>(resolve => { finish = resolve; value.abortSignal?.addEventListener("abort", resolve, { once: true }); }); return { text: "任务完成。" }; },
+    } });
+    await pair(page, hub); await enterMobileChat(page, chat.title);
+    await page.getByRole("textbox", { name: "消息", exact: true }).fill("执行多步计划");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect.poll(() => !!input).toBe(true);
+    const emit = async (event: Parameters<NonNullable<NonNullable<typeof input>["onEngineEvent"]>>[0]) => { await input!.onEngineEvent?.(event); };
+
+    // 1. Live active plan: expanded by default, shows 进行中 badge, sr-only statuses for completed/pending.
+    await emit({
+      type: "tool_use",
+      toolName: "TodoWrite",
+      toolUseId: "plan_1",
+      toolInput: {
+        todos: [
+          { content: "读取配置", status: "completed" },
+          { content: "修改适配层", status: "in_progress" },
+          { content: "运行测试", status: "pending" },
+        ],
+      },
+    });
+    const planCard = page.locator(".run-plan-card");
+    const header = planCard.locator(".run-plan-header");
+    await expect(planCard).toBeVisible();
+    await expect(header).toHaveAttribute("aria-expanded", "true");
+    await expect(planCard.locator(".run-plan-badge")).toHaveText("进行中");
+    await expect(planCard.locator(".run-plan-item.is-completed .run-plan-sr-only")).toHaveText("已完成");
+    await expect(planCard.locator(".run-plan-item.is-pending .run-plan-sr-only")).toHaveText("待执行");
+
+    // 2. Keyboard focus ring stays inset inside overflow:hidden card (outline-offset: -2px).
+    await page.locator(".native-run").focus();
+    for (let i = 0; i < 4; i++) {
+      if (await header.evaluate((node) => node === document.activeElement)) break;
+      await page.keyboard.press("Tab");
+    }
+    await expect(header).toBeFocused();
+    const headerFocus = await header.evaluate((node) => {
+      const s = getComputedStyle(node);
+      return { focusVisible: node.matches(":focus-visible"), outlineOffset: s.outlineOffset };
+    });
+    expect(headerFocus).toEqual({ focusVisible: true, outlineOffset: "-2px" });
+
+    // 3. User collapses panel; brief disconnect + reconnect must NOT forcibly re-expand it.
+    await header.click();
+    await expect(header).toHaveAttribute("aria-expanded", "false");
+    await gateway.transport.disconnect();
+    await expect(page.locator(".native-run-status")).toContainText("连接中断，当前状态待确认");
+    await gateway.transport.connect();
+    await expect(page.locator(".native-run-status")).not.toContainText("连接中断");
+    await expect(header).toHaveAttribute("aria-expanded", "false");
+
+    // 4. 55-item plan with 50 completed and 5 pending must show 50/55 and NOT is-complete / 全部完成.
+    const todos55 = Array.from({ length: 55 }, (_, i) => ({
+      content: `步骤 ${i + 1}`,
+      status: i < 50 ? "completed" : i === 50 ? "in_progress" : "pending",
+    }));
+    await emit({ type: "tool_use", toolName: "TodoWrite", toolUseId: "plan_1", toolInput: { todos: todos55 } });
+    await expect(planCard.locator(".run-plan-count")).toHaveText("50/55");
+    await expect(planCard).not.toHaveClass(/is-complete/);
+    await expect(planCard).not.toContainText("全部完成");
+
+    // 5. Turn settles while an item is still in_progress: expanding settled panel must NOT show 进行中 badge.
+    await emit({
+      type: "tool_use",
+      toolName: "TodoWrite",
+      toolUseId: "plan_1",
+      toolInput: {
+        todos: [
+          { content: "读取配置", status: "completed" },
+          { content: "收尾检查", status: "in_progress" },
+        ],
+      },
+    });
+    await expect(planCard.locator(".run-plan-count")).toHaveText("1/2");
+    finish!();
+    await expect(page.locator(".native-run-status")).toContainText("已完成");
+    await header.click();
+    await expect(header).toHaveAttribute("aria-expanded", "true");
+    await expect(planCard.locator(".run-plan-badge")).toHaveCount(0);
+    await expect(planCard.locator(".run-plan-item.is-in-progress .run-plan-sr-only")).toHaveText("执行中");
+
+    // 6. System Dark Mode completed plan uses high-contrast light green (#86efac), not light-mode #15803d.
+    const prevInput = input;
+    await page.getByRole("textbox", { name: "消息", exact: true }).fill("完成全部步骤");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect.poll(() => input !== prevInput).toBe(true);
+    await emit({
+      type: "tool_use",
+      toolName: "TodoWrite",
+      toolUseId: "plan_done",
+      toolInput: { todos: [{ content: "全部完成项", status: "completed" }] },
+    });
+    const doneCard = page.locator(".run-plan-card").last();
+    await expect(doneCard).toHaveClass(/is-complete/);
+    await page.evaluate(() => { document.documentElement.dataset.theme = "system"; });
+    const colors = await doneCard.evaluate((card) => {
+      const count = card.querySelector(".run-plan-count")!;
+      const marker = card.querySelector(".run-plan-item.is-completed .run-plan-marker")!;
+      return { countColor: getComputedStyle(count).color, markerColor: getComputedStyle(marker).color };
+    });
+    expect(colors.countColor).toBe("rgb(134, 239, 172)");
+    expect(colors.markerColor).toBe("rgb(134, 239, 172)");
+    finish!();
+    await expect(page.locator(".native-run-status").last()).toContainText("已完成");
+    expect(errors).toEqual([]);
+  } finally { finish?.(); await context.close(); await gateway?.disconnect(); await hub.close(); await rm(root, { recursive: true, force: true }); }
 });

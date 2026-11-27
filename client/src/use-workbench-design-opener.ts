@@ -59,7 +59,7 @@ export function useWorkbenchDesignOpener(connection: HubConnection, conversation
     if (old.scope === scope && old.visible && !panelVisible) revoke();
   }, [scope, panelVisible, revoke]);
   useEffect(() => {
-    if (!active || !foreground || !conversationId || !connection.state.user || !connection.state.workbenchDesignOpenAvailable) return;
+    if (!active || !foreground || !conversationId || !connection.state.user || !connection.state.workbenchDesignOpenAvailable || !connection.state.workbenchSlidesAvailable) return;
     const eligible = () => current.current.connection === connection && current.current.scope === scope && current.current.active && nativeVisible.current && document.visibilityState === "visible";
     const endpoint = new WorkbenchDesignOpener(connection, conversationId, {
       eligible,
@@ -67,10 +67,14 @@ export function useWorkbenchDesignOpener(connection: HubConnection, conversation
     });
     owner.current = endpoint;
     return () => { if (owner.current === endpoint) owner.current = undefined; endpoint.dispose(); };
-  }, [connection, conversationId, scope, active, foreground, revision, connection.state.workbenchDesignOpenAvailable]);
+  }, [connection, conversationId, scope, active, foreground, revision, connection.state.workbenchDesignOpenAvailable, connection.state.workbenchSlidesAvailable]);
   const context = useCallback(async (existing?: WorkbenchContext) => {
     if (current.current.scope !== scope || current.current.connection !== connection) return existing;
     return owner.current?.context(existing) ?? existing;
   }, [scope, connection]);
-  return { context, revoke };
+  const contextSnapshot = useCallback((existing?: WorkbenchContext) => {
+    if (current.current.scope !== scope || current.current.connection !== connection) return existing;
+    return owner.current?.contextSnapshot(existing) ?? existing;
+  }, [scope, connection]);
+  return { context, contextSnapshot, revoke };
 }

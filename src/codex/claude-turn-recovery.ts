@@ -3,6 +3,8 @@ import path from "node:path";
 import { z } from "zod";
 import { JsonStore } from "../state/json-store.js";
 import { EngineIncompleteResponseError } from "./adapter.js";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "../runtime/locale.js";
 
 const receiptSchema = z.object({
   key: z.string().regex(/^[a-f0-9]{64}$/),
@@ -109,8 +111,8 @@ export function isClaudeNoResponsePlaceholder(value: unknown): boolean {
   return typeof value === "string" && /^No response requested\.?$/iu.test(value.trim());
 }
 
-export function claudeNoResponseError(locale?: "zh" | "en"): Error {
-  return new EngineIncompleteResponseError(locale === "zh"
-    ? "Claude 返回了无回复占位内容，本轮未确认完成。已执行操作的结果可能仍不确定；请先查看运行过程，再决定是否继续。"
-    : "Claude returned a no-response placeholder; this turn is not confirmed complete. Prior tool effects may be unknown. Review the run before deciding whether to continue.");
+export function claudeNoResponseError(locale?: Locale): Error {
+  return new EngineIncompleteResponseError(
+    hostT(locale ?? "en", "Claude 返回了无回复占位内容，本轮未确认完成。已执行操作的结果可能仍不确定；请先查看运行过程，再决定是否继续。"),
+  );
 }

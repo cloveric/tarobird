@@ -40,4 +40,43 @@
 .engine-tasks-recovery p{margin:0 0 8px}.engine-tasks-recovery ul{max-height:120px;overflow:auto;padding-left:18px;overflow-wrap:anywhere}
 .engine-tasks-recovery button{background:none;border:0;padding:6px 0;margin-right:16px;font-size:12px;color:var(--red)}
 
-@media(max-width:760px){.engine-tasks-recovery button{min-height:44px}}
+.engine-tasks-board-pill{display:inline-flex;align-items:center;gap:4px;min-height:26px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--raised);color:var(--text);font-size:11px;flex:none}
+.engine-tasks-board-pill:hover{background:var(--hover)}.engine-tasks-board-pill>small{color:var(--muted)}
+.engine-tasks-tabs{display:flex;gap:6px;padding:0 20px 10px;border-bottom:1px solid var(--border)}
+.engine-tasks-tabs>button{border:1px solid var(--border);background:var(--raised);color:var(--muted);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:500}
+.engine-tasks-tabs>button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.swarm-banner{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 20px 4px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--raised);flex-wrap:wrap}
+.swarm-banner-info{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);min-width:0}
+.swarm-banner-badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:550;background:var(--hover);color:var(--accent)}
+.swarm-banner-actions{display:flex;align-items:center;gap:8px}
+.swarm-stop-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--red);background:transparent;color:var(--red);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:500}
+.swarm-stop-btn:hover:not(:disabled){background:var(--hover)}
+.swarm-stop-btn:disabled{opacity:.5}
+.engine-task-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0 24px}
+.engine-task-chip{display:inline-flex;align-items:center;padding:1px 6px;border-radius:6px;border:1px solid var(--border);background:var(--raised);color:var(--muted);font-size:11px;line-height:18px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.engine-task-chip.is-model{font-family:var(--mono,ui-monospace,monospace);font-size:10.5px}
+.engine-task.is-waiting .engine-task-status{color:var(--amber,#b45309)}
+.engine-task.is-paused .engine-task-status{color:var(--amber,#b45309)}
+.engine-task.is-stopped .engine-task-status{color:var(--muted)}
+.engine-task.is-helper{opacity:.92}
+.engine-tasks-group{margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)}
+.engine-tasks-group-title{margin:0 4px 6px;font-size:11px;font-weight:600;color:var(--muted);text-transform:none}
+.engine-task-mention{display:inline-flex;align-items:center;gap:4px;margin:6px 0 0 24px;border:1px solid var(--border);background:var(--raised);color:var(--text);border-radius:6px;padding:3px 8px;font-size:11px}
+.engine-task-mention:hover{background:var(--hover)}
+.swarm-board-view{padding:10px 20px 18px;display:flex;flex-direction:column;gap:10px}
+.swarm-board-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.swarm-board-filters{display:flex;flex-wrap:wrap;gap:6px}
+.swarm-filter-pill{border:1px solid var(--border);background:var(--raised);color:var(--muted);border-radius:999px;padding:4px 10px;font-size:11px}
+.swarm-filter-pill[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.swarm-board-posts{display:flex;flex-direction:column;gap:10px}
+.swarm-post-card{border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--raised)}
+.swarm-post-header{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px}
+.swarm-post-header>time{margin-left:auto;color:var(--muted);font-size:11px}
+.swarm-post-author{font-weight:600;color:var(--text)}
+.swarm-post-title{margin-top:6px;font-size:13px;font-weight:550;overflow-wrap:anywhere}
+.swarm-post-content{margin:6px 0 0;font-size:12.5px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--text)}
+.swarm-post-footer{margin-top:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.swarm-post-footer>.engine-task-mention{margin:0}
+.swarm-post-mentions{display:flex;flex-wrap:wrap;gap:4px}
+
+@media(max-width:760px){.engine-tasks-recovery button{min-height:44px}.engine-tasks-tabs{padding:0 14px 10px}.engine-tasks-tabs>button{min-height:40px}.swarm-banner{margin:10px 14px 4px}.swarm-board-view{padding:10px 14px 16px}.swarm-filter-pill,.swarm-stop-btn,.engine-task-mention{min-height:36px}}

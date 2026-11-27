@@ -658,15 +658,15 @@ describe("Hub Agent Bus workspaces", () => {
     expect(await runAgentBusCommand({ request }, "delete", created.id, { revision: updated.revision, yes: true })).toEqual({ ok: true });
   });
 
-  it("marks the database as schema 25 so an older Hub refuses it instead of misreading run inputs", async () => {
-    expect(await hub.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "26" });
+  it("marks the database as schema 28 so an older Hub refuses it instead of misreading run inputs", async () => {
+    expect(await hub.store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "28" });
     // A runtime package declaring the previous range cannot open this state.
     const old = path.join(root, "old-runtime");
     await rm(old, { recursive: true, force: true });
     await mkdir(path.join(old, "dist", "src"), { recursive: true });
     await writeFile(path.join(old, "package.json"), JSON.stringify({ tarobotHostUpdate: { format: 1, minHubSchema: 1, maxHubSchema: 18 }, tarobotHubSchema: 18 }));
-    await expect(assertHostRuntimeCompatible(root, path.join(old, "dist", "src", "index.js"))).rejects.toThrow("host_schema_incompatible:26:runtime_1-18");
-    expect(JSON.parse(await readFile(path.resolve("package.json"), "utf8")).tarobotHostUpdate.maxHubSchema).toBe(26);
+    await expect(assertHostRuntimeCompatible(root, path.join(old, "dist", "src", "index.js"))).rejects.toThrow("host_schema_incompatible:28:runtime_1-18");
+    expect(JSON.parse(await readFile(path.resolve("package.json"), "utf8")).tarobotHostUpdate.maxHubSchema).toBe(28);
   });
 
   it("settles a deleted coordinator's run and member records through the delete route without a Bus read", async () => {

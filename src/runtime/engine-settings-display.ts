@@ -3,6 +3,7 @@ import {
   renderCodexModelSetting,
   type CodexUserDefaults,
 } from "../codex/user-defaults.js";
+import { hostT } from "../locales/index.js";
 import type { InstanceEngine } from "../state/instance-config.js";
 import type { Locale } from "./locale.js";
 
@@ -19,11 +20,9 @@ export function renderEngineModelSetting(
     return explicitModel;
   }
   if (engine === "claude") {
-    return locale === "zh"
-      ? "默认（Claude CLI 默认；未设置 --model 覆盖）"
-      : "default (Claude CLI default; no --model override)";
+    return hostT(locale, "默认（Claude CLI 默认；未设置 --model 覆盖）");
   }
-  return locale === "zh" ? "默认" : "default";
+  return hostT(locale, "默认");
 }
 
 export function renderEngineEffortSetting(
@@ -39,9 +38,7 @@ export function renderEngineEffortSetting(
     return explicitEffort;
   }
   if (engine === "claude") {
-    return locale === "zh"
-      ? "默认（Claude CLI 默认；未设置 --effort 覆盖）"
-      : "default (Claude CLI default; no --effort override)";
+    return hostT(locale, "默认（Claude CLI 默认；未设置 --effort 覆盖）");
   }
-  return locale === "zh" ? "默认" : "default";
+  return hostT(locale, "默认");
 }

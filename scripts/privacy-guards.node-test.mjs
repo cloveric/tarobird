@@ -122,6 +122,17 @@ test('staged scanning catches secrets even when the working copy was cleaned; pu
     const historical = scan('history');
     assert.equal(historical.status, 1, historical.stderr);
     assert.equal((historical.stdout + historical.stderr).includes(fake), false);
+    // The push hook scans only the commits being uploaded: the fixture commit is
+    // caught when it is outgoing and not re-reported once the remote already has it.
+    const head = git('rev-parse', 'HEAD').toString().trim();
+    const push = remoteTip => spawnSync('bash', ['scripts/check-secrets.sh', 'pre-push', 'origin'],
+      { cwd: root, encoding: 'utf8', input: `refs/heads/main ${head} refs/heads/main ${remoteTip}\n` });
+    const outgoing = push(git('rev-parse', `${fixtureCommit}^`).toString().trim());
+    assert.equal(outgoing.status, 1, outgoing.stderr);
+    assert.equal((outgoing.stdout + outgoing.stderr).includes(fake), false);
+    assert.equal(push(fixtureCommit).status, 0);
+    assert.equal(push('0'.repeat(40)).status, 1); // new branch, no reachable remote main: whole ancestry
+    assert.equal(spawnSync('bash', ['scripts/check-secrets.sh', 'pre-push'], { cwd: root, encoding: 'utf8', input: '' }).status, 2);
     // Gitleaks 8.30.1 still auto-loads the worktree baseline even with the
     // explicit null ignore path. A fingerprint must never hide this finding.
     writeFileSync(join(root, '.gitleaksignore'), `${fixtureCommit}:probe.txt:github-pat:1\n`);

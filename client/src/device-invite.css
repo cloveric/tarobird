@@ -1,4 +1,10 @@
 .device-invite { min-width: 0; }
+.device-invite-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+.device-invite-mode > button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--text); font-size: 13px; }
+.device-invite-mode > button[aria-pressed="true"] { border-color: var(--accent, var(--border-strong)); background: color-mix(in srgb, var(--accent, var(--text)) 10%, var(--bg)); font-weight: 600; }
+.device-invite-browser-cert { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: var(--orange-soft, var(--surface)); text-align: left; }
+.device-invite-browser-cert p { margin: 0; font-size: 12.5px; line-height: 1.55; }
+.device-invite-browser-cert p + p { margin-top: 6px; }
 .device-invite .pair-qr { display: block; width: min(264px, 100%); height: auto; margin: 6px auto 2px; background: white; border-radius: 12px; }
 .device-invite .pair-code-actions { justify-content: center; }
 .device-invite-route { margin-bottom: 8px; }

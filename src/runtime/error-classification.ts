@@ -1,8 +1,12 @@
 import { SessionHistoryPendingError } from "../state/session-history-error.js";
 import { PiRpcCommandError } from "../codex/pi-rpc-client.js";
+import { OmpRpcCommandError, OmpStartupError } from "../codex/omp-rpc-client.js";
+import { OmpFrameError, OmpProtocolVersionError } from "../codex/omp-rpc-protocol.js";
 import { ENGINE_CONFIG_ERROR_CODE, EngineConfigError } from "../state/engine-config-error.js";
 import { FileWorkflowPreparationError } from "./file-workflow.js";
 import { EngineHistoryBusyError, EngineIncompleteResponseError } from "../codex/adapter.js";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "./locale.js";
 
 export type FailureCategory =
   | "auth"
@@ -51,20 +55,16 @@ function normalizeErrorText(error: unknown): string {
   return String(error);
 }
 
-export function renderMalformedToolInputError(locale: "zh" | "en"): string {
-  return locale === "zh"
-    ? "模型返回的工具调用参数格式有误，本轮已停止。请先核对已执行操作的结果，再继续未完成的任务；无需重启实例。"
-    : "The model response contained malformed tool arguments, so this turn stopped. Review completed operations before continuing the unfinished task. No instance restart is needed.";
+export function renderMalformedToolInputError(locale: Locale): string {
+  return hostT(locale, "模型返回的工具调用参数格式有误，本轮已停止。请先核对已执行操作的结果，再继续未完成的任务；无需重启实例。");
 }
 
 /** An Office-specific wait is not evidence that the user needs to remove all
  * runtime limits. Keep the recovery advice consistent across App and CLI. */
-export function renderDeepSeekOfficeTimeout(error: unknown, locale: "zh" | "en"): string | undefined {
+export function renderDeepSeekOfficeTimeout(error: unknown, locale: Locale): string | undefined {
   const minutes = normalizeErrorText(error).match(/DeepSeek Harness turn timed out after (\d+) minutes? waiting for office_(?:render|convert|recalculate);/)?.[1];
   if (!minutes) return undefined;
-  return locale === "zh"
-    ? `Office 工具超过 ${minutes} 分钟未返回，本轮已停止。请先检查运行 Bot 的 Mac 上是否有待处理的权限提示；若文件已经生成，可让 Bot 先发送文件，再重试预览或转换。`
-    : `The Office tool did not return within ${minutes} minutes, so this turn was stopped. Check the Mac running the Bot for a pending permission prompt. If the file was already created, ask the Bot to send it before retrying the preview or conversion.`;
+  return hostT(locale, "Office 工具超过 {0} 分钟未返回，本轮已停止。请先检查运行 Bot 的 Mac 上是否有待处理的权限提示；若文件已经生成，可让 Bot 先发送文件，再重试预览或转换。", minutes);
 }
 
 export function extractModelEffortMismatch(error: unknown): { model: string; effort: string; available: string[] } | undefined {
@@ -81,41 +81,53 @@ export function extractModelEffortMismatch(error: unknown): { model: string; eff
   const available = match[3]!.split(",").map((v) => v.trim().toLowerCase()).filter((v) => /^(off|minimal|low|medium|high|xhigh|max|ultra)$/.test(v));
   return available.length ? { model: match[1]!, effort: match[2]!, available } : undefined;
 }
-export function renderEngineSettingsError(error: unknown, locale: "zh" | "en"): string {
-  if (error instanceof PiRpcCommandError && error.kind === "no-model") return locale === "zh"
-    ? "Pi 尚无可用模型。请在运行 Bot 的主机上执行 `pi auth login` 或配置提供商凭据，然后重新读取模型列表并重试。"
-    : "Pi has no available model. Run `pi auth login` or configure provider credentials on the host running this Bot, then refresh the model list and retry.";
-  if (error instanceof EngineConfigError && error.setting === "budget" || normalizeErrorText(error).includes(`${ENGINE_CONFIG_ERROR_CODE}: Bot budget configuration is invalid`)) return locale === "zh"
-    ? "无法确认 Bot 的预算配置，自动恢复已停止。请修复主机上此 Bot 的 config.json 后继续；原会话已保留。"
-    : "The Bot budget configuration could not be verified, so automatic recovery stopped. Repair this Bot’s config.json on the host before continuing; the conversation is preserved.";
-  if (error instanceof EngineConfigError || normalizeErrorText(error).includes(`${ENGINE_CONFIG_ERROR_CODE}:`)) return locale === "zh"
-    ? "无法确认 Bot 的权限配置，本次执行已停止。请修复主机上此 Bot 的 config.json 后重试；不会自动切换为完全访问。"
-    : "The Bot permission configuration could not be verified, so this turn was blocked. Repair this Bot’s config.json on the host and retry; full access was not enabled.";
-  switch (deepSeekSelectionFailure(error)) {
-    case "model_unavailable": return locale === "zh"
-      ? "此 Bot 使用的模型不在主机当前的 DeepSeek Harness 目录中（可能已删除，或其供应商不可用）。请在 Bot 的模型设置中重新读取并选择可用模型，或检查 DSH 默认模型；不会自动换成其他模型，无需重启实例。"
-      : "This Bot's model is not in the Host's current DeepSeek Harness catalog (it may have been removed, or its provider is unavailable). Reload the Bot's model settings and choose an available model, or check the DSH default model; no other model is substituted and no restart is needed.";
-    case "model_id_invalid": return locale === "zh"
-      ? "此 Bot 保存的 DeepSeek 模型标识无效。请在 Bot 的模型设置中重新选择模型；不会自动换成其他模型，无需重启实例。"
-      : "This Bot's saved DeepSeek model identity is invalid. Choose the model again in the Bot's model settings; no other model is substituted and no restart is needed.";
-    case "effort_incompatible": return locale === "zh"
-      ? "所选 DeepSeek 模型不支持此 Bot 的思考强度。请在 Bot 的思考强度设置中选择该模型提供的档位，或选择跟随默认；不会自动改用其他档位，无需重启实例。"
-      : "The selected DeepSeek model does not support this Bot's effort. Choose a level that model offers, or follow its default, in the Bot's effort settings; the effort is not switched automatically and no restart is needed.";
-    case "model_catalog_unavailable": return locale === "zh"
-      ? "DeepSeek Harness 暂未完整返回模型目录（有供应商读取失败），为避免用错模型，本轮未执行。请检查主机上的 DSH 供应商配置与授权后重试；不会自动换成其他模型，无需重启实例。"
-      : "DeepSeek Harness did not return a complete model catalog (a provider failed), so this turn did not run to avoid using the wrong model. Check the DSH provider configuration and sign-in on the Host, then retry; no other model is substituted and no restart is needed.";
-    case "selection_unconfirmed": return locale === "zh"
-      ? "DeepSeek Harness 未确认此 Bot 的模型选择，为避免用错模型，本轮未执行。请重试；若持续出现，请在 Bot 的模型设置中重新选择模型。不会自动换成其他模型。"
-      : "DeepSeek Harness did not confirm this Bot's model selection, so this turn did not run to avoid using the wrong model. Retry; if it persists, choose the model again in the Bot's model settings. No other model is substituted.";
+export function renderEngineSettingsError(error: unknown, locale: Locale): string {
+  if (error instanceof PiRpcCommandError && error.kind === "no-model") {
+    return hostT(locale, "Pi 尚无可用模型。请在运行 Bot 的主机上执行 `pi auth login` 或配置提供商凭据，然后重新读取模型列表并重试。");
   }
-  if (isPiModelUnavailable(normalizeErrorText(error))) return locale === "zh"
-    ? "所选模型在 Pi 中不可用。请检查模型名称和供应商登录状态，或选择可用模型后重试。"
-    : "The selected model is not available in Pi. Check the model name and provider sign-in, or select an available model and retry.";
+  if (error instanceof OmpRpcCommandError) {
+    const code = error.code?.toLowerCase();
+    if (code === "no_model" || code === "no-model") {
+      return hostT(locale, "omp 尚无可用模型。请在运行 Bot 的主机上运行 `omp` 并执行 `/login`（或配置提供商凭据），然后重新读取模型列表并重试。");
+    }
+    if (code === "goal_continuation_disabled") {
+      return hostT(locale, "此 omp 运行时未启用 RPC 目标自动续接，目标模式无法自动推进。请检查主机上的 omp 配置或更新 omp 后重试。");
+    }
+    if (code === "model_unavailable" || code === "model-unavailable" || code === "invalid_model") {
+      return hostT(locale, "所选模型在 omp 中不可用。请检查模型名称和供应商登录状态，或选择可用模型后重试。");
+    }
+    if (code === "invalid_thinking_level") {
+      return hostT(locale, "所选模型不支持此思考强度。请在 Bot 的思考强度设置中调整，或选择跟随默认；无需重启。");
+    }
+  }
+  if (error instanceof EngineConfigError && error.setting === "budget" || normalizeErrorText(error).includes(`${ENGINE_CONFIG_ERROR_CODE}: Bot budget configuration is invalid`)) {
+    return hostT(locale, "无法确认 Bot 的预算配置，自动恢复已停止。请修复主机上此 Bot 的 config.json 后继续；原会话已保留。");
+  }
+  if (error instanceof EngineConfigError || normalizeErrorText(error).includes(`${ENGINE_CONFIG_ERROR_CODE}:`)) {
+    return hostT(locale, "无法确认 Bot 的权限配置，本次执行已停止。请修复主机上此 Bot 的 config.json 后重试；不会自动切换为完全访问。");
+  }
+  switch (deepSeekSelectionFailure(error)) {
+    case "model_unavailable":
+      return hostT(locale, "此 Bot 使用的模型不在主机当前的 DeepSeek Harness 目录中（可能已删除，或其供应商不可用）。请在 Bot 的模型设置中重新读取并选择可用模型，或检查 DSH 默认模型；不会自动换成其他模型，无需重启实例。");
+    case "model_id_invalid":
+      return hostT(locale, "此 Bot 保存的 DeepSeek 模型标识无效。请在 Bot 的模型设置中重新选择模型；不会自动换成其他模型，无需重启实例。");
+    case "effort_incompatible":
+      return hostT(locale, "所选 DeepSeek 模型不支持此 Bot 的思考强度。请在 Bot 的思考强度设置中选择该模型提供的档位，或选择跟随默认；不会自动改用其他档位，无需重启实例。");
+    case "model_catalog_unavailable":
+      return hostT(locale, "DeepSeek Harness 暂未完整返回模型目录（有供应商读取失败），为避免用错模型，本轮未执行。请检查主机上的 DSH 供应商配置与授权后重试；不会自动换成其他模型，无需重启实例。");
+    case "selection_unconfirmed":
+      return hostT(locale, "DeepSeek Harness 未确认此 Bot 的模型选择，为避免用错模型，本轮未执行。请重试；若持续出现，请在 Bot 的模型设置中重新选择模型。不会自动换成其他模型。");
+  }
+  if (isOmpModelUnavailable(normalizeErrorText(error))) {
+    return hostT(locale, "所选模型在 omp 中不可用。请检查模型名称和供应商登录状态，或选择可用模型后重试。");
+  }
+  if (isPiModelUnavailable(normalizeErrorText(error))) {
+    return hostT(locale, "所选模型在 Pi 中不可用。请检查模型名称和供应商登录状态，或选择可用模型后重试。");
+  }
   const mismatch = extractModelEffortMismatch(error);
-  if (!mismatch) return locale === "zh" ? "模型与思考强度不兼容，请调整 Bot 的模型或 effort 后重试。" : "The model and effort are incompatible. Change the Bot model or effort and retry.";
-  return locale === "zh"
-    ? `模型 ${mismatch.model} 不支持 ${mismatch.effort}。可用档位：${mismatch.available.join("、")}。请在 Bot 的思考强度设置中调整，或选择跟随默认；无需重启。`
-    : `Model ${mismatch.model} does not support ${mismatch.effort}. Available levels: ${mismatch.available.join(", ")}. Change the Bot effort or follow its default; no restart is needed.`;
+  if (!mismatch) return hostT(locale, "模型与思考强度不兼容，请调整 Bot 的模型或 effort 后重试。");
+  const listSep = locale === "en" ? ", " : "、";
+  return hostT(locale, "模型 {0} 不支持 {1}。可用档位：{2}。请在 Bot 的思考强度设置中调整，或选择跟随默认；无需重启。", mismatch.model, mismatch.effort, mismatch.available.join(listSep));
 }
 
 const PROVIDER_MODEL_REFUSAL_RE = /\bmodel\b[^.]{0,80}\b(?:not (?:found|supported|available|allowed|enabled)|does not exist|unsupported|no access)|\b(?:unsupported|unknown|invalid) model\b|do(?:es)? not have access to (?:the )?model|model_not_found/i;
@@ -133,39 +145,33 @@ function codeSpan(text: string): string {
  * (as read by piProviderFailure) and the step that can help. Quota,
  * rate-limit, content-policy and sign-in failures keep their own wording.
  */
-export function renderPiProviderFailure(error: unknown, category: FailureCategory, locale: "zh" | "en"): string | undefined {
+export function renderPiProviderFailure(error: unknown, category: FailureCategory, locale: Locale): string | undefined {
   if (!(error instanceof PiRpcCommandError) || !error.provider) return undefined;
   if (!["engine-request-rejected", "engine-backend", "engine-cli", "unknown"].includes(category)) return undefined;
   const { status, code, reason } = error.provider;
-  const zh = locale === "zh";
   const label = [status !== undefined ? `HTTP ${status}` : "", code ?? ""].filter(Boolean).join(" · ");
+  const parenLabel = label ? (locale === "en" ? ` (${label})` : `（${label}）`) : "";
   // The provider's own words in a code span, so no Markdown renderer reads them as markup.
-  const said = reason ? (zh ? `\n提供商说明：${codeSpan(reason)}` : `\nThe provider said: ${codeSpan(reason)}`) : "";
-  const kept = zh ? "原会话已保留，未自动重发请求。" : "The conversation is preserved and the request was not resent.";
+  const said = reason ? hostT(locale, "\n提供商说明：{0}", codeSpan(reason)) : "";
+  const kept = hostT(locale, "原会话已保留，未自动重发请求。");
   if (category === "engine-request-rejected") {
-    const head = zh ? `错误：模型服务拒绝了本轮请求${label ? `（${label}）` : ""}。` : `Error: the model service refused this request${label ? ` (${label})` : ""}.`;
+    const head = hostT(locale, "错误：模型服务拒绝了本轮请求{0}。", parenLabel);
     const subject = `${code ?? ""} ${reason ?? ""}`;
     const step = status === 403 || status === 404 || PROVIDER_MODEL_REFUSAL_RE.test(subject)
-      ? zh
-        ? "所选模型可能不适用于当前提供商账号或登录方式。请换一个模型（/model 或「Pi 对话设置」）后重试，或检查该提供商的账号权限；重启实例无效。"
-        : "The selected model may not be available to this provider account or sign-in method. Choose another model (/model or the Pi conversation settings) and retry, or check the provider account's access; restarting the instance will not help."
+      ? hostT(locale, "所选模型可能不适用于当前提供商账号或登录方式。请换一个模型（/model 或「Pi 对话设置」）后重试，或检查该提供商的账号权限；重启实例无效。")
       : status === 413 || PROVIDER_SIZE_RE.test(subject)
-        ? zh
-          ? "请求内容超出了模型或服务的限制。请缩短输入、减少附件，或先用 /compact 压缩上下文后重试；重启实例无效。"
-          : "The request exceeds what the model or service accepts. Shorten the input, send fewer attachments, or run /compact first, then retry; restarting the instance will not help."
-        : zh
-          ? "请检查所选模型、思考强度和附件后重试；重启实例无效。"
-          : "Check the selected model, thinking level and attachments, then retry; restarting the instance will not help.";
-    return `${head}${said}\n${step}${zh ? "" : " "}${kept}`;
+        ? hostT(locale, "请求内容超出了模型或服务的限制。请缩短输入、减少附件，或先用 /compact 压缩上下文后重试；重启实例无效。")
+        : hostT(locale, "请检查所选模型、思考强度和附件后重试；重启实例无效。");
+    return `${head}${said}\n${step}${kept}`;
   }
   if (category === "engine-backend") {
-    const head = zh ? `错误：模型服务暂时出错或连接中断${label ? `（${label}）` : ""}。` : `Error: the model service failed or the connection to it was lost${label ? ` (${label})` : ""}.`;
-    const step = zh ? "请稍后重试，或临时换一个模型；无需重启实例。" : "Retry shortly or switch models for now; restarting the instance is not required.";
-    return `${head}${said}\n${step}${zh ? "" : " "}${kept}`;
+    const head = hostT(locale, "错误：模型服务暂时出错或连接中断{0}。", parenLabel);
+    const step = hostT(locale, "请稍后重试，或临时换一个模型；无需重启实例。");
+    return `${head}${said}\n${step}${kept}`;
   }
-  const head = zh ? `错误：Pi 的模型请求失败${label ? `（${label}）` : ""}。` : `Error: Pi's model request failed${label ? ` (${label})` : ""}.`;
-  const step = zh ? "可以稍后重试；若反复出现，请换一个模型或检查提供商设置。" : "You can retry shortly; if it keeps happening, choose another model or check the provider settings.";
-  return `${head}${said}\n${step}${zh ? "" : " "}${kept}`;
+  const head = hostT(locale, "错误：Pi 的模型请求失败{0}。", parenLabel);
+  const step = hostT(locale, "可以稍后重试；若反复出现，请换一个模型或检查提供商设置。");
+  return `${head}${said}\n${step}${kept}`;
 }
 
 function isDeepSeekWriterHeld(error: unknown): boolean {
@@ -179,17 +185,15 @@ function isKimiPromptNotProcessed(error: unknown): boolean {
   return normalizeErrorText(error).includes(KIMI_PROMPT_NOT_PROCESSED_MESSAGE);
 }
 
-export function renderEngineBusyError(locale: "zh" | "en", error?: unknown): string {
-  if (isKimiPromptNotProcessed(error)) return locale === "zh"
-    ? "Kimi 没有处理这条消息：它立即结束了本轮，没有任何输出，可能正忙于自己的后台任务。请稍后重新发送。"
-    : "Kimi did not process this message: it ended the turn at once without any output, possibly while busy with its own background work. Send the message again in a moment.";
+export function renderEngineBusyError(locale: Locale, error?: unknown): string {
+  if (isKimiPromptNotProcessed(error)) {
+    return hostT(locale, "Kimi 没有处理这条消息：它立即结束了本轮，没有任何输出，可能正忙于自己的后台任务。请稍后重新发送。");
+  }
   // Telegram passes the detail string only after classifying the typed error.
-  if (isDeepSeekWriterHeld(error) || typeof error === "string" && error.includes("is already owned by an active write handle")) return locale === "zh"
-    ? "DeepSeek 会话仍被占用，暂时无法接收这条消息。请稍后重试，无需清空对话。"
-    : "The DeepSeek session is still occupied and could not accept this message. Try again shortly; no conversation reset is needed.";
-  return locale === "zh"
-    ? "此 Bot 的当前任务或后台工作尚未结束。请等待完成后再重试，无需重启或清空对话。"
-    : "This Bot still has active or background work. Wait for it to finish and retry; no restart or conversation reset is needed.";
+  if (isDeepSeekWriterHeld(error) || typeof error === "string" && error.includes("is already owned by an active write handle")) {
+    return hostT(locale, "DeepSeek 会话仍被占用，暂时无法接收这条消息。请稍后重试，无需清空对话。");
+  }
+  return hostT(locale, "此 Bot 的当前任务或后台工作尚未结束。请等待完成后再重试，无需重启或清空对话。");
 }
 
 export function extractQuotaResetHint(error: unknown): string | undefined {
@@ -203,8 +207,10 @@ const NAMED_ENGINE_RE = /(?:^|[^a-z0-9_./-])(?:codex|claude|kimi|deepseek|dsh|an
 // or one of our typed adapter error names before treating it as this engine.
 const PI_RUNTIME_LABEL_RE = /(?:^|[^a-z0-9_./-])pi (?:cli|rpc|adapter|bridge)(?=$|[^a-z0-9_./-])/;
 const PI_RUNTIME_ERROR_RE = /(?:^|[\r\n])pi(?:startup|rpc(?:command|closed|timeout)|bridge(?:control|handshake)|nativebridgeunavailable)error(?:$|[\r\n:])/;
+const OMP_RUNTIME_LABEL_RE = /(?:^|[^a-z0-9_./-])(?:omp|oh-my-pi) (?:cli|rpc|adapter|bridge|session|worker)(?=$|[^a-z0-9_./-])/;
+const OMP_RUNTIME_ERROR_RE = /(?:^|[\r\n])omp(?:startup|protocolversion|frame|rpccommand)error(?:$|[\r\n:])/;
 function hasNamedEngineSignal(text: string): boolean {
-  return NAMED_ENGINE_RE.test(text) || PI_RUNTIME_LABEL_RE.test(text) || PI_RUNTIME_ERROR_RE.test(text);
+  return NAMED_ENGINE_RE.test(text) || PI_RUNTIME_LABEL_RE.test(text) || PI_RUNTIME_ERROR_RE.test(text) || OMP_RUNTIME_LABEL_RE.test(text) || OMP_RUNTIME_ERROR_RE.test(text);
 }
 // Exact messages thrown by deepseek-harness-adapter.ts while selecting the Bot's model before a
 // prompt. Only the adapter's own bounded message matches; native or tool text is never scanned.
@@ -214,6 +220,9 @@ function deepSeekSelectionFailure(error: unknown): string | undefined {
 }
 function isPiModelUnavailable(text: string): boolean {
   return /invalid model selection: [^\r\n]{1,512} is not available in pi\./i.test(text);
+}
+function isOmpModelUnavailable(text: string): boolean {
+  return /invalid model selection: [^\r\n]{1,512} is not available in omp\./i.test(text);
 }
 const ENGINE_RUNTIME_RE =
   /\b(?:runtime|process|spawn|adapter|binary|cli|app-server|startup|start|starting|transport|stream|session|turn|exited|exit code)\b/;
@@ -228,7 +237,7 @@ function hasEngineCliSignal(text: string): boolean {
     return true;
   }
 
-  return PI_RUNTIME_ERROR_RE.test(text) || hasNamedEngineSignal(text) && (ENGINE_RUNTIME_RE.test(text) || ENGINE_FAILURE_RE.test(text));
+  return PI_RUNTIME_ERROR_RE.test(text) || OMP_RUNTIME_ERROR_RE.test(text) || hasNamedEngineSignal(text) && (ENGINE_RUNTIME_RE.test(text) || ENGINE_FAILURE_RE.test(text));
 }
 
 
@@ -248,6 +257,22 @@ export function classifyFailure(error: unknown): FailureCategory {
     if (error.kind === "no-model" || error.kind === "model-unavailable") return "engine-settings";
     if (error.kind === "auth") return "auth";
     if (error.kind === "busy" || error.kind === "compacting") return "engine-busy";
+  }
+  if (error instanceof OmpProtocolVersionError || error instanceof OmpFrameError || error instanceof OmpStartupError) {
+    return "engine-cli";
+  }
+  if (error instanceof OmpRpcCommandError) {
+    const code = error.code?.toLowerCase();
+    if (code === "cost_cap" || code === "budget_exceeded" || code === "quota_exceeded") return "engine-quota";
+    if (code === "no_model" || code === "no-model" || code === "model_unavailable" || code === "model-unavailable" || code === "invalid_model" || code === "invalid_thinking_level" || code === "goal_continuation_disabled") {
+      return "engine-settings";
+    }
+    if (code === "auth" || code === "unauthorized" || code === "unauthenticated" || error.httpStatus === 401) return "auth";
+    if (code === "rate_limit" || code === "rate_limited" || error.httpStatus === 429) return "engine-rate-limit";
+    if (code === "session_busy" || code === "busy" || code === "compacting") return "engine-busy";
+    if (error.httpStatus !== undefined) {
+      return error.httpStatus >= 500 || error.httpStatus === 408 ? "engine-backend" : "engine-request-rejected";
+    }
   }
   if (error instanceof Error && ["EngineRecoveryUnconfirmedError", "EngineRecoveryExhaustedError"].includes(error.name)) return "engine-incomplete";
   if (error instanceof Error && error.name === "EngineRecoveryBudgetError") return "engine-quota";
@@ -277,7 +302,7 @@ export function classifyFailure(error: unknown): FailureCategory {
   // Native Pi labels can contain Unicode or spaces. Recognize that bounded
   // diagnostic as settings, while rendering only the safe identifier above.
   if (deepSeekSelectionFailure(error)) return "engine-settings";
-  if (extractModelEffortMismatch(text) || /invalid model selection: [^\r\n]{1,512} has no "(?:off|minimal|low|medium|high|xhigh|max|ultra)" effort \(available: [a-z, ]{1,80}\)/.test(text) || isPiModelUnavailable(text) || /invalid model selection: \S{1,512} does not support effort/.test(text)) return "engine-settings";
+  if (extractModelEffortMismatch(text) || /invalid model selection: [^\r\n]{1,512} has no "(?:off|minimal|low|medium|high|xhigh|max|ultra)" effort \(available: [a-z, ]{1,80}\)/.test(text) || isPiModelUnavailable(text) || isOmpModelUnavailable(text) || /invalid model selection: \S{1,512} does not support effort/.test(text)) return "engine-settings";
 
   // A Codex thread whose writer lock is held elsewhere. The adapter appends an
   // actionable diagnosis naming the holder; keep it as its own category so the

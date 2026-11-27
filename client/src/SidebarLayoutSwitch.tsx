@@ -11,6 +11,19 @@ export function SidebarLayoutSwitch({ value, change, adhd }: { value: SidebarLay
   </div>;
 }
 
+export function SidebarUnreadFilter({ unreadOnly, unreadCount, change }: { unreadOnly: boolean; unreadCount: number; change: (unreadOnly: boolean) => void }) {
+  return <div className="sidebar-unread-filter" role="group" aria-label={t("筛选会话")}>
+    <button type="button" className="sidebar-filter-chip" aria-pressed={!unreadOnly} onClick={() => change(false)}>{t("全部")}</button>
+    <button type="button" className="sidebar-filter-chip" aria-pressed={unreadOnly} onClick={() => change(true)}>
+      <span>{t("未读")}</span>
+      {unreadCount > 0 && <>
+        <span className="sidebar-unread-total" aria-hidden="true">{unreadCount}</span>
+        <span className="screen-reader-only">{t("{0} 条未读", unreadCount)}</span>
+      </>}
+    </button>
+  </div>;
+}
+
 export function HostGroupingSwitch({ checked, change, menu = false }: { checked: boolean; change: (checked: boolean) => void; menu?: boolean }) {
   if (menu) return <button type="button" role="checkbox" aria-checked={checked} data-menu-keep onClick={() => change(!checked)}><span className="sidebar-list-toggle-mark" aria-hidden="true">{checked && <Check size={12}/>}</span><span>{t("按主机分组")}</span></button>;
   return <label className="sidebar-host-grouping"><input type="checkbox" checked={checked} onChange={event => change(event.target.checked)}/><span>{t("按主机分组")}</span></label>;

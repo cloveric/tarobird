@@ -15,11 +15,20 @@ function script(path: string, id: string) {
     document.head.appendChild(element);
   }); loads.set(id, loading); return loading;
 }
-export async function loadVditor(en: boolean) {
-  const lang = en ? "en_US" : "zh_CN";
+const VDITOR_LANG_MAP: Record<string, keyof IVditorI18n | "zh_CN" | "en_US" | "ja_JP"> = {
+  zh: "zh_CN",
+  en: "en_US",
+  ja: "ja_JP",
+};
+type IVditorI18n = { zh_CN: unknown; en_US: unknown; ja_JP: unknown };
+
+export async function loadVditor(localeOrEn: string | boolean) {
+  const lang = typeof localeOrEn === "boolean"
+    ? (localeOrEn ? "en_US" : "zh_CN")
+    : (VDITOR_LANG_MAP[localeOrEn] ?? "en_US");
   const [module] = await Promise.all([import("vditor"), script("dist/js/lute/lute.min.js", "vditorLuteScript"), script(`dist/js/i18n/${lang}.js`, `vditorI18nScript${lang}`), script("dist/js/icons/ant.js", "tarobotVditorIcons")]);
   // destroy() removes Vditor's marker but leaves the sprite. Keep our own load
   // marker and reinstall only this inert sentinel for future/split editors.
   if (!document.getElementById("vditorIconScript")) { const marker = document.createElement("script"); marker.type = "application/json"; marker.id = "vditorIconScript"; document.head.appendChild(marker); }
-  return { Constructor: module.default, i18n: locales.get(`vditorI18nScript${lang}`)! };
+  return { Constructor: module.default, i18n: locales.get(`vditorI18nScript${lang}`)!, lang };
 }

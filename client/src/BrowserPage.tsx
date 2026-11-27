@@ -1,14 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, ChevronDown, ExternalLink, RotateCw, Square, X } from "lucide-react";
-import { useLocale } from "./i18n.js";
+import { t, useLocale } from "./i18n.js";
 import { registerBrowserSurface, scheduleBrowserLayout, browserAddress, type BrowserTabState } from "./workbench-browser.js";
 import { googleSigninRejected } from "./browser-google-signin.js";
 import { openDesktopUrl } from "./desktop-bridge.js";
 import { useBrowserPageTools, type BrowserPageOwner } from "./BrowserPageTools.js";
 
 export function BrowserPage({ controller, tab, active, native, supported, personal = false, errorText }: { controller: BrowserPageOwner; tab: {id: string; url?: string}; active: boolean; native?: BrowserTabState; supported: boolean; personal?: boolean; errorText(code: string): string }) {
-  const locale = useLocale();
-  const word = (zh: string, en: string) => locale === "en" ? en : zh;
+  useLocale();
   const viewport = useRef<HTMLDivElement>(null), activeRef = useRef(active); activeRef.current = active;
   const [address, setAddress] = useState(native?.url ?? tab.url ?? ""), [editing, setEditing] = useState(false);
   const rejected = googleSigninRejected(native?.url ?? tab.url), rejectionKey = `${tab.id}:${native?.url ?? tab.url}:${native?.navigation ?? 0}`;
@@ -39,25 +38,25 @@ export function BrowserPage({ controller, tab, active, native, supported, person
   // Keep the typed address through pointer/keyboard Go activation; navigation
   // controls and leaving the form end editing so native URLs can update.
   return <div className="workbench-browser-content" onKeyDown={tools.onKeyDown}><form className="workbench-address" onBlur={event => { const next = event.relatedTarget; if (!(next instanceof HTMLButtonElement && next.type === "submit" && event.currentTarget.contains(next))) setEditing(false); }} onSubmit={event => { event.preventDefault(); try { action("navigate", { url: browserAddress(address, tools.searchEngine) }); setEditing(false); } catch (error) { controller.setError(error instanceof Error ? error.message : "invalid_browser_url"); } }}>
-    <button type="button" aria-label={word("后退", "Back")} disabled={native?.canGoBack === false} onClick={() => action("back")}><ArrowLeft size={15}/></button><button type="button" aria-label={word("前进", "Forward")} disabled={native?.canGoForward === false} onClick={() => action("forward")}><ArrowRight size={15}/></button><button type="button" aria-label={word(native?.loading ? "停止加载" : "刷新网页", native?.loading ? "Stop loading" : "Reload")} onClick={() => action(native?.loading ? "stop" : "reload")}>{native?.loading ? <Square size={13}/> : <RotateCw size={14}/>}</button>
-    <input value={address} onFocus={() => setEditing(true)} onChange={event => { setEditing(true); setAddress(event.target.value); }} aria-label={word("网址或搜索", "Address or search")} placeholder={word("输入网址或搜索内容", "Enter an address or search")} spellCheck={false}/><button type="submit" onPointerDown={event => event.preventDefault()} aria-label={word("打开网址", "Go")}><ArrowRight size={15}/></button>{tools.button}
+    <button type="button" aria-label={t("后退")} disabled={native?.canGoBack === false} onClick={() => action("back")}><ArrowLeft size={15}/></button><button type="button" aria-label={t("前进")} disabled={native?.canGoForward === false} onClick={() => action("forward")}><ArrowRight size={15}/></button><button type="button" aria-label={t(native?.loading ? "停止加载" : "刷新网页")} onClick={() => action(native?.loading ? "stop" : "reload")}>{native?.loading ? <Square size={13}/> : <RotateCw size={14}/>}</button>
+    <input value={address} onFocus={() => setEditing(true)} onChange={event => { setEditing(true); setAddress(event.target.value); }} aria-label={t("网址或搜索")} placeholder={t("输入网址或搜索内容")} spellCheck={false}/><button type="submit" onPointerDown={event => event.preventDefault()} aria-label={t("打开网址")}><ArrowRight size={15}/></button>{tools.button}
   </form>
     {active && rejected && dismissed !== rejectionKey && <div className="browser-signin-notice" role="status">
-      <div><strong>{word("Google 拒绝了此次内置浏览器登录", "Google declined this embedded-browser sign-in")}</strong><p>{word("请在系统浏览器继续。登录状态不会同步回这里。", "Continue in your system browser. Its sign-in will not transfer back here.")}</p>
-      <button type="button" disabled={opening} onClick={() => void continueGoogle()}><ExternalLink size={14}/>{word("在系统浏览器继续", "Continue in system browser")}</button>{externalError && <p role="alert">{word("未能打开系统浏览器，请复制网址手动打开或重试。", "Could not open your system browser. Copy the URL or try again.")}</p>}</div>
-      <button type="button" aria-label={word("关闭登录提示", "Dismiss sign-in notice")} onClick={() => setDismissed(rejectionKey)}><X size={14}/></button>
+      <div><strong>{t("Google 拒绝了此次内置浏览器登录")}</strong><p>{t("请在系统浏览器继续。登录状态不会同步回这里。")}</p>
+      <button type="button" disabled={opening} onClick={() => void continueGoogle()}><ExternalLink size={14}/>{t("在系统浏览器继续")}</button>{externalError && <p role="alert">{t("未能打开系统浏览器，请复制网址手动打开或重试。")}</p>}</div>
+      <button type="button" aria-label={t("关闭登录提示")} onClick={() => setDismissed(rejectionKey)}><X size={14}/></button>
     </div>}
     {tools.panels}
-    {!personal && <div className="workbench-browser-state"><span>{native?.activity ? word("Bot 正在操作", "Bot is working") : native?.takeover ? word("你正在操作", "You are in control") : word("可在主对话中让 Bot 操作此页", "Ask your Bot to work on this page")}</span>
-      {native?.activity && <button onClick={() => action("cancel")}>{word("停止", "Stop")}</button>}<button onClick={() => action(native?.takeover ? "resume" : "takeover")}>{word(native?.takeover ? "允许 Bot 操作" : "接管", native?.takeover ? "Allow Bot" : "Take control")}</button>
-      <button aria-label={word(native?.sleeping ? "唤醒网页" : "休眠网页", native?.sleeping ? "Wake page" : "Sleep page")} onClick={() => action(native?.sleeping ? "wake" : "sleep")}><ChevronDown size={13}/></button>
+    {!personal && <div className="workbench-browser-state"><span>{native?.activity ? t("Bot 正在操作") : native?.takeover ? t("你正在操作") : t("可在主对话中让 Bot 操作此页")}</span>
+      {native?.activity && <button onClick={() => action("cancel")}>{t("停止")}</button>}<button onClick={() => action(native?.takeover ? "resume" : "takeover")}>{t(native?.takeover ? "允许 Bot 操作" : "接管")}</button>
+      <button aria-label={t(native?.sleeping ? "唤醒网页" : "休眠网页")} onClick={() => action(native?.sleeping ? "wake" : "sleep")}><ChevronDown size={13}/></button>
     </div>}
-    {native?.fullscreen && <p className="workbench-browser-note">{word("网页全屏 · 按 Esc 退出", "Page fullscreen · press Esc to exit")}</p>}
-    {native?.popup && <p className="workbench-browser-note">{word("登录窗口已打开，请在该窗口完成操作。", "A login window is open. Complete the action there.")}</p>}
-    {native?.requestedUrl && <p className="workbench-browser-note">{word("网页数量已达上限，请先关闭或休眠其他网页。", "Close or sleep another webpage before opening this link.")}<button onClick={() => void controller.openBrowser(native.requestedUrl).catch(error => controller.setError(error instanceof Error ? error.message : "browser_open_failed"))}>{word("重新打开链接", "Retry link")}</button></p>}
-    {native?.notice && <p className="workbench-browser-note">{word("本次网页跳转未打开：", "This page navigation was blocked: ")}{native.notice}</p>}
+    {native?.fullscreen && <p className="workbench-browser-note">{t("网页全屏 · 按 Esc 退出")}</p>}
+    {native?.popup && <p className="workbench-browser-note">{t("登录窗口已打开，请在该窗口完成操作。")}</p>}
+    {native?.requestedUrl && <p className="workbench-browser-note">{t("网页数量已达上限，请先关闭或休眠其他网页。")}<button onClick={() => void controller.openBrowser(native.requestedUrl).catch(error => controller.setError(error instanceof Error ? error.message : "browser_open_failed"))}>{t("重新打开链接")}</button></p>}
+    {native?.notice && <p className="workbench-browser-note">{t("本次网页跳转未打开：")}{native.notice}</p>}
     {native?.error && <p className="workbench-error">{errorText("page_unavailable")}</p>}
-    <div className="workbench-browser-viewport" ref={viewport} aria-label={word("内嵌网页", "Embedded webpage")}>{native?.sleeping && <button onClick={() => action("wake")}>{word("网页已休眠，点击重新加载", "Page is sleeping. Reload to continue.")}</button>}</div>
+    <div className="workbench-browser-viewport" ref={viewport} aria-label={t("内嵌网页")}>{native?.sleeping && <button onClick={() => action("wake")}>{t("网页已休眠，点击重新加载")}</button>}</div>
 
   </div>;
 }

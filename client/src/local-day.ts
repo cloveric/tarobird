@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { addGlobalListener } from "./global-event-hub.js";
 
 /** The timer fires this long after local midnight, so the calendar day has certainly turned. */
 export const DAY_TURN_MARGIN_MS = 1000;
@@ -50,15 +51,20 @@ export function createLocalDay() {
   };
   // Re-arm first: a listener that throws must not end the schedule.
   const wake = () => { arm(); check(); };
+  let stopListeners: (() => void)[] = [];
   const start = () => {
     // Page shown again, native App resumed, window activated, page restored from the back/forward cache.
-    document.addEventListener("visibilitychange", wake); document.addEventListener("resume", wake);
-    window.addEventListener("focus", wake); window.addEventListener("pageshow", wake);
+    stopListeners = [
+      addGlobalListener(document, "visibilitychange", wake),
+      addGlobalListener(document, "resume", wake),
+      addGlobalListener(window, "focus", wake),
+      addGlobalListener(window, "pageshow", wake),
+    ];
     wake();
   };
   const stop = () => {
-    document.removeEventListener("visibilitychange", wake); document.removeEventListener("resume", wake);
-    window.removeEventListener("focus", wake); window.removeEventListener("pageshow", wake);
+    for (const off of stopListeners) off();
+    stopListeners = [];
     clearTimeout(timer); timer = undefined;
   };
   return {

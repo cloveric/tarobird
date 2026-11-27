@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LocaleSchema } from "../runtime/locale.js";
 
 export const EFFORT_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 export type EffortLevel = typeof EFFORT_LEVELS[number];
@@ -37,7 +38,7 @@ export const MeetingConfigFileSchema = z.object({
 }).passthrough();
 
 export const ConfigFileSchema = z.object({
-  engine: z.enum(["codex", "claude", "antigravity", "kimi", "deepseek", "pi"]).optional(),
+  engine: z.enum(["codex", "claude", "antigravity", "kimi", "deepseek", "pi", "omp"]).optional(),
   /** Set once by the Hub when a dispatcher Bot is created. */
   role: z.enum(["dispatcher"]).optional(),
   approvalMode: z.enum(["normal", "full-auto", "bypass"]).optional(),
@@ -46,7 +47,7 @@ export const ConfigFileSchema = z.object({
   codexRuntime: z.enum(["app-server", "process"]).optional(),
   /** Antigravity transport; absent means the print-mode adapter. Applied when the Bot restarts. */
   antigravityRuntime: z.enum(["print", "acp"]).optional(),
-  locale: z.enum(["en", "zh"]).optional(),
+  locale: LocaleSchema.optional(),
   verbosity: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
   budgetUsd: z.number().positive().optional(),
   effort: z.enum(EFFORT_LEVELS).optional(),

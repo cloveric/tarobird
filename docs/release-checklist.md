@@ -158,15 +158,18 @@ A listed product remains in this category even if distributed through npm.
 Other npm/Gradle/Cargo libraries, AndroidX, Firebase, OkHttp, frameworks and build
 tools are **ordinary dependencies**, not this release gate.
 
-**Baoyu Design/PPT exception (2026-11-15):** the canvas/PPT integrations and
-their adapted skills are not mandatory pre-release upstream checks or upgrades.
-Keep verified pins unless the owner scopes an update or a specific needed fix;
-an available new upstream version or an unavailable upstream lookup does not
-block a release that retains those pins. For an actual change, review bound
-upstream code fragments, preserve saved content and native PPT routing, keep
-skill/editor provenance accurate, and validate the affected flows. Shipped-code
-security review, freeze rules and validation still apply. A scoped backport is
-not a claim that the whole upstream editor was upgraded.
+**Workbench presentation editor (2026-11-27).** The 2026-11-15 exception here
+covered the Baoyu Design canvas and Baoyu PPT integrations and their skills.
+Both are gone (#89, #90), so it has no subject left. The presentation editor is
+now `client/vendor/workbench-slides`: a built bundle of the Open Artifact slides
+editor at the commit pinned in its `UPSTREAM.json`, with the modifications
+recorded there. It is not in the list above; the list is closed and whether
+this editor joins it is for the owner to say. For an actual change to it,
+preserve saved content (decks written by 1.6.0 included, see
+`client/e2e/workbench-legacy-1.6.0.spec.ts`) and native PPT routing, keep
+`UPSTREAM.json` and `THIRD-PARTY-NOTICES.txt` accurate, and validate the
+affected flows. Shipped-code security review, freeze rules and validation
+still apply.
 
 Before freezing a full release, complete the following for the listed products:
 
@@ -175,9 +178,9 @@ Before freezing a full release, complete the following for the listed products:
   Review SKILL.md diffs even when package/editor versions have not changed. Keep
   skill/editor pins aligned; adapt upstream guidance to the App protocol rather
   than copying standalone server instructions. Verify skill resources in the
-  standalone/App host package and selected global install locations. Baoyu
-  Design/PPT routing checks belong to an actual change to that integration;
-  preserve default skills for ordinary PPT requests.
+  standalone/App host package and selected global install locations.
+  Workbench presentation routing checks belong to an actual change to that
+  integration; preserve default skills for ordinary PPT requests.
 - Check each official upstream repository/release feed against the version or
   commit actually bundled. Use the latest stable release; for commit-pinned
   projects without a release channel, check the latest upstream commit.

@@ -5,17 +5,18 @@ import type { HubConnection } from "./connection.js";
 import { randomNonce } from "./identity.js";
 import { timeoutSignal } from "./abort-signals.js";
 import { PairingCode, type PairingPayload } from "./PairingCode.js";
+import { browserPairingLink } from "./web-browser.js";
 import { pairingInviteError } from "./pairing-invite-errors.js";
 import { t, useLocale } from "./i18n.js";
 
 type ConnectPayload = Extract<PairingPayload, { kind: "connect" }>;
 /** Route preparation and invitation issuance are independent: this component
  * never prepares listeners or changes network settings. No static-QR fallback. */
-export function ConnectionInviteCode({ connection, payload }: { connection?: HubConnection; payload: ConnectPayload }) {
+export function ConnectionInviteCode({ connection, payload, browserUrl, hideQr = false }: { connection?: HubConnection; payload: ConnectPayload; browserUrl?: string; hideQr?: boolean }) {
   useLocale();
-  return connection ? <ConnectedInvite key={connection.identity.deviceId + payload.hubPublicKey} connection={connection} payload={payload}/> : <p role="status" className="settings-note">{t("连接主机并取得管理权限后，才能生成限时连接码。")}</p>;
+  return connection ? <ConnectedInvite key={connection.identity.deviceId + payload.hubPublicKey} connection={connection} payload={payload} browserUrl={browserUrl} hideQr={hideQr}/> : <p role="status" className="settings-note">{t("连接主机并取得管理权限后，才能生成限时连接码。")}</p>;
 }
-function ConnectedInvite({ connection, payload }: { connection: HubConnection; payload: ConnectPayload }) {
+function ConnectedInvite({ connection, payload, browserUrl, hideQr = false }: { connection: HubConnection; payload: ConnectPayload; browserUrl?: string; hideQr?: boolean }) {
   const state = useSyncExternalStore(notify => connection.subscribe(notify), () => connection.state);
   const available = state.status === "online" && state.user?.role === "owner" && !!state.pairingInvitesAvailable && connection.identity.hubPublicKey === payload.hubPublicKey;
   const [issued, setIssued] = useState<PairingInviteIssued & { received: number; mono: number }>();
@@ -85,11 +86,17 @@ function ConnectedInvite({ connection, payload }: { connection: HubConnection; p
   const live = useRef<() => boolean>(() => false);
   live.current = () => !!issued && available && !busy && !error && phase === "available" && lifetime.current?.id === issued.id && !lifetime.current.issuing && secondsLeft(issued) > 0;
   if (!available) return <p role="status" className="settings-note">{state.status !== "online" ? t("请先恢复主机连接，再生成限时连接码。") : state.user?.role !== "owner" ? t("需要主机所有者权限才能生成连接码。") : t("请先更新此主机，才能使用限时连接码配对新设备。")}</p>;
+  let browserLinkText: string | undefined;
+  let browserLinkError = "";
+  if (!busy && !error && issued && phase === "available" && remaining > 0 && browserUrl) {
+    try { browserLinkText = browserPairingLink(browserUrl, { ...payload, invite: issued.invite }); }
+    catch { browserLinkError = t("配对信息过长，请减少备用线路后再试。"); }
+  }
   return <div className="connection-invite-code">
-    {!busy && !error && issued && phase === "available" && remaining > 0 && <PairingCode payload={{ ...payload, invite: issued.invite }} save={{ key: issued.id, valid: () => live.current() }}/>}
+    {browserLinkError ? <p role="alert" className="error-text">{browserLinkError}</p> : !busy && !error && issued && phase === "available" && remaining > 0 && <PairingCode payload={{ ...payload, invite: issued.invite }} browserMode={!!browserUrl} hideQr={hideQr} textOverride={browserLinkText} save={{ key: issued.id, valid: () => live.current() }}/>}
     <div className="invite-validity">
-      <p role="status" className="settings-note">{busy ? <><LoaderCircle size={15} className="spin" aria-hidden="true"/> {t("正在生成二维码…")}</> : phase === "claimed" ? t("已有新设备提交申请，请核对它的 8 位配对码后确认。") : issued && (phase === "expired" || remaining === 0) ? t("二维码已过期或失效，请重新生成。") : issued ? t("二维码有效时间 {0}:{1} · 仅限一台新设备", Math.floor(remaining / 60), String(remaining % 60).padStart(2, "0")) : t("二维码有效期 5 分钟，扫码后仍需确认新设备。")}</p>
-      <button type="button" className="secondary" disabled={busy} onClick={() => { if (lifetime.current) void issue(lifetime.current); }}><RefreshCw size={15} aria-hidden="true"/>{issued ? t("重新生成二维码") : t("生成二维码")}</button>
+      <p role="status" className="settings-note">{busy ? <><LoaderCircle size={15} className="spin" aria-hidden="true"/> {hideQr ? t("正在生成链接…") : t("正在生成二维码…")}</> : phase === "claimed" ? t("已有新设备提交申请，请核对它的 8 位配对码后确认。") : issued && (phase === "expired" || remaining === 0) ? (hideQr ? t("链接已过期或失效，请重新生成。") : t("二维码已过期或失效，请重新生成。")) : issued ? (hideQr ? t("链接有效时间 {0}:{1} · 仅限一台新设备", Math.floor(remaining / 60), String(remaining % 60).padStart(2, "0")) : t("二维码有效时间 {0}:{1} · 仅限一台新设备", Math.floor(remaining / 60), String(remaining % 60).padStart(2, "0"))) : (hideQr ? t("链接有效期 5 分钟，打开后仍需确认新设备。") : t("二维码有效期 5 分钟，扫码后仍需确认新设备。"))}</p>
+      <button type="button" className="secondary" disabled={busy} onClick={() => { if (lifetime.current) void issue(lifetime.current); }}><RefreshCw size={15} aria-hidden="true"/>{issued ? (hideQr ? t("重新生成链接") : t("重新生成二维码")) : (hideQr ? t("生成链接") : t("生成二维码"))}</button>
     </div>
     {error && <p role="alert" className="error-text">{error}</p>}
   </div>;

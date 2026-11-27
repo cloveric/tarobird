@@ -7,7 +7,7 @@ export const modelChoiceSchema = z.object({ id: z.string(), label: z.string().op
   provider: z.string().optional(), modelId: z.string().optional(), efforts: z.array(effortValueSchema) }).strict();
 export const modelSettingsSchema = z.object({
   scope: z.literal("bot"), revision: z.string().regex(/^[a-f0-9]{64}$/),
-  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi"]),
+  engine: z.enum(["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"]),
   model: z.string(), effort: effortValueSchema, choices: z.array(modelChoiceSchema),
   customEfforts: z.array(effortValueSchema), activeTurns: z.number().int().nonnegative(),
   catalogStatus: z.enum(["ready", "no-models", "unavailable"]).optional(),

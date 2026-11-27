@@ -1,12 +1,12 @@
 {
-  "sourceRevision": "a0411ba26bfac96a5372e1022d838447eaa584af",
+  "sourceRevision": "3274532246c238bce5b4bd975c2f03c7d0ce5001",
   "sourceDirty": true,
   "clientEntry": {
-    "file": "assets/index-BYzlevgr.js",
-    "sha256": "dedb0e46efbb6a5916687a3993bbc27cab22255efae262fd4547ed9991a2bf58",
-    "indexSha256": "2c100e25f92b478f83343a57520653c98a775e4c28d0a08964370661c6caa457"
+    "file": "assets/index-CzfczZFW.js",
+    "sha256": "e01952153c19d323de8c3dc61d036663f4196a732f6fa0a517426d236806ffc0",
+    "indexSha256": "b6a93bf11b6ecc31c3867e4a153c4f82a4f3083f721caf9f514e1c289f26c3d6"
   },
-  "captured": "2026-11-04T11:02:28.960Z",
+  "captured": "2026-11-26T22:58:44.824Z",
   "source": "Overview assembled from the actual UI recordings referenced in each scene. Synthetic conversations and workflow states; native browser uses an isolated Electron harness and a fictional local website; remote screen data and connection are simulated. No model execution, real repository push, installed-App or physical-device acceptance.",
   "images": [
     {
@@ -98,7 +98,7 @@
     {
       "file": "demo-en.gif",
       "locale": "en",
-      "duration": 58.875,
+      "duration": 59.5,
       "fps": 8,
       "size": {
         "width": 1280,
@@ -111,7 +111,7 @@
           "duration": 13,
           "source": "inbox-demo-en.gif",
           "sourceSha256": "ea5a759e07c486b55ce0d7aa4de95b376582b78699ec54e614ae296c33cab338",
-          "recordingSha256": "ac0e6722475bdb54d444a1176ae03e07f568b9a1bc24af78a6c2c636ab19afb6",
+          "recordingSha256": "ba0566900672ad763aab43f623f801c24ac30e5cc15c181b2c14be65d9d5c817",
           "recordingOffset": 0
         },
         {
@@ -120,7 +120,7 @@
           "duration": 9.25,
           "source": "adhd-demo-en.gif",
           "sourceSha256": "de87370ea71ddbdb92195230cfa453856c6a652e084632e0626a4df806e1fd61",
-          "recordingSha256": "33a58bd12b5621d0fdf959fdc1f2e2f1005f0cb575b6e9921b94c69301415dd9",
+          "recordingSha256": "8a4a69f2cdd78072fe51cc342157c34954e7602dd897d4928ed6265fe4980881",
           "recordingOffset": 0
         },
         {
@@ -129,7 +129,7 @@
           "duration": 7,
           "source": "agent-bus-demo-en.gif",
           "sourceSha256": "9dc6db4db3be6556c1e4b364938e6a0d7d97b4bbd9dabfeaf69220f7b67dd979",
-          "recordingSha256": "5707b5a610ed54b5a51edabb27a5e1cbd7df8952768ee6fafc0450560a59c908",
+          "recordingSha256": "9c87911625bd4bfbab73672cc1c4573b656ef3bc2e5d90cd4b7065b522583a1f",
           "recordingOffset": 0
         },
         {
@@ -138,48 +138,48 @@
           "duration": 8.625,
           "source": "browser-demo-en.gif",
           "sourceSha256": "38c13a824ce5222f6f2868cf3e555a0fc2019182aa4db40acdc4b166d2de1040",
-          "recordingSha256": "697122a863fe5022ea1ef20370fe679c477690efd4de61dc328b8f0e7a56ded1",
+          "recordingSha256": "888c6b7d9c0fbd279b77fb6d271b1fa6dd9fe7112765e17bd5583b04e82ab6cb",
           "recordingOffset": 0
         },
         {
           "label": "Canvas · Select the text. Make it yours.",
           "start": 37.875,
-          "duration": 6.5,
+          "duration": 7.125,
           "source": "canvas-demo-en.gif",
-          "sourceSha256": "b7631ad737b0c94115a01aab97dec0ad89cf8cbe48fffb99e894d1b089fc10b9",
-          "recordingSha256": "fc09de2ab6325a6a5e2b6f1eaf21abbd2234bedded48c8c2551e65fa59f04e81",
+          "sourceSha256": "2516abd47fe4333cbf99e4c3617b30c8873dbac3a1d9621579cf95daf7b7f74d",
+          "recordingSha256": "559f412e9d1dcbd669490ec6b087494a937f45ef41e2b5e042d6c545564a381b",
           "recordingOffset": 0
         },
         {
           "label": "Side panel · Whiteboard and notes",
-          "start": 44.375,
+          "start": 45,
           "duration": 6.5,
           "source": "workbench-tools-demo-en.gif",
-          "sourceSha256": "c8ecfeb4c2371cf3d558ff650247cf4c43bfe5417f92209a06152beaa68ddae2",
-          "recordingSha256": "e77cb745269d8a26b9d4c483f800b1ef35a9f990d7a6492b1375600538bef3e4",
+          "sourceSha256": "fe039ce1f070cabafefd51698ca107867ab532ed081238392aaefcaf11321144",
+          "recordingSha256": "23b406df8e6b2f27c8473f0f550ebf88e57a3a0de1c821e51d7e931943e92e28",
           "recordingOffset": 0
         },
         {
           "label": "Screen control · View and interact.",
-          "start": 50.875,
+          "start": 51.5,
           "duration": 4.25,
           "source": "screen-demo-en.gif",
           "sourceSha256": "6f633872099b00cde147951eb64b0ddfed5e23baf11037c23e9694a1aa2d6954",
-          "recordingSha256": "0f4b902215c592019cc7fd57f37a5efa4d92a1fef82b6a3e25527a08c6923303",
+          "recordingSha256": "e79d5475a1f2eb48ecd90f07cf3e70434e841248ca124a17f5495a3f03de030e",
           "recordingOffset": 0
         },
         {
-          "label": "Chancellor · Follow every ticket.",
-          "start": 55.125,
+          "label": "Superagent · Follow every ticket.",
+          "start": 55.75,
           "duration": 3.75,
           "source": "chancellor-demo-en.gif",
-          "sourceSha256": "ab3ab1dba2fe1051bbcfd13cd153a0d750ebfd69d6c7d28a5149aa8c46af8efb",
-          "recordingSha256": "b08be58111d45be36c983f59b52fc29ee5afb9fd1a63221c42f20db984050762",
+          "sourceSha256": "140a51911faafde35f508c25d5c075dfe4c9767643e4661d6e080ebccc395ab9",
+          "recordingSha256": "0ed4c385b79071cc40464101b19b1124fe3a75833e583707f38f9443157aec0c",
           "recordingOffset": 0
         }
       ],
-      "bytes": 3350082,
-      "sha256": "96633b156df3520de975fc332c76edc4946a53893cc42e6ace807fae3756841c"
+      "bytes": 4933776,
+      "sha256": "006d715791f7d336f422c5465582d1d28bd2fa68f1c3020146e8e9264bd3dd3a"
     }
   ]
 }

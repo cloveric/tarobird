@@ -15,8 +15,8 @@ describe('Host rejections before dispatch are reported as not executed', () => {
   let directory: string, store: HubStore, broker: WorkbenchBroker, conversationId: string, commands: WorkbenchCommandFrame[];
   const owner = (): WorkbenchActor => ({ userId: 'owner', conversationId, validate: async () => {} });
   const peerFor = (deviceId: string): WorkbenchPeer => ({ key: {}, userId: 'owner', deviceId, active: () => true, validate: async () => {}, send: async frame => { if (frame.type === 'workbench.command') commands.push(frame); } });
-  const window = (windowId: string, capabilities: WorkbenchRegistration['capabilities'] = ['design.v1']): WorkbenchRegistration =>
-    ({ windowId, generation: 'gen', conversationId, capabilities, tabs: [{ id: 'design-a', kind: 'design', title: 'A', revision: 0 }], activeTabId: 'design-a', visible: true });
+  const window = (windowId: string, capabilities: WorkbenchRegistration['capabilities'] = ['design.slides.v1']): WorkbenchRegistration =>
+    ({ windowId, generation: 'gen', conversationId, capabilities, tabs: [{ id: 'design-a', kind: 'design', designFormat: 'slides', title: 'A', revision: 0 }], activeTabId: 'design-a', visible: true });
   const read = (requestId: string, target?: object) => ({ requestId, operation: 'design.read' as const, payload: {}, ...(target ? { target } : {}) });
   const journal = (requestId: string) => store.db.get('SELECT 1 FROM meta WHERE key=?', [`workbench-command:owner:${conversationId}:${requestId}`]);
   async function rejected(request: Promise<unknown>, requestId: string) {
@@ -39,7 +39,7 @@ describe('Host rejections before dispatch are reported as not executed', () => {
     expect(await rejected(broker.request(owner(), read('closed-tab', { deviceId: 'device', windowId: 'w', tabId: 'design-gone' })), 'closed-tab')).toBe('workbench_target_closed');
     expect(await rejected(broker.request(owner(), { requestId: 'no-cap', operation: 'markdown.create', payload: { title: 'Note' } }), 'no-cap')).toBe('workbench_capability_unsupported');
     await broker.register(peerFor('laptop'), window('w2'));
-    expect(await rejected(broker.request(owner(), { requestId: 'two-windows', operation: 'design.create', payload: {} }), 'two-windows')).toBe('workbench_target_ambiguous');
+    expect(await rejected(broker.request(owner(), { requestId: 'two-windows', operation: 'design.create', payload: { format: 'slides' } }), 'two-windows')).toBe('workbench_target_ambiguous');
     expect(commands).toEqual([]);
     // Eight held commands fill this user's slots; the ninth is refused unrecorded.
     const held = Array.from({ length: 8 }, (_, n) => broker.request(owner(), read(`held-${n}`, { deviceId: 'device', windowId: 'w', tabId: 'design-a' })));
@@ -104,7 +104,7 @@ describe('Host rejections before dispatch are reported as not executed', () => {
 
     it.each([
       ['design.publish', designPublish],
-      ['design.create', { requestId: 'design_create_1', operation: 'design.create', target: { deviceId: 'device', windowId: 'w' }, payload: { title: 'Design' } }],
+      ['design.create', { requestId: 'design_create_1', operation: 'design.create', target: { deviceId: 'device', windowId: 'w' }, payload: { title: 'Design', format: 'slides' } }],
       ['whiteboard.create', { requestId: 'board_create_1', operation: 'whiteboard.create' }],
       // Browser actions are never treated as reads, even capture-like ones.
       ['browser screenshot', { requestId: 'browser_shot_1', operation: 'browser', payload: { action: 'screenshot' } }],
@@ -113,6 +113,28 @@ describe('Host rejections before dispatch are reported as not executed', () => {
       const receipt = await report('connection_closed', args);
       expect(receipt).toMatchObject({ status: 'unknown', error: 'connection_closed' });
       expect(receipt.hint).toBe('Do not replay with a new requestId. Reconcile the existing operation.');
+    });
+
+    it('reports design_canvas_removed as not_executed, saying only that the canvas was removed and that the user can export, both before and on channel rejection', async () => {
+      const workbench = vi.fn().mockRejectedValue(new Error('design_canvas_removed'));
+      const signal = new AbortController();
+      const tools = createAppPlatformTools({ channel: { sendArtifact: vi.fn(), sendArtifactBatch: vi.fn(), workbench }, stateDir: dir, conversationId: 'conv', requestOutputDir: path.join(dir, 'out'), workspaceOverride: dir, receipts: new GatewayReceipts(dir), signal: signal.signal } as never);
+      const local = await tools.call({ name: 'app_workbench', arguments: { requestId: 'canvas-create', operation: 'design.create', payload: { format: 'canvas' } }, callId: 'c1', sessionId: 'session', abortSignal: signal.signal } as never);
+      expect(local.isError).toBe(true);
+      expect(workbench).not.toHaveBeenCalled();
+      const localBody = JSON.parse(local.text) as { status: string; error: string; hint: string };
+      expect(localBody).toMatchObject({ requestId: 'canvas-create', status: 'not_executed', error: 'design_canvas_removed' });
+      expect(localBody.hint).toContain('The Baoyu Design canvas has been removed from the Workbench');
+      expect(localBody.hint).toContain('can only be exported by the user, from its tab or from Settings > Workbench files');
+      // No replacement product is named: none ships with the App.
+      expect(localBody.hint).not.toMatch(/infinite canvas|extension|install/i);
+      expect(localBody.hint).toContain("format:'slides'");
+      expect(localBody.hint).not.toContain('Design requests use the exact payload');
+
+      const remote = await report('design_canvas_removed', designRead);
+      expect(remote).toMatchObject({ requestId: 'design_read_1', status: 'not_executed', error: 'design_canvas_removed' });
+      expect(remote.hint).toBe(localBody.hint);
+      expect(remote.hint).not.toContain('Reconcile');
     });
   });
 });

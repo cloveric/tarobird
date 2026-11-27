@@ -91,7 +91,7 @@ for (const phone of [false, true]) test(`complete drafts stay with each conversa
     await messageAction(page, page.locator(`[data-message-id="${quoted.id}"]`), "引用回复");
     await page.locator("input.attachment-picker-input").setInputFiles([
       { name: "方案.txt", mimeType: "text/plain", buffer: Buffer.from("file bytes") },
-      { name: "voice.webm", mimeType: "audio/webm", buffer: Buffer.from("recorded draft bytes") },
+      { name: "voice.webm", mimeType: "audio/webm", buffer: Buffer.from("audio file bytes") },
     ]);
     await revealReplyBots(page);
     // Current groups start without an explicit mention; set the intended
@@ -131,7 +131,8 @@ for (const phone of [false, true]) test(`complete drafts stay with each conversa
     await expect(page.getByRole("textbox", { name: "消息", exact: true })).toHaveValue("");
     const sent = (await hub.store.snapshot("owner", one.id)).messages.find(m => m.authorType === "user")!;
     expect(sent.replyTo).toBe(quoted.id); expect(sent.mentions).toEqual(["beta"]); expect(sent.previewUrl).toBeNull();
-    expect(sent.blocks.map(b => b.type)).toEqual(["text", "file", "audio"]);
+    expect(sent.blocks.map(b => b.type)).toEqual(["text", "file", "file"]);
+    expect(sent.blocks[2]).toMatchObject({ type: "file", name: "voice.webm", mime: "audio/webm" });
     await selectConversation(page, two.title);
     await expect(page.getByRole("textbox", { name: "消息", exact: true })).toHaveValue("另一份独立草稿");
     await expect(page.locator(".attachment-draft")).toContainText("另一份.txt");
@@ -177,8 +178,16 @@ for (const phone of [false, true]) test(`real Hub mute receipt survives reread f
   else await clickAppAction(page, '对话设置', page.getByRole('button',{name:'对话设置',exact:true}));
   // Opening the phone sheet is asynchronous; verify the committed layout,
   // retaining the same alignment and minimum target-size requirements.
-  await expect(page.locator('.conversation-settings label.settings-row')).toHaveCount(2);
-  await expect.poll(() => page.locator('.conversation-settings label.settings-row').evaluateAll(rows => rows.length === 2 && rows.every(row => {const a=row.querySelector('span')!.getBoundingClientRect(),b=row.querySelector('input')!.getBoundingClientRect();return b.left > a.right && Math.abs(a.top+a.height/2-b.top-b.height/2)<2 && row.getBoundingClientRect().height>=44;}))).toBe(true);
+  const toggleRows = page.locator('.conversation-settings label.settings-row');
+  const toggleLabels = ['全局置顶', '分组置顶', '此对话免打扰'];
+  await expect(toggleRows.locator('span')).toHaveText(toggleLabels);
+  await expect.poll(() => toggleRows.evaluateAll((rows, count) => rows.length === count && rows.every(row => {
+    const label = row.querySelector('span')!.getBoundingClientRect();
+    const toggle = row.querySelector('input')!.getBoundingClientRect();
+    return toggle.left > label.right &&
+      Math.abs(label.top + label.height / 2 - toggle.top - toggle.height / 2) < 2 &&
+      row.getBoundingClientRect().height >= 44;
+  }), toggleLabels.length)).toBe(true);
   await expect(page.getByLabel('此对话免打扰',{exact:true})).toBeEnabled();
   await page.route('**/api/notifications',route=>route.fulfill({status:503,json:{error:'fixture_read_failure'}}));
   await page.getByLabel('此对话免打扰',{exact:true}).click();

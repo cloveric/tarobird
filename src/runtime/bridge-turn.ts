@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { failedTurnUsage, type AdapterUsage } from "../codex/adapter.js";
+import { hostT } from "../locales/index.js";
 import type { Locale } from "./locale.js";
 import { loadInstanceConfig } from "../state/instance-config.js";
 import { UsageStore, type UsageRecord } from "../state/usage-store.js";
@@ -43,9 +44,7 @@ export async function checkBudgetAvailability(
     return null;
   }
 
-  const message = locale === "zh"
-    ? `预算已用尽：$${usage.totalCostUsd.toFixed(4)} / $${budgetUsd.toFixed(2)}。请在主机上调整此 Bot 的预算配置后重试。`
-    : `Budget exhausted: $${usage.totalCostUsd.toFixed(4)} used of $${budgetUsd.toFixed(2)}. Adjust this Bot's budget configuration on the host, then retry.`;
+  const message = hostT(locale, "预算已用尽：${0} / ${1}。请在主机上调整此 Bot 的预算配置后重试。", usage.totalCostUsd.toFixed(4), budgetUsd.toFixed(2));
 
   return { budgetUsd, usage, message };
 }

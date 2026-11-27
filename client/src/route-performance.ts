@@ -52,7 +52,7 @@ export class RoutePerformance {
     const a = this.values.get(candidate.url), b = this.values.get(current.url);
     const next = a?.latency ?? candidate.latency, active = b?.latency ?? current.latency;
     if (next === undefined || active === undefined || this.penalty(candidate.url, now) > this.penalty(current.url, now)) return false;
-    if (active - next < Math.max(50, active * .3)) return false;
+    if (active - next < Math.max(25, active * .2)) return false;
     if (a?.throughput && b?.throughput && a.throughput < b.throughput * .7) return false;
     if (a?.handshake && b?.handshake && a.handshake > b.handshake + 2000) return false;
     return true;

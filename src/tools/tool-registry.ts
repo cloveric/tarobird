@@ -1,4 +1,5 @@
 import { executeCronAddTool, renderCronAddInvalidPayloadMessage } from "./cron-add-tool.js";
+import { hostT } from "../locales/index.js";
 import {
   executeCronListTool,
   executeCronRemoveTool,
@@ -22,9 +23,7 @@ function renderUnknownTool(name: string, locale: ExecuteCoreToolInput["context"]
   return {
     ok: false,
     status: "rejected",
-    message: locale === "zh"
-      ? `✗ 工具调用失败：${detail}`
-      : `✗ Tool failed: ${detail}`,
+    message: hostT(locale, "✗ 工具调用失败：{0}", detail),
     error: detail,
   };
 }
@@ -148,7 +147,7 @@ function renderInvalidPayload(name: string, detail: string, locale: ExecuteCoreT
   return {
     ok: false,
     status: "rejected",
-    message: message ?? (locale === "zh" ? `✗ 工具参数无效：${error}` : `✗ Invalid tool payload: ${error}`),
+    message: message ?? hostT(locale, "✗ 工具参数无效：{0}", error),
     error,
   };
 }

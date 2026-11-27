@@ -20,7 +20,7 @@
 .pairing-options .deployment-guide { margin-top:12px; }
 .pairing-card .muted { color:var(--grey); }
 .pairing-card .vps-routes { text-align:left; }
-.pairing-card .error-text { margin-top:16px; overflow-wrap:anywhere; color:var(--red); }
+.pairing-card .error-text { margin-top:16px; padding:10px 12px; border-radius:10px; background:color-mix(in srgb,var(--red) 7%,var(--bg)); color:color-mix(in srgb,var(--red) 88%,var(--text)); font-size:13px; line-height:1.55; overflow-wrap:anywhere; }
 .pairing-card footer { display:flex; align-items:flex-start; gap:7px; margin-top:28px; font-size:12px; line-height:1.6; color:var(--muted); }
 .pairing-card footer svg { flex-shrink:0; margin-top:2px; }
 .pairing-card .pairing-host-cancel { justify-content:flex-start; padding:0; min-height:36px; margin:0 0 20px; font-size:13px; color:var(--grey); }
@@ -36,6 +36,9 @@
 .pairing-import p { margin:4px 0 0; overflow-wrap:anywhere; font-size:12px; }
 .pairing-import>svg { flex-shrink:0; color:var(--accent,var(--blue)); }
 .pairing-import>button { flex-shrink:0; font-size:12px; }
+.pairing-import .pairing-import-state { margin-top:6px; color:var(--text); font-weight:500; }
+.pairing-existing-host { display:grid; gap:10px; justify-items:start; margin:0 0 18px; padding:12px 14px; border-radius:12px; background:var(--orange-soft,var(--surface)); font-size:13px; line-height:1.55; }
+.pairing-existing-host p { margin:0; }
 .pairing-layout:has(.pairing-waiting) { grid-template-columns:minmax(0,460px); justify-content:center; }
 .pairing-waiting>p { font-size:14px; line-height:1.75; }
 .pair-code { margin:28px 0 12px; padding:20px 10px; border-radius:12px; background:var(--surface); color:var(--text); font:600 30px/1.25 var(--font-mono,monospace); letter-spacing:.16em; text-align:center; font-variant-numeric:tabular-nums; }

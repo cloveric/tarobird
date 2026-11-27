@@ -18,8 +18,15 @@
 .engine-path-list { display: grid; gap: 12px; margin: 16px 0; }
 .engine-path-card { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 14px; }
 .engine-path-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
-.engine-path-source { color: var(--muted); }
+.engine-path-source { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; color: var(--muted); }
+.engine-path-version { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
 .engine-path-value { display: block; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+.engine-path-dangling-list { margin-top: 8px; display: grid; gap: 6px; }
+.engine-path-dangling-warn { margin: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--orange-soft); color: var(--orange); overflow-wrap: anywhere; }
+.engine-path-dangling-note { margin: 0; overflow-wrap: anywhere; }
+.engine-path-terminal-diff { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px dashed var(--border); background: var(--surface, transparent); }
+.engine-path-terminal-label { margin: 0 0 4px; color: var(--text); }
+.engine-path-adopt-confirm { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .engine-path-editor { margin-top: 12px; }
 .engine-path-editor label { display: grid; gap: 8px; }
 .engine-path-editor input { width: 100%; min-width: 0; box-sizing: border-box; }

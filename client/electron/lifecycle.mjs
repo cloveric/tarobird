@@ -1,3 +1,5 @@
+import { resolveElectronLocale, pickElectronCopy } from './locale.mjs';
+
 /** Application lifetime is independent of its visible window and the Host.
  * Closing hides the main window; quitting retires the desktop bridge while the
  * canonical detached Host follows its existing service lifecycle. */
@@ -24,10 +26,18 @@ export function installDesktopLifecycle(electron, { createWindow, addon, icon, p
           window = value;
           window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide(); } });
           window.webContents.on('will-prevent-unload', event => {
-            const english = app.getLocale().startsWith('en');
+            const loc = resolveElectronLocale({ app });
             const result = dialog.showMessageBoxSync(window, { type: 'question', title: 'TaroBird',
-              message: english ? 'Some work is still being saved. Quit anyway?' : '仍有内容尚未保存完成。确定退出吗？',
-              buttons: english ? ['Keep open', 'Quit'] : ['继续使用', '退出'], defaultId: 0, cancelId: 0 });
+              message: pickElectronCopy(loc, {
+                zh: '仍有内容尚未保存完成。确定退出吗？',
+                en: 'Some work is still being saved. Quit anyway?',
+                ja: 'まだ保存されていない作業があります。終了しますか？',
+              }),
+              buttons: pickElectronCopy(loc, {
+                zh: ['继续使用', '退出'],
+                en: ['Keep open', 'Quit'],
+                ja: ['開いたままにする', '終了'],
+              }), defaultId: 0, cancelId: 0 });
             if (result === 1) event.preventDefault(); else { quitting = false; restarting = false; prepared = false; quitCancelled(); }
           });
           return value;
@@ -39,13 +49,26 @@ export function installDesktopLifecycle(electron, { createWindow, addon, icon, p
   /** Tray: who is viewing/controlling this Mac and a one-click stop. */
   const trayMenu = () => {
     if (!tray) return;
-    const english = app.getLocale().startsWith('en');
+    const loc = resolveElectronLocale({ app });
     const shared = sharing.length ? [
-      ...sharing.map(item => ({ enabled: false, label: english ? `Sharing screen with ${item.deviceName}${item.controlling ? ' (controlling)' : ' (viewing)'}` : `正在共享屏幕：${item.deviceName}${item.controlling ? '（控制中）' : '（查看中）'}` })),
-      { label: english ? 'Stop screen sharing' : '停止共享屏幕', accelerator: STOP_SHORTCUT, click: () => stopSharing() }, { type: 'separator' },
+      ...sharing.map(item => ({ enabled: false, label: pickElectronCopy(loc, {
+        zh: `正在共享屏幕：${item.deviceName}${item.controlling ? '（控制中）' : '（查看中）'}`,
+        en: `Sharing screen with ${item.deviceName}${item.controlling ? ' (controlling)' : ' (viewing)'}`,
+        ja: `画面を共有中：${item.deviceName}${item.controlling ? '（操作中）' : '（表示中）'}`,
+      }) })),
+      { label: pickElectronCopy(loc, { zh: '停止共享屏幕', en: 'Stop screen sharing', ja: '画面共有を停止' }), accelerator: STOP_SHORTCUT, click: () => stopSharing() }, { type: 'separator' },
     ] : [];
-    tray.setContextMenu(Menu.buildFromTemplate([...shared, { label: english ? 'Open TaroBird' : '打开 TaroBird', click: () => void show() }, { type: 'separator' }, { role: 'quit', label: english ? 'Quit' : '退出' }]));
-    tray.setToolTip(sharing.length ? (english ? 'TaroBird · sharing screen' : 'TaroBird · 正在共享屏幕') : 'TaroBird');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      ...shared,
+      { label: pickElectronCopy(loc, { zh: '打开 TaroBird', en: 'Open TaroBird', ja: 'TaroBird を開く' }), click: () => void show() },
+      { type: 'separator' },
+      { role: 'quit', label: pickElectronCopy(loc, { zh: '退出', en: 'Quit', ja: '終了' }) },
+    ]));
+    tray.setToolTip(sharing.length ? pickElectronCopy(loc, {
+      zh: 'TaroBird · 正在共享屏幕',
+      en: 'TaroBird · sharing screen',
+      ja: 'TaroBird · 画面を共有中',
+    }) : 'TaroBird');
   };
   /** The emergency stop shortcut exists only while this Mac is being shared. */
   const setSharing = items => {
@@ -61,9 +84,11 @@ export function installDesktopLifecycle(electron, { createWindow, addon, icon, p
   app.on('before-quit', event => {
     if (updating()) {
       event.preventDefault(); quitting = false; restarting = false; void show();
-      void dialog.showMessageBox(window, { type: 'info', title: 'TaroBird', message: app.getLocale().startsWith('en')
-        ? 'An update is in progress. Wait for it to finish, or cancel it in App updates while downloading or waiting for tasks.'
-        : '正在更新 TaroBird。请等待完成；下载或等待任务时，可以在“应用更新”中取消。' });
+      void dialog.showMessageBox(window, { type: 'info', title: 'TaroBird', message: pickElectronCopy(resolveElectronLocale({ app }), {
+        zh: '正在更新 TaroBird。请等待完成；下载或等待任务时，可以在“应用更新”中取消。',
+        en: 'An update is in progress. Wait for it to finish, or cancel it in App updates while downloading or waiting for tasks.',
+        ja: 'TaroBird をアップデート中です。完了するまでお待ちください。ダウンロード中またはタスク待機中は「アプリのアップデート」からキャンセルできます。',
+      }) });
       return;
     }
     // Workbench pages answer beforeunload before any window closes. A page the
@@ -97,23 +122,34 @@ export function installDesktopLifecycle(electron, { createWindow, addon, icon, p
         tray.on('click', () => void show());
       }
     }
-    const english = app.getLocale().startsWith('en');
-    const item = (role, en, zh) => ({ role, label: english ? en : zh });
+    const loc = resolveElectronLocale({ app });
+    const item = (role, labels) => ({ role, label: pickElectronCopy(loc, labels) });
     // Windows' generated role menus use English labels even when our File and
-    // View menus are Chinese. Explicit labels retain the native role shortcuts.
+    // View menus are Chinese or Japanese. Explicit labels retain the native role shortcuts.
     Menu.setApplicationMenu(Menu.buildFromTemplate(platform === 'win32' ? [
-      { label: english ? 'File' : '文件', submenu: [item('close', 'Close window', '关闭窗口')] },
-      { label: english ? 'Edit' : '编辑', submenu: [item('undo', 'Undo', '撤销'), item('redo', 'Redo', '重做'), { type: 'separator' },
-        item('cut', 'Cut', '剪切'), item('copy', 'Copy', '复制'), item('paste', 'Paste', '粘贴'),
-        item('pasteAndMatchStyle', 'Paste and match style', '粘贴并匹配样式'), item('delete', 'Delete', '删除'),
-        { type: 'separator' }, item('selectAll', 'Select all', '全选')] },
-      { label: english ? 'View' : '视图', submenu: [item('togglefullscreen', 'Toggle full screen', '切换全屏')] },
-      { label: english ? 'Window' : '窗口', submenu: [item('minimize', 'Minimize', '最小化'), item('close', 'Close window', '关闭窗口')] },
+      { label: pickElectronCopy(loc, { zh: '文件', en: 'File', ja: 'ファイル' }), submenu: [item('close', { zh: '关闭窗口', en: 'Close window', ja: 'ウィンドウを閉じる' })] },
+      { label: pickElectronCopy(loc, { zh: '编辑', en: 'Edit', ja: '編集' }), submenu: [
+        item('undo', { zh: '撤销', en: 'Undo', ja: '元に戻す' }),
+        item('redo', { zh: '重做', en: 'Redo', ja: 'やり直す' }),
+        { type: 'separator' },
+        item('cut', { zh: '剪切', en: 'Cut', ja: '切り取り' }),
+        item('copy', { zh: '复制', en: 'Copy', ja: 'コピー' }),
+        item('paste', { zh: '粘贴', en: 'Paste', ja: '貼り付け' }),
+        item('pasteAndMatchStyle', { zh: '粘贴并匹配样式', en: 'Paste and match style', ja: 'スタイルを合わせて貼り付け' }),
+        item('delete', { zh: '删除', en: 'Delete', ja: '削除' }),
+        { type: 'separator' },
+        item('selectAll', { zh: '全选', en: 'Select all', ja: 'すべて選択' }),
+      ] },
+      { label: pickElectronCopy(loc, { zh: '视图', en: 'View', ja: '表示' }), submenu: [item('togglefullscreen', { zh: '切换全屏', en: 'Toggle full screen', ja: 'フルスクリーンの切り替え' })] },
+      { label: pickElectronCopy(loc, { zh: '窗口', en: 'Window', ja: 'ウィンドウ' }), submenu: [
+        item('minimize', { zh: '最小化', en: 'Minimize', ja: '最小化' }),
+        item('close', { zh: '关闭窗口', en: 'Close window', ja: 'ウィンドウを閉じる' }),
+      ] },
     ] : [
       ...(platform === 'darwin' ? [{ role: 'appMenu' }] : []),
-      { label: english ? 'File' : '文件', submenu: [{ role: 'close' }] },
+      { label: pickElectronCopy(loc, { zh: '文件', en: 'File', ja: 'ファイル' }), submenu: [{ role: 'close' }] },
       { role: 'editMenu' },
-      { label: english ? 'View' : '视图', submenu: [{ role: 'togglefullscreen' }] },
+      { label: pickElectronCopy(loc, { zh: '视图', en: 'View', ja: '表示' }), submenu: [{ role: 'togglefullscreen' }] },
       { role: 'windowMenu' },
     ]));
     if (production) {

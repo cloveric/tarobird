@@ -1,36 +1,34 @@
 import { useCanvasNodeConsent } from "./CanvasNodeConsent.js";
-import { Capacitor } from "@capacitor/core";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PLUGIN_HOST_PROTOCOL } from "../../src/client-protocol/plugins.js";
 import {
   isPinnedCanvas,
+  OFFICIAL_PLUGIN_CATALOG,
   type InstalledPluginRecord,
   type PluginRegistry,
 } from "./plugin-registry.js";
 import type { HubConnection } from "./connection.js";
+import { createPluginSensitiveActionGate } from "./plugin-sensitive-action.js";
 import { exportAttachment } from "./attachment-export.js";
 import { t, useLocale } from "./i18n.js";
 import {
   handlePluginHostMessage,
+  isPluginSandboxSupported,
   resolvePluginSandboxSrc,
   resolvePluginTheme,
   wrapSandboxedDocument,
   type CanvasAgentBridgeAdapter,
 } from "./plugin-sandbox-runtime.js";
 
-export { handlePluginHostMessage } from "./plugin-sandbox-runtime.js";
+export { handlePluginHostMessage, isPluginSandboxSupported } from "./plugin-sandbox-runtime.js";
 
-export function isPluginSandboxSupported(): boolean {
-  if (!Capacitor.isNativePlatform()) return true;
-  let supported = !!document.querySelector('meta[name="tarobot-widget-guard"][content="1"]');
-  if (["android", "ios"].includes(Capacitor.getPlatform())) {
-    try {
-      supported &&= (window as unknown as { tarobotWidgetIsolation?: { supported(): boolean } }).tarobotWidgetIsolation?.supported() === true;
-    } catch {
-      supported = false;
-    }
-  }
-  return supported;
+/** Until arbitrary HTML has an independently verified runtime, only the known
+ * reviewed artifacts may be executable. Folder imports receive no guest frame. */
+function isReviewedPlugin(plugin: InstalledPluginRecord): boolean {
+  if (isPinnedCanvas(plugin)) return true;
+  return plugin.enabled && plugin.sourceKind === "official" && OFFICIAL_PLUGIN_CATALOG.some(entry =>
+    entry.bundleHtml !== undefined && entry.bundleHtml === plugin.bundleHtml
+    && JSON.stringify(entry.manifest) === JSON.stringify(plugin.manifest));
 }
 
 type DomainPromptState = {
@@ -64,6 +62,7 @@ export function PluginSandboxFrame({
   const activeRegistry = registry;
   const locale = useLocale();
   const supported = isPluginSandboxSupported();
+  const admitted = supported && isReviewedPlugin(plugin);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [domainPrompt, setDomainPrompt] = useState<DomainPromptState | null>(null);
   const domainPromptRef = useRef<DomainPromptState | null>(null);
@@ -74,10 +73,12 @@ export function PluginSandboxFrame({
   const bundleReady = plugin.bundleHtml.length > 0;
   const frameKey = `${activeRegistry.getScopeId()}:${plugin.grantedCapabilities.join(",")}:${plugin.manifest.id}:${plugin.manifest.version}:${plugin.manifest.artifact.sha256}:${plugin.installedAt}:${grantedDomainsKey}:${bundleReady ? "1" : "0"}`;
   const nodeConsent = useCanvasNodeConsent(frameKey);
+  const sensitiveActions = useMemo(() => createPluginSensitiveActionGate(), [frameKey]);
+  useLayoutEffect(() => () => sensitiveActions.cancel(), [sensitiveActions]);
   const sandboxSrc = resolvePluginSandboxSrc();
   const wrappedDoc = useMemo(
-    () => (bundleReady ? wrapSandboxedDocument(plugin.bundleHtml, isPinnedCanvas(plugin) ? [] : plugin.grantedDomains) : ""),
-    [bundleReady, plugin],
+    () => (admitted && bundleReady ? wrapSandboxedDocument(plugin.bundleHtml, isPinnedCanvas(plugin) ? [] : plugin.grantedDomains) : ""),
+    [admitted, bundleReady, plugin],
   );
 
   const initializedKeyRef = useRef<string>("");
@@ -213,7 +214,7 @@ export function PluginSandboxFrame({
   }, [locale, frameKey, plugin.grantedDomains]);
 
   useLayoutEffect(() => {
-    if (!supported || !bundleReady || activeRegistry.getPlugin(plugin.manifest.id) !== plugin) return;
+    if (!admitted || !bundleReady || activeRegistry.getPlugin(plugin.manifest.id) !== plugin) return;
     const onMessage = (event: MessageEvent) => {
       const frameWindow = iframeRef.current?.contentWindow;
       if (!frameWindow || event.source !== frameWindow) return;
@@ -224,13 +225,15 @@ export function PluginSandboxFrame({
       const ctx = latestContextRef.current;
       if (!ctx.registry.isActive(plugin)) return;
       const scopeId = ctx.registry.getScopeId();
+      const isActive = () => iframeRef.current?.contentWindow === frameWindow && ctx.registry.isActive(plugin);
       const dispatch = () => handlePluginHostMessage(event.data, {
         pluginId: ctx.pluginId,
         scopeId,
         officialBundledCanvas: ctx.registry.isActive(plugin) && isPinnedCanvas(plugin),
         declaredDomains: plugin.manifest.domains,
         confirmNode: nodeConsent.confirm,
-        active: () => iframeRef.current?.contentWindow === frameWindow && ctx.registry.isActive(plugin),
+        active: isActive,
+        runSensitiveAction: (action, run) => sensitiveActions.run(frameTitle, action, run, () => isActive() && !!iframeRef.current?.getClientRects().length),
         grantedCapabilities: ctx.grantedCapabilities,
         grantedDomains: ctx.grantedDomains,
         theme: resolvePluginTheme(),
@@ -269,7 +272,7 @@ export function PluginSandboxFrame({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [supported, bundleReady, frameKey, initialize, canvasAgent, plugin, activeRegistry]);
+  }, [admitted, bundleReady, frameKey, initialize, canvasAgent, plugin, activeRegistry, sensitiveActions, frameTitle]);
 
   if (!supported) {
     return (
@@ -277,6 +280,10 @@ export function PluginSandboxFrame({
         {t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。")}
       </div>
     );
+  }
+
+  if (bundleReady && !admitted) {
+    return <div className="plugin-sandbox-unavailable" role="status">{t("此版本暂不运行未经审核的 HTML 插件。")}</div>;
   }
 
   if (!bundleReady) {

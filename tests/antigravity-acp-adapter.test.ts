@@ -11,6 +11,7 @@ import {
   type AgyAcpChildProcess,
   type SpawnAgyAcp,
 } from "../src/codex/antigravity-acp-adapter.js";
+import { createRunRecord, recordRunEvent, summarizeRun } from "../src/core/run-record.js";
 
 type JsonRpcMessage = {
   jsonrpc: "2.0";
@@ -106,11 +107,24 @@ class FakeAgyServer {
 
   text(text: string): void { this.sendUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }); }
 
-  requestPermission(toolCallId = "call_1", toolInput: Record<string, unknown> = { CommandLine: "touch x" }): string {
+  requestPermission(
+    toolCallId = "call_1",
+    toolInput: Record<string, unknown> = { CommandLine: "touch x" },
+    toolCallOverrides?: Record<string, unknown>,
+  ): string {
     const id = String(this.nextServerRequestId++);
     this.send({ jsonrpc: "2.0", id, method: "session/request_permission", params: {
       sessionId: this.sessionId,
-      toolCall: { sessionUpdate: "tool_call", toolCallId, name: "run_command", status: "pending", kind: "execute", title: String(toolInput.CommandLine), rawInput: toolInput },
+      toolCall: {
+        sessionUpdate: "tool_call",
+        toolCallId,
+        name: "run_command",
+        status: "pending",
+        kind: "execute",
+        title: String(toolInput.CommandLine ?? toolCallId),
+        rawInput: toolInput,
+        ...toolCallOverrides,
+      },
       options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "deny", name: "Deny", kind: "reject_once" }],
     } });
     return id;
@@ -610,6 +624,29 @@ describe("AntigravityAcpAdapter cleanup", () => {
       expect(harness.log.indexOf(`stdin-end:${pid}`)).toBeLessThan(harness.log.indexOf(`kill:${pid}`));
     }
     await expect(second).resolves.toBeInstanceOf(Error);
+  });
+
+  it("restartSession closes only that session's process, and the next turn resumes the same session in a new one", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness));
+    await expect(adapter.restartSession(SESSION_A)).resolves.toEqual({ outcome: "not_running" });
+    const first = adapter.sendUserMessage("tarobot-1", { text: "a", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    harness.children[0]!.server.text("a");
+    harness.children[0]!.server.respondPrompt();
+    await settleWithin(first);
+    const closing = adapter.restartSession(SESSION_A);
+    await waitFor(() => harness.log.includes("kill:900"));
+    expect(harness.log).toEqual([`close:${SESSION_A}`, "stdin-end:900", "kill:900"]);
+    await expect(closing).resolves.toEqual({ outcome: "closed" });
+    expect(harness.children).toHaveLength(1);
+    await expect(adapter.restartSession(SESSION_A)).resolves.toEqual({ outcome: "not_running" });
+    const next = adapter.sendUserMessage(SESSION_A, { text: "b", files: [] });
+    await waitFor(() => harness.children[1]?.server.prompts.length === 1);
+    expect(harness.children[1]!.server.requests("session/resume")[0]!.params).toMatchObject({ sessionId: SESSION_A });
+    harness.children[1]!.server.text("b");
+    harness.children[1]!.server.respondPrompt();
+    await settleWithin(next);
   });
 
   it("still kills the process after a short timeout when session/close never answers", async () => {
@@ -1155,5 +1192,400 @@ describe("AntigravityAcpAdapter session config failures", () => {
     running.text("b");
     running.respondPrompt();
     await settleWithin(second);
+  });
+
+  it("surfaces brain/<sessionId>/task.md edits as TodoWrite plans without emitting raw task artifact tool noise", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }));
+    const events: EngineStreamEvent[] = [];
+    const reply = adapter.sendUserMessage(SESSION_A, {
+      text: "Run a multi-step plan",
+      files: [],
+      onEngineEvent: (event) => { events.push(event); },
+    });
+    await waitFor(() => harness.children.length === 1 && harness.children[0]!.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    const taskPath = `/srv/state/.gemini/antigravity-cli/brain/${SESSION_A}/task.md`;
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_task_1",
+      kind: "edit",
+      status: "completed",
+      name: "write_file",
+      title: `File .../brain/${SESSION_A}/task.md`,
+      content: [{ type: "diff", path: taskPath, newText: "# Plan\n- [ ] Read files\n- [ ] Write summary\n" }],
+      rawInput: { ArtifactMetadata: { UserFacing: true, RequestFeedback: false, Summary: "Plan" }, Path: taskPath },
+    });
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_task_2",
+      kind: "edit",
+      status: "completed",
+      name: "edit_file",
+      title: `File .../brain/${SESSION_A}/task.md`,
+      content: [{ type: "diff", path: taskPath, oldText: "- [ ] Read files\n- [ ] Write summary\n", newText: "- [x] Read files\n- [/] Write summary\n" }],
+      rawInput: { ArtifactMetadata: { UserFacing: true, RequestFeedback: false, Summary: "Progress" }, Path: taskPath },
+    });
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_normal_1",
+      kind: "edit",
+      status: "completed",
+      name: "write_file",
+      title: "File /srv/workspace/result.md",
+      content: [{ type: "diff", path: "/srv/workspace/result.md", newText: "- [ ] Not an internal task artifact\n" }],
+      rawInput: { Path: "/srv/workspace/result.md", Content: "- [ ] Not an internal task artifact\n" },
+    });
+    server.text("All done.");
+    server.respondPrompt();
+    await settleWithin(reply);
+
+    const todoEvents = events.filter((event) => event.type === "tool_use" && event.toolName === "TodoWrite");
+    expect(todoEvents).toHaveLength(2);
+    expect(todoEvents[0]).toMatchObject({
+      type: "tool_use",
+      toolName: "TodoWrite",
+      toolInput: { todos: [{ content: "Read files", status: "pending" }, { content: "Write summary", status: "pending" }] },
+    });
+    expect(todoEvents[1]).toMatchObject({
+      type: "tool_use",
+      toolName: "TodoWrite",
+      toolInput: { todos: [{ content: "Read files", status: "completed" }, { content: "Write summary", status: "in_progress" }] },
+    });
+    // Internal task.md writes do not leak as raw write_file/edit_file events, while normal workspace writes still appear.
+    const rawFileWrites = events.filter((event) => event.type === "tool_use" && (event.toolName === "write_file" || event.toolName === "edit_file"));
+    expect(rawFileWrites).toHaveLength(1);
+    expect(rawFileWrites[0]).toMatchObject({ toolUseId: "call_normal_1", toolName: "write_file" });
+  });
+
+  it("never suppresses run_command or workspace /brain/.../task.md edits, and settles task.md calls across permission, pathless, diff-only, failed, and repeated rawInput updates", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "normal" }));
+    const record = createRunRecord();
+    const events: EngineStreamEvent[] = [];
+    const approvals: EngineApprovalRequest[] = [];
+    const reply = adapter.sendUserMessage(SESSION_A, {
+      text: "Verify all task.md edge cases",
+      files: [],
+      onApprovalRequest: async (request) => {
+        approvals.push(request);
+        return { behavior: "allow" };
+      },
+      onEngineEvent: (event) => {
+        events.push(event);
+        recordRunEvent(record, event);
+      },
+    });
+    await waitFor(() => harness.children.length === 1 && harness.children[0]!.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    const taskPath = `/srv/state/.gemini/antigravity-cli/brain/${SESSION_A}/task.md`;
+
+    // 1. Arbitrary run_command referencing /workspace/brain/task.md must emit both tool_use and tool_result.
+    server.sendUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call_rm",
+      kind: "execute",
+      status: "in_progress",
+      name: "run_command",
+      title: "rm -f /workspace/brain/task.md",
+      rawInput: { CommandLine: "rm -f /workspace/brain/task.md" },
+    });
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_rm",
+      status: "completed",
+      rawOutput: { output: "", exit_code: 0 },
+    });
+
+    // 2. Normal workspace edit to /workspace/packages/brain/task.md (no ArtifactMetadata, different session) must NOT be suppressed.
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_ws_brain",
+      kind: "edit",
+      status: "completed",
+      name: "write_file",
+      title: "File /workspace/packages/brain/task.md",
+      content: [{ type: "diff", path: "/workspace/packages/brain/task.md", newText: "- [ ] Workspace task\n" }],
+      rawInput: { Path: "/workspace/packages/brain/task.md", Content: "- [ ] Workspace task\n" },
+    });
+
+    // 3. Normal approval mode: permission_request for task.md followed by completed tool_call_update must settle waiting entry & phase.
+    const permReqId = server.requestPermission(
+      "call_perm_task",
+      { Path: taskPath, Content: "- [ ] Step 1\n", ArtifactMetadata: { UserFacing: true, RequestFeedback: false, Summary: "Plan" } },
+      { name: "write_file", kind: "edit", title: `File .../brain/${SESSION_A}/task.md` },
+    );
+    await waitFor(() => server.clientResponses.has(permReqId));
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_perm_task",
+      status: "completed",
+      content: [{ type: "diff", path: taskPath, newText: "- [ ] Step 1\n" }],
+    });
+    await waitFor(() => record.entries.some((e) => e.callId === "call_perm_task" && e.status === "done"));
+    expect(summarizeRun(record, "running").phase).toBe("working");
+    expect(record.entries.find((e) => e.callId === "call_perm_task")?.status).toBe("done");
+
+    // 4. Pathless initial tool_call (emits tool_use) followed by task.md tool_call_update must also emit matching tool_result.
+    server.sendUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call_pathless",
+      kind: "edit",
+      status: "in_progress",
+      name: "edit_file",
+      title: "edit_file",
+    });
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_pathless",
+      status: "completed",
+      content: [{ type: "diff", path: taskPath, newText: "- [x] Step 1\n- [ ] Step 2\n" }],
+    });
+    await waitFor(() => record.entries.some((e) => e.callId === "call_pathless" && e.status === "done"));
+    expect(summarizeRun(record, "running").current).toBeUndefined();
+
+    // 5. Path-known tool_call (no markdown yet) followed by diff-only tool_call_update (omitting full path/rawInput/title/kind/name) must still extract & emit updated todos.
+    server.sendUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call_diff_only",
+      kind: "edit",
+      status: "in_progress",
+      name: "edit_file",
+      title: `File .../brain/${SESSION_A}/task.md`,
+    });
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_diff_only",
+      status: "completed",
+      content: [{ type: "diff", path: "task.md", newText: "- [x] Step 1\n- [/] Step 2\n" }],
+    });
+
+    // 6. Failed task.md update must NOT overwrite lastTaskMarkdown or emit unapplied progress.
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_failed_task",
+      kind: "edit",
+      status: "failed",
+      name: "write_file",
+      content: [{ type: "diff", path: taskPath, newText: "- [x] Failed ghost step\n" }],
+      rawInput: { Path: taskPath, Content: "- [x] Failed ghost step\n" },
+    });
+
+    // 7. Repeated rawInput { Target, Replacement } across tool_call + tool_call_update (where Replacement contains Target) applies only once.
+    const repeatInput = {
+      Path: taskPath,
+      Target: "- [/] Step 2",
+      Replacement: "- [/] Step 2\n  - [ ] Subtask A",
+    };
+    server.sendUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call_repeat_edit",
+      kind: "edit",
+      status: "in_progress",
+      name: "edit_file",
+      title: "edit_file",
+      rawInput: repeatInput,
+    });
+    server.sendUpdate({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call_repeat_edit",
+      status: "completed",
+      rawInput: repeatInput,
+    });
+
+    server.text("Done.");
+    server.respondPrompt();
+    await settleWithin(reply);
+
+    expect(approvals).toHaveLength(1);
+    expect(events.some((e) => e.type === "tool_use" && e.toolUseId === "call_rm")).toBe(true);
+    expect(events.some((e) => e.type === "tool_result" && e.toolUseId === "call_rm")).toBe(true);
+    expect(events.some((e) => e.type === "tool_use" && e.toolUseId === "call_ws_brain")).toBe(true);
+    expect(events.some((e) => e.type === "tool_result" && e.toolUseId === "call_ws_brain")).toBe(true);
+    // Diff-only and repeated-edit calls never emitted raw tool_use, so they must remain suppressed.
+    expect(events.some((e) => e.type === "tool_use" && e.toolUseId === "call_diff_only")).toBe(false);
+    expect(events.some((e) => e.type === "tool_use" && e.toolUseId === "call_repeat_edit")).toBe(false);
+
+    const todoEvents = events.filter((e): e is Extract<EngineStreamEvent, { type: "tool_use" }> => e.type === "tool_use" && e.toolName === "TodoWrite");
+    expect(todoEvents.map((e) => e.toolInput)).toEqual([
+      { todos: [{ content: "Step 1", status: "pending" }] },
+      { todos: [{ content: "Step 1", status: "completed" }, { content: "Step 2", status: "pending" }] },
+      { todos: [{ content: "Step 1", status: "completed" }, { content: "Step 2", status: "in_progress" }] },
+      { todos: [{ content: "Step 1", status: "completed" }, { content: "Step 2", status: "in_progress" }, { content: "Subtask A", status: "pending" }] },
+    ]);
+  });
+});
+
+describe("AntigravityAcpAdapter inactivity watchdog", () => {
+  it("still times out a stalled foreground turn or wedged foreground command", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }, { inactivityTimeoutMs: 70 }));
+    const reply = adapter.sendUserMessage("tarobot-1", { text: "hang", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_fg", name: "run_command", kind: "execute", title: "sleep 9999", status: "in_progress", rawInput: { CommandLine: "sleep 9999" } });
+    await expect(settleWithin(reply, 1_500)).rejects.toThrow(/Antigravity ACP turn became inactive/);
+    expect(harness.log).toContain("kill:900");
+  });
+
+  it("pauses inactivity timeout while a background workflow or subagent from this turn runs, and re-arms once it completes", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }, { inactivityTimeoutMs: 80 }));
+    const reply = adapter.sendUserMessage("tarobot-1", { text: "run workflow", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_wf", name: "run_workflow", kind: "other", title: "Audit PRs", status: "in_progress", rawInput: { Description: "Audit PRs" } });
+    server.sendUpdate({ sessionUpdate: "usage_update", used: 100, size: 1000 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Still alive past 2.5x inactivityTimeoutMs, and visible in listTasks as a background subagent task.
+    expect(harness.log).toEqual([]);
+    const tasks = await adapter.listTasks(SESSION_A);
+    expect(tasks.tasks).toEqual([expect.objectContaining({ label: "Audit PRs", kind: "subagent", mode: "background", status: "running", canStop: false, owner: "bound" })]);
+    // Once the workflow finishes, if the model stalls afterwards the inactivity watchdog fires.
+    server.sendUpdate({ sessionUpdate: "tool_call_update", toolCallId: "call_wf", status: "completed", rawOutput: { output: "done" } });
+    await expect(settleWithin(reply, 1_500)).rejects.toThrow(/Antigravity ACP turn became inactive/);
+    expect(harness.log).toContain("kill:900");
+  });
+
+  it("pauses inactivity timeout while an async background run_command from this turn runs, and finishes normally when it returns", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }, { inactivityTimeoutMs: 80 }));
+    const reply = adapter.sendUserMessage("tarobot-1", { text: "run bg", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_bg", name: "run_command", kind: "execute", title: "npm test", status: "in_progress", rawInput: { CommandLine: "npm test", WaitMsBeforeAsync: 500 } });
+    server.sendUpdate({ sessionUpdate: "usage_update", used: 100, size: 1000 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(harness.log).toEqual([]);
+    server.sendUpdate({ sessionUpdate: "tool_call_update", toolCallId: "call_bg", status: "completed", rawOutput: { output: "ok", exit_code: 0 } });
+    server.text("all tests passed");
+    server.respondPrompt();
+    await expect(settleWithin(reply)).resolves.toMatchObject({ text: "all tests passed", sessionId: SESSION_A });
+  });
+
+  it("pauses inactivity timeout while waiting for a user permission approval and re-arms after the decision", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "normal" }, { inactivityTimeoutMs: 80 }));
+    let resolveApproval!: (decision: { behavior: "allow"; scope: "once" }) => void;
+    const approvalSeen = new Promise<void>((resolve) => {
+      const reply = adapter.sendUserMessage("tarobot-1", {
+        text: "run cmd",
+        files: [],
+        onApprovalRequest: () => {
+          resolve();
+          return new Promise((done) => { resolveApproval = done; });
+        },
+      });
+      // Attach reply via harness reference below
+      (harness as unknown as { activeReply: Promise<unknown> }).activeReply = reply;
+    });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    const permId = server.requestPermission("call_perm", { CommandLine: "rm -f tmp.txt" });
+    await approvalSeen;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(harness.log).toEqual([]);
+    resolveApproval({ behavior: "allow", scope: "once" });
+    await waitFor(() => server.clientResponses.has(permId));
+    // After approval resolves with no further progress, the inactivity watchdog re-arms and fires.
+    const reply = (harness as unknown as { activeReply: Promise<unknown> }).activeReply;
+    await expect(settleWithin(reply, 1_500)).rejects.toThrow(/Antigravity ACP turn became inactive/);
+    expect(harness.log).toContain("kill:900");
+  });
+
+  it("still enforces the hard turnTimeoutMs ceiling while a background workflow runs", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }, { inactivityTimeoutMs: 60, turnTimeoutMs: 180 }));
+    const reply = adapter.sendUserMessage("tarobot-1", { text: "wf ceiling", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_wf", name: "run_workflow", kind: "other", title: "Long workflow", status: "in_progress" });
+    await expect(settleWithin(reply, 1_500)).rejects.toThrow(/Antigravity ACP turn timed out/);
+    expect(harness.log).toContain("kill:900");
+  });
+
+  it("does not let an earlier turn's background command suppress the inactivity timeout of a new turn", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }, { inactivityTimeoutMs: 80 }));
+    const first = adapter.sendUserMessage("tarobot-1", { text: "start daemon", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_daemon", name: "run_command", kind: "execute", title: "npm run dev", status: "in_progress", rawInput: { CommandLine: "npm run dev" } });
+    server.sendUpdate({ sessionUpdate: "usage_update", used: 90, size: 1000 });
+    server.text("started");
+    server.respondPrompt();
+    await settleWithin(first);
+
+    // A new turn starts while call_daemon from turn 1 is still open; if turn 2 stalls, it still times out.
+    const second = adapter.sendUserMessage(SESSION_A, { text: "stalled follow-up", files: [] });
+    await waitFor(() => server.prompts.length === 2);
+    await expect(settleWithin(second, 1_500)).rejects.toThrow(/Antigravity ACP turn became inactive/);
+    expect(harness.log).toContain("kill:900");
+  });
+
+  it("pauses inactivity timeout during reactive wait after invoke_subagent completes on spawn, and re-arms if a subsequent foreground step stalls", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }, { inactivityTimeoutMs: 80 }));
+    const reply = adapter.sendUserMessage("tarobot-1", { text: "delegate to subagent", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    // agy completes invoke_subagent immediately when spawning and then holds session/prompt open waiting for the child.
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_sub", name: "invoke_subagent", kind: "other", title: "invoke_subagent", status: "in_progress", rawInput: { TypeName: "self", Role: "Fix PR" } });
+    server.sendUpdate({ sessionUpdate: "tool_call_update", toolCallId: "call_sub", status: "completed", rawOutput: { output: "{\"conversationId\":\"sub-1\"}" } });
+    server.text("Subagent launched, waiting for result.");
+    server.sendUpdate({ sessionUpdate: "usage_update", used: 120, size: 1000 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(harness.log).toEqual([]);
+
+    // Subagent wakes the parent, which runs a foreground tool and then stalls before the next usage_update.
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_read", name: "read_file", kind: "read", title: "read_file", status: "in_progress" });
+    server.sendUpdate({ sessionUpdate: "tool_call_update", toolCallId: "call_read", status: "completed", rawOutput: { output: "ok" } });
+    await expect(settleWithin(reply, 1_500)).rejects.toThrow(/Antigravity ACP turn became inactive/);
+    expect(harness.log).toContain("kill:900");
+  });
+
+  it("does not pause inactivity timeout for read-only swarm status calls, only swarm add reactive waits", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }, { inactivityTimeoutMs: 70 }));
+    const reply = adapter.sendUserMessage("tarobot-1", { text: "check swarm", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    server.sendUpdate({ sessionUpdate: "tool_call", toolCallId: "call_sw", name: "swarm", kind: "other", title: "swarm", status: "in_progress", rawInput: { action: "status" } });
+    server.sendUpdate({ sessionUpdate: "tool_call_update", toolCallId: "call_sw", status: "completed" });
+    server.sendUpdate({ sessionUpdate: "usage_update", used: 100, size: 1000 });
+    await expect(settleWithin(reply, 1_500)).rejects.toThrow(/Antigravity ACP turn became inactive/);
+    expect(harness.log).toContain("kill:900");
+  });
+
+  it("preserves user-initiated /plan mode across follow-up clarifications until agy returns to default", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, { approvalMode: "bypass" }));
+
+    const first = adapter.sendUserMessage("tarobot-1", { text: "/plan refactor auth", files: [] });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    expect(promptBlocks(server, 0)[0]).toEqual({ type: "text", text: "/plan refactor auth" });
+    server.sendUpdate({ sessionUpdate: "current_mode_update", currentModeId: "plan" });
+    server.text("Question 1: OAuth or JWT?");
+    server.respondPrompt();
+    await settleWithin(first);
+
+    // Follow-up reply during active /plan must NOT reset mode back to default prematurely.
+    const second = adapter.sendUserMessage(SESSION_A, { text: "Use JWT", files: [] });
+    await waitFor(() => server.prompts.length === 2);
+    expect(server.requests("session/set_mode")).toHaveLength(0);
+    server.sendUpdate({ sessionUpdate: "current_mode_update", currentModeId: "default" });
+    server.text("Plan approved and executed.");
+    server.respondPrompt();
+    await settleWithin(second);
+
+    // Once agy returned to default, an unexpected non-default mode on a later turn is reset again.
+    server.sendUpdate({ sessionUpdate: "current_mode_update", currentModeId: "plan" });
+    const third = adapter.sendUserMessage(SESSION_A, { text: "ordinary follow-up", files: [] });
+    await waitFor(() => server.prompts.length === 3);
+    expect(server.requests("session/set_mode").map((m) => m.params)).toEqual([{ sessionId: SESSION_A, modeId: "default" }]);
+    server.text("done");
+    server.respondPrompt();
+    await settleWithin(third);
   });
 });

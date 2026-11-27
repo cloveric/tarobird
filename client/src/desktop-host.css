@@ -30,7 +30,7 @@
 .local-access-body .local-access-restart { font-size: 12px; }
 .local-access-body > button { min-height: 42px; }
 .local-access-body > button + button { margin-inline-start: 8px; }
-.local-access-ready, .local-access-body [role="status"] { display: flex; align-items: center; gap: 8px; }
+.local-access-ready, .local-access-body > p[role="status"] { display: flex; align-items: center; gap: 8px; }
 .local-access-ready { color: var(--accent); }
 .local-access-addresses { margin: 14px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt); }
 .local-access-addresses > strong { font-size: 13px; font-weight: 600; }
@@ -44,4 +44,21 @@
 .local-access-help summary { cursor: pointer; font-size: 13px; }
 .local-access-help p { margin: 12px 0; }
 .local-access-help li { overflow-wrap: anywhere; }
+.pairing-adapter-select { display: grid; gap: 6px; margin: 10px 0; font-size: 13px; }
+.pairing-adapter-select select { width: 100%; min-height: 44px; box-sizing: border-box; }
+.pairing-multi-note { margin: 8px 0 4px; font-size: 12px; color: var(--muted); text-align: center; }
+.pairing-wizard .settings-invite label.pairing-qr-compat,
+.desktop-host-invite label.pairing-qr-compat,
+.device-invite label.pairing-qr-compat,
+label.pairing-qr-compat { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 8px; margin: 8px 0 12px; font-size: 12px; color: var(--muted); cursor: pointer; }
+label.pairing-qr-compat input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; padding: 0; margin: 0; flex: 0 0 auto; }
+.local-access-body .windows-firewall-notice,
+.windows-firewall-notice { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt); display: grid; gap: 8px; text-align: left; }
+.windows-firewall-notice > button { justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
+.windows-firewall-notice-head { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.windows-firewall-notice-head svg { flex: 0 0 auto; color: var(--warning, #b45309); }
+.windows-firewall-notice p { margin: 0; font-size: 12px; line-height: 1.55; }
+.windows-firewall-command { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.windows-firewall-command code { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px; background: var(--surface, transparent); border: 1px solid var(--border); font-size: 11px; overflow-wrap: anywhere; user-select: all; }
+.windows-firewall-command button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; min-height: 34px; font-size: 12px; }
 @media (max-width: 380px) { .local-access-choices button { padding: 10px; gap: 6px; } }

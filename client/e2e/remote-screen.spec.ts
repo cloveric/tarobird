@@ -352,9 +352,21 @@ test("a late fullscreen close cannot remove the same Host viewer reopened after 
  await expect(page.getByRole("button",{name:"开始控制",exact:true})).toBeEnabled();
 });
 
+test("quality menu labels options by resolution and shows actual stream resolution in tooltip once connected",async({page})=>{
+ const select=page.getByLabel("画面清晰度",{exact:true});
+ await expect(select).toHaveValue("balanced");
+ await expect(select.locator("option")).toHaveText(["720p","1080p","最高 3K"]);
+ await expect(select).toHaveAttribute("title","当前 1280×720 · 720p 节省带宽，最高 3K 保留更多文字细节");
+ await page.evaluate(()=>(window as any).screenDenyControl("screen_takeover_unavailable"));
+ await expect(page.getByRole("status")).toContainText("目标 Mac 的本机接管检测未就绪");
+ await expect(select).toHaveAttribute("title","当前 1280×720 · 720p 节省带宽，最高 3K 保留更多文字细节");
+ await page.getByRole("button",{name:"断开",exact:true}).click();
+ await expect(select).toHaveAttribute("title","720p 节省带宽，最高 3K 保留更多文字细节");
+});
+
 test("Sharp requires a compatible high-resolution decoder before any replacement session is created",async({page})=>{
  await page.evaluate(()=>{const original=VideoDecoder.isConfigSupported.bind(VideoDecoder);VideoDecoder.isConfigSupported=async config=>config.codec==="avc1.640033"?{supported:false,config}:original(config);});
- await page.getByLabel("画面清晰度",{exact:true}).selectOption("sharp");await expect(page.getByRole("status")).toContainText("此设备不支持清晰画质解码");
+ await page.getByLabel("画面清晰度",{exact:true}).selectOption("sharp");await expect(page.getByRole("status")).toContainText("此设备不支持最高 3K 解码");
  expect(await page.evaluate(()=>(window as any).screenFixture.requests.length)).toBe(1);
  await page.getByLabel("画面清晰度",{exact:true}).selectOption("smooth");await page.getByRole("button",{name:"连接屏幕",exact:true}).click();await expect(page.getByRole("button",{name:"开始控制",exact:true})).toBeEnabled();
  expect(await page.evaluate(()=>(window as any).screenFixture.requests.at(-1).quality)).toBe("smooth");
@@ -528,4 +540,47 @@ test("controlling a Windows target hides the local pointer over the picture too,
  await expect.poll(cursor).toBe("none");
  await page.getByRole("button",{name:"停止控制",exact:true}).click();await expect(page.getByRole("button",{name:"开始控制",exact:true})).toBeVisible();
  expect(await cursor()).not.toBe("none");
+});
+
+test("performance overlay tracks live route failovers, keeps desktop control when toggled from More menu, stays pinned when zoomed, and clears fullscreen chrome",async({page})=>{
+ // Start remote control first, then toggle the overlay from More menu -> control must NOT drop.
+ await page.getByRole("button",{name:"开始控制",exact:true}).click();
+ await expect(page.getByRole("button",{name:"停止控制",exact:true})).toBeVisible();
+ await page.getByRole("button",{name:"屏幕更多操作",exact:true}).click();
+ const overlayCheckbox=page.getByRole("checkbox",{name:"性能数据覆盖层",exact:true});
+ await overlayCheckbox.click();
+ await page.getByRole("button",{name:"屏幕更多操作",exact:true}).click();
+ const overlay=page.getByRole("region",{name:"屏幕性能数据",exact:true});
+ await expect(overlay).toBeVisible();
+ await expect(page.getByRole("button",{name:"停止控制",exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>document.activeElement===document.querySelector(".screen-viewport canvas"))).toBe(true);
+
+ // Active route reports LAN direct initially and reacts live to Tailscale & VPS failovers.
+ await expect(overlay).toContainText("TCP · 局域网直连");
+ await page.evaluate(()=>(window as any).screenSetRoute("Tailscale"));
+ await expect(overlay).toContainText("TCP · Tailscale");
+ await page.evaluate(()=>(window as any).screenSetRoute("VPS"));
+ await expect(overlay).toContainText("TCP · VPS 中转");
+
+ // Zoom to 200% and scroll the viewport -> overlay stays pinned inside the visible stage.
+ await page.getByLabel("画面缩放",{exact:true}).selectOption("2");
+ const pinned=await page.evaluate(()=>{
+  const vp=document.querySelector(".screen-viewport")!;
+  vp.scrollTop=600;vp.scrollLeft=600;
+  const o=document.querySelector(".screen-metrics-overlay")!.getBoundingClientRect();
+  const s=document.querySelector(".screen-stage")!.getBoundingClientRect();
+  return{scrolled:vp.scrollTop>0&&vp.scrollLeft>0,inside:o.left>=s.left-0.5&&o.top>=s.top-0.5&&o.right<=s.right+0.5&&o.bottom<=s.bottom+0.5};
+ });
+ expect(pinned).toEqual({scrolled:true,inside:true});
+
+ // Fullscreen with revealed chrome -> overlay does not collide with .screen-chrome and stays inside viewport.
+ await page.getByRole("button",{name:"全屏",exact:true}).click();
+ await expect.poll(()=>page.evaluate(()=>!!document.fullscreenElement)).toBe(true);
+ const fsLayout=await page.evaluate(()=>{
+  const o=document.querySelector(".screen-metrics-overlay")!.getBoundingClientRect();
+  const c=document.querySelector(".screen-chrome")!.getBoundingClientRect();
+  const s=document.querySelector(".screen-stage")!.getBoundingClientRect();
+  return{clearsChrome:o.top>=c.bottom-0.5,inside:o.left>=s.left-0.5&&o.right<=s.right+0.5&&o.bottom<=s.bottom+0.5};
+ });
+ expect(fsLayout).toEqual({clearsChrome:true,inside:true});
 });

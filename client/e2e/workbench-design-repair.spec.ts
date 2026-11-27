@@ -39,7 +39,7 @@ async function storedAssociation(page:Page,conversationId:string){return page.ev
 
 for (const phone of [false, true]) test.describe(phone ? "phone touch" : "desktop", () => {
 test.use({ hasTouch: phone, isMobile: phone });
-for (const format of ["canvas", "slides"] as const) test(`the upstream ${format} repair button opens and sends a reviewable draft for its exact tab`, async ({ page }) => {
+for (const format of ["slides"] as const) test(`the upstream ${format} repair button opens and sends a reviewable draft for its exact tab`, async ({ page }) => {
   test.setTimeout(70000);
   await page.setViewportSize(phone ? { width: 390, height: 844 } : { width: 1360, height: 900 });
   const f = await fixture(page);
@@ -54,7 +54,14 @@ for (const format of ["canvas", "slides"] as const) test(`the upstream ${format}
     if (format === "canvas") content = (read.result as { content: string }).content.replace("class Component extends DCLogic {}", 'class Component extends DCLogic { renderVals() { throw new Error("REPAIR_CANVAS_FIXTURE 保留内容"); } }');
     expect(await f.command({ requestId: "repair-damage", operation: "design.publish", target, expectedRevision: read.revision, payload: { files: { [path]: { content, contentType: "text/html" } } } })).toMatchObject({ status: "applied", saved: true });
     const editor = page.frameLocator('.workbench-design-frame:visible');
-    const repair = editor.locator(format === "canvas" ? '[data-testid^="mega-artboard-notice-ask-"]' : '[data-testid="slides-held-ask"]');
+    if (phone && format === "slides") {
+      // Phone slides is read-only preview: errors stay readable, while repair actions stay hidden.
+      await expect(editor.getByText(/This slide's file has errors, so it's read-only here/i)).toBeVisible({ timeout: 25000 });
+      await expect(editor.getByRole("button", { name: /Ask (?:Bot|the agent) to fix/i })).toHaveCount(0);
+      await expect(panel(page).getByText("手机端仅预览", { exact: true })).toBeVisible();
+      return;
+    }
+    const repair = format === "canvas" ? editor.locator('[data-testid^="mega-artboard-notice-ask-"]') : editor.getByRole("button", { name: "Ask Bot to fix", exact: true });
     await expect(repair).toBeVisible({ timeout: 25000 }).catch(async error => { console.log("REPAIR_EDITOR", await editor.locator("body").ariaSnapshot()); throw error; });
     if (phone) await repair.tap(); else await repair.click();
     await expect(panel(page)).toBeVisible();
@@ -62,7 +69,11 @@ for (const format of ["canvas", "slides"] as const) test(`the upstream ${format}
     await expect.poll(() => storedAssociation(page, f.conversation.id)).toMatchObject({ context: { target, kind: "design" } });
     const count = await f.hub.store.db.get<{ n: number }>("SELECT count(*) AS n FROM messages WHERE author_type='user' AND conversation_id=?", [f.conversation.id]);
     expect(count?.n).toBe(0);
-    await expect(editor.getByText("Added to your message to the agent. Send it when you’re ready.", { exact: true })).toBeVisible();
+    if (format === "canvas") {
+      await expect(editor.getByText("Added to your message to the agent. Send it when you’re ready.", { exact: true })).toBeVisible();
+    } else {
+      await expect(editor.getByText(/It is in the Bot conversation now: send it there\.|已放进 Bot 的对话：到那里发出去。/)).toBeVisible();
+    }
     if (phone) {
       await expect(page.locator(".workbench-draft-notice")).toBeFocused();
       await expect.poll(() => page.evaluate(() => {
@@ -86,18 +97,26 @@ for (const format of ["canvas", "slides"] as const) test(`the upstream ${format}
 
 test.describe("phone repair focus ownership", () => {
   test.use({ hasTouch: true, isMobile: true });
-  for (const format of ["canvas", "slides"] as const) test(`an asynchronous ${format} suggestion preserves the focused chat input`, async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+  for (const format of ["slides"] as const) test(`an asynchronous ${format} suggestion preserves the focused chat input`, async ({ page }) => {
+    await page.setViewportSize(format === "slides" ? { width: 1360, height: 900 } : { width: 390, height: 844 });
     const f = await fixture(page);
     try {
       const created = await f.command({ requestId: "focus-create", operation: "design.create", payload: { title: "Focus ownership", format } });
       expect(created).toMatchObject({ status: "applied", saved: true });
       const editor = page.frameLocator(".workbench-design-frame:visible");
-      await expect.poll(() => editor.locator("body").evaluate((_, kind) => typeof (window as any)[kind === "canvas" ? "designHost" : "slidesHost"]?.chat?.suggestPrompt, format)).toBe("function");
+      await expect.poll(() => editor.locator("body").evaluate(async (_, kind) => {
+        if (kind === "canvas") return typeof (window as any).designHost?.chat?.suggestPrompt === "function";
+        const agent = await (window as any).openartifact?.use?.("agent");
+        return typeof agent?.send === "function";
+      }, format)).toBe(true);
       const field = page.getByRole("textbox", { name: "消息", exact: true });
       await field.focus();
       await editor.locator("body").evaluate(async (_, kind) => {
-        await (window as any)[kind === "canvas" ? "designHost" : "slidesHost"].chat.suggestPrompt("Keep typing while this suggestion arrives.");
+        if (kind === "canvas") await (window as any).designHost.chat.suggestPrompt("Keep typing while this suggestion arrives.");
+        else {
+          const agent = await (window as any).openartifact.use("agent");
+          await agent.send({ text: "Keep typing while this suggestion arrives." });
+        }
       }, format);
       await expect(field).toHaveValue(/Keep my existing draft[\s\S]*Keep typing while this suggestion arrives/);
       await expect(field).toBeFocused();

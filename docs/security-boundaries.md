@@ -49,13 +49,25 @@ is enforced by the Hub before dispatch. See [client architecture](client/archite
 
 Rate-limit sources from the built-in relay arrive through the mTLS v2 control
 channel and an exact local socket registry, not client-controlled HTTP headers.
-These values affect quotas/audit attribution only. Remote loopback reports stay
-in the relay namespace, and worker APIs retain their listener boundary. Unknown
+Main loopback, instance, and TLS/built-in-relay listeners ignore all forwarding
+headers (`X-Forwarded-For`, `CF-Connecting-IP`, `Forwarded`, etc.) so a local
+or direct caller can never switch rate-limit buckets or alter audit sources by
+adding an HTTP header. For opt-in DIY Cloudflare Tunnel routes, traffic lands on
+a separate, non-instance-privileged loopback HTTP listener (`edge-proxy`); only
+requests arriving on that dedicated listener are placed in the `edge-proxy:`
+namespace, where Cloudflare's edge-inserted `CF-Connecting-IP` header is
+normalized per client IP (with IPv6 `/64` grouping, falling back to
+`edge-proxy:shared`). These values affect quotas/audit attribution only, never
+authorization. Remote loopback reports stay in the `relay:` or `edge-proxy:`
+namespace, and worker/instance APIs retain their listener boundary. Unknown
 devices cannot consume a known device's challenge bucket; successful signatures
 are not rejected by another caller's failure counter. Bounded tables reserve
-known/local capacity. NAT, distributed saturation and dishonest relay operators
-remain availability limits. Both runtimes require upgrading; see
-[relay source isolation](client/relay-source-isolation.md).
+known/local capacity and isolate anonymous `/api/edge-identity` probes from
+direct/relay anonymous tables. NAT, distributed saturation, dishonest relay
+operators and Cloudflare edge header fidelity remain availability limits. Both
+runtimes require upgrading for built-in relay isolation; see
+[relay source isolation](client/relay-source-isolation.md) and
+[DIY Cloudflare Tunnel boundary](#diy-cloudflare-tunnel-edge-proxy-boundary).
 
 Authenticated HTTP requests recheck trust after body receipt, at guarded queue
 entries and before private responses. Pairing/revocation actor checks share the
@@ -760,17 +772,45 @@ reservations do not block imports; live different-key reservations still do.
 Revoked imported device keys are not silently reactivated in a new network.
 Shared route and transport guards reject loopback/unspecified IPv4 and IPv6,
 including IPv4-mapped forms; this does not replace TLS and host-identity checks.
-Host-to-Host directory synchronization also verifies the peer's signed TLS
-identity against the observed leaf certificate, then pins that leaf before
-sending membership metadata. A TLS-terminating relay cannot substitute its own
-valid certificate and forward the peer's identity proof. Pins are bounded and
-expire after five minutes; certificate rotation requires a fresh proof.
+Host-to-Host directory synchronization over `Direct`, `Tailscale`, and built-in
+TLS-passthrough `VPS` routes also verifies the peer's signed TLS identity
+against the observed leaf certificate, then pins that leaf before sending
+membership metadata. On those routes a TLS-terminating relay cannot substitute
+its own valid certificate and forward the peer's identity proof. Pins are
+bounded and expire after five minutes; certificate rotation requires a fresh
+proof. Opt-in `Cloudflare` (`edgeRoutes`) routes are an explicit exception to
+leaf pinning: Cloudflare's edge terminates outer TLS and can read or modify
+traffic in transit, so peers instead verify system WebPKI TLS plus an
+origin-bound `/api/edge-identity` Ed25519 proof (see
+[DIY Cloudflare Tunnel boundary](#diy-cloudflare-tunnel-edge-proxy-boundary)).
+
+Host recovery (`reinstate` and generation-bearing manifests) is gated by
+signed peer capability advertisement (`private-network.recovery.v1`) on
+`/api/network/peer`, rather than unauthenticated headers or manifest changes
+that would break 1.6.0 strict schema validators. The coordinator refuses
+`reinstate` with `network_recovery_upgrade_required` whenever any other active
+host in the directory has not confirmed `private-network.recovery.v1` (or has
+since synced without it after a rollback), and refuses non-recovery-capable
+active peer syncs once a directory uses generation fields. Owner `/api/network`
+and `/api/network/manage` replies omit `hostCapabilities` unless the caller
+explicitly negotiates `?capabilities=1`, preserving strict 1.6.0 client
+compatibility, and upgraded peers fall back once to a 1.6.0-strict signed peer
+request if a 1.6.0 coordinator rejects the extended request with HTTP 400.
+Residual limit: the coordinator cannot remotely inspect the version of an
+offline 1.6.0 App; operators must update both hosts and Apps in the network
+before reinstating a host.
 
 ## Cross-host Bot messages
 
 The [Bot message MVP](client/cross-host-bot-messages-2026-10-17.md) does not widen Agent Bus. Network membership alone grants no Bot messaging access. Recipient-local grants bind a source Hub key and source Bot to a target Bot; owner grant/revoke operations require an enrolled loopback controller plus a fresh, one-use device signature over the command digest. Gateway instance credentials cannot grant access.
 
-Short-lived Hub-signed passports bind the target identity, source Bot, hop count, method/path and body digest. Normal TLS validation, a proof bound to the observed TLS leaf, and a signed recipient challenge precede private transfer. Subsequent TLS handshakes check the proved certificate before sending headers or bodies. A cached certificate mismatch permits one fresh proof, not replay of an ambiguously delivered POST. Target-side writer guards and response guards recheck membership, grant and Bot revocation. Responses/files are limited to the sending Bot's own correlated request, not arbitrary conversation history. Uploads use existing HubAttachments APIs with additional source/conversation binding. Lost POST responses are never automatically retried on another route. Request digests, rate limits and queue admission are durable; botSource inputs never enter question/approval/control handlers. The same-OS-user trust limitation remains unchanged.
+Short-lived Hub-signed passports bind the target identity, source Bot, hop count, method/path and body digest. On `Direct`, `Tailscale`, and `VPS` routes, normal TLS validation, a proof bound to the observed TLS leaf, and a signed recipient challenge precede private transfer (subsequent TLS handshakes check the proved certificate before sending headers or bodies, and a cached certificate mismatch permits one fresh proof, not replay of an ambiguously delivered POST). On opt-in `Cloudflare` (`edgeRoutes`) routes, Cloudflare's edge terminates outer TLS and can observe or tamper with traffic in transit; transfer uses system WebPKI TLS plus an origin-bound `/api/edge-identity` proof alongside the Hub-signed passport and signed reply, without leaf pinning. Target-side writer guards and response guards recheck membership, grant and Bot revocation. Responses/files are limited to the sending Bot's own correlated request, not arbitrary conversation history. Uploads use existing HubAttachments APIs with additional source/conversation binding. Lost POST responses are never automatically retried on another route. Request digests, rate limits and queue admission are durable; botSource inputs never enter question/approval/control handlers. The same-OS-user trust limitation remains unchanged.
+
+### Cross-host group chat and `designated` reply mode
+
+Cross-host group requests (`/api/group-mail/*`) reuse the recipient-local per-Bot grant ledger (`bot-messages:grant:*`), TLS leaf pinning, non-loopback route checks for network peers, and Ed25519 request signatures (`tarobot/group-mail/v2`) bound to source key, target key, method, path, timestamp, durable replay nonce, and SHA-256 body digest. Target Hubs reject ungranted Bots, dispatcher/worker Bots, archived/hidden/non-direct sessions, cross-peer reply spoofing, and cross-peer status reads. Persisted `sending` cross-host questions are recovered on startup (`init()`) and periodic sweeps by checking peer status and re-delivering idempotently under the original `requestId`, transitioning unreachable rows to `failed`/`uncertain` so no question is stranded without retry. Session-bound local group turns execute under the bound single-chat session's saved workspace folder (or Bot default) rather than inheriting a different group conversation folder.
+
+For 1.6.0 client compatibility, clients advertise `groups.cross-host.v1` in their WebSocket `hello` capabilities (within the 64-entry limit). Clients without `groups.cross-host.v1` receive `designated` group settings/discussion views downgraded to `mentions` with a distinct `_compat` revision so 1.6.0's strict discussion-mode schema continues to parse and explicit `@Bot` sends remain usable, while unmentioned sends and stale settings saves are rejected with `group_designated_client_update_required` rather than routing unexpectedly or silently overwriting `designated` mode.
 
 
 ### Engine approval ownership (2026-10-19)
@@ -779,7 +819,11 @@ Normal Codex turns keep native `on-request` approval policy even when a caller
 has no approval UI; such native requests are declined, never silently promoted
 to the explicit full-access policy. Claude child tool approvals may use only
 the currently live owning turn's approval handler. Stale/ambiguous child scopes
-and child access to the parent's App tools remain rejected. DeepSeek session
+and child access to the parent's App tools remain rejected. Antigravity ACP
+`session/request_permission` and `elicitation/create` requests likewise require
+a currently live owning turn: orphan requests arriving after a turn settles
+(including during background or Swarm activity) are declined cleanly and never
+borrow a previous turn's approval handler. DeepSeek session
 consent is keyed to the exact tool name and canonical tool input; a missing
 native call record cannot create a reusable grant. CLI and App share these
 adapter checks.
@@ -1035,64 +1079,180 @@ keeps its logical junction path and its native ancestor-resource semantics.
 
 ## Sandboxed plugin system
 
-Installed plugins execute inside two nested opaque sandbox frames
-(`plugin-sandbox.html` on the isolated sandbox origin/scheme, hosting an inner
-`about:srcdoc` `<iframe sandbox="allow-scripts">` without `allow-same-origin`).
-Plugins do not share the App origin and cannot read App cookies, App
-`localStorage`/`IndexedDB`, device private keys, Hub session tokens, or call Hub
-HTTP/WebSocket routes directly. Communication with the App happens solely through
-the schema-validated `tarobird.plugin.v1` `postMessage` bridge, where every
-method checks the plugin's explicitly granted capabilities.
+Desktop Chromium and Electron can run the reviewed HTML artifacts in the compiled
+catalog. The client checks the catalog digest and size when installing Infinite
+Canvas and when restoring its stored HTML. For an inline catalog plugin it also
+compares the manifest and executable HTML with the compiled entry before
+mounting. Unreviewed folder and third-party HTML receive no execution frame.
+The launcher also refuses mobile browsers, native iOS/Android WebViews and
+non-Chromium browsers. These restrictions apply to both new and saved installs.
 
-Every install — catalog official plugins, opt-in third-party plugins, and
-desktop developer local-folder loads — goes through the same pre-install
-permission and network-domain review modal before anything is persisted or
-granted. Manifests are schema-validated; artifact byte size and SHA-256 are
-verified on every install. Catalog metadata, including the expected digest, is
-compiled into the client. A caller cannot substitute a different artifact or
-grant list by supplying new metadata. Third-party plugin installation is disabled by
-default behind an explicit warning confirmation, and the built-in third-party
-catalog ships empty rather than bundling fabricated community entries. Local
-developer plugins cannot claim reserved `tarobird.*` or official plugin IDs.
+A trusted relay hosts the opaque plugin document. Both frames use
+`sandbox="allow-scripts"` without same-origin access. The relay's
+`child-src about:` and `frame-src about:` permit the inner document.
+The guest uses `frame-src 'none'`, `child-src 'none'`, `worker-src 'none'`,
+`object-src 'none'`, `base-uri 'none'`, and `form-action 'none'`. The
+wrapper removes nested frame markup and speculative resource hints, disables
+DNS prefetch, and runs its WebRTC-global lockdown before guest scripts.
+The Electron session also filters guest requests. These controls were checked
+using harmless local documents, inert workers and resource hints. No live
+WebRTC transport or external DNS traffic was used to certify a network firewall.
 
-Plugin registry metadata and per-plugin KV buckets are scoped per
-`(deviceId, hostPublicKey, userId)` (`tarobird.plugins.v1.<scopeId>` with bundle
-and KV storage in IndexedDB `tarobird.plugin.store.v1`, plus one-way migration
-from legacy unscoped `tarobird.plugins.v1`). Declared network domains are
-filtered to canonical public hostnames only — schemes, paths, credentials,
-wildcards, loopback, private LAN, CGNAT, link-local, and local names
-(`localhost`, `*.local`, `*.internal`, `*.lan`, `*.home.arpa`, single labels)
-are rejected before grant and before building `connect-src`.
+Calls to the App use a capability-checked message bridge. Its hello reply
+contains the plugin ID, theme, language, and granted capabilities and domains.
+The registry and storage remain scoped to the device, full Host identity and
+user. Clipboard and export requests need individual trusted App confirmations.
+The action runs in the accepting click and the same request cannot be replayed.
 
-`wrapSandboxedDocument` strips untrusted plugin CSP/referrer `<meta>` tags,
-`<base>` tags, and root `on*` handlers, prepends host-owned
-`Referrer-Policy: no-referrer` and per-plugin CSP (`default-src 'none'`,
-`script-src 'unsafe-inline'`, `worker-src 'none'`, `frame-src 'none'`,
-`object-src 'none'`, `base-uri 'none'`, `form-action 'none'`, and
-`connect-src` limited to approved public `https:`/`wss:` hosts or `'none'`), and
-prepends a trusted bootstrap script that removes and locks down
-`RTCPeerConnection`, `webkitRTCPeerConnection`, `mozRTCPeerConnection`,
-`RTCDataChannel`, and related WebRTC constructors non-configurably before plugin
-code executes. The outer `plugin-sandbox.html` relay disables those WebRTC
-constructors as well.
+Infinite Canvas receives no network domains in its guest CSP. Trusted App
+code brokers the supported network operations and checks their destinations.
+Third-party *nodes* use a separate mechanism from HTML plugins. They are off
+by default. Enabling them and installing each pinned source require separate
+confirmations. Each execution uses a fresh trusted Worker hosting QuickJS
+with constrained inputs and outputs. The guest cannot create that Worker.
+Browser-frame code and CSS have no per-plugin OS CPU or memory quota.
 
-### Residual exposure
+## Host terminal
 
-- **Not an OS sandbox or network firewall.** Unlike inline widgets (whose
-  authored scripts run inside a DOM-less dedicated Worker), plugin scripts run
-  directly in the guest document's DOM so interactive plugin UIs work. Because
-  CSP alone does not block WebRTC ICE/STUN/UDP, removing WebRTC constructors in
-  the trusted bootstrap is defense-in-depth rather than an engine-level or
-  OS-level firewall: an adversarial plugin script with DOM access may still be
-  able to obtain a fresh blank sub-frame realm or trigger browser networking
-  side channels (such as DNS prefetch) depending on the browser/WebView engine.
-  Only install third-party or local-dev plugins from sources you trust.
-- **Approved external domains.** Any data a plugin holds can be sent to its
-  approved public `domains`. Outside Electron's session checks, DNS resolution
-  and HTTP redirects from an approved public hostname to private/loopback
-  addresses are not inspected by the browser CSP.
-- **Resource exhaustion.** Browser-frame isolation does not impose OS process,
-  CPU, or memory quotas on plugin scripts or CSS.
-- **Mobile native guard.** On Capacitor native builds, plugin frames refuse to
-  mount unless the bundled WebView isolation guard (`tarobot-widget-guard`) is
-  present and active.
+Host Terminal (`host.terminal.v1`) is disabled by default (`terminal-policy:v1`).
+Enabling it or changing per-device grants requires an enrolled local owner
+desktop controller and a one-use signed `terminal-grant` device-action proof
+with revision compare-and-swap and `requestId` idempotency; remote owner devices
+receive `local_controller_required`. Grants bind both `deviceId` and Ed25519
+`publicKey`. Initial working directories resolve from the conversation's
+dispatcher ticket workspace or Bot workspace, reject archived conversations, and
+fail closed rather than falling back to the Hub private `stateDir`.
+
+Authorizing a device for Host Terminal is equivalent to granting interactive
+access to the Host OS account. Spawned shells run as the Host OS user with no
+OS sandbox, inherit the Host process environment variables (including configured
+API keys and credentials), and can access any path or command available to that
+account outside the initial workspace directory.
+
+"Desktop-only" is strictly a client UI affordance that hides the terminal entry
+and panel on mobile/tablet clients and narrow viewports; it is not a Host
+authorization boundary. The Host accepts any device whose `(deviceId, publicKey)`
+is authorized in the enabled policy—including browser/web clients or paired
+member devices if an owner explicitly grants them—and scopes visible terminal
+tabs to the authenticated user's own conversations.
+
+Revoking a device or removing its terminal grant wakes and rejects in-flight
+output polls and terminates owned shells immediately; external CLI revocations
+and key changes in SQLite are enforced by the periodic Host sweep. Running
+shells are not terminated when a device's 15-minute HTTP session token expires
+(so long-running builds survive panel hides, App minimization, and session
+renewal), while HTTP reads and writes still require a currently valid session.
+To prevent abandoned shells from living indefinitely if a client disappears, the
+sweep reaps running shells after an explicit idle timeout ceiling (default 2
+hours without terminal I/O, configurable via `TAROBOT_TERMINAL_IDLE_TIMEOUT_MS`
+between 1 minute and 24 hours).
+
+Platform limit: without bundled `node-pty` (ConPTY), Windows falls back to a
+pipe-backed shell that lacks a PTY, so `Ctrl+C` (`SIGINT`) cannot be delivered
+cleanly to foreground commands. See
+[terminal packaging and runtime notes](client/terminal-packaging.md).
+
+## oh-my-pi (`omp`) approval bridge and compatibility gating
+
+In `normal` approval mode, `omp` runs with the TaroBird approval bridge extension
+over a private single-accept local socket authenticated by a one-time token (same
+transport pattern as Pi). The turn fails closed before sending a prompt if the
+bridge did not connect. Read-only auto-approval (`read`, `grep`, `find`, `ls`,
+`glob`, `ask`) requires verified built-in provenance (`sourceInfo.source === "builtin"`
+and `sourceInfo.path === "builtin:<toolName>"`), never name-only matching, and
+session-scoped approval grants are keyed by `origin:toolName` so an extension
+override cannot inherit a built-in grant.
+
+Host HTTP endpoints with closed engine enums in v1.6.0 clients (`/api/bots/catalog`,
+`/api/settings/engines`, and `/api/engine-quotas`) exclude `omp` entries unless the
+caller opts in with `includeOmp=1`. Destroying the `omp` adapter aborts and awaits
+in-flight worker startups, and startup failures always close the child process and
+dispose the bridge socket so no orphan process or socket leaks.
+
+## Host resources boundary
+
+`GET /api/host-resources` and `POST /api/host-resources/stop` (`host.resources.v1`,
+advertised in `SERVER_CAPABILITIES` only so 1.6.0 clients ignore it and new clients
+hide the entry against 1.6.0 Hosts) require a currently authenticated device.
+Reads return only the Hub, local desktop App processes, and the Bots and
+conversations the requesting user is authorized to see. All managed Bot gateway
+process trees are tracked regardless of the requesting user so ungranted Bots
+never leak into `unattributed` or desktop App rows; Hub-level `unattributed`
+descendants and per-user sparkline history remain isolated per user, with
+unattributed Hub children exposed to owners only.
+
+OS process sampling uses a short-TTL Host-side cache with single-flight in-flight
+coalescing across readers so concurrent or repeated reads do not spawn `ps` or
+PowerShell CIM queries per request. Only authenticated owners may bypass the
+sample cache with `?force=1`; per-user Bot, conversation, and active-turn
+authorization still runs on every snapshot. Active-turn lookup uses the additive
+partial index `messages_active_bot_turns` without scanning historical message
+bodies or changing `schema_version`. When multiple active turns run concurrently
+on one Bot without exact PID-to-conversation linkage, the Hub does not guess by
+positional PID order: each visible active conversation stays individually
+stoppable while unlinked engine processes remain grouped at the Bot level (and
+are omitted for non-owners whenever hidden turns are present on that Bot).
+
+Stopping requires an authenticated owner (`requireOwner` rechecked after body
+receipt and before execution). Conversation stops route exclusively through
+graceful `stopBotTurn` and never fall through to `killProcessTree`. Explicit PID
+stops invalidate the sample cache, re-sample live OS processes, verify that the
+target PID is a strict descendant of the requested Bot's gateway (never the Hub,
+the gateway itself, another Bot, or an unrelated process), and audit the action.
+The phone UI presents a read-only view; server-side owner authorization remains
+the enforced boundary.
+
+## DIY Cloudflare Tunnel (edge-proxy) boundary
+
+User-managed Cloudflare Tunnel (`cloudflared`) routes are an explicit opt-in
+transport alongside `Direct`, `Tailscale`, and built-in TLS-passthrough `VPS`
+routes. They change the transport confidentiality/integrity boundary compared to
+leaf-pinned routes and are fenced as follows:
+
+- **Edge TLS termination & trust model**: Cloudflare Tunnel terminates outer TLS
+  at Cloudflare's edge using a WebPKI certificate, then forwards HTTP/WebSocket
+  traffic over `cloudflared` to the Host. **Cloudflare's edge can therefore read
+  and modify traffic traversing a `Cloudflare` route** (messages, attachments,
+  bearer session tokens, metadata, and unsigned HTTP bodies). Mutual Ed25519
+  WebSocket handshakes, one-use device-action proofs, signed network manifests,
+  and signed Bot passports still prevent impersonation or forging signed
+  operations, and `Direct`, `Tailscale`, and `VPS` routes retain strict
+  leaf-certificate pinning via `/api/tls-identity`.
+- **Dedicated non-instance loopback listener**: The Hub binds a separate
+  loopback HTTP listener (`127.0.0.1:<edgePort>`, `instance = false`) solely for
+  Cloudflare Tunnel ingress—distinct from the main loopback HTTP listener and
+  the instance listener. Local vs. remote trust and instance privileges are
+  enforced strictly by listener boundary, never by client-controllable HTTP
+  headers on the main loopback listener. Privileged local endpoints
+  (`/instance`, `/api/instance/*`, `/screen/v1/target`, `/screen/v1/target-media`,
+  `/api/bot-messages/grant`, and `/api/bot-messages/local`) are rejected on the
+  `edge-proxy` listener regardless of headers. Conversely, `/api/edge-identity`
+  is served only on the `edge-proxy` listener and only for HTTPS origins
+  explicitly authorized on the Host (saved Cloudflare origins, active local
+  Quick Tunnel, or `TAROBOT_CLOUDFLARE_ORIGINS`).
+- **Origin-bound attestation & DoS isolation**: Native clients and peer Hosts
+  verify system WebPKI TLS (custom CA overrides are rejected) and obtain a fresh
+  Ed25519 `/api/edge-identity` proof bound to `(publicKey, nonce, origin)` so an
+  arbitrary third-party proxy cannot replay a proof for an unauthorized domain.
+  Only requests arriving on the `edge-proxy` listener enter the `edge-proxy:`
+  rate-limit/audit namespace; per-client attribution reads Cloudflare's
+  edge-inserted `CF-Connecting-IP` (canonicalized with IPv6 `/64` grouping,
+  falling back to `edge-proxy:shared`, never treated as loopback/trusted).
+  Unauthorized origins allocate no buckets. Anonymous `/api/edge-identity`
+  buckets are isolated per `(source, origin)` in a dedicated bounded 4,096-entry
+  edge table (separate from direct/relay anonymous limits). Per-source limits
+  apply to tracked sources; when the edge table is full, further callers are
+  served untracked so nobody is locked out (the proof is a public signature over
+  an allowed origin with nothing to brute-force). A caller presenting a session
+  or an enrolled device id is counted in the device table instead; current
+  clients do not do this yet.
+- **Configuration & Quick Tunnel authorization**: Reading Cloudflare status
+  (`GET /api/host-routes/cloudflare`) is owner-scoped. Modifying authorized
+  origins/settings (`PUT /api/host-routes/cloudflare`) or starting/stopping a
+  local Quick Tunnel (`POST /api/host-routes/cloudflare/quick`) requires an
+  enrolled local owner controller (Desktop App or Host CLI, never a remote
+  paired device and never requests arriving over the `edge-proxy` listener) plus
+  a fresh, one-use `cloudflare-tunnel` device-action signature bound to the
+  exact command and HTTP session, consumed atomically inside the mutation
+  transaction and recorded in the audit log. See
+  [DIY Cloudflare Tunnel](client/cloudflare-tunnel-diy.md).

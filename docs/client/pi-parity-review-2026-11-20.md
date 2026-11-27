@@ -1,7 +1,7 @@
 # Pi parity review — 2026-11-20
 
 Scope: ordinary Pi Bots, with independent engine/UI review and a separate
-physical Windows validation. Pi remains excluded from Chancellor and dispatched
+physical Windows validation. Pi remains excluded from Superagent and dispatched
 worker roles. No dependency upgrade, release, installation or credential
 migration is part of this change.
 

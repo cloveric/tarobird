@@ -308,6 +308,7 @@ describe("core audit fixes", () => {
     const runtime = createCoreServiceRuntime();
     runtime.queueCards.set("om_waited", { messageId: "om_old_wait_card" });
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async (
         _key: string,
         task: () => Promise<boolean>,

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { helperEnvironment } from './helper-rpc.mjs';
+import { resolveElectronLocale } from './locale.mjs';
 const exec = promisify(execFile), MAX_BYTES = 32 * 1024 * 1024;
 let capturing = false;
 export function validatePNG(bytes) {
@@ -15,7 +16,11 @@ export function validatePNG(bytes) {
   return bytes.toString('base64');
 }
 export async function captureScreenshot(window, addon, args, active, platform = process.platform) {
-  if (!args || typeof args.english !== 'boolean' || Object.keys(args).length !== 1) throw new Error('invalid_screenshot_args');
+  if (!args || typeof args !== 'object' || Array.isArray(args) || typeof args.english !== 'boolean') throw new Error('invalid_screenshot_args');
+  const keys = Object.keys(args);
+  if (keys.some(key => key !== 'english' && key !== 'locale')) throw new Error('invalid_screenshot_args');
+  if (args.locale !== undefined && (typeof args.locale !== 'string' || args.locale.length > 32)) throw new Error('invalid_screenshot_args');
+  const locale = resolveElectronLocale({ locale: args.locale, english: args.english });
   if (!window.isVisible() || !window.isFocused()) throw new Error('screenshot_window_unavailable');
   if (capturing) throw new Error('screenshot_busy');
   if (!addon) throw new Error('screenshot_unavailable');
@@ -27,7 +32,7 @@ export async function captureScreenshot(window, addon, args, active, platform = 
     window.hide(); hidden = true;
     await new Promise(resolve => setTimeout(resolve,250));
     if (platform === 'win32') {
-      const raw = await addon.captureWindows(args.english);
+      const raw = await addon.captureWindows(args.english, locale);
       return raw === null ? null : validatePNG(Buffer.from(raw, 'base64'));
     }
     if (platform !== 'darwin') throw new Error('screenshot_unavailable');

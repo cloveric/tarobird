@@ -1,4 +1,4 @@
-import type { EngineStreamEvent } from "../src/codex/adapter.js";
+import type { CodexAdapter, EngineStreamEvent } from "../src/codex/adapter.js";
 import { backgroundTaskNotice } from "../src/client-protocol/background-task.js";
 import { forwardedBlocks } from "../src/client-protocol/forwarding.js";
 import { randomBytes } from "node:crypto";
@@ -20,7 +20,10 @@ import { buildCoreCronExecutor, sendCoreCronFailureNotification } from "../src/c
 import type { CoreChannelLike, CoreBridgeLike } from "../src/core/types.js";
 import { BoardStore } from "../src/state/board-store.js";
 import { MiniBusStore } from "../src/state/mini-bus-store.js";
-import { stableCoreNumericId } from "../src/core/message-normalizer.js";
+import { buildCoreConversationKey, stableCoreNumericId } from "../src/core/message-normalizer.js";
+import { Bridge, type AccessStoreLike } from "../src/runtime/bridge.js";
+import { SessionManager } from "../src/runtime/session-manager.js";
+import { SessionStore } from "../src/state/session-store.js";
 import { anyRun } from "../src/client-protocol/run.js";
 import { RunJournal } from "../src/hub/run-journal.js";
 import { FileWorkflowStore } from "../src/state/file-workflow-store.js";
@@ -116,6 +119,92 @@ const options = () => ({ stateDir, botId: "alpha", secret, engine: "codex" as co
 async function send(conversationId: string, text: string, clientMsgId: string) { await hub.store.sendMessage("owner", { conversationId, clientMsgId, text, attachments: [], mentions: ["alpha"] }); await until(async () => (await hub.store.pendingForBot("alpha")).length === 0); }
 function buttons(message: Message): CardElement[] { const walk = (elements: CardElement[]): CardElement[] => elements.flatMap((item) => [item, ...walk(item.children ?? [])]); return message.blocks.flatMap((block) => block.type === "card" ? walk(block.elements).filter((element) => element.type === "button") : []); }
 async function tap(message: Message, button: CardElement, receiptId: string, values: Record<string, string> = {}) { return gateway!.transport.onCall!("interaction", { receiptId, conversationId: message.conversationId, messageId: message.id, userId: "owner", actionId: button.actionId!, value: button.value ?? {}, values }); }
+
+it.each(["confirm", "cancel", "unsupported"] as const)("honors restart decision %s and preserves queued messages", async decision => {
+  const chat = await hub.store.createConversation("owner", ["alpha"], "Restart fixture", "direct");
+  const conversationKey = buildCoreConversationKey(chat.id);
+  const scope = { conversationKey, chatId: stableCoreNumericId(conversationKey) };
+  const runtime = createCoreServiceRuntime();
+  await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "claude", locale: "en" }));
+  const sessionId = "restart-fixture";
+  const seen: string[] = [];
+  let interrupted = false, finishFirst = () => {}, observeExit = () => {};
+  const restart = vi.fn(async (_sessionId: string, options?: { beforeStop?: () => unknown }) => {
+    // As the real adapters do: the running work is stopped before the process is signalled.
+    await options?.beforeStop?.();
+    await new Promise<void>(resolve => { observeExit = resolve; });
+    return { outcome: "closed" as const };
+  });
+  const adapter: CodexAdapter = {
+    createSession: async () => ({ sessionId }),
+    sendUserMessage: async (id, input) => {
+      expect(id).toBe(sessionId);
+      seen.push(input.text);
+      if (seen.length === 1) await new Promise<void>(resolve => {
+        finishFirst = resolve;
+        input.abortSignal?.addEventListener("abort", () => { interrupted = true; resolve(); }, { once: true });
+      });
+      return { text: "Fixture reply", sessionId };
+    },
+    ...(decision === "unsupported" ? {} : { restartSession: restart }),
+    listTasks: async () => ({ supported: true, tasks: [{ id: "background", label: "Check draft",
+      kind: "subagent", mode: "background", status: "running", canStop: true, updatedAt: Date.now() }] }),
+  };
+  const sessions = new SessionManager(new SessionStore(path.join(stateDir, "session.json")), adapter);
+  await sessions.bindSession(scope, sessionId);
+  const bridge = new Bridge({} as AccessStoreLike, sessions, adapter);
+  gateway = await attachGateway({ ...options(), engine: "claude", runtime, bridge });
+  const queue = async (text: string, id: string) => (await hub.store.sendMessage("owner", {
+    conversationId: chat.id, clientMsgId: id, text, attachments: [],
+  })).message;
+  const messages = async () => (await hub.store.snapshot("owner", chat.id)).messages;
+  try {
+    await queue("first", "first");
+    await until(async () => seen.length === 1);
+    await queue("second", "second");
+    const command = await queue("/restart", "restart");
+    if (decision === "unsupported") {
+      await until(async () => (await messages()).some(message => message.replyTo === command.id && blocksText(message.blocks).includes("does not support /restart")));
+      expect(interrupted).toBe(false);
+      expect(restart).not.toHaveBeenCalled();
+      finishFirst();
+      await until(async () => seen.length === 2);
+      return;
+    }
+    let card!: Message;
+    await until(async () => {
+      card = (await messages()).find(message => message.replyTo === command.id && buttons(message).some(button => button.name === "askq_submit"))!;
+      return !!card;
+    });
+    expect(blocksText(card.blocks)).toContain("Check draft");
+    expect(interrupted).toBe(false);
+    expect(restart).not.toHaveBeenCalled();
+    const duplicate = await queue("/restart", "duplicate");
+    await queue("third", "third");
+    await until(async () => (await messages()).some(message => message.replyTo === duplicate.id && blocksText(message.blocks).includes("Another session operation")));
+    const submit = buttons(card).find(button => button.name === "askq_submit")!;
+    await tap(card, submit, "restart_decision", { q0: decision === "confirm" ? "0" : "1" });
+    if (decision === "cancel") {
+      await until(async () => (await messages()).some(message => message.replyTo === command.id && blocksText(message.blocks).includes("Restart cancelled")));
+      expect(interrupted).toBe(false);
+      expect(restart).not.toHaveBeenCalled();
+      expect(seen).toEqual(["first"]);
+      finishFirst();
+    } else {
+      await until(async () => interrupted && restart.mock.calls.length === 1);
+      expect(seen).toEqual(["first"]);
+      expect((await messages()).some(message => blocksText(message.blocks).includes("old engine process has exited"))).toBe(false);
+      observeExit();
+      await until(async () => (await messages()).some(message => message.replyTo === command.id && blocksText(message.blocks).includes("old engine process has exited")));
+    }
+    await until(async () => seen.length === 3);
+    expect(seen).toEqual(["first", "second", "third"]);
+    expect(await sessions.getExistingSession(scope)).toEqual({ sessionId });
+  } finally {
+    finishFirst();
+    observeExit();
+  }
+}, 15_000);
 async function emitScopedReport(callback: Parameters<CoreBridgeLike["handleAuthorizedMessage"]>[0]["onEngineEvent"], id: string, text: string) {
   const scope = { id, kind: "background" as const };
   await callback?.({ type: "scoped", scope, origin: "bound", event: { type: "tool_use", toolName: "Read", toolUseId: "read" } });

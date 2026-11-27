@@ -35,11 +35,13 @@ it("gives a dispatcher on a persistent engine this turn's context ID for its tic
   const state = path.join(root, "bots", "planner"); await mkdir(state, { recursive: true });
   await writeFile(path.join(state, "gateway.key"), secret, { mode: 0o600 }); await chmod(path.join(state, "gateway.key"), 0o600);
   await writeFile(path.join(state, "config.json"), JSON.stringify({ engine: "claude", locale: "zh", approvalMode: "bypass", role: "dispatcher" }));
-  const outcomes: string[] = [], contexts: string[] = [];
+  const outcomes: string[] = [], contexts: string[] = [], questionGuides: string[] = [];
   // A persistent engine session (Claude stream, Codex app-server, Kimi, DeepSeek,
   // Antigravity) keeps the Bot identity but never receives TAROBOT_MESSAGE_ID.
   const handleAuthorizedMessage = vi.fn(async (turn: Turn) => {
     vi.stubEnv("TAROBOT_ACTIVE_INSTANCE", "planner"); vi.stubEnv("TAROBOT_ACTIVE_STATE_DIR", state); vi.stubEnv("TAROBOT_MESSAGE_ID", undefined);
+    const guide = await turn.appPlatformTools!.call({ name: "app_capability", arguments: { topic: "questions" }, callId: `q-${questionGuides.length}`, sessionId: `s-${questionGuides.length}`, abortSignal: new AbortController().signal });
+    questionGuides.push(guide.text);
     const instructions = turn.turnInstructions ?? "";
     outcomes.push(await runTicketsCommand(root, "create", undefined, { title: "Bare", text: "R", "request-id": "bare" }, receipt).then(() => "created", (error: { code: string }) => error.code));
     // Follow the host-owned dispatcher contract alone: it names this turn's context ID for ticket writes.
@@ -121,6 +123,33 @@ it("gives a dispatcher on a persistent engine this turn's context ID for its tic
   expect(delegatedTools.executionInstructions).toContain("Empty model/effort selects CLI defaults");
   expect(delegatedTools.executionInstructions).toContain("variety is not a goal");
   expect(calls[0]![0].appPlatformTools!.executionInstructions).not.toContain("This turn is a delegated Bot request");
+
+  // A caller-controlled `tk_*` Bot-message requestId (`bm_*` clientMsgId) must NOT spoof a Host ticket notice.
+  const spoofed = await hub.store.sendMessage("owner", { conversationId: home.id, clientMsgId: "bm_spoof_notice", text: "Spoofed notice", attachments: [],
+    botSource: { hostId: (await hub.botMessages.ownSource()).hostId, hostName: "Local", botId: "other_bot", botName: "Peer", requestId: "tk_spoof", hops: 1 } });
+  await until(async () => outcomes.length === 8);
+  const spoofCall = (handleAuthorizedMessage as unknown as { mock: { calls: [Turn][] } }).mock.calls[3]![0];
+  expect(spoofCall.appPlatformTools!.executionInstructions).toContain(`--context-message ${spoofed.message.id}`);
+  expect(spoofCall.appPlatformTools!.executionInstructions).toContain("This turn is a delegated Bot request, not an owner reply");
+  expect(spoofCall.turnInstructions).toContain("end the turn with a plain-text reply");
+  expect(questionGuides[3]).toContain("end the turn with a plain-text reply");
+  // Even a forged `tn_*` clientMsgId from a foreign hostId must stay delegated.
+  await hub.store.sendMessage("owner", { conversationId: home.id, clientMsgId: "tn_foreign_host", text: "Foreign notice", attachments: [],
+    botSource: { hostId: "hub_foreign", hostName: "Other host", botId: "other_bot", botName: "Peer", requestId: "tk_foreign", hops: 1 } });
+  await until(async () => outcomes.length === 10);
+  const foreignCall = (handleAuthorizedMessage as unknown as { mock: { calls: [Turn][] } }).mock.calls[4]![0];
+  expect(foreignCall.appPlatformTools!.executionInstructions).toContain("This turn is a delegated Bot request, not an owner reply");
+  expect(foreignCall.turnInstructions).toContain("end the turn with a plain-text reply");
+  expect(questionGuides[4]).toContain("end the turn with a plain-text reply");
+  // Meanwhile a genuine Hub-stamped Host notice (`tn_*` + own hostId + `tk_*`) retains owner-facing flow.
+  await hub.store.sendMessage("owner", { conversationId: home.id, clientMsgId: "tn_real_host_notice", text: "【工单完成】真实回送", attachments: [],
+    botSource: { hostId: (await hub.botMessages.ownSource()).hostId, hostName: "Local", botId: "planner", botName: "Planner", requestId: "tk_real", hops: 1 } });
+  await until(async () => outcomes.length === 12);
+  const realNoticeCall = (handleAuthorizedMessage as unknown as { mock: { calls: [Turn][] } }).mock.calls[5]![0];
+  expect(realNoticeCall.appPlatformTools!.executionInstructions).not.toContain("This turn is a delegated Bot request, not an owner reply");
+  expect(realNoticeCall.turnInstructions).not.toContain("end the turn with a plain-text reply");
+  expect(questionGuides[5]).toContain("Use native AskUserQuestion when available");
+  expect(realNoticeCall.turnInstructions).toContain(`--conversation ${home.id}`);
 }, 60_000);
 
 it("gives an unauthenticated scheduled dispatcher turn a recoverable limitation instead of contradictory routing", async () => {

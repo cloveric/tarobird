@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkbenchController } from "../src/workbench-controller.js";
 import { BoardSession, type BoardAdapter, type BoardController } from "../src/workbench-board.js";
 import { workbenchEditorLock } from "../src/workbench-library.js";
-import { emptyDesign, type DesignDocument } from "../src/workbench-design.js";
+import { emptySlides, type DesignDocument } from "../src/workbench-design.js";
 import { emptyMarkdown, type MarkdownDocument } from "../src/workbench-markdown.js";
 import { emptyBoard, emptyWorkbench, workbenchScope, type BoardDocument, type BoardScene, type WorkbenchLayout, type WorkbenchTab } from "../src/workbench-model.js";
 import type { HubConnection } from "../src/connection.js";
@@ -40,7 +40,7 @@ function store(conversation: string, initial: WorkbenchLayout) {
     },
     readWorkbenchMarkdown: async (_scope: string, id: string) => structuredClone(notes.get(id)),
   };
-  const connection = { identity: { deviceId: "device", hubPublicKey: "host" }, state: { status: "online", user: { id: "owner" }, workbenchDesignAvailable: true, workbenchMarkdownAvailable: true },
+  const connection = { identity: { deviceId: "device", hubPublicKey: "host" }, state: { status: "online", user: { id: "owner" }, workbenchDesignAvailable: true, workbenchSlidesAvailable: true, workbenchMarkdownAvailable: true },
     isClosed: false, isReadOnly: false, cache, subscribe: () => () => undefined, conversationRevision: () => 0, http: vi.fn() } as unknown as HubConnection;
   return { cache, connection, boards, designs, notes, layout: () => layout, scope: workbenchScope("host", "owner", conversation), fail: (value: boolean) => { failing = value; } };
 }
@@ -193,8 +193,8 @@ describe("F2: deleting from a Tab never removes content another window is editin
   });
 
   it("deletes a Design whose only editor is this window's own, without waiting on its own shared lease", async () => {
-    const conversation = fresh(), db = store(conversation, { ...emptyWorkbench(), tabs: [tab("d", "design")], visible: ["d"], active: "d" });
-    db.designs.set("d", emptyDesign("d"));
+    const conversation = fresh(), db = store(conversation, { ...emptyWorkbench(), tabs: [{ id: "d", kind: "design", designFormat: "slides", title: "D" }], visible: ["d"], active: "d" });
+    db.designs.set("d", emptySlides("d"));
     const controller = await open(db, conversation), name = workbenchEditorLock("design", db.scope, "d");
     await new Promise(resolve => setTimeout(resolve, 10));
     const session = controller.designSession("d")!; let lease = await hold(name, "shared"); const events: string[] = [];
@@ -213,7 +213,7 @@ describe("F2: deleting from a Tab never removes content another window is editin
 
 describe("DS2-06: one unavailable visible item does not stop the whole workbench", () => {
   it("opens with a missing visible Design, reports it, and keeps the other content usable", async () => {
-    const conversation = fresh(), db = store(conversation, { ...emptyWorkbench(), tabs: [tab("d", "design"), tab("b", "whiteboard")], visible: ["d", "b"], active: "d" });
+    const conversation = fresh(), db = store(conversation, { ...emptyWorkbench(), tabs: [{ id: "d", kind: "design", designFormat: "slides", title: "D" }, tab("b", "whiteboard")], visible: ["d", "b"], active: "d" });
     db.boards.set("b", emptyBoard("b"));
     const controller = await open(db, conversation);
     expect(controller.getSnapshot().ready).toBe(true); expect(controller.getSnapshot().error).toBe("design_not_found");

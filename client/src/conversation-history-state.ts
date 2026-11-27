@@ -1,17 +1,19 @@
 import { z } from "zod";
-import { historyChangeSchema, historyOperationSchema, type HistoryReason } from "../../src/client-protocol/conversation-history.js";
+import { historyChangeSchema, historyClientOperationSchema, type HistoryClientReason } from "../../src/client-protocol/conversation-history.js";
 import type { HubConnection } from "./connection.js";
 import { t } from "./i18n.js";
 
 /** A local admission fence, persisted before POST. Never replay this body on recovery. */
-export const historyPendingSchema = z.object({ change: historyChangeSchema, result: historyOperationSchema.optional() }).strict();
+export const historyPendingSchema = z.object({ change: historyChangeSchema, result: historyClientOperationSchema.optional() }).strict();
 export type HistoryPending = z.infer<typeof historyPendingSchema>;
 export function historyRecordKey(connection: HubConnection, conversationId: string): string {
   return `conversation-history:${JSON.stringify([connection.identity.hubPublicKey, connection.identity.publicKey, connection.state.user?.id ?? "", conversationId])}`;
 }
-export function historyReason(reason?: HistoryReason): string {
+export function historyReason(reason?: HistoryClientReason): string {
   switch (reason) {
-    case "busy": case "background_work": return t("请等待当前任务结束后再操作。");
+    case "busy": return t("当前对话正在回复中，请等待结束后再操作。");
+    case "background_work": return t("后台任务正在运行中，请等待结束后再操作。");
+    case "side_session": return t("当前有打开的侧边对话，请等待回答结束或关闭后再操作。");
     case "queued": return t("请先处理待执行消息。");
     case "goal_active": return t("请先暂停当前目标。");
     case "shared_session": return t("此会话正被其他对话共用，暂不能修改历史。");

@@ -328,6 +328,7 @@ export class DesignSession {
         await this.mutateComments(ctx, { op: "sent", ids: input.ids, messageId: input.messageId }); return { status: 200, body: { ok: true } };
       }
       const mutation: DesignCommentMutation | undefined = op === "create" ? { op: "create", payload, location: input => locateComment(input, this.document) }
+        : op === "move" ? { op: "move", payload, location: input => locateComment(input, this.document) }
         : op === "reply" || op === "edit" || op === "status" || op === "delete" ? { op, payload } : undefined;
       if (!mutation) return fail(404, "NOT_FOUND", "no such comments route");
       const { doc, outcome } = await this.mutateComments(ctx, mutation);

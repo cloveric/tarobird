@@ -3,6 +3,8 @@ import { SIDE_TOOL_INSTRUCTIONS } from "./side-instructions.js";
 import { AdapterQuotaCache, type EngineQuotaReadOptions, type EngineQuotaReadResult } from "./adapter-account-quota.js";
 import { readCodexAccountQuota } from "./codex-account-quota.js";
 import { cancelOwnedQuotaReads, readOwnedCodexQuota } from "./codex-quota-process.js";
+import { hostT } from "../locales/index.js";
+import { normalizeLocale, type Locale } from "../runtime/locale.js";
 import { isLogicalSessionId } from "../runtime/logical-session.js";
 import { wholeFilePatch } from "../core/recorded-diff.js";
 import { spawnEngine } from "../runtime/engine-process.js";
@@ -1027,20 +1029,21 @@ export class CodexAppServerAdapter implements CodexAdapter {
         if (requestOptions.signal.aborted) throw new Error("quota_cancelled");
         return this.request(method, params, { ...requestOptions, idleBlocking: false, destroyOnTimeout: false });
       },
-      captureScope: () => this.quotaScope().revision, proofKey: this.quotaCache.proofKey,
+      captureScope: () => this.quotaScope().revision, proofKey: options.accountProofKey ?? this.quotaCache.proofKey,
       signal: options.signal, timeoutMs: Math.min(options.timeoutMs ?? 7000, 7000),
     });
     const after = this.quotaScope();
     if (after.revision !== scope.revision) return this.quotaCache.failure(after, "auth_changed");
-    return this.quotaCache.store(after, result);
+    return this.quotaCache.store(after, result, options.accountProofKey);
   }
 
-  /** Only the quota-owned helper calls this. Its caller owns termination and waits for actual close. */
+  /** Only the quota-owned helper calls this. Its caller owns termination and waits for actual close.
+   * Uses read-only, plugin-disabled args (matching Orca's short-lived probe) so startup stays fast and clean. */
   async readAccountQuotaFromOwnedProcess(options: {
     signal: AbortSignal; timeoutMs: number; proofKey: Uint8Array; captureScope: () => string; remainingMs: () => number;
   }) {
     if (options.signal.aborted) throw new Error("quota_cancelled");
-    await this.startChildAndInitialize(["app-server"]);
+    await this.startChildAndInitialize(["-c", "approval_policy=never", "-c", "features.plugins=false", "app-server"]);
     if (options.signal.aborted) throw new Error("quota_cancelled");
     return readCodexAccountQuota({ request: (method, params, requestOptions) => this.request(method, params, { ...requestOptions, idleBlocking: false, destroyOnTimeout: false }),
       // The first account/updated is startup discovery, later events fence a login/workspace switch.
@@ -2628,7 +2631,7 @@ export class CodexAppServerAdapter implements CodexAdapter {
       sessionId: input.threadId,
       mode: "continue",
       reason,
-      ...(turnId && ownedIds.size ? { releaseTools, reconcileTools: async (requestedIds: readonly string[], signal?: AbortSignal, locale?: "en" | "zh") => {
+      ...(turnId && ownedIds.size ? { releaseTools, reconcileTools: async (requestedIds: readonly string[], signal?: AbortSignal, locale?: Locale) => {
         if (claimed || !this.retryToolLeases.has(releaseTools)) return;
         claimed = true;
         if (leaseTimer) clearTimeout(leaseTimer);
@@ -2645,9 +2648,13 @@ export class CodexAppServerAdapter implements CodexAdapter {
               const tool = extractCodexToolItem(item);
               // Persisted records sometimes omit stdout. Append a clearly
               // labelled terminal status without erasing earlier streamed logs.
-              const status = locale === "zh"
-                ? `[TaroBird] 已确认命令状态：${item.status === "declined" ? "已拒绝" : item.status === "failed" ? "执行失败" : "已结束"}${tool?.exitCode !== undefined ? `，退出码 ${tool.exitCode}` : ""}。`
-                : `[TaroBird] Confirmed command status: ${item.status}${tool?.exitCode !== undefined ? `; exit code ${tool.exitCode}` : ""}.`;
+              const loc = locale ?? "en";
+              const exitSuffix = tool?.exitCode !== undefined ? hostT(loc, "，退出码 {0}", tool.exitCode) : "";
+              const status = item.status === "declined"
+                ? hostT(loc, "[TaroBird] 已确认命令状态：已拒绝{0}。", exitSuffix)
+                : item.status === "failed"
+                  ? hostT(loc, "[TaroBird] 已确认命令状态：执行失败{0}。", exitSuffix)
+                  : hostT(loc, "[TaroBird] 已确认命令状态：已结束{0}。", exitSuffix);
               if (tool) {
                 if (tool.output === undefined && tool.toolUseId) await input.pending.onEngineEvent?.({ type: "tool_progress", toolUseId: tool.toolUseId,
                   text: status, delta: false, sessionId: input.threadId });
@@ -2657,8 +2664,7 @@ export class CodexAppServerAdapter implements CodexAdapter {
             },
             waiting: async ids => {
               for (const id of ids) await input.pending.onEngineEvent?.({ type: "tool_progress", toolUseId: id,
-                text: locale === "zh" ? "[TaroBird] 模型服务暂时中断，正在等待已启动的命令完成，随后自动继续。"
-                  : "[TaroBird] The model service was interrupted. Waiting for the already-started command to finish, then continuing automatically.", delta: false, sessionId: input.threadId });
+                text: hostT(locale ?? "en", "[TaroBird] 模型服务暂时中断，正在等待已启动的命令完成，随后自动继续。"), delta: false, sessionId: input.threadId });
             },
           });
         } finally { releaseTools(); }

@@ -18,9 +18,9 @@ describe("bot-message delivery protocol (#62)", () => {
     expect(botMessageDeliverySchema.options).toEqual(["queue", "steer"]);
   });
 
-  it("opens steering only to Codex and Claude Code", () => {
-    expect(BOT_MESSAGE_STEER_ENGINES).toEqual(["codex", "claude"]);
-    for (const engine of ["codex", "claude"]) expect(supportsBotMessageSteerEngine(engine)).toBe(true);
+  it("opens steering only to Codex, Claude Code, and omp", () => {
+    expect(BOT_MESSAGE_STEER_ENGINES).toEqual(["codex", "claude", "omp"]);
+    for (const engine of ["codex", "claude", "omp"]) expect(supportsBotMessageSteerEngine(engine)).toBe(true);
     for (const engine of ["pi", "kimi", "deepseek", "antigravity", ""]) expect(supportsBotMessageSteerEngine(engine)).toBe(false);
     expect(BOT_MESSAGE_STEER_CAPABILITY).toBe("bot-messages.steer.v1");
   });

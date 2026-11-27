@@ -1,5 +1,5 @@
 import { anySignal, timeoutSignal } from "./abort-signals.js";
-import { MAX_NETWORK_BYTES, networkCanonical, networkViewSchema, type NetworkHost, type SignedNetworkManifest } from "../../src/client-protocol/private-network.js";
+import { MAX_NETWORK_BYTES, networkCanonical, networkHostRoutes, networkViewSchema, type NetworkHost, type SignedNetworkManifest } from "../../src/client-protocol/private-network.js";
 import type { HostConnections } from "./host-connections.js";
 import { HostRegistry, runtimeHostId } from "./host-registry.js";
 import { createIdentity } from "./identity.js";
@@ -131,7 +131,7 @@ export class NetworkSync {
           }
         }
         if (host.revoked) continue;
-        if (host.state !== "active" || !host.routes.length || host.publicKey === connection.identity.hubPublicKey) continue;
+        if (host.state !== "active" || !networkHostRoutes(host).length || host.publicKey === connection.identity.hubPublicKey) continue;
         try { await this.discover(connection, membership, host); } catch { /* Pending identity is durable; retry when the host/authority recovers. */ }
       } };
       await Promise.allSettled(Array.from({length:Math.min(4, queue.length)}, () => work()));
@@ -219,6 +219,7 @@ export class NetworkSync {
         && view.manifest.hosts.some(member => member.publicKey === host.publicKey && member.state === "active" && !member.revoked));
     };
     if (!current() || existing?.host.state === "removing" || existing?.host.networkBlocked) return;
+    const hostRoutes = networkHostRoutes(host);
     // Per-route provenance: user-added or user-edited routes are kept, while
     // unmodified routes follow the signed descriptor. Extra local paths come
     // from the host's own endpoint once connected (syncHostRoutes).
@@ -228,12 +229,12 @@ export class NetworkSync {
       const targetCurrent = () => current() && !target.isClosed && target.networkKnown === known && target.state.networkChange === change
         && this.pool.state.hosts.some(entry => entry.connection === target && entry.host.registrationId === registrationId
           && entry.host.networkId === m.id && entry.host.networkAuthority === m.authorityKey && !entry.host.networkBlocked);
-      await this.applyRoutes(target, "network", existing.host.networkRoutes, host.routes, targetCurrent,
+      await this.applyRoutes(target, "network", existing.host.networkRoutes, hostRoutes, targetCurrent,
         (base, manual) => this.registry.networkMetadata(existing.host.id, m.id, m.authorityKey, base, manual, existing.host.registrationId), existing.host.networkManualRoutes).catch(() => undefined);
     }
     const confirmReplacement = async () => {
-      rememberRouteTrust(host.routes, host.publicKey);
-      for (const route of orderedRoutes(host.routes)) {
+      rememberRouteTrust(hostRoutes, host.publicKey);
+      for (const route of orderedRoutes(hostRoutes)) {
         if (!current()) throw new Error("network_enrollment_superseded");
         try {
           const response = await hubFetch(route.url, "/api/network/enroll", host.publicKey, {method:"POST",body:JSON.stringify(membership),signal:anySignal([this.controller.signal,timeoutSignal(2500)])});
@@ -252,7 +253,7 @@ export class NetworkSync {
       throw new Error("network_replacement_unconfirmed");
     };
     const candidate = await this.registry.networkCandidate(m.id, m.authorityKey, host, async () => ({
-      ...await createIdentity(source.identity.name, host.routes), hubPublicKey: host.publicKey,
+      ...await createIdentity(source.identity.name, hostRoutes), hubPublicKey: host.publicKey,
     }), confirmReplacement);
     if (!candidate || !current()) return;
     let authorization = membership;
@@ -273,9 +274,9 @@ export class NetworkSync {
     if (!current()) return;
     // This endpoint discloses no directory and accepts only a root-signed grant
     // anchored to the target's committed network, then ordinary auth proves possession.
-    rememberRouteTrust(host.routes, host.publicKey);
+    rememberRouteTrust(hostRoutes, host.publicKey);
     let admitted = false;
-    for (const route of orderedRoutes(host.routes)) {
+    for (const route of orderedRoutes(hostRoutes)) {
       if (!current()) return;
       try {
         const response = await hubFetch(route.url, "/api/network/enroll", host.publicKey, { method: "POST", body: JSON.stringify(authorization), signal: anySignal([this.controller.signal, timeoutSignal(2500)]) });
@@ -284,7 +285,7 @@ export class NetworkSync {
     }
     if (!admitted || !current()) return;
     if (!(await this.registry.list()).some(entry => entry.id === candidate.id)) {
-      try { await this.registry.add(candidate.identity, host.name, { networkId: m.id, networkAuthority: m.authorityKey, networkRoutes: host.routes }); }
+      try { await this.registry.add(candidate.identity, host.name, { networkId: m.id, networkAuthority: m.authorityKey, networkRoutes: hostRoutes }); }
       catch (error) { if (!(await this.registry.list()).some(entry => entry.id === candidate.id && entry.deviceId === candidate.identity.deviceId)) throw error; }
     }
     await this.registry.finishNetworkCandidate(candidate);

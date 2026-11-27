@@ -6,30 +6,31 @@ import { MAX_FILE_BYTES } from "../../src/client-protocol/index.js";
 import { formatFileLimit } from "./files.js";
 import { FileTypeIcon } from "./FileTypeIcon.js";
 import { DraftAttachmentPreview } from "./DraftAttachmentPreview.js";
+import { isRecordedVoiceFile } from "./voice-recording-marker.js";
 import "./attachment-draft.css";
 
 function DraftFile({ file, remove, busy, returnFocus }: { file: File; remove: () => void; busy: boolean; returnFocus?: RefObject<HTMLElement | null> }) {
   const active = useContext(RuntimeHostActiveContext);
   const [url, setUrl] = useState<string>(), [failed, setFailed] = useState(false), [preview, setPreview] = useState(false);
+  const recording = isRecordedVoiceFile(file);
   useLayoutEffect(() => { if (!active) setPreview(false); }, [active]);
   useEffect(() => {
     setFailed(false); setUrl(undefined); setPreview(false);
-    if (!file.type.startsWith("image/") && !file.type.startsWith("audio/")) return;
+    if (!file.type.startsWith("image/") && !recording) return;
     const objectUrl = URL.createObjectURL(file); setUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
-  }, [file]);
+  }, [file, recording]);
   const opener = useRef<HTMLButtonElement>(null);
   const destination = useRef(returnFocus); destination.current = returnFocus;
   // A preview unmounted with its chat must not focus a different chat's textarea.
   const previewReturn = useRef({ get current() { return opener.current?.isConnected ? destination.current?.current ?? opener.current : null; } }).current;
-  const audio = file.type.startsWith("audio/");
   const size = file.size < 1024 ? `${file.size} B` : file.size < 1024 * 1024 ? `${Math.ceil(file.size / 1024)} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`;
-  return <li className={`attachment-draft-file ${audio ? "audio-draft" : file.type.startsWith("image/") ? "image-draft" : ""}`}>
+  return <li className={`attachment-draft-file ${recording ? "audio-draft" : file.type.startsWith("image/") ? "image-draft" : ""}`}>
     <button ref={opener} type="button" className="draft-file-open" aria-label={t("预览 {0}", file.name)} title={file.name} onClick={() => setPreview(true)}>
-      <span className="attachment-draft-thumbnail">{url && !failed && file.type.startsWith("image/") ? <img src={url} alt="" decoding="async" onError={() => setFailed(true)}/> : file.type.startsWith("image/") ? <Image size={26}/> : audio ? <Mic size={26}/> : file.type.startsWith("video/") ? <Video size={26}/> : <FileTypeIcon name={file.name} mime={file.type} size={30}/>}</span>
+      <span className="attachment-draft-thumbnail">{url && !failed && file.type.startsWith("image/") ? <img src={url} alt="" decoding="async" onError={() => setFailed(true)}/> : file.type.startsWith("image/") ? <Image size={26}/> : recording ? <Mic size={26}/> : file.type.startsWith("video/") ? <Video size={26}/> : <FileTypeIcon name={file.name} mime={file.type} size={30}/>}</span>
       <span className="draft-file-name"><strong>{file.name}</strong><small>{size}</small></span>
     </button>
-    {url && audio && <audio controls preload="metadata" src={url} aria-label={t("试听 {0}", file.name)}/>}
+    {url && recording && <audio controls preload="metadata" src={url} aria-label={t("试听 {0}", file.name)}/>}
     <button type="button" className="draft-file-remove" disabled={busy} aria-label={t("移除 {0}", file.name)} title={t("移除 {0}", file.name)} onClick={remove}><X size={14}/></button>
     {preview && active && <DraftAttachmentPreview file={file} returnFocus={previewReturn} close={() => setPreview(false)}/>}
   </li>;

@@ -25,10 +25,12 @@ import { ReplyWidthContext, replyWidthKey, setReplyWide, useReplyWide } from "./
 import { useRunReportPreview } from "./RunReportPreview.js";
 import { RunReport } from "./RunReport.js";
 import { ScopedTaskDescription } from "./ScopedTaskDescription.js";
-import { t, useLocale } from "./i18n.js";
+import { localeBcp47, localeIntlTag, t, useLocale } from "./i18n.js";
 import { useConnectionSelection } from "./connection-selection.js";
 import { isContextMaintenance } from "../../src/client-protocol/run.js";
 import { runThinkingPreview } from "../../src/client-protocol/run-thinking.js";
+import { runPlanPreview } from "../../src/client-protocol/run-plan.js";
+import { RunPlanList, RunPlanPanel } from "./RunPlanPanel.js";
 import { runReportExcerpt } from "./run-presentation.js";
 import "./run-presentation.css";
 
@@ -84,6 +86,7 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
   const sync = scopedJournal(block, run);
   const active = !message.historyContext && activePhase(run.phase);
   const thinking = runThinkingPreview(block, run);
+  const planPreview = runPlanPreview(block, run);
   const disconnected = active && (state.status !== "online" || !state.bots.find(bot => bot.id === message.authorId)?.online);
   const interrupted = active && message.status === "error";
   // A request waits until the run reports "stopping", which shows the host
@@ -180,7 +183,16 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
       ? t("会话进度已保留，约 {0} 秒后自动重试。可随时停止。", retrySeconds)
       : run.current?.status === "waiting" ? t("会话进度已保留，即将自动重试。可随时停止。")
         : t("正在续接原会话，已完成的工作仍然保留。可随时停止。")}</p>}
-    {thinking && <div className="run-thinking-preview"><span>{t("公开思考摘要")}</span><p>{(thinking.truncated ? "…" : "") + runReportExcerpt(thinking.text, true).replace(/^…/, thinking.truncated ? "" : "…")}</p></div>}
+    {thinking && <ThinkingPreview live={ticking && phase === "thinking"} text={(thinking.truncated ? "…" : "") + runReportExcerpt(thinking.text, true).replace(/^…/, thinking.truncated ? "" : "…")}/>}
+    {planPreview && <RunPlanPanel
+      runId={run.id}
+      items={planPreview.items}
+      total={planPreview.total}
+      completed={planPreview.completed}
+      truncated={planPreview.truncated}
+      active={active && !interrupted && !scopeUnsupported}
+      live={active && !disconnected && !interrupted && !scopeUnsupported}
+    />}
     {scoped && !inlineScopedReply ? reportPreview.preview : <div className="native-run-prose">{prose.map((entry, index) => <div className="card-text" key={entry.id ?? index}><MarkdownText text={entry.text!} reply/></div>)}</div>}
     {backgroundNote && <p className="run-notice">{backgroundNote}</p>}
     <div className="native-run-actions">{scoped && !inlineScopedReply && reportPreview.needsReader && <button type="button" ref={reportTrigger} className="run-report-trigger" onClick={() => open({ key, kind: "report" })}>{t("查看完整回复")}</button>}{!scopeUnsupported && <button ref={trigger} className="run-process-trigger" onClick={() => open({ key, kind: "process" })} aria-label={t("查看运行过程")}><ChevronRight size={14}/><span>{run.count ? t("过程 · {0} 个动作", run.count) : t("查看运行过程")}</span></button>}
@@ -190,6 +202,26 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
     {!scoped && active && !interrupted && !disconnected && stopState === "unconfirmed" && <p className="run-notice" role="status">{t("尚未收到停止确认。请核对运行状态，需要时可再次停止。")}</p>}
     {readers}
   </section>;
+}
+
+/** The newest lines of the public thinking summary. A caret marks the live end only while thinking. */
+function ThinkingPreview({ text, live }: { text: string; live: boolean }) {
+  const tail = useRef<HTMLSpanElement>(null);
+  const [multiline, setMultiline] = useState(false);
+  useLayoutEffect(() => {
+    const node = tail.current;
+    if (!node) return;
+    const measure = () => setMultiline(node.offsetHeight > parseFloat(getComputedStyle(node).lineHeight) * 1.5);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text, live]);
+  return <div className="run-thinking-preview" data-live={live || undefined}>
+    <div className="run-thinking-label"><span>{live ? t("思考中") : t("公开思考摘要")}</span>{live && <i className="run-thinking-dots" aria-hidden="true"><b/><b/><b/></i>}</div>
+    <p data-multiline={multiline || undefined}><span ref={tail}>{text}</span></p>
+  </div>;
 }
 
 function RunDetails({ goalTurnEnded, scoped, run, phase, observedNow, sync, message, connection, view, close, returnFocus, report }: { goalTurnEnded?: boolean; report?: () => void; scoped: boolean; run: RunSummary; phase: RunSummary["phase"]; observedNow: number; sync?: ScopedJournal; message: Message; connection: HubConnection; view: View; close: () => void; returnFocus: React.RefObject<HTMLButtonElement | null> }) {
@@ -227,10 +259,10 @@ function RunDetails({ goalTurnEnded, scoped, run, phase, observedNow, sync, mess
   const disconnected = activePhase(run.phase) && (online !== "online" || !connectionState.bots.find(bot => bot.id === message.authorId)?.online);
   const live = activePhase(phase) && !disconnected;
   const age = Math.max(0, observedNow - run.updatedAt);
-  const updateDate = new Date(run.updatedAt), updateAt = updateDate.toLocaleString(locale === "zh" ? "zh-CN" : "en-GB", { hourCycle: "h23" });
+  const updateDate = new Date(run.updatedAt), updateAt = updateDate.toLocaleString(locale === "en" ? "en-GB" : localeIntlTag(locale), { hourCycle: "h23" });
   const unit: Intl.RelativeTimeFormatUnit = age >= 86_400_000 ? "day" : age >= 3_600_000 ? "hour" : "minute";
   const unitMs = unit === "day" ? 86_400_000 : unit === "hour" ? 3_600_000 : 60_000;
-  const updateWhen = age < 60_000 ? t("刚刚") : new Intl.RelativeTimeFormat(locale, { numeric: "always" }).format(-Math.floor(age / unitMs), unit);
+  const updateWhen = age < 60_000 ? t("刚刚") : new Intl.RelativeTimeFormat(localeBcp47(locale), { numeric: "always" }).format(-Math.floor(age / unitMs), unit);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
     const controller = new AbortController(); setBusy(true); setError("");
@@ -378,7 +410,7 @@ function RunStep({ entry, initialOpen, change }: { entry: RunEntry; initialOpen:
       </> : entry.name && entry.name !== "CodexAgent" && <small>{entry.name}</small>}{entry.truncated && <p className="run-notice">{t("此步骤内容已截短")}</p>}
       {entry.scope && <><small>{t("作用域：{0}", entry.scope.id)}</small>{runScopeParent(entry.scope) && <small>{runScopeParent(entry.scope)}</small>}</>}
       {exit !== undefined && <p>{t("退出状态：{0}", exit)}</p>}{(entry.durationMs !== undefined || entry.endedAt !== undefined) && <p>{t("耗时：{0}", formatRunDuration(entry.durationMs ?? (entry.endedAt! - entry.at), true))}</p>}{entry.text && <section className={runKind(entry) === "delegate" ? "run-child-progress" : undefined}>{runKind(entry) === "delegate" && <h4>{t("子代理进展")}</h4>}<div className="card-text"><MarkdownText text={prose(entry.text)}/></div></section>}
-      {!!plan.length && <ul className="run-plan">{plan.map((item, index) => <li key={index}><span>{item.status === "completed" ? "✓" : item.status === "in_progress" ? "◉" : "○"}</span><span>{item.content}</span><small>{item.status === "completed" ? t("已完成") : item.status === "in_progress" ? t("执行中") : t("待执行")}</small></li>)}</ul>}
+      {!!plan.length && <div className="run-plan-inline"><RunPlanList items={plan.map(item => ({ content: item.content, status: item.status === "completed" ? "completed" : item.status === "in_progress" ? "in_progress" : "pending" }))}/></div>}
       {diff && <section><h4>{entry.changes?.length ? t("工具返回的差异") : t("请求的修改")}</h4><pre className="run-diff">{diff.split("\n").map((line, i) => <span key={i} className={line.startsWith("+") ? "added" : line.startsWith("-") ? "removed" : ""}>{line}{"\n"}</span>)}</pre></section>}
       {!!sources.length && <section><h4>{t("搜索来源")}</h4><ul>{sources.map(url => <li key={url}><a href={url} target="_blank" rel="noopener noreferrer">{url}</a></li>)}</ul></section>}
       {entry.input && <details className="run-raw"><summary>{t("原始参数")}</summary><CodeBlock text={entry.input} language="json" className="run-code" copyLabel={t("复制原始参数")}/></details>}

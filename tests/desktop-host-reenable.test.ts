@@ -67,7 +67,7 @@ describe("explicitly restarting a stopped desktop host", () => {
     expect(await desktopHost("resume", directory, entry)).toMatchObject({ running: false, hostEnabled: false });
     expect(await readFile(database)).toEqual(bytes);
     expect(await start(directory)).toMatchObject({ running: true, publicKey: started.publicKey, hostName: "Fixture Mac" });
-    expect(await readHostSchema(directory)).toBe(26);
+    expect(await readHostSchema(directory)).toBe(28);
     expect(await enabled(directory)).toBe("true");
     expect(await readFile(path.join(directory, "identity.json"))).toEqual(identity);
     expect(await counts(database)).toEqual(before);
@@ -77,9 +77,9 @@ describe("explicitly restarting a stopped desktop host", () => {
 
   it("refuses a database written by a newer schema with a readable reason instead of starting", async () => {
     const directory = await hostDirectory();
-    await stoppedAt(directory, 27);
+    await stoppedAt(directory, 29);
     const database = path.join(directory, "hub.sqlite"), bytes = await readFile(database);
-    expect(await start(directory)).toMatchObject({ running: false, hostEnabled: false, startIssue: { code: "schema_incompatible", schema: 27, maxHubSchema: 26 } });
+    expect(await start(directory)).toMatchObject({ running: false, hostEnabled: false, startIssue: { code: "schema_incompatible", schema: 29, maxHubSchema: 28 } });
     expect((await inspectHubService(directory)).running).toBe(false);
     expect(await readFile(database)).toEqual(bytes);
     expect(await enabled(directory)).toBe("false");
@@ -87,7 +87,7 @@ describe("explicitly restarting a stopped desktop host", () => {
 
   it("a start that fails (port in use) leaves the host stopped and starts on the next click", async () => {
     const directory = await hostDirectory();
-    await stoppedAt(directory, 26);
+    await stoppedAt(directory, 27);
     const { port } = JSON.parse(await readFile(path.join(directory, "config.json"), "utf8")) as { port: number };
     const blocker = net.createServer(); await new Promise<void>(resolve => blocker.listen(port, "127.0.0.1", resolve));
     try { await expect(start(directory)).rejects.toThrow("Hub did not become ready"); }

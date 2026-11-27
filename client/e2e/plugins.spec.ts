@@ -1,14 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { createHash } from "node:crypto";
 import WebSocket from "ws";
-import { createSocket } from "node:dgram";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { build } from "esbuild";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { HubServer } from "../../src/hub/server.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
 import { mobileHome } from "./fixtures/mobile.js";
-import { wrapSandboxedDocument } from "../src/plugin-sandbox-runtime.js";
 
 test.describe("Plugin System E2E Regressions (#101)", () => {
   test("desktop welcome screen: Escape step-back, clean third-party section, and localized prompt when opening workbench plugin without active conversation", async ({ page }) => {
@@ -65,100 +64,27 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     }
   });
 
-  test("desktop developer mode: local folder install requires permissions & domains review modal; cancel aborts and confirm grants only reviewed permissions/domains", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+  test("folder HTML remains unavailable in developer mode", async ({ page }) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "plugins-local-dev-"));
-    const pluginDir = path.join(root, "local-dev-fixture");
-    await mkdir(path.join(pluginDir, "dist"), { recursive: true });
-    const entryHtml = "<!doctype html><html><body><h1 id=\"dev-heading\">Local Dev Fixture</h1></body></html>";
-    await writeFile(path.join(pluginDir, "dist", "index.html"), entryHtml, "utf8");
-    await writeFile(
-      path.join(pluginDir, "manifest.json"),
-      JSON.stringify({
-        schemaVersion: 1,
-        id: "dev.review-check",
-        name: "Local Review Check",
-        nameZh: "本地审查插件",
-        version: "0.2.0",
-        description: "Local developer plugin fixture requiring permission review.",
-        descriptionZh: "用于回归验证本地目录权限确认弹窗的测试插件。",
-        icon: "code",
-        source: { repository: "local/review-check", commit: "abcdef1" },
-        entry: "dist/index.html",
-        platforms: ["desktop"],
-        contributions: [{ kind: "side-panel", id: "review-check", title: "Review Check", titleZh: "审查面板" }],
-        domains: ["api.example.com", "127.0.0.1"],
-        capabilities: ["theme.read", "storage.device"],
-        requiresHost: false,
-        official: false,
-      }),
-      "utf8",
-    );
-
     const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
     try {
+      await hub.profile.update({ name: "插件验收主机", revision: 0 });
+      await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,online) VALUES('fixture','插件验收 Bot','fixture',1)");
+      await hub.store.createConversation("owner", ["fixture"], "插件验收对话", "fixture_chat");
       await page.goto(hub.url);
       await preparePairing(page, hub);
       await page.getByRole("button", { name: "配对此设备", exact: true }).click();
       await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
       await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
-      await expect(page.locator(".connection-pill.online")).toHaveCount(1);
-
+      await expect(page.getByRole("heading", { name: "插件验收对话", level: 1 })).toBeVisible();
       await page.locator(".conversation-header .plugins-trigger").click();
       const modal = page.locator("dialog.plugins-modal-dialog[open]");
-      await expect(modal).toBeVisible();
-
       await modal.getByRole("tab", { name: "开发者" }).click();
       await modal.getByRole("checkbox", { name: "启用开发者模式" }).check();
-      const folderInput = modal.locator('input[type="file"][webkitdirectory]');
-      await expect(folderInput).toHaveCount(1);
-
-      const readInstalledDevRecord = () => page.evaluate(() => {
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (!key || !key.startsWith("tarobird.plugins.v1")) continue;
-          const parsed = JSON.parse(localStorage.getItem(key) || "{}");
-          if (parsed?.installed?.["dev.review-check"]) {
-            return parsed.installed["dev.review-check"] as {
-              sourceKind: string;
-              grantedCapabilities: string[];
-              grantedDomains: string[];
-            };
-          }
-        }
-        return null;
-      });
-
-      // Selecting local folder MUST open the exact same permission & domain review modal WITHOUT installing
-      await folderInput.setInputFiles(pluginDir);
-      const consent = modal.locator(".plugin-consent-box");
-      await expect(consent).toBeVisible();
-      await expect(consent).toContainText("确认安装「本地审查插件」v0.2.0");
-      await expect(consent).toContainText("读取界面主题");
-      await expect(consent).toContainText("本机插件隔离存储");
-      await expect(consent).toContainText("api.example.com");
-      await expect(consent).toContainText("127.0.0.1");
-      expect(await readInstalledDevRecord()).toBeNull();
-      await expect(modal.locator('[data-plugin-id="dev.review-check"]')).toHaveCount(0);
-
-      // Clicking Cancel aborts install completely
-      await consent.locator(".plugin-consent-actions").getByRole("button", { name: "取消", exact: true }).click();
-      await expect(consent).toHaveCount(0);
-      expect(await readInstalledDevRecord()).toBeNull();
-      await expect(modal.locator('[data-plugin-id="dev.review-check"]')).toHaveCount(0);
-
-      // Selecting local folder again and confirming installs with ONLY reviewed capabilities and sanitized public domains
-      await folderInput.setInputFiles(pluginDir);
-      await expect(consent).toBeVisible();
-      await consent.getByRole("button", { name: "确认并安装" }).click();
-      await expect(consent).toHaveCount(0);
-      await expect(modal.locator('[data-plugin-id="dev.review-check"]')).toHaveCount(1);
-
-      const persisted = await readInstalledDevRecord();
-      expect(persisted).not.toBeNull();
-      expect(persisted!.sourceKind).toBe("local-dev");
-      expect(persisted!.grantedCapabilities).toEqual(["theme.read", "storage.device"]);
-      expect(persisted!.grantedDomains).toEqual(["api.example.com"]);
+      await expect(modal.getByRole("button", { name: "从本地文件夹加载插件" })).toBeDisabled();
+      await expect(modal.locator("input[webkitdirectory]")).toBeDisabled();
+      await expect(modal.getByText("此版本暂不运行未经审核的 HTML 插件。").first()).toBeVisible();
+      await expect(page.locator(".plugin-sandbox-frame")).toHaveCount(0);
     } finally {
       await page.close();
       await hub.close();
@@ -221,6 +147,14 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
           theme: document.body.dataset.theme ?? "light",
         })).catch(() => null);
       }, { timeout: 10000 }).toEqual({ heading: "速记面板", theme: "light" });
+
+      const scratchpad = page.frameLocator(".plugin-sandbox-frame").frameLocator("iframe");
+      await scratchpad.locator("#pad").fill("验收用速记");
+      await scratchpad.locator("#copy-btn").click();
+      const copyOnce = page.getByRole("dialog", { name: "允许「速记面板」写入剪贴板？" });
+      await expect(copyOnce).toContainText("验收用速记");
+      await copyOnce.getByRole("button", { name: "取消", exact: true }).click();
+      await expect(copyOnce).toHaveCount(0);
 
       // Clicking Workspace button while plugin side panel is open must switch to Workspace and restore on close
       const wsButton = page.locator(".workspace-rail-trigger");
@@ -332,161 +266,76 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     }
   });
 
-  test("a plugin cannot read the document of its empty descendant frame", async ({ page }) => {
+  test("producer denies static nested frames and inert workers with no WebRTC globals or DNS hints", async ({ page }) => {
     const shell = await readFile(path.resolve("public/plugin-sandbox.html"), "utf8");
-    await page.route("https://app.test/**", route => route.fulfill({
-      contentType: "text/html",
-      body: new URL(route.request().url()).pathname === "/plugin-sandbox.html" ? shell :
-        '<iframe id="shell" sandbox="allow-scripts" src="/plugin-sandbox.html"></iframe>',
-    }));
-    const documentHtml = wrapSandboxedDocument("<main>Guest ready</main>", []);
-    await page.goto("https://app.test/");
-    await page.locator("#shell").evaluate((element, html) => {
-      (element as HTMLIFrameElement).contentWindow!.postMessage({ type: "tarobird-plugin-init", document: html }, "*");
-    }, documentHtml);
-    const guest = page.frameLocator("#shell").frameLocator("iframe");
-    await expect(guest.locator("main")).toHaveText("Guest ready");
-    const access = await guest.locator("main").evaluate(async main => {
-      const child = document.createElement("iframe");
-      main.append(child);
-      const immediately = { hasWindow: child.contentWindow !== null, documentHidden: child.contentDocument === null };
-      await new Promise(resolve => setTimeout(resolve, 0));
-      return { immediately, nextTask: { hasWindow: child.contentWindow !== null, documentHidden: child.contentDocument === null } };
+    const fixture = await build({ entryPoints: ["e2e/fixtures/plugin-policy.ts"], bundle: true, write: false, platform: "browser", logLevel: "error", define: { "process.env.NODE_ENV": '"test"' } });
+    const policyMessages: string[] = [];
+    page.on("console", message => {
+      if (/webrtc/i.test(message.text())) policyMessages.push(message.text());
     });
-    const restricted = { hasWindow: true, documentHidden: true };
-    expect(access).toEqual({ immediately: restricted, nextTask: restricted });
+    await page.route("https://app.test/**", route => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname === "/fixture.js") return route.fulfill({ contentType: "text/javascript", body: fixture.outputFiles[0]!.text });
+      if (pathname === "/plugin-sandbox.html") return route.fulfill({
+        contentType: "text/html", body: shell, headers: { "X-DNS-Prefetch-Control": "off" },
+      });
+      return route.fulfill({ contentType: "text/html", headers: { "Content-Security-Policy": "webrtc 'block'", "Permissions-Policy": "webrtc=()" }, body: '<output id="result"></output><iframe id="shell" sandbox="allow-scripts" data-source="/plugin-sandbox.html"></iframe><script src="/fixture.js"></script>' });
+    });
+    await page.goto("https://app.test/");
+    const result = page.locator("#result");
+    await expect(result).not.toBeEmpty();
+    const data = JSON.parse((await result.textContent())!);
+    expect(data).toMatchObject({ childFrames: 0, hints: 0, dns: "off",
+      rtc: ["undefined", "undefined", "undefined"], workerStarted: false,
+    });
+    for (const name of ["child-src", "frame-src", "worker-src"]) expect(data.csp).toContain(`${name} 'none'`);
+    expect(data.violations).toContain("worker-src");
+    expect(data.violations).toContain("frame-src");
+    const frames = page.frames().map(frame => frame.url());
+    expect(frames.some(url => url.startsWith("data:text/html,"))).toBe(false);
+    const features = await page.evaluate(() => (document as Document & { featurePolicy?: { features(): string[] } }).featurePolicy?.features());
+    expect(features).not.toContain("webrtc");
+    expect(policyMessages.some(message => /unrecognized content-security-policy directive.*webrtc/i.test(message))).toBe(true);
+    console.log("Plugin policy fixture", JSON.stringify({ chromium: page.context().browser()?.version(), policyMessages, frames, ...data }));
+
   });
 
-  test("sandbox CSP & WebRTC hardening: comment-head attack cannot bypass guest CSP, granted domains work, and WebRTC/Worker are blocked", async ({ page }) => {
-    const udp = createSocket("udp4");
-    let udpPackets = 0;
-    udp.on("message", () => { udpPackets++; });
-    await new Promise<void>((resolve) => udp.bind(0, "127.0.0.1", resolve));
-    const udpAddr = udp.address();
-    if (typeof udpAddr === "string") throw new Error("unexpected_udp_address");
+  test("trusted App actions are required separately for plugin copy and export", async ({ page }) => {
+    const fixture = await build({ entryPoints: ["e2e/fixtures/plugin-sensitive-action.ts"], bundle: true, write: false, platform: "browser", logLevel: "error", define: { "process.env.NODE_ENV": '"test"' } });
+    await page.route("https://app.test/**", route => new URL(route.request().url()).pathname === "/fixture.js"
+      ? route.fulfill({ contentType: "text/javascript", body: fixture.outputFiles[0]!.text })
+      : route.fulfill({ contentType: "text/html", body: '<script src="/fixture.js"></script>' }));
+    await page.goto("https://app.test/");
+    const submit = (id: string, kind: "clipboard" | "export") => page.evaluate(([id, kind]) => (window as any).fixture.submit(id, kind), [id, kind]);
+    const summary = () => page.evaluate(() => (window as any).fixture.summary());
+    const dialog = page.getByRole("dialog");
 
-    try {
-      const shellHtml = await readFile(path.resolve("public/plugin-sandbox.html"), "utf8");
-      await page.route("https://app.test/**", async (route) => {
-        const url = new URL(route.request().url());
-        if (url.pathname === "/plugin-sandbox.html") {
-          await route.fulfill({
-            status: 200,
-            contentType: "text/html; charset=utf-8",
-            headers: {
-              "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts",
-            },
-            body: shellHtml,
-          });
-          return;
-        }
-        await route.fulfill({
-          status: 200,
-          contentType: "text/html; charset=utf-8",
-          body: `<!doctype html><html><body><iframe id="p" sandbox="allow-scripts" src="/plugin-sandbox.html"></iframe></body></html>`,
-        });
-      });
-      await page.route("https://api.example.com/ok", async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: "text/plain",
-          headers: { "Access-Control-Allow-Origin": "*" },
-          body: "GRANTED_OK",
-        });
-      });
-      await page.route("https://blocked.example/no", async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: "text/plain",
-          headers: { "Access-Control-Allow-Origin": "*" },
-          body: "SHOULD_BE_BLOCKED",
-        });
-      });
+    await submit("copy", "clipboard");
+    await expect(dialog).toContainText("Fixture clipboard");
+    const acceptCopy = dialog.locator("button").last();
+    await acceptCopy.evaluate(button => (button as HTMLButtonElement).click());
+    await expect(dialog).toBeVisible();
+    expect((await summary()).effects).toEqual([]);
+    await submit("concurrent", "export");
+    await expect.poll(async () => (await summary()).results).toEqual(expect.arrayContaining([["concurrent", expect.objectContaining({ result: { saved: false } })]]));
+    await acceptCopy.click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(async () => (await summary()).effects).toEqual(["Fixture clipboard/true"]);
 
-      await page.goto("https://app.test/");
-      // Craft an adversarial plugin bundle with leading `<!-- <head> -->`, spoofed permissive CSP meta, and WebRTC/Worker probes
-      const adversarialBundle = `<!-- <head> --><html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head><body><script>
-        (async () => {
-          const metas = [...document.querySelectorAll('meta[http-equiv="Content-Security-Policy"]')].map(m => m.content);
-          let granted = "err";
-          try { granted = await (await fetch("https://api.example.com/ok")).text(); } catch (e) { granted = "blocked:" + e.name; }
-          let ungranted = "err";
-          try { ungranted = await (await fetch("https://blocked.example/no")).text(); } catch (e) { ungranted = "blocked:" + e.name; }
-          const rtcTypes = {
-            RTCPeerConnection: typeof window.RTCPeerConnection,
-            webkitRTCPeerConnection: typeof window.webkitRTCPeerConnection,
-            RTCDataChannel: typeof window.RTCDataChannel,
-          };
-          let rtcRestored = false;
-          try { Object.defineProperty(window, "RTCPeerConnection", { value: () => {}, configurable: true }); rtcRestored = true; } catch {}
-          let rtcConstructed = false;
-          try {
-            const Ctor = window.RTCPeerConnection || window.webkitRTCPeerConnection;
-            if (Ctor) {
-              const pc = new Ctor({ iceServers: [{ urls: "stun:127.0.0.1:${udpAddr.port}" }] });
-              pc.createDataChannel("d");
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              rtcConstructed = true;
-            }
-          } catch {}
-          let workerBlocked = false;
-          try {
-            const blobUrl = URL.createObjectURL(new Blob(["postMessage(1)"], { type: "text/javascript" }));
-            const w = new Worker(blobUrl);
-            await new Promise((resolve) => {
-              w.onerror = () => { workerBlocked = true; resolve(undefined); };
-              w.onmessage = () => resolve(undefined);
-              setTimeout(() => resolve(undefined), 300);
-            });
-            w.terminate();
-          } catch {
-            workerBlocked = true;
-          }
-          window.parent.postMessage({ protocol: "tarobird.plugin.v1", id: "probe", metas, granted, ungranted, rtcTypes, rtcRestored, rtcConstructed, workerBlocked }, "*");
-        })();
-      </script></body></html>`;
+    await submit("copy", "clipboard");
+    await expect.poll(async () => (await summary()).results).toEqual(expect.arrayContaining([["copy", expect.objectContaining({ error: "user_consent_required" })]]));
+    await expect(dialog).toHaveCount(0);
 
-      const wrapped = wrapSandboxedDocument(adversarialBundle, ["api.example.com", "127.0.0.1", "localhost"]);
-      const result = await page.evaluate((docHtml) => new Promise<{
-        metas: string[];
-        granted: string;
-        ungranted: string;
-        rtcTypes: { RTCPeerConnection: string; webkitRTCPeerConnection: string; RTCDataChannel: string };
-        rtcRestored: boolean;
-        rtcConstructed: boolean;
-        workerBlocked: boolean;
-      }>((resolve) => {
-        const iframe = document.getElementById("p") as HTMLIFrameElement;
-        const sendInit = () => iframe.contentWindow?.postMessage({ type: "tarobird-plugin-init", title: "Probe", document: docHtml }, "*");
-        window.addEventListener("message", (event) => {
-          if (event.data?.type === "tarobird-plugin-shell-ready") sendInit();
-          if (event.data?.protocol === "tarobird.plugin.v1" && event.data?.id === "probe") resolve(event.data);
-        });
-        sendInit();
-      }), wrapped);
-
-      expect(result.metas).toHaveLength(1);
-      expect(result.metas[0]).toContain("worker-src 'none'");
-      expect(result.metas[0]).toContain("connect-src https://api.example.com wss://api.example.com;");
-      expect(result.metas[0]).not.toContain("127.0.0.1");
-      expect(result.metas[0]).not.toContain("localhost");
-      expect(result.granted).toBe("GRANTED_OK");
-      expect(result.ungranted).toMatch(/^blocked:/);
-      expect(result.rtcTypes).toEqual({
-        RTCPeerConnection: "undefined",
-        webkitRTCPeerConnection: "undefined",
-        RTCDataChannel: "undefined",
-      });
-      expect(result.rtcRestored).toBe(false);
-      expect(result.rtcConstructed).toBe(false);
-      expect(result.workerBlocked).toBe(true);
-
-      await page.waitForTimeout(800);
-      expect(udpPackets).toBe(0);
-    } finally {
-      udp.close();
-    }
+    await submit("export", "export");
+    await expect(dialog).toContainText("fixture.txt");
+    await dialog.locator("button").last().click();
+    await expect.poll(async () => (await summary()).effects).toEqual(["Fixture clipboard/true", "fixture.txt/true"]);
+    await submit("expired", "clipboard");
+    await expect(dialog).toBeVisible();
+    await page.evaluate(() => (window as any).fixture.expire());
+    await dialog.locator("button").last().click();
+    await expect(dialog).toHaveCount(0);
+    expect((await summary()).effects).toEqual(["Fixture clipboard/true", "fixture.txt/true"]);
   });
 
   test("Infinite Canvas E2E (#81): installs the release artifact and edits a native project through a live Bot turn", async ({ page }) => {
@@ -575,6 +424,11 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
   test("Infinite Canvas third-party nodes require consent and run the selected input in isolation", async ({ page }) => {
     test.setTimeout(75_000);
     await page.setViewportSize({ width: 1600, height: 900 });
+    const shotDirectory = process.env.TAROBOT_CANVAS_SHOT_DIR;
+    if (shotDirectory) await mkdir(shotDirectory, { recursive: true });
+    const shot = async (name: string) => {
+      if (shotDirectory && (!process.env.TAROBOT_CANVAS_SHOT_ONLY || process.env.TAROBOT_CANVAS_SHOT_ONLY === name)) await page.screenshot({ path: path.join(shotDirectory, name), animations: "disabled" });
+    };
     const root = await mkdtemp(path.join(os.tmpdir(), "plugins-canvas-nodes-"));
     const hub = await HubServer.start({
       stateDir: root,
@@ -586,6 +440,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     const digest = createHash("sha256").update(source).digest("hex");
     let sourceRequests = 0;
     try {
+      await hub.profile.update({ name: "设计演示主机", revision: 0 });
       await page.route(url, route => {
         sourceRequests++;
         return route.fulfill({ contentType: "text/plain; charset=utf-8", body: source });
@@ -602,12 +457,33 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
       await expect(page.getByRole("heading", { name: "第三方画布节点联调", level: 1 })).toBeVisible();
 
-      await page.locator(".conversation-header .plugins-trigger").click();
+      if (shotDirectory) {
+        await page.getByRole("button", { name: "工作台", exact: true }).click();
+        const toInstall = page.locator('.workbench-empty [data-workbench-plugin-download="tarobird.infinite-canvas"]');
+        await expect(toInstall).toBeVisible();
+        await shot("01-workbench-entry-uninstalled.png");
+        await toInstall.click();
+      } else {
+        await page.locator(".conversation-header .plugins-trigger").click();
+      }
       const marketplace = page.locator("dialog.plugins-modal-dialog[open]");
       const card = marketplace.locator('[data-plugin-id="tarobird.infinite-canvas"]').first();
-      await card.getByRole("button", { name: "下载并安装" }).click();
-      await marketplace.locator(".plugin-consent-box").getByRole("button", { name: "确认并安装" }).click();
-      await card.getByRole("button", { name: "打开" }).click();
+      if (!shotDirectory) await card.getByRole("button", { name: "下载并安装" }).click();
+      const consent = marketplace.locator(".plugin-consent-box");
+      await expect(consent).toBeVisible();
+      await shot("03-install-confirmation.png");
+      await consent.getByRole("button", { name: "确认并安装" }).click();
+      await expect(card.getByRole("button", { name: "打开" })).toBeVisible();
+      if (shotDirectory) {
+        await page.keyboard.press("Escape");
+        await expect(marketplace).toHaveCount(0);
+        const installedEntry = page.locator('.workbench-empty [data-workbench-plugin="tarobird.infinite-canvas"]');
+        await expect(installedEntry).toBeVisible();
+        await shot("02-workbench-entry-installed.png");
+        await installedEntry.click();
+      } else {
+        await card.getByRole("button", { name: "打开" }).click();
+      }
       await expect(marketplace).toHaveCount(0);
 
       const guest = page.frameLocator(".plugin-sandbox-frame").frameLocator("iframe");
@@ -618,6 +494,10 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
         return settings;
       };
       let settings = await openSettings();
+      const licenses = settings.getByText("开源许可 · Open-source licenses · オープンソースライセンス", { exact: true });
+      await licenses.click();
+      await expect(settings.locator("pre").filter({ hasText: "tw-animate-css@1.4.0" })).toBeVisible();
+      await licenses.click();
       const allow = guest.getByRole("checkbox", { name: "允许安装第三方节点" });
       await expect(allow).not.toBeChecked();
       await expect(guest.getByRole("textbox", { name: "源文件 URL" })).toHaveCount(0);
@@ -629,6 +509,8 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await allow.click();
       await guestReview.getByRole("button", { name: "继续", exact: true }).click();
       const allowDialog = page.getByRole("alertdialog", { name: "允许第三方画布节点" });
+      await expect(allowDialog).toBeVisible();
+      await shot("04-third-party-node-enable.png");
       await allowDialog.getByRole("button", { name: "允许", exact: true }).click();
       await expect(allow).toBeChecked();
 
@@ -640,6 +522,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       const installDialog = page.getByRole("alertdialog", { name: "安装第三方画布节点" });
       await expect(installDialog).toContainText(url);
       await expect(installDialog).toContainText(digest);
+      await shot("05-third-party-node-source-and-sha256.png");
       await installDialog.getByRole("button", { name: "确认安装", exact: true }).click();
       const installed = settings.getByRole("listitem").filter({ hasText: digest });
       await expect(installed).toContainText("Third-party");
@@ -659,6 +542,14 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await node.getByRole("button", { name: "运行节点", exact: true }).click();
       await expect(node.getByText("Fixture rendered: ONLY THIS NODE", { exact: true })).toBeVisible();
       expect(sourceRequests).toBe(1);
+      if (shotDirectory) {
+        await page.getByRole("button", { name: "展开到主区", exact: true }).click();
+        await expect(page.locator("aside.workbench-wide")).toBeVisible();
+        await expect(node.getByText("Fixture rendered: ONLY THIS NODE", { exact: true })).toBeVisible();
+        const bounds = await page.locator("aside.workbench-wide").boundingBox();
+        expect(bounds!.width).toBeGreaterThan(900);
+        await shot("06-open-canvas.png");
+      }
 
       settings = await openSettings();
       await allow.click();

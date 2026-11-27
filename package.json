@@ -30,13 +30,14 @@
   "tarobotHostUpdate": {
     "format": 1,
     "minHubSchema": 1,
-    "maxHubSchema": 26
+    "maxHubSchema": 28
   },
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "build": "node scripts/build-standalone.mjs",
+    "check:translations": "node scripts/check-translations.mjs",
     "build:web": "vite build web && node scripts/inline-web.mjs",
     "dev": "tsx src/index.ts",
     "start": "node dist/src/index.js",
@@ -52,6 +53,8 @@
     "privacy:setup": "node scripts/setup-privacy-hooks.mjs",
     "privacy:staged": "node scripts/check-git-identity.mjs && node scripts/check-upload-privacy.mjs staged && node scripts/check-secrets.mjs staged",
     "privacy:test": "node --test scripts/privacy-guards.node-test.mjs scripts/check-upload-privacy.test.mjs",
+    "acknowledgements:generate": "node scripts/acknowledgements.mjs generate",
+    "acknowledgements:check": "node scripts/acknowledgements.mjs check",
     "version:check": "node scripts/release-version.mjs check",
     "version:sync": "node scripts/release-version.mjs sync",
     "version:bump": "node scripts/release-version.mjs bump"
@@ -136,49 +139,13 @@
     "docs/search-mcp.md",
     "LICENSING.md",
     "deepseek-harness-plugin/LICENSE",
-    "scripts/install-skills.sh",
-    "skills/baoyu-design/LICENSE",
-    "skills/baoyu-design/NOTICE.md",
-    "skills/baoyu-design/SKILL.md",
-    "skills/baoyu-design/UPSTREAM.json",
-    "skills/baoyu-design/references/brand-colors.md",
-    "skills/baoyu-design/references/brand-typography.md",
-    "skills/baoyu-design/references/craft.md",
-    "skills/baoyu-design/references/design-system-components.md",
-    "skills/baoyu-design/references/diagrams.md",
-    "skills/baoyu-design/references/format.md",
-    "skills/baoyu-design/references/google-fonts-families.json",
-    "skills/baoyu-design/references/google-fonts-notices.json",
-    "skills/baoyu-design/references/google-fonts-reserved.json",
-    "skills/baoyu-design/references/make-from-this.md",
-    "skills/baoyu-design/references/print.md",
-    "skills/baoyu-design/references/shaders.md",
-    "skills/baoyu-design/references/questions.md",
-    "skills/baoyu-design/references/view-state.md",
-    "skills/baoyu-ppt/LICENSE",
-    "skills/baoyu-ppt/NOTICE.md",
-    "skills/baoyu-ppt/SKILL.md",
-    "skills/baoyu-ppt/UPSTREAM.json",
-    "skills/baoyu-ppt/references/craft.md",
-    "skills/baoyu-ppt/references/deck-files.md",
-    "skills/baoyu-ppt/references/diagram-recipes.md",
-    "skills/baoyu-ppt/references/diagrams.md",
-    "skills/baoyu-ppt/references/fonts.md",
-    "skills/baoyu-ppt/references/format.md",
-    "skills/baoyu-ppt/references/google-fonts-families.json",
-    "skills/baoyu-ppt/references/google-fonts-notices.json",
-    "skills/baoyu-ppt/references/google-fonts-reserved.json",
-    "skills/baoyu-ppt/references/images.md",
-    "skills/baoyu-ppt/references/layout.md",
-    "skills/baoyu-ppt/references/photo-library.md",
-    "skills/baoyu-ppt/references/questions.md",
-    "skills/baoyu-ppt/references/styles.md",
-    "skills/baoyu-ppt/references/view-state.md"
+    "scripts/install-skills.sh"
   ],
-  "tarobotHubSchema": 26,
+  "tarobotHubSchema": 28,
   "tarobotHostCapabilities": [
     "service-extra-environment-v1",
     "pi-state-v1",
+    "omp-state-v1",
     "windows-state-admission-v1"
   ]
 }

@@ -39,7 +39,7 @@ export function UserReplyStatus({ replies, group, labels }: { replies?: UserRepl
   const hostActive = useContext(RuntimeHostActiveContext);
   useEffect(() => { if (!hostActive) open(false); }, [hostActive]);
   if (!replies?.length) return null;
-  const detail = replies.map(reply => t("{0}：{1}", labels.get(reply.botId) ?? t("Bot"), label(reply.state))).join(locale === "en" ? "; " : "；");
+  const detail = replies.map(reply => t("{0}：{1}", labels.get(reply.botId) ?? t("Bot"), label(reply.state))).join(locale === "en" ? "; " : locale === "ja" ? "、" : "；");
   const multiple = group || replies.length > 1;
   // One compact mark even for large groups. Its count only refers to observed
   // replies, never an invented historical recipient total. Details remain

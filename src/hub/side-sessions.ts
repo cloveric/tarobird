@@ -9,7 +9,12 @@ export class HubSideSessions {
   private readonly entries = new Map<string, Entry>();
   private readonly timer: ReturnType<typeof setInterval>;
   private sweeping = false;
-  constructor(private readonly store: HubStore, private readonly auth: HubAuth, private readonly call: (botId: string, method: string, params: unknown, timeoutMs?: number) => Promise<unknown>) {
+  constructor(
+    private readonly store: HubStore,
+    private readonly auth: HubAuth,
+    private readonly call: (botId: string, method: string, params: unknown, timeoutMs?: number) => Promise<unknown>,
+    private readonly workerSupportsRecording?: (botId: string) => boolean,
+  ) {
     this.timer = setInterval(() => { void this.sweep(); }, 5000); this.timer.unref();
   }
   private async validate(session: AuthSession, conversationId: string, botId: string): Promise<void> {
@@ -22,11 +27,18 @@ export class HubSideSessions {
   }
   /** Only the caller's own completed, unretired uploads in this conversation.
    * Unknown, foreign and incomplete IDs are indistinguishable to the caller. */
-  private async attachments(session: AuthSession, conversationId: string, ids: string[]): Promise<SideAttachmentRef[] | undefined> {
-    const rows = await this.store.db.serial(() => this.store.db.all<AttachmentRow>("SELECT * FROM attachments a WHERE a.id IN (SELECT value FROM json_each(?)) AND a.owner_id=? AND a.conversation_id=? AND a.complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)", [JSON.stringify(ids), session.userId, conversationId]));
+  private async attachments(session: AuthSession, conversationId: string, botId: string, ids: string[]): Promise<SideAttachmentRef[] | undefined> {
+    const rows = await this.store.db.serial(() => this.store.db.all<AttachmentRow & { recording: number | null }>("SELECT a.*, ar.recording AS recording FROM attachments a LEFT JOIN attachment_recording ar ON ar.attachment_id=a.id WHERE a.id IN (SELECT value FROM json_each(?)) AND a.owner_id=? AND a.conversation_id=? AND a.complete=1 AND NOT EXISTS(SELECT 1 FROM retired_attachments r WHERE r.attachment_id=a.id)", [JSON.stringify(ids), session.userId, conversationId]));
     const found = new Map(rows.map(row => [row.id, row]));
     if (new Set(ids).size !== ids.length || ids.some(id => !found.has(id))) return undefined;
-    return ids.map(id => { const row = found.get(id)!; return { id, name: row.name, mime: row.mime, size: row.size, sha256: row.sha256 }; });
+    const includeRecording = this.workerSupportsRecording ? this.workerSupportsRecording(botId) : true;
+    return ids.map(id => {
+      const row = found.get(id)!;
+      return {
+        id, name: row.name, mime: row.mime, size: row.size, sha256: row.sha256,
+        ...(includeRecording && row.recording !== null && /^audio\//i.test(row.mime) ? { recording: row.recording === 1 } : {}),
+      };
+    });
   }
   async request(session: AuthSession, conversationId: string, botId: string, method: string, raw: Input = {}): Promise<SideReply> {
     await this.validate(session, conversationId, botId);
@@ -36,7 +48,7 @@ export class HubSideSessions {
     if (method === "side.ask" && ids?.length) {
       // Paths and metadata never come from the client: the Worker receives
       // Hub-resolved names, sizes and hashes, then fetches bytes itself.
-      const refs = await this.attachments(session, conversationId, ids);
+      const refs = await this.attachments(session, conversationId, botId, ids);
       if (!refs) return { ok: false, error: "attachment_unavailable" };
       forwarded = { ...forwarded, attachments: refs };
     }
@@ -53,17 +65,30 @@ export class HubSideSessions {
     const call = async (params: Record<string, unknown>) => sideReplySchema.parse(await this.call(botId, method, { ...params, ...scope }, method === "side.close" ? 90_000 : undefined));
     try { result = await call(forwarded); }
     catch (error) {
-      if (method !== "side.status") throw error;
-      // An older strict Gateway rejects an opt-in flag. Drop the newest first
-      // (delivery, tools, audio, then attachments) so the side entry survives with what that
-      // Gateway really supports; the final checks still apply.
-      const { delivery: _delivery, ...withoutDelivery } = forwarded, { tools: _tools, ...withoutTools } = withoutDelivery, { audio: _audio, ...withoutAudio } = withoutTools, { attachments: _optIn, ...plain } = withoutAudio;
-      let fallback: SideReply | undefined;
-      for (const params of [..."delivery" in forwarded ? [withoutDelivery] : [], ..."tools" in forwarded ? [withoutTools] : [], ..."audio" in forwarded ? [withoutAudio] : [], ..."attachments" in forwarded ? [plain] : []]) {
-        try { fallback = await call(params); break; } catch { /* Try the next older shape. */ }
+      if (
+        method === "side.ask"
+        && !this.workerSupportsRecording
+        && !(error instanceof HubError && (error.code === "bot_offline" || error.code === "bot_timeout"))
+        && Array.isArray(forwarded.attachments)
+        && (forwarded.attachments as SideAttachmentRef[]).some(ref => ref.recording !== undefined)
+      ) {
+        // Without a worker capability callback, an older strict Gateway rejects `recording` on audio refs.
+        const stripped = (forwarded.attachments as SideAttachmentRef[]).map(({ recording: _recording, ...plain }) => plain);
+        result = await call({ ...forwarded, attachments: stripped });
+      } else if (method !== "side.status") {
+        throw error;
+      } else {
+        // An older strict Gateway rejects an opt-in flag. Drop the newest first
+        // (delivery, tools, audio, then attachments) so the side entry survives with what that
+        // Gateway really supports; the final checks still apply.
+        const { delivery: _delivery, ...withoutDelivery } = forwarded, { tools: _tools, ...withoutTools } = withoutDelivery, { audio: _audio, ...withoutAudio } = withoutTools, { attachments: _optIn, ...plain } = withoutAudio;
+        let fallback: SideReply | undefined;
+        for (const params of [..."delivery" in forwarded ? [withoutDelivery] : [], ..."tools" in forwarded ? [withoutTools] : [], ..."audio" in forwarded ? [withoutAudio] : [], ..."attachments" in forwarded ? [plain] : []]) {
+          try { fallback = await call(params); break; } catch { /* Try the next older shape. */ }
+        }
+        if (!fallback) return { ok: true, capability: { supported: false, concurrent: false, liveContext: false, tools: "none", reason: "unsupported" } };
+        result = fallback;
       }
-      if (!fallback) return { ok: true, capability: { supported: false, concurrent: false, liveContext: false, tools: "none", reason: "unsupported" } };
-      result = fallback;
     }
     if (method === "side.status" && !withDelivery && result.ok && result.capability?.delivery) {
       const { delivery: _unrequested, ...capability } = result.capability; result = { ...result, capability };

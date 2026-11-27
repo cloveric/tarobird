@@ -140,3 +140,64 @@ test("opening an empty relay editor is not an unsaved change", async ({ page }) 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).localRelayFixture.state.writes)).toEqual([]);
 });
+
+test("Cloudflare settings handle older hosts, loading user state, Named QUIC toggle, Quick toggle preserving edits, and English errors", async ({ page }) => {
+  const cf = page.locator(".local-cloudflare-settings");
+  // Named mode respects QUIC vs HTTP/2 toggle in the recommended command targeting the dedicated edge-proxy loopback port.
+  await expect(cf.locator(".cf-command-box code")).toContainText("--protocol http2 run");
+  await cf.getByRole("button", { name: "QUIC（UDP/7844）", exact: true }).click();
+  await expect(cf.locator(".cf-command-box code")).toHaveText("cloudflared tunnel run --url http://127.0.0.1:8790 <your-tunnel-name>");
+  await cf.getByRole("button", { name: "HTTP/2（推荐 · TCP/443）", exact: true }).click();
+
+  // Add an unsaved domain edit, switch to Quick mode, start and stop Quick Tunnel without losing the unsaved domain edit or mutating PrivateNetwork.
+  await cf.getByRole("button", { name: "添加域名", exact: true }).click();
+  await cf.getByLabel("Cloudflare 域名 1", { exact: true }).fill("https://unsaved.example.com");
+  await cf.getByRole("button", { name: "Quick Tunnel（临时测试）", exact: true }).click();
+  await cf.getByRole("button", { name: "启动 Quick Tunnel", exact: true }).click();
+  await expect(cf.locator(".cf-active-url")).toHaveText("https://demo-quick.trycloudflare.com");
+  await expect(cf.getByLabel("Cloudflare 域名 1", { exact: true })).toHaveValue("https://unsaved.example.com");
+  await cf.getByRole("button", { name: "停止 Quick Tunnel", exact: true }).click();
+  await expect(cf.locator(".cf-active-url")).toHaveCount(0);
+  await expect(cf.getByLabel("Cloudflare 域名 1", { exact: true })).toHaveValue("https://unsaved.example.com");
+  expect(await page.evaluate(() => (window as any).localRelayFixture.state.writes)).toEqual([]);
+
+  // Save valid origin succeeds without writing to PrivateNetwork.
+  await cf.getByRole("button", { name: "保存 Cloudflare 配置", exact: true }).click();
+  await expect(cf.getByRole("status")).toContainText("Cloudflare 隧道配置已保存");
+  expect(await page.evaluate(() => (window as any).localRelayFixture.state.writes)).toEqual([]);
+
+  // English error messages are shown (never filtered out by CJK regex).
+  await page.evaluate(() => { (window as any).localRelayFixture.setLocale("en"); });
+  await cf.getByLabel("Cloudflare domain 1", { exact: true }).fill("http://127.0.0.1:8788");
+  await cf.getByRole("button", { name: "Save Cloudflare settings", exact: true }).click();
+  await expect(cf.getByRole("alert")).toContainText("public HTTPS origin");
+
+  // !state.user shows loading permission state rather than false non-owner refusal.
+  await page.evaluate(() => {
+    const f = (window as any).localRelayFixture;
+    f.setLocale("zh");
+    f.connection.state = { ...f.connection.state, user: undefined };
+    f.notify();
+  });
+  await expect(cf.getByRole("status")).toContainText("正在读取主机管理权限");
+  await expect(cf.getByRole("alert")).toHaveCount(0);
+
+  // Older host without capability renders informational role="status" notice, never role="alert".
+  await page.evaluate(() => {
+    const f = (window as any).localRelayFixture;
+    f.connection.state = { ...f.connection.state, user: { role: "owner" }, cloudflareRoutesAvailable: false };
+    f.notify();
+  });
+  await expect(cf.getByRole("status")).toContainText("此主机需要更新后才能设置 Cloudflare 隧道");
+  await expect(cf.getByRole("alert")).toHaveCount(0);
+
+  // 404 fallback also degrades gracefully to role="status" without role="alert".
+  await page.evaluate(() => {
+    const f = (window as any).localRelayFixture;
+    f.state.cloudflare404 = true;
+    f.connection.state = { ...f.connection.state, cloudflareRoutesAvailable: true };
+    f.notify();
+  });
+  await expect(cf.getByRole("status")).toContainText("此主机需要更新后才能设置 Cloudflare 隧道");
+  await expect(cf.getByRole("alert")).toHaveCount(0);
+});

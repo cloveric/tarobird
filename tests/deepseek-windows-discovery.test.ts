@@ -120,7 +120,7 @@ it("sees install and uninstall on the next read without a cached negative result
 });
 it("keeps the other engines on their existing discovery paths", () => {
   install(desktop, ...["codex", "claude", "agy", "kimi"].map(name => `C:\\Tools\\${name}.cmd`));
-  const rows = inspectEngines(base).filter(row => row.engine !== "deepseek" && row.engine !== "pi");
+  const rows = inspectEngines(base).filter(row => row.engine !== "deepseek" && row.engine !== "pi" && row.engine !== "omp");
   expect(rows.map(row => normalize(row.executable))).toEqual(["codex", "claude", "agy", "kimi"].map(name => `c:\\tools\\${name}.cmd`));
 });
 it("handles case-insensitive Windows variables and keeps explicit source labels", () => {

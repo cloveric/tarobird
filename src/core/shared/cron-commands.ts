@@ -4,8 +4,10 @@ import type { CronStore } from "../../state/cron-store.js";
 import type { CronScheduler } from "../../runtime/cron-scheduler.js";
 import { validateCronExpression } from "../../runtime/cron-scheduler.js";
 import { formatInCronTimezone } from "../../state/cron-timezone.js";
+import { hostT } from "../../locales/index.js";
+import type { Locale } from "../../runtime/locale.js";
 
-export type CronLocale = "zh" | "en";
+export type CronLocale = Locale;
 
 export interface CronCommandContext {
   api: Pick<ReplyChannel, "sendMessage">;
@@ -57,10 +59,10 @@ function humanizeCronExpr(expr: string, locale: CronLocale): string | null {
   const [minute, hour, dom, month, dow] = parts as [string, string, string, string, string];
 
   if (minute === "*" && hour === "*" && dom === "*" && month === "*" && dow === "*") {
-    return locale === "zh" ? "每分钟" : "every minute";
+    return hostT(locale, "每分钟");
   }
   if (minute === "0" && hour === "*" && dom === "*" && month === "*" && dow === "*") {
-    return locale === "zh" ? "每小时整点" : "hourly";
+    return hostT(locale, "每小时整点");
   }
   if (
     /^\d+$/.test(minute) &&
@@ -71,7 +73,7 @@ function humanizeCronExpr(expr: string, locale: CronLocale): string | null {
   ) {
     const hh = String(Number(hour)).padStart(2, "0");
     const mm = String(Number(minute)).padStart(2, "0");
-    return locale === "zh" ? `每天 ${hh}:${mm}` : `daily ${hh}:${mm}`;
+    return hostT(locale, "每天 {0}:{1}", hh, mm);
   }
   if (
     /^\d+$/.test(minute) &&
@@ -82,12 +84,9 @@ function humanizeCronExpr(expr: string, locale: CronLocale): string | null {
   ) {
     const hh = String(Number(hour)).padStart(2, "0");
     const mm = String(Number(minute)).padStart(2, "0");
-    const dayNamesZh = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-    const dayNamesEn = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const dayKeys = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"] as const;
     const idx = Number(dow);
-    return locale === "zh"
-      ? `每${dayNamesZh[idx]} ${hh}:${mm}`
-      : `weekly ${dayNamesEn[idx]} ${hh}:${mm}`;
+    return hostT(locale, "每{0} {1}:{2}", hostT(locale, dayKeys[idx]!), hh, mm);
   }
   if (
     /^\d+$/.test(minute) &&
@@ -98,9 +97,7 @@ function humanizeCronExpr(expr: string, locale: CronLocale): string | null {
   ) {
     const hh = String(Number(hour)).padStart(2, "0");
     const mm = String(Number(minute)).padStart(2, "0");
-    return locale === "zh"
-      ? `每月 ${dom} 日 ${hh}:${mm}`
-      : `monthly day ${dom} ${hh}:${mm}`;
+    return hostT(locale, "每月 {0} 日 {1}:{2}", dom, hh, mm);
   }
   return null;
 }
@@ -118,31 +115,24 @@ function humanizeRelative(iso: string, locale: CronLocale): string {
 
   let value: string;
   if (sec < 60) {
-    value = locale === "zh" ? `${sec} 秒` : `${sec} second${sec === 1 ? "" : "s"}`;
+    value = sec === 1 ? hostT(locale, "1 秒") : hostT(locale, "{0} 秒", sec);
   } else if (min < 60) {
-    value = locale === "zh" ? `${min} 分钟` : `${min} minute${min === 1 ? "" : "s"}`;
+    value = min === 1 ? hostT(locale, "1 分钟") : hostT(locale, "{0} 分钟", min);
   } else if (hr < 24) {
-    value = locale === "zh" ? `${hr} 小时` : `${hr} hour${hr === 1 ? "" : "s"}`;
+    value = hr === 1 ? hostT(locale, "1 小时") : hostT(locale, "{0} 小时", hr);
   } else {
-    value = locale === "zh" ? `${day} 天` : `${day} day${day === 1 ? "" : "s"}`;
+    value = day === 1 ? hostT(locale, "1 天") : hostT(locale, "{0} 天", day);
   }
 
-  if (future) {
-    return locale === "zh" ? `${value}后` : `in ${value}`;
-  }
-  return locale === "zh" ? `${value}前` : `${value} ago`;
+  return future ? hostT(locale, "{0}后", value) : hostT(locale, "{0}前", value);
 }
 
 function renderJob(job: CronJobRecord, index: number, locale: CronLocale): string {
   const lines: string[] = [];
-  const enabledLabel = job.enabled
-    ? locale === "zh" ? "✓ 已启用" : "✓ enabled"
-    : locale === "zh" ? "✗ 已停用" : "✗ disabled";
+  const enabledLabel = hostT(locale, job.enabled ? "✓ 已启用" : "✗ 已停用");
   lines.push(`${index}. ID  ${job.id}  ${enabledLabel}`);
   const human = job.runOnce && job.targetAt
-    ? locale === "zh"
-      ? `仅一次 ${formatInCronTimezone(job.targetAt, job.timezone)} (${humanizeRelative(job.targetAt, locale)})`
-      : `once ${formatInCronTimezone(job.targetAt, job.timezone)} (${humanizeRelative(job.targetAt, locale)})`
+    ? hostT(locale, "仅一次 {0} ({1})", formatInCronTimezone(job.targetAt, job.timezone), humanizeRelative(job.targetAt, locale))
     : humanizeCronExpr(job.cronExpr, locale);
   const exprLine = job.runOnce && job.targetAt
     ? human
@@ -154,57 +144,31 @@ function renderJob(job: CronJobRecord, index: number, locale: CronLocale): strin
   if (job.lastRunAt) {
     const rel = humanizeRelative(job.lastRunAt, locale);
     const status = job.lastError
-      ? locale === "zh" ? `失败：${job.lastError}` : `failed: ${job.lastError}`
-      : locale === "zh" ? "成功" : "success";
-    const label = locale === "zh" ? "上次" : "last";
+      ? hostT(locale, "失败：{0}", job.lastError)
+      : hostT(locale, "成功");
+    const label = hostT(locale, "上次");
     lines.push(`   ⏱ ${label}: ${rel} (${formatInCronTimezone(job.lastRunAt, job.timezone)}) ${status}`);
   }
   return lines.join("\n");
 }
 
 function renderHelp(locale: CronLocale): string {
-  if (locale === "zh") {
-    return [
-      "📅 /cron 命令用法：",
-      "",
-      "/cron              查看所有任务",
-      "/cron list         同上",
-      "/cron add <cron 表达式> <提示词>",
-      "                   例：/cron add 0 9 * * * 早安总结",
-      "/cron rm <id>      删除任务（别名 delete / del）",
-      "/cron toggle <id>  启用/停用任务",
-      "/cron mode <id> new_per_run|reuse  修改上下文模式",
-      "/cron run <id>     立即运行一次",
-      "/cron help         显示本帮助",
-    ].join("\n");
-  }
-  return [
-    "📅 /cron command usage:",
-    "",
-    "/cron              list scheduled tasks",
-    "/cron list         same as above",
-    "/cron add <cron expr> <prompt>",
-    "                   e.g. /cron add 0 9 * * * morning summary",
-    "/cron rm <id>      remove task (alias delete / del)",
-    "/cron toggle <id>  enable / disable task",
-    "/cron mode <id> new_per_run|reuse  change context mode",
-    "/cron run <id>     run once now",
-    "/cron help         show this help",
-  ].join("\n");
+  return hostT(
+    locale,
+    "📅 /cron 命令用法：\n\n/cron              查看所有任务\n/cron list         同上\n/cron add <cron 表达式> <提示词>\n                   例：/cron add 0 9 * * * 早安总结\n/cron rm <id>      删除任务（别名 delete / del）\n/cron toggle <id>  启用/停用任务\n/cron mode <id> new_per_run|reuse  修改上下文模式\n/cron run <id>     立即运行一次\n/cron help         显示本帮助",
+  );
 }
 
 async function handleList(context: CronCommandContext): Promise<void> {
   const jobs = await context.store.listByConversation(context.chatId, context.messageThreadId);
   if (jobs.length === 0) {
-    const msg = context.locale === "zh"
-      ? "暂无定时任务。用 `/cron add 0 9 * * * 早安总结` 添加一个。"
-      : "No scheduled tasks. Use `/cron add 0 9 * * * morning summary` to add one.";
+    const msg = hostT(context.locale, "暂无定时任务。用 `/cron add 0 9 * * * 早安总结` 添加一个。");
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
-  const header = context.locale === "zh"
-    ? `📅 已安排 ${jobs.length} 个任务：`
-    : `📅 ${jobs.length} scheduled task${jobs.length === 1 ? "" : "s"}:`;
+  const header = jobs.length === 1
+    ? hostT(context.locale, "📅 已安排 1 个任务：")
+    : hostT(context.locale, "📅 已安排 {0} 个任务：", jobs.length);
   const entries = jobs.map((job, idx) => renderJob(job, idx + 1, context.locale));
   const chunks = splitCronListMessages(header, entries);
   for (const chunk of chunks) {
@@ -245,9 +209,7 @@ function splitTextByCodePoints(text: string, maxChars: number): string[] {
 async function handleAdd(rest: string, context: CronCommandContext): Promise<void> {
   const tokens = rest.split(/\s+/).filter(Boolean);
   if (tokens.length < 6) {
-    const msg = context.locale === "zh"
-      ? "用法：/cron add <分 时 日 月 周> <提示词>\n例：/cron add 0 9 * * * 早安总结"
-      : "Usage: /cron add <m h dom mon dow> <prompt>\nExample: /cron add 0 9 * * * morning summary";
+    const msg = hostT(context.locale, "用法：/cron add <分 时 日 月 周> <提示词>\n例：/cron add 0 9 * * * 早安总结");
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
@@ -255,16 +217,12 @@ async function handleAdd(rest: string, context: CronCommandContext): Promise<voi
   const prompt = tokens.slice(5).join(" ");
 
   if (validateCronExpression(cronExpr) === null) {
-    const msg = context.locale === "zh"
-      ? `无效的 cron 表达式：\`${cronExpr}\``
-      : `Invalid cron expression: \`${cronExpr}\``;
+    const msg = hostT(context.locale, "无效的 cron 表达式：`{0}`", cronExpr);
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
   if (prompt.length > 4000) {
-    const msg = context.locale === "zh"
-      ? "提示词过长（最多 4000 字符）。"
-      : "Prompt too long (max 4000 characters).";
+    const msg = hostT(context.locale, "提示词过长（最多 4000 字符）。");
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
@@ -287,9 +245,7 @@ async function handleAdd(rest: string, context: CronCommandContext): Promise<voi
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    const msg = context.locale === "zh"
-      ? `添加任务失败：${detail}`
-      : `Failed to add task: ${detail}`;
+    const msg = hostT(context.locale, "添加任务失败：{0}", detail);
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
@@ -299,9 +255,7 @@ async function handleAdd(rest: string, context: CronCommandContext): Promise<voi
   const human = humanizeCronExpr(cronExpr, context.locale);
   const exprLine = human ? `${cronExpr}  (${human})` : cronExpr;
   const timezone = record.timezone ? `  TZ ${record.timezone}` : "";
-  const msg = context.locale === "zh"
-    ? `✓ 已添加任务  ID  ${record.id}\n⏰ ${exprLine}${timezone}\n📝 ${prompt}`
-    : `✓ Added task  ID  ${record.id}\n⏰ ${exprLine}${timezone}\n📝 ${prompt}`;
+  const msg = hostT(context.locale, "✓ 已添加任务  ID  {0}\n⏰ {1}{2}\n📝 {3}", record.id, exprLine, timezone, prompt);
   await context.api.sendMessage(context.chatId, msg);
 }
 
@@ -310,17 +264,13 @@ async function ensureChatJob(
   context: CronCommandContext,
 ): Promise<CronJobRecord | null> {
   if (!/^[a-f0-9]{8}$/.test(id)) {
-    const msg = context.locale === "zh"
-      ? `无效的 ID：${id}（应为 8 位十六进制）`
-      : `Invalid ID: ${id} (must be 8 hex characters)`;
+    const msg = hostT(context.locale, "无效的 ID：{0}（应为 8 位十六进制）", id);
     await context.api.sendMessage(context.chatId, msg);
     return null;
   }
   const job = await context.store.get(id);
   if (!job || job.chatId !== context.chatId || job.messageThreadId !== context.messageThreadId) {
-    const msg = context.locale === "zh"
-      ? `未找到任务：${id}`
-      : `Task not found: ${id}`;
+    const msg = hostT(context.locale, "未找到任务：{0}", id);
     await context.api.sendMessage(context.chatId, msg);
     return null;
   }
@@ -330,9 +280,7 @@ async function ensureChatJob(
 async function handleRemove(rest: string, context: CronCommandContext): Promise<void> {
   const id = rest.split(/\s+/)[0] ?? "";
   if (!id) {
-    const msg = context.locale === "zh"
-      ? "用法：/cron rm <id>"
-      : "Usage: /cron rm <id>";
+    const msg = hostT(context.locale, "用法：/cron rm <id>");
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
@@ -341,25 +289,19 @@ async function handleRemove(rest: string, context: CronCommandContext): Promise<
 
   const removed = await context.store.remove(id);
   if (!removed) {
-    const msg = context.locale === "zh"
-      ? `未找到任务：${id}`
-      : `Task not found: ${id}`;
+    const msg = hostT(context.locale, "未找到任务：{0}", id);
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
   await context.scheduler.refresh();
-  const msg = context.locale === "zh"
-    ? `✓ 已删除任务  ID  ${id}`
-    : `✓ Removed task  ID  ${id}`;
+  const msg = hostT(context.locale, "✓ 已删除任务  ID  {0}", id);
   await context.api.sendMessage(context.chatId, msg);
 }
 
 async function handleToggle(rest: string, context: CronCommandContext): Promise<void> {
   const id = rest.split(/\s+/)[0] ?? "";
   if (!id) {
-    const msg = context.locale === "zh"
-      ? "用法：/cron toggle <id>"
-      : "Usage: /cron toggle <id>";
+    const msg = hostT(context.locale, "用法：/cron toggle <id>");
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
@@ -368,19 +310,13 @@ async function handleToggle(rest: string, context: CronCommandContext): Promise<
 
   const updated = await context.store.toggleEnabled(id);
   if (!updated) {
-    const msg = context.locale === "zh"
-      ? `未找到任务：${id}`
-      : `Task not found: ${id}`;
+    const msg = hostT(context.locale, "未找到任务：{0}", id);
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
   await context.scheduler.refresh();
-  const stateLabel = updated.enabled
-    ? context.locale === "zh" ? "已启用" : "enabled"
-    : context.locale === "zh" ? "已停用" : "disabled";
-  const msg = context.locale === "zh"
-    ? `✓ 任务 ${id} ${stateLabel}`
-    : `✓ Task ${id} ${stateLabel}`;
+  const stateLabel = hostT(context.locale, updated.enabled ? "已启用" : "已停用");
+  const msg = hostT(context.locale, "✓ 任务 {0} {1}", id, stateLabel);
   await context.api.sendMessage(context.chatId, msg);
 }
 
@@ -392,9 +328,7 @@ async function handleMode(rest: string, context: CronCommandContext): Promise<vo
   const [id = "", modeToken = ""] = rest.split(/\s+/).filter(Boolean);
   const mode = parseSessionMode(modeToken);
   if (!id || !mode) {
-    const msg = context.locale === "zh"
-      ? "用法：/cron mode <id> new_per_run|reuse"
-      : "Usage: /cron mode <id> new_per_run|reuse";
+    const msg = hostT(context.locale, "用法：/cron mode <id> new_per_run|reuse");
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
@@ -403,54 +337,40 @@ async function handleMode(rest: string, context: CronCommandContext): Promise<vo
 
   const updated = await context.store.update(id, { sessionMode: mode });
   if (!updated) {
-    const msg = context.locale === "zh"
-      ? `未找到任务：${id}`
-      : `Task not found: ${id}`;
+    const msg = hostT(context.locale, "未找到任务：{0}", id);
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
   await context.scheduler.refresh();
-  const msg = context.locale === "zh"
-    ? `✓ 任务 ${id} 上下文模式已改为 ${updated.sessionMode}`
-    : `✓ Task ${id} context mode changed to ${updated.sessionMode}`;
+  const msg = hostT(context.locale, "✓ 任务 {0} 上下文模式已改为 {1}", id, updated.sessionMode);
   await context.api.sendMessage(context.chatId, msg);
 }
 
 async function handleRun(rest: string, context: CronCommandContext): Promise<void> {
   const id = rest.split(/\s+/)[0] ?? "";
   if (!id) {
-    const msg = context.locale === "zh"
-      ? "用法：/cron run <id>"
-      : "Usage: /cron run <id>";
+    const msg = hostT(context.locale, "用法：/cron run <id>");
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
   const job = await ensureChatJob(id, context);
   if (!job) return;
   if (!job.enabled) {
-    const msg = context.locale === "zh"
-      ? `任务 ${id} 已停用；请先 /cron toggle ${id} 启用后再运行。`
-      : `Task ${id} is disabled; enable it with /cron toggle ${id} before running it.`;
+    const msg = hostT(context.locale, "任务 {0} 已停用；请先 /cron toggle {0} 启用后再运行。", id);
     await context.api.sendMessage(context.chatId, msg);
     return;
   }
 
-  const ack = context.locale === "zh"
-    ? `▶ 正在运行任务 ${id}…`
-    : `▶ Running task ${id}…`;
+  const ack = hostT(context.locale, "▶ 正在运行任务 {0}…", id);
   await context.api.sendMessage(context.chatId, ack);
 
   void context.scheduler.runJobNow(id).catch(async (error) => {
     const detail = error instanceof Error ? error.message : String(error);
-    const msg = context.locale === "zh"
-      ? `任务 ${id} 运行失败：${detail}`
-      : `Task ${id} run failed: ${detail}`;
+    const msg = hostT(context.locale, "任务 {0} 运行失败：{1}", id, detail);
     await context.api.sendMessage(context.chatId, msg);
   });
 
-  const done = context.locale === "zh"
-    ? `✓ 任务 ${id} 已触发`
-    : `✓ Task ${id} triggered`;
+  const done = hostT(context.locale, "✓ 任务 {0} 已触发", id);
   await context.api.sendMessage(context.chatId, done);
 }
 
@@ -491,9 +411,7 @@ export async function handleCronCommand(
       await context.api.sendMessage(context.chatId, renderHelp(context.locale));
       return { handled: true, subcommand: "help" };
     default: {
-      const msg = context.locale === "zh"
-        ? `未知子命令：${sub}\n\n${renderHelp("zh")}`
-        : `Unknown subcommand: ${sub}\n\n${renderHelp("en")}`;
+      const msg = hostT(context.locale, "未知子命令：{0}\n\n{1}", sub, renderHelp(context.locale));
       await context.api.sendMessage(context.chatId, msg);
       return { handled: true, subcommand: "unknown" };
     }

@@ -262,7 +262,7 @@ describe("native App artifact delivery", () => {
     expect(await h.tools.isRegistered(id)).toBe(true);
     expect(createHash("sha256").update(JSON.stringify(resumed!.definitions)).digest("hex")).toBe(version);
     const guide = await resumed!.call({ name: "app_capability", arguments: { topic: "browser" }, callId: "v12-guide", sessionId: id, abortSignal: h.signal.signal });
-    expect(guide.text).toContain("Workbench is a destination, not a skill selection");
+    expect(guide.text).toContain("Workbench presentation routing:");
     expect(await readFile(file, "utf8")).toBe(record);
   });
   it("keeps v2 batch threads resumable while new threads describe external full-access paths", async () => {

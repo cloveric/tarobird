@@ -31,6 +31,31 @@ export function allowedApnsTopics(config: PushConfig): string[] {
 export function assertApnsTopicAllowed(subscription: PushSubscription, config: PushConfig): void {
   if (subscription.provider === "apns" && subscription.topic !== undefined && !allowedApnsTopics(config).includes(subscription.topic)) throw new Error("apns_topic_not_allowed");
 }
+const UNIFIEDPUSH_SEGMENT = /^(?:[A-Za-z0-9._~:@!$&'()*+,;=-]|%[0-9A-Fa-f]{2})+$/;
+function allowedUnifiedPushOrigin(origin: string, origins: readonly string[] | undefined): boolean {
+  if (!origins?.length) return false;
+  for (const raw of origins) {
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol === "https:" && parsed.origin === origin) return true;
+    } catch { /* Ignore malformed config entries. */ }
+  }
+  return false;
+}
+function rawUrlPath(endpoint: string): string {
+  const schemeEnd = endpoint.indexOf("://");
+  if (schemeEnd < 0) return "";
+  const pathStart = endpoint.indexOf("/", schemeEnd + 3);
+  if (pathStart < 0) return "";
+  const queryStart = endpoint.indexOf("?", pathStart);
+  return queryStart < 0 ? endpoint.slice(pathStart) : endpoint.slice(pathStart, queryStart);
+}
+function validUnifiedPushPathname(pathname: string, rawEndpoint: string): boolean {
+  if (rawUrlPath(rawEndpoint) !== pathname) return false;
+  if (pathname.length < 2 || pathname.length > 1024 || !pathname.startsWith("/") || /%(?:2[ef]|5c)/i.test(pathname)) return false;
+  const segments = pathname.slice(1).split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== ".." && UNIFIEDPUSH_SEGMENT.test(segment));
+}
 export function validatePushDestination(raw: unknown, config: PushConfig): PushSubscription {
   const subscription = pushSubscriptionSchema.parse(raw);
   assertApnsTopicAllowed(subscription, config);
@@ -40,7 +65,7 @@ export function validatePushDestination(raw: unknown, config: PushConfig): PushS
   }
   if (subscription.provider === "unifiedpush") {
     const url = new URL(subscription.endpoint);
-    if (!config.unifiedpush?.origins.includes(url.origin) || !/^\/[A-Za-z0-9_-]{16,512}$/.test(url.pathname)) throw new Error("unifiedpush_endpoint_not_allowed");
+    if (!allowedUnifiedPushOrigin(url.origin, config.unifiedpush?.origins) || !validUnifiedPushPathname(url.pathname, subscription.endpoint)) throw new Error("unifiedpush_endpoint_not_allowed");
   }
   return subscription;
 }

@@ -1,4 +1,5 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { createPluginSensitiveActionGate } from "../client/src/plugin-sensitive-action.js";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
@@ -21,7 +22,6 @@ import {
   OFFICIAL_PLUGIN_CATALOG,
   PLUGIN_STORE_KEY,
   clearLegacyCanvasCredentials,
-  isPinnedCanvas,
   PluginRegistry,
   createDefaultPluginStorage,
   getPluginRegistry,
@@ -75,7 +75,8 @@ afterEach(async () => {
   for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true });
 });
 
-const canvasBuildDir = path.resolve(process.cwd(), "dist/plugins/tarobird.infinite-canvas/1.0.0");
+const canvasBuildDir = path.resolve(process.env.TAROBIRD_CANVAS_TEST_BUILD_DIR ?? "dist/plugins/tarobird.infinite-canvas/1.0.0");
+const lifecycleFixture = new URL("./fixtures/infinite-canvas-extension.html", import.meta.url);
 const canvasBuildHtml = path.join(canvasBuildDir, "bundle.html");
 const canvasBuildManifest = path.join(canvasBuildDir, "manifest.json");
 const officialCanvasEntry = OFFICIAL_PLUGIN_CATALOG.find(({ manifest }) => manifest.id === "tarobird.infinite-canvas")!;
@@ -231,9 +232,9 @@ describe("Infinite Canvas extension manifest, on-demand install & lifecycle (#81
   it("retains reviewed grants and verifies the bundle after toggling during rehydration", async () => {
     const scopeId = pluginScopeId("fixture_host", "owner", "fixture_device");
     const storage = memoryStorage();
-    const entry = OFFICIAL_PLUGIN_CATALOG.find(item => item.manifest.id === "tarobird.infinite-canvas")!;
+    const html = await readFile(lifecycleFixture, "utf8");
+    const entry = canvasFixture(html);
     const id = entry.manifest.id;
-    const html = await readFile("dist/plugins/tarobird.infinite-canvas/1.0.0/bundle.html", "utf8");
     storage.setItem(`${PLUGIN_STORE_KEY}.${scopeId}`, JSON.stringify({ installed: {
       [id]: { manifest: entry.manifest, sourceKind: "official", enabled: true, installedAt: 1, bundleStoredInIdb: true,
         grantedCapabilities: ["storage.device"], grantedDomains: [] },
@@ -241,24 +242,28 @@ describe("Infinite Canvas extension manifest, on-demand install & lifecycle (#81
     let release!: (value: string) => void;
     const pending = new Promise<string>(resolve => { release = resolve; });
     const kv = { get: async () => null, set: async () => {}, remove: async () => {}, list: async () => ({}), clear: async () => {} };
-    const registry = new PluginRegistry({ storage, scopeId, bundleStore: {
-      getBundle: () => pending, putBundle: async () => true, deleteBundle: async () => {}, kv,
+    const bundleStore = {
+      putBundle: async () => true, deleteBundle: async () => {}, kv,
+    };
+    const registry = new PluginRegistry({ storage, scopeId, catalog: [entry], bundleStore: {
+      ...bundleStore, getBundle: () => pending,
     } });
-    expect(isPinnedCanvas(registry.getPlugin(id)!)).toBe(false);
+    expect(registry.getPlugin(id)?.bundleHtml).toBe("");
     registry.setEnabled(id, false);
     registry.setEnabled(id, true);
     release(html);
-    await expect.poll(() => isPinnedCanvas(registry.getPlugin(id)!)).toBe(true);
-    expect(registry.getPlugin(id)?.grantedCapabilities).toEqual(["storage.device"]);
+    await expect.poll(() => registry.getPlugin(id)?.bundleHtml).toBe(html);
+    expect(registry.getPlugin(id)).toMatchObject({ bundleHtml: html, enabled: true, grantedCapabilities: ["storage.device"] });
     registry.setEnabled(id, false);
-    expect(isPinnedCanvas(registry.getPlugin(id)!)).toBe(false);
+    expect(registry.getPlugin(id)).toMatchObject({ bundleHtml: html, enabled: false });
     registry.setEnabled(id, true);
-    expect(isPinnedCanvas(registry.getPlugin(id)!)).toBe(true);
+    expect(registry.getPlugin(id)).toMatchObject({ bundleHtml: html, enabled: true });
   });
 
   it("fences uninstall admission and drains binary, credential and KV writes before wiping", async () => {
     const scopeId = pluginScopeId("fixture_host", "owner", "fixture_device");
-    const entry = OFFICIAL_PLUGIN_CATALOG.find(item => item.manifest.id === "tarobird.infinite-canvas")!;
+    const html = await readFile(lifecycleFixture, "utf8");
+    const entry = canvasFixture(html);
     const id = entry.manifest.id;
     const scopes = { binary: new Set(), credential: new Set(), kv: new Set() };
     const cleared: string[] = [];
@@ -268,13 +273,13 @@ describe("Infinite Canvas extension manifest, on-demand install & lifecycle (#81
       cleared.push(name);
     };
     const registry = new PluginRegistry({
-      storage: memoryStorage(), scopeId,
+      storage: memoryStorage(), scopeId, catalog: [entry],
       canvasStore: { clear: (scope, plugin) => clear("binary", scope, plugin) },
       credentialVault: { ...memoryCredentialVault(), clearPluginSecrets: (scope, plugin) => clear("credential", scope, plugin) },
       kvStore: { get: async () => null, set: async () => {}, remove: async () => {}, list: async () => ({}), clear: (scope, plugin) => clear("kv", scope, plugin) },
     });
     const record = await registry.install(entry, {
-      loadCanvasBundle: () => readFile("dist/plugins/tarobird.infinite-canvas/1.0.0/bundle.html", "utf8"),
+      loadCanvasBundle: async () => html,
     });
     let release!: () => void;
     const held = new Promise<void>(resolve => { release = resolve; });
@@ -317,7 +322,13 @@ describe("Infinite Canvas extension manifest, on-demand install & lifecycle (#81
     const releaseManifest = pluginManifestSchema.parse(JSON.parse(await readFile(canvasBuildManifest, "utf8")));
     expect(releaseManifest).toEqual(officialCanvasEntry.manifest);
     expect(bundle.byteLength).toBe(releaseManifest.artifact.sizeBytes);
-    expect(await sha256Hex(bundle.toString("utf8"))).toBe(releaseManifest.artifact.sha256);
+    const html = bundle.toString("utf8");
+    expect(await sha256Hex(html)).toBe(releaseManifest.artifact.sha256);
+    const license = await readFile(path.join(canvasBuildDir, "LICENSE"), "utf8");
+    const notices = await readFile(path.join(canvasBuildDir, "THIRD_PARTY_NOTICES.txt"), "utf8");
+    expect(notices).toBe(await readFile("integrations/infinite-canvas/notices/BUNDLED_DEPENDENCIES.txt", "utf8"));
+    const encodedNotice = /<template id="tarobird-canvas-acknowledgements">([\s\S]+?)<\/template>/.exec(html)?.[1];
+    expect(encodedNotice?.replaceAll("&gt;", ">").replaceAll("&lt;", "<").replaceAll("&amp;", "&")).toBe(license.trimEnd() + "\n\n" + notices);
   });
 
   it("isolates concurrent per-host registries without mutating shared global state and avoids synthetic 'user' scope pre-hydration", () => {
@@ -380,6 +391,8 @@ describe("Infinite Canvas extension manifest, on-demand install & lifecycle (#81
     expect(buildPluginCsp([])).toContain("img-src data: blob:;");
 
     const store = memoryStorage();
+    const sensitiveConsent = createPluginSensitiveActionGate((_plugin, _action, run) => ({ result: run(), cancel: () => {} }));
+    const exportWorkspace = vi.fn(async () => { throw new Error("disk_readonly"); });
     const baseCtx = {
       pluginId: "tarobird.infinite-canvas",
       scopeId: "dev:host:u1",
@@ -396,7 +409,8 @@ describe("Infinite Canvas extension manifest, on-demand install & lifecycle (#81
         removeSecret: async () => { throw new Error("idb_failed"); },
         clearPluginSecrets: async () => {},
       },
-      exportWorkspace: async () => { throw new Error("disk_readonly"); },
+      exportWorkspace,
+      runSensitiveAction: (action: Parameters<typeof sensitiveConsent.run>[1], run: () => Promise<boolean>) => sensitiveConsent.run("Fixture canvas", action, run, () => true),
       requestDomain: async (domain: string) => ({ granted: true, domain, grantedDomains: ["api.openai.com", domain] }),
       canvasAgent: {
         connect: async () => { throw new Error("canvas_agent_offline"); },
@@ -419,6 +433,9 @@ describe("Infinite Canvas extension manifest, on-demand install & lifecycle (#81
       .toMatchObject({ ok: false, error: "idb_failed" });
     expect(await handlePluginHostMessage({ protocol: PLUGIN_HOST_PROTOCOL, id: "e6", method: "workspace.export", filename: "a.json", content: "{}" }, baseCtx))
       .toMatchObject({ ok: false, error: "disk_readonly" });
+    expect(await handlePluginHostMessage({ protocol: PLUGIN_HOST_PROTOCOL, id: "e6", method: "workspace.export", filename: "a.json", content: "{}" }, baseCtx))
+      .toMatchObject({ ok: true, result: { saved: false } });
+    expect(exportWorkspace).toHaveBeenCalledTimes(1);
 
     expect(await handlePluginHostMessage({ protocol: PLUGIN_HOST_PROTOCOL, id: "hidden", method: "credentials.get", key: "k" },
       { ...baseCtx, grantedCapabilities: ["storage.device"] })).toMatchObject({ ok: false, error: "capability_denied" });
@@ -460,12 +477,16 @@ describe("Host Canvas Agent bridge handshake, auth, security & Bot tool wiring (
     };
   }
 
-  async function app(hub: HubServer, deviceId: string) {
+  async function app(hub: HubServer, deviceId: string, member = false) {
     const keys = generateKeyPairSync("ed25519");
     await hub.enrollLocalController({
       deviceId, name: "Canvas test App", platform: "macos",
       publicKey: keys.publicKey.export({ type: "spki", format: "der" }).toString("base64"),
     });
+    if (member) {
+      await hub.store.db.run("INSERT INTO users(id,name,role) VALUES('canvas_member','Canvas member','member')");
+      await hub.store.db.run("UPDATE devices SET user_id='canvas_member' WHERE id=?", [deviceId]);
+    }
     const socket = await peer(hub.url.replace(/^http/, "ws") + "/ws");
     const nonce = randomBytes(32).toString("base64url");
     socket.send({ type: "hello", deviceId, nonce, protocolVersions: [1], capabilities: ["cards.v1", "management.v1"], cursors: {} });
@@ -513,9 +534,9 @@ describe("Host Canvas Agent bridge handshake, auth, security & Bot tool wiring (
     return { hub, dir, chat };
   }
 
-  async function bot(hub: HubServer) {
+  async function bot(hub: HubServer, capabilities: string[] = []) {
     const socket = await peer(hub.instanceUrl.replace(/^http/, "ws") + "/instance");
-    socket.send({ type: "instance.hello", botId: "canvas_bot", secret, engine: "codex", model: "", effort: "", capabilities: [] });
+    socket.send({ type: "instance.hello", botId: "canvas_bot", secret, engine: "codex", model: "", effort: "", capabilities });
     await socket.next("instance.ready");
     let nextId = 0;
     return { ...socket, async request(method: string, params: unknown) {
@@ -536,7 +557,7 @@ describe("Host Canvas Agent bridge handshake, auth, security & Bot tool wiring (
     });
   }
 
-  it("serves the fixed bundled artifact only to a paired App, while blocking null origins and query-token sockets", async () => {
+  it("serves the fixed bundled artifact only to a paired owner device, while blocking null origins and query-token sockets", async () => {
     expect(CANVAS_TOOL_NAMES).toContain("canvas_get_state");
     expect(canvasOpSchema.safeParse({ type: "add_node", nodeType: "text", title: "Idea" }).success).toBe(true);
     const artifactsDir = await mkdtemp(path.join(os.tmpdir(), "canvas-artifacts-"));
@@ -548,6 +569,11 @@ describe("Host Canvas Agent bridge handshake, auth, security & Bot tool wiring (
     const owner = await app(hub, "owner_fixture");
     const route = "/api/plugins/artifacts/tarobird.infinite-canvas/1.0.0/bundle.html";
     expect((await fetch(hub.url + route)).status).toBe(401);
+    const member = await app(hub, "member_fixture", true);
+    expect((await member.request(route)).status).toBe(403);
+    const preflight = await fetch(hub.url + "/api/canvas-agent/state", { method: "OPTIONS" });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-headers")?.toLowerCase().split(/,\s*/)).not.toContain("x-tarobird-conversation-id");
     const artifact = await owner.request(route);
     expect(artifact.status).toBe(200);
     expect(artifact.headers.get("content-type")).toContain("text/plain");
@@ -563,6 +589,26 @@ describe("Host Canvas Agent bridge handshake, auth, security & Bot tool wiring (
     }
     await expect(peer(hub.url.replace(/^http/, "ws") + `/api/canvas-agent/events?clientId=${canvas.clientId}&token=${canvas.token}`)).rejects.toThrow();
     expect((await fetch(hub.url + "/api/host-profile", { headers: { Authorization: `Bearer ${canvas.token}` } })).status).toBe(401);
+  });
+
+  it("carries the live canvas hint on the existing delivery only for its connected conversation", async () => {
+    const { hub, chat } = await startHub();
+    const owner = await app(hub, "hint_owner");
+    const worker = await bot(hub, ["canvas.agent.v1"]);
+    let sequence = 0;
+    const deliver = async (conversationId: string) => {
+      const turn = await hub.store.sendMessage("owner", { conversationId, clientMsgId: `hint_${++sequence}`, text: "Fixture", attachments: [] });
+      const frame = await worker.next("instance.message", value => value.message.id === turn.message.id);
+      await hub.store.acknowledgeDelivery("canvas_bot", turn.message.id);
+      return frame;
+    };
+    expect(await deliver(chat.id)).not.toHaveProperty("canvasConnected");
+    const canvas = await grant(hub, owner, chat.id, "workbench", "canvas_tab", "hint_client", "fixture");
+    expect(await deliver(chat.id)).toMatchObject({ canvasConnected: true });
+    const other = await hub.store.createConversation("owner", ["canvas_bot"], "Other", "hint_other");
+    expect(await deliver(other.id)).not.toHaveProperty("canvasConnected");
+    await owner.request("/api/canvas-agent/revoke", { conversationId: chat.id, clientId: canvas.clientId, token: canvas.token });
+    expect(await deliver(chat.id)).not.toHaveProperty("canvasConnected");
   });
 
   it("requires a live direct owner turn for HTTP listing and every instance Canvas method", async () => {

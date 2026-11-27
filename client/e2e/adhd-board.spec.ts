@@ -388,7 +388,7 @@ test("ADHD mode switches preserve the owning host for identical conversation IDs
       await card.locator(".composer textarea").fill(`${label} 专属草稿`);
       await page.getByRole("button", { name: "按对话", exact: true }).click();
       const normal = page.locator(".host-workspace:not([hidden])");
-      await expect(normal.getByText(`主机 ${label} 的记录`, { exact: true })).toBeVisible();
+      await expect(normal.locator(".message-blocks").getByText(`主机 ${label} 的记录`, { exact: true })).toBeVisible();
       await expect(normal.locator(".composer textarea")).toHaveValue(`${label} 专属草稿`);
       await expect(normal.locator(".composer textarea")).toBeFocused();
     }

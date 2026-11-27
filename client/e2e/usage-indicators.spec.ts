@@ -17,14 +17,16 @@ import { createServer } from "./fixtures/vite.js";
 import type { multipleHosts } from "./fixtures/multiple-hosts.js";
 
 test.use({ serviceWorkers: "block" });
-type Readings = { context?: { used: number; window: number; compact?: number }; limits: Array<{ id: "primary" | "secondary"; used: number; period: number; resetHours: number }> };
+type QuotaLimit = { id: "primary" | "secondary"; used: number; period: number } & ({ resetHours: number } | { resetsAt: string });
+type Readings = { context?: { used: number; window: number; compact?: number }; limits: QuotaLimit[] };
 const plenty = (): Readings => ({ context: { used: 76_000, window: 200_000, compact: 168_000 }, limits: [{ id: "primary", used: 20, period: 18_000, resetHours: 2 }, { id: "secondary", used: 10, period: 604_800, resetHours: 120 }] });
 const nearlyGone = (): Readings => ({ context: { used: 176_000, window: 200_000, compact: 168_000 }, limits: [{ id: "primary", used: 66, period: 18_000, resetHours: 2 }, { id: "secondary", used: 99, period: 604_800, resetHours: 120 }] });
 function quota(limits: Readings["limits"]): QuotaSnapshot {
   const now = Date.now(), at = new Date(now).toISOString(), expiresAt = new Date(now + 60_000).toISOString();
   return { authMode: "subscription", capability: { mode: "active" }, state: "ready", availability: "unknown", observedAt: at, lastAttemptAt: at, constraints: [], help: "codex_usage",
     pools: [{ id: "codex", label: "Codex", sharing: "unspecified", availability: "unknown", balances: [], constraints: [], windows: limits.map(item => ({ id: item.id, label: item.id === "primary" ? "Primary" : "Secondary", metric: "percent" as const, usedPercent: item.used,
-      availability: "unknown" as const, observedAt: at, expiresAt, periodSeconds: item.period, resetsAt: new Date(now + item.resetHours * 3_600_000).toISOString() })) }] };
+      availability: "unknown" as const, observedAt: at, expiresAt, periodSeconds: item.period,
+      resetsAt: "resetsAt" in item ? item.resetsAt : new Date(now + item.resetHours * 3_600_000).toISOString() })) }] };
 }
 /** A Bot whose engine reports the given readings. Like a real engine it has no quota reading until it is asked once. */
 async function bot(hub: HubServer, root: string, id: string, engine: "codex" | "claude", readings?: { value: Readings; quota: boolean; asked: boolean[]; forget?: () => void }) {
@@ -95,9 +97,11 @@ test("desktop: ring and battery sit left of the model controls, each only when r
     const context = panel.getByRole("region", { name: "上下文", exact: true }), limits = panel.getByRole("region", { name: "额度 · Codex", exact: true });
     await expect(context).toContainText("62%"); await expect(context).toContainText("已用 76k / 200k"); await expect(context).toContainText("用到约 84% 时自动压缩");
     await expect(limits.locator(".usage-window")).toHaveCount(2);
-    await expect(limits.locator(".usage-window").nth(0)).toContainText("5 小时"); await expect(limits.locator(".usage-window").nth(0)).toContainText("80%");
-    await expect(limits.locator(".usage-window").nth(1)).toContainText("7 天"); await expect(limits.locator(".usage-window").nth(1)).toContainText("90%");
-    await expect(limits.locator(".usage-window").nth(0)).toContainText(/\d{2}:\d{2} 重置/); await expect(limits.locator(".usage-window").nth(1)).toContainText(/\d+月\d+日 \d{2}:\d{2} 重置/);
+    // The window keeps its name (#77); the time left is a row of its own, counted from the reset stamp (5 days here, not the window's 7).
+    await expect(limits.locator(".usage-window").nth(0)).toContainText("5 小时窗口"); await expect(limits.locator(".usage-window").nth(0)).toContainText("80%");
+    await expect(limits.locator(".usage-window").nth(1)).toContainText("周额度（7 天）"); await expect(limits.locator(".usage-window").nth(1)).toContainText("90%");
+    await expect(limits.locator(".usage-window").nth(0)).toContainText(/小时.*重置|分钟后重置/); await expect(limits.locator(".usage-window").nth(1)).toContainText(/\d+ 天(?:\s*\d+\s*小时)?后重置/);
+    await expect(limits.locator(".usage-window").nth(1).locator(".usage-reset-row")).toContainText("5 天后重置");
     await expect(panel.getByRole("meter", { name: "上下文可用", exact: true })).toHaveAttribute("aria-valuenow", "62");
     await expect(panel).toContainText(/\d{2}:\d{2} 读取/);
     expect(`${await indicators.innerText()}${await panel.innerText()}`).not.toContain("剩");
@@ -227,7 +231,7 @@ test("phone: nothing beside the composer and no context; quota in the more sheet
     await row.click();
     const details = page.getByRole("dialog", { name: "额度", exact: true });
     await expect(details.getByRole("region", { name: "额度 · Codex", exact: true }).locator(".usage-window")).toHaveCount(2);
-    await expect(details).toContainText("5 小时"); await expect(details).toContainText("7 天"); await expect(details).not.toContainText("上下文");
+    await expect(details).toContainText("5 小时窗口"); await expect(details).toContainText("周额度（7 天）"); await expect(details.locator(".usage-reset-row").nth(1)).toContainText("5 天后重置"); await expect(details).not.toContainText("上下文");
     expect(await details.innerText()).not.toContain("剩");
     await page.screenshot({ path: info.outputPath("phone-details.png"), animations: "disabled" });
     await details.getByRole("button", { name: "关闭额度", exact: true }).click(); await expect(details).toBeHidden();
@@ -364,4 +368,151 @@ test("forgetting a computer on this device also forgets its saved quota readings
     expect(Object.keys(left.afterReset as object).length).toBe(2); expect(left.afterReset).toHaveProperty("other");
     expect(left.afterRemoval).toEqual({ other: { gamma: {} } });
   } finally { await server.close(); }
+});
+
+test("Kimi conversation UsageDetails separates Monthly vs Coding 30-day rows and excludes extra_monthly from battery", async ({ page }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "usage-kimi-"));
+  const hub = await HubServer.start({ stateDir: path.join(root, "hub"), clientDir: path.resolve("dist") });
+  await hub.profile.update({ name: "测试主机", revision: (await hub.profile.read()).revision });
+  const stateDir = path.join(root, "kimi_bot"), secret = randomBytes(32).toString("base64url");
+  await mkdir(stateDir, { recursive: true });
+  await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "kimi", model: "kimi-for-coding", locale: "zh" }));
+  await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES(?,?,?)", ["kimi_bot", "Kimi Bot", hashSecret(secret)]);
+  const now = Date.now(), at = new Date(now).toISOString(), expiresAt = new Date(now + 60_000).toISOString();
+  const kimiSnapshot: QuotaSnapshot = {
+    authMode: "subscription", capability: { mode: "active" }, state: "ready", availability: "unknown",
+    observedAt: at, lastAttemptAt: at, constraints: [], help: "kimi_usage",
+    pools: [{
+      id: "kimi", label: "Kimi Code", sharing: "shared", availability: "unknown", constraints: [],
+      windows: [
+        { id: "five_hour", label: "5 hours", metric: "percent", usedPercent: 5, availability: "unknown", observedAt: at, expiresAt, periodSeconds: 18_000 },
+        { id: "seven_day", label: "7 days", metric: "percent", usedPercent: 20, availability: "unknown", observedAt: at, expiresAt, periodSeconds: 604_800 },
+        { id: "month_total", label: "Monthly", metric: "percent", usedPercent: 10, availability: "unknown", observedAt: at, expiresAt, periodSeconds: 30 * 86_400 },
+        { id: "month_code", label: "Coding · 30 days", metric: "percent", usedPercent: 15, availability: "unknown", observedAt: at, expiresAt, periodSeconds: 30 * 86_400 },
+        { id: "extra_monthly", label: "Top-up monthly limit", metric: "percent", usedPercent: 100, availability: "unknown", observedAt: at, expiresAt, periodSeconds: 30 * 86_400 },
+      ],
+      balances: [{ id: "top_up", kind: "currency", amount: "10.00", unit: "CNY", observedAt: at, expiresAt }],
+    }],
+  };
+  const gateway = await attachGateway({
+    stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: "kimi_bot", engine: "kimi", model: "kimi-for-coding",
+    runtime: createCoreServiceRuntime(),
+    bridge: {
+      handleAuthorizedMessage: async () => ({ text: "好的" }),
+      readAccountQuota: async () => ({ revision: "kimi_rev", snapshot: kimiSnapshot }),
+    },
+  });
+  try {
+    await hub.store.createConversation("owner", ["kimi_bot"], "Kimi 额度", "kimi_conv");
+    await page.goto(hub.url); await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" }); await waitForClientOnline(page);
+    await selectConversation(page, "Kimi 额度");
+    const ws = workspace(page), indicators = ws.locator(".usage-indicators"), battery = indicators.locator("[data-usage=quota]");
+    // 100%-used extra_monthly must NOT drop battery from 80% (seven_day remaining) to 0%.
+    await expect(battery).toHaveText("80%");
+    await expect(battery).toHaveAttribute("data-tone", "ok");
+    await indicators.click();
+    const panel = page.getByRole("group", { name: "上下文与额度", exact: true });
+    const rows = panel.getByRole("region", { name: "额度 · Kimi Code", exact: true }).locator(".usage-window");
+    await expect(rows).toHaveCount(4);
+    // Window names after #77; the monthly total and the coding window stay two rows with two names.
+    await expect(rows.locator(".usage-window-label")).toHaveText(["5 小时窗口", "周额度（7 天）", "30 天窗口", "编程 · 30 天窗口"]);
+  } finally {
+    await page.close(); await gateway.disconnect(); await hub.close(); await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("in-chat quota details tick live countdowns and honor serverTimeOffset", async ({ page }) => {
+  // Simulate Host clock 1 hour ahead of browser clock
+  const hostAheadMs = 3_600_000;
+  await page.routeWebSocket("**/ws", socket => {
+    const upstream = socket.connectToServer();
+    upstream.onMessage(message => {
+      if (typeof message !== "string") return socket.send(message);
+      const frame = JSON.parse(message);
+      if (frame.type === "ready" && typeof frame.serverTime === "number") {
+        frame.serverTime += hostAheadMs;
+        frame.expiresAt += hostAheadMs;
+      }
+      socket.send(JSON.stringify(frame));
+    });
+  });
+  const f = await fixture(page);
+  try {
+    // Re-reading the same windows must preserve their absolute reset times.
+    const hostNow = Date.now() + hostAheadMs;
+    f.readings.value = {
+      limits: [
+        { id: "primary", used: 20, period: 18_000, resetsAt: new Date(hostNow + 64_500).toISOString() },
+        { id: "secondary", used: 10, period: 604_800, resetsAt: new Date(hostNow + 2 * 3_600_000).toISOString() },
+      ],
+    };
+    const ws = workspace(page), indicators = ws.locator(".usage-indicators");
+    await selectConversation(page, "有读数");
+    await expect(indicators.locator("[data-usage=quota]")).toHaveText("80%");
+    await indicators.click();
+    const panel = page.getByRole("group", { name: "上下文与额度", exact: true });
+    await expect(panel).toBeVisible();
+    const windows = panel.locator(".usage-window");
+    await expect(windows.nth(0)).toContainText("2 分钟后重置");
+    await expect(windows.nth(1)).toContainText("2 小时后重置");
+    // While the popover stays open, its live timer ticks down from 2 min to 1 min without reopening
+    await expect(windows.nth(0)).toContainText("1 分钟后重置", { timeout: 8_000 });
+  } finally { await f.dispose(); }
+});
+
+test("stale low/empty quota progress bars render grey, cold offline reload shows cached battery, and 403 evicts it (#137)", async ({ page }) => {
+  const f = await fixture(page);
+  try {
+    const ws = workspace(page), indicators = ws.locator(".usage-indicators"), battery = indicators.locator("[data-usage=quota]");
+    f.readings.value = nearlyGone();
+    await selectConversation(page, "有读数");
+    await expect(battery).toHaveText("1%");
+    await expect(battery).toHaveAttribute("data-tone", "empty");
+
+    // Cold reload while WebSocket is blocked: the last selected conversation opens offline and its saved battery
+    // appears immediately marked stale (greyed out), with muted grey progress bars inside the details popover.
+    const seen = requests(page);
+    let blockWs = true;
+    await page.routeWebSocket("**/ws", socket => {
+      if (blockWs) { socket.close(); return; }
+      socket.connectToServer();
+    });
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "有读数", exact: true, level: 1 })).toBeVisible();
+    await expect(battery).toHaveText("1%");
+    await expect(battery).toHaveAttribute("data-stale", "true");
+    await indicators.click();
+    const panel = page.getByRole("group", { name: "上下文与额度", exact: true });
+    await expect(panel.locator(".usage-stale-banner")).toBeVisible();
+    const barColors = await panel.evaluate(node => {
+      const fills = [...node.querySelectorAll(".usage-bar[data-stale=true] > i")];
+      const probe = document.createElement("span");
+      probe.style.color = "var(--red)";
+      node.append(probe);
+      const red = getComputedStyle(probe).color;
+      probe.style.color = "var(--muted)";
+      const muted = getComputedStyle(probe).color;
+      probe.remove();
+      return {
+        count: fills.length,
+        allMuted: fills.every(fill => getComputedStyle(fill).backgroundColor === muted),
+        noneRed: fills.every(fill => getComputedStyle(fill).backgroundColor !== red),
+        noneHaveTone: fills.every(fill => !fill.hasAttribute("data-tone")),
+      };
+    });
+    expect(barColors).toEqual({ count: 2, allMuted: true, noneRed: true, noneHaveTone: true });
+    expect(seen.filter(url => url.includes("/api/engine-quotas"))).toEqual([]);
+
+    // Reconnect online with owner role revoked via 403 on quota endpoint: evicts cached battery and storage immediately.
+    blockWs = false;
+    await page.route("**/api/engine-quotas/*", route => route.fulfill({ status: 403, json: { error: "forbidden" } }));
+    await page.reload();
+    await waitForClientOnline(page);
+    await expect(page.getByRole("heading", { name: "有读数", exact: true, level: 1 })).toBeVisible();
+    await expect(battery).toHaveCount(0);
+    const savedAfter403 = await page.evaluate(() => localStorage.getItem("tarobird.quotaReadings.v1") ?? "{}");
+    expect(savedAfter403).not.toContain("alpha");
+  } finally { await f.dispose(); }
 });

@@ -9,15 +9,29 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.service.notification.StatusBarNotification;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import java.util.Map;
 
 final class TaroCubNotifications {
     static boolean valid(String value) { return value != null && value.matches("^[A-Za-z0-9_-]{1,128}$"); }
+    static boolean validHostId(String value) { return value != null && value.matches("^hub_[0-9a-f]{64}$"); }
+    static void clearHost(Context context, String hostId) {
+        if (!validHostId(hostId) || Build.VERSION.SDK_INT < 23) return;
+        NotificationManager manager = context.getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        StatusBarNotification[] active = manager.getActiveNotifications();
+        if (active == null) return;
+        String prefix = hostId + ":";
+        for (StatusBarNotification item : active) {
+            String tag = item.getTag();
+            if (tag != null && tag.startsWith(prefix)) manager.cancel(tag, item.getId());
+        }
+    }
     static void show(Context context, Map<String, String> data) {
         String id = data.get("id"), conversation = data.get("conversationId"), target = data.get("messageId"), host = data.get("hostId");
-        if (!valid(id) || !valid(conversation) || !valid(target) || host != null && !host.matches("^hub_[0-9a-f]{64}$")) return;
+        if (!valid(id) || !valid(conversation) || !valid(target) || host != null && !validHostId(host)) return;
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (manager == null) return;

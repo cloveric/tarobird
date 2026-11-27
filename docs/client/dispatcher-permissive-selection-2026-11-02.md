@@ -1,4 +1,4 @@
-# Chancellor: permissive task selection and default-model compatibility
+# Superagent: permissive task selection and default-model compatibility
 
 Follow-up: [five additional real-ticket spot checks](dispatcher-spotcheck-2026-11-02.md)
 exercise effort changes, generated-code behavior, explicit engine choices and

@@ -80,7 +80,7 @@ describe("scoped journal transport and recovery", () => {
     const payloads = await store.db.all<{ payload: string }>("SELECT payload FROM run_journal UNION ALL SELECT payload FROM run_journal_scoped");
     expect(payloads).toHaveLength(46);
     for (const row of payloads) expect(runEntrySchema.omit({ scope: true }).strict().safeParse(JSON.parse(row.payload)).success).toBe(true);
-    expect(await store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "26" });
+    expect(await store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "28" });
     await store.db.close(); store = await HubStore.open(root); journal = new RunJournal(store);
     expect((await journal.read("owner", "message", 40, "", true)).entries[0]?.scope).toEqual(scope);
   });
@@ -88,7 +88,7 @@ describe("scoped journal transport and recovery", () => {
   it("upgrades an existing schema-15 database before legacy writes and reconciles rollback recalls", async () => {
     await store.db.run("DROP TABLE run_journal_scoped");
     await store.db.close(); store = await HubStore.open(root); journal = new RunJournal(store);
-    expect(await store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "26" });
+    expect(await store.db.get("SELECT value FROM meta WHERE key='schema_version'")).toEqual({ value: "28" });
     const columns = await store.db.all<{ name: string; pk: number }>("PRAGMA table_info(run_journal_scoped)");
     expect(columns.filter(column => column.pk).map(column => column.name)).toEqual(["message_id", "run_id", "seq"]);
     expect(await store.db.get("SELECT name FROM sqlite_master WHERE type='index' AND name='run_journal_scoped_expiry'")).toBeDefined();

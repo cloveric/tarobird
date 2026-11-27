@@ -1,10 +1,12 @@
 import { decodeBase64 } from "../../src/client-protocol/base64.js";
 import { invoke } from "./desktop-bridge.js";
-import { t } from "./i18n.js";
+import { getLocale, normalizeLocale, t } from "./i18n.js";
 
 /** No paths or clipboard data cross IPC; only the user's completed PNG selection. */
 export async function captureDesktopScreenshot(): Promise<File | undefined> {
-  const encoded = await invoke<string | null>("capture_screenshot", { english: document.documentElement.lang.startsWith("en") });
+  const rawLang = document.documentElement?.lang?.trim();
+  const locale = rawLang ? normalizeLocale(rawLang, "en") : getLocale();
+  const encoded = await invoke<string | null>("capture_screenshot", { english: locale !== "zh", locale });
   if (encoded === null) return;
   if (typeof encoded !== "string" || encoded.length > Math.ceil(32 * 1024 * 1024 / 3) * 4) throw new Error("screenshot_too_large");
   const data = decodeBase64(encoded);

@@ -1,14 +1,14 @@
-# Chancellor model-selection help
+# Superagent model-selection help
 
-A small question-mark button now sits beside **As Chancellor** in New Bot and
-beside **Chancellor settings** for an existing Chancellor. Desktop hover uses
+A small question-mark button now sits beside **As Superagent** in New Bot and
+beside **Superagent settings** for an existing Superagent. Desktop hover uses
 the browser's native title hint. Touch, click and keyboard activation open the
 same explanation in the existing accessible dialog; closing restores focus.
 The help button is outside the checkbox label and has `type="button"`, so
 reading help neither changes the role nor submits the creation form.
 
 The Chinese and English copy explains that automatic selection currently tends
-toward the Chancellor's own model family and recommends naming another family
+toward the Superagent's own model family and recommends naming another family
 when the user wants it. It retains the installed/allowed-engine prerequisite.
 It does not claim that cross-family routing is impossible: the
 [paired Opus/GPT run](dispatcher-opus-coordinator-comparison-2026-11-02.md)

@@ -4,9 +4,8 @@ import type { ConversationActivity } from './storage.js';
 import { attentionTargets, type AttentionTarget } from './attention.js';
 import { agentSignal, type AgentSignal } from './agent-state.js';
 import { conversationPreview, conversationActivityPreview } from './conversation-preview.js';
-import { t } from './i18n.js';
+import { localeIntlTag, t, type Locale } from './i18n.js';
 import { listedConversations } from './dispatcher.js';
-type Locale = 'zh' | 'en';
 
 export type InboxHost = {
   id: string;
@@ -21,6 +20,8 @@ export type InboxHost = {
   viewingHistory?: boolean;
 };
 
+export const isTicketConversation = (chat: Conversation): boolean => chat.hidden === true && !!chat.ticket;
+
 export function retainsOfflineNavigation(connection: HubConnection): boolean {
   return connection.state.status !== 'online' && !connection.isClosed && !connection.isReadOnly
     && (connection.state.navigationGraceUntil ?? 0) > Date.now();
@@ -29,14 +30,14 @@ export function retainsOfflineNavigation(connection: HubConnection): boolean {
 /** A view-only filter. Brief link loss retains last-known visible Bots, without
  * changing their offline status or treating cached presence as reachability.
  * Keep groups/topics and memberless history; never mutate the canonical cache. */
-export function navigationItems(host: Pick<InboxHost, 'connection' | 'bots' | 'conversations' | 'viewingHistory'>, showDisconnectedBots = false, retained?: ReadonlySet<string>) {
-  const conversations = listedConversations(host.conversations);
+export function navigationItems(host: Pick<InboxHost, 'connection' | 'bots' | 'conversations' | 'viewingHistory'> & { activity?: InboxHost['activity'] }, showDisconnectedBots = false, retained?: ReadonlySet<string>) {
+  const conversations = listedConversations(host.conversations, host.activity);
   if (showDisconnectedBots || host.viewingHistory) return { bots: host.bots, conversations };
   const bots = host.connection.state.status === 'online' || retainsOfflineNavigation(host.connection) ? host.bots.filter(bot => !!bot.online) : [];
   const connected = new Set(bots.map(bot => bot.id));
   return {
     bots,
-    conversations: conversations.filter(chat => retained?.has(chat.id) || chat.type !== 'direct' || !!chat.parentId || !chat.botIds.length || chat.botIds.some(id => connected.has(id))),
+    conversations: conversations.filter(chat => retained?.has(chat.id) || isTicketConversation(chat) || chat.type !== 'direct' || !!chat.parentId || !chat.botIds.length || chat.botIds.some(id => connected.has(id))),
   };
 }
 
@@ -59,7 +60,7 @@ export function buildBotRows(hosts: Pick<InboxHost, 'id' | 'bots' | 'conversatio
     const names = new Map(host.bots.map(bot => [bot.id, bot.name]));
     for (const chat of listedConversations(host.conversations)) {
       const id = chat.botIds[0];
-      if (!id || chat.type !== 'direct' || chat.archived || chat.parentId && archived.has(chat.parentId)) continue;
+      if (!id || isTicketConversation(chat) || chat.type !== 'direct' || chat.archived || chat.parentId && archived.has(chat.parentId)) continue;
       times.set(id, Math.max(times.get(id) ?? 0, host.activity[chat.id]?.at ?? 0, chat.createdAt));
     }
     return [...new Set([...names.keys(), ...times.keys()])].map(id => ({
@@ -112,7 +113,7 @@ export function unreadFor(activity: ConversationActivity | undefined): number {
 export function buildConversationRows(hosts: InboxHost[]): InboxRow[] {
   const rows: InboxRow[] = [];
   for (const host of hosts) {
-    const conversations = listedConversations(host.conversations);
+    const conversations = listedConversations(host.conversations, host.activity);
     const botNames = new Map(host.bots.map((bot) => [bot.id, bot.name] as const));
     const pins = new Set(host.pins);
     const globals = new Set(host.globalPins);
@@ -199,7 +200,7 @@ function numericDay(date: Date, today: Date, tag: string): string {
  */
 export function formatRowTime(at: number, locale: Locale, now: number = Date.now()): string {
   if (!Number.isFinite(at) || at <= 0) return '';
-  const tag = locale === 'zh' ? 'zh-CN' : 'en-US';
+  const tag = localeIntlTag(locale);
   const date = new Date(at);
   const today = new Date(now);
   const startOfDay = (daysAgo: number) =>
@@ -233,12 +234,12 @@ export function formatMessageTime(at: number, locale: Locale, compact = false, n
   const startOfDay = (daysAgo: number) =>
     new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysAgo).getTime();
   if (at >= startOfDay(0)) return time;
-  const tag = locale === 'zh' ? 'zh-CN' : 'en-US';
+  const tag = localeIntlTag(locale);
   const sameYear = date.getFullYear() === today.getFullYear();
   if (compact) return sameYear ? `${numericDay(date, today, tag)} ${time}` : numericDay(date, today, tag);
   if (at >= startOfDay(1)) return `${t('昨天')} ${time}`;
-  // zh-CN "long" months read 11月15日 / 2025年12月3日; en-US "short" reads Nov 15 / Dec 3, 2025.
-  const month = locale === 'zh' ? 'long' : 'short';
+  // zh-CN and ja-JP "long" months read 11月15日 / 2025年12月3日; en-US "short" reads Nov 15 / Dec 3, 2025.
+  const month = locale === 'en' ? 'short' : 'long';
   const day = sameYear ? formatter(`day-${month}`, tag, { month, day: 'numeric' }) : formatter(`year-day-${month}`, tag, { year: 'numeric', month, day: 'numeric' });
   return `${day.format(date)} ${time}`;
 }

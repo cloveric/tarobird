@@ -6,6 +6,7 @@ import { HubStore } from "../src/hub/store.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "../src/hub/workbench-design-sharing.js";
 import { DESIGN_SHARE_LIMITS, type DesignShareServerFrame } from "../src/client-protocol/workbench-design-sharing.js";
 import { DesignShareClient, joinDesignShare, openDesignShare, type DesignShareTransport } from "../client/src/workbench-design-collaboration.js";
+import { emptySlides } from "../client/src/workbench-design.js";
 import { memoryDesign } from "../client/tests/design-session-fixture.js";
 
 let broker: DesignShareBroker;
@@ -34,7 +35,7 @@ describe("a committed comment whose response is interrupted between parts", () =
   afterEach(async () => { broker.close(); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
 
   for (const [action, atPart] of [["lower to viewer", 1], ["end the share", 1], ["lower to viewer", 2], ["end the share", 2], ["source reply budget full", 0]] as const) it(`after committing: ${action}, fragment ${atPart}`, async () => {
-    const made = memoryDesign(undefined, { user: () => ({ id: "owner", name: "Owner" }) });
+    const made = memoryDesign(emptySlides("design"), { user: () => ({ id: "owner", name: "Owner" }) });
     // A long, legal thread (61 messages of 9,000 characters; limits: 200 messages, 10,000 chars, 2 MiB record).
     const created = await made.session.request("comments.create", { anchor: "#a", label: "Board", text: "x".repeat(9_000) }) as { status: number; body: { thread: { id: string } } };
     const threadId = created.body.thread.id;

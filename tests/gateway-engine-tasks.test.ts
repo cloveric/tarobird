@@ -106,6 +106,52 @@ describe("native task scope and stop receipts", () => {
     expect(adapter.recoverSession).not.toHaveBeenCalled();
     expect(sessions.getOrCreateSession).not.toHaveBeenCalled();
   });
+  it("strips post-1.6.0 Swarm task fields when connected to a 1.6.0 Hub without conversations.tasks.swarm.v1", async () => {
+    const swarmSnapshot = {
+      supported: true,
+      tasks: [{
+        id: "sw_1234",
+        label: "auth-fix",
+        kind: "subagent" as const,
+        mode: "background" as const,
+        status: "done" as const,
+        canStop: false,
+        updatedAt: 1700000000000,
+        owner: "bound" as const,
+        role: "worker",
+        swarmState: "done" as const,
+        model: "gemini-4-neon",
+        helper: false,
+      }],
+      swarm: {
+        active: false,
+        title: "Finished swarm",
+        source: "files" as const,
+        members: [{ name: "auth-fix", role: "worker", state: "done" as const, model: "gemini-4-neon", updatedAt: 1700000000000 }],
+        posts: [],
+        updatedAt: 1700000000000,
+      },
+    };
+    const bridge = { handleAuthorizedMessage: vi.fn(), listTasks: vi.fn(async () => swarmSnapshot) };
+    const legacyChannel = { canSteerConversation: vi.fn(async () => true), transport: { capabilities: ["runs.v1"] } };
+    const legacyRun = gatewayEngineTasks(bridge, legacyChannel as unknown as GatewayChannel, root);
+    expect(await legacyRun("tasks.list", { conversationId: "chat" })).toEqual({
+      supported: true,
+      tasks: [{
+        id: "sw_1234",
+        label: "auth-fix",
+        kind: "subagent",
+        mode: "background",
+        status: "done",
+        canStop: false,
+        updatedAt: 1700000000000,
+        owner: "bound",
+      }],
+    });
+    const newChannel = { canSteerConversation: vi.fn(async () => true), transport: { capabilities: ["conversations.tasks.swarm.v1"] } };
+    const newRun = gatewayEngineTasks(bridge, newChannel as unknown as GatewayChannel, root);
+    expect(await newRun("tasks.list", { conversationId: "chat" })).toEqual(swarmSnapshot);
+  });
   it("explicit recovery is at most once and cannot retarget another fence", async () => {
     const f = fixture(), recovery = { conversationId: "chat", userId: "owner", token: "fence", requestId: "recover" };
     expect(await f.run("tasks.recover", recovery)).toEqual({ outcome: "accepted" });

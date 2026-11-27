@@ -20,7 +20,7 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(path.join(os.tmpdir(), "gateway-side-audio-")); await writeFile(path.join(root, "config.json"), JSON.stringify({ engine: "claude", locale: "zh" })); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
-const ref = (id: string, name: string, mime: string, bytes: Buffer): SideAttachmentRef => ({ id, name, mime, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+const ref = (id: string, name: string, mime: string, bytes: Buffer, recording?: boolean): SideAttachmentRef => ({ id, name, mime, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), ...(recording !== undefined ? { recording } : {}) });
 function fixture({ files = "text", transcribe }: { files?: "text" | "any"; transcribe?: SideTranscribe } = {}) {
   const bodies = new Map<string, Buffer>(), sent: Array<EngineSideAttachment[] | undefined> = [];
   const engine: EngineSideSession = { nativeId: "fork", dispose: vi.fn(async () => {}), send: vi.fn(async input => { sent.push(input.attachments); return { text: "answer" }; }) };
@@ -28,7 +28,7 @@ function fixture({ files = "text", transcribe }: { files?: "text" | "any"; trans
   const bridge = { openSideSession: vi.fn(async () => engine), sideCapability: () => native } as unknown as CoreBridgeLike;
   const download = async (id: string) => (async function* () { yield new Uint8Array(bodies.get(id)!); })();
   const side = gatewaySideSessions(bridge, root, "bot", async () => true, download, transcribe);
-  const add = (id: string, name: string, mime: string, bytes: Buffer) => { bodies.set(id, bytes); return ref(id, name, mime, bytes); };
+  const add = (id: string, name: string, mime: string, bytes: Buffer, recording?: boolean) => { bodies.set(id, bytes); return ref(id, name, mime, bytes, recording); };
   const open = async () => {
     const opened = await side.call("side.open", { ...scope, requestId: "open" }) as { ok: true; view: SideView };
     await vi.waitFor(async () => expect(((await side.call("side.read", { ...scope, sideId: opened.view.id })) as { view: SideView }).view.phase).toBe("idle"));
@@ -65,7 +65,7 @@ it("gives a text-only engine the host transcript of the verified private copy, n
     expect(await readFile(file)).toEqual(voice);
     return "明天下午三点开会";
   });
-  const f = fixture({ transcribe }), audio = f.add("att_voice", "voice-1.m4a", "audio/mp4", voice), sideId = await f.open();
+  const f = fixture({ transcribe }), audio = f.add("att_voice", "voice-1.m4a", "audio/mp4", voice, true), sideId = await f.open();
   await f.side.call("side.ask", { ...scope, sideId, requestId: "ask", text: "强制本地转写 这段说了什么", attachments: [audio] });
   expect(await f.exchange(sideId, "ask")).toMatchObject({ status: "complete", answer: "answer", attachments: [{ type: "file", attachmentId: "att_voice", mime: "audio/mp4" }] });
   const [file, options] = transcribe.mock.calls[0]!;
@@ -86,7 +86,7 @@ it("gives a text-only engine the host transcript of the verified private copy, n
 
 it("keeps a failed or empty transcription retryable without calling the model", async () => {
   const transcribe = vi.fn<SideTranscribe>().mockRejectedValueOnce(new Error("ASR not configured")).mockResolvedValueOnce("   ").mockResolvedValueOnce("可以重试");
-  const f = fixture({ transcribe }), audio = f.add("att_voice", "voice-2.webm", "audio/webm", voice), sideId = await f.open();
+  const f = fixture({ transcribe }), audio = f.add("att_voice", "voice-2.webm", "audio/webm", voice, true), sideId = await f.open();
   for (const requestId of ["broken", "silent"]) {
     await f.side.call("side.ask", { ...scope, sideId, requestId, text: "", attachments: [audio] });
     expect(await f.exchange(sideId, requestId)).toMatchObject({ status: "error", error: "failed" });
@@ -106,7 +106,7 @@ it("stops the transcription itself and never reaches the model", async () => {
   const transcribe = vi.fn<SideTranscribe>((_file, options) => new Promise((_resolve, reject) => {
     signal = options!.abortSignal; signal!.addEventListener("abort", () => reject(signal!.reason), { once: true });
   }));
-  const f = fixture({ transcribe }), audio = f.add("att_voice", "voice-3.m4a", "audio/mp4", voice), sideId = await f.open();
+  const f = fixture({ transcribe }), audio = f.add("att_voice", "voice-3.m4a", "audio/mp4", voice, true), sideId = await f.open();
   await f.side.call("side.ask", { ...scope, sideId, requestId: "long", text: "", attachments: [audio] });
   await vi.waitFor(() => expect(transcribe).toHaveBeenCalled());
   await f.side.call("side.stop", { ...scope, sideId });
@@ -120,7 +120,7 @@ it("keeps usable partial speech with its gaps marked, within the shared inline b
   const transcribe = vi.fn<SideTranscribe>(async () => { throw new PartialMediaTranscriptionError("第一段内容", [2], 3); });
   const f = fixture({ transcribe }), sideId = await f.open();
   const notes = f.add("att_notes", "notes.txt", "text/plain", Buffer.from("x".repeat(SIDE_INLINE_TEXT_LIMIT - 40)));
-  const audio = f.add("att_voice", "meeting.m4a", "audio/mp4", voice);
+  const audio = f.add("att_voice", "meeting.m4a", "audio/mp4", voice, true);
   await f.side.call("side.ask", { ...scope, sideId, requestId: "gaps", text: "总结", attachments: [notes, audio] });
   expect(await f.exchange(sideId, "gaps")).toMatchObject({ status: "complete" });
   const [, transcript] = f.sent[0]!;
@@ -143,9 +143,58 @@ it("leaves video and other binary files on their existing path", async () => {
 });
 
 it("without a host transcriber, a text-only engine still refuses audio as before", async () => {
-  const f = fixture(), audio = f.add("att_voice", "voice-4.m4a", "audio/mp4", voice), sideId = await f.open();
+  const f = fixture(), audio = f.add("att_voice", "voice-4.m4a", "audio/mp4", voice, true), sideId = await f.open();
   await f.side.call("side.ask", { ...scope, sideId, requestId: "old", text: "", attachments: [audio] });
   expect(await f.exchange(sideId, "old")).toMatchObject({ status: "error", error: "attachment_unsupported" });
   expect(f.engine.send).not.toHaveBeenCalled();
+  await f.side.close();
+});
+
+it("still transcribes legacy voice-<timestamp> recordings without an explicit recording flag", async () => {
+  const transcribe = vi.fn<SideTranscribe>(async () => "旧版客户端录音");
+  const f = fixture({ transcribe }), audio = f.add("att_legacy", "voice-1791780593981.m4a", "audio/mp4", voice), sideId = await f.open();
+  await f.side.call("side.ask", { ...scope, sideId, requestId: "legacy", text: "", attachments: [audio] });
+  expect(await f.exchange(sideId, "legacy")).toMatchObject({ status: "complete", answer: "answer" });
+  expect(transcribe).toHaveBeenCalledTimes(1);
+  expect(f.sent[0]![0]).toMatchObject({ kind: "text" });
+  expect(f.sent[0]![0]!.text).toContain("旧版客户端录音");
+  await f.side.close();
+});
+
+it("does not transcribe uploaded audio files in side conversations and delivers them as binary files when supported", async () => {
+  const transcribe = vi.fn<SideTranscribe>(async () => "must not be called");
+  const f = fixture({ files: "any", transcribe }), sideId = await f.open();
+  const uploadedM4a = f.add("att_m4a", "meeting.m4a", "audio/mp4", voice, false);
+  const uploadedMp3 = f.add("att_mp3", "podcast.mp3", "audio/mpeg", voice);
+  const uploadedNamedVoice = f.add("att_named", "voice-1791780593981.wav", "audio/wav", voice, false);
+  await f.side.call("side.ask", { ...scope, sideId, requestId: "uploads", text: "keep files", attachments: [uploadedM4a, uploadedMp3, uploadedNamedVoice] });
+  expect(await f.exchange(sideId, "uploads")).toMatchObject({ status: "complete", answer: "answer" });
+  expect(transcribe).not.toHaveBeenCalled();
+  expect(f.sent[0]).toHaveLength(3);
+  expect(f.sent[0]!.every(item => item.kind === "binary")).toBe(true);
+  await f.side.close();
+});
+
+it("rejects uploaded audio files on text-only side engines without triggering transcription", async () => {
+  const transcribe = vi.fn<SideTranscribe>(async () => "must not be called");
+  const f = fixture({ files: "text", transcribe }), sideId = await f.open();
+  const uploaded = f.add("att_m4a", "interview.m4a", "audio/mp4", voice, false);
+  await f.side.call("side.ask", { ...scope, sideId, requestId: "text-only", text: "inspect", attachments: [uploaded] });
+  expect(await f.exchange(sideId, "text-only")).toMatchObject({ status: "error", error: "attachment_unsupported" });
+  expect(transcribe).not.toHaveBeenCalled();
+  expect(f.engine.send).not.toHaveBeenCalled();
+  await f.side.close();
+});
+
+it("never triggers side ASR for non-audio binary files even if recording is true", async () => {
+  const transcribe = vi.fn<SideTranscribe>(async () => "must not be called");
+  const f = fixture({ files: "any", transcribe }), sideId = await f.open();
+  const pdf = f.add("att_pdf", "report.pdf", "application/pdf", voice, true);
+  const clip = f.add("att_video", "clip.mp4", "video/mp4", voice, true);
+  await f.side.call("side.ask", { ...scope, sideId, requestId: "non-audio", text: "inspect", attachments: [pdf, clip] });
+  expect(await f.exchange(sideId, "non-audio")).toMatchObject({ status: "complete", answer: "answer" });
+  expect(transcribe).not.toHaveBeenCalled();
+  expect(f.sent[0]).toHaveLength(2);
+  expect(f.sent[0]!.every(item => item.kind === "binary")).toBe(true);
   await f.side.close();
 });

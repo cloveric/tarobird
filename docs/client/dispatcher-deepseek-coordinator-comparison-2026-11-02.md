@@ -1,6 +1,6 @@
-# DeepSeek Chancellor: real six-task follow-up
+# DeepSeek Superagent: real six-task follow-up
 
-The owner requested the same selection experiment with a DeepSeek Chancellor.
+The owner requested the same selection experiment with a DeepSeek Superagent.
 It autonomously selected DeepSeek for one task, Claude for four, and GPT for one.
 The native records confirm actual execution, not only a proposed selection.
 However, the coordinator accepted an inadequately specified synchronization
@@ -12,7 +12,7 @@ different merge groupings. Routing diversity does not establish review quality.
 Runtime/source is `a259b3821def5e5c0c66f039a89b3473c866c7f9`, identical to the
 [previous GPT/Opus comparison](dispatcher-opus-coordinator-comparison-2026-11-02.md).
 The task strings and all six target-catalog snapshots match that comparison.
-Each case uses a fresh Chancellor and conversation, empty persona, auto mode,
+Each case uses a fresh Superagent and conversation, empty persona, auto mode,
 concurrency one, and allowed Codex/Claude/DeepSeek/Antigravity engines. Kimi is
 not allowed. No task specifies its worker model or vendor. The prompts require
 the normal ticket workflow, supplied-data text answers, no browsing, and no
@@ -29,7 +29,7 @@ engine adapters package context differently.
 
 ## Actual selections
 
-| Supplied task | DeepSeek Chancellor's worker | Attempts |
+| Supplied task | DeepSeek Superagent's worker | Attempts |
 |---|---|---:|
 | Aggregate inventory into JSON | DeepSeek default, native `deepseek-flash` / low | 1 |
 | Three Chinese support-message tones | Claude Sonnet 5.5 / medium | 2 |
@@ -90,7 +90,7 @@ Host and managed workers.
 ## Interpretation and boundaries
 
 This run establishes autonomous cross-provider selection with a DeepSeek-based
-Chancellor. It selected Claude or GPT in five of six cases, without an owner
+Superagent. It selected Claude or GPT in five of six cases, without an owner
 model preference. The previous GPT arm selected GPT six times; the Opus arm
 selected Claude five times and GPT once. None of these small arms selected
 Gemini. Provider labels alone do not prove task suitability; the coordinator's

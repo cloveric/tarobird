@@ -356,7 +356,8 @@ export class HostRegistry {
       const db = await this.db, record = await db.get("hosts", id);
       if (!record) throw new Error("host_not_found");
       const removing: StoredHost = { ...publicRecord(record), keyRef: record.keyRef ?? record.pendingIdentity?.keyRef, state: "removing", cleaned: record.cleaned, cacheOwned: record.cacheOwned };
-      if (record.networkId) await db.put("meta", record.networkId, `dismissed:${id}`);
+      if (record.networkId && !record.networkBlocked) await db.put("meta", record.networkId, `dismissed:${id}`);
+      else await db.delete("meta", `dismissed:${id}`);
       await db.delete("networkCandidates", id);
       await db.put("hosts", removing); this.changed();
       if (!removing.cleaned?.cache) (await this.fenceRemoval(removing))?.close();

@@ -1,4 +1,5 @@
 import type { DesignDocument } from "./workbench-design.js";
+import { serializeDesignBackup } from "./workbench-design-backup.js";
 import type { HubConnection } from "./connection.js";
 import { noteRecoveryKey, rememberNoteRecovery } from "./workbench-note-recovery.js";
 
@@ -65,6 +66,21 @@ export async function listWorkbenchLibrary(connection: HubConnection, options: {
   // A listing read for a previous user is never shown for the next one.
   if (connection.state.user?.id !== owner.user) throw new Error("workbench_scope_unavailable");
   return { entries: items, truncated, skipped };
+}
+
+/** A stored design project as the App's project backup (`.tarobot-design.json`),
+ * read from this device without mounting an editor. It is the way out for a
+ * Baoyu canvas kept from 1.6.0 or earlier, which is no longer opened: nothing
+ * is changed, opened or sent. A deck with a Tab is backed up from its editor. */
+export async function exportStoredDesign(connection: HubConnection, scope: string, id: string, title: string): Promise<string> {
+  if (connection.isClosed || connection.cache.isClosed) throw new Error("local_cache_closed");
+  const owner = ownerOf(connection);
+  if (!owner || !ownedWorkbenchConversation(scope, owner)) throw new Error("workbench_scope_unavailable");
+  if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error("design_not_found");
+  const backup = await connection.cache.readWorkbenchDesignBackup(scope, id, title.trim().slice(0, 128).replace(/[\uD800-\uDBFF]$/, "") || id);
+  // A project read for a previous user is never handed to the next one.
+  if (connection.isClosed || connection.state.user?.id !== owner.user) throw new Error("workbench_scope_unavailable");
+  return serializeDesignBackup(backup);
 }
 
 /** Per-item results in input order (at most WORKBENCH_LIBRARY_BATCH). One

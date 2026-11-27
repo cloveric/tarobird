@@ -101,16 +101,16 @@ it("end to end, unmocked: the built CLI starts a stopped host whose database is 
     expect(cli("start", "--json").status).toBe(0);
     const stopped = cli("stop", "--force");
     expect(stopped.status).toBe(0); expect(stopped.stderr).toContain("tarobot start");
-    const store = await HubStore.open(directory); await store.db.run("UPDATE meta SET value='25' WHERE key='schema_version'"); await store.db.close();
+    const store = await HubStore.open(directory); await store.db.run("UPDATE meta SET value='26' WHERE key='schema_version'"); await store.db.close();
     // Foreground run still refuses; its guidance names the explicit start, not a runtime switch.
     const run = cli("run");
     expect(run.status).not.toBe(0);
-    expect(run.stderr).toContain("host_schema_migration_requires_update:25:26"); expect(run.stderr).toContain("启动本机主机"); expect(run.stderr).not.toContain("service install");
-    expect(await readHostSchema(directory)).toBe(25);
+    expect(run.stderr).toContain("host_schema_migration_requires_update:26:28"); expect(run.stderr).toContain("启动本机主机"); expect(run.stderr).not.toContain("service install");
+    expect(await readHostSchema(directory)).toBe(26);
     const started = cli("start", "--json");
     expect(started.status, started.stderr).toBe(0);
     expect(JSON.parse(started.stdout)).toMatchObject({ running: true });
-    expect(await readHostSchema(directory)).toBe(26);
+    expect(await readHostSchema(directory)).toBe(28);
     // The runtime selection is unchanged and nothing is written beside the host.
     await expect(stat(path.join(root, "host.runtime"))).rejects.toMatchObject({ code: "ENOENT" });
   } finally { cli("stop", "--force", "--json"); }

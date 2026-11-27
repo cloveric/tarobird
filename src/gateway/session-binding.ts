@@ -23,23 +23,24 @@ export async function gatewaySessionBindingAllowsSteering(stateDir: string, conv
     });
   } catch { return false; }
 }
+import { hostT } from "../locales/index.js";
+import type { Locale } from "../runtime/locale.js";
+
 export class GatewaySessionBindingError extends Error {
   constructor(readonly code: string) { super(code); }
-  userMessage(locale: "zh" | "en"): string {
-    const reasons: Record<string, [string, string]> = {
-      legacy_session_binding_requires_reselection: ["旧版恢复选择需要重新确认。", "The legacy session selection needs confirmation."],
-      session_binding_interrupted_reselect_required: ["上次会话恢复被中断，无法确认是否完成。", "The previous session binding was interrupted; completion is unknown."],
-      session_not_found_on_instance: ["选择的会话已不在此 Bot 的可恢复列表中。", "The selected session is no longer available on this Bot."],
-      session_state_unavailable: ["Bot 的会话状态暂时无法读取。", "The Bot's session state cannot be read."],
-      session_binding_storage_unavailable: ["会话恢复状态暂时无法读写，请检查 Bot 的磁盘空间和文件权限后重试。", "Session recovery state cannot be read or written right now. Check the Bot's disk space and file permissions, then retry."],
+  userMessage(locale: Locale): string {
+    const keys: Record<string, string> = {
+      legacy_session_binding_requires_reselection: "旧版恢复选择需要重新确认。",
+      session_binding_interrupted_reselect_required: "上次会话恢复被中断，无法确认是否完成。",
+      session_not_found_on_instance: "选择的会话已不在此 Bot 的可恢复列表中。",
+      session_state_unavailable: "Bot 的会话状态暂时无法读取。",
+      session_binding_storage_unavailable: "会话恢复状态暂时无法读写，请检查 Bot 的磁盘空间和文件权限后重试。",
     };
-    const reason = reasons[this.code]?.[locale === "zh" ? 0 : 1] ?? (locale === "zh" ? "会话恢复记录无法读取，原记录已保留。" : "The binding record cannot be read and has been preserved.");
-    if (this.code === "session_binding_record_unavailable") return locale === "zh"
-      ? `${reason}\n本条消息未交给模型。请打开「对话设置」清除会话选择，再切断或重置会话。之后可使用原生 /resume；再次通过列表绑定前，需要修复恢复记录。`
-      : `${reason}\nThis message was not sent to the model. Clear session selection in Conversation settings, then detach or reset. Native /resume remains available afterwards; repair the binding record before selecting from the list again.`;
-    return locale === "zh"
-      ? `${reason}\n本条消息未交给模型。请打开「对话设置」重新选择会话，或清除会话选择。清除不会撤销已发生的切换；恢复曾中断时，请先切断或重置，再发送普通消息。`
-      : `${reason}\nThis message was not sent to the model. Open Conversation settings to reselect or clear the selection. Clearing does not undo a session switch; after an interrupted recovery, detach or reset before sending ordinary messages.`;
+    const reason = hostT(locale, keys[this.code] ?? "会话恢复记录无法读取，原记录已保留。");
+    if (this.code === "session_binding_record_unavailable") {
+      return hostT(locale, "{0}\n本条消息未交给模型。请打开「对话设置」清除会话选择，再切断或重置会话。之后可使用原生 /resume；再次通过列表绑定前，需要修复恢复记录。", reason);
+    }
+    return hostT(locale, "{0}\n本条消息未交给模型。请打开「对话设置」重新选择会话，或清除会话选择。清除不会撤销已发生的切换；恢复曾中断时，请先切断或重置，再发送普通消息。", reason);
   }
 }
 /** A Hub selection is an operation, not a permanent session override. Called

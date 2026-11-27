@@ -191,7 +191,17 @@ fn pinned_http_streams_base64_chunks_and_rejects_substituted_or_untrusted_certif
     assert_eq!(http(&mut helper, &lease, get(&rotating, "/api/redirect")).0.unwrap_err(), "hub_redirect_rejected");
     assert_eq!(http(&mut helper, &lease, get(&proxy, "/health")).0.unwrap_err(), "tls_identity_mismatch");
     let mut untrusted = get(&hub, "/health"); untrusted.as_object_mut().unwrap().remove("certificateAuthority");
-    assert_eq!(http(&mut helper, &lease, untrusted).0.unwrap_err(), "tls_connection_failed");
+    assert_eq!(http(&mut helper, &lease, untrusted).0.unwrap_err(), "native_tls_untrusted");
+    let closed_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let closed_port = closed_listener.local_addr().unwrap().port();
+    drop(closed_listener);
+    assert_eq!(http(&mut helper, &lease, get(&format!("https://127.0.0.1:{closed_port}"), "/health")).0.unwrap_err(), "native_connection_refused");
+    assert_eq!(http(&mut helper, &lease, get("https://nonexistent.invalid:8788", "/health")).0.unwrap_err(), "native_dns_failed");
+    let silent_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let silent_port = silent_listener.local_addr().unwrap().port();
+    let silent_thread = std::thread::spawn(move || { let _accepted = silent_listener.accept().ok(); std::thread::sleep(Duration::from_secs(6)); });
+    assert_eq!(http(&mut helper, &lease, get(&format!("https://127.0.0.1:{silent_port}"), "/health")).0.unwrap_err(), "native_request_timeout");
+    drop(silent_thread);
     let mut keyless = get(&hub, "/health"); keyless["hubKey"] = Value::Null;
     assert_eq!(http(&mut helper, &lease, keyless).0.unwrap_err(), "trusted_hub_key_required");
     assert_eq!(http(&mut helper, &lease, get(&hub, "/api/instance/status")).0.unwrap_err(), "invalid_hub_path");
@@ -206,7 +216,7 @@ fn pinned_http_streams_base64_chunks_and_rejects_substituted_or_untrusted_certif
     // Legitimate Hub certificate rotation: the established pin rejects the new
     // certificate and forgets the route; the next request re-proves identity.
     assert_eq!(fixture.command("rotate"), "ok");
-    assert_eq!(http(&mut helper, &lease, get(&rotating, "/health")).0.unwrap_err(), "native_request_failed");
+    assert_eq!(http(&mut helper, &lease, get(&rotating, "/health")).0.unwrap_err(), "tls_identity_mismatch");
     let (head, id) = http(&mut helper, &lease, get(&rotating, "/health"));
     assert_eq!(head.unwrap()["status"], 200);
     assert_eq!(read_all(&mut helper, &id), br#"{"ok":true}"#);

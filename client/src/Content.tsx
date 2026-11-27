@@ -1,3 +1,4 @@
+import { subscribeMediaQuery } from "./global-event-hub.js";
 import { useAndroidPackageOpen } from "./android-package-actions.js";
 import { steerFallbackReason, steerFallbackText } from "./bot-steer-delivery.js";
 import { InlineAudioControls } from "./InlineAudioControls.js";
@@ -6,6 +7,7 @@ import { nativePlatform } from "./native.js";
 import { Report } from "./Report.js";
 import { readWidget, readReport } from "../../src/client-protocol/widget.js";
 import { MessageOverlayOwnerContext, useMessageReader } from "./message-overlay.js";
+import { messageRowKey } from "./pending-messages.js";
 import { ImageGalleryContext, galleryImages, messageImages } from "./image-gallery.js";
 import { backgroundTaskNotice } from "../../src/client-protocol/background-task.js";
 import { BackgroundReport, isBackgroundReport } from "./BackgroundReport.js";
@@ -136,7 +138,7 @@ function FileStatus({ allowPackageOpen, phase, cancel, retry, saved, openSaved, 
   </div>;
 }
 const phoneQuery = () => matchMedia("(max-width:760px)");
-const subscribePhone = (notify: () => void) => { const query = phoneQuery(); query.addEventListener("change", notify); return () => query.removeEventListener("change", notify); };
+const subscribePhone = (notify: () => void) => subscribeMediaQuery("(max-width:760px)", notify);
 const snapshotPhone = () => phoneQuery().matches;
 export function AttachmentFile({ connection, block, list = false }: { connection: HubConnection; block: Extract<Block, { type: "file" }>; list?: boolean }) {
   useLocale();
@@ -334,7 +336,7 @@ export const MessageContent = memo(function MessageContent({ message, connection
   useLocale();
   const groupedBlocks = new Set<number>();
   const rejectedInput = message.authorType === "user" && message.blocks.some(block => block.type === "steering" && block.outcome === "rejected");
-  return <MessageOverlayOwnerContext.Provider value={message.id}><div className={`message-blocks${reference ? " has-reference" : ""}`} onMouseDown={noteMessagePress} onClick={selectMessageBubble}>{reference}<ImageGalleryContext.Provider value={messageImages(message.blocks)}>{message.blocks.map((block, i) => {
+  return <MessageOverlayOwnerContext.Provider value={messageRowKey(message)}><div className={`message-blocks${reference ? " has-reference" : ""}`} onMouseDown={noteMessagePress} onClick={selectMessageBubble}>{reference}<ImageGalleryContext.Provider value={messageImages(message.blocks)}>{message.blocks.map((block, i) => {
     if (groupedBlocks.has(i)) return null;
     // Caption and images are already one persisted message. Give them one
     // visual surface too, including existing batch deliveries in history.

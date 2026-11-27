@@ -64,7 +64,7 @@ for (const phoneDeletes of [true, false]) test(`Bot deletion confirms effects an
       await expect(archived.getByRole("button", { name: "恢复", exact: true })).toBeDisabled();
       await archived.getByRole("button", { name: "查看记录", exact: true }).click();
       await expect(page.locator(".message-body").getByText("要保留的回答", { exact: true })).toBeVisible();
-      await expect(page.locator(".message-meta")).toContainText(bot.name);
+      await expect(page.locator(".message-meta strong")).toHaveText(`${bot.name}（已删除）`);
       await expect(page.locator(".archived-notice")).toContainText("Bot 已删除");
       await expect(page.getByRole("textbox", { name: "消息", exact: true })).toHaveCount(0);
     }

@@ -2,7 +2,7 @@ import { expect, it, vi } from "vitest";
 import { gatewayEngineQuota } from "../src/gateway/engine-quota.js";
 import { ENGINE_QUOTA_HUB_REFRESH_MS, ENGINE_QUOTA_REFRESH_MS, quotaReadingExpired } from "../src/client-protocol/engine-quota.js";
 import { unavailableQuota } from "../src/codex/account-quota.js";
-import type { EngineQuotaReadResult } from "../src/codex/adapter.js";
+import type { EngineQuotaReadOptions, EngineQuotaReadResult } from "../src/codex/adapter.js";
 
 const snapshot = () => ({ ...unavailableQuota("codex", "not_loaded", 1000), state: "ready" as const, pools: [{
   id: "pool", label: "Codex", sharing: "shared" as const, availability: "unknown" as const, balances: [], constraints: [],
@@ -11,7 +11,7 @@ const snapshot = () => ({ ...unavailableQuota("codex", "not_loaded", 1000), stat
 }] });
 
 it("reads cached native quotas without refreshing and omits private account proof", async () => {
-  const read = vi.fn(async () => ({ revision: "one", snapshot: snapshot(), proof: { engine: "codex" as const, scopeStamp: "private", accountKey: "private" } }));
+  const read = vi.fn(async (_options: EngineQuotaReadOptions) => ({ revision: "one", snapshot: snapshot(), proof: { engine: "codex" as const, scopeStamp: "private", accountKey: "private" } }));
   const run = gatewayEngineQuota({ botId: "bot", engine: "codex", read, now: () => 2000 });
   const result = await run({ scopeId: "bot", refresh: false });
   expect(read).toHaveBeenCalledOnce(); expect(read.mock.calls[0]?.[0]).toMatchObject({ refresh: false });
@@ -89,7 +89,7 @@ it.each([50_000, 70_000])("marks elapsed reset or TTL stale without inventing a 
 it("keeps unsupported and passive engines read only", async () => {
   const missing = await gatewayEngineQuota({ botId: "bot", engine: "pi" })({ scopeId: "bot", refresh: false });
   expect(missing.value).toMatchObject({ state: "unsupported", pools: [] });
-  const read = vi.fn(async () => ({ revision: "one", snapshot: unavailableQuota("claude", "no_passive_event") }));
+  const read = vi.fn(async (_options: EngineQuotaReadOptions) => ({ revision: "one", snapshot: unavailableQuota("claude", "no_passive_event") }));
   const run = gatewayEngineQuota({ botId: "bot", engine: "claude", read });
   await run({ scopeId: "bot", refresh: true, expectedRevision: "one" });
   expect(read).toHaveBeenCalledOnce();
@@ -136,4 +136,33 @@ it("shares one expiry predicate between Gateway and App", () => {
   expect(quotaReadingExpired({ ...value, pools: [] }, 61_000)).toBe(true);
   expect(quotaReadingExpired(snapshot(), 49_999)).toBe(false);
   expect(quotaReadingExpired(snapshot(), 50_000)).toBe(true);
+});
+
+it("exposes Hub-keyed account proof only via private accountProof RPC and never in quota.get", async () => {
+  let key: Uint8Array | undefined = Buffer.alloc(32, 9);
+  const accountKey = "a".repeat(64);
+  const read = vi.fn(async (opts: { accountProofKey?: Uint8Array }) => ({
+    revision: "rev_1",
+    snapshot: snapshot(),
+    ...(opts.accountProofKey ? { proof: { engine: "codex" as const, scopeStamp: "rev_1", accountKey } } : {}),
+  }));
+  const run = gatewayEngineQuota({ botId: "bot", engine: "codex", read, getAccountProofKey: () => key, now: () => 2000 });
+  const reply = await run({ scopeId: "bot", refresh: false });
+  expect(JSON.stringify(reply)).not.toContain(accountKey);
+  expect(run.accountProof({ scopeId: "bot", expectedRevision: "rev_1" })).toEqual({
+    scopeId: "bot",
+    revision: "rev_1",
+    accountKey,
+  });
+  expect(read).toHaveBeenCalledOnce();
+  // Mismatched revision or rotated Hub proof key fails closed
+  expect(run.accountProof({ scopeId: "bot", expectedRevision: "other_rev" })).toEqual({
+    scopeId: "bot",
+    revision: "other_rev",
+  });
+  key = Buffer.alloc(32, 3);
+  expect(run.accountProof({ scopeId: "bot", expectedRevision: "rev_1" })).toEqual({
+    scopeId: "bot",
+    revision: "rev_1",
+  });
 });

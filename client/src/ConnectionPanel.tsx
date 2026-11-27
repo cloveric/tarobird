@@ -7,6 +7,7 @@ import { CreationDialog } from "./CreationDialog.js";
 import { LocalConnectionSettings } from "./LocalConnectionSettings.js";
 import { RoutesEditor } from "./RoutesEditor.js";
 import { LocalRelaySettings } from "./LocalRelaySettings.js";
+import { LocalCloudflareSettings } from "./LocalCloudflareSettings.js";
 import { RuntimeHostContext } from "./RuntimeHost.js";
 import { captureSettingsPageFocus, useSettingsPageViewport } from "./SettingsPageHeader.js";
 import { useDesktopLocalHost } from "./useDesktopLocalHost.js";
@@ -28,10 +29,11 @@ export function ConnectionPanel({ connection, close, returnFocus, backLabel, ope
   useDialogDrag(dialog, header, true);
   const [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false);
   const [relayDirty, setRelayDirty] = useState(false), [relayBusy, setRelayBusy] = useState(false);
+  const [cfDirty, setCfDirty] = useState(false), [cfBusy, setCfBusy] = useState(false);
   const [discard, setDiscard] = useState(false), [configureLocal, setConfigureLocal] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [localBusy, setLocalBusy] = useState(false);
-  const anyBusy = busy || relayBusy || localBusy, anyDirty = dirty || relayDirty;
+  const anyBusy = busy || relayBusy || cfBusy || localBusy, anyDirty = dirty || relayDirty || cfDirty;
   const requestClose = () => { if (anyBusy) return; if (anyDirty) setDiscard(true); else close(); };
   useBackAction(dialog, requestClose);
   useSettingsPageViewport(body);
@@ -55,8 +57,9 @@ export function ConnectionPanel({ connection, close, returnFocus, backLabel, ope
       {hasScreenViewer() && <div className="network-settings-options connection-screen-entry"><button ref={screenEntry} type="button" className="network-settings-option" data-settings-entry="screen" onClick={() => setScreenSettings(true)}>
         <MonitorCog size={20} aria-hidden="true"/><span><strong>{t("屏幕控制设置")}</strong><small>{t("允许远程屏幕、设备授权和查看屏幕")}</small></span><ChevronRight size={17} aria-hidden="true"/>
       </button></div>}
-      <RoutesEditor connection={connection} identityPending={!local.resolved} retryIdentity={local.failed ? local.retry : undefined} localHost={local.localHost} localBusy={relayBusy} configureLocal={() => setConfigureLocal(true)} dirtyChange={setDirty} busyChange={setBusy}/>
+      <RoutesEditor connection={connection} identityPending={!local.resolved} retryIdentity={local.failed ? local.retry : undefined} localHost={local.localHost} localBusy={relayBusy || cfBusy} configureLocal={() => setConfigureLocal(true)} dirtyChange={setDirty} busyChange={setBusy}/>
       {local.localHost && <LocalRelaySettings key={connection.identity.hubPublicKey} connection={connection} dirtyChange={setRelayDirty} busyChange={setRelayBusy}/>}
+      {local.localHost && <LocalCloudflareSettings key={`cf:${connection.identity.hubPublicKey}`} connection={connection} dirtyChange={setCfDirty} busyChange={setCfBusy}/>}
     </div>
   </dialog>
   {screenSettings && <ScreenControlPanel connection={connection} openScreen={openScreen} close={() => setScreenSettings(false)} returnFocus={screenEntry} backLabel={t("返回连接状态与线路")}/>}

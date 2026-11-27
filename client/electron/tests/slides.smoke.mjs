@@ -69,23 +69,23 @@ try {
  const documents=page.frames().filter(f=>f.parentFrame()===page.mainFrame()).map(f=>f.url());
  assert.equal(documents.length,2);assert.equal(new Set(documents).size,2);assert.ok(documents.every(isDesignDocumentURL));
  await editor.getByRole('button',{name:'Present',exact:true}).click();
- await editor.getByText('Present',{exact:true}).last().click();
- await expect(editor.getByRole('button',{name:'Exit full screen (F)',exact:true})).toBeVisible({timeout:8000});
+ await editor.getByRole('menuitem',{name:'Present',exact:true}).click();
+ await expect(editor.getByRole('button',{name:'Exit full screen',exact:true})).toBeVisible({timeout:8000});
  assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isFullScreen()),true);
  assert.equal(await page.evaluate(()=>document.fullscreenElement===document.querySelector('.workbench-design-frame')),true);
- assert.equal(await guest.evaluate(()=>document.fullscreenElement===document.documentElement),true);
+ assert.equal(await guest.evaluate(()=>Boolean(document.fullscreenElement)),true);
  await expect.poll(()=>app.evaluate(()=>globalThis.designFullscreenEvents.includes('enter-full-screen'))).toBe(true);
  await page.screenshot({path:path.join(root,'slides-native-fullscreen.png')});
- await editor.getByRole('button',{name:'Exit full screen (F)',exact:true}).click();
+ await editor.getByRole('button',{name:'Exit full screen',exact:true}).click();
  await expect.poll(()=>guest.evaluate(()=>document.fullscreenElement===null)).toBe(true);
  await expect.poll(()=>app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].isFullScreen())).toBe(false);
  // The slideshow intentionally auto-hides its toolbar; state and native exit
  // remain observable without depending on pointer-hover timing.
- await expect(editor.getByRole('button',{name:'Full screen (F)',exact:true,includeHidden:true})).toHaveCount(1);
+ await expect(editor.getByRole('button',{name:'Full screen',exact:true,includeHidden:true})).toHaveCount(1);
  await expect.poll(()=>app.evaluate(()=>globalThis.designFullscreenEvents.includes('leave-full-screen'))).toBe(true);
  await page.keyboard.press('f');
  await expect.poll(()=>app.evaluate(()=>globalThis.designFullscreenEvents.filter(e=>e==='enter-full-screen').length)).toBe(2);
- assert.equal(await guest.evaluate(()=>document.fullscreenElement===document.documentElement),true);
+ assert.equal(await guest.evaluate(()=>Boolean(document.fullscreenElement)),true);
  await page.keyboard.press('f');
  await expect.poll(()=>app.evaluate(()=>globalThis.designFullscreenEvents.filter(e=>e==='leave-full-screen').length)).toBe(2);
  assert.equal(await guest.evaluate(()=>document.fullscreenElement),null);

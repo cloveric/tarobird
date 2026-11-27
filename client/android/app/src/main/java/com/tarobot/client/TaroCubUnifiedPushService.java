@@ -22,13 +22,21 @@ public class TaroCubUnifiedPushService extends PushService {
         try { synchronized (UnifiedPushPlugin.store(this)) {
             JSONObject json = new JSONObject(new String(message.getContent(), StandardCharsets.UTF_8));
             // An endpoint is bound to its Hub. Payloads cannot navigate another Hub.
-            String host = UnifiedPushPlugin.store(this).notificationHost(registration, json.has("hostId") ? json.getString("hostId") : null);
+            String host = UnifiedPushPlugin.store(this).notificationHost(registration, claimedHostId(json));
             if (host == null) return;
-            Map<String, String> data = new HashMap<>();
-            for (String key : new String[]{"id", "conversationId", "messageId", "kind", "body"}) data.put(key, json.optString(key, ""));
-            if (!host.isEmpty()) data.put("hostId", host);
-            TaroCubNotifications.show(this, data);
+            TaroCubNotifications.show(this, notificationData(json, host));
         } } catch (Exception ignored) { /* Invalid notifications never reach app navigation. */ }
+    }
+    static String claimedHostId(JSONObject json) {
+        return json.isNull("hostId") ? null : json.optString("hostId", null);
+    }
+    static Map<String, String> notificationData(JSONObject json, String host) {
+        Map<String, String> data = new HashMap<>();
+        for (String key : new String[]{"id", "conversationId", "messageId", "kind", "body"}) {
+            data.put(key, json.isNull(key) ? "" : json.optString(key, ""));
+        }
+        if (!host.isEmpty()) data.put("hostId", host);
+        return data;
     }
     @Override public void onRegistrationFailed(FailedReason reason, String registration) { failed(registration, "unifiedpush_registration_failed"); }
     @Override public void onUnregistered(String registration) { failed(registration, "unifiedpush_unregistered"); }

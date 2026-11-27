@@ -1,5 +1,15 @@
-import { expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { setLocale } from "../client/src/i18n.js";
 import { hostCleanupError, pairingState, pairingStateLabel } from "../client/src/pairing-state.js";
+
+beforeEach(() => {
+  vi.stubGlobal("document", { documentElement: { lang: "zh-CN" } });
+  setLocale("zh");
+});
+afterEach(() => {
+  setLocale("zh");
+  vi.unstubAllGlobals();
+});
 
 it("an unanswered pairing is waiting, expired or unconfirmed, never paired", () => {
   const now = 1_000_000;

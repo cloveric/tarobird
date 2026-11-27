@@ -51,7 +51,7 @@ it("QR repair preserves a custom public Direct route and ambiguous existing LAN 
 });
 
 
-it("a multi-route identity produces a legacy-decodable QR with scoped trust and without changing its local routes", async () => {
+it("a multi-route identity produces a v1 QR by default and a v2 QR on request, with scoped trust and without changing its local routes", async () => {
   const { connectionPairingPayload, pairingLink, parsePairingLink } = await import("../client/src/pairing-link.js");
   const local = [
     { name: "Direct" as const, url: "https://192.168.10.5:8788", certificateAuthority: "A".repeat(120) },
@@ -59,12 +59,24 @@ it("a multi-route identity produces a legacy-decodable QR with scoped trust and 
     { name: "VPS" as const, url: "https://relay.example" },
   ];
   const copy = structuredClone(local);
+  // No version given: the single-direct v1 code that Apps up to 1.6.0 can read.
   const payload = connectionPairingPayload("h".repeat(44), local, "computer");
   expect(parsePairingLink(pairingLink(payload))).toEqual({ v: 1, kind: "connect", hubPublicKey: "h".repeat(44), routes: [local[1], local[2]], deployment: "computer" });
   expect(local).toEqual(copy);
+  const legacyPayload = connectionPairingPayload("h".repeat(44), local, "computer", undefined, { version: 1 });
+  expect(legacyPayload).toEqual(payload);
   const activeLan = connectionPairingPayload("h".repeat(44), local, "computer", local[0]!.url);
-  expect(parsePairingLink(pairingLink(activeLan))).toMatchObject({ routes: [local[0], local[2]] });
-  expect(connectionPairingPayload("h".repeat(44), local, undefined, "https://not-saved.example")).toMatchObject({ routes: [local[1], local[2]] });
+  expect(parsePairingLink(pairingLink(activeLan))).toEqual({ v: 1, kind: "connect", hubPublicKey: "h".repeat(44), routes: [local[0], local[2]], deployment: "computer" });
+  const activeLanV1 = connectionPairingPayload("h".repeat(44), local, "computer", local[0]!.url, { version: 1 });
+  expect(activeLanV1).toEqual(activeLan);
+  expect(connectionPairingPayload("h".repeat(44), local, undefined, "https://not-saved.example")).toMatchObject({ v: 1, routes: [local[1], local[2]] });
+  // v2 on request: every direct candidate, the chosen one first.
+  const multi = connectionPairingPayload("h".repeat(44), local, "computer", undefined, { version: 2 });
+  expect(parsePairingLink(pairingLink(multi))).toEqual({ v: 2, kind: "connect", hubPublicKey: "h".repeat(44), routes: [local[1], local[0], local[2]], deployment: "computer" });
+  const activeLanMulti = connectionPairingPayload("h".repeat(44), local, "computer", local[0]!.url, { version: 2 });
+  expect(parsePairingLink(pairingLink(activeLanMulti))).toEqual({ v: 2, kind: "connect", hubPublicKey: "h".repeat(44), routes: [local[0], local[1], local[2]], deployment: "computer" });
+  expect(connectionPairingPayload("h".repeat(44), local, undefined, "https://not-saved.example", { version: 2 })).toMatchObject({ v: 2, routes: [local[1], local[0], local[2]] });
+  expect(local).toEqual(copy);
 });
 
 
@@ -80,4 +92,16 @@ it("renewed private pairing addresses preserve other paths, while public or trus
   expect(() => renewedPairingRoutes(identity, { ...payload(fresh), hubPublicKey: "other" })).toThrow();
   expect(() => renewedPairingRoutes({ hubPublicKey, routes: [relay] }, payload(fresh))).toThrow("pairing_route_confirmation_required");
   expect(identity.routes).toEqual([lan, vpn, relay]);
+});
+
+it("converting a CA-pinned route to Cloudflare strips custom CA and invalid Cloudflare origins produce a dedicated error", () => {
+  const converted = multipathConfiguration(
+    [lan],
+    [{ name: "Cloudflare", url: relay.url, label: "CF" }],
+    [lan, relay],
+  );
+  expect(converted.routes).toEqual([lan, { name: "Cloudflare", url: relay.url, label: "CF" }]);
+  expect(converted.routes[1]?.certificateAuthority).toBeUndefined();
+  expect(() => multipathConfiguration([], [{ name: "Cloudflare", url: "http://127.0.0.1:8788" }], [])).toThrow(/Cloudflare Tunnel/);
+  expect(() => multipathConfiguration([], [{ name: "Cloudflare", url: "https://127.0.0.2" }], [])).toThrow(/Cloudflare Tunnel/);
 });

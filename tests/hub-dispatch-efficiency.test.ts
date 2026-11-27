@@ -138,6 +138,39 @@ it.each(["none", "before", "after"] as const)("allows foreground success after a
   expect(await dispatch.show(owner, t.id)).toMatchObject({ status: "needs_review", paused: timing !== "none", attempts: [{ outcome: "completed" }] });
 });
 
+it("skips the source lookup and later sweep work while idle, and resumes it when work exists", async () => {
+  const source = vi.fn(async () => ({ hostId: "host", hostName: "test" }));
+  await dispatch.stop();
+  dispatch = new HubDispatch(store, { source, conversationCreated: () => {}, stop: async () => {} });
+  dispatch.workers = { catalog: async () => ({ engines: [] }), dispatchWorker: async () => "w", ticketWorkspace: async () => directory };
+  const queries: string[] = [];
+  for (const method of ["all", "get"] as const) {
+    const original = store.db[method].bind(store.db);
+    vi.spyOn(store.db, method).mockImplementation(async (sql: string, params?: unknown[]) => { queries.push(sql); return original(sql, params as never) as never; });
+  }
+  await dispatch.sweep();
+  expect(source).not.toHaveBeenCalled();
+  expect(queries).toHaveLength(2);
+  // A pending batch summary alone still needs the sweep.
+  await store.db.run("INSERT INTO meta(key,value) VALUES('dispatch:pending-batch-summary:b1','b1')");
+  await dispatch.sweep();
+  expect(source).toHaveBeenCalledTimes(1);
+  await store.db.run("DELETE FROM meta WHERE key LIKE 'dispatch:pending-batch-summary:%'");
+  // So does a queued, unpaused batch ticket that auto-advance may start.
+  const queued = await dispatch.create(owner, "d", { requestId: "queued", title: "Queued", request: "Later" });
+  await store.db.run("UPDATE dispatch_tickets SET batch_id='b2', batch_index=0 WHERE id=?", [queued.id]);
+  await dispatch.sweep();
+  expect(source).toHaveBeenCalledTimes(2);
+  await store.db.run("UPDATE dispatch_tickets SET paused=1 WHERE id=?", [queued.id]);
+  await dispatch.sweep();
+  expect(source).toHaveBeenCalledTimes(2);
+  // And a working ticket is settled as before.
+  await working();
+  const beforeWorkingSweep = source.mock.calls.length;
+  await dispatch.sweep();
+  expect(source.mock.calls.length).toBe(beforeWorkingSweep + 1);
+});
+
 it("does not use a scoped-only success as foreground stop completion proof", async () => {
   const t = await working(), a = t.attempts[0]!;
   await store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=?", [a.inputMessageId]);

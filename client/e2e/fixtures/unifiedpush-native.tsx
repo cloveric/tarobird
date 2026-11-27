@@ -5,7 +5,7 @@ import { plugins } from "./unifiedpush-core.js";
 import { NotificationSettings } from "../../src/NotificationSettings.js";
 import { UnifiedPushSettings } from "../../src/UnifiedPushSettings.js";
 import { enableUnifiedPush, migrateLegacyUnifiedPush, maintainUnifiedPush, pushScopeFor, unregisterHostNotifications, type UnifiedPushNative } from "../../src/unifiedpush.js";
-import { clearLocalPush, enableNotifications, type NotificationState } from "../../src/notifications.js";
+import { clearHostPush, clearLocalPush, enableNotifications, type NotificationState } from "../../src/notifications.js";
 import type { RuntimeHost } from "../../src/host-registry.js";
 import type { HubConnection } from "../../src/connection.js";
 import type { UnifiedScope, UnifiedRegistration } from "../../src/unifiedpush-controller.js";
@@ -26,8 +26,11 @@ const remove = async (scope: Pick<UnifiedScope, "instance">) => {
   if (failCleanup) { failCleanup = false; throw new Error("unifiedpush_storage_failed"); }
   records.delete(scope.instance); emit({ ...record, phase: "removed" });
 };
-const nativeCalls: UnifiedScope[] = [], preferences: Record<number, NotificationState["preferences"]> = {};
+const nativeCalls: UnifiedScope[] = [], clearedHostNotifications: string[] = [], preferences: Record<number, NotificationState["preferences"]> = {};
 const native: UnifiedPushNative = {
+  notificationStatus: async () => ({ appEnabled: firebaseFixture.permission === "granted", channel: "enabled" }),
+  openNotificationSettings: async () => {},
+  clearHostNotifications: async ({ hostId }) => { clearedHostNotifications.push(hostId); },
   distributors: async () => { if (failDistributorRead) throw new Error("fixture_native_read_failure"); return { distributors: [{ id: "one", name: "Distributor One" }, { id: "two", name: "Distributor Two" }] }; },
   state: async (scope) => { nativeCalls.push(structuredClone(scope)); return oldNative ? { instance: scope.deviceId } : snapshot(scope); },
   register: async (scope) => {
@@ -76,6 +79,7 @@ Object.assign(window, { unifiedNativeFixture: {
   controls(options: { nativeRead?: boolean; refresh?: boolean; cleanupBefore?: boolean; put?: boolean; delete?: boolean; cleanup?: boolean; holdPut?: boolean; holdPreferences?: boolean; oldNative?: boolean }) { failDistributorRead = options.nativeRead ?? false; failRefresh = options.refresh ?? false; failCleanupBefore = options.cleanupBefore ?? false; failPut = options.put ?? false; failDelete = options.delete ?? false; failCleanup = options.cleanup ?? false; holdPut = options.holdPut ?? false; holdPreferences = options.holdPreferences ?? false; oldNative = options.oldNative ?? false; },
   firebase: firebaseFixture,
   clear: () => clearLocalPush(),
+  clearHost: (index: number) => { const scope = pushScopeFor(connections[index]!); return clearHostPush({ id: scope.hostId, deviceId: scope.deviceId, databaseName: `fixture_${index}` } as RuntimeHost); },
   release() { release?.(); release = undefined; },
-  snapshot: () => ({ records: [...records.values()], remote, log: [...log] }),
+  snapshot: () => ({ records: [...records.values()], remote, log: [...log], clearedHostNotifications: [...clearedHostNotifications] }),
 } });

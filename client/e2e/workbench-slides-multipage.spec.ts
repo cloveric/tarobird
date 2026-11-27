@@ -28,10 +28,10 @@ async function fixture(page: Page) {
 }
 const panel = (page: Page) => page.getByRole("complementary", { name: "工作台", exact: true });
 
-test('Baoyu PPT keeps a nine-slide deck ordered across edits and reopen on a phone-sized viewport',async({page},info)=>{
+test('a presentation keeps a nine-slide deck ordered across edits and reopen on a phone-sized viewport',async({page},info)=>{
   test.setTimeout(90000);const f=await fixture(page);
   try {
-    const created=await f.command({requestId:'nine-slides',operation:'design.create',payload:{title:'Baoyu PPT 多页验收',format:'slides'}});
+    const created=await f.command({requestId:'nine-slides',operation:'design.create',payload:{title:'演示文稿多页验收',format:'slides'}});
     expect(created).toMatchObject({status:'applied',saved:true});
     const target={...created.target,tabId:(created.result as {tabId:string}).tabId};
     const read=await f.command({requestId:'deck-index',operation:'design.read',target,payload:{path:'project/deck.json'}});
@@ -44,7 +44,14 @@ test('Baoyu PPT keeps a nine-slide deck ordered across edits and reopen on a pho
     await expect(editor.getByRole('heading',{name:'第 1 页',exact:true})).toBeVisible({timeout:20000});
     for(let i=2;i<=9;i++){await editor.getByRole('button',{name:'Next slide',exact:true}).click();await expect(editor.getByRole('heading',{name:`第 ${i} 页`,exact:true})).toBeVisible();}
     await expect(editor.getByRole('button',{name:'Next slide',exact:true})).toBeDisabled();
-    await page.screenshot({path:info.outputPath('baoyu-ppt-phone.png')});
+    // Phone read-only presentation preview hides History Restore controls.
+    await expect(panel(page).getByText('手机端仅预览',{exact:true})).toBeVisible();
+    await panel(page).getByRole('button',{name:'历史',exact:true}).click();
+    const historyDialog=page.getByRole('dialog',{name:'版本历史',exact:true});
+    await expect(historyDialog).toBeVisible();
+    await expect(historyDialog.getByRole('button',{name:'恢复整版',exact:true})).toHaveCount(0);
+    await historyDialog.getByRole('button',{name:'关闭',exact:true}).click();
+    await page.screenshot({path:info.outputPath('presentation-phone.png')});
     await page.reload();await waitForClientOnline(page);await selectConversation(page,f.conversation.title);await page.getByRole('button',{name:'工作台',exact:true}).click();
     await expect(editor.getByRole('heading',{name:'第 1 页',exact:true})).toBeVisible({timeout:20000});
     const restored=await f.command({requestId:'deck-readback',operation:'design.read',target:{deviceId:(await f.targets())[0].deviceId,windowId:(await f.targets())[0].windowId,tabId:target.tabId},payload:{path:'project/deck.json'}});

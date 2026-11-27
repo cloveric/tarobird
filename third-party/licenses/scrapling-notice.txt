@@ -1,0 +1,4 @@
+Scrapling (https://github.com/D4Vinci/Scrapling)
+
+Upstream fetching reference attributed in skills/scrapling/SKILL.md.
+See upstream repository for complete license terms (BSD-3-Clause / MIT reference notice retained per LICENSING.md).

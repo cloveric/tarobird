@@ -33,11 +33,35 @@ describe('projectReply', () => {
     expect(agentSignal([activity])).toBe(IDLE_AGENT);
   });
 
-  it('does not count forwarded or mirrored work as this conversation running', () => {
-    const activity = { unread: {}, replies: {} };
+  it('does not count forwarded, mirrored or active transcription cards as a Bot reply working', () => {
+    const activity: { unread: Record<string, number>; replies?: Record<string, BotReply>; workingReplies?: Record<string, number> } = { unread: {}, replies: {} };
     projectReply(activity, message('forward', 'streaming', 10, { forwardedFrom: { conversationId: 'x', messageId: 'y' } } as Partial<Message>), 10);
     projectReply(activity, message('mirror', 'streaming', 20, { blocks: [{ type: 'card', elements: [], extra: { agentBusStage: { runId: 'run', workspaceId: 'ws', stageId: 's1', status: 'running' } } }] }), 20);
+    projectReply(activity, message('transcribe', 'streaming', 30, { blocks: [{ type: 'card', elements: [{ type: 'markdown', text: '**正在转写音频…**' }], extra: { appTranscription: { version: 1, active: true, at: 30 } } }] }), 30);
+    expect(activity.replies).toEqual({});
     expect(agentSignal([activity])).toBe(IDLE_AGENT);
+  });
+
+  it('preserves unread error state and avoids false done/working signals for transcription cards', () => {
+    const failedActivity: { unread: Record<string, number>; replies?: Record<string, BotReply>; workingReplies?: Record<string, number> } = { unread: { prev_err: 1 }, replies: {} };
+    projectReply(failedActivity, message('prev_err', 'error', 10), 10);
+    expect(agentSignal([failedActivity])).toEqual({ state: 'failed', at: 10 });
+
+    // Starting and stopping/completing transcription must neither erase the unread error nor turn it into done.
+    projectReply(failedActivity, message('tr_1', 'streaming', 20, { blocks: [{ type: 'card', elements: [{ type: 'markdown', text: '**正在转写音频…**' }], extra: { appTranscription: { version: 1, active: true, at: 20 } } }] }), 20);
+    expect(agentSignal([failedActivity])).toEqual({ state: 'failed', at: 10 });
+    failedActivity.unread.tr_1 = 2;
+    projectReply(failedActivity, message('tr_1', 'complete', 20, { blocks: [{ type: 'card', elements: [{ type: 'markdown', text: '**已停止转写**' }], extra: { appTranscription: { version: 1, active: false, at: 20 } } }] }), 30);
+    expect(agentSignal([failedActivity])).toEqual({ state: 'failed', at: 10 });
+
+    // A stopped or completed transcription card alone while unread must stay idle, including without workingReplies.
+    const unprojected: { unread: Record<string, number>; replies?: Record<string, BotReply> } = { unread: { tr_2: 5 } };
+    projectReply(unprojected, message('tr_2', 'streaming', 40, { blocks: [{ type: 'card', elements: [{ type: 'markdown', text: '**正在转写音频…**' }], extra: { appTranscription: { version: 1, active: true, at: 40 } } }] }), 40);
+    expect(unprojected.replies).toBeUndefined();
+    expect(agentSignal([unprojected])).toBe(IDLE_AGENT);
+    projectReply(unprojected, message('tr_2', 'complete', 40, { blocks: [{ type: 'card', elements: [{ type: 'markdown', text: '**音频转写完成**' }], extra: { appTranscription: { version: 1, active: false, at: 40 } } }] }), 50);
+    expect(unprojected.replies).toBeUndefined();
+    expect(agentSignal([unprojected])).toBe(IDLE_AGENT);
   });
 
   it('keeps the newest ordinary reply per Bot and follows its status', () => {

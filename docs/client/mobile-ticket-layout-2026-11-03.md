@@ -1,6 +1,6 @@
 # Phone ticket list layout
 
-The phone Chancellor ticket list spread the title/status, update time and
+The phone Superagent ticket list spread the title/status, update time and
 pause/cancel actions across three rows. Queued tickets with no execution metadata
 left most of the time row empty, while the actions looked like detached text.
 

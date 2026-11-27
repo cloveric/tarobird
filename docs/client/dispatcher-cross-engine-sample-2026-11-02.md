@@ -1,4 +1,4 @@
-# Chancellor multi-engine selection: bounded live sample
+# Superagent multi-engine selection: bounded live sample
 
 ## Scope
 

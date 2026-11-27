@@ -24,6 +24,7 @@ import {
 import { getNormalizedConversationKey } from "../../runtime/conversation-key.js";
 import type { ResumeState } from "../../state/instance-config.js";
 import type { Locale } from "../../runtime/locale.js";
+import { hostT } from "../../locales/index.js";
 import { parseBoardPlanOutput, renderBoardPlanPrompt } from "./board-plan.js";
 import type { CoreCommandMessage } from "./command-message.js";
 
@@ -293,15 +294,11 @@ function isBoardWorkspaceMode(value: string): value is BoardTaskWorkspace["mode"
 }
 
 function renderBoardUsage(locale: Locale): string {
-  return locale === "zh"
-    ? "用法: /board [list|add|plan|desc|accept|priority|labels|check|assign|dep|limits|worktree|workspace|heartbeat|recover|review|approve|reject|ready|run|start|fail|runs|block|unblock|done]"
-    : "Usage: /board [list|add|plan|desc|accept|priority|labels|check|assign|dep|limits|worktree|workspace|heartbeat|recover|review|approve|reject|ready|run|start|fail|runs|block|unblock|done]";
+  return hostT(locale, "用法: /board [list|add|plan|desc|accept|priority|labels|check|assign|dep|limits|worktree|workspace|heartbeat|recover|review|approve|reject|ready|run|start|fail|runs|block|unblock|done]");
 }
 
 function renderNoBoardTasks(locale: Locale): string {
-  return locale === "zh"
-    ? "当前 Board 还没有任务。用 /board add <任务> 添加。"
-    : "No board tasks yet. Use /board add <task> to add one.";
+  return hostT(locale, "当前 Board 还没有任务。用 /board add <任务> 添加。");
 }
 
 function renderTaskLine(task: BoardTaskRecord): string {
@@ -320,47 +317,30 @@ function renderTaskList(tasks: BoardTaskRecord[], locale: Locale): string {
 function renderTaskDetail(task: BoardTaskRecord, locale: Locale): string {
   const lines = [
     `${task.id}: ${task.title}`,
-    `status: ${task.status}`,
-    `priority: ${task.priority}`,
-    `assignee: ${task.assignee ?? "none"}`,
-    `labels: ${task.labels.length > 0 ? task.labels.join(", ") : "none"}`,
-    `review: ${task.review.required ? task.review.reviewer ?? "required" : "off"}`,
-    `dependencies: ${task.dependencies.length > 0 ? task.dependencies.join(", ") : "none"}`,
-    task.workspace ? `workspace: ${task.workspace.mode}${task.workspace.path ? ` ${task.workspace.path}` : ""}${task.workspace.branch ? ` branch:${task.workspace.branch}` : ""}` : "workspace: default",
+    `${hostT(locale, "状态:")} ${task.status}`,
+    `${hostT(locale, "优先级:")} ${task.priority}`,
+    `${hostT(locale, "负责人:")} ${task.assignee ?? "none"}`,
+    `${hostT(locale, "标签:")} ${task.labels.length > 0 ? task.labels.join(", ") : "none"}`,
+    `${hostT(locale, "复核:")} ${task.review.required ? task.review.reviewer ?? "required" : "off"}`,
+    `${hostT(locale, "依赖:")} ${task.dependencies.length > 0 ? task.dependencies.join(", ") : "none"}`,
+    task.workspace ? `${hostT(locale, "工作区:")} ${task.workspace.mode}${task.workspace.path ? ` ${task.workspace.path}` : ""}${task.workspace.branch ? ` branch:${task.workspace.branch}` : ""}` : `${hostT(locale, "工作区:")} default`,
   ];
   if (task.description) {
-    lines.push(`description: ${task.description}`);
+    lines.push(`${hostT(locale, "描述:")} ${task.description}`);
   }
   if (task.acceptanceCriteria.length > 0) {
-    lines.push(`acceptance: ${task.acceptanceCriteria.join(" | ")}`);
+    lines.push(`${hostT(locale, "完成标准:")} ${task.acceptanceCriteria.join(" | ")}`);
   }
   if (task.checklist.length > 0) {
-    lines.push(`checklist: ${task.checklist.map((item) => `${item.done ? "x" : " "}${item.id}:${item.text}`).join(" | ")}`);
+    lines.push(`${hostT(locale, "清单:")} ${task.checklist.map((item) => `${item.done ? "x" : " "}${item.id}:${item.text}`).join(" | ")}`);
   }
   if (task.blockedReason) {
-    lines.push(`blocked: ${task.blockedReason}`);
+    lines.push(`${hostT(locale, "阻塞:")} ${task.blockedReason}`);
   }
   if (task.summary) {
-    lines.push(`summary: ${task.summary}`);
+    lines.push(`${hostT(locale, "总结:")} ${task.summary}`);
   }
-  lines.push(`source: ${task.createdBy.conversationKey}`);
-  if (locale === "zh") {
-    return lines
-      .join("\n")
-      .replace("status:", "状态:")
-      .replace("priority:", "优先级:")
-      .replace("assignee:", "负责人:")
-      .replace("labels:", "标签:")
-      .replace("review:", "复核:")
-      .replace("dependencies:", "依赖:")
-      .replace("workspace:", "工作区:")
-      .replace("description:", "描述:")
-      .replace("acceptance:", "完成标准:")
-      .replace("checklist:", "清单:")
-      .replace("blocked:", "阻塞:")
-      .replace("summary:", "总结:")
-      .replace("source:", "来源:");
-  }
+  lines.push(`${hostT(locale, "来源:")} ${task.createdBy.conversationKey}`);
   return lines.join("\n");
 }
 
@@ -370,7 +350,7 @@ function renderBoardLimits(limits: { global: number; perAssignee: number; perCon
 
 function renderTaskRuns(task: BoardTaskRecord, locale: Locale): string {
   if (task.runs.length === 0) {
-    return locale === "zh" ? `${task.id} 还没有 run。` : `${task.id} has no runs yet.`;
+    return hostT(locale, "{0} 还没有 run。", task.id);
   }
   const lines = task.runs.map((run) => {
     const detail = run.error ?? run.summary ?? "";
@@ -380,25 +360,21 @@ function renderTaskRuns(task: BoardTaskRecord, locale: Locale): string {
 }
 
 function renderInvalidTaskId(locale: Locale): string {
-  return locale === "zh" ? "任务 ID 无效，应类似 B1。" : "Invalid task id. Expected something like B1.";
+  return hostT(locale, "任务 ID 无效，应类似 B1。");
 }
 
 function renderTaskNotFound(id: string, locale: Locale): string {
-  return locale === "zh" ? `未找到任务 ${id}。` : `Task ${id} was not found.`;
+  return hostT(locale, "未找到任务 {0}。", id);
 }
 
 function renderTaskCreated(task: BoardTaskRecord, locale: Locale): string {
-  return locale === "zh"
-    ? `已创建 ${task.id}: ${task.title}`
-    : `Created ${task.id}: ${task.title}`;
+  return hostT(locale, "已创建 {0}: {1}", task.id, task.title);
 }
 
 function renderPlanCreated(tasks: BoardTaskRecord[], locale: Locale): string {
   const ids = tasks.map((task) => task.id).join(", ");
   const lines = tasks.map((task) => renderTaskLine(task));
-  return locale === "zh"
-    ? [`已创建计划: ${ids}`, ...lines].join("\n")
-    : [`Created plan: ${ids}`, ...lines].join("\n");
+  return [hostT(locale, "已创建计划: {0}", ids), ...lines].join("\n");
 }
 
 function renderWorkspaceUpdated(task: BoardTaskRecord, locale: Locale): string {
@@ -408,62 +384,38 @@ function renderWorkspaceUpdated(task: BoardTaskRecord, locale: Locale): string {
     workspace.path,
     workspace.branch ? `branch=${workspace.branch}` : undefined,
   ].filter(Boolean).join(" ");
-  return locale === "zh"
-    ? `工作区 ${task.id}: ${detail}`
-    : `Workspace ${task.id}: ${detail}`;
+  return hostT(locale, "工作区 {0}: {1}", task.id, detail);
 }
 
 function renderPromoted(promotedTaskIds: string[], locale: Locale): string | null {
   if (promotedTaskIds.length === 0) {
     return null;
   }
-  return locale === "zh"
-    ? `已推进: ${promotedTaskIds.join(", ")}`
-    : `Promoted: ${promotedTaskIds.join(", ")}`;
+  return hostT(locale, "已推进: {0}", promotedTaskIds.join(", "));
 }
 
 function renderUnmetDependencies(id: string, dependencies: string[], locale: Locale): string {
-  return locale === "zh"
-    ? `${id} 还不能 ready，未完成依赖: ${dependencies.join(", ")}`
-    : `${id} is not ready yet. Unmet dependencies: ${dependencies.join(", ")}`;
+  return hostT(locale, "{0} 还不能 ready，未完成依赖: {1}", id, dependencies.join(", "));
 }
 
 function renderBoardRunPrompt(task: BoardTaskRecord, locale: Locale): string {
-  const lines = locale === "zh"
-    ? [
-        `你正在执行 Board 任务 ${task.id}。`,
-        "",
-        `标题：${task.title}`,
-        task.description ? `描述：${task.description}` : null,
-        `优先级：${task.priority}`,
-        task.workspace ? `工作区：${task.workspace.mode}${task.workspace.path ? ` ${task.workspace.path}` : ""}` : null,
-        task.labels.length > 0 ? `标签：${task.labels.join(", ")}` : null,
-        task.acceptanceCriteria.length > 0
-          ? ["完成标准：", ...task.acceptanceCriteria.map((criterion) => `- ${criterion}`)].join("\n")
-          : null,
-        task.checklist.length > 0
-          ? ["清单：", ...task.checklist.map((item) => `- [${item.done ? "x" : " "}] ${item.id} ${item.text}`)].join("\n")
-          : null,
-        "",
-        "请完成这张卡，并返回结果摘要、关键改动、产物路径或阻塞原因。不要直接修改 Board 状态。",
-      ]
-    : [
-        `You are executing Board task ${task.id}.`,
-        "",
-        `Title: ${task.title}`,
-        task.description ? `Description: ${task.description}` : null,
-        `Priority: ${task.priority}`,
-        task.workspace ? `Workspace: ${task.workspace.mode}${task.workspace.path ? ` ${task.workspace.path}` : ""}` : null,
-        task.labels.length > 0 ? `Labels: ${task.labels.join(", ")}` : null,
-        task.acceptanceCriteria.length > 0
-          ? ["Acceptance criteria:", ...task.acceptanceCriteria.map((criterion) => `- ${criterion}`)].join("\n")
-          : null,
-        task.checklist.length > 0
-          ? ["Checklist:", ...task.checklist.map((item) => `- [${item.done ? "x" : " "}] ${item.id} ${item.text}`)].join("\n")
-          : null,
-        "",
-        "Complete this card and return a concise result summary, key changes, artifacts, or blockers. Do not update Board state directly.",
-      ];
+  const lines: (string | null)[] = [
+    hostT(locale, "你正在执行 Board 任务 {0}。", task.id),
+    "",
+    hostT(locale, "标题：{0}", task.title),
+    task.description ? hostT(locale, "描述：{0}", task.description) : null,
+    hostT(locale, "优先级：{0}", task.priority),
+    task.workspace ? hostT(locale, "工作区：{0}{1}", task.workspace.mode, task.workspace.path ? ` ${task.workspace.path}` : "") : null,
+    task.labels.length > 0 ? hostT(locale, "标签：{0}", task.labels.join(", ")) : null,
+    task.acceptanceCriteria.length > 0
+      ? [hostT(locale, "完成标准："), ...task.acceptanceCriteria.map((criterion) => `- ${criterion}`)].join("\n")
+      : null,
+    task.checklist.length > 0
+      ? [hostT(locale, "清单："), ...task.checklist.map((item) => `- [${item.done ? "x" : " "}] ${item.id} ${item.text}`)].join("\n")
+      : null,
+    "",
+    hostT(locale, "请完成这张卡，并返回结果摘要、关键改动、产物路径或阻塞原因。不要直接修改 Board 状态。"),
+  ];
   return lines.filter((line): line is string => line !== null).join("\n");
 }
 
@@ -483,21 +435,16 @@ function renderBoardRunSucceeded(input: {
   locale: Locale;
 }): string {
   const target = input.targetKind === "mini" ? `Mini Bus ${input.targetName}` : `Agent Bus ${input.targetName}`;
-  const status = input.task.status === "review"
-    ? (input.locale === "zh" ? "进入复核" : "moved to review")
-    : (input.locale === "zh" ? "已完成" : "done");
   const summary = input.task.summary ? clipBoardRunSummary(input.task.summary) : "";
   const promotedText = renderPromoted(input.promotedTaskIds, input.locale);
-  const header = input.locale === "zh"
-    ? `已通过 ${target} 执行 ${input.task.id}，状态：${status}。`
-    : `Ran ${input.task.id} via ${target}; status: ${status}.`;
+  const header = input.task.status === "review"
+    ? hostT(input.locale, "已通过 {0} 执行 {1}，状态：进入复核。", target, input.task.id)
+    : hostT(input.locale, "已通过 {0} 执行 {1}，状态：已完成。", target, input.task.id);
   return [header, summary ? `\n${summary}` : null, promotedText].filter((line): line is string => line !== null).join("\n");
 }
 
 function renderBoardRunFailed(id: string, detail: string, locale: Locale): string {
-  return locale === "zh"
-    ? `执行失败 ${id}：${detail}`
-    : `Run failed ${id}: ${detail}`;
+  return hostT(locale, "执行失败 {0}：{1}", id, detail);
 }
 
 function assertBoardRunReady(task: BoardTaskRecord): void {
@@ -754,7 +701,7 @@ export async function handleBoardCoreCommand(input: {
           locale,
           normalized,
           context,
-          text: locale === "zh" ? "Board plan 需要当前引擎来拆解任务。" : "Board plan requires the current engine to decompose tasks.",
+          text: hostT(locale, "Board plan 需要当前引擎来拆解任务。"),
           outcome: "invalid",
           action: "plan",
         });
@@ -868,9 +815,7 @@ export async function handleBoardCoreCommand(input: {
 
     if (action.kind === "limits") {
       if (action.key && action.value !== undefined && action.value <= 0) {
-        const text = locale === "zh"
-          ? "WIP limit 必须是正整数。"
-          : "WIP limit must be a positive integer.";
+        const text = hostT(locale, "WIP limit 必须是正整数。");
         await replyAndAudit({ stateDir, startedAt, locale, normalized, context, text, outcome: "invalid", action: "limits", metadata: { key: action.key, value: action.value } });
         return true;
       }
@@ -889,7 +834,7 @@ export async function handleBoardCoreCommand(input: {
 
     if (action.kind === "heartbeat") {
       const task = await store.heartbeatTask(action.id, action.note);
-      await replyAndAudit({ stateDir, startedAt, locale, normalized, context, text: locale === "zh" ? `已记录 ${task.id} heartbeat` : `Heartbeat ${task.id}`, action: "heartbeat", metadata: { boardTaskId: task.id } });
+      await replyAndAudit({ stateDir, startedAt, locale, normalized, context, text: hostT(locale, "已记录 {0} heartbeat", task.id), action: "heartbeat", metadata: { boardTaskId: task.id } });
       return true;
     }
 
@@ -897,8 +842,8 @@ export async function handleBoardCoreCommand(input: {
       const olderThanMinutes = action.olderThanMinutes ?? 15;
       const recovered = await store.recoverStaleRuns({ olderThanMs: olderThanMinutes * 60 * 1000 });
       const text = recovered.length > 0
-        ? (locale === "zh" ? `已恢复卡住的 Board run: ${recovered.map((task) => task.id).join(", ")}` : `Recovered stale board runs: ${recovered.map((task) => task.id).join(", ")}`)
-        : (locale === "zh" ? "没有发现卡住的 Board run。" : "No stale board runs found.");
+        ? hostT(locale, "已恢复卡住的 Board run: {0}", recovered.map((task) => task.id).join(", "))
+        : hostT(locale, "没有发现卡住的 Board run。");
       await replyAndAudit({ stateDir, startedAt, locale, normalized, context, text, action: "recover", metadata: { boardTaskIds: recovered.map((task) => task.id), olderThanMinutes } });
       return true;
     }
@@ -1043,8 +988,8 @@ export async function handleBoardCoreCommand(input: {
       const result = await store.completeTask(action.id, action.summary);
       const promotedText = renderPromoted(result.promotedTaskIds, locale);
       const completionText = result.task.status === "review"
-        ? locale === "zh" ? `已提交复核 ${result.task.id}` : `Submitted ${result.task.id} for review`
-        : locale === "zh" ? `已完成 ${result.task.id}` : `Done ${result.task.id}`;
+        ? hostT(locale, "已提交复核 {0}", result.task.id)
+        : hostT(locale, "已完成 {0}", result.task.id);
       await replyAndAudit({
         stateDir,
         startedAt,
@@ -1066,7 +1011,7 @@ export async function handleBoardCoreCommand(input: {
       locale,
       normalized,
       context,
-      text: locale === "zh" ? `Board 错误：${detail}` : `Board error: ${detail}`,
+      text: hostT(locale, "Board 错误：{0}", detail),
       outcome: "error",
       action: action.kind,
     });

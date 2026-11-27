@@ -13,7 +13,8 @@
 .screen-toolbar select{max-width:110px;min-width:0}.screen-toolbar select[aria-label]{text-overflow:ellipsis}
 .screen-toolbar button{white-space:nowrap}.screen-disconnect{display:grid;place-items:center;min-width:30px}
 .screen-state{font-size:11px;color:var(--muted);padding:0 10px 5px;margin:0;line-height:1.4;overflow-wrap:anywhere}
-.screen-viewport{flex:1;min-height:80px;overflow:auto;background:#151515;position:relative;overscroll-behavior:contain}
+.screen-stage{position:relative;flex:1;min-height:80px;display:flex;flex-direction:column;overflow:hidden}
+.screen-viewport{flex:1;min-height:0;overflow:auto;background:#151515;position:relative;overscroll-behavior:contain}
 .screen-fit{container-type:size;display:flex;justify-content:center;align-items:center}
 .screen-fit canvas{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
 .screen-viewport canvas{display:block;touch-action:none;flex:none;outline-offset:-3px}
@@ -41,11 +42,13 @@
 /* Fullscreen keeps the canvas edge-to-edge; hidden controls cannot take input. */
 .screen-fullscreen .screen-chrome{position:absolute;top:8px;left:8px;right:8px;border:1px solid var(--border);border-radius:8px;box-shadow:0 3px 16px #0003;transition:opacity .15s,transform .15s}
 .screen-fullscreen .screen-chrome-hidden{opacity:0;transform:translateY(calc(-100% - 10px));pointer-events:none}
+.screen-fullscreen .screen-stage{min-height:0;width:100%;height:100%}
 .screen-fullscreen .screen-viewport{min-height:0;width:100%;height:100%}
+.screen-fullscreen .screen-metrics-overlay{top:auto;bottom:18px;left:12px}
 .remote-screen-panel .screen-reveal{position:absolute;z-index:4;top:0;left:50%;transform:translateX(-50%);border-top:0;border-radius:0 0 6px 6px;padding:3px 16px;background:var(--bg);opacity:.8}
 .screen-connection-dialog{width:min(1100px,calc(100vw - 40px));max-width:calc(100vw - 40px);height:min(760px,calc(100dvh - 40px));padding:0}
 .screen-connection-dialog>.remote-screen-panel{position:relative;display:flex;flex-direction:column;width:100%;height:100%;max-width:none;flex:1;border:0;--side-panel-width:100%}
-.screen-connection-dialog .screen-viewport{flex:1;min-height:0}
+.screen-connection-dialog .screen-stage,.screen-connection-dialog .screen-viewport{flex:1;min-height:0}
 
 /* Keep readiness, system permissions and device grants distinct without
    repeating the service state or separating each status from its action. */
@@ -80,6 +83,23 @@
 @media(max-width:440px){.screen-readiness{gap:8px}.screen-permission-row{gap:8px}.screen-settings-heading{gap:6px}.screen-setting-row{flex-wrap:wrap}.screen-setting-row select{max-width:100%}}
 
 .screen-resolution{white-space:nowrap;font-variant-numeric:tabular-nums}
+.screen-quality-actual{display:block;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.screen-metrics-overlay{position:absolute;top:10px;left:10px;z-index:2;pointer-events:none;min-width:210px;max-width:min(320px,calc(100% - 20px));padding:8px 10px;border-radius:8px;background:rgba(15,18,22,.82);color:#f2f5f8;border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(6px);font-size:11px;line-height:1.45;font-variant-numeric:tabular-nums;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+.screen-metrics-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.screen-metrics-row span{color:rgba(242,245,248,.72);white-space:nowrap}
+.screen-metrics-row strong{color:#fff;font-weight:550;text-align:right;overflow-wrap:anywhere}
+.screen-mobile .screen-metrics-overlay{top:8px;left:8px;font-size:10.5px;padding:6px 8px;min-width:185px}
+.screen-metrics-toggle{cursor:pointer}
+.screen-metrics-toggle input[type="checkbox"]{accent-color:var(--mono-mark,var(--accent));flex:none}
+.screen-udp-boost{margin-top:14px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.screen-udp-boost-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.screen-udp-boost .screen-enable{color:var(--text);font-weight:550;font-size:13px}
+.screen-udp-boost .screen-settings-intro{margin:0}
+.screen-udp-detail{font-size:11.5px;color:var(--muted);line-height:1.45;margin:6px 0 0;font-family:var(--font-mono,ui-monospace,monospace);overflow-wrap:anywhere}
+.screen-udp-status{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.screen-udp-status[data-state="connected"]{color:var(--accent);font-weight:550}
+.screen-udp-status[data-state="fallback_tcp"]{color:var(--text)}
+.screen-udp-status[data-state="unsupported"]{color:var(--muted)}
 
 /* Native mobile viewing owns the available window, independently of chat width.
    Safe insets use the shared tokens: env() on iOS (Capacitor injects no
@@ -93,10 +113,17 @@
 .screen-mobile button,.screen-mobile .screen-window-actions .icon-button,.screen-mobile select{min-width:44px;min-height:44px;font-size:13px}
 .screen-mobile .screen-window-actions .icon-button{width:44px;height:44px;padding:10px}
 .screen-mobile .screen-state{font-size:12px;padding:0 10px 7px}
+.screen-mobile .screen-stage{min-height:0;overflow:hidden}
 .screen-mobile .screen-viewport{min-height:0;overflow:hidden;touch-action:none;contain:layout paint}
 .screen-mobile .screen-viewport canvas{position:absolute;left:50%;top:50%;max-width:none;max-height:none;transform-origin:center}
 .screen-mobile .screen-tools-popover{max-height:calc(var(--shell-height,100dvh) - 170px - var(--app-safe-top) - var(--app-safe-bottom));overscroll-behavior:contain}
 .screen-mobile .screen-display{gap:8px;flex-wrap:wrap}.screen-mobile .screen-display select{max-width:100%}
+.screen-mobile .screen-metrics-toggle{min-height:44px;flex-wrap:nowrap}
+.screen-mobile .screen-metrics-toggle input[type="checkbox"]{appearance:none;-webkit-appearance:none;position:relative;display:grid;place-items:center;width:44px;height:44px;min-width:44px;min-height:44px;margin:0 -4px 0 0;padding:0;border:0;background:transparent;cursor:pointer;flex:none}
+.screen-mobile .screen-metrics-toggle input[type="checkbox"]::before{content:"";width:38px;height:22px;border-radius:999px;border:1px solid var(--border);background:var(--surface);box-sizing:border-box;transition:background .15s,border-color .15s}
+.screen-mobile .screen-metrics-toggle input[type="checkbox"]::after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;background:var(--muted);transform:translateX(-8px);transition:transform .15s,background .15s}
+.screen-mobile .screen-metrics-toggle input[type="checkbox"]:checked::before{background:var(--mono-mark,var(--accent));border-color:var(--mono-mark,var(--accent))}
+.screen-mobile .screen-metrics-toggle input[type="checkbox"]:checked::after{background:var(--on-primary,#fff);transform:translateX(8px)}
 .screen-touch-help{font-size:12px;line-height:1.6;overflow-wrap:anywhere}
 .screen-mobile-keyboard{flex:none;max-height:45%;overflow:auto;overscroll-behavior:contain;padding:6px 8px;background:var(--bg);border-bottom:1px solid var(--border)}
 .screen-mobile-keys{display:flex;gap:5px;overflow:auto;padding-bottom:6px}.screen-mobile-keys>button{flex:none;white-space:nowrap}
@@ -118,7 +145,9 @@
 /* Monochrome without an accent: a deep grey instead of the black action fill. */
 :root[data-palette=mono]:is([data-mono-accent=none],:not([data-mono-accent])) .screen-mobile.screen-landscape{--screen-active-bg:color-mix(in srgb,var(--primary-bg) 72%,var(--bg))}
 .screen-landscape .screen-chrome{display:contents}
-.screen-mobile.screen-landscape .screen-viewport{grid-column:1;grid-row:1/4;min-width:0}
+.screen-mobile.screen-landscape .screen-stage{grid-column:1;grid-row:1/4;min-width:0}
+.screen-mobile.screen-landscape .screen-viewport{width:100%;height:100%;min-width:0}
+.screen-mobile.screen-landscape .screen-metrics-overlay{top:auto;bottom:8px;left:8px;padding:5px 7px;font-size:10px;line-height:1.35;min-width:170px;max-width:min(260px,calc(100% - 16px))}
 .screen-rail{grid-column:2;grid-row:1/-1;display:flex;flex-direction:column;align-items:center;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:6px 0 10px;box-sizing:border-box;border-left:1px solid var(--border);background:var(--bg)}
 .screen-rail-group{display:flex;flex-direction:column;align-items:center;gap:4px;flex:none}
 .screen-rail-group.screen-rail-session{margin-top:auto;padding-top:16px;gap:14px}

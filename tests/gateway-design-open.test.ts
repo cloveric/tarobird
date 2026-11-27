@@ -62,23 +62,23 @@ describe('Gateway design.open contract', () => {
     try {
       const file = path.join(stateDir, 'open.json'), request = vi.fn().mockResolvedValue({ requestId: 'owner-open', status: 'applied', saved: true, target: opener, revision: 1, result: { target: real, created: false } });
       const connect = (caps: string[]) => vi.spyOn(LocalHostClient, 'connect').mockResolvedValue({ request, close: vi.fn(), supports: (capability: string) => caps.includes(capability) } as never);
-      await writeFile(file, JSON.stringify({ operation: 'design.open', target: opener, payload: {} }));
-      connect([WORKBENCH_DESIGN_CAPABILITY]);
+      await writeFile(file, JSON.stringify({ operation: 'design.open', target: opener, payload: { format: 'slides' } }));
+      connect([WORKBENCH_SLIDES_CAPABILITY]);
       await expect(runWorkbenchCommand(stateDir, 'run', 'conv', { from: file, requestId: 'owner-open' })).rejects.toThrow('workbench_design_open_host_update_required');
-      connect([WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY]);
-      await writeFile(file, JSON.stringify({ operation: 'design.open', payload: {} }));
+      connect([WORKBENCH_SLIDES_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY]);
+      await writeFile(file, JSON.stringify({ operation: 'design.open', payload: { format: 'slides' } }));
       await expect(runWorkbenchCommand(stateDir, 'run', 'conv', { from: file, requestId: 'owner-open' })).rejects.toThrow('workbench_open_target_required');
       expect(request).not.toHaveBeenCalled();
-      await writeFile(file, JSON.stringify({ operation: 'design.open', target: opener, payload: {} }));
+      await writeFile(file, JSON.stringify({ operation: 'design.open', target: opener, payload: { format: 'slides' } }));
       expect(await runWorkbenchCommand(stateDir, 'run', 'conv', { from: file, requestId: 'owner-open' })).toMatchObject({ status: 'applied', result: { target: real } });
-      expect(request).toHaveBeenCalledWith('/api/conversations/conv/workbench/commands', 'POST', { requestId: 'owner-open', operation: 'design.open', target: opener, payload: {} });
+      expect(request).toHaveBeenCalledWith('/api/conversations/conv/workbench/commands', 'POST', { requestId: 'owner-open', operation: 'design.open', target: opener, payload: { format: 'slides' } });
     } finally { vi.restoreAllMocks(); vi.unstubAllEnvs(); }
   });
 
   it('guidance requires an explicit Design request and the returned real target', () => {
     const guide = appCapabilityInstructions('widgets', { widgetsEnabled: true });
     expect(guide).toContain("operation:'design.open'");
-    expect(guide).toContain("ordinary requests to make PPT, presentations, graphics or designs do not select Baoyu");
+    expect(guide).toContain("ordinary requests that only ask for a standalone .pptx file, retain the engine's built-in presentation skill");
     expect(guide).toContain("format:'slides'");
     expect(guide).toMatch(/not a mention, discussion, comparison or question/);
     expect(guide).toMatch(/Use result\.target for later design\.read\/design\.publish/);
@@ -99,22 +99,22 @@ describe('Gateway design.open contract', () => {
       const channel = new GatewayChannel(transport); channels.push(channel);
       return { channel, transport, calls };
     }
-    async function openInTurn(g: ReturnType<typeof gateway>, id: string, workbench?: WorkbenchContext, format?: "slides") {
+    async function openInTurn(g: ReturnType<typeof gateway>, id: string, workbench?: WorkbenchContext, format: "slides" = "slides") {
       const outcome = new Promise<any>((resolve, reject) => g.channel.on('message', async () => {
         try {
           const turnTools = tools(undefined, g.channel);
-          const result = await turnTools.call({ name: 'app_workbench', arguments: { requestId: `open-${id}`, operation: 'design.open', payload: format ? {format} : {} }, callId: id, sessionId: 'session', abortSignal: new AbortController().signal });
+          const result = await turnTools.call({ name: 'app_workbench', arguments: { requestId: `open-${id}`, operation: 'design.open', payload: { format } }, callId: id, sessionId: 'session', abortSignal: new AbortController().signal });
           resolve({ ...JSON.parse(result.text), isError: !!result.isError });
         } catch (error) { reject(error); }
       }));
       await g.transport.onMessage(message(`msg_${id}`), conversation, undefined, undefined, workbench);
       return outcome;
     }
-    const all = [WORKBENCH_CAPABILITY, WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY];
+    const all = [WORKBENCH_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY];
     const appliedReceipt = async (_method: string, params: any) => ({ requestId: params.request.requestId, target: opener, status: 'applied', saved: true, revision: 1, result: { target: real, created: false } });
 
     it('an older Host dispatches nothing; opener resolution is left to the Host', async () => {
-      const oldHost = gateway([WORKBENCH_CAPABILITY, WORKBENCH_DESIGN_CAPABILITY], appliedReceipt);
+      const oldHost = gateway([WORKBENCH_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY], appliedReceipt);
       expect(await openInTurn(oldHost, 'old-host', { target: opener, openTarget: opener })).toMatchObject({ status: 'not_executed', error: 'workbench_design_open_host_update_required', isError: true });
       expect(oldHost.calls).toEqual([]);
       // A later adopted input may carry the opener, so the Gateway never decides from its own frozen context.
@@ -124,10 +124,10 @@ describe('Gateway design.open contract', () => {
     });
 
     it('requires the slides capability before dispatching a Baoyu PPT open', async () => {
-      const old = gateway(all, appliedReceipt);
+      const old = gateway([WORKBENCH_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY], appliedReceipt);
       expect(await openInTurn(old, 'old-slides', {target:opener,openTarget:opener}, 'slides')).toMatchObject({status:'not_executed',error:'workbench_slides_host_update_required'});
       expect(old.calls).toHaveLength(0);
-      const current = gateway([...all,WORKBENCH_SLIDES_CAPABILITY],appliedReceipt);
+      const current = gateway(all, appliedReceipt);
       expect(await openInTurn(current,'new-slides',{target:opener,openTarget:opener},'slides')).toMatchObject({status:'applied',saved:true});
       expect(current.calls[0].params.request.payload).toEqual({format:'slides'});
     });
@@ -135,7 +135,7 @@ describe('Gateway design.open contract', () => {
     it('sends the turn-bound request and returns the real target receipt', async () => {
       const g = gateway(all, appliedReceipt);
       expect(await openInTurn(g, 'ok', { target: opener, openTarget: opener })).toMatchObject({ status: 'applied', saved: true, target: opener, result: { target: real, created: false }, isError: false });
-      expect(g.calls).toEqual([{ method: 'workbench.command', params: { conversationId: 'conv', contextMessageId: 'msg_ok', request: { requestId: 'open-ok', operation: 'design.open', payload: {}, contextMessageId: 'msg_ok' } } }]);
+      expect(g.calls).toEqual([{ method: 'workbench.command', params: { conversationId: 'conv', contextMessageId: 'msg_ok', request: { requestId: 'open-ok', operation: 'design.open', payload: { format: 'slides' }, contextMessageId: 'msg_ok' } } }]);
     });
 
     it('reports Host opener rejections as not executed, never to be retried elsewhere', async () => {

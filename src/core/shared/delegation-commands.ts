@@ -13,11 +13,12 @@ import {
   type CoreTurnContext,
 } from "./turn-bookkeeping.js";
 import type { Locale } from "../../runtime/locale.js";
+import { hostT } from "../../locales/index.js";
 import { commandReplyChunks } from "./command-reply.js";
 import type { CoreCommandMessage } from "./command-message.js";
 
 function renderNonEmptyEngineText(text: string, locale: Locale): string {
-  return text.trim() || (locale === "zh" ? "（引擎未返回文本）" : "(The engine returned no text.)");
+  return text.trim() || hostT(locale, "（引擎未返回文本）");
 }
 
 function parseBtwCommand(text: string): { prompt: string } | null {
@@ -56,25 +57,13 @@ function buildChainStagePrompt(input: {
   previousInstance: string;
   previousOutput: string;
 }): string {
-  if (input.locale === "zh") {
-    return [
-      `原始问题：${input.originalPrompt}`,
-      "",
-      `上一阶段（${input.previousInstance}）输出：`,
-      input.previousOutput,
-      "",
-      "请在此基础上继续处理，并返回你的结果。",
-    ].join("\n");
-  }
-
-  return [
-    `Original prompt: ${input.originalPrompt}`,
-    "",
-    `Previous stage output (${input.previousInstance}):`,
+  return hostT(
+    input.locale,
+    "原始问题：{0}\n\n上一阶段（{1}）输出：\n{2}\n\n请在此基础上继续处理，并返回你的结果。",
+    input.originalPrompt,
+    input.previousInstance,
     input.previousOutput,
-    "",
-    "Continue from this point and return your updated result.",
-  ].join("\n");
+  );
 }
 
 export interface DelegationCommandContext extends CoreTurnContext {
@@ -140,15 +129,16 @@ export async function handleDelegationCoreCommand(input: {
   } = input;
 
   if (context.abortSignal?.aborted && /^\/(?:ask|fan|chain|verify|btw)(?:@\w+)?\s+/i.test(normalized.text.trim())) {
-    await context.api.sendMessage(normalized.chatId, locale === "zh" ? "协作已停止，任务未启动。" : "Collaboration stopped before the task started.");
+    await context.api.sendMessage(normalized.chatId, hostT(locale, "协作已停止，任务未启动。"));
     return true;
   }
 
   // Validate explicit task members before starting any local or delegated work.
   // The Bus still checks both sides' permissions at each actual request.
-  const replyUsage = (mode: string) => context.api.sendMessage(normalized.chatId, locale === "zh"
-    ? `用法：${mode === "ask" ? "/ask <Bot> <任务>" : `/${mode} <任务>`}。请填写任务内容；尚未启动协作。`
-    : `Usage: ${mode === "ask" ? "/ask <Bot> <task>" : `/${mode} <task>`}. Enter a task; no collaboration was started.`);
+  const replyUsage = (mode: string) => context.api.sendMessage(
+    normalized.chatId,
+    hostT(locale, "用法：{0}。请填写任务内容；尚未启动协作。", mode === "ask" ? hostT(locale, "/ask <Bot> <任务>") : hostT(locale, "/{0} <任务>", mode)),
+  );
   let taskPlan: ReturnType<typeof parseDelegationPlan> | undefined;
   const taskCommand = normalized.text.trim().match(/^\/(fan|chain|verify)(?:@\w+)?\s+([\s\S]+)$/i);
   if (taskCommand && taskCommand[2]!.startsWith("--bots=")) {
@@ -163,7 +153,7 @@ export async function handleDelegationCoreCommand(input: {
       const config = await loadBusConfig(stateDir);
       if (taskPlan.targets!.some(id => id === (context.instanceName ?? "default") ? !input.agentBusMembers : !config || !isPeerAllowed(config, id)) || taskCommand[1]!.toLowerCase() === "verify" && taskPlan.targets!.length !== 1) throw new Error("collaboration_target_not_allowed");
     } catch {
-      await context.api.sendMessage(normalized.chatId, locale === "zh" ? "协作成员无效或尚未获准。请重新选择成员并检查协作权限；任务未启动。" : "Invalid or unauthorized collaboration members. Check the selection and permissions; no task was started.");
+      await context.api.sendMessage(normalized.chatId, hostT(locale, "协作成员无效或尚未获准。请重新选择成员并检查协作权限；任务未启动。"));
       return true;
     }
   }
@@ -224,7 +214,7 @@ export async function handleDelegationCoreCommand(input: {
       });
     } catch (error) {
       const detail = describeBusFailure(error, locale);
-      const msg = locale === "zh" ? `旁问失败：${detail}` : `Side question failed: ${detail}`;
+      const msg = hostT(locale, "旁问失败：{0}", detail);
       await context.api.sendMessage(normalized.chatId, msg);
       await appendUpdateHandleAuditEventBestEffort(stateDir, context, normalized, {
         outcome: "error",
@@ -244,14 +234,12 @@ export async function handleDelegationCoreCommand(input: {
     if (askCommand.targetInstance === currentInstance && !input.agentBusMembers) {
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh" ? "不能委托给自己。" : "Cannot delegate to yourself.",
+        hostT(locale, "不能委托给自己。"),
       );
       return true;
     }
 
-    const askLabel = locale === "zh"
-      ? `正在转发给 ${askCommand.targetInstance}...`
-      : `Delegating to ${askCommand.targetInstance}...`;
+    const askLabel = hostT(locale, "正在转发给 {0}...", askCommand.targetInstance);
     await context.api.sendMessage(normalized.chatId, askLabel);
 
     try {
@@ -266,9 +254,7 @@ export async function handleDelegationCoreCommand(input: {
       });
 
       const askText = renderNonEmptyEngineText(result.text, locale);
-      const askResponse = locale === "zh"
-        ? `[来自 ${askCommand.targetInstance}]\n\n${askText}`
-        : `[From ${askCommand.targetInstance}]\n\n${askText}`;
+      const askResponse = hostT(locale, "[来自 {0}]\n\n{1}", askCommand.targetInstance, askText);
       const chunks = commandReplyChunks(context, askResponse);
       await context.api.sendMessage(normalized.chatId, chunks[0]!);
       for (const chunk of chunks.slice(1)) {
@@ -286,9 +272,9 @@ export async function handleDelegationCoreCommand(input: {
       });
     } catch (error) {
       const detail = describeBusFailure(error, locale);
-      const errorMsg = locale === "zh"
-        ? context.abortSignal?.aborted ? "协作已停止。" : `委托给 ${askCommand.targetInstance} 失败：${detail}`
-        : context.abortSignal?.aborted ? "Collaboration stopped." : `Delegation to ${askCommand.targetInstance} failed: ${detail}`;
+      const errorMsg = context.abortSignal?.aborted
+        ? hostT(locale, "协作已停止。")
+        : hostT(locale, "委托给 {0} 失败：{1}", askCommand.targetInstance, detail);
       await context.api.sendMessage(normalized.chatId, errorMsg);
       await appendUpdateHandleAuditEventBestEffort(stateDir, context, normalized, {
         outcome: "error",
@@ -319,9 +305,7 @@ export async function handleDelegationCoreCommand(input: {
     if (configuredParallel.length === 0) {
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh"
-          ? "未配置 parallel bot。在 config.json 的 bus.parallel 中添加实例名。"
-          : "No parallel bots configured. Add instance names to bus.parallel in config.json.",
+        hostT(locale, "未配置 parallel bot。在 config.json 的 bus.parallel 中添加实例名。"),
       );
       return true;
     }
@@ -331,7 +315,7 @@ export async function handleDelegationCoreCommand(input: {
     }
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh" ? `正在并行查询 ${targets.length + 1} 个 bot...` : `Querying ${targets.length + 1} bots in parallel...`,
+      hostT(locale, "正在并行查询 {0} 个 bot...", targets.length + 1),
     );
 
     let fanOutcome: "success" | "error" = "success";
@@ -371,7 +355,7 @@ export async function handleDelegationCoreCommand(input: {
       const sections: string[] = [];
       for (const r of results) {
         sections.push(r.stopped
-          ? `[${r.name}] ${locale === "zh" ? "已停止，未返回完成结果。" : "Stopped before returning a completed result."}`
+          ? `[${r.name}] ${hostT(locale, "已停止，未返回完成结果。")}`
           : r.error !== null
           ? `[${r.name}] Error: ${r.error}`
           : `[${r.name}]\n${renderNonEmptyEngineText(r.text, locale)}`);
@@ -381,11 +365,13 @@ export async function handleDelegationCoreCommand(input: {
 
       const completed = results.length - fanErrorCount;
       const stoppedSummary = completed === 0
-        ? (locale === "zh" ? "协作已停止，尚未取得完成结果。" : "Collaboration stopped. No completed results were received.")
+        ? hostT(locale, "协作已停止，尚未取得完成结果。")
         : completed === results.length
-          ? (locale === "zh" ? `已收到停止请求；所有 ${completed} 个 Bot 均已返回结果。` : `Stop requested. All ${completed} Bots returned results.`)
-          : (locale === "zh" ? `协作已停止，已保留 ${completed}/${results.length} 个 Bot 返回的结果。` : `Collaboration stopped. Results from ${completed}/${results.length} Bots were preserved.`);
-      const summary = context.abortSignal?.aborted ? stoppedSummary : fanErrorCount ? (locale === "zh" ? `部分完成：${completed}/${results.length} 个 Bot 返回结果。` : `Partially completed: ${completed}/${results.length} Bots returned results.`) : "";
+          ? hostT(locale, "已收到停止请求；所有 {0} 个 Bot 均已返回结果。", completed)
+          : hostT(locale, "协作已停止，已保留 {0}/{1} 个 Bot 返回的结果。", completed, results.length);
+      const summary = context.abortSignal?.aborted
+        ? stoppedSummary
+        : fanErrorCount ? hostT(locale, "部分完成：{0}/{1} 个 Bot 返回结果。", completed, results.length) : "";
       const fanResponse = [summary, sections.join("\n\n---\n\n")].filter(Boolean).join("\n\n");
       const chunks = commandReplyChunks(context, fanResponse);
       fanResponseLength = fanResponse.length;
@@ -399,7 +385,7 @@ export async function handleDelegationCoreCommand(input: {
       const detail = describeBusFailure(error, locale);
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh" ? `并行执行失败：${detail}` : `Parallel execution failed: ${detail}`,
+        hostT(locale, "并行执行失败：{0}", detail),
       );
     }
 
@@ -425,9 +411,7 @@ export async function handleDelegationCoreCommand(input: {
     if (chainTargets.length === 0) {
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh"
-          ? "未配置 chain bot。在 config.json 的 bus.chain 中添加实例名。"
-          : "No chain bots configured. Add instance names to bus.chain in config.json.",
+        hostT(locale, "未配置 chain bot。在 config.json 的 bus.chain 中添加实例名。"),
       );
       return true;
     }
@@ -436,17 +420,13 @@ export async function handleDelegationCoreCommand(input: {
     if (chainTargets.includes(currentInstance) && !input.agentBusMembers) {
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh"
-          ? "chain 配置不能包含当前实例。请从 bus.chain 中移除 self-target。"
-          : "Chain config cannot include the current instance. Remove self-targets from bus.chain.",
+        hostT(locale, "chain 配置不能包含当前实例。请从 bus.chain 中移除 self-target。"),
       );
       return true;
     }
     await context.api.sendMessage(
       normalized.chatId,
-      locale === "zh"
-        ? `正在顺序串联 ${chainTargets.length} 个 bot...`
-        : `Running chain across ${chainTargets.length} bots...`,
+      hostT(locale, "正在顺序串联 {0} 个 bot...", chainTargets.length),
     );
 
     let chainOutcome: "success" | "error" = "success";
@@ -459,7 +439,7 @@ export async function handleDelegationCoreCommand(input: {
 
       for (const [index, target] of chainTargets.entries()) {
         context.abortSignal?.throwIfAborted();
-        await context.api.sendMessage(normalized.chatId, locale === "zh" ? `正在执行第 ${index + 1}/${chainTargets.length} 步：${target}` : `Running step ${index + 1}/${chainTargets.length}: ${target}`);
+        await context.api.sendMessage(normalized.chatId, hostT(locale, "正在执行第 {0}/{1} 步：{2}", index + 1, chainTargets.length, target));
         const result = await delegateToInstance({
           fromInstance: currentInstance,
           targetInstance: target,
@@ -472,9 +452,7 @@ export async function handleDelegationCoreCommand(input: {
 
         const stageText = renderNonEmptyEngineText(result.text, locale);
         sections.push(
-          locale === "zh"
-            ? `[链路阶段 ${index + 1}: ${target}]\n${stageText}`
-            : `[Chain stage ${index + 1}: ${target}]\n${stageText}`,
+          hostT(locale, "[链路阶段 {0}: {1}]\n{2}", index + 1, target, stageText),
         );
         context.abortSignal?.throwIfAborted();
 
@@ -498,7 +476,7 @@ export async function handleDelegationCoreCommand(input: {
     } catch (error) {
       chainOutcome = "error";
       const detail = describeBusFailure(error, locale);
-      const status = context.abortSignal?.aborted ? (locale === "zh" ? "串联已停止。" : "Chain stopped.") : (locale === "zh" ? `串联执行失败：${detail}` : `Chain execution failed: ${detail}`);
+      const status = context.abortSignal?.aborted ? hostT(locale, "串联已停止。") : hostT(locale, "串联执行失败：{0}", detail);
       for (const chunk of commandReplyChunks(context, [status, ...sections].join("\n\n"))) await context.api.sendMessage(normalized.chatId, chunk);
     }
 
@@ -524,9 +502,7 @@ export async function handleDelegationCoreCommand(input: {
     if (!verifier) {
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh"
-          ? "未配置验证 bot。在 config.json 的 bus.verifier 中设置实例名。"
-          : "No verifier configured. Set bus.verifier in config.json.",
+        hostT(locale, "未配置验证 bot。在 config.json 的 bus.verifier 中设置实例名。"),
       );
       return true;
     }
@@ -535,7 +511,7 @@ export async function handleDelegationCoreCommand(input: {
     if (verifier === currentInstance && !input.agentBusMembers) {
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh" ? "验证 bot 不能是自己。" : "Verifier cannot be the same instance.",
+        hostT(locale, "验证 bot 不能是自己。"),
       );
       return true;
     }
@@ -543,7 +519,7 @@ export async function handleDelegationCoreCommand(input: {
     if (await maybeReplyWithBudgetExhausted(stateDir, cfg.budgetUsd, locale, context, normalized)) {
       return true;
     }
-    await context.api.sendMessage(normalized.chatId, locale === "zh" ? "正在执行..." : "Executing...");
+    await context.api.sendMessage(normalized.chatId, hostT(locale, "正在执行..."));
 
     let verifyOutcome: "success" | "error" = "success";
     let verifyResponseLength = 0;
@@ -571,16 +547,14 @@ export async function handleDelegationCoreCommand(input: {
 
       await context.api.sendMessage(
         normalized.chatId,
-        locale === "zh" ? `正在让 ${verifier} 验证...` : `Sending to ${verifier} for verification...`,
+        hostT(locale, "正在让 {0} 验证...", verifier),
       );
 
       const verifyResult = await delegateToInstance({
         fromInstance: currentInstance,
         targetInstance: verifier,
         ...(input.agentBusMembers ? { agentBusMemberIndex: 0 } : {}),
-        prompt: locale === "zh"
-          ? `请验证以下回复的正确性和质量：\n\n原始问题：${verifyCommand.prompt}\n\n回复：${resultText}`
-          : `Please verify the correctness and quality of this response:\n\nOriginal question: ${verifyCommand.prompt}\n\nResponse: ${resultText}`,
+        prompt: hostT(locale, "请验证以下回复的正确性和质量：\n\n原始问题：{0}\n\n回复：{1}", verifyCommand.prompt, resultText),
         depth: 0,
         stateDir,
         abortSignal: context.abortSignal,
@@ -588,12 +562,12 @@ export async function handleDelegationCoreCommand(input: {
       const verificationText = renderNonEmptyEngineText(verifyResult.text, locale);
 
       const verifyResponse = [
-        locale === "zh" ? `[${currentInstance} 的回复]` : `[Response from ${currentInstance}]`,
+        hostT(locale, "[{0} 的回复]", currentInstance),
         resultText,
         "",
         "---",
         "",
-        locale === "zh" ? `[${verifier} 的验证]` : `[Verification by ${verifier}]`,
+        hostT(locale, "[{0} 的验证]", verifier),
         verificationText,
       ].join("\n");
 
@@ -607,8 +581,8 @@ export async function handleDelegationCoreCommand(input: {
     } catch (error) {
       verifyOutcome = "error";
       const detail = describeBusFailure(error, locale);
-      const status = context.abortSignal?.aborted ? (locale === "zh" ? "复核已停止。" : "Verification stopped.") : (locale === "zh" ? `验证流程失败：${detail}` : `Verification failed: ${detail}`);
-      const retained = initialAnswer ? (locale === "zh" ? `以下为尚未完成复核的原始回答：\n\n${initialAnswer}` : `Original answer, not fully verified:\n\n${initialAnswer}`) : "";
+      const status = context.abortSignal?.aborted ? hostT(locale, "复核已停止。") : hostT(locale, "验证流程失败：{0}", detail);
+      const retained = initialAnswer ? hostT(locale, "以下为尚未完成复核的原始回答：\n\n{0}", initialAnswer) : "";
       for (const chunk of commandReplyChunks(context, [status, retained].filter(Boolean).join("\n\n"))) await context.api.sendMessage(normalized.chatId, chunk);
     }
 

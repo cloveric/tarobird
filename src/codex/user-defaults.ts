@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { hostT } from "../locales/index.js";
+import type { Locale } from "../runtime/locale.js";
 
 export interface CodexUserDefaults {
   configPath: string;
@@ -83,27 +85,27 @@ export async function loadCodexUserDefaults(): Promise<CodexUserDefaults> {
 export function renderCodexModelSetting(
   explicitModel: string | undefined,
   defaults: CodexUserDefaults | undefined,
-  locale: "en" | "zh",
+  locale: Locale,
 ): string {
   if (explicitModel) {
     return explicitModel;
   }
   if (defaults?.model) {
-    return locale === "zh" ? `默认（Codex config: ${defaults.model}）` : `default (Codex config: ${defaults.model})`;
+    return hostT(locale, "默认（Codex config: {0}）", defaults.model);
   }
-  return locale === "zh" ? "默认" : "default";
+  return hostT(locale, "默认");
 }
 
 export function renderCodexEffortSetting(
   explicitEffort: string | undefined,
   defaults: CodexUserDefaults | undefined,
-  locale: "en" | "zh",
+  locale: Locale,
 ): string {
   if (explicitEffort) {
     return explicitEffort;
   }
   if (defaults?.effort) {
-    return locale === "zh" ? `默认（Codex config: ${defaults.effort}）` : `default (Codex config: ${defaults.effort})`;
+    return hostT(locale, "默认（Codex config: {0}）", defaults.effort);
   }
-  return locale === "zh" ? "默认" : "default";
+  return hostT(locale, "默认");
 }

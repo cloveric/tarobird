@@ -19,7 +19,7 @@ vi.mock("node:fs/promises", async original => { const actual = await original<ty
 const temporary: string[] = [];
 async function fixture() { const base = await mkdtemp(path.join(os.tmpdir(), "hup-")); temporary.push(base); return { base, state: path.join(base, "host"), source: path.join(base, "candidate") }; }
 async function file(root: string, name: string, content: string | object) { await mkdir(path.dirname(path.join(root, name)), { recursive: true }); await writeFile(path.join(root, name), typeof content === "string" ? content : JSON.stringify(content)); }
-async function candidate(root: string, version = "0.1.500", maxHubSchema = 26) {
+async function candidate(root: string, version = "0.1.500", maxHubSchema = 28) {
   await file(root, "package.json", { name: "tarobot", version, private: true, type: "module", engines: { node: ">=20.17.0" }, dependencies: { sqlite3: "6.0.1", zod: "4.1.5" }, tarobotHostUpdate: { format: 1, minHubSchema: 1, maxHubSchema } });
   await file(root, "standalone-graph.json", { inputs: { "src/index.ts": {} } });
   await file(root, "dist/src/index.js", "if(process.argv[2]!=='--help')throw Error('unexpected stateful probe'); console.log('TaroBot test CLI');");
@@ -156,7 +156,7 @@ describe("standalone host runtime updates", { timeout: 20_000 }, () => {
     expect((await resolveHostRuntime(state, fallback)).entrypoint).toBe(revision.entrypoint);
   });
 
-  it.each([17, 19, 23, 24, 25])("refuses rollback to a schema-%i runtime after migration of scheduled or assisted Bot inputs", async oldSchema => {
+  it.each([17, 19, 23, 24, 25, 26])("refuses rollback to a schema-%i runtime after migration of scheduled or assisted Bot inputs", async oldSchema => {
     // Older Hubs do not understand Agent Bus (19), group discussion (20)
     // execution-time assistance (24) or paused queue (25) inputs. Only restoring the pre-update backup is a safe way back.
     const { base, source, state } = await fixture(); const fallback = await candidate(path.join(base, "old"), "0.1.499", oldSchema);

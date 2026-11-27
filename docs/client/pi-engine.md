@@ -3,7 +3,7 @@
 TaroBird runs [Pi](https://github.com/earendil-works/pi) as its own engine through
 Pi's JSONL RPC transport. It does not translate requests into Codex or another
 engine. The integration is checked against Pi 1.5.2 and 1.6.0. Pi is an ordinary Bot
-engine; it cannot be selected as a Chancellor (Chief of Staff) or a dispatched
+engine; it cannot be selected as a Superagent or a dispatched
 engine worker. Pi support ships from TaroBird 1.6.0.
 
 ## Install and select
@@ -306,7 +306,7 @@ is refused when unreadable settings prevent verifying compatibility.
   project trust, approval and App tools.
 - `src/codex/pi-native-commands.ts`, `pi-native-types.ts`: native command mapping.
 - `client/src/PiModelSelect.tsx`: provider/model controls shared by creation
-  and model settings. Pi is excluded from Chancellor creation and conversion
+  and model settings. Pi is excluded from Superagent creation and conversion
   in both UI and Host validation.
 
 Use the Pi unit and protocol regressions, then `client/e2e/pi-engine.spec.ts`

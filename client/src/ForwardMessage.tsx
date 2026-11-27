@@ -13,6 +13,7 @@ import { automaticGroupDiscussion, groupDiscussionViewSchema } from "../../src/c
 import { groupReplyModeFromView, type GroupReplyMode } from "./group-composer-send.js";
 import { useGroupReplyMode } from "./group-reply-mode-cache.js";
 import { timeoutSignal } from "./abort-signals.js";
+import { forwardedAuthorName, rememberForwardedMessage } from "./pending-messages.js";
 
 export function ForwardMessage({ message, conversations, connection, close, sent, returnFocus }: { message: Message; conversations: Conversation[]; connection: HubConnection; close: () => void; sent: (id: string) => void; returnFocus: RefObject<HTMLElement | null> }) {
   useLocale(); const labels = useBotLabels();
@@ -79,6 +80,8 @@ export function ForwardMessage({ message, conversations, connection, close, sent
         if (latest) { setReadMode(latest); acceptMode(latest); }
         const problem = modeProblem(latest); if (problem) throw new Error(problem);
       }
+      const sourceConv = conversations.find((item) => item.id === source.conversationId);
+      rememberForwardedMessage(connection, requestId.current, source, sourceConv ? label(sourceConv) : undefined, forwardedAuthorName(source, connection.state));
       await connection.send({ v: 1, type: "message.forward", clientMsgId: requestId.current, conversationId: current.id, sourceMessageId: message.id, ...(reply ? { mentions: recipients } : {}) }); sent(current.id);
     }
     catch (e) { setError(e instanceof Error ? e.message : t("转发失败，请重试")); }

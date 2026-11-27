@@ -51,7 +51,7 @@ fn encode_png(bytes: Vec<u8>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn capture_screenshot(window: tauri::WebviewWindow, english: bool) -> Result<Option<String>, String> {
+pub async fn capture_screenshot(window: tauri::WebviewWindow, english: bool, locale: Option<String>) -> Result<Option<String>, String> {
     if window.label() != "main" || !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
         return Err("screenshot_window_unavailable".into());
     }
@@ -72,7 +72,7 @@ pub async fn capture_screenshot(window: tauri::WebviewWindow, english: bool) -> 
         let _guard = guard;
         let _restore = RestoreWindow(window);
         std::thread::sleep(std::time::Duration::from_millis(250));
-        capture(english)?.map(encode_png).transpose()
+        capture(english, locale.as_deref())?.map(encode_png).transpose()
     }).await.map_err(|_| "screenshot_failed".to_string())?
 }
 
@@ -84,7 +84,7 @@ unsafe extern "C" {
 }
 
 #[cfg(target_os = "macos")]
-fn capture(_english: bool) -> Result<Option<Vec<u8>>, String> {
+fn capture(_english: bool, _locale: Option<&str>) -> Result<Option<Vec<u8>>, String> {
     use std::{io::Read, os::unix::fs::DirBuilderExt, process::{Command, Stdio}, time::{Duration, Instant}};
     struct Temp(std::path::PathBuf);
     impl Drop for Temp { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
@@ -116,9 +116,9 @@ fn capture(_english: bool) -> Result<Option<Vec<u8>>, String> {
 }
 
 #[cfg(target_os = "windows")]
-fn capture(english: bool) -> Result<Option<Vec<u8>>, String> { windows::capture(english) }
+fn capture(english: bool, locale: Option<&str>) -> Result<Option<Vec<u8>>, String> { windows::capture(english, locale) }
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn capture(_: bool) -> Result<Option<Vec<u8>>, String> { Err("screenshot_unavailable".into()) }
+fn capture(_: bool, _: Option<&str>) -> Result<Option<Vec<u8>>, String> { Err("screenshot_unavailable".into()) }
 
 #[cfg(test)]
 mod tests {

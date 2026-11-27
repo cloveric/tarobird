@@ -1,6 +1,8 @@
+import { normalizeLocale, type Locale } from "../runtime/locale.js";
 import { AGENT_BUS_STAGE_EXTRA, agentBusStageRecordSchema } from "./agent-bus.js";
 import { backgroundTaskNotice, backgroundTaskStatus } from "./background-task.js";
 import { queueNotice } from "./queue-notice.js";
+import { isTranscriptionMessage } from "./voice-presentation.js";
 import { isRunActive, anyRun, nativeRun } from "./run.js";
 import type { CardElement, Message } from "./index.js";
 import type { NotificationTopic, PushPayload } from "./push.js";
@@ -8,7 +10,7 @@ import type { NotificationTopic, PushPayload } from "./push.js";
 /** Shared by Hub push admission and desktop notifications. Pure: no Node or DOM. */
 export type NotificationGeneric = "reply" | "files" | "update" | "action" | "error" | "message";
 export type NotificationClass = { kind: PushPayload["kind"]; incomplete: boolean; uncertainBackground: boolean; generic: NotificationGeneric; topics: NotificationTopic[] };
-export type NotificationLocale = "zh" | "en";
+export type NotificationLocale = Locale;
 
 const MAX_BODY = 200;
 /** UTF-16 bounds match the existing wire schema without splitting an emoji. */
@@ -52,7 +54,7 @@ function plain(value: string, copy: Copy = COPY.zh): string {
     .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ")
     .replace(/\s+/g, " ").trim();
 }
-const statusOnly = /^(?:已完成|部分完成|执行失败|已被中断|已中断|已停止|无响应已自动终止|交付未完成|Done|Completed|Partially completed|Failed|Interrupted|Stopped|Auto-stopped \(no response\)|Delivery incomplete)$/i;
+const statusOnly = /^(?:已完成|部分完成|执行失败|已被中断|已中断|已停止|无响应已自动终止|交付未完成|Done|Completed|Partially completed|Failed|Interrupted|Stopped|Auto-stopped \(no response\)|Delivery incomplete|完了|一部完了|失敗|中断|停止|応答なしのため自動停止|配信未確認)$/i;
 
 type Copy = {
   image: string; code: string; untitled: string; open: (name: string, bot: string) => string;
@@ -62,8 +64,8 @@ type Copy = {
   reply: string; replyEmpty: string; generic: Record<NotificationGeneric, string>;
 };
 // Hub output stays Chinese: installed Android clients recognize these exact
-// prefixes and generic sentences. English is used only for local desktop text.
-const COPY: Record<NotificationLocale, Copy> = {
+// prefixes and generic sentences. Other locales are used for local desktop text.
+const COPY: Record<string, Copy> = {
   zh: {
     image: "[图片]", code: "[代码]", untitled: "未命名对话", open: (name, bot) => `「${name}」${bot ? ` · ${bot}` : ""}`,
     files: (names, count) => `文件：${names}${count > 2 ? ` 等 ${count} 个` : ""}`, images: count => `${count} 张图片`, audio: count => `${count} 条音频`,
@@ -79,6 +81,14 @@ const COPY: Record<NotificationLocale, Copy> = {
     action: "Needs attention: ", actionEmpty: "An action is waiting for your confirmation.", update: "Background task update: ", updateEmpty: "Final status unconfirmed. Tap to see progress.", received: artifacts => `Received ${artifacts}`,
     reply: "Reply complete: ", replyEmpty: "Tap to view the reply.",
     generic: { reply: "A Bot finished replying. Tap to view.", files: "A Bot sent files. Tap to view.", update: "A background task was updated. Tap to view.", action: "An action is waiting for your confirmation.", error: "A task is incomplete. Tap to see the current progress.", message: "New message. Open TaroBird to view." },
+  },
+  ja: {
+    image: "[画像]", code: "[コード]", untitled: "無題の会話", open: (name, bot) => `「${name}」${bot ? ` · ${bot}` : ""}`,
+    files: (names, count) => `ファイル: ${names}${count > 2 ? ` 他 ${count - 2} 件` : ""}`, images: count => `画像 ${count} 件`, audio: count => `音声 ${count} 件`,
+    unconfirmed: "配信未確認: ", unconfirmedEmpty: "会話を開いてファイルと報告を確認してください。", incomplete: "タスク未完了: ", incompleteEmpty: "タップして進捗を確認。", failedEmpty: "エラーが発生しました。タップして確認。",
+    action: "確認待ち: ", actionEmpty: "確認待ちの操作があります。", update: "バックグラウンドタスク更新: ", updateEmpty: "最終状態が未確認です。タップして進捗を確認。", received: artifacts => `${artifacts}を受信`,
+    reply: "返信完了: ", replyEmpty: "タップして返信を確認。",
+    generic: { reply: "Bot が返信を完了しました。タップして確認。", files: "Bot がファイルを送信しました。タップして確認。", update: "バックグラウンドタスクが更新されました。タップして確認。", action: "確認待ちの操作があります。", error: "タスクが未完了です。タップして進捗を確認。", message: "新しいメッセージがあります。TaroBird を開いて確認。" },
   },
 };
 
@@ -130,6 +140,9 @@ export function classifyNotification(message: Message): NotificationClass | unde
   // Queue bookkeeping is neither an answer nor a request requiring attention.
   // The actual run or delivery failure publishes its own notification.
   if (message.blocks.some(block => block.type === "card" && queueNotice(block, message))) return;
+  // Host audio transcription cards are preparation bookkeeping, not a Bot answer.
+  // Genuine transcription failures post their own failure reply.
+  if (isTranscriptionMessage(message)) return;
   // A stopped independent Bus record is not a completed answer. Keep its
   // terminal message lifecycle for unread tracking; suppress only its notice.
   // Native foreground evidence takes precedence over any record metadata.
@@ -162,7 +175,8 @@ export function classifyNotification(message: Message): NotificationClass | unde
 /** Content-free text for a device that hides previews: no conversation, Bot,
  * file name or excerpt. The Chinese sentences are recognized by installed APKs. */
 export function genericNotificationBody(generic: NotificationGeneric, locale: NotificationLocale = "zh"): string {
-  return COPY[locale].generic[generic];
+  const normalized = normalizeLocale(locale, "en");
+  return (COPY[normalized] ?? COPY.en).generic[generic];
 }
 
 /** A compact class stored with a queued push, so the worker can re-check the
@@ -177,14 +191,17 @@ export function decodeNotificationClass(raw: string | null | undefined, kind: Pu
 
 /** Bounded two-line preview: a conversation/Bot heading and the event excerpt. */
 export function notificationPreview(message: Message, title: string, botName: string, kind: PushPayload["kind"], incomplete: boolean, backgroundUpdate = false, locale: NotificationLocale = "zh"): string {
-  const copy = COPY[locale];
+  const normalized = normalizeLocale(locale, "en");
+  const copy = COPY[normalized] ?? COPY.en;
   const { summary, files, images, audio } = digest(message, copy);
   // Preserve the v1 wire fields (including its historical title literal).
   // The first line is readable on older clients; Android uses it as the title.
-  const name = clip(plain(title, copy).replace(locale === "zh" ? /[「」]/g : /[“”]/g, "").trim() || copy.untitled, 48);
+  const cjk = normalized === "zh" || normalized === "ja";
+  const name = clip(plain(title, copy).replace(cjk ? /[「」]/g : /[“”]/g, "").trim() || copy.untitled, 48);
   const bot = clip(plain(botName, copy), 24);
   const heading = copy.open(name, bot && bot !== name ? bot : "");
-  const artifacts = [files.length ? copy.files(files.slice(0, 2).map(name => clip(name, 40)).join(locale === "zh" ? "、" : ", "), files.length) : "", images ? copy.images(images) : "", audio ? copy.audio(audio) : ""].filter(Boolean).join(locale === "zh" ? "、" : ", ");
+  const sep = cjk ? "、" : ", ";
+  const artifacts = [files.length ? copy.files(files.slice(0, 2).map(name => clip(name, 40)).join(sep), files.length) : "", images ? copy.images(images) : "", audio ? copy.audio(audio) : ""].filter(Boolean).join(sep);
   const deliveryUnconfirmed = message.blocks.some(block => block.type === "card" && backgroundTaskNotice(block)?.delivery === "unconfirmed");
   const detail = deliveryUnconfirmed ? `${copy.unconfirmed}${summary || copy.unconfirmedEmpty}` : kind === "error" ? `${copy.incomplete}${summary || (incomplete ? copy.incompleteEmpty : copy.failedEmpty)}`
     : kind === "action" ? `${copy.action}${summary || copy.actionEmpty}`

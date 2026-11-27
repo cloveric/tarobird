@@ -10,15 +10,16 @@ import type { InboxHost } from './conversation-inbox.js';
 /** Phone list preferences share the existing device settings. In combined
  * multi-host view, "Manage folders" opens the unified cross-host manager;
  * single-host and grouped-by-host views retain per-host Hub managers. */
-export function MobileListOptions({ hosts, activeHostId, scopedHostId, visible, disabled, groupByHost, changeGroupByHost, showDisconnectedBots, changeShowDisconnectedBots }: {
-  hosts: InboxHost[]; activeHostId?: string; scopedHostId?: string; visible: boolean; disabled: boolean;
+export function MobileListOptions({ hosts, registeredHostCount, activeHostId, scopedHostId, visible, disabled, groupByHost, changeGroupByHost, showDisconnectedBots, changeShowDisconnectedBots }: {
+  hosts: InboxHost[]; registeredHostCount?: number; activeHostId?: string; scopedHostId?: string; visible: boolean; disabled: boolean;
   groupByHost: boolean; changeGroupByHost?: (value: boolean) => void;
   showDisconnectedBots: boolean; changeShowDisconnectedBots?: (value: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [managedTarget, setManagedTarget] = useState<'cross' | string | undefined>();
   const trigger = useRef<HTMLButtonElement>(null);
-  const combinedFolders = !groupByHost && !scopedHostId && hosts.length > 1;
+  const multiHost = Math.max(hosts.length, registeredHostCount ?? 0) > 1;
+  const combinedFolders = !groupByHost && !scopedHostId && multiHost;
   const managedHost = managedTarget && managedTarget !== 'cross' ? hosts.find(host => host.id === managedTarget) : undefined;
   const close = () => { setOpen(false); setManagedTarget(undefined); };
   useEffect(() => { if (!visible || disabled) close(); }, [visible, disabled]);
@@ -38,7 +39,7 @@ export function MobileListOptions({ hosts, activeHostId, scopedHostId, visible, 
       aria-haspopup="dialog" aria-expanded={open} disabled={disabled || !hosts.length} onClick={() => setOpen(true)}><MoreHorizontal size={22} aria-hidden="true"/></button>
     {visible && open && !managedTarget && <CreationDialog title={t('列表选项')} closeLabel={t('关闭列表选项')} showHost={false} returnFocus={trigger} close={close} className="mh-list-options-dialog">
       <div className="mh-list-preferences">
-        {hosts.length > 1 && !scopedHostId && changeGroupByHost && <HostGroupingSwitch checked={groupByHost} change={changeGroupByHost}/>}
+        {multiHost && !scopedHostId && changeGroupByHost && <HostGroupingSwitch checked={groupByHost} change={changeGroupByHost}/>}
         {changeShowDisconnectedBots && <DisconnectedBotsSwitch checked={showDisconnectedBots} change={changeShowDisconnectedBots}/>}
       </div>
       <div className="mh-list-folder-actions">

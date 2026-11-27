@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import type { PiSessionSnapshot } from "../../src/client-protocol/pi-session.js";
 import { fixtureInvitation, preparePairing } from "./fixtures/pairing-invite.js";
 import { selectConversation, waitForClientOnline } from "./fixtures/mobile.js";
 import { pairingLink } from "../src/pairing-link.js";
@@ -178,4 +179,155 @@ for (const navigate of [false, true]) test(`Pi editing during confirmed admissio
     await input.fill('再次核对'); await page.getByRole('button', { name: '发送消息', exact: true }).click();
     await expect.poll(() => fixture.inputs).toEqual(['再次核对', '再次核对']);
   } finally { await page.close(); await fixture.close(); }
+});
+
+for (const platform of ['ios', 'android', 'web'] as const) test(`${platform}: phone running turn omits inline summary text and keeps controls unclipped across 320-440px`, async ({ browser }) => {
+  const fixture = await piSendChoiceFixture();
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' });
+  const page = await context.newPage();
+  const snapshot: PiSessionSnapshot = {
+    supported: true,
+    session: {
+      token: 'worker',
+      model: 'claude-sonnet-4-5',
+      modelSource: 'native',
+      thinking: 'medium',
+      thinkingLevels: ['off', 'medium', 'high'],
+      choices: [{ id: 'claude-sonnet-4-5', label: 'claude-sonnet-4-5', provider: 'anthropic', modelId: 'claude-sonnet-4-5', efforts: ['', 'off', 'medium', 'high'] }],
+      busy: true,
+      bridge: 'connected',
+      ui: { status: {}, widgets: {} },
+      commands: [],
+    },
+  };
+  const applyPlatform = async () => {
+    await page.evaluate(p => {
+      if (p === 'web') delete document.documentElement.dataset.platform;
+      else document.documentElement.dataset.platform = p;
+    }, platform);
+  };
+  try {
+    await page.route('**/api/conversations/*/pi-session*', route => route.fulfill({ json: snapshot }));
+    await open(page, fixture);
+    await applyPlatform();
+    const chip = page.locator('.pi-session-controls');
+    const chipButton = chip.locator('> button');
+    await expect(chip).toContainText('claude-sonnet-4-5');
+    for (const locale of ['zh', 'en']) {
+      if (locale === 'en') {
+        const { openSettings, closeSettings } = await import('./fixtures/settings.js');
+        await openSettings(page); await page.getByLabel('语言', { exact: true }).selectOption('en'); await closeSettings(page, true);
+        await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Message', exact: true }).click();
+        await page.locator('.mobile-home:visible .mh-row').filter({ hasText: fixture.chats[0]!.title }).click();
+        await applyPlatform();
+      }
+      const input = page.getByRole('textbox', { name: locale === 'zh' ? '消息' : 'Message', exact: true });
+      const choice = page.locator('.claude-send-choice');
+      const help = choice.locator('.send-choice-help');
+      await expect(chip).toContainText('claude-sonnet-4-5');
+      await expect(page.locator('.send-choice-summary')).toHaveCount(0);
+      await expect(page.locator('.composer-accessories')).not.toContainText(locale === 'zh' ? '由 CLI 适时读入' : 'Read by the CLI');
+      await expect(help).toBeVisible();
+      for (const width of [320, 360, 390, 440]) {
+        await page.setViewportSize({ width, height: 844 });
+        await expect(choice).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        const [chipRect, choiceRect, spanWidth] = await page.evaluate(() => {
+          const rect = (selector: string) => {
+            const r = document.querySelector(selector)!.getBoundingClientRect();
+            return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+          };
+          return [rect('.pi-session-controls'), rect('.claude-send-choice'), document.querySelector('.pi-session-controls > button > span')!.getBoundingClientRect().width] as const;
+        });
+        const sameRow = Math.abs(chipRect.y - choiceRect.y) < 16;
+        if (sameRow) expect(chipRect.right).toBeLessThanOrEqual(choiceRect.x + 1);
+        else expect(chipRect.bottom).toBeLessThanOrEqual(choiceRect.y + 1);
+        expect(spanWidth).toBeGreaterThanOrEqual(48);
+        expect(await chipButton.evaluate(n => n.scrollWidth <= n.clientWidth && n.scrollHeight <= n.clientHeight)).toBe(true);
+        for (const control of [choice.locator('[data-mode=current]'), choice.locator('[data-mode=next]'), help, page.locator('.composer-stop')]) {
+          const box = (await control.boundingBox())!;
+          expect(box.height).toBeGreaterThanOrEqual(44);
+          expect(box.width).toBeGreaterThanOrEqual(44);
+          expect(await control.evaluate(n => n.scrollWidth <= n.clientWidth && n.scrollHeight <= n.clientHeight)).toBe(true);
+        }
+      }
+      if (locale === 'en') {
+        await page.setViewportSize({ width: 320, height: 844 });
+        // Split-screen safe-area insets and enlarged button text wrap cleanly rather than crushing the Pi model chip.
+        await page.evaluate(() => {
+          document.documentElement.style.setProperty('--safe-area-inset-left', '48px');
+          document.documentElement.style.setProperty('--safe-area-inset-right', '8px');
+        });
+        const insetLayout = await page.evaluate(() => {
+          const chipR = document.querySelector('.pi-session-controls')!.getBoundingClientRect();
+          const choiceR = document.querySelector('.claude-send-choice')!.getBoundingClientRect();
+          const button = document.querySelector('.pi-session-controls > button')!;
+          const spanR = button.querySelector('span')!.getBoundingClientRect();
+          return {
+            pageOverflow: document.documentElement.scrollWidth > innerWidth,
+            chipBottom: chipR.bottom,
+            choiceY: choiceR.y,
+            buttonOverflow: button.scrollWidth > button.clientWidth || button.scrollHeight > button.clientHeight,
+            spanWidth: spanR.width,
+          };
+        });
+        expect(insetLayout.pageOverflow).toBe(false);
+        expect(insetLayout.chipBottom).toBeLessThanOrEqual(insetLayout.choiceY + 1);
+        expect(insetLayout.buttonOverflow).toBe(false);
+        expect(insetLayout.spanWidth).toBeGreaterThanOrEqual(48);
+        await page.evaluate(() => {
+          document.documentElement.style.removeProperty('--safe-area-inset-left');
+          document.documentElement.style.removeProperty('--safe-area-inset-right');
+        });
+        const largeText = await page.addStyleTag({ content: '.composer-accessories button { font-size:24px !important; }' });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        expect(await chipButton.evaluate(n => n.scrollWidth <= n.clientWidth && n.scrollHeight <= n.clientHeight)).toBe(true);
+        expect(await chipButton.locator('span').evaluate(n => n.getBoundingClientRect().width)).toBeGreaterThanOrEqual(48);
+        for (const control of [choice.locator('[data-mode=current]'), choice.locator('[data-mode=next]'), help]) {
+          expect(await control.evaluate(n => n.scrollWidth <= n.clientWidth && n.scrollHeight <= n.clientHeight)).toBe(true);
+        }
+        await largeText.evaluate(node => node.remove());
+      }
+      await help.click();
+      const dialog = page.locator('.send-choice-explanation');
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: locale === 'zh' ? '关闭发送方式说明' : 'Close send mode help', exact: true }).click();
+      await expect(help).toBeFocused();
+      await expect(input).toHaveValue('');
+    }
+    // Queue a message while Pi is busy and confirm queued layout on both native phones and mobile web.
+    const choice = page.locator('.claude-send-choice');
+    const help = choice.locator('.send-choice-help');
+    const input = page.getByRole('textbox', { name: 'Message', exact: true });
+    await choice.locator('[data-mode=next]').check();
+    await input.fill('Queue this follow-up for the next turn');
+    await page.locator('.send-button').click();
+    await expect(input).toHaveValue('');
+    const queue = page.locator('.prompt-queue-trigger');
+    await expect(queue).toBeVisible();
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(chip).toContainText('claude-sonnet-4-5');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      expect(await page.locator('.composer-accessories').evaluate(n => n.scrollWidth <= n.clientWidth + 1)).toBe(true);
+      expect(await chipButton.evaluate(n => n.scrollWidth <= n.clientWidth && n.scrollHeight <= n.clientHeight)).toBe(true);
+      expect(await chipButton.locator('span').evaluate(n => n.getBoundingClientRect().width)).toBeGreaterThanOrEqual(48);
+      const [chipRect, queueRect, choiceRect] = await page.evaluate(() => ['.pi-session-controls', '.prompt-queue-trigger', '.claude-send-choice'].map(selector => {
+        const r = document.querySelector(selector)!.getBoundingClientRect();
+        return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+      }));
+      if (platform === 'web') {
+        await expect(help).toBeVisible();
+        expect(queueRect.bottom).toBeLessThanOrEqual(chipRect.y + 1);
+        const sameRow = Math.abs(chipRect.y - choiceRect.y) < 16;
+        if (sameRow) expect(chipRect.right).toBeLessThanOrEqual(choiceRect.x + 1);
+        else expect(chipRect.bottom).toBeLessThanOrEqual(choiceRect.y + 1);
+      } else {
+        await expect(help).toBeHidden();
+        expect(chipRect.bottom).toBeLessThanOrEqual(queueRect.y + 1);
+        expect(Math.abs(queueRect.y - choiceRect.y)).toBeLessThan(2);
+        expect(queueRect.right).toBeLessThanOrEqual(choiceRect.x + 1);
+      }
+    }
+  } finally { await context.close(); await fixture.close(); }
 });

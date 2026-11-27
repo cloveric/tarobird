@@ -152,3 +152,24 @@ for (const os of ["ios", "android"]) test(`editing an imported address keeps the
   await expect(page.getByText("192.168.1.102", { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("relay-only Cloudflare and mixed invites show accurate summary labels instead of mislabeling Cloudflare as VPS relay", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}?view=phone&os=ios&lang=zh`);
+  const cfOnly = pairingLink({ v: 1, kind: "connect", hubPublicKey: "k".repeat(44), routes: [{ name: "Cloudflare", url: "https://hub.example.com" }], invite: "a".repeat(43) });
+  await page.getByRole("button", { name: "粘贴连接信息", exact: true }).click();
+  await page.getByLabel("配对信息", { exact: true }).fill(cfOnly);
+  await page.getByRole("button", { name: "使用配对信息", exact: true }).click();
+  await expect(page.locator(".pairing-import")).toContainText("Cloudflare Tunnel");
+  await expect(page.locator(".pairing-import")).not.toContainText("VPS 中转");
+
+  const mixed = pairingLink({
+    v: 1, kind: "connect", hubPublicKey: "k".repeat(44),
+    routes: [{ name: "VPS", url: "https://relay.example.com" }, { name: "Cloudflare", url: "https://hub.example.com" }],
+    invite: "b".repeat(43),
+  });
+  await page.getByRole("button", { name: "更换连接信息", exact: true }).click();
+  await page.getByLabel("配对信息", { exact: true }).fill(mixed);
+  await page.getByRole("button", { name: "使用配对信息", exact: true }).click();
+  await expect(page.locator(".pairing-import")).toContainText("VPS 中转 · Cloudflare Tunnel");
+});

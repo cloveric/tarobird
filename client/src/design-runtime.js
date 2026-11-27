@@ -2,7 +2,26 @@ import { decodeBase64 } from "../../src/client-protocol/base64.js";
 // Runs only in the opaque-origin Design iframe. It has no native bridge,
 // cookies, parent DOM or network access. The MessagePort belongs to one tab.
 import { sha256, sha384, sha512 } from "@noble/hashes/sha2.js";
+import { legacySlideText } from "./workbench-slides-legacy.js";
 export function startDesignRuntime(resources, boot, format = "canvas") {
+  // Opaque data: iframes throw SecurityError when accessing localStorage/sessionStorage.
+  // Provide an isolated in-memory Storage shim so editor preferences never crash.
+  const makeMemoryStorage = () => {
+    const map = new Map();
+    return {
+      get length() { return map.size; },
+      key(i) { return [...map.keys()][i] ?? null; },
+      getItem(k) { return map.has(String(k)) ? map.get(String(k)) : null; },
+      setItem(k, v) { map.set(String(k), String(v)); },
+      removeItem(k) { map.delete(String(k)); },
+      clear() { map.clear(); },
+    };
+  };
+  for (const name of ["localStorage", "sessionStorage"]) {
+    try { void globalThis[name]; } catch {
+      try { Object.defineProperty(globalThis, name, { value: makeMemoryStorage(), configurable: true }); } catch {}
+    }
+  }
   const uuidShim = `if(!crypto.randomUUID)crypto.randomUUID=()=>{const b=crypto.getRandomValues(new Uint8Array(16));b[6]=(b[6]&15)|64;b[8]=(b[8]&63)|128;const s=Array.from(b,v=>v.toString(16).padStart(2,"0")).join("");return s.slice(0,8)+"-"+s.slice(8,12)+"-"+s.slice(12,16)+"-"+s.slice(16,20)+"-"+s.slice(20)};`;
   // A data-origin document is not a secure context. These algorithms use the
   // browser's CSPRNG and the same audited SHA-2 implementation as the App.
@@ -19,10 +38,11 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
   // server normally serves /_blob; an opaque offline frame cannot request it.
   globalThis.__tarobotDesignAssets = html => typeof html !== "string" ? html : html
     .replace(/(?<![A-Za-z0-9_:/.-])(?:\.?\/)?_blob\/([a-f0-9]{32})(?![a-f0-9])/g, (ref, id) => assetUrls.get(id) ?? ref)
-    .replace(/(?<![A-Za-z0-9_:/.-])\/(project\/ds\/[A-Za-z0-9_-]+\/assets\/[a-f0-9]{32})(?![A-Za-z0-9_./-])/g, (ref, path) => projectAssetUrls.get(path) ?? ref);
+    .replace(/(?<![A-Za-z0-9_:/.-])(?:\.?\/)?(project\/ds\/[A-Za-z0-9_-]+\/assets\/[a-f0-9]{32})(?![A-Za-z0-9_./-])/g, (ref, path) => projectAssetUrls.get(path) ?? ref);
+  const dsPrefix = format === "slides" ? "" : "/";
   const canonicalText = content => {
     for (const [id, url] of assetUrls) content = content.replaceAll(url, `/_blob/${id}`);
-    for (const [path, url] of projectAssetUrls) content = content.replaceAll(url, `/${path}`);
+    for (const [path, url] of projectAssetUrls) content = content.replaceAll(url, `${dsPrefix}${path}`);
     return content;
   };
   const canonicalFiles = files => Object.fromEntries(Object.entries(files).map(([path, file]) => {
@@ -139,8 +159,325 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
     }
     close(){this.readyState=2;sources.delete(this);}
   }
+  const encodeBytes = data => {
+    let binary = "";
+    for (let i = 0; i < data.length; i += 32768) binary += String.fromCharCode(...data.subarray(i, i + 32768));
+    return btoa(binary);
+  };
+  const inferContentType = path => {
+    if (path.endsWith(".json")) return "application/json";
+    if (path.endsWith(".html") || path.endsWith(".htm")) return "text/html";
+    if (path.endsWith(".css")) return "text/css";
+    if (path.endsWith(".js") || path.endsWith(".mjs")) return "text/javascript";
+    if (path.endsWith(".svg")) return "image/svg+xml";
+    return "text/plain";
+  };
+  const artifactError = (code, message, paths) => {
+    const err = new Error(message || code);
+    err.name = "ArtifactError";
+    err.code = code;
+    if (paths) err.paths = paths;
+    return err;
+  };
+  const mapCommentAuthor = author => ({
+    kind: author?.kind === "agent" ? "agent" : "person",
+    name: author?.name || (author?.kind === "agent" ? "Bot" : "You"),
+  });
+  const mapCommentThread = thread => ({
+    id: thread.id,
+    anchor: thread.anchor,
+    label: thread.label,
+    ...(thread.detail ? { detail: thread.detail } : {}),
+    location: thread.location ?? {},
+    status: thread.status === "resolved" ? "resolved" : "open",
+    ...(thread.agent ? { agent: { status: thread.agent.status, ...(thread.agent.via === "chat" ? { drafted: true } : {}) } } : {}),
+    messages: (thread.messages ?? []).map(m => ({
+      id: m.id,
+      author: mapCommentAuthor(m.author),
+      text: m.text,
+      at: m.at,
+      ...(m.editedAt ? { editedAt: m.editedAt } : {}),
+    })),
+  });
+  const artifactChangeListeners = new Set(), commentChangeListeners = new Set(), peerListeners = new Set(), roomMessageListeners = new Set(), agentStatusListeners = new Set();
+  const lastKnownHashes = new Map();
+
+  const installOpenArtifactRuntime = init => {
+    const artifactId = typeof init.designId === "string" && init.designId ? init.designId : "presentation";
+    let deckTitle = typeof init.title === "string" && init.title ? init.title : "Presentation";
+    const forcedReadOnly = init.readOnly === true;
+    const repairEnabled = globalThis.__tarobirdDesignRepairEnabled !== false;
+    const selfPeerId = crypto.randomUUID();
+    let cachedPeers = [];
+    const loadSession = async () => {
+      const res = await request("session");
+      return res?.body ?? { canEdit: false, role: "viewer" };
+    };
+    const loadAgentStatus = async () => {
+      if (forcedReadOnly || !repairEnabled) return { available: false, busy: false, name: "Bot", wakesIdle: true };
+      try {
+        const res = await request("comments.snapshot");
+        const available = res?.status === 200 && res?.body?.agent?.available === true;
+        return { available, busy: false, name: "Bot", wakesIdle: true };
+      } catch {
+        return { available: false, busy: false, name: "Bot", wakesIdle: true };
+      }
+    };
+    const capabilities = {
+      user: {
+        async me() {
+          const s = await loadSession();
+          const role = forcedReadOnly ? "viewer" : (s.role || (s.canEdit ? "owner" : "viewer"));
+          return { id: s.userId || "local", name: s.userName || "You", role };
+        },
+      },
+      artifact: {
+        id: artifactId,
+        async title() { return deckTitle; },
+        async list() {
+          const listing = await request("list", {});
+          const out = {};
+          lastKnownHashes.clear();
+          for (const [path, meta] of Object.entries(listing?.files ?? {})) {
+            out[path] = { sha256: meta.sha256, size: meta.size };
+            lastKnownHashes.set(path, meta.sha256);
+          }
+          return out;
+        },
+        async readText(path) {
+          const file = await request("read", { path });
+          if (!file) { lastKnownHashes.delete(path); throw artifactError("not_found", `Missing file: ${path}`); }
+          if (typeof file.sha256 === "string") lastKnownHashes.set(path, file.sha256);
+          const text = new TextDecoder("utf-8").decode(bytes(file.base64));
+          // A slide saved by the 1.6.0 editor: the editor is given a form it places
+          // the same way. The stored file and its hash (the editor's ifMatch) stay.
+          return /^project\/slides\/[^/]+\.html$/.test(path) ? legacySlideText(text) : text;
+        },
+        async readBytes(path) {
+          const file = await request("read", { path });
+          if (!file) { lastKnownHashes.delete(path); throw artifactError("not_found", `Missing file: ${path}`); }
+          if (typeof file.sha256 === "string") lastKnownHashes.set(path, file.sha256);
+          return bytes(file.base64);
+        },
+        async publish(batch) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          const files = {};
+          const expectedHashes = {};
+          for (const [path, entry] of Object.entries(batch ?? {})) {
+            if (entry === null) {
+              const known = lastKnownHashes.get(path);
+              files[path] = { delete: true, ...(known !== undefined ? { ifMatch: known } : {}) };
+              expectedHashes[path] = known ?? null;
+            } else {
+              const contentType = inferContentType(path);
+              const base64 = entry.encoding === "base64"
+                ? entry.content
+                : encodeBytes(new TextEncoder().encode(canonicalText(entry.content)));
+              files[path] = {
+                base64,
+                contentType,
+                ...(entry.ifMatch !== undefined ? { ifMatch: entry.ifMatch } : {}),
+              };
+              if (entry.ifMatch !== undefined) expectedHashes[path] = entry.ifMatch;
+            }
+          }
+          const result = await request("publish", { files: canonicalFiles(files) });
+          if (result?.status === 200) {
+            const shas = result.body?.shas ?? {};
+            const hashes = {};
+            for (const path of Object.keys(batch ?? {})) {
+              const nextHash = Object.prototype.hasOwnProperty.call(shas, path) ? shas[path] : null;
+              hashes[path] = nextHash;
+              if (nextHash === null) lastKnownHashes.delete(path);
+              else lastKnownHashes.set(path, nextHash);
+            }
+            return { hashes };
+          }
+          if (result?.status === 403) throw artifactError("not_writer", result.body?.message || "Read-only");
+          if (result?.status === 409) {
+            const latest = await request("list", {}).catch(() => null);
+            const latestFiles = latest?.files;
+            if (latestFiles && typeof latestFiles === "object") {
+              lastKnownHashes.clear();
+              for (const [p, meta] of Object.entries(latestFiles)) {
+                if (typeof meta?.sha256 === "string") lastKnownHashes.set(p, meta.sha256);
+              }
+            }
+            const conflictPaths = [];
+            for (const [path, expected] of Object.entries(expectedHashes)) {
+              const actual = latestFiles?.[path]?.sha256 ?? null;
+              if (actual !== expected) conflictPaths.push({ path, expected, actual });
+            }
+            throw artifactError("conflict", result.body?.message || "Conflict", conflictPaths.length ? conflictPaths : Object.keys(batch ?? {}).map(path => ({ path, expected: expectedHashes[path] ?? null, actual: latestFiles?.[path]?.sha256 ?? null })));
+          }
+          throw artifactError("invalid", result?.body?.message || "Could not save presentation");
+        },
+        onChange(listener) {
+          artifactChangeListeners.add(listener);
+          return () => artifactChangeListeners.delete(listener);
+        },
+      },
+      assets: forcedReadOnly ? null : {
+        async upload(data, _options) {
+          const raw = new Uint8Array(await data.arrayBuffer());
+          const contentType = data.type || "application/octet-stream";
+          const file = { base64: encodeBytes(raw), contentType };
+          const result = await request("upload", file);
+          rememberAsset(result.id, file);
+          return { id: result.id, url: `/_blob/${result.id}`, sizeBytes: result.sizeBytes ?? raw.byteLength, contentType };
+        },
+      },
+      downloads: {
+        browser: true,
+        async check() {},
+        async save({ name, data }) {
+          await globalThis.__tarobotDesignSave({ filename: name, data });
+          return {};
+        },
+      },
+      agent: forcedReadOnly || !repairEnabled ? null : {
+        async status() { return loadAgentStatus(); },
+        onStatus(listener) {
+          agentStatusListeners.add(listener);
+          void loadAgentStatus().then(s => { if (agentStatusListeners.has(listener)) listener(s); });
+          return () => agentStatusListeners.delete(listener);
+        },
+        async send(req) {
+          if (globalThis.__tarobirdDesignRepairEnabled === false) return { status: "failed", reason: "Not available here." };
+          const text = typeof req?.text === "string" ? req.text.trim() : "";
+          if (!text) return { status: "failed", reason: "Empty request" };
+          const res = await request("comments.request", { text: text.slice(0, 10000), ...(req?.title ? { label: String(req.title).slice(0, 1000) } : {}) });
+          if (res?.status === 202 && res.body?.draft === "opened") return { status: "delivered", drafted: true };
+          return { status: "failed", reason: res?.body?.message || "Use the conversation composer to ask the Bot." };
+        },
+      },
+      comments: {
+        async list() {
+          const res = await request("comments.snapshot");
+          if (res?.status !== 200) return [];
+          return (res.body?.threads ?? []).map(mapCommentThread);
+        },
+        async create(input) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          const res = await request("comments.create", {
+            anchor: input.anchor,
+            label: input.label,
+            ...(input.detail ? { detail: input.detail } : {}),
+            text: input.text,
+          });
+          if (res?.status >= 400 || !res?.body?.thread) throw artifactError(res?.status === 403 ? "not_writer" : "invalid", res?.body?.message || "Could not create comment");
+          return mapCommentThread(res.body.thread);
+        },
+        async reply(threadId, text) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          const res = await request("comments.reply", { id: threadId, text });
+          if (res?.status >= 400 || !res?.body?.thread) throw artifactError(res?.status === 403 ? "not_writer" : "invalid", res?.body?.message || "Could not reply");
+          return mapCommentThread(res.body.thread);
+        },
+        async edit(threadId, messageId, text) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          const res = await request("comments.edit", { id: threadId, messageId, text });
+          if (res?.status >= 400 || !res?.body?.thread) throw artifactError(res?.status === 403 ? "not_writer" : "invalid", res?.body?.message || "Could not edit");
+          return mapCommentThread(res.body.thread);
+        },
+        async react(threadId) {
+          const list = await capabilities.comments.list();
+          const found = list.find(t => t.id === threadId);
+          if (!found) throw artifactError("not_found", "Thread not found");
+          return found;
+        },
+        async setResolved(threadId, resolved) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          const res = await request("comments.status", { id: threadId, status: resolved ? "resolved" : "open" });
+          if (res?.status >= 400 || !res?.body?.thread) throw artifactError(res?.status === 403 ? "not_writer" : "invalid", res?.body?.message || "Could not update status");
+          return mapCommentThread(res.body.thread);
+        },
+        async move(threadId, anchor, location) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          if (typeof anchor !== "string" || !anchor) throw artifactError("invalid", "Invalid comment anchor");
+          const label = typeof location?.label === "string" && location.label.trim() ? location.label.trim() : undefined;
+          const res = await request("comments.move", { id: threadId, anchor, ...(label ? { label } : {}) });
+          if (res?.status >= 400 || !res?.body?.thread) throw artifactError(res?.status === 403 ? "not_writer" : res?.status === 404 ? "not_found" : "invalid", res?.body?.message || "Could not move comment");
+          return mapCommentThread(res.body.thread);
+        },
+        async remove(threadId) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          const res = await request("comments.delete", { id: threadId });
+          if (res?.status >= 400) throw artifactError(res?.status === 403 ? "not_writer" : "invalid", res?.body?.message || "Could not delete");
+        },
+        async sendToAgent(threadId) {
+          if (forcedReadOnly) throw artifactError("not_writer", "Read-only preview");
+          if (!repairEnabled) throw artifactError("unavailable", "Not available here.");
+          const res = await request("comments.send", { id: threadId });
+          if (res?.status !== 202 || res.body?.draft !== "opened") throw artifactError("unavailable", res?.body?.message || "Draft unavailable");
+          const thread = res.body?.thread ? mapCommentThread(res.body.thread) : (await capabilities.comments.list()).find(t => t.id === threadId);
+          if (!thread) throw artifactError("not_found", "Thread not found");
+          // Opening a chat composer draft does not send the message yet; keep the
+          // actual server thread state so the user can retry if the draft is cleared.
+          return thread;
+        },
+        onChange(listener) {
+          commentChangeListeners.add(listener);
+          return () => commentChangeListeners.delete(listener);
+        },
+      },
+      room: {
+        async self() { return selfPeerId; },
+        async presence(patch) { try { await request("presence.patch", patch ?? {}); } catch {} },
+        async peers() { return cachedPeers; },
+        onPeers(listener) {
+          peerListeners.add(listener);
+          return () => peerListeners.delete(listener);
+        },
+        async emit() {},
+        onMessage(listener) {
+          roomMessageListeners.add(listener);
+          return () => roomMessageListeners.delete(listener);
+        },
+      },
+    };
+    const runtime = Object.freeze({
+      version: "1.4.0",
+      async use(name) {
+        const cap = Object.prototype.hasOwnProperty.call(capabilities, name) ? capabilities[name] : null;
+        return cap ? Object.freeze(cap) : null;
+      },
+    });
+    if (!globalThis.openartifact) {
+      Object.defineProperty(globalThis, "openartifact", { value: runtime, configurable: false, enumerable: true, writable: false });
+    }
+    return {
+      onExternalChange(event) {
+        const changes = event?.files ?? {};
+        for (const [p, h] of Object.entries(changes)) {
+          if (h === null) lastKnownHashes.delete(p);
+          else lastKnownHashes.set(p, h);
+        }
+        const author = event?.by?.agent ? "agent" : event?.by?.name;
+        for (const fn of [...artifactChangeListeners]) { try { fn({ changes, ...(author ? { author } : {}) }); } catch {} }
+      },
+      onComments(snapshot) {
+        const threads = (snapshot?.threads ?? []).map(mapCommentThread);
+        for (const fn of [...commentChangeListeners]) { try { fn(threads); } catch {} }
+      },
+      onPeers(peers) {
+        cachedPeers = Array.isArray(peers) ? peers.map(p => ({ id: String(p.id ?? p.userId ?? ""), name: String(p.name ?? ""), kind: "person", state: p.state ?? {} })) : [];
+        for (const fn of [...peerListeners]) { try { fn(cachedPeers); } catch {} }
+      },
+      onTitle(nextTitle) {
+        if (typeof nextTitle !== "string" || !nextTitle.trim()) return;
+        deckTitle = nextTitle.trim();
+        document.title = deckTitle;
+        try { globalThis.__tarobotSlidesSetTitle?.(deckTitle); } catch {}
+      },
+    };
+  };
+
+  let openArtifactBridge = null;
   globalThis.EventSource = PortEvents;
-  globalThis.__baoyuSave = (blob,filename) => globalThis.__tarobotDesignSave({filename,data:blob}).then(()=>({shown:filename}));
+  if (format === "canvas") {
+    globalThis.__tarobotLegacySave = (blob,filename) => globalThis.__tarobotDesignSave({filename,data:blob}).then(()=>({shown:filename}));
+  }
   // The Slides host omits the shell download adapter. Route it through the same
   // bounded, user-gesture-gated parent export used by the canvas. No direct
   // iframe download permission or filesystem access is granted.
@@ -148,7 +485,8 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
     const requestId = crypto.randomUUID();
     const finish = outcome => {
       clearTimeout(timer); removeEventListener("message", receive);
-      if (outcome === "saved") resolve(); else reject({code:outcome, message:"Export was not saved"});
+      if (outcome === "saved") resolve();
+      else reject(artifactError(outcome, outcome === "declined" ? "Export cancelled" : "Export was not saved"));
     };
     const receive = event => {
       if (event.source === parent && event.data?.type === "editor:save-file-result" && event.data.requestId === requestId) finish(event.data.outcome);
@@ -180,6 +518,7 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
   addEventListener("message", async function initialize(event) {
     if (event.source !== parent) return;
     if (event.data?.type === "tarobot-design-theme" && port && typeof event.data.dark === "boolean") { setTheme(event.data.dark); return; }
+    if (event.data?.type === "tarobot-design-title" && port && typeof event.data.title === "string") { openArtifactBridge?.onTitle(event.data.title); return; }
     if (event.data?.type !== "tarobot-design-init" || port || !event.ports[0]) return;
     // Host-owned presentation capability, settled before the editor boots.
     // iOS keeps editing and error details, but omits automatic repair requests.
@@ -188,12 +527,19 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
     port.onmessage = ({ data }) => {
       if(data?.type === "design-event") {
         const event=data.event;
-        const deliver = () => { for(const source of sources) {
-          if(event.type==="comments" && source.url.pathname==="/__comments/events") source.emit("comments",event.snapshot);
-          else if(event.type==="db-change" && source.url.pathname==="/_api/events") source.emit("change",rewriteValue({changes:event.changes}));
-          else if(event.type==="external-change" && source.url.pathname==="/__deck/events") source.emit("external-change",event);
-          else if(event.type==="peers") source.emit("peers",event.peers);
-        } };
+        const deliver = () => {
+          if (openArtifactBridge) {
+            if (event.type === "external-change") openArtifactBridge.onExternalChange(event);
+            else if (event.type === "comments") openArtifactBridge.onComments(event.snapshot);
+            else if (event.type === "peers") openArtifactBridge.onPeers(event.peers);
+          }
+          for(const source of sources) {
+            if(event.type==="comments" && source.url.pathname==="/__comments/events") source.emit("comments",event.snapshot);
+            else if(event.type==="db-change" && source.url.pathname==="/_api/events") source.emit("change",rewriteValue({changes:event.changes}));
+            else if(event.type==="external-change" && source.url.pathname==="/__deck/events") source.emit("external-change",event);
+            else if(event.type==="peers") source.emit("peers",event.peers);
+          }
+        };
         if(needsAssets(event)) {
           assetEvents=assetEvents.catch(()=>{}).then(async()=>{await syncAssets();deliver();}).catch(()=>{parent.postMessage({type:"tarobot-design-error",code:"design_resource_unavailable"},"*");});
         } else deliver();
@@ -205,6 +551,9 @@ export function startDesignRuntime(resources, boot, format = "canvas") {
       data.error ? task.reject(new Error(data.error)) : task.resolve(data.result);
     };
     setTheme(event.data.dark);
+    if (format === "slides") {
+      openArtifactBridge = installOpenArtifactRuntime(event.data);
+    }
     for (const [name, resource] of Object.entries(resources)) {
       if (!name.endsWith(".js")) continue;
       resource.url = URL.createObjectURL(new Blob([uuidShim, bytes(resource.base64)], { type: resource.type }));

@@ -16,7 +16,7 @@ import "../../src/device-settings.css";
 
 // A host as the inviting device sees it. Every request and native call is
 // recorded, so the spec can assert that showing a code never changes a host.
-type Route = { name: "Direct" | "Tailscale" | "VPS"; url: string; certificateAuthority?: string };
+type Route = { name: "Direct" | "Tailscale" | "VPS" | "Cloudflare"; url: string; certificateAuthority?: string };
 type Mode = { enabled: boolean; listening: boolean };
 export type HostSpec = {
   key: string;

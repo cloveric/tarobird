@@ -3,7 +3,7 @@
 ## Incident and evidence
 
 The owner screenshot showed a completed worker ticket followed by a failed
-Chancellor response while processing the completion notice. The installed Bot's
+Superagent response while processing the completion notice. The installed Bot's
 operational timeline records the follow-up from 07:54:19 to 07:54:32 China time:
 one `bash` and three `read_image` calls each had a result, then the turn failed
 with `DeepSeek Harness agent failed: DeepSeek Messages stream: tool input is invalid JSON`.
@@ -18,7 +18,7 @@ App timeline and could not distinguish malformed model output from a Harness
 assembly defect. The follow-up below recovers the failed arguments from the
 Harness journal; the original HTTP/SSE bytes remain unavailable.
 
-## Follow-up: worker result to Chancellor delivery
+## Follow-up: worker result to Superagent delivery
 
 The owner's request to trace the video handoff led to the compressed native
 `session.v4.jsonl.zstd` journal. Its failed `assistant/attempt` retains translated

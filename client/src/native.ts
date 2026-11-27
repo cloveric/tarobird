@@ -39,10 +39,24 @@ export function verifyEd25519(publicKey: string, signature: string, message: Uin
   if (spki.length !== 44 || prefix.some((v, i) => spki[i] !== v)) return false;
   return ed25519.verify(decode(signature), message, spki.subarray(12), { zip215: false });
 }
+export const NATIVE_ACTIVE_EVENT = "tarocub:native-active";
+let nativeAppActive = true;
+export function isNativeAppActive(): boolean { return nativeAppActive; }
 let deepLinkRevision = 0;
 let launchHandled = false;
+let deferredDeepLink: { raw: string; revision: number } | undefined;
 export function navigateDeepLink(raw: string): boolean {
-  try { const url = new URL(raw); const conversationId = url.pathname.slice(1); if (url.protocol !== "tarocub:" || url.hostname !== "conversation" || !/^[A-Za-z0-9_-]{1,128}$/.test(conversationId)) return false; const messageId = url.searchParams.get("message"), hostId = url.searchParams.get("host"); if (messageId && !/^[A-Za-z0-9_-]{1,128}$/.test(messageId) || hostId && !/^hub_[0-9a-f]{64}$/.test(hostId)) return false; launchHandled = true; ++deepLinkRevision; return !window.dispatchEvent(new CustomEvent("tarocub-navigate", { cancelable: true, detail: { conversationId, messageId, ...(hostId ? { hostId } : {}) } })); } catch { return false; }
+  try {
+    const url = new URL(raw); const conversationId = url.pathname.slice(1);
+    if (url.protocol !== "tarocub:" || url.hostname !== "conversation" || !/^[A-Za-z0-9_-]{1,128}$/.test(conversationId)) return false;
+    const messageId = url.searchParams.get("message"), hostId = url.searchParams.get("host");
+    if (messageId && !/^[A-Za-z0-9_-]{1,128}$/.test(messageId) || hostId && !/^hub_[0-9a-f]{64}$/.test(hostId)) return false;
+    launchHandled = true;
+    const revision = ++deepLinkRevision;
+    const handled = !window.dispatchEvent(new CustomEvent("tarocub-navigate", { cancelable: true, detail: { conversationId, messageId, ...(hostId ? { hostId } : {}) } }));
+    deferredDeepLink = handled ? undefined : { raw, revision };
+    return handled;
+  } catch { return false; }
 }
 function readLaunchLinks(scope: ListenerScope, read: (active: () => boolean) => Promise<string[] | null | undefined>): void {
   // Initial OS state belongs to this document, not to each connection effect.
@@ -85,6 +99,22 @@ export function installNativeEvents(resume: () => void, scope = new ListenerScop
     return scope.close;
   }
   if (Capacitor.isNativePlatform()) {
+    scope.listen<Event>((emit) => {
+      const interact = (event: Event) => { if (event.isTrusted && deferredDeepLink) deferredDeepLink = undefined; };
+      const events = ["pointerdown", "keydown", "click"];
+      window.addEventListener("tarocub-navigation-ready", emit);
+      events.forEach((name) => window.addEventListener(name, interact, true));
+      return () => {
+        window.removeEventListener("tarocub-navigation-ready", emit);
+        events.forEach((name) => window.removeEventListener(name, interact, true));
+        deferredDeepLink = undefined;
+        nativeAppActive = true;
+      };
+    }, () => {
+      if (!deferredDeepLink || deferredDeepLink.revision !== deepLinkRevision) return;
+      const pending = deferredDeepLink; deferredDeepLink = undefined;
+      navigateDeepLink(pending.raw);
+    });
     readLaunchLinks(scope, async (active) => { const { App } = await import("@capacitor/app"); if (active()) { const launch = await App.getLaunchUrl(); return launch ? [launch.url] : undefined; } });
     scope.listen<{ url: string }>(async (emit, active) => {
       const { App } = await import("@capacitor/app"); if (!active()) return;
@@ -93,7 +123,11 @@ export function installNativeEvents(resume: () => void, scope = new ListenerScop
     scope.listen<{ isActive: boolean }>(async (emit, active) => {
       const { App } = await import("@capacitor/app"); if (!active()) return;
       const listener = await App.addListener("appStateChange", emit); return () => listener.remove();
-    }, (event) => { if (event.isActive) { resume(); window.dispatchEvent(new Event(PUSH_FOREGROUND_EVENT)); } });
+    }, (event) => {
+      nativeAppActive = event.isActive;
+      window.dispatchEvent(new Event(NATIVE_ACTIVE_EVENT));
+      if (event.isActive) { resume(); window.dispatchEvent(new Event(PUSH_FOREGROUND_EVENT)); }
+    });
     return scope.close;
   }
   const navigate = () => { const params = new URLSearchParams(location.hash.slice(1)); const conversation = params.get("conversation"); const message = params.get("message"), host = params.get("host"); if (conversation) { const query = new URLSearchParams(); if (message) query.set("message", message); if (host) query.set("host", host); navigateDeepLink(`tarocub://conversation/${conversation}?${query}`); } };

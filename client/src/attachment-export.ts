@@ -39,7 +39,7 @@ export async function openSavedAttachment(path: string): Promise<void> {
       const { ask } = await import("@tauri-apps/plugin-dialog");
       if (!await ask(t("这个附件可能运行程序或修改系统。请仅在确认来源可信时打开。"), { title: t("打开可执行附件"), kind: "warning" })) return;
     }
-    await invoke("open_saved_file", { path, ...(isElectron() ? { english: document.documentElement.lang.startsWith("en") } : {}) });
+    await invoke("open_saved_file", { path, ...(isElectron() ? { english: document.documentElement.lang.startsWith("en"), locale: document.documentElement.lang } : {}) });
   } catch (error) {
     throw new Error(t("无法打开已保存的文件，请确认文件未被移动或删除，并已安装对应应用；也可以重新另存为。"), { cause: error });
   }

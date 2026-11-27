@@ -1,0 +1,27 @@
+/* Shared +N / -N diff line counts: baseline-aligned tabular monospace so green
+   and red counts share the same height and baseline across platforms. */
+.diff-counts {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  flex: none;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", Consolas, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-counts > span {
+  display: inline-block;
+  line-height: inherit;
+}
+
+.diff-counts > span:first-child {
+  color: var(--green);
+}
+
+.diff-counts > span:last-child {
+  color: var(--red);
+}

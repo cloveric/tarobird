@@ -6,6 +6,7 @@ import { HubStore } from "../src/hub/store.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "../src/hub/workbench-design-sharing.js";
 import type { DesignShareServerFrame } from "../src/client-protocol/workbench-design-sharing.js";
 import { DesignShareClient, openDesignShare, type DesignShareTransport } from "../client/src/workbench-design-collaboration.js";
+import { emptySlides } from "../client/src/workbench-design.js";
 import { memoryDesign } from "../client/tests/design-session-fixture.js";
 
 let broker: DesignShareBroker;
@@ -40,7 +41,7 @@ describe("stalled participant result delivery", () => {
   afterEach(async () => { broker.close(); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
 
   it.each([[70, 600, "ok"], [95, 800, "design_share_timeout"]] as const)("keeps a progressing connection alive (%i comments, %i ms per fragment)", async (count, delay, expected) => {
-    const made = memoryDesign();
+    const made = memoryDesign(emptySlides("design"));
     for (let i = 0; i < count; i++) await made.session.request("comments.create", { anchor: `#a${i}`, label: "Board", text: `${i} ${"x".repeat(9000)}` });
     const owner = device("owner", "mac"), slow = device("guest", "laptop", delay);
     const { view } = await openDesignShare(owner.client, made.session, { conversationId, windowId: "source", title: "Design" });
@@ -55,7 +56,7 @@ describe("stalled participant result delivery", () => {
   }, 30_000);
 
   it("expires a stalled stream, terminates its peer and makes room for other members", async () => {
-    const made = memoryDesign(undefined, { user: () => ({ id: "owner", name: "Owner" }) });
+    const made = memoryDesign(emptySlides("design"), { user: () => ({ id: "owner", name: "Owner" }) });
     for (let i = 0; i < 70; i++) await made.session.request("comments.create", { anchor: `#a${i}`, label: "Board", text: `${i} ${"x".repeat(9_000)}` });
     const owner = device("owner", "mac");
     const { view } = await openDesignShare(owner.client, made.session, { conversationId, windowId: "w-src", title: "Deck" });

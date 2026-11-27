@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { HostApp } from "../../src/HostApp.js";
-import { installNativeEvents } from "../../src/native.js";
+import { installNativeEvents, isNativeAppActive, NATIVE_ACTIVE_EVENT } from "../../src/native.js";
 import { installPushActions, enableNotifications } from "../../src/notifications.js";
 import { bridge } from "./native-events-bridge.js";
 import { HubConnection } from "../../src/connection.js";
@@ -11,8 +11,10 @@ let updatesRoot: Root | undefined;
 let root: Root | undefined, stops: (() => void)[] = [], generation = 0, resumes = 0;
 let workspaceCache: ClientCache | undefined;
 let enabling = "idle";
-const navigations: unknown[] = [], errors: string[] = [];
-window.addEventListener("tarocub-navigate", (event) => navigations.push((event as CustomEvent).detail));
+const navigations: unknown[] = [], errors: string[] = [], activeChanges: boolean[] = [];
+let acceptNavigate = false;
+window.addEventListener("tarocub-navigate", (event) => { navigations.push((event as CustomEvent).detail); if (acceptNavigate) event.preventDefault(); });
+window.addEventListener(NATIVE_ACTIVE_EVENT, () => activeChanges.push(isNativeAppActive()));
 window.addEventListener("unhandledrejection", (event) => { errors.push(String(event.reason)); event.preventDefault(); });
 window.addEventListener("error", (event) => errors.push(event.message));
 const Empty = () => <div>empty fixture</div>;
@@ -48,6 +50,8 @@ const fixture = {
   },
   stop() { fixture.unmountUpdates(); generation++; stops.forEach((stop) => stop()); stops = []; root?.unmount(); root = undefined; workspaceCache?.close(); workspaceCache = undefined; },
   emit: (name: string, value: unknown) => bridge.emit(name, value), release: (name: string) => bridge.release(name),
-  snapshot: () => ({ resumes, enabling, navigations, errors, calls: bridge.calls, handles: bridge.handles.map(({ name, removeCalls }) => ({ name, removeCalls })) }),
+  setAcceptNavigate: (value: boolean) => { acceptNavigate = value; },
+  navigationReady: () => { window.dispatchEvent(new Event("tarocub-navigation-ready")); },
+  snapshot: () => ({ resumes, enabling, navigations, errors, active: isNativeAppActive(), activeChanges: [...activeChanges], calls: bridge.calls, handles: bridge.handles.map(({ name, removeCalls }) => ({ name, removeCalls })) }),
 };
 Object.assign(window, { nativeEventsFixture: fixture });

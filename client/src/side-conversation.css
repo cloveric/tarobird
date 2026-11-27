@@ -25,8 +25,8 @@
 .side-jump{position:absolute;right:20px;bottom:calc(var(--side-composer-height,112px) + 12px);display:flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:999px;background:var(--bg);color:var(--accent);padding:5px 10px;font-size:11px}
 /* Follow the visible panel, including workbench/side switching. Monochrome's
    optional accent is distinct from its neutral primary-action colour. */
-.icon-button:is(.side-trigger,.workbench-trigger,.screen-trigger)[aria-expanded=true]{--panel-entry-accent:var(--mono-mark,var(--accent));color:color-mix(in srgb,var(--panel-entry-accent) 75%,var(--text));background:color-mix(in srgb,var(--panel-entry-accent) 18%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--panel-entry-accent) 28%,transparent),0 2px 7px color-mix(in srgb,var(--panel-entry-accent) 18%,transparent)}
-.icon-button:is(.side-trigger,.workbench-trigger,.screen-trigger)[aria-expanded=true]:hover:not(:disabled){background:color-mix(in srgb,var(--panel-entry-accent) 25%,transparent)}
+.icon-button:is(.side-trigger,.workbench-trigger,.files-trigger,.screen-trigger,.terminal-trigger)[aria-expanded=true]{--panel-entry-accent:var(--mono-mark,var(--accent));color:color-mix(in srgb,var(--panel-entry-accent) 75%,var(--text));background:color-mix(in srgb,var(--panel-entry-accent) 18%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--panel-entry-accent) 28%,transparent),0 2px 7px color-mix(in srgb,var(--panel-entry-accent) 18%,transparent)}
+.icon-button:is(.side-trigger,.workbench-trigger,.files-trigger,.screen-trigger,.terminal-trigger)[aria-expanded=true]:hover:not(:disabled){background:color-mix(in srgb,var(--panel-entry-accent) 25%,transparent)}
 .app-shell.has-side-panel>.conversation-main{container:side-main / inline-size}
 /* All three columns remain reachable. At narrow desktop widths, share the
    available space instead of removing the conversation directory. These

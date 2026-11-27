@@ -177,3 +177,65 @@ it("selects a managed LAN via CLI while keeping Tailscale and requiring explicit
   expect((await a.hub.hostRoutes.view()).notices).not.toContain("lan_selection_required");
   expect(await a.hub.network.sharedRoutes()).toEqual(shared);
 });
+
+it("supports CLI reinstate and propose --recover after a host leaves, keeping Bots intact", async () => {
+  const a = await host("Coordinator"), b = await host("Peer");
+  await run(a, "network", "create", "--name", "CLI recovery network");
+  await join(a, b);
+  await b.hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('peer_bot','Peer Bot','fixture')");
+  await run(b, "network", "leave", "--yes");
+  expect((await b.hub.network.view()).sync).toBe("standalone");
+
+  const offerBefore = path.join(a.directory, "offer-before.json");
+  await run(a, "network", "offer", "--out", offerBefore);
+  await expect(run(b, "network", "propose", "--from", offerBefore, "--out", path.join(b.directory, "bad.json"), "--yes")).rejects.toThrow("tarobot network reinstate");
+  await expect(run(b, "network", "propose", "--from", offerBefore, "--out", path.join(b.directory, "bad2.json"), "--recover", "--yes")).rejects.toThrow("协调主机尚未允许");
+
+  const offerReinstated = path.join(a.directory, "offer-reinstated.json");
+  await run(a, "network", "reinstate", b.hub.auth.publicKey, "--yes", "--out", offerReinstated);
+  const proposal = path.join(b.directory, "recover-proposal.json"), admission = path.join(a.directory, "recover-admission.json");
+  await run(b, "network", "propose", "--from", offerReinstated, "--out", proposal, "--recover", "--yes");
+  await run(a, "network", "admit", "--from", proposal, "--out", admission, "--yes");
+
+  // Re-proposing while the gen-2 recovery admission is still pending (e.g. after timeout or cancel) must keep recovery at generation 2.
+  const offerPending = path.join(a.directory, "offer-pending-gen2.json");
+  await run(a, "network", "offer", "--out", offerPending);
+  await expect(run(b, "network", "propose", "--from", offerPending, "--out", path.join(b.directory, "bad-pending.json"), "--yes")).rejects.toThrow("--recover");
+  const proposal2 = path.join(b.directory, "recover-proposal-2.json"), admission2 = path.join(a.directory, "recover-admission-2.json");
+  await run(b, "network", "propose", "--from", offerPending, "--out", proposal2, "--recover", "--yes");
+  await run(a, "network", "admit", "--from", proposal2, "--out", admission2, "--yes");
+  await run(b, "network", "join", "--from", admission2, "--yes");
+  expect((await b.hub.network.view()).host).toMatchObject({ state: "active", revoked: false, generation: 2 });
+  expect((await b.hub.store.bots("owner")).map(bot => bot.id)).toEqual(["peer_bot"]);
+}, 20_000);
+
+it("refuses CLI reinstate while an active 1.6.0 peer has not advertised generation support, then succeeds once upgraded", async () => {
+  const a = await host("Coordinator"), b = await host("Recovering"), c = await host("Peer160");
+  await run(a, "network", "create", "--name", "Mixed CLI network");
+  await join(a, b);
+  await join(a, c);
+  await run(b, "network", "leave", "--yes");
+
+  // Simulate Peer C running 1.6.0 (no generation-aware capability confirmed on Coordinator A).
+  const record = await a.hub.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key='private-network:v1'");
+  const state = JSON.parse(record!.value) as { generationAwareHosts?: string[] };
+  state.generationAwareHosts = (state.generationAwareHosts ?? []).filter(entry => !entry.endsWith(`:${c.hub.auth.publicKey}`));
+  await a.hub.store.db.run("UPDATE meta SET value=? WHERE key='private-network:v1'", [JSON.stringify(state)]);
+
+  const blockedOffer = path.join(a.directory, "blocked-reinstate-offer.json");
+  const revisionBefore = (await a.hub.network.view()).membership!.manifest.revision;
+  await expect(run(a, "network", "reinstate", b.hub.auth.publicKey, "--yes", "--out", blockedOffer)).rejects.toThrow("请先将网络内所有主机和 App 更新到最新版本后再恢复主机");
+  await expect(stat(blockedOffer)).rejects.toMatchObject({ code: "ENOENT" });
+  expect((await a.hub.network.view()).membership!.manifest.revision).toBe(revisionBefore);
+  expect((await a.hub.network.view()).membership!.manifest.hosts.find(item => item.publicKey === b.hub.auth.publicKey)?.reinstated).toBeUndefined();
+
+  // Once Peer C upgrades and syncs, CLI reinstate and full recovery succeed.
+  await c.hub.network.tick();
+  const offerReinstated = path.join(a.directory, "allowed-reinstate-offer.json");
+  await run(a, "network", "reinstate", b.hub.auth.publicKey, "--yes", "--out", offerReinstated);
+  const proposal = path.join(b.directory, "recover-mixed-proposal.json"), admission = path.join(a.directory, "recover-mixed-admission.json");
+  await run(b, "network", "propose", "--from", offerReinstated, "--out", proposal, "--recover", "--yes");
+  await run(a, "network", "admit", "--from", proposal, "--out", admission, "--yes");
+  await run(b, "network", "join", "--from", admission, "--yes");
+  expect((await b.hub.network.view()).host).toMatchObject({ state: "active", revoked: false, generation: 2 });
+}, 20_000);

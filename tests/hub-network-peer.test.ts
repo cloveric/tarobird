@@ -44,7 +44,7 @@ beforeAll(async () => {
   };
   tls = await pair("host", `IP:${address}`); wrongNameTls = await pair("wrong", "DNS:wrong.test"); siblingTls = await pair("sibling", `IP:${address}`);
 }, 20_000);
-afterEach(async () => { vi.restoreAllMocks(); await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => { server.close(resolve); server.closeAllConnections(); }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }))); });
 afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 /** The peer Hub's TLS identity proof for the certificate on this connection. */
 function identity(req: IncomingMessage, res: ServerResponse) {
@@ -205,5 +205,14 @@ it("does not send membership to a TLS-terminating intermediary holding another v
   const url = `https://${address}:${(intermediary.address() as { port: number }).port}`;
   await expect(exchangeNetworkPeer(host(url), request(signedManifest()))).rejects.toThrow();
   expect(seen.filter(entry => entry.startsWith("POST"))).toEqual([]);
+});
+
+it("surfaces HTTP 400 from an authenticated peer as a status-400 network_peer_rejected for 1.6.0 fallback", async () => {
+  let backupHits = 0;
+  const primary = await serve((_req, res) => { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "invalid_request" })); });
+  const backup = await serve((_req, res) => { backupHits++; res.end(JSON.stringify(signedManifest())); });
+  const destination = host(primary); destination.routes.push({ name: "VPS", url: backup, certificateAuthority: ca });
+  await expect(exchangeNetworkPeer(destination, request())).rejects.toMatchObject({ code: "network_peer_rejected", status: 400 });
+  expect(backupHits).toBe(0);
 });
 

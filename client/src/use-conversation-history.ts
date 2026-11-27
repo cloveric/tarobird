@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { Conversation, Message } from "../../src/client-protocol/index.js";
-import { numberedForkTitle, type HistoryAction, type HistoryAnchor, type HistoryBoundary, type HistoryOperation, type HistorySnapshot } from "../../src/client-protocol/conversation-history.js";
+import { numberedForkTitle, type HistoryAction, type HistoryAnchor, type HistoryBoundary, type HistoryClientOperation, type HistoryClientSnapshot } from "../../src/client-protocol/conversation-history.js";
 import { historyPendingSchema, historyReason, historyRecordKey, type HistoryMessageActions, type HistoryPending } from "./conversation-history-state.js";
 import type { HubConnection } from "./connection.js";
 import { useConnectionSelection } from "./connection-selection.js";
@@ -9,13 +9,15 @@ import { randomNonce } from "./identity.js";
 import { t } from "./i18n.js";
 
 export type HistoryIntent = { action: HistoryAction; revision: string; excerpt?: string; boundary?: HistoryBoundary };
-type View = { key: string; snapshot?: HistorySnapshot; anchors: Record<string, HistoryAnchor | undefined>; ready: boolean; stale: boolean; raw: string; pending?: HistoryPending; broken: boolean; error: string; notice: string; result?: HistoryOperation; destination?: Conversation; intent?: HistoryIntent; open: boolean; busy: boolean };
+type View = { key: string; snapshot?: HistoryClientSnapshot; anchors: Record<string, HistoryAnchor | undefined>; ready: boolean; stale: boolean; raw: string; pending?: HistoryPending; broken: boolean; error: string; notice: string; result?: HistoryClientOperation; destination?: Conversation; intent?: HistoryIntent; open: boolean; busy: boolean };
 const initial = (key: string): View => ({ key, anchors: {}, ready: false, stale: false, raw: "", broken: false, error: "", notice: "", open: false, busy: false });
 
 /** One durable operation per Host/user/conversation. Only submit() applies a
  * native action. Explicit recovery reconciles this receipt without replay. */
-export function useConversationHistory({ connection, conversation, enabled, activity, pendingMessages, localBusy, fallback, opened, forkTitles = [] }: {
+export function useConversationHistory({ connection, conversation, enabled, activity, backgroundBusy = false, sideState = "", pendingMessages, localBusy, fallback, opened, forkTitles = [] }: {
   connection: HubConnection; conversation?: Conversation; enabled: boolean; activity: string;
+  /** True while background tasks are active in this chat; sideState changes when a side panel opens, changes phase, or finishes disposing. */
+  backgroundBusy?: boolean; sideState?: string;
   /** Titles of conversations already forked from this one; a default title is numbered past them. */
   forkTitles?: string[];
   pendingMessages: boolean; localBusy: boolean; fallback: RefObject<HTMLElement | null>; opened: (conversation: Conversation) => void;
@@ -57,7 +59,7 @@ export function useConversationHistory({ connection, conversation, enabled, acti
       });
     } catch { if (serial === readSerial.current) patch(scope, { stale: true }); }
   }
-  useEffect(() => { if (!flight.current && view.ready) void refresh(); }, [key, enabled, available, state.status, activity, conversation?.bindingId, view.ready, settled]);
+  useEffect(() => { if (!flight.current && view.ready) void refresh(); }, [key, enabled, available, state.status, activity, backgroundBusy, sideState, conversation?.bindingId, view.ready, settled]);
   useEffect(() => {
     if (!eligible || !state.user?.id || flight.current) return;
     let cancelled = false;
@@ -101,7 +103,7 @@ export function useConversationHistory({ connection, conversation, enabled, acti
     return actions;
   }
 
-  async function settle(scope: string, raw: string, record: HistoryPending | undefined, result: HistoryOperation, navigate: boolean) {
+  async function settle(scope: string, raw: string, record: HistoryPending | undefined, result: HistoryClientOperation, navigate: boolean) {
     if (record && (record.change.requestId !== result.requestId || record.change.expectedRevision !== result.sourceRevision)) throw new Error("history_receipt_mismatch");
     let nextRaw = raw;
     if (record) {

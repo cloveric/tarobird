@@ -10,12 +10,13 @@ import { loadGatewayEnvironment } from "../gateway/environment.js";
 import { resolveSearchRouting } from "./search-routing.js";
 import { collectClaudeSearchMcpEntries, collectCodexSearchMcpEntries, createNativeSearchMcpPlanner, searchMcpBlocksManaged } from "./native-search-mcp.js";
 import { piAgentDir } from "../codex/pi-session-store.js";
+import { ompAgentDir } from "./omp-executable.js";
 import { collectPiSearchMcpEntries } from "../codex/pi-search-mcp.js";
 import { redactSecrets } from "./secret-redaction.js";
 
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const clean = (value: unknown, max = 500) => typeof value === "string" ? redactSecrets(value).replace(/https?:\/\/\S+/g, "[URL]").replace(/[\x00-\x1f\x7f-\x9f]/g, " ").slice(0, max) : "";
-const engineNames = ["codex", "claude", "kimi", "deepseek", "antigravity", "pi"] as const;
+const engineNames = ["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"] as const;
 export type CapabilityEngine = typeof engineNames[number];
 type Options = { env?: NodeJS.ProcessEnv; offline?: boolean };
 /** A registered Bot: its own state, workspace and project-scoped settings. */
@@ -229,6 +230,25 @@ async function scanEngine(scan: Scanner, engine: CapabilityEngine, env: NodeJS.P
       // resources actually load; this scanner never grants that trust.
       await jsonMcp(path.join(workspace, ".pi/mcp.json"), "workspace/.pi/mcp.json", "workspace");
       await piSkills(path.join(workspace, ".pi/skills"), "workspace/.pi/skills", "workspace");
+      await piSkills(path.join(workspace, ".agents/skills"), "workspace/.agents/skills", "workspace");
+    }
+  } else if (engine === "omp") {
+    const agentDir = ompAgentDir(env, home, workspace ?? home);
+    const labelBase = env.OMP_PROFILE?.trim()
+      ? `$OMP_PROFILE(${clean(env.OMP_PROFILE.trim(), 64)})`
+      : env.PI_CODING_AGENT_DIR?.trim()
+        ? "$PI_CODING_AGENT_DIR"
+        : env.PI_CONFIG_DIR?.trim() || env.OMP_CONFIG_DIR?.trim()
+          ? "$OMP_CONFIG_DIR/agent"
+          : "~/.omp/agent";
+    if (user) {
+      await jsonMcp(path.join(agentDir, "mcp.json"), `${labelBase}/mcp.json`, "user");
+      await piSkills(path.join(agentDir, "skills"), `${labelBase}/skills`, "user");
+      await piSkills(path.join(home, ".agents/skills"), "~/.agents/skills", "user");
+    }
+    if (workspace) {
+      await jsonMcp(path.join(workspace, ".omp/mcp.json"), "workspace/.omp/mcp.json", "workspace");
+      await piSkills(path.join(workspace, ".omp/skills"), "workspace/.omp/skills", "workspace");
       await piSkills(path.join(workspace, ".agents/skills"), "workspace/.agents/skills", "workspace");
     }
   } else {

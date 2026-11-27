@@ -26,12 +26,11 @@ async function fixture(page: Page) {
 }
 const panel = (page: Page) => page.getByRole("complementary", { name: "工作台", exact: true });
 
-test("PPT renders a real deck, Bot edits persist, and canvas stays separate", async ({page}, info) => {
+test("PPT renders a real deck, Bot edits persist, and canvas creation is rejected", async ({page}, info) => {
   const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
   const f = await fixture(page);
   try {
-    const canvas = await f.command({requestId:"existing-canvas",operation:"design.create",payload:{title:"Canvas retained"}});
-    expect(canvas).toMatchObject({status:"applied",saved:true});
+    await expect(f.command({requestId:"existing-canvas",operation:"design.create",payload:{title:"Canvas retained"}})).rejects.toThrow("design_canvas_removed");
     const created = await f.command({requestId:"slides-new",operation:"design.create",payload:{title:"Slide acceptance",format:"slides"}});
     expect(created).toMatchObject({status:"applied",saved:true});
     const target = {...created.target,tabId:(created.result as {tabId:string}).tabId};
@@ -44,18 +43,16 @@ test("PPT renders a real deck, Bot edits persist, and canvas stays separate", as
     const publish = await f.command({requestId:"slides-write",operation:"design.publish",target,expectedRevision:read.revision,payload:{files:{"project/slides/cover.html":{content:(read.result as {content:string}).content.replace("Slide acceptance","Bot edited slide"),contentType:"text/html"}}}});
     expect(publish).toMatchObject({status:"applied",saved:true});
     await expect(editor.getByText("Bot edited slide",{exact:true}).first()).toBeVisible({timeout:20000});
-    await page.screenshot({path:info.outputPath("baoyu-ppt.png")});
+    await page.screenshot({path:info.outputPath("presentation.png")});
     const guest = page.frames().find(frame => frame.parentFrame() === page.mainFrame())!;
     expect(await guest.evaluate(() => {try{return parent.document.title}catch{return "isolated"}})).toBe("isolated");
     expect(await guest.evaluate(async () => {try{await fetch("https://example.com");return "connected"}catch{return "blocked"}})).toBe("blocked");
     await page.reload();await waitForClientOnline(page);await selectConversation(page,f.conversation.title);await page.getByRole("button",{name:"工作台",exact:true}).click();
     await expect(editor.getByText("Bot edited slide",{exact:true}).first()).toBeVisible({timeout:20000});
-    await panel(page).getByRole("tab",{name:"Canvas retained",exact:true}).click();
-    await expect(page.frameLocator(".workbench-design-frame:visible").frameLocator("iframe").locator("h1")).toHaveText("Canvas retained",{timeout:20000});
     expect(errors).toEqual([]);
   } catch (error) {
     console.log("SLIDES_ERRORS", errors);
-    console.log("SLIDES_FRAMES", await Promise.all(page.frames().map(async frame => ({url:frame.url().slice(0,100),html:await frame.locator("body").innerText().catch(()=>"missing"), state:await frame.evaluate(()=>({title:document.title,root:document.getElementById("root")?.innerHTML.slice(0,400),host:!!(window as any).slidesHost,settler:!!(window as any).__tarobotDesignSettle})).catch(()=>({}))}))));
+    console.log("SLIDES_FRAMES", await Promise.all(page.frames().map(async frame => ({url:frame.url().slice(0,100),html:await frame.locator("body").innerText().catch(()=>"missing"), state:await frame.evaluate(()=>({title:document.title,root:document.getElementById("root")?.innerHTML.slice(0,400),host:!!(window as any).openartifact,settler:!!(window as any).__tarobotSlidesCommitText})).catch(()=>({}))}))));
     await page.screenshot({path: info.outputPath("slides-failure.png")});throw error;
   } finally {await f.close();}
 });
@@ -65,39 +62,39 @@ test('PPT manual edit survives immediate close, exports PPTX, and renders local 
   const f=await fixture(page);
   try {
     await panel(page).getByRole('button',{name:'新建内容',exact:true}).click();
-    await panel(page).getByRole('menu').getByRole('button',{name:'PPT',exact:true}).click();
+    await panel(page).getByRole('menu').getByRole('button',{name:'演示文稿',exact:true}).click();
     const editor=page.frameLocator('.workbench-design-frame:visible');
-    await expect(editor.getByText('PPT',{exact:true}).first()).toBeVisible({timeout:20000});
-    await editor.getByText('PPT',{exact:true}).first().dblclick();
+    await expect(editor.getByText('演示文稿',{exact:true}).first()).toBeVisible({timeout:20000});
+    await editor.getByText('演示文稿',{exact:true}).first().dblclick();
     await page.keyboard.press('Meta+A');await page.keyboard.type('Human PPT edit');
     // Deliberately close with the caret active, before the upstream debounce.
-    await panel(page).getByRole('tab',{name:'PPT',exact:true}).click({button:'right'});
+    await panel(page).getByRole('tab',{name:'演示文稿',exact:true}).click({button:'right'});
     await page.getByRole('menu',{name:'标签选项',exact:true}).getByRole('button',{name:'关闭标签',exact:true}).click();
     await expect(page.locator('.workbench-design-frame')).toHaveCount(0,{timeout:15000});
     await panel(page).getByRole('button',{name:'全部标签和已关闭内容',exact:true}).click();
-    await panel(page).locator('.workbench-closed-row').getByRole('button',{name:'PPT',exact:true}).click();
+    await panel(page).locator('.workbench-closed-row').getByRole('button',{name:'演示文稿',exact:true}).click();
     await expect(editor.getByText('Human PPT edit',{exact:true}).first()).toBeVisible({timeout:20000});
-    const registration=(await f.targets())[0], tab=registration.tabs.find(t=>t.title==='PPT')!;
+    const registration=(await f.targets())[0], tab=registration.tabs.find(t=>t.title==='演示文稿')!;
     expect(tab.designFormat).toBe('slides');
     const target={deviceId:registration.deviceId,windowId:registration.windowId,tabId:tab.id};
     const guest=page.frames().find(frame=>frame.parentFrame()===page.mainFrame())!;
-    const asset=await guest.evaluate(async()=> (window as any).slidesHost.assets.upload(new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#82776a"/></svg>'],{type:'image/svg+xml'})));
+    const asset=await guest.evaluate(async()=>{const assets=await (window as any).openartifact.use('assets');return assets.upload(new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#82776a"/></svg>'],{type:'image/svg+xml'}));});
     const read=await f.command({requestId:'ppt-asset-read',operation:'design.read',target,payload:{path:'project/slides/cover.html'}});
     expect(read.status).toBe('success');
     const publish=await f.command({requestId:'ppt-asset-write',operation:'design.publish',target,expectedRevision:read.revision,payload:{files:{'project/slides/cover.html':{content:(read.result as {content:string}).content.replace('</section>',`<img src="${asset.url}" alt="Local picture" style="width:80px;height:80px;object-fit:contain"></section>`),contentType:'text/html'}}}});
     expect(publish).toMatchObject({status:'applied',saved:true});
-    await expect(editor.getByRole('img',{name:'Local picture'}).first()).toBeVisible({timeout:20000});
-    await expect.poll(()=>editor.getByRole('img',{name:'Local picture'}).first().evaluate((node:HTMLImageElement)=>node.complete&&node.naturalWidth>0)).toBe(true);
-    await editor.getByRole('button',{name:/^Download|^下载/}).first().click();
+    await expect(editor.locator('img[alt="Local picture"]').first()).toBeVisible({timeout:20000});
+    await expect.poll(()=>editor.locator('img[alt="Local picture"]').first().evaluate((node:HTMLImageElement)=>node.complete&&node.naturalWidth>0)).toBe(true);
+    await editor.getByRole('button',{name:/^Export|^导出/}).first().click();
     const downloaded=page.waitForEvent('download',{timeout:20000});
-    await editor.getByRole('menuitem',{name:/PowerPoint, basic fonts/}).click();
+    await editor.getByRole('menuitem',{name:/PowerPoint \(basic fonts\)/}).click();
     const file=await downloaded;
     expect(file.suggestedFilename()).toMatch(/\.pptx$/);
     const bytes=await readFile((await file.path())!);
     const {default:AdmZip}=await import('adm-zip');const zip=new AdmZip(bytes);
     expect(zip.getEntries().map(item=>item.entryName)).toContain('ppt/slides/slide1.xml');
     expect(zip.readAsText('ppt/slides/slide1.xml')).toContain('Human PPT edit');
-    await page.screenshot({path:info.outputPath('baoyu-ppt-manual.png')});
+    await page.screenshot({path:info.outputPath('presentation-manual.png')});
   }catch(error){console.log('PPT_EDITOR_STATE',await page.frameLocator('.workbench-design-frame').locator('body').ariaSnapshot().catch(()=>''));throw error;}
   finally{await f.close();}
 });

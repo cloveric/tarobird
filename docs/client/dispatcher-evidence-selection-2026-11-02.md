@@ -1,4 +1,4 @@
-# Chancellor: evidence-led model selection without Jev
+# Superagent: evidence-led model selection without Jev
 
 The owner observed repeated Luna selection and requested the non-Jev plan agreed
 with Opus 5.5. This change improves the coordinator's instructions and the facts
@@ -117,7 +117,7 @@ paired candidate run.
 ## Real paired task comparison
 
 Four neutral text-only tasks run once each against the 1.0.126 source baseline
-and once against this candidate. Each used a fresh isolated Chancellor/session,
+and once against this candidate. Each used a fresh isolated Superagent/session,
 empty persona, `gpt-6.1-sol/xhigh` coordinator, auto mode and concurrency one.
 Codex/Claude/DeepSeek/Antigravity were permitted; user task text named no model
 or provider. Actual workers are checked against native session records, not

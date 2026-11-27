@@ -2,7 +2,7 @@
 
 Scope: ordinary Pi Bots, shared by App and headless Host CLI. No changes to
 other engines, dependencies, model/provider selection, permissions, session
-ownership or the exclusion of Pi from Chancellor roles. No release or installed
+ownership or the exclusion of Pi from Superagent roles. No release or installed
 App update is part of this change.
 
 ## Behavior

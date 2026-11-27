@@ -17,11 +17,25 @@ async function appendAuditEventBestEffort(
   }
 }
 
+export type CronExecutionOutcome =
+  | "completed"
+  | "reminder_sent"
+  | "reminder_muted"
+  | "budget_exhausted";
+
+export interface CronExecutionResult {
+  outcome?: CronExecutionOutcome;
+}
+
 export interface CronExecutionLifecycle {
   /** Await the returned function on queue admission, before any side effects. */
   deferTimeoutUntilStarted(): () => Promise<void>;
 }
-export type CronExecutor = (job: CronJobRecord, abortSignal?: AbortSignal, lifecycle?: CronExecutionLifecycle) => Promise<void>;
+export type CronExecutor = (
+  job: CronJobRecord,
+  abortSignal?: AbortSignal,
+  lifecycle?: CronExecutionLifecycle,
+) => Promise<void | CronExecutionResult>;
 class CronSchedulerStoppedError extends Error {
   constructor() { super("cron scheduler stopped"); this.name = "CronSchedulerStoppedError"; }
 }
@@ -298,8 +312,9 @@ export class CronScheduler {
       this.inFlight.add(finished);
       try {
         let executionError: unknown;
+        let executionResult: CronExecutionResult | void = undefined;
         try {
-          await tracked.reported;
+          executionResult = await tracked.reported;
         } catch (error) {
           executionError = error;
         }
@@ -323,14 +338,32 @@ export class CronScheduler {
           });
         } else if (executionError === undefined) {
           await this.recordRunBestEffort(tracked.job(), { success: true, ranAt });
+          const mode = job.deliveryMode ?? (job.runOnce ? "notify" : "agent");
+          const executionOutcome: CronExecutionOutcome = executionResult?.outcome
+            ?? (mode === "notify"
+              ? (job.mute ? "reminder_muted" : "reminder_sent")
+              : "completed");
+          const detail = executionOutcome === "budget_exhausted"
+            ? "budget exhausted (Bot did not run)"
+            : executionOutcome === "reminder_muted"
+              ? "reminder muted (Bot did not run)"
+              : executionOutcome === "reminder_sent"
+                ? "reminder sent (Bot did not run)"
+                : "Bot turn completed";
           await appendTimelineEventBestEffort(this.stateDir, {
             type: "cron.completed",
             instanceName: this.instanceName,
             channel: job.channel,
             chatId: job.chatId,
             userId: job.userId,
-            outcome: "success",
-            metadata: { cronJobId: job.id },
+            outcome: executionOutcome === "budget_exhausted" ? "blocked" : "success",
+            detail,
+            metadata: {
+              cronJobId: job.id,
+              deliveryMode: mode,
+              ...(executionOutcome === "budget_exhausted" ? { reason: "budget_exhausted" } : {}),
+              ...(job.mute ? { mute: true } : {}),
+            },
           });
         } else {
           const detail = executionError instanceof Error ? executionError.message : String(executionError);
@@ -602,7 +635,7 @@ export class CronScheduler {
     job: CronJobRecord,
     controller: AbortController,
     trigger: "scheduled" | "manual",
-  ): { reported: Promise<void>; finished: Promise<void>; started: () => boolean; admissionRequested: () => boolean; job: () => CronJobRecord } {
+  ): { reported: Promise<void | CronExecutionResult>; finished: Promise<void>; started: () => boolean; admissionRequested: () => boolean; job: () => CronJobRecord } {
     const timeoutMs = job.timeoutMins > 0 ? job.timeoutMins * this.timeoutMsPerMinute : 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let started = false;
@@ -625,23 +658,24 @@ export class CronScheduler {
         controller.abort(error); rejectReported(error);
       }, timeoutMs);
     })();
-    const execution = Promise.resolve().then(async () => {
+    const execution = Promise.resolve().then(async (): Promise<void | CronExecutionResult> => {
       controller.signal.throwIfAborted();
       if (!this.executorManagesAdmission) await start();
-      await this.executor(job, controller.signal, {
+      const result = await this.executor(job, controller.signal, {
         deferTimeoutUntilStarted: () => start,
       });
       if (job.runOnce && !started) {
         throw new Error("cron job was not executed: executor returned without queue admission");
       }
+      return result;
     });
-    const reported = new Promise<void>((resolve, reject) => {
+    const reported = new Promise<void | CronExecutionResult>((resolve, reject) => {
       rejectReported = reject;
       const onAbort = () => reject(controller.signal.reason);
       controller.signal.addEventListener("abort", onAbort, { once: true });
       const cleanup = () => { if (timer) clearTimeout(timer); controller.signal.removeEventListener("abort", onAbort); };
       execution.then(value => { cleanup(); resolve(value); }, error => { cleanup(); reject(error); });
     });
-    return { reported, finished: execution, started: () => started, admissionRequested: () => starting !== undefined, job: () => executionJob };
+    return { reported, finished: execution.then(() => undefined), started: () => started, admissionRequested: () => starting !== undefined, job: () => executionJob };
   }
 }

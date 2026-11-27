@@ -8,7 +8,7 @@ import { botCapabilitiesSchema, type BotCapabilities, type BotCapability } from 
 import { useBackAction } from "./back-navigation.js";
 import { useBotLabels } from "./BotReferences.js";
 import { HubHttpError } from "./http-error.js";
-import { t, useLocale } from "./i18n.js";
+import { localeIntlTag, t, useLocale } from "./i18n.js";
 import type { HubConnection, Bot } from "./connection.js";
 import { IntegrationRecommendations } from "./IntegrationRecommendations.js";
 import type { CapabilityHelpRequest } from "./CapabilityHelpDialog.js";
@@ -170,7 +170,7 @@ export function CapabilitiesPanel({ connection, bots, initialBot, close, help }:
             <p>{warningText.runtime_unverified}</p>
             <details className="capabilities-scope"><summary>{t("读取范围与限制")}{foldedCount > 0 && <span className="capabilities-badge">{t("{0} 条提示", foldedCount)}</span>}</summary>
               <ul>{folded.map((value) => <li key={value}>{warningText[value]}</li>)}<li>{t("以此 Bot 当前保存的默认工作区为范围；不同会话可能使用不同工作区。")}</li><li>{warningText.partial_catalog}</li></ul>
-              <dl>{data.workspace && <div><dt>{t("工作区")}</dt><dd><code>{data.workspace}</code></dd></div>}<div><dt>{t("读取时间")}</dt><dd>{new Date(data.generatedAt).toLocaleString(locale === "zh" ? "zh-CN" : "en-US")}</dd></div></dl>
+              <dl>{data.workspace && <div><dt>{t("工作区")}</dt><dd><code>{data.workspace}</code></dd></div>}<div><dt>{t("读取时间")}</dt><dd>{new Date(data.generatedAt).toLocaleString(localeIntlTag(locale))}</dd></div></dl>
               <p className="capabilities-subhead">{t("读取来源详情")}</p>
               <ul className="capabilities-sources">{data.sources.map((source, index) => <li key={index}><code>{source.source}</code><span data-problem={source.status === "unreadable" || source.status === "limited" || undefined}>{source.status === "read" ? t("已读取") : source.status === "missing" ? t("未找到") : source.status === "limited" ? t("读取受限") : t("无法读取")}</span></li>)}</ul>
             </details>

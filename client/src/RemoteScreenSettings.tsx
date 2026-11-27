@@ -78,7 +78,8 @@ export function RemoteScreenSettings({ connection, local, open, openBlocked, bus
     try { await work(); } catch (e) { if (lifetime.current === scope) setActionError(reason(e)); }
     finally { if (lifetime.current === scope) { operation.current = false; setBusy(false); busyChange?.(false); refresh.current(); } }
   };
-  const save = (policy: ScreenPolicy) => run(() => connection.screenConfigure({ operation: "screen.configure", expectedRevision: policy.revision, enabled: policy.enabled, grants: policy.grants, requestId: crypto.randomUUID() }));
+  const udpBoostAvailable = Boolean(state.screenUdpBoostAvailable);
+  const save = (policy: ScreenPolicy) => run(() => connection.screenConfigure({ operation: "screen.configure", expectedRevision: policy.revision, enabled: policy.enabled, grants: policy.grants, ...(udpBoostAvailable && policy.udpBoost !== undefined ? { udpBoost: policy.udpBoost } : {}), requestId: crypto.randomUUID() }));
   const permission = (kind: "capture" | "accessibility" | "input-monitoring") => run(async () => {
     if (!localMac || !status?.canManage) return;
     const scope = lifetime.current;
@@ -153,7 +154,46 @@ export function RemoteScreenSettings({ connection, local, open, openBlocked, bus
       {native.supported && !native.registered && <button disabled={busy || native.phase === "starting" || native.phase === "connecting" || native.error === "screen_service_updating"} onClick={() => void run(() => invoke("screen_service_retry", {}))}>{t("重试屏幕服务")}</button>}
     </div>}
     {!!status?.sessions.length && <div className="screen-active-sessions"><h4>{t("当前共享")}</h4>{status.sessions.map(session => <div className="screen-setting-row" key={session.id}><span>{session.deviceName}<small>{session.display.name} · {session.state === "controlling" ? t("正在控制") : t("查看中")}</small></span><button disabled={busy} onClick={() => void run(() => connection.screenStop(session.id))}>{t("断开")}</button></div>)}</div>}
-    {!targetUnsupported && status?.canManage && status.policy && <>
+    {!targetUnsupported && status?.canManage && status.policy && (() => {
+      const udpBoostEnabled = udpBoostAvailable && Boolean(status.policy.udpBoost);
+      const udpState = !udpBoostAvailable
+        ? "unsupported"
+        : !udpBoostEnabled
+          ? "disabled"
+          : status.udpStatus?.state ?? "fallback_tcp";
+      const udpDetail = udpBoostEnabled ? status.udpStatus?.detail?.trim() : "";
+      return <>
+      <div className="screen-udp-boost">
+        <div className="screen-udp-boost-row">
+          <label className="screen-enable">
+            <input type="checkbox" checked={udpBoostEnabled} disabled={busy || !udpBoostAvailable} onChange={event => { if (udpBoostAvailable) void save({ ...status.policy!, udpBoost: event.target.checked }); }}/>
+            <span>{t("UDP 加速（实验性）")}</span>
+          </label>
+          <span className="screen-udp-status" data-state={udpState}>
+            {!udpBoostAvailable
+              ? t("需更新主机")
+              : !udpBoostEnabled
+                ? t("未开启 · 当前使用 TCP")
+                : udpState === "connected"
+                  ? t("已连通")
+                  : t("未连通 · 已自动回退 TCP")}
+          </span>
+        </div>
+        <p className="screen-settings-intro">
+          {!udpBoostAvailable
+            ? t("此主机需要更新后才能开启 UDP 加速。当前继续使用 TCP 传输。")
+            : !udpBoostEnabled
+              ? t("开启后对本机所有查看设备生效，查看端无需单独设置。取消勾选时始终使用当前 TCP 传输。")
+              : udpState === "connected"
+                ? t("UDP 媒体通道已连通，对本机所有查看设备生效。可在查看器中开启性能数据覆盖层查看实时链路指标。")
+                : status.udpStatus?.reasonCode === "udp_relay_port_closed"
+                  ? t("中继服务器的 UDP 端口未开放，请在云安全组放行已配置的 UDP 中继端口。未连通期间自动保持 TCP 传输，不会黑屏或断线。")
+                  : status.udpStatus?.reasonCode === "peer_unsupported"
+                    ? t("当前查看端或对端暂不支持 UDP 媒体通道，已自动回退 TCP 传输（不会黑屏或断线）。请更新两端应用后重试。")
+                    : t("当前主机或中继尚未启用 UDP 媒体通道，已自动回退 TCP 传输（不会黑屏或断线）。开启查看器性能数据覆盖层可对比链路指标。")}
+        </p>
+        {udpDetail && <p className="screen-udp-detail">{udpDetail}</p>}
+      </div>
       {localMac && <div className="screen-system-permissions">
         <h4>{t("本机系统权限")}</h4>
         <div className="screen-permissions">
@@ -186,7 +226,7 @@ export function RemoteScreenSettings({ connection, local, open, openBlocked, bus
         <p>{t("配对和总开关不会自动授权设备。")}</p>
         {devices.map(device => <label className="screen-setting-row" data-current-device={device.id === connection.identity.deviceId} key={device.id}><span>{device.name}{device.id === connection.identity.deviceId && <small>{t("当前设备")}</small>}<small>{device.platform}</small></span><select aria-label={t("{0}的屏幕权限", device.name)} disabled={busy} value={status.policy!.grants.find(g => g.deviceId === device.id && g.publicKey === device.publicKey)?.permission ?? "none"} onChange={e => { const permission = e.target.value; void save({ ...status.policy!, grants: [...status.policy!.grants.filter(g => g.deviceId !== device.id), ...(permission === "none" ? [] : [{ deviceId: device.id, publicKey: device.publicKey, permission: permission as "view" | "control" }])] }); }}><option value="none">{t("不允许")}</option><option value="view">{t("仅查看")}</option><option value="control">{t("查看并控制")}</option></select></label>)}
       </details>
-    </>}
+    </>; })()}
     {!targetUnsupported && <details className="screen-permission-explanation"><summary>{t("权限说明")}</summary><p>{localWindows
       ? t("Windows 不需要另外授予系统权限。锁屏和安全提示出现时共享会停止；以管理员身份运行的窗口能看到，但不能被远程控制。配对和总开关不会自动授权设备。")
       : t("查看只需屏幕录制权限；远程控制还需辅助功能与输入监控。配对和总开关不会自动授权设备。")}</p></details>}

@@ -83,6 +83,9 @@ it("canonicalizes rate sources: IPv4-mapped forms are IPv4 and an IPv6 /64 is on
   expect(rateSource("relay:primary:2001:db8:5:6::9")).toBe("relay:primary:2001:db8:5:6::/64");
   expect(rateSource("relay:primary:::ffff:c000:201")).toBe("relay:primary:192.0.2.1");
   expect(rateSource("relay:primary:legacy")).toBe("relay:primary:legacy");
+  expect(rateSource("edge-proxy:2001:db8:5:6::9")).toBe("edge-proxy:2001:db8:5:6::/64");
+  expect(rateSource("edge-proxy:::ffff:c000:201")).toBe("edge-proxy:192.0.2.1");
+  expect(rateSource("edge-proxy:shared")).toBe("edge-proxy:shared");
   for (const label of ["local", "shared", "fe80::1%en0"]) expect(rateSource(label)).toBe(label);
 });
 

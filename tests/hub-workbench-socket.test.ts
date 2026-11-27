@@ -62,7 +62,7 @@ describe('workbench signed socket and API boundary',()=>{
     expect(app.serverCapabilities).toContain(WORKBENCH_DESIGN_CAPABILITY);
     expect(app.serverCapabilities).toContain(WORKBENCH_SLIDES_CAPABILITY);
     const target = { deviceId: 'desktop', windowId: 'design-window', tabId: 'design-tab' };
-    peer.send({ type: 'workbench.register', registration: { windowId: target.windowId, generation: 'design-generation', conversationId, capabilities: ['design.v1', 'design.slides.v1'], tabs: [{ id: target.tabId, kind: 'design', title: 'Design', revision: 0 }], activeTabId: target.tabId, visible: true } });
+    peer.send({ type: 'workbench.register', registration: { windowId: target.windowId, generation: 'design-generation', conversationId, capabilities: ['design.slides.v1'], tabs: [{ id: target.tabId, kind: 'design', title: 'Design', revision: 0, designFormat: 'slides' }], activeTabId: target.tabId, visible: true } });
     await until(async () => (await (await api(`/api/conversations/${conversationId}/workbench/targets`)).json()).length === 1 || undefined);
     const stateDir = path.join(dir, 'worker');
     const transport = new GatewayTransport({ url: hub.instanceUrl.replace(/^http/, 'ws') + '/instance', botId: 'bot', secret, stateDir, engine });
@@ -210,7 +210,7 @@ describe('workbench signed socket and API boundary',()=>{
   });
   it('binds Design commands to the authenticated Bot turn and refuses another conversation or an ended turn', async () => {
     const other = (await hub.store.createConversation('owner',['bot'],'Other design','other-design')).id;
-    const registerDesign = (id:string,windowId:string,tabId:string) => peer.send({type:'workbench.register',registration:{windowId,generation:'design-generation',conversationId:id,capabilities:['design.v1'],tabs:[{id:tabId,kind:'design',title:tabId,revision:0}],activeTabId:tabId,visible:true}});
+    const registerDesign = (id:string,windowId:string,tabId:string) => peer.send({type:'workbench.register',registration:{windowId,generation:'design-generation',conversationId:id,capabilities:['design.slides.v1'],tabs:[{id:tabId,kind:'design',designFormat:'slides',title:tabId,revision:0}],activeTabId:tabId,visible:true}});
     registerDesign(conversationId,'design-window-a','design-a');registerDesign(other,'design-window-b','design-b');
     for(const id of [conversationId,other]) await until(async()=>{const rows=await(await api(`/api/conversations/${id}/workbench/targets`)).json();return rows.length===1?true:undefined;});
     const worker=await Peer.connect(hub.instanceUrl.replace(/^http/,'ws')+'/instance');peers.push(worker);
@@ -229,7 +229,7 @@ describe('workbench signed socket and API boundary',()=>{
     expect((await api('/api/workbench/admit',{dispatchId:frame.dispatchId})).status).toBe(200);
     peer.send({type:'workbench.receipt',dispatchId:frame.dispatchId,receipt:{requestId:'exact-design',target,status:'applied',saved:true,revision:1}});
     expect(await(await reply).json()).toMatchObject({status:'applied',saved:true,target});
-    const create={requestId:'created-design',operation:'design.create',target:{deviceId:'desktop',windowId:'design-window-a'},payload:{title:'New design'}};
+    const create={requestId:'created-design',operation:'design.create',target:{deviceId:'desktop',windowId:'design-window-a'},payload:{title:'New PPT',format:'slides'}};
     const creating=call(create),createdFrame=await peer.next('workbench.command');
     expect(createdFrame.request.contextMessageId).toBe(message.id);
     expect((await api('/api/workbench/admit',{dispatchId:createdFrame.dispatchId})).status).toBe(200);

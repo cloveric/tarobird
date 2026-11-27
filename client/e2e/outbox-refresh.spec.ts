@@ -4,7 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "./fixtures/vite.js";
-import { showDisconnectedBots, selectConversation } from "./fixtures/mobile.js";
+import { showDisconnectedBots, selectConversation, waitForClientOnline } from "./fixtures/mobile.js";
+import { singleHostCacheName } from "./fixtures/cache.js";
 import { settleReadingLayout, readingAnchor, anchorTop } from "./fixtures/reading-position.js";
 import { HubServer } from "../../src/hub/server.js";
 
@@ -248,6 +249,96 @@ test.describe("pending feedback during cache changes", () => {
     await expect(row).toContainText("NEW_PENDING pending");
   });
 
+  test("outbox mutations do not trigger premature history reads before the message event arrives", async ({ page }) => {
+    await page.evaluate(() => {
+      const f = (window as any).outboxFixture, cache = f.hosts.a.cache, original = cache.messages.bind(cache);
+      f.historyReadCount = 0;
+      cache.messages = async (id: string) => { f.historyReadCount++; return original(id); };
+    });
+    await page.evaluate(() => (window as any).outboxFixture.send("decoupled-1", "DECOUPLED_1"));
+    const row = page.locator('.fixture-workspace:not([hidden]) #queued [data-id="decoupled-1"]');
+    await expect(row).toContainText("DECOUPLED_1 pending");
+    expect(await page.evaluate(() => (window as any).outboxFixture.historyReadCount)).toBe(0);
+
+    // ACK before message.created: keeps "sent" feedback without reading history.
+    await page.evaluate(() => Reflect.get((window as any).outboxFixture.hosts.a.connection, "ack").call((window as any).outboxFixture.hosts.a.connection, "decoupled-1", true));
+    await expect(row).toContainText("DECOUPLED_1 sent");
+    expect(await page.evaluate(() => (window as any).outboxFixture.historyReadCount)).toBe(0);
+
+    // Canonical history event arrives: triggers exactly one history read and retires pending row.
+    await page.evaluate(() => (window as any).outboxFixture.publish("decoupled-1", "DECOUPLED_1"));
+    await expect(page.locator('.fixture-workspace:not([hidden]) #history [data-id="decoupled-1"]')).toContainText("DECOUPLED_1");
+    await expect(row).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).outboxFixture.historyReadCount)).toBe(1);
+
+    // Failure, retry, and discard also leave history unread.
+    await page.evaluate(async () => {
+      const f = (window as any).outboxFixture, c = f.hosts.a.connection;
+      await f.send("decoupled-fail", "DECOUPLED_FAIL");
+      await Reflect.get(c, "rejectOperation").call(c, { code: "conversation_archived", message: "archived", retryable: false, requestId: "decoupled-fail" });
+    });
+    const failedRow = page.locator('.fixture-workspace:not([hidden]) #queued [data-id="decoupled-fail"]');
+    await expect(failedRow).toContainText("archived");
+    await page.evaluate(() => (window as any).outboxFixture.hosts.a.connection.retryFailed("decoupled-fail"));
+    await expect(failedRow).toContainText("DECOUPLED_FAIL pending");
+    await page.evaluate(async () => {
+      const f = (window as any).outboxFixture, c = f.hosts.a.connection;
+      await Reflect.get(c, "rejectOperation").call(c, { code: "conversation_archived", message: "archived", retryable: false, requestId: "decoupled-fail" });
+      await f.discard("decoupled-fail");
+    });
+    await expect(failedRow).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).outboxFixture.historyReadCount)).toBe(1);
+  });
+
+  test("delete-before-ACK retires cleanly without phantom sent rows across warm and cold caches", async ({ page }) => {
+    // Warm cache path: ACK without messageId after canonical deletion retires
+    // immediately with zero extra history reads.
+    await page.evaluate(async () => {
+      const f = (window as any).outboxFixture;
+      await f.send("del-warm", "SECRET_DELETED_WARM");
+      await f.publish("del-warm", "SECRET_DELETED_WARM");
+      await f.publish("del-warm", "SECRET_DELETED_WARM", "a", "same", true);
+    });
+    const warmRow = page.locator('.fixture-workspace:not([hidden]) #queued [data-id="del-warm"]');
+    await expect(page.locator('.fixture-workspace:not([hidden]) #history [data-id="del-warm"]')).toHaveCount(0);
+    await page.evaluate(() => {
+      const f = (window as any).outboxFixture, cache = f.hosts.a.cache, original = cache.messages.bind(cache);
+      f.deleteAckReads = 0;
+      cache.messages = async (id: string) => { f.deleteAckReads++; return original(id); };
+    });
+    await page.evaluate(() => Reflect.get((window as any).outboxFixture.hosts.a.connection, "ack").call((window as any).outboxFixture.hosts.a.connection, "del-warm", true));
+    await expect(warmRow).toHaveCount(0);
+    expect(await page.evaluate(() => (window as any).outboxFixture.deleteAckReads)).toBe(0);
+    await page.evaluate(() => { const f = (window as any).outboxFixture; f.select("a", "different"); f.select("a", "same"); });
+    await page.getByRole("button", { name: "retry history" }).click();
+    await expect(warmRow).toHaveCount(0);
+
+    // Cold cache + held history path (no messageId): tombstone returned by the
+    // history read retires the receipt even when historyRevision === receipt.revision.
+    await page.evaluate(async () => {
+      const f = (window as any).outboxFixture;
+      await f.send("del-cold", "SECRET_DELETED_COLD");
+      f.holdHistory();
+    });
+    const coldRow = page.locator('.fixture-workspace:not([hidden]) #queued [data-id="del-cold"]');
+    await expect(coldRow).toContainText("SECRET_DELETED_COLD pending");
+    await expect.poll(() => page.evaluate(() => (window as any).outboxFixture.holds["history-a"].held)).toBe(true);
+    await page.evaluate(async () => {
+      const f = (window as any).outboxFixture;
+      await f.publish("del-cold", "SECRET_DELETED_COLD");
+      await f.publish("del-cold", "SECRET_DELETED_COLD", "a", "same", true);
+      Reflect.get(f.hosts.a.cache, "messageCache").invalidate();
+      await Reflect.get(f.hosts.a.connection, "ack").call(f.hosts.a.connection, "del-cold", true);
+    });
+    await expect(coldRow).toContainText("SECRET_DELETED_COLD sent");
+    await page.evaluate(() => (window as any).outboxFixture.holds["history-a"].release());
+    await expect(coldRow).toHaveCount(0);
+    await expect(page.locator('.fixture-workspace:not([hidden]) #history [data-id="del-cold"]')).toHaveCount(0);
+    await page.evaluate(() => { const f = (window as any).outboxFixture; f.select("a", "different"); f.select("a", "same"); });
+    await page.getByRole("button", { name: "retry history" }).click();
+    await expect(coldRow).toHaveCount(0);
+  });
+
 });
 
 for (const width of [1360, 390]) test(`long conversation follows new queued rows but preserves reading position (${width}px)`, async ({ page }, info) => {
@@ -281,7 +372,8 @@ for (const width of [1360, 390]) test(`long conversation follows new queued rows
     for (let i = 0; i < 4; i++) {
       await page.getByLabel("消息", { exact: true }).fill(`PENDING_TAIL_${i}\n` + "待发送内容。".repeat(20));
       await page.getByRole("button", { name: "发送消息", exact: true }).click();
-      await expect(page.locator(".queued-message").filter({ hasText: `PENDING_TAIL_${i}` })).toBeInViewport();
+      await expect(page.locator(".message.user").filter({ hasText: `PENDING_TAIL_${i}` })).toBeInViewport();
+      await expect(page.locator(".queued-message")).toHaveCount(0);
     }
     const scroller = page.locator(".message-scroll");
     await scroller.evaluate(node => { node.dispatchEvent(new WheelEvent("wheel", { deltaY: -600, bubbles: true })); node.scrollTop -= 600; });
@@ -296,7 +388,7 @@ for (const width of [1360, 390]) test(`long conversation follows new queued rows
     const beforeDetails = await measure(), before = beforeDetails.scrollTop;
     await page.getByLabel("消息", { exact: true }).fill("PRESERVE_READING_POSITION");
     await page.getByRole("button", { name: "发送消息", exact: true }).click();
-    await expect(page.locator(".queued-message").filter({ hasText: "PRESERVE_READING_POSITION" })).toBeAttached();
+    await expect(page.locator(".message.user").filter({ hasText: "PRESERVE_READING_POSITION" })).toBeAttached();
     try {
       await settleReadingLayout(scroller);
       await expect.poll(() => scroller.evaluate(node => node.scrollTop)).toBeCloseTo(before, 0);
@@ -304,7 +396,7 @@ for (const width of [1360, 390]) test(`long conversation follows new queued rows
     }
     finally { await info.attach("reading-position", { body: JSON.stringify({ before: beforeDetails, after: await measure() }, null, 2), contentType: "application/json" }); }
     await page.getByRole("button", { name: "回到最新消息", exact: true }).click();
-    await expect(page.locator(".queued-message").filter({ hasText: "PRESERVE_READING_POSITION" })).toBeInViewport();
+    await expect(page.locator(".message.user").filter({ hasText: "PRESERVE_READING_POSITION" })).toBeInViewport();
     await page.screenshot({ path: info.outputPath(`long-outbox-${width}.png`) });
   } finally {
     await page.evaluate(() => (window as any).releaseTailHistory?.()).catch(() => undefined);
@@ -342,9 +434,11 @@ for (const width of [1360, 390]) test(`two actual pages sharing IDB bridge the s
     await page.getByRole("button", { name: "发送消息", exact: true }).click();
     await expect.poll(() => !!releaseSend).toBe(true);
     await peer.setViewportSize({ width, height: 844 }); await peer.goto(url);
+    await waitForClientOnline(peer);
     if (width <= 760) await selectConversation(peer, "两个窗口");
-    const pending = peer.locator(".queued-message").filter({ hasText: "SHARED_WINDOW_SEND" });
-    await expect(pending).toContainText("等待发送");
+    const pending = peer.locator(".message.user").filter({ hasText: "SHARED_WINDOW_SEND" });
+    await expect(pending).toContainText("发送中…");
+    await expect(peer.locator(".queued-message")).toHaveCount(0);
     await peer.evaluate(async () => {
       const { ClientCache } = await import("/src/storage.ts"), original = ClientCache.prototype.messages;
       let release!: () => void; const barrier = new Promise<void>(resolve => { release = resolve; });
@@ -355,17 +449,143 @@ for (const width of [1360, 390]) test(`two actual pages sharing IDB bridge the s
     await expect.poll(() => peer.evaluate(() => (window as any).sharedHistory.held)).toBe(true);
     releaseSend!();
     await expect(page.locator(".message.user").filter({ hasText: "SHARED_WINDOW_SEND" })).toBeVisible();
+    await expect(page.locator(".message.user.is-pending-outbox").filter({ hasText: "SHARED_WINDOW_SEND" })).toHaveCount(0);
     await expect(page.locator(".queued-message").filter({ hasText: "SHARED_WINDOW_SEND" })).toHaveCount(0);
     // Force a real event after the sender has removed the shared durable entry.
     await hub.store.publishBotMessage("bot", { conversationId: chat.id, blocks: [{ type: "text", text: "AFTER_SENDER_ACK" }] });
     await expect(pending).toContainText("正在同步发送状态…"); await expect(pending).toBeInViewport();
     await expect(pending.getByRole("button")).toHaveCount(0); expect(passiveAcks).toBe(0);
     await peer.evaluate(() => (window as any).sharedHistory.release());
-    await expect(peer.locator(".message.user").filter({ hasText: "SHARED_WINDOW_SEND" })).toBeVisible();
-    await expect(pending).toHaveCount(0);
+    await expect(peer.locator(".message.user").filter({ hasText: "SHARED_WINDOW_SEND" })).toHaveCount(1);
+    await expect(peer.locator(".message.user").filter({ hasText: "正在同步发送状态…" })).toHaveCount(0);
+    await expect(peer.locator(".queued-message")).toHaveCount(0);
     expect((await hub.store.snapshot("owner", chat.id)).messages.filter(item => item.clientMsgId === clientMsgId)).toHaveLength(1);
   } finally {
     await peer.evaluate(() => (window as any).sharedHistory?.release()).catch(() => undefined);
     await peer.close(); await page.close(); await vite.close(); await hub.close(); await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("real Hub: deleted messages do not stick as sent after disconnect-before-ACK reconnect, live delete-before-ACK, or missing tombstone", async ({ page }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "outbox-deleted-ack-"));
+  const vite = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await vite.listen();
+  const url = vite.resolvedUrls!.local[0];
+  const hub = await HubServer.start({ stateDir: root, origins: [new URL(url).origin] });
+  let blockReconnect = false;
+  let dropNextAckAndDisconnect = false;
+  let holdNextAck = false;
+  let releaseHeldAck: (() => void) | undefined;
+  try {
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('bot','删除助手','fixture')");
+    await hub.store.createConversation("owner", ["bot"], "备用对话", "backup");
+    const chat = await hub.store.createConversation("owner", ["bot"], "删除回归", "delete-ack");
+    await hub.store.publishBotMessage("bot", { conversationId: chat.id, blocks: [{ type: "text", text: "DELETE_ACK_READY" }] });
+    await page.route(`${hub.url}/health`, route => blockReconnect ? route.abort() : route.continue());
+    await page.routeWebSocket(hub.url.replace(/^http/, "ws") + "/ws", socket => {
+      const remote = socket.connectToServer();
+      socket.onMessage(data => remote.send(data));
+      remote.onMessage(data => {
+        const frame = JSON.parse(data.toString());
+        if (frame.type === "message.ack" && dropNextAckAndDisconnect) {
+          dropNextAckAndDisconnect = false;
+          blockReconnect = true;
+          socket.close();
+          remote.close();
+          return;
+        }
+        if (frame.type === "message.ack" && holdNextAck) {
+          holdNextAck = false;
+          releaseHeldAck = () => socket.send(data);
+          return;
+        }
+        socket.send(data);
+      });
+    });
+    await page.goto(url); await page.getByLabel("Hub 地址", { exact: true }).fill(hub.url);
+    await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" }); await showDisconnectedBots(page);
+    await selectConversation(page, "删除回归");
+    await expect(page.locator(".message-blocks").filter({ hasText: "DELETE_ACK_READY" })).toBeVisible();
+    const databaseName = await singleHostCacheName(page);
+    const outboxIds = () => page.evaluate(async name => {
+      const { ClientCache } = await import("/src/storage.ts");
+      const c = new ClientCache(name);
+      try { return (await c.outbox()).map(entry => entry.id); } finally { c.close(); }
+    }, databaseName);
+
+    // 1. Disconnect before ACK -> another device deletes message -> reconnect duplicate ACK.
+    dropNextAckAndDisconnect = true;
+    await page.getByLabel("消息", { exact: true }).fill("RECONNECT_DELETED_MSG");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect(page.locator(".connection-pill.online")).toHaveCount(0);
+    await expect.poll(async () => (await hub.store.snapshot("owner", chat.id)).messages.some(m => m.blocks.some(b => b.type === "text" && b.text === "RECONNECT_DELETED_MSG"))).toBe(true);
+    const reconnectMsg = (await hub.store.snapshot("owner", chat.id)).messages.find(m => m.blocks.some(b => b.type === "text" && b.text === "RECONNECT_DELETED_MSG"))!;
+    await hub.store.deleteMessages("owner", chat.id, { messageIds: [reconnectMsg.id] });
+    blockReconnect = false;
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(page.locator(".connection-pill.online")).toHaveCount(1);
+    await expect.poll(outboxIds).toEqual([]);
+    await expect(page.locator(".queued-message").filter({ hasText: "RECONNECT_DELETED_MSG" })).toHaveCount(0);
+    await expect(page.locator(".message.user").filter({ hasText: "RECONNECT_DELETED_MSG" })).toHaveCount(0);
+    await selectConversation(page, "备用对话");
+    await selectConversation(page, "删除回归");
+    await expect(page.locator(".queued-message").filter({ hasText: "RECONNECT_DELETED_MSG" })).toHaveCount(0);
+
+    // A pending outbox bubble also has .message.user while the ACK is held.
+    const committedRows = page.locator(".message.user:not(.is-pending-outbox)");
+
+    // 2. Live delete before delayed message.ack.
+    holdNextAck = true; releaseHeldAck = undefined;
+    await page.getByLabel("消息", { exact: true }).fill("LIVE_DELETED_MSG");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect(committedRows.filter({ hasText: "LIVE_DELETED_MSG" })).toBeVisible();
+    await expect.poll(() => !!releaseHeldAck).toBe(true);
+    const liveMsg = (await hub.store.snapshot("owner", chat.id)).messages.find(m => m.blocks.some(b => b.type === "text" && b.text === "LIVE_DELETED_MSG"))!;
+    await hub.store.deleteMessages("owner", chat.id, { messageIds: [liveMsg.id] });
+    await expect(committedRows.filter({ hasText: "LIVE_DELETED_MSG" })).toHaveCount(0);
+    releaseHeldAck!();
+    await expect.poll(outboxIds).toEqual([]);
+    await expect(page.locator(".queued-message, .message.user").filter({ hasText: "LIVE_DELETED_MSG" })).toHaveCount(0);
+    await selectConversation(page, "备用对话");
+    await selectConversation(page, "删除回归");
+    await expect(page.locator(".queued-message, .message.user").filter({ hasText: "LIVE_DELETED_MSG" })).toHaveCount(0);
+
+    // 3. Delayed ACK with no local tombstone at all (simulating snapshot omission):
+    // bounded fallback reconciliation retires the phantom "已发送" row cleanly.
+    holdNextAck = true; releaseHeldAck = undefined;
+    await page.getByLabel("消息", { exact: true }).fill("NO_TOMBSTONE_MSG");
+    await page.getByRole("button", { name: "发送消息", exact: true }).click();
+    await expect(committedRows.filter({ hasText: "NO_TOMBSTONE_MSG" })).toBeVisible();
+    await expect.poll(() => !!releaseHeldAck).toBe(true);
+    const noTombstoneMsg = (await hub.store.snapshot("owner", chat.id)).messages.find(m => m.blocks.some(b => b.type === "text" && b.text === "NO_TOMBSTONE_MSG"))!;
+    await hub.store.deleteMessages("owner", chat.id, { messageIds: [noTombstoneMsg.id] });
+    await expect(committedRows.filter({ hasText: "NO_TOMBSTONE_MSG" })).toHaveCount(0);
+    await page.evaluate(async ({ name, messageId, conversationId }) => {
+      const request = indexedDB.open(name);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => { request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      try {
+        const tx = db.transaction("messages", "readwrite");
+        tx.objectStore("messages").delete(messageId);
+        await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
+      } finally { db.close(); }
+      const channel = new BroadcastChannel(`tarobot-messages:${name}`);
+      channel.postMessage({ v: 1, conversationId });
+      channel.close();
+    }, { name: databaseName, messageId: noTombstoneMsg.id, conversationId: chat.id });
+    await selectConversation(page, "备用对话");
+    await selectConversation(page, "删除回归");
+    // Online, the still-queued send is a normal pending bubble, not the dashed box.
+    await expect(page.locator(".message.user.is-pending-outbox").filter({ hasText: "NO_TOMBSTONE_MSG" })).toContainText("发送中…");
+    await expect(page.locator(".queued-message").filter({ hasText: "NO_TOMBSTONE_MSG" })).toHaveCount(0);
+    releaseHeldAck!();
+    await expect.poll(outboxIds).toEqual([]);
+    await expect(page.locator(".queued-message, .message.user").filter({ hasText: "NO_TOMBSTONE_MSG" })).toHaveCount(0, { timeout: 6000 });
+    await selectConversation(page, "备用对话");
+    await selectConversation(page, "删除回归");
+    await expect(page.locator(".queued-message, .message.user").filter({ hasText: "NO_TOMBSTONE_MSG" })).toHaveCount(0);
+  } finally {
+    blockReconnect = false;
+    await page.close(); await vite.close(); await hub.close(); await rm(root, { recursive: true, force: true });
   }
 });

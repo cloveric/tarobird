@@ -18,14 +18,15 @@ import {
   type InstanceConfig,
   type InstanceEngine,
 } from "../state/instance-config.js";
-import type { Locale } from "../runtime/locale.js";
+import { isChineseLocale, isSupportedLocale, normalizeLocale, type Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import { CoreGroupModeStore } from "./group-mode-store.js";
 import { checkGroupMsgScope, renderGroupMsgScopeWarning } from "./group-scope-check.js";
 import { CoreKnownChatStore } from "./known-chats.js";
 import { readRawCoreConfig } from "./locale.js";
 import { coreAccessChatIdFromConversationKey, stableCoreNumericId } from "./message-normalizer.js";
 
-const CORE_CONFIG_ENGINES: InstanceEngine[] = ["codex", "claude", "kimi", "deepseek", "antigravity", "pi"];
+const CORE_CONFIG_ENGINES: InstanceEngine[] = ["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"];
 
 export type CoreConfigActionName = "engine" | "fast" | "yolo" | "locale" | "group" | "refresh" | "submit";
 
@@ -74,7 +75,10 @@ export async function renderCoreConfigCard(input: CoreConfigCardContext): Promis
   const accessState = await new AccessStore(path.join(input.stateDir, "access.json")).load().catch(() => null);
   const knownChat = await new CoreKnownChatStore(input.stateDir).get(input.conversationKey).catch(() => null);
   const codexDefaults = cfg.engine === "codex" ? await loadCodexUserDefaults() : undefined;
-  const labels = { ...coreConfigLabels(input.locale), ...(channelProfile() === "gateway" ? { title: input.locale === "en" ? "TaroBird settings" : "TaroBird 配置面板" } : {}) };
+  const labels = {
+    ...coreConfigLabels(input.locale),
+    ...(channelProfile() === "gateway" ? { title: hostT(input.locale, "TaroBird 配置面板") } : {}),
+  };
   const approvalMode = cfg.engine === "kimi"
     ? renderApprovalModeStatus(
         cfg.engine,
@@ -86,7 +90,7 @@ export async function renderCoreConfigCard(input: CoreConfigCardContext): Promis
       ? "unsafe/bypass"
       : resolvedApprovalMode === "full-auto"
         ? "full-auto"
-        : input.locale === "en" ? "normal approvals" : "普通审批";
+        : hostT(input.locale, "普通审批");
   const fastOn = cfg.codexServiceTier === "fast";
   const modelLabel = renderEngineModelSetting(cfg.engine, cfg.model, codexDefaults, input.locale);
   const effortLabel = renderEngineEffortSetting(cfg.engine, cfg.effort, codexDefaults, input.locale);
@@ -104,13 +108,14 @@ export async function renderCoreConfigCard(input: CoreConfigCardContext): Promis
     `- ${labels.fast}: ${fastOn ? labels.on : labels.off}`,
     `- ${labels.yolo}: ${approvalMode}`,
     `- ${labels.locale}: ${input.locale}`,
-    `- ${labels.access}: ${channelProfile() === "gateway" ? input.locale === "en" ? "Hub paired devices and conversation membership" : "Hub 已配对设备与会话成员" : accessState ? labels.accessSummary(accessState.pairedUsers.length, accessState.allowlist.length) : labels.defaultValue}`,
+    `- ${labels.access}: ${channelProfile() === "gateway" ? hostT(input.locale, "Hub 已配对设备与会话成员") : accessState ? labels.accessSummary(accessState.pairedUsers.length, accessState.allowlist.length) : labels.defaultValue}`,
     `- ${labels.workspace}: ${cfg.workspacePath ?? cfg.resume?.workspacePath ?? path.join(input.stateDir, "workspace")}`,
     input.bridgeChatType === "group"
       ? `- ${labels.group}: ${groupState.allowed ? labels.groupAllowed : labels.groupNotAllowed}; ${requiresMention ? labels.groupAt : labels.groupAll}`
       : `- ${labels.group}: ${labels.privateChat}`,
   ].filter((line): line is string => line !== undefined);
 
+  const normalizedLocale = normalizeLocale(input.locale, "en");
   const elements: unknown[] = [
     markdownElement(summaryLines.join("\n")),
     configFormSection(input, cfg, resolvedApprovalMode),
@@ -120,36 +125,32 @@ export async function renderCoreConfigCard(input: CoreConfigCardContext): Promis
       button(optionLabel(labels.kimi, cfg.engine === "kimi", labels), "engine", "kimi", input, cfg.engine === "kimi" ? "primary" : "default"),
       button(optionLabel(labels.deepseek, cfg.engine === "deepseek", labels), "engine", "deepseek", input, cfg.engine === "deepseek" ? "primary" : "default"),
       button(optionLabel(labels.antigravity, cfg.engine === "antigravity", labels), "engine", "antigravity", input, cfg.engine === "antigravity" ? "primary" : "default"),
-      ...(cfg.role === "dispatcher" ? [] : [button(optionLabel(labels.pi, cfg.engine === "pi", labels), "engine", "pi", input, cfg.engine === "pi" ? "primary" : "default")]),
+      ...(cfg.role === "dispatcher" ? [] : [
+        button(optionLabel(labels.pi, cfg.engine === "pi", labels), "engine", "pi", input, cfg.engine === "pi" ? "primary" : "default"),
+        button(optionLabel(labels.omp, cfg.engine === "omp", labels), "engine", "omp", input, cfg.engine === "omp" ? "primary" : "default"),
+      ]),
     ]),
     section(labels.speedSection, [
       button(optionLabel(labels.fastOn, fastOn, labels), "fast", "on", input, fastOn ? "primary" : "default"),
       button(optionLabel(labels.fastOff, !fastOn, labels), "fast", "off", input, !fastOn ? "primary" : "default"),
     ]),
     section(labels.approvalSection, [
-      ...(cfg.engine === "pi" ? [] : [button(optionLabel(labels.yoloOn, resolvedApprovalMode === "full-auto", labels), "yolo", "on", input, resolvedApprovalMode === "full-auto" ? "primary" : "default")]),
+      ...(cfg.engine === "pi" || cfg.engine === "omp" ? [] : [button(optionLabel(labels.yoloOn, resolvedApprovalMode === "full-auto", labels), "yolo", "on", input, resolvedApprovalMode === "full-auto" ? "primary" : "default")]),
       button(optionLabel(labels.yoloOff, resolvedApprovalMode === "normal", labels), "yolo", "off", input, resolvedApprovalMode === "normal" ? "primary" : "default"),
       button(optionLabel(labels.yoloUnsafe, resolvedApprovalMode === "bypass", labels), "yolo", "unsafe", input, resolvedApprovalMode === "bypass" ? "danger" : "default"),
     ]),
     section(labels.localeSection, [
-      button(optionLabel("中文", input.locale === "zh", labels), "locale", "zh", input, input.locale === "zh" ? "primary" : "default"),
-      button(optionLabel("English", input.locale === "en", labels), "locale", "en", input, input.locale === "en" ? "primary" : "default"),
+      button(optionLabel("中文", normalizedLocale === "zh", labels), "locale", "zh", input, normalizedLocale === "zh" ? "primary" : "default"),
+      button(optionLabel("English", normalizedLocale === "en", labels), "locale", "en", input, normalizedLocale === "en" ? "primary" : "default"),
+      button(optionLabel("日本語", normalizedLocale === "ja", labels), "locale", "ja", input, normalizedLocale === "ja" ? "primary" : "default"),
     ]),
     markdownElement(channelProfile() === "gateway"
-      ? input.locale === "en"
-        ? "Device access: Settings → Device management."
-        : "设备权限在「设置 → 设备管理」中设置。"
-      : input.locale === "en"
-      ? [
-        `**${labels.accessSection}**`,
-        "- `/invite group` / `/remove group`: allow or remove the current group.",
-        "- `/invite user @person` / `/remove user @person`: manage who can operate the bot inside groups.",
-      ].join("\n")
+      ? hostT(input.locale, "设备权限在「设置 → 设备管理」中设置。")
       : [
-        `**${labels.accessSection}**`,
-        "- `/invite group` / `/remove group`：允许或移除当前群。",
-        "- `/invite user @某人` / `/remove user @某人`：管理群内可操作用户。",
-      ].join("\n")),
+          `**${labels.accessSection}**`,
+          hostT(input.locale, "- `/invite group` / `/remove group`：允许或移除当前群。"),
+          hostT(input.locale, "- `/invite user @某人` / `/remove user @某人`：管理群内可操作用户。"),
+        ].join("\n")),
   ];
 
   if (input.bridgeChatType === "group") {
@@ -209,7 +210,7 @@ export async function applyCoreConfigCardAction(
   if (value.action === "group") {
     return await applyGroupAction(stateDir, value, locale, scopeContext);
   }
-  return locale === "en" ? "Unsupported config action." : "不支持的配置操作。";
+  return hostT(locale, "不支持的配置操作。");
 }
 
 async function applySubmitAction(
@@ -223,13 +224,13 @@ async function applySubmitAction(
   // carried no picks — so guarding only `!formValue` was dead and an empty submit fell
   // through to a misleading "nothing changed". Treat an empty object as no values too.
   if (!formValue || Object.keys(formValue).length === 0) {
-    return locale === "en" ? "No form values received." : "没有收到表单值。";
+    return hostT(locale, "没有收到表单值。");
   }
   const selectedEngine = stringFormValue(formValue.engine);
   const selectedFast = stringFormValue(formValue.fast);
   const selectedYolo = stringFormValue(formValue.yolo);
   const selectedLocale = stringFormValue(formValue.locale);
-  const noticeLocale: Locale = selectedLocale === "en" || selectedLocale === "zh" ? selectedLocale : locale;
+  const noticeLocale: Locale = isSupportedLocale(selectedLocale) ? selectedLocale : locale;
 
   const notices: string[] = [];
   if (selectedEngine) {
@@ -258,11 +259,9 @@ async function applySubmitAction(
 
   // There are at most five compact notices. Keep all of them so the group-scope
   // warning cannot be truncated when the form submits every field at once.
-  const compact = notices.filter(Boolean).join("；");
-  if (noticeLocale === "en") {
-    return compact ? `Saved. ${compact}` : "Saved.";
-  }
-  return compact ? `已保存。${compact}` : "已保存。";
+  const normalizedNoticeLocale = normalizeLocale(noticeLocale, "en");
+  const compact = notices.filter(Boolean).join(normalizedNoticeLocale === "en" ? "; " : normalizedNoticeLocale === "ja" ? "、" : "；");
+  return compact ? hostT(noticeLocale, "已保存。{0}", compact) : hostT(noticeLocale, "已保存。");
 }
 
 function stringFormValue(value: unknown): string | undefined {
@@ -276,12 +275,14 @@ function stringFormValue(value: unknown): string | undefined {
 
 async function applyEngineAction(stateDir: string, value: string | undefined, locale: Locale): Promise<string> {
   if (!CORE_CONFIG_ENGINES.includes(value as InstanceEngine)) {
-    return locale === "en" ? "Invalid engine choice." : "无效的引擎选择。";
+    return hostT(locale, "无效的引擎选择。");
   }
   const selected = value as InstanceEngine;
   const cfg = await loadInstanceConfig(stateDir);
-  if (selected === "pi" && cfg.role === "dispatcher") {
-    return locale === "en" ? "Pi is available for ordinary Bots, not Chief of Staff Bots." : "Pi 仅用于普通 Bot，不支持幕僚长。";
+  if ((selected === "pi" || selected === "omp") && cfg.role === "dispatcher") {
+    return selected === "omp"
+      ? (!isChineseLocale(locale) ? "omp is available for ordinary Bots, not Superagent Bots." : "omp 仅用于普通 Bot，不支持幕僚长。")
+      : (!isChineseLocale(locale) ? "Pi is available for ordinary Bots, not Superagent Bots." : "Pi 仅用于普通 Bot，不支持幕僚长。");
   }
   const engineChanged = cfg.engine !== selected;
   let resetSessionBindings = false;
@@ -297,63 +298,67 @@ async function applyEngineAction(stateDir: string, value: string | undefined, lo
     resetSessionBindings = result.removedCount > 0;
   } else await persist();
   const details = [
-    clearedModel ? (locale === "en" ? "cleared model override" : "已清除模型覆盖") : undefined,
-    resetSessionBindings ? (locale === "en" ? "reset session bindings" : "已重置会话绑定") : undefined,
-    enabledFullAuto ? (locale === "en" ? "enabled YOLO/full-auto for Antigravity" : "Antigravity 已开启 YOLO/full-auto") : undefined,
+    clearedModel ? hostT(locale, "已清除模型覆盖") : undefined,
+    resetSessionBindings ? hostT(locale, "已重置会话绑定") : undefined,
+    enabledFullAuto ? hostT(locale, "Antigravity 已开启 YOLO/full-auto") : undefined,
   ].filter((detail): detail is string => Boolean(detail));
-  if (locale === "en") {
-    return `Engine set to ${selected}${details.length ? ` (${details.join("; ")})` : ""}. ${channelProfile() === "gateway" ? "Use Operations to restart this Bot when idle." : "Restart Lark service to fully apply."}`;
-  }
-  return `引擎已设为 ${selected}${details.length ? `（${details.join("；")}）` : ""}。${channelProfile() === "gateway" ? "请在「运行状态」安排此 Bot 空闲后重启以生效。" : "重启 Lark service 后完全生效。"}`;
+  const normalized = normalizeLocale(locale, "en");
+  const detailText = details.length
+    ? (normalized === "en" ? ` (${details.join("; ")})` : normalized === "ja" ? `（${details.join("、")}）` : `（${details.join("；")}）`)
+    : "";
+  const restartHint = channelProfile() === "gateway"
+    ? hostT(locale, "请在「运行状态」安排此 Bot 空闲后重启以生效。")
+    : hostT(locale, "重启 Lark service 后完全生效。");
+  return hostT(locale, "引擎已设为 {0}{1}。{2}", selected, detailText, restartHint);
 }
 
 async function applyFastAction(stateDir: string, value: string | undefined, locale: Locale): Promise<string> {
   const cfg = await loadInstanceConfig(stateDir);
   if (cfg.engine !== "codex") {
-    return locale === "en" ? "Fast Mode is Codex-only." : "Fast Mode 仅 Codex 支持。";
+    return hostT(locale, "Fast Mode 仅 Codex 支持。");
   }
   if (value === "on") {
     await updateInstanceConfig(stateDir, (config) => {
       config.codexServiceTier = "fast";
     });
-    return locale === "en" ? "Codex Fast Mode enabled." : "Codex Fast Mode 已开启。";
+    return hostT(locale, "Codex Fast Mode 已开启。");
   }
   if (value === "off") {
     await updateInstanceConfig(stateDir, (config) => {
       delete config.codexServiceTier;
     });
-    return locale === "en" ? "Codex Fast Mode disabled." : "Codex Fast Mode 已关闭。";
+    return hostT(locale, "Codex Fast Mode 已关闭。");
   }
-  return locale === "en" ? "Invalid Fast Mode choice." : "无效的 Fast Mode 选择。";
+  return hostT(locale, "无效的 Fast Mode 选择。");
 }
 
 async function applyYoloAction(stateDir: string, value: string | undefined, locale: Locale): Promise<string> {
   if (value === "on") {
-    if ((await loadInstanceConfig(stateDir)).engine === "pi") return locale === "en"
-      ? "Pi does not provide sandboxed full-auto. Permissions were not changed; select normal approval or unsafe bypass."
-      : "Pi 不提供带沙箱的 full-auto，权限未更改；请选择普通审批或 unsafe bypass。";
+    const currentEngine = (await loadInstanceConfig(stateDir)).engine;
+    if (currentEngine === "pi") return hostT(locale, "Pi 不提供带沙箱的 full-auto，权限未更改；请选择普通审批或 unsafe bypass。");
+    if (currentEngine === "omp") return hostT(locale, "omp 不提供带沙箱的 full-auto，权限未更改；请选择普通审批或 unsafe bypass。");
     await updateInstanceApprovalMode(stateDir, "full-auto");
-    return locale === "en" ? "YOLO/full-auto enabled." : "YOLO/full-auto 已开启。";
+    return hostT(locale, "YOLO/full-auto 已开启。");
   }
   if (value === "off") {
     await updateInstanceApprovalMode(stateDir, "normal");
-    return locale === "en" ? "YOLO disabled; normal approvals restored." : "YOLO 已关闭，恢复普通审批。";
+    return hostT(locale, "YOLO 已关闭，恢复普通审批。");
   }
   if (value === "unsafe") {
     await updateInstanceApprovalMode(stateDir, "bypass");
-    return locale === "en" ? "YOLO unsafe/bypass enabled." : "YOLO unsafe/bypass 已开启。";
+    return hostT(locale, "YOLO unsafe/bypass 已开启。");
   }
-  return locale === "en" ? "Invalid YOLO choice." : "无效的 YOLO 选择。";
+  return hostT(locale, "无效的 YOLO 选择。");
 }
 
 async function applyLocaleAction(stateDir: string, value: string | undefined, locale: Locale): Promise<string> {
-  if (value !== "zh" && value !== "en") {
-    return locale === "en" ? "Invalid locale choice." : "无效的语言选择。";
+  if (!isSupportedLocale(value)) {
+    return hostT(locale, "无效的语言选择。");
   }
   await updateInstanceConfig(stateDir, (config) => {
     config.locale = value;
   });
-  return value === "en" ? "Locale set to English." : "语言已设为中文。";
+  return hostT(value, value === "en" ? "语言已设为英文。" : value === "ja" ? "语言已设为日语。" : "语言已设为中文。");
 }
 
 async function applyGroupAction(
@@ -364,7 +369,7 @@ async function applyGroupAction(
 ): Promise<string> {
   if (channelProfile() === "gateway") return applyGatewayGroupMode(stateDir, value.larkChatId, value.bridgeChatType === "group", value.value ?? "status", locale);
   if (value.bridgeChatType !== "group" || !value.larkChatId) {
-    return locale === "en" ? "Group settings are available only inside a Lark group." : "群聊设置只能在飞书群里使用。";
+    return hostT(locale, "群聊设置只能在飞书群里使用。");
   }
   const groupAction = value.value;
   const store = new CoreGroupModeStore(stateDir);
@@ -374,7 +379,7 @@ async function applyGroupAction(
     await updateGroupMode(stateDir, (groupMode) => {
       allowGroup(groupMode, bridgeChatId);
     });
-    return locale === "en" ? "Current Lark group allowed." : "当前飞书群已允许。";
+    return hostT(locale, "当前飞书群已允许。");
   }
   if (groupAction === "all") {
     await updateGroupMode(stateDir, (groupMode) => {
@@ -384,7 +389,7 @@ async function applyGroupAction(
       }
     });
     await store.setListenAll(value.larkChatId, true);
-    const notice = locale === "en" ? "Current group now accepts ordinary messages." : "当前群已切到监听普通消息。";
+    const notice = hostT(locale, "当前群已切到监听普通消息。");
     const scopeStatus = await checkGroupMsgScope({
       appId: scopeContext?.appId,
       appSecret: scopeContext?.appSecret,
@@ -394,7 +399,7 @@ async function applyGroupAction(
       return notice;
     }
     return `${notice}\n\n${renderGroupMsgScopeWarning(
-      locale === "en" ? "en" : "zh",
+      locale,
       scopeContext?.appId,
       scopeContext?.domain,
       scopeContext?.instanceName,
@@ -406,9 +411,9 @@ async function applyGroupAction(
       groupMode.listenAllChatIds = groupMode.listenAllChatIds.filter((chatId) => chatId !== bridgeChatId && chatId !== conversationChatId);
     });
     await store.setListenAll(value.larkChatId, false);
-    return locale === "en" ? "Current group now requires @bot / mention." : "当前群已切回需要 @bot / mention。";
+    return hostT(locale, "当前群已切回需要 @bot / mention。");
   }
-  return locale === "en" ? "Invalid group setting." : "无效的群聊设置。";
+  return hostT(locale, "无效的群聊设置。");
 }
 
 async function readCoreConfigGroupState(input: CoreConfigCardContext, cfg: InstanceConfig): Promise<{
@@ -482,48 +487,47 @@ function configFormSection(
   cfg: InstanceConfig,
   approvalMode: unknown,
 ): Record<string, unknown> {
-  const isEn = context.locale === "en";
-  const labels = coreConfigLabels(context.locale);
+  const { locale } = context;
+  const labels = coreConfigLabels(locale);
   const yoloValue = approvalMode === "bypass" ? "unsafe" : approvalMode === "full-auto" ? "on" : "off";
   const formElements: unknown[] = [
-    markdownElement(isEn
-      ? "**Guided settings**\nChange several settings at once, then submit. Quick buttons below still work for one-tap changes."
-      : "**引导式设置**\n可以一次调整多项配置后提交。下面的快捷按钮仍然可以单点修改。"),
+    markdownElement(hostT(locale, "**引导式设置**\n可以一次调整多项配置后提交。下面的快捷按钮仍然可以单点修改。")),
     selectStatic("engine", cfg.engine, [
       ["codex", "Codex"],
       ["claude", "Claude"],
       ["kimi", "Kimi"],
       ["deepseek", "DeepSeek Harness"],
       ["antigravity", "Antigravity"],
-      ...(cfg.role === "dispatcher" ? [] : [["pi", "Pi"] as [string, string]]),
+      ...(cfg.role === "dispatcher" ? [] : [["pi", "Pi"] as [string, string], ["omp", "omp"] as [string, string]]),
     ]),
     selectStatic("fast", cfg.codexServiceTier === "fast" ? "on" : "off", [
-      ["on", isEn ? "Fast on" : "Fast 开"],
-      ["off", isEn ? "Fast off" : "Fast 关"],
+      ["on", hostT(locale, "Fast 开")],
+      ["off", hostT(locale, "Fast 关")],
     ]),
     selectStatic("yolo", yoloValue, [
-      ...(cfg.engine === "pi" ? [] : [["on", isEn ? "YOLO on" : "YOLO 开"] as [string, string]]),
-      ["off", isEn ? "YOLO off" : "YOLO 关"],
-      ["unsafe", isEn ? "Unsafe bypass" : "Unsafe bypass"],
+      ...(cfg.engine === "pi" || cfg.engine === "omp" ? [] : [["on", hostT(locale, "YOLO 开")] as [string, string]]),
+      ["off", hostT(locale, "YOLO 关")],
+      ["unsafe", "Unsafe bypass"],
     ]),
-    selectStatic("locale", context.locale, [
+    selectStatic("locale", normalizeLocale(locale, "en"), [
       ["zh", "中文"],
       ["en", "English"],
+      ["ja", "日本語"],
     ]),
   ];
 
   if (context.bridgeChatType === "group") {
     formElements.push(selectStatic("group", "keep", [
       ["keep", labels.groupKeep],
-      ...(channelProfile() === "gateway" ? [] : [["allow", isEn ? "Allow this group" : "允许本群"] as [string, string]]),
-      ["all", isEn ? "Listen to ordinary messages" : "监听普通消息"],
-      ["at", isEn ? "Require @bot" : "仅 @bot"],
+      ...(channelProfile() === "gateway" ? [] : [["allow", hostT(locale, "允许本群")] as [string, string]]),
+      ["all", hostT(locale, "监听普通消息")],
+      ["at", hostT(locale, "仅 @bot")],
     ]));
   }
 
   formElements.push({
     tag: "button",
-    text: { tag: "plain_text", content: isEn ? "Save settings" : "保存设置" },
+    text: { tag: "plain_text", content: hostT(locale, "保存设置") },
     type: "primary",
     width: "fill",
     form_action_type: "submit",
@@ -662,6 +666,7 @@ function coreConfigLabels(locale: Locale): {
   kimi: string;
   deepseek: string;
   pi: string;
+  omp: string;
   antigravity: string;
   speedSection: string;
   fastOn: string;
@@ -683,102 +688,53 @@ function coreConfigLabels(locale: Locale): {
   selectedPrefix: string;
   accessSummary(pairedUsers: number, allowlistedUsers: number): string;
 } {
-  if (locale === "en") {
-    return {
-      title: "Lark Config Panel",
-      updated: "Updated:",
-      engine: "Engine",
-      model: "Model",
-      effort: "Effort",
-      fast: "Codex Fast Mode",
-      yolo: "YOLO",
-      locale: "Locale",
-      group: "Group",
-      chat: "Chat",
-      access: "Access",
-      workspace: "Workspace",
-      defaultValue: "default",
-      on: "on",
-      off: "off",
-      privateChat: "private chat",
-      groupAllowed: "allowed",
-      groupNotAllowed: "not allowed",
-      groupAt: "requires @bot",
-      groupAll: "accepts ordinary messages",
-      engineSection: "Engine",
-      codex: "Codex",
-      claude: "Claude",
-      kimi: "Kimi",
-      deepseek: "DeepSeek Harness",
-    pi: "Pi",
-      antigravity: "Antigravity",
-      speedSection: "Speed",
-      fastOn: "Fast On",
-      fastOff: "Fast Off",
-      approvalSection: "Approvals",
-      yoloOn: "YOLO On",
-      yoloOff: "YOLO Off",
-      yoloUnsafe: "Unsafe",
-      localeSection: "Language",
-      accessSection: "Access",
-      groupSection: "Group Mode",
-      groupAllow: "Allow Group",
-      groupKeep: "Keep current group setting",
-      groupAllButton: "Listen All",
-      groupAtButton: "@ Only",
-      utilitySection: "Utility",
-      refresh: "Refresh",
-      refreshed: "Refreshed.",
-      selectedPrefix: "✓ ",
-      accessSummary: (pairedUsers, allowlistedUsers) => `${pairedUsers} paired, ${allowlistedUsers} allowlisted`,
-    };
-  }
   return {
-    title: "飞书配置面板",
-    updated: "已更新：",
-    engine: "引擎",
-    model: "模型",
-    effort: "推理强度",
+    title: hostT(locale, "飞书配置面板"),
+    updated: hostT(locale, "已更新："),
+    engine: hostT(locale, "引擎"),
+    model: hostT(locale, "模型"),
+    effort: hostT(locale, "推理强度"),
     fast: "Codex Fast Mode",
     yolo: "YOLO",
-    locale: "语言",
-    group: "群聊",
-    chat: "聊天",
-    access: "访问",
-    workspace: "工作区",
-    defaultValue: "默认",
-    on: "开启",
-    off: "关闭",
-    privateChat: "私聊",
-    groupAllowed: "已允许",
-    groupNotAllowed: "未允许",
-    groupAt: "需要 @bot",
-    groupAll: "监听普通消息",
-    engineSection: "引擎",
+    locale: hostT(locale, "语言"),
+    group: hostT(locale, "群聊"),
+    chat: hostT(locale, "聊天"),
+    access: hostT(locale, "访问"),
+    workspace: hostT(locale, "工作区"),
+    defaultValue: hostT(locale, "默认"),
+    on: hostT(locale, "开启"),
+    off: hostT(locale, "关闭"),
+    privateChat: hostT(locale, "私聊"),
+    groupAllowed: hostT(locale, "已允许"),
+    groupNotAllowed: hostT(locale, "未允许"),
+    groupAt: hostT(locale, "需要 @bot"),
+    groupAll: hostT(locale, "监听普通消息"),
+    engineSection: hostT(locale, "引擎"),
     codex: "Codex",
     claude: "Claude",
     kimi: "Kimi",
     deepseek: "DeepSeek Harness",
     pi: "Pi",
+    omp: "omp",
     antigravity: "Antigravity",
-    speedSection: "速度",
-    fastOn: "Fast 开",
-    fastOff: "Fast 关",
-    approvalSection: "审批",
-    yoloOn: "YOLO 开",
-    yoloOff: "YOLO 关",
+    speedSection: hostT(locale, "速度"),
+    fastOn: hostT(locale, "Fast 开"),
+    fastOff: hostT(locale, "Fast 关"),
+    approvalSection: hostT(locale, "审批"),
+    yoloOn: hostT(locale, "YOLO 开"),
+    yoloOff: hostT(locale, "YOLO 关"),
     yoloUnsafe: "Unsafe",
-    localeSection: "语言",
-    accessSection: "访问",
-    groupSection: "群聊模式",
-    groupAllow: "允许本群",
-    groupKeep: "保持当前群聊设置",
-    groupAllButton: "全量监听",
-    groupAtButton: "仅 @",
-    utilitySection: "工具",
-    refresh: "刷新",
-    refreshed: "已刷新。",
+    localeSection: hostT(locale, "语言区块"),
+    accessSection: hostT(locale, "访问"),
+    groupSection: hostT(locale, "群聊模式"),
+    groupAllow: hostT(locale, "允许本群"),
+    groupKeep: hostT(locale, "保持当前群聊设置"),
+    groupAllButton: hostT(locale, "全量监听"),
+    groupAtButton: hostT(locale, "仅 @"),
+    utilitySection: hostT(locale, "工具"),
+    refresh: hostT(locale, "刷新"),
+    refreshed: hostT(locale, "已刷新。"),
     selectedPrefix: "✓ ",
-    accessSummary: (pairedUsers, allowlistedUsers) => `${pairedUsers} 个配对用户，${allowlistedUsers} 个白名单用户`,
+    accessSummary: (pairedUsers, allowlistedUsers) => hostT(locale, "{0} 个配对用户，{1} 个白名单用户", pairedUsers, allowlistedUsers),
   };
 }

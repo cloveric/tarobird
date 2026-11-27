@@ -1,9 +1,11 @@
 import { t } from "./i18n.js";
+import { rememberUploadedAttachment } from "./pending-messages.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { CHUNK_BYTES, MAX_FILE_BYTES } from "../../src/client-protocol/index.js";
 import type { HubConnection } from "./connection.js";
 import { HubHttpError, transientUploadError } from "./http-error.js";
+import { isRecordedVoiceFile } from "./voice-recording-marker.js";
 
 export type UploadSource = Pick<File, "name" | "size" | "type"> & { readChunk(start: number, end: number): Promise<Blob> };
 type UploadConnection = Pick<HubConnection, "state" | "subscribe" | "http" | "resume" | "isClosed" | "beginFileTransfer">;
@@ -47,7 +49,8 @@ export async function uploadFile(connection: UploadConnection, conversationId: s
     };
     const hash = sha256.create();
     for (let start = 0; start < file.size; start += CHUNK_BYTES) { checkUpload(connection, options.signal); hash.update(new Uint8Array(await (await read(start, start + CHUNK_BYTES)).arrayBuffer())); }
-    const metadata = JSON.stringify({ conversationId, name: file.name, mime: file.type.split(";")[0] || "application/octet-stream", size: file.size, sha256: bytesToHex(hash.digest()) });
+    const mime = (file.type.split(";")[0] || "application/octet-stream").trim();
+    const metadata = JSON.stringify({ conversationId, name: file.name, mime, size: file.size, sha256: bytesToHex(hash.digest()), ...(connection.state.audioRecordingMarkerAvailable && /^audio\//i.test(mime) ? { recording: isRecordedVoiceFile(file) } : {}) });
     let id: string | undefined, failedSince: number | undefined, confirmed = 0;
     for (;;) {
       checkUpload(connection, options.signal);
@@ -58,7 +61,7 @@ export async function uploadFile(connection: UploadConnection, conversationId: s
         id ??= (await connection.http<{ id: string }>("/api/uploads", { method: "POST", body: metadata, signal: options.signal })).id;
         const state = await connection.http<{ complete: boolean; chunks: number[] }>(`/api/uploads/${id}`, { signal: options.signal });
         options.recovering?.(false);
-        if (state.complete) { progress(1); return id; }
+        if (state.complete) { rememberUploadedAttachment(connection, id, file); progress(1); return id; }
         // Always reconcile receipts after a failed request. The server may have
         // durably accepted a chunk even though its response was lost.
         for (let start = 0; start < file.size; start += CHUNK_BYTES) {
@@ -67,7 +70,7 @@ export async function uploadFile(connection: UploadConnection, conversationId: s
           const next = Math.min(file.size, start + CHUNK_BYTES); if (next > confirmed) { confirmed = next; failedSince = undefined; }
           progress(confirmed / file.size);
         }
-        await connection.http(`/api/uploads/${id}/complete`, { method: "POST", signal: options.signal }); return id;
+        await connection.http(`/api/uploads/${id}/complete`, { method: "POST", signal: options.signal }); rememberUploadedAttachment(connection, id, file); return id;
       } catch (error) {
         checkUpload(connection, options.signal);
         if (!transientUploadError(error)) throw error;

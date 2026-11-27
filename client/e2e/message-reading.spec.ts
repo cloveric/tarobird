@@ -165,6 +165,176 @@ for (const profile of ["desktop", "phone", "ios-touch"] as const) test.describe(
   }
 });
 
+  if (profile === "ios-touch") test("iOS deferred compensation keeps client-sent user rows and background task groups anchored (390px)", async ({ page }) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "message-reading-ios-keys-"));
+    const vite = await createServer({ server: { port: 0, host: "127.0.0.1" } }); await vite.listen();
+    const url = vite.resolvedUrls!.local[0];
+    const hub = await HubServer.start({ stateDir: root, origins: [new URL(url).origin] });
+    try {
+      await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('bot','阅读助手','fixture')");
+      const chat = await hub.store.createConversation("owner", ["bot"], "iOS锚点", "reading_ios_keys");
+      let createdAt = Date.now() - 2000;
+      const setChronology = async (id: string) => {
+        const ts = createdAt++;
+        await hub.store.db.run("UPDATE messages SET created_at=? WHERE id=?", [ts, id]);
+        await hub.store.db.run("UPDATE events SET payload_json=json_set(payload_json,'$.createdAt',?) WHERE conversation_id=? AND json_extract(payload_json,'$.id')=? AND kind LIKE 'message.%'", [ts, chat.id, id]);
+      };
+      for (let i = 0; i < 30; i++) {
+        const text = `TOP_${i}\n\n# 顶部标题\n\n` + "顶部历史内容。".repeat(45);
+        const m = await hub.store.publishBotMessage("bot", { conversationId: chat.id, blocks: [{ type: "text", text }] });
+        await setChronology(m.id);
+      }
+      for (let t = 0; t < 2; t++) {
+        const runId = `run_ios_bg_${t}`;
+        const m = await hub.store.publishBotMessage("bot", {
+          conversationId: chat.id,
+          blocks: [{
+            type: "card",
+            elements: [{ type: "markdown", text: `后台任务 ${t}` }],
+            extra: {
+              backgroundTaskGroup: { version: 1, groupId: "grp_ios_anchor", scopeId: `scope_${t}`, runId },
+              scopedRun: { version: 1, id: runId, revision: 1, phase: "done", startedAt: createdAt - 1000, updatedAt: createdAt, endedAt: createdAt, count: 1, completed: 1, failed: 0, truncated: false },
+            },
+          }],
+        });
+        await setChronology(m.id);
+      }
+      const userSent = (await hub.store.sendMessage("owner", {
+        v: 1, type: "message.send", clientMsgId: "client_ios_anchor", conversationId: chat.id,
+        text: "IOS_USER_ANCHOR\n\n" + "用户锚点内容。".repeat(12), attachments: [],
+      })).message;
+      await setChronology(userSent.id);
+      for (let i = 0; i < 25; i++) {
+        const text = `TAIL_${i}\n\n# 尾部标题\n\n` + "尾部历史内容。".repeat(45);
+        const m = await hub.store.publishBotMessage("bot", { conversationId: chat.id, blocks: [{ type: "text", text }] });
+        await setChronology(m.id);
+      }
+
+      await page.addInitScript(() => {
+        const NativeWorker = window.Worker;
+        const gate = { held: false, waiting: [] as (() => void)[], release() { this.held = false; this.waiting.splice(0).forEach(deliver => deliver()); } };
+        Object.assign(window, { readingWorker: gate });
+        window.Worker = class extends NativeWorker {
+          constructor(url: string | URL, options?: WorkerOptions) {
+            super(url, options);
+            if (String(url).includes("markdown.worker")) this.addEventListener("message", event => {
+              if (!gate.held) return;
+              event.stopImmediatePropagation();
+              gate.waiting.push(() => this.dispatchEvent(new MessageEvent("message", { data: event.data })));
+            });
+          }
+        };
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(url); await page.getByLabel("Hub 地址", { exact: true }).fill(hub.url);
+      await preparePairing(page, hub); await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+      await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+      await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" }); await showDisconnectedBots(page);
+      await selectConversation(page, "iOS锚点");
+      await expect(page.locator(".message-blocks").filter({ hasText: "TAIL_24" })).toBeInViewport({ timeout: 20000 });
+      const scroller = page.locator(".message-scroll");
+      await settleReadingLayout(scroller);
+
+      // Hold Markdown parsing and scroll up until both the client-sent user row
+      // and the background task group sit at the top of the viewport with at
+      // least one delayed Markdown row strictly above the viewport.
+      await page.evaluate(() => (window as any).readingWorker.held = true);
+      for (let step = 0; step < 25; step++) {
+        const mounted = await scroller.evaluate((node, userId) => {
+          const user = node.querySelector<HTMLElement>(`article[data-message-id="${userId}"]`);
+          const bg = node.querySelector<HTMLElement>(".background-task-group")?.closest<HTMLElement>("article");
+          return !!user && !!bg;
+        }, userSent.id);
+        if (mounted) break;
+        await scroller.evaluate(node => { node.dispatchEvent(new WheelEvent("wheel", { deltaY: -1200, bubbles: true })); node.scrollTop -= 1200; });
+        await settleReadingLayout(scroller, false);
+      }
+      for (let align = 0; align < 6; align++) {
+        const aligned = await scroller.evaluate((node, userId) => {
+          const user = node.querySelector<HTMLElement>(`article[data-message-id="${userId}"]`);
+          const bg = node.querySelector<HTMLElement>(".background-task-group")?.closest<HTMLElement>("article");
+          if (!user || !bg) throw new Error("Fixture did not mount both user row and background task group");
+          const viewport = node.getBoundingClientRect();
+          // Place the collapsed background task group (which has no delayed
+          // Markdown of its own) spanning viewport.top, with the client-sent
+          // user row immediately below it, so every delayed Markdown row above
+          // them sits strictly above the fold (item.end <= fold).
+          const offset = bg.getBoundingClientRect().top - (viewport.top - 12);
+          if (Math.abs(offset) <= 6) return true;
+          node.scrollTop += offset;
+          return false;
+        }, userSent.id);
+        await settleReadingLayout(scroller, false);
+        if (aligned) break;
+      }
+
+      await scroller.evaluate(node => {
+        const original = node.scrollTo.bind(node); const writes: unknown[] = [];
+        Object.assign(window, { readingScrollWrites: writes });
+        node.scrollTo = ((...args: unknown[]) => { writes.push(args); Reflect.apply(original, node, args); }) as typeof node.scrollTo;
+        const offset = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+        Object.defineProperty(node, "scrollTop", { get() { return offset.get!.call(this); }, set(value) { writes.push(value); offset.set!.call(this, value); }, configurable: true });
+        const event = new Event("touchstart", { bubbles: true }); Object.defineProperty(event, "touches", { value: [{ clientY: 200 }] }); node.dispatchEvent(event);
+      });
+
+      const before = await scroller.evaluate(async (node, userId) => {
+        node.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true })); node.scrollTop -= 1;
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        const viewport = node.getBoundingClientRect();
+        const user = node.querySelector<HTMLElement>(`article[data-message-id="${userId}"]`);
+        const bg = node.querySelector<HTMLElement>(".background-task-group")?.closest<HTMLElement>("article");
+        const above = [...node.querySelectorAll<HTMLElement>("[data-message-id]")].filter(item => item.getBoundingClientRect().bottom <= viewport.top && item.querySelector(".markdown-pending"));
+        if (!user || !bg || !above.length) throw new Error(`Fixture needs user, bg group, and pending rows above (user=${!!user}, bg=${!!bg}, above=${above.length})`);
+        const result = {
+          userId: user.dataset.messageId!,
+          userRowKey: user.dataset.rowKey!,
+          userTop: user.getBoundingClientRect().top - viewport.top,
+          bgId: bg.dataset.messageId!,
+          bgRowKey: bg.dataset.rowKey!,
+          bgTop: bg.getBoundingClientRect().top - viewport.top,
+        };
+        const frames = { running: true, userMaxDelta: 0, bgMaxDelta: 0 };
+        Object.assign(window, { readingAnchorFrames: frames });
+        const sample = () => {
+          if (!frames.running) return;
+          const vTop = node.getBoundingClientRect().top;
+          frames.userMaxDelta = Math.max(frames.userMaxDelta, Math.abs(user.getBoundingClientRect().top - vTop - result.userTop));
+          frames.bgMaxDelta = Math.max(frames.bgMaxDelta, Math.abs(bg.getBoundingClientRect().top - vTop - result.bgTop));
+          requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+        (window as any).readingWorker.release();
+        (window as any).readingScrollWrites.length = 0;
+        return result;
+      }, userSent.id);
+
+      expect(before.userRowKey).toBe("user:owner:client_ios_anchor");
+      expect(before.bgRowKey).toContain("grp_ios_anchor");
+
+      await expect(scroller.locator(".markdown-pending")).toHaveCount(0);
+      await settleReadingLayout(scroller);
+      expect(await page.evaluate(() => (window as any).readingScrollWrites)).toEqual([]);
+      expect(await anchorTop(scroller, before.userId)).toBeCloseTo(before.userTop, 0);
+      expect(await anchorTop(scroller, before.bgId)).toBeCloseTo(before.bgTop, 0);
+
+      await scroller.evaluate(node => { const event = new Event("touchend", { bubbles: true }); Object.defineProperty(event, "touches", { value: [] }); node.dispatchEvent(event); });
+      await expect.poll(() => page.evaluate(() => (window as any).readingScrollWrites.length)).toBeGreaterThan(0);
+      await settleReadingLayout(scroller);
+
+      const deltas = await page.evaluate(() => {
+        const frames = (window as any).readingAnchorFrames;
+        frames.running = false;
+        return { userMaxDelta: frames.userMaxDelta, bgMaxDelta: frames.bgMaxDelta };
+      });
+      expect(deltas.userMaxDelta).toBeLessThan(2);
+      expect(deltas.bgMaxDelta).toBeLessThan(2);
+      expect(await anchorTop(scroller, before.userId)).toBeCloseTo(before.userTop, 0);
+      expect(await anchorTop(scroller, before.bgId)).toBeCloseTo(before.bgTop, 0);
+    } finally {
+      await page.close(); await vite.close(); await hub.close(); await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });
 
 for (const presentation of ["native", "legacy"] as const) test(`phone can pull away from a streaming ${presentation} run near the bottom`, async ({ page, browserName }, info) => {

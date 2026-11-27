@@ -7,7 +7,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { deviceActionProofText, deviceActionStatementSchema } from "../src/client-protocol/device-actions.js";
-import { networkCanonical, networkCommandSchema, networkManifestProof, type NetworkCommandInput, type NetworkCommandResult, type NetworkView } from "../src/client-protocol/private-network.js";
+import { PRIVATE_NETWORK_RECOVERY_CAPABILITY, networkCanonical, networkCommandSchema, networkManifestProof, networkPeerProof, type NetworkCommandInput, type NetworkCommandResult, type NetworkPeerRequest, type NetworkView } from "../src/client-protocol/private-network.js";
 import { deviceProof, hashSecret } from "../src/hub/auth.js";
 import { HubServer } from "../src/hub/server.js";
 
@@ -56,8 +56,8 @@ async function view(host: Host) {
 async function mutationResponse(host: Host, raw: NetworkCommandInput, actor = host.owner) {
   const current = await view(host);
   if (raw.operation === "leave") raw = { expectedState: current.membership ? current.host.state : "standalone", ...raw };
-  if (raw.operation === "remove") raw = { expectedState: current.membership!.manifest.hosts.find(value => value.publicKey === raw.publicKey)!.state, ...raw };
-  const command = networkCommandSchema.parse(["routes", "attest", "remove", "leave"].includes(raw.operation) ? { networkId: current.membership?.manifest.id ?? "", ...raw } : raw);
+  if (raw.operation === "remove") { const targetKey = raw.publicKey; raw = { expectedState: current.membership!.manifest.hosts.find(value => value.publicKey === targetKey)!.state, ...raw }; }
+  const command = networkCommandSchema.parse(["routes", "attest", "reinstate", "remove", "leave"].includes(raw.operation) ? { networkId: current.membership?.manifest.id ?? "", ...raw } : raw);
   const challenge = await http(host.hub, "/api/devices/challenge", { operation: "network", target: hashSecret(networkCanonical(command)) }, actor.token);
   expect(challenge.status).toBe(200); const statement = deviceActionStatementSchema.parse(challenge.body);
   const proof = { nonce: statement.nonce, signature: sign(null, Buffer.from(deviceActionProofText(statement)), actor.privateKey).toString("base64") };
@@ -195,7 +195,7 @@ it.each(["A", "C"])("a phone first paired with %s stays with A/B when C leaves, 
   expect((await http(c.hub, "/api/network", undefined, oldC.token)).status).toBe(401);
   await vi.waitFor(() => expect(phonePeers.get(c)!.ws.readyState).toBe(WebSocket.CLOSED));
   expect(phonePeers.get(c)!.frames.some(frame => frame.type === "notice" && frame.code === "device_revoked")).toBe(true);
-  expect((await c.hub.store.device(oldC.id))?.push_json).toBeNull();
+  expect((await c.hub.store.db.get<{ push_json: string | null }>("SELECT push_json FROM devices WHERE id=?", [oldC.id]))?.push_json).toBeNull();
   expect(await c.hub.store.db.get("SELECT 1 FROM push_bindings WHERE device_id=?", [oldC.id])).toBeUndefined();
   expect(await c.hub.store.db.get("SELECT 1 FROM push_outbox WHERE device_id=? AND status='pending'", [oldC.id])).toBeUndefined();
   expect(await c.hub.store.db.get("SELECT 1 FROM push_outbox WHERE device_id=? AND status='cancelled'", [oldC.id])).toBeDefined();
@@ -252,3 +252,135 @@ it("a phone receives a signed departure receipt even when its own C session is r
   expect((await http(a.hub, "/api/network", undefined, phoneA.token)).status).toBe(200);
   expect((await http(c.hub, "/api/network", undefined, c.owner.token)).status).toBe(200);
 });
+
+it("recovers a departed or removed host over signed TLS while keeping its Bots, conversations and files, and recovers a revoked device via fresh pairing", async () => {
+  const a = await host("A"), b = await host("B");
+  await mutation(a, { operation: "create", name: "Recovery network" });
+  await join(a, b);
+  const chatId = await seedChat(b);
+  await b.hub.store.db.run("INSERT INTO attachments(id,conversation_id,owner_id,sha256,size,mime,name,stored_name,complete,created_at) VALUES('file_keep',?,'owner','abc123',11,'text/plain','notes.txt','file_keep.txt',1,?)", [chatId, Date.now()]);
+
+  // 1. Device revocation on B (while in network) preserves host membership, Bots, chats & files, and recovers via normal fresh pairing.
+  const phone1 = await device(b.hub, "phone_revoke_test");
+  const revokeChallenge = await http(b.hub, "/api/devices/challenge", { operation: "revoke", target: phone1.id }, b.owner.token);
+  expect(revokeChallenge.status).toBe(200);
+  const revokeStatement = deviceActionStatementSchema.parse(revokeChallenge.body);
+  const revokeProof = { nonce: revokeStatement.nonce, signature: sign(null, Buffer.from(deviceActionProofText(revokeStatement)), b.owner.privateKey).toString("base64") };
+  expect((await http(b.hub, "/api/devices/revoke", { deviceId: phone1.id, proof: revokeProof }, b.owner.token)).status).toBe(200);
+  expect((await http(b.hub, "/api/network", undefined, phone1.token)).status).toBe(401);
+  expect((await view(b)).sync).toBe("current");
+  const phone2 = await device(b.hub, "phone_repair_test");
+  expect((await http(b.hub, "/api/network", undefined, phone2.token)).status).toBe(200);
+  expect((await b.hub.store.bots("owner")).some(bot => bot.id === "resident_bot")).toBe(true);
+  expect((await b.hub.store.snapshot("owner", chatId)).messages.length).toBeGreaterThan(0);
+
+  // 2. Host B leaves voluntarily, stale rejoin fails, explicit coordinator recovery restores membership and preserves Bots/conversations/files.
+  await b.hub.network.tick();
+  const phoneOnA = await install(b, a, "phone2_on_a", phone2);
+  await mutation(b, { operation: "leave" });
+  expect((await view(b)).sync).toBe("standalone");
+  expect((await http(b.hub, "/api/network", undefined, phone2.token)).status).toBe(401);
+  expect((await http(a.hub, "/api/network", undefined, phoneOnA.token)).status).toBe(200);
+
+  const afterLeave = (await view(a)).membership!.manifest;
+  expect((await mutationResponse(b, { operation: "propose", networkId: afterLeave.id, authorityKey: a.hub.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(afterLeave)) })).status).toBe(403);
+
+  const reinstated = (await mutation(a, { operation: "reinstate", publicKey: b.hub.auth.publicKey })).membership!;
+  const { proposal } = await mutation(b, { operation: "propose", networkId: reinstated.manifest.id, authorityKey: a.hub.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated.manifest)), generation: 2, recover: true });
+  const { membership } = await mutation(a, { operation: "admit", proposal: proposal! });
+  await mutation(b, { operation: "join", membership: membership!, nonce: proposal!.proposal.nonce });
+  expect((await view(b)).host).toMatchObject({ state: "active", revoked: false, generation: 2 });
+
+  // Bots, conversations, files, and local owner on B are unchanged; phone can re-enroll onto B with a fresh key.
+  expect((await b.hub.store.bots("owner")).some(bot => bot.id === "resident_bot")).toBe(true);
+  expect((await b.hub.store.snapshot("owner", chatId)).messages.some(m => m.blocks.some(block => block.type === "text" && block.text === "History stays on this host"))).toBe(true);
+  expect(await b.hub.store.db.get("SELECT id,name FROM attachments WHERE id='file_keep'")).toEqual({ id: "file_keep", name: "notes.txt" });
+  const phoneOnB2 = await install(a, b, "phone2_on_b_gen2", phoneOnA);
+  expect((await http(b.hub, "/api/network", undefined, phoneOnB2.token)).status).toBe(200);
+});
+
+it("negotiates peer recovery capabilities over TLS, refuses reinstate while a 1.6.0 peer is active, and keeps 1.6.0 revocation delivery working", async () => {
+  const a = await host("A"), b = await host("B"), c = await host("C");
+  await mutation(a, { operation: "create", name: "Mixed TLS network" });
+  await join(a, b);
+  await join(a, c);
+  const phoneA = await device(a.hub, "phone_mixed_a");
+  const phoneOnC = await install(a, c, "phone_mixed_c", phoneA);
+  expect((await http(c.hub, "/api/network", undefined, phoneOnC.token)).status).toBe(200);
+
+  // 1.6.0 App calls GET /api/network without ?capabilities=1 -> omits hostCapabilities strictly.
+  const legacyView = await http<NetworkView>(a.hub, "/api/network", undefined, a.owner.token);
+  expect(legacyView.status).toBe(200);
+  expect("hostCapabilities" in legacyView.body).toBe(false);
+
+  // Upgraded App calls GET /api/network?capabilities=1 -> sees capability markers for all upgraded peers.
+  const capView = await http<NetworkView>(a.hub, "/api/network?capabilities=1", undefined, a.owner.token);
+  expect(capView.status).toBe(200);
+  expect(capView.body.hostCapabilities?.[a.hub.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+  expect(capView.body.hostCapabilities?.[b.hub.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+  expect(capView.body.hostCapabilities?.[c.hub.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+
+  // WebSocket ready advertises private-network.recovery.v1 in serverCapabilities.
+  const ws = new WebSocket(a.hub.url.replace("https:", "wss:") + "/ws", { ca: tls.cert, rejectUnauthorized: true });
+  sockets.push(ws);
+  const frames: Record<string, unknown>[] = [];
+  ws.on("message", raw => frames.push(JSON.parse(raw.toString())));
+  await new Promise<void>((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
+  const wsNonce = randomBytes(32).toString("base64url");
+  ws.send(JSON.stringify({ v: 1, type: "hello", deviceId: a.owner.id, nonce: wsNonce, protocolVersions: [1], capabilities: ["cards.v1"], cursors: {} }));
+  await vi.waitFor(() => expect(frames.some(frame => frame.type === "challenge")).toBe(true), { timeout: 3000 });
+  const challenge = frames.find(frame => frame.type === "challenge")!;
+  ws.send(JSON.stringify({ v: 1, type: "auth", signature: sign(null, deviceProof(a.owner.id, String(challenge.nonce), wsNonce), a.owner.privateKey).toString("base64") }));
+  await vi.waitFor(() => expect(frames.some(frame => frame.type === "ready")).toBe(true), { timeout: 3000 });
+  const ready = frames.find(frame => frame.type === "ready") as { serverCapabilities?: string[] };
+  expect(ready.serverCapabilities).toContain(PRIVATE_NETWORK_RECOVERY_CAPABILITY);
+
+  // Host B leaves; drain any in-flight tick on C, then pause C's upgraded background sync timer so C behaves strictly as a 1.6.0 Host.
+  await mutation(b, { operation: "leave" });
+  await c.hub.network.tick();
+  const pauseCTick = vi.spyOn(c.hub.network, "tick").mockResolvedValue();
+  try {
+    const cView = await view(c);
+    const legacyPeerBody: NetworkPeerRequest = {
+      v: 1, networkId: cView.membership!.manifest.id, publicKey: c.hub.auth.publicKey,
+      nonce: randomBytes(32).toString("base64url"), expiresAt: Date.now() + 60_000,
+      host: { publicKey: c.hub.auth.publicKey, name: cView.host.name, routes: cView.host.routes, protocol: 2 },
+      devices: [], revoked: [], known: cView.membership!,
+    };
+    const legacyPeerSync = await http(a.hub, "/api/network/peer", { request: legacyPeerBody, signature: c.hub.auth.signNetworkPeer(legacyPeerBody) });
+    expect(legacyPeerSync.status).toBe(200);
+
+    const mixedCapView = await http<NetworkView>(a.hub, "/api/network?capabilities=1", undefined, a.owner.token);
+    expect(mixedCapView.body.hostCapabilities?.[c.hub.auth.publicKey]).toBeUndefined();
+
+    // Coordinator MUST refuse reinstate with 409 network_recovery_upgrade_required while C is 1.6.0.
+    const refused = await mutationResponse(a, { operation: "reinstate", publicKey: b.hub.auth.publicKey });
+    expect(refused.status).toBe(409);
+    expect(refused.body).toEqual({ error: "network_recovery_upgrade_required" });
+    const untouchedManifest = (await view(a)).membership!.manifest;
+    expect(untouchedManifest.hosts.find(item => item.publicKey === b.hub.auth.publicKey)?.reinstated).toBeUndefined();
+
+    // Because reinstate was refused, revoking phoneA STILL produces a 1.6.0-valid manifest and revokes phoneOnC on Peer C!
+    await a.hub.auth.revoke(phoneA.id, "local-owner");
+    await a.hub.network.tick();
+    const revokeSyncBody: NetworkPeerRequest = { ...legacyPeerBody, nonce: randomBytes(32).toString("base64url") };
+    const revokeSyncRes = await http<{ manifest: { hosts: Array<Record<string, unknown>> } }>(a.hub, "/api/network/peer", { request: revokeSyncBody, signature: c.hub.auth.signNetworkPeer(revokeSyncBody) });
+    expect(revokeSyncRes.status).toBe(200);
+    expect(revokeSyncRes.body.manifest.hosts.every(item => item.generation === undefined && item.reinstated === undefined)).toBe(true);
+    await c.hub.network.enroll(revokeSyncRes.body);
+    expect((await http(c.hub, "/api/network", undefined, phoneOnC.token)).status).toBe(401);
+  } finally {
+    pauseCTick.mockRestore();
+  }
+
+  // Once Peer C upgrades and runs an upgraded tick(), C advertises private-network.recovery.v1 and reinstate succeeds over TLS.
+  await c.hub.network.tick();
+  const upgradedCapView = await http<NetworkView>(a.hub, "/api/network?capabilities=1", undefined, a.owner.token);
+  expect(upgradedCapView.body.hostCapabilities?.[c.hub.auth.publicKey]).toEqual([PRIVATE_NETWORK_RECOVERY_CAPABILITY]);
+
+  const reinstated = await mutation(a, { operation: "reinstate", publicKey: b.hub.auth.publicKey });
+  const { proposal } = await mutation(b, { operation: "propose", networkId: reinstated.membership!.manifest.id, authorityKey: a.hub.auth.publicKey, seenManifestHash: hashSecret(networkCanonical(reinstated.membership!.manifest)), generation: 2, recover: true });
+  const { membership } = await mutation(a, { operation: "admit", proposal: proposal! });
+  await mutation(b, { operation: "join", membership: membership!, nonce: proposal!.proposal.nonce });
+  expect((await view(b)).host).toMatchObject({ state: "active", revoked: false, generation: 2 });
+}, 30_000);

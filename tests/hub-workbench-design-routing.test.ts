@@ -14,9 +14,9 @@ describe('Design routing never guesses the target design', () => {
   let directory: string, store: HubStore, broker: WorkbenchBroker, conversationId: string, otherConversationId: string;
   let commands: WorkbenchCommandFrame[], peer: WorkbenchPeer, actor: WorkbenchActor;
   const files = { files: { 'project/Main.dc.html': { content: '<x-dc>edit</x-dc>', contentType: 'text/html' as const } } };
-  const designs = [{ id: 'design-a', kind: 'design' as const, title: 'A', revision: 0 }, { id: 'design-b', kind: 'design' as const, title: 'B', revision: 0 }];
+  const designs = [{ id: 'design-a', kind: 'design' as const, title: 'A', revision: 0, designFormat: 'slides' as const }, { id: 'design-b', kind: 'design' as const, title: 'B', revision: 0, designFormat: 'slides' as const }];
   const window = (conversation: string, windowId: string, activeTabId: string, tabs: WorkbenchRegistration['tabs'] = designs): WorkbenchRegistration =>
-    ({ windowId, generation: 'gen', conversationId: conversation, capabilities: ['whiteboard.v1', 'design.v1'], tabs, activeTabId, visible: true });
+    ({ windowId, generation: 'gen', conversationId: conversation, capabilities: ['whiteboard.v1', 'design.slides.v1'], tabs, activeTabId, visible: true });
   const tab = (tabId: string, windowId = 'window') => ({ deviceId: 'device', windowId, tabId });
   const frozen = (tabId: string): WorkbenchContext => ({ target: tab(tabId), kind: 'design', title: tabId, revision: 0 });
   /** A refusal may be a Host rejection or a not_executed receipt; nothing may reach the App. */
@@ -48,7 +48,8 @@ describe('Design routing never guesses the target design', () => {
   afterEach(async () => { broker.close(); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
 
   it('never routes a slide creation to an older canvas-only client or another selected window', async () => {
-    await broker.register(peer, {...window(conversationId,'new-client','design-b'),capabilities:['design.v1','design.slides.v1']});
+    await broker.register(peer, {...window(conversationId,'window','design-b'),capabilities:['whiteboard.v1']});
+    await broker.register(peer, {...window(conversationId,'new-client','design-b'),capabilities:['design.slides.v1']});
     expect(await refused(broker.request(actor,{requestId:'slides-old-client',operation:'design.create',target:{deviceId:'device',windowId:'window'},payload:{format:'slides'}}))).toBe('workbench_app_unavailable');
     const pending=broker.request(actor,{requestId:'slides-new-client',operation:'design.create',target:{deviceId:'device',windowId:'new-client'},payload:{format:'slides'}});
     const frame=await dispatched();expect(frame.target.windowId).toBe('new-client');expect(frame.request.payload).toEqual({format:'slides'});
@@ -111,7 +112,7 @@ describe('Design routing never guesses the target design', () => {
   });
 
   it('design.create and tabs.list still need no tab', async () => {
-    const create = broker.request(actor, { requestId: 'create', operation: 'design.create', target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'New' } });
+    const create = broker.request(actor, { requestId: 'create', operation: 'design.create', target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'New', format: 'slides' } });
     const createFrame = await dispatched(); expect(createFrame.target).toEqual({ deviceId: 'device', windowId: 'window' });
     await broker.admit(peer, createFrame.dispatchId);
     await broker.receive(peer, createFrame.dispatchId, { requestId: 'create', target: createFrame.target, status: 'applied', saved: true, revision: 0, result: { tabId: 'design-c' } });
@@ -124,7 +125,7 @@ describe('Design routing never guesses the target design', () => {
   });
 
   it('a complete target in another conversation is unavailable to this conversation', async () => {
-    await broker.register(peer, window(otherConversationId, 'other-window', 'design-x', [{ id: 'design-x', kind: 'design', title: 'X', revision: 0 }]));
+    await broker.register(peer, window(otherConversationId, 'other-window', 'design-x', [{ id: 'design-x', kind: 'design', designFormat: 'slides', title: 'X', revision: 0 }]));
     expect(await refused(broker.request(actor, { requestId: 'cross-read', operation: 'design.read', target: tab('design-x', 'other-window'), payload: {} }))).toBe('workbench_app_unavailable');
     expect(await refused(broker.request(actor, { requestId: 'cross-publish', operation: 'design.publish', target: tab('design-x', 'other-window'), expectedRevision: 0, payload: files }))).toBe('workbench_app_unavailable');
     expect((await broker.list(actor)).map(item => item.windowId)).toEqual(['window']);
@@ -142,7 +143,7 @@ describe('Design routing never guesses the target design', () => {
 
   it('a Design requestId reused by a later turn conflicts instead of replaying, and a same-turn retry keeps the created tab', async () => {
     const turn = (sourceMessageId: string) => ({ ...actor, sourceMessageId });
-    const create = { requestId: 'design_create_1', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design' } };
+    const create = { requestId: 'design_create_1', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design', format: 'slides' as const } };
     const first = broker.request(turn('message-1'), create);
     const frame = await dispatched(); await broker.admit(peer, frame.dispatchId);
     await broker.receive(peer, frame.dispatchId, { requestId: 'design_create_1', target: frame.target, status: 'applied', saved: true, revision: 0, result: { tabId: 'design-new' } });
@@ -155,7 +156,7 @@ describe('Design routing never guesses the target design', () => {
   });
 
   it('while a Design request is in flight, the same id from another source is refused and the same source shares one dispatch', async () => {
-    const create = { requestId: 'inflight_create', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design' } };
+    const create = { requestId: 'inflight_create', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design', format: 'slides' as const } };
     const first = broker.request({ ...actor, sourceMessageId: 'message-1' }, create);
     const frame = await dispatched();
     const retry = broker.request({ ...actor, sourceMessageId: 'message-1' }, create);
@@ -179,7 +180,7 @@ describe('Design routing never guesses the target design', () => {
   });
 
   it('after a Host restart the same turn still gets the created tab and another turn is still refused', async () => {
-    const create = { requestId: 'restart_create', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design' } };
+    const create = { requestId: 'restart_create', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design', format: 'slides' as const } };
     const first = broker.request({ ...actor, sourceMessageId: 'message-1' }, create);
     const frame = await dispatched(); await broker.admit(peer, frame.dispatchId);
     await broker.receive(peer, frame.dispatchId, { requestId: 'restart_create', target: frame.target, status: 'applied', saved: true, revision: 0, result: { tabId: 'design-new', extra: 'not retained' } });
@@ -194,7 +195,7 @@ describe('Design routing never guesses the target design', () => {
   });
 
   it('a journal written before tab retention is replayed without inventing a tab id', async () => {
-    const input = { requestId: 'legacy_create', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design' } };
+    const input = { requestId: 'legacy_create', operation: 'design.create' as const, target: { deviceId: 'device', windowId: 'window' }, payload: { title: 'Design', format: 'slides' as const } };
     const fingerprint = createHash('sha256').update(JSON.stringify({ request: workbenchRequestSchema.parse(input), context: null })).digest('hex');
     const legacy = { createdAt: Date.now(), readOnly: false, sourceMessageId: 'message-1', fingerprint, target: input.target,
       receipt: { requestId: 'legacy_create', status: 'applied', target: input.target, revision: 0, saved: true } };
@@ -211,7 +212,7 @@ describe('Design routing never guesses the target design', () => {
     await settle(await dispatched()); expect(await first).toMatchObject({ status: 'success' });
     expect(await refused(broker.request(turn, { requestId: 'shared_id', operation: 'design.read', target: tab('design-b'), payload: {} }))).toBe('request_id_conflict');
     // Another conversation keeps its own journal for the same requestId.
-    await broker.register(peer, window(otherConversationId, 'other-window', 'design-x', [{ id: 'design-x', kind: 'design', title: 'X', revision: 0 }]));
+    await broker.register(peer, window(otherConversationId, 'other-window', 'design-x', [{ id: 'design-x', kind: 'design', designFormat: 'slides', title: 'X', revision: 0 }]));
     const other = broker.request({ ...actor, conversationId: otherConversationId, sourceMessageId: 'message-other' }, { requestId: 'shared_id', operation: 'design.read', target: tab('design-x', 'other-window'), payload: {} });
     const frame = await dispatched(); expect(frame.conversationId).toBe(otherConversationId); expect(frame.target).toEqual(tab('design-x', 'other-window'));
     await settle(frame); expect(await other).toMatchObject({ status: 'success', target: tab('design-x', 'other-window') });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LocaleSchema } from "../runtime/locale.js";
 
 function isCanonicalIsoTimestamp(value: string): boolean {
   const parsed = new Date(value);
@@ -30,7 +31,7 @@ export const CrewRunRecordSchema = z.object({
   coordinator: z.string().min(1),
   chatId: z.number().int(),
   userId: z.number().int(),
-  locale: z.enum(["en", "zh"]),
+  locale: LocaleSchema,
   originalPrompt: z.string(),
   createdAt: IsoTimestampSchema,
   updatedAt: IsoTimestampSchema,

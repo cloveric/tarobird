@@ -183,3 +183,32 @@ for (const [topics, detail] of [["none", "请先更新主机"], ["com.tarocub.cl
  await expect(page.getByRole("button", { name: "重新连接推送", exact: true })).toHaveCount(0);
  expect(await page.evaluate(() => window.readinessFixture.fixture.writes)).toEqual([]);
 });
+
+for (const mode of ["denied", "channel-disabled"] as const) test(`Android readiness offers direct system settings recovery for ${mode}`, async ({ page }) => {
+ await page.setViewportSize({ width: 390, height: 844 });
+ await open(page, "?platform=android&permission=granted");
+ await page.evaluate((mode) => {
+   const n = window.readinessFixture.nativeState;
+   if (mode === "denied") n.appEnabled = false;
+   else n.channel = "disabled";
+ }, mode);
+ await recheck(page);
+ const button = page.locator("details.notification-readiness").getByRole("button", { name: "前往系统设置", exact: true });
+ await expect(button).toBeVisible();
+ await button.click();
+ expect(await page.evaluate(() => window.readinessFixture.nativeState.calls.filter((c: string) => c === "settings"))).toHaveLength(1);
+ expect(await page.evaluate(() => window.readinessFixture.fixture.writes)).toEqual([]);
+});
+
+test("Android enable rejects when OS app notifications are disabled and shows system settings recovery", async ({ page }) => {
+ await page.setViewportSize({ width: 390, height: 844 });
+ await open(page, "?platform=android&permission=granted&enabled=false");
+ await page.evaluate(() => { window.readinessFixture.nativeState.appEnabled = false; });
+ await page.getByRole("switch", { name: "消息提醒", exact: true }).click();
+ await expect(page.getByText("系统通知已关闭。请在系统设置中允许 TaroBird 通知。", { exact: true })).toBeVisible();
+ const recovery = page.locator(".notification-permission-help").getByRole("button", { name: "前往系统设置", exact: true });
+ await expect(recovery).toBeVisible();
+ await recovery.click();
+ expect(await page.evaluate(() => window.readinessFixture.nativeState.calls.filter((c: string) => c === "settings"))).toHaveLength(1);
+ expect(await page.evaluate(() => window.readinessFixture.fixture.writes)).toEqual([]);
+});

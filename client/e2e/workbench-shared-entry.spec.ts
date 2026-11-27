@@ -39,17 +39,17 @@ test("empty Workbench opens shared designs in Chinese and English without creati
   const chinese=await openList(other);await expect(chinese).toBeInViewport();await expect(chinese).toContainText("这个对话里暂时没有共享给你的设计。");expect(await localDesignCount(other)).toBe(0);await chinese.getByRole("button",{name:"关闭",exact:true}).click();await expect(chinese).toHaveCount(0);
   await openSettings(other,"general");await other.locator("#language").selectOption("en");await closeSettings(other,true);
   const english=await openList(other,true);await expect(english).toBeInViewport();await expect(english).toContainText("Nothing in this conversation is shared with you yet.");await english.getByRole("button",{name:"Close",exact:true}).click();
-  await connect(page,f.hub,f.conversation.title);await panel(page).getByRole("button",{name:"新建内容",exact:true}).click();await panel(page).getByRole("menu").getByRole("button",{name:"画布",exact:true}).click();
+  await connect(page,f.hub,f.conversation.title);await panel(page).getByRole("button",{name:"新建内容",exact:true}).click();await panel(page).getByRole("menu").getByRole("button",{name:"演示文稿",exact:true}).click();
   await expect(page.frameLocator(".workbench-design-frame:visible").getByRole("button",{name:"Comments",exact:true})).toBeVisible({timeout:45000});
   // Fixture-only access to the retained sharing component; the product entry is hidden.
   await expect(panel(page).getByRole("button",{name:"共享",exact:true})).toHaveCount(0);
   await panel(page).locator(".workbench-design-sharing-entry").evaluate(node=>node.removeAttribute("hidden"));
   await panel(page).getByRole("button",{name:"共享",exact:true}).click();const sharing=page.getByRole("dialog",{name:"共享与协作",exact:true});await sharing.getByRole("button",{name:"开始共享",exact:true}).click();await expect(sharing.getByText("正在从这台设备共享。",{exact:true})).toBeVisible({timeout:20000});await sharing.getByRole("button",{name:"关闭",exact:true}).click();
-  const available=await openList(other,true),row=available.locator("li").filter({hasText:"画布"});await expect(row).toContainText("Source online");await row.getByRole("button",{name:"Open",exact:true}).click();await expect.poll(()=>!!releaseJoin).toBe(true);
+  const available=await openList(other,true),row=available.locator("li").filter({hasText:"PPT"});await expect(row).toContainText("Source online");await row.getByRole("button",{name:"Open",exact:true}).click();await expect.poll(()=>!!releaseJoin).toBe(true);
   const close=available.getByRole("button",{name:"Close",exact:true});await expect(close).toBeDisabled();expect(await localDesignCount(other)).toBe(0);releaseJoin!();
   const viewer=other.getByRole("region",{name:/^Shared design:/});await expect(viewer).toBeVisible();await expect(close).toBeDisabled();
   await expect(other.frameLocator(".workbench-design-frame:visible").getByRole("button",{name:"Comments",exact:true})).toBeVisible({timeout:45000});
-  await expect.poll(async()=>Promise.all(other.frames().filter(frame=>frame.parentFrame()?.parentFrame()).map(frame=>frame.locator("h1").first().textContent({timeout:200}).catch(()=>""))),{timeout:30000}).toContain("画布");
+  await expect(other.frameLocator(".workbench-design-frame:visible").getByText("PPT",{exact:true}).first()).toBeVisible({timeout:30000});
   expect(await localDesignCount(other)).toBe(0);await other.screenshot({path:info.outputPath("empty-workbench-shared-viewer.png")});await viewer.getByRole("button",{name:"Leave",exact:true}).click();await expect(viewer).toHaveCount(0);await expect(close).toBeEnabled();await close.click();await expect(available).toHaveCount(0);await expect(panel(other,true).getByRole("tab")).toHaveCount(0);expect(await localDesignCount(other)).toBe(0);expect(errors).toEqual([]);
  }finally{await context.close();await page.close({runBeforeUnload:false});await f.close();}
 });

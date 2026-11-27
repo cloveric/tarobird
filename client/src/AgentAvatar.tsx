@@ -4,7 +4,7 @@ import type { AvatarFace } from "./avatar-face.js";
 import { useAvatarMotion } from "./avatar-motion.js";
 import { t } from "./i18n.js";
 import "./agent-avatar.css";
-import { mergeAgentSignals, useTicketSignal } from "./dispatcher-signal.js";
+import { mergeAgentSignals, useTicketSignals } from "./dispatcher-signal.js";
 import type { HubConnection } from "./connection.js";
 
 /** Read by the row's own Avatar to add an animated face; nested collage
@@ -31,9 +31,12 @@ function restingPhase(id: string) {
  * failure entrance gestures play once only when observed live. Unread done
  * rows then hop gently; both finished states keep their badge and expression.
  * A cold start or remount never replays the entrance gesture. */
-export function AgentAvatar({ signal: own, size, className, dispatcher = false, tickets, children }: { signal: AgentSignal; size: number; className: string; dispatcher?: boolean; tickets?: { connection: HubConnection; botId: string }; children: ReactNode }) {
+export type AgentAvatarTickets = { connection: HubConnection; botId?: string; botIds?: readonly string[]; conversationId?: string; conversationIds?: readonly string[] };
+export function AgentAvatar({ signal: own, size, className, dispatcher = false, tickets, children }: { signal: AgentSignal; size: number; className: string; dispatcher?: boolean; tickets?: AgentAvatarTickets; children: ReactNode }) {
   // A dispatcher's row also shows its tickets, which run in hidden conversations.
-  const signal = mergeAgentSignals(own, useTicketSignal(tickets?.connection, tickets?.botId));
+  const botIds = tickets?.botIds ?? (tickets?.botId ? [tickets.botId] : undefined);
+  const conversationIds = tickets?.conversationIds ?? (tickets?.conversationId ? [tickets.conversationId] : undefined);
+  const signal = mergeAgentSignals(own, useTicketSignals(tickets?.connection, botIds, conversationIds));
   const animated = useAvatarMotion();
   const rowId = useId();
   const mountedAt = useRef(performance.now()), previous = useRef(signal.state);

@@ -158,3 +158,296 @@ test("clearing a sent draft refreshes previews without clearing a newer draft", 
   });
   expect(result).toEqual({ cleared: { changes: 1, text: "" }, preserved: { changes: 0, text: "newer text" } });
 });
+
+test("in-flight messages() read cannot poison messageCache after forgetIdentity()", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const Constructor = (window as unknown as { ClientCache: typeof ClientCache }).ClientCache;
+    const dbName = `epoch-race-${crypto.randomUUID()}`;
+    const cache = new Constructor(dbName);
+    try {
+      await cache.saveIdentity({ deviceId: "d1", hubPublicKey: "h1", publicKey: "p1", name: "old", routes: [] });
+      // 1 prior mutation advances the conversation epoch to 1 while global epoch is still 0.
+      await cache.apply({
+        v: 1, type: "event", conversationId: "secret-chat", seq: 1, kind: "message.created", at: 100,
+        payload: { id: "m-secret", conversationId: "secret-chat", authorType: "bot", authorId: "bot", blocks: [{ type: "text", text: "TOP SECRET FROM OLD IDENTITY" }], status: "complete", createdAt: 100, version: 1 },
+      });
+      // Pause the messages() IDB read right before it finishes so forgetIdentity() races it.
+      // Evict in-memory entry by closing & reopening? No: force a cold read on a fresh sibling or pause getAll on cache after clearing cache via a second mutation?
+      // Better: open a fresh ClientCache on the same DB, apply seq 2 (so its local epoch is 1 while cache has nothing cached), then pause its IDB read!
+      const reader = new Constructor(dbName);
+      try {
+        await reader.apply({
+          v: 1, type: "event", conversationId: "secret-chat", seq: 2, kind: "message.updated", at: 101,
+          payload: { id: "m-secret", conversationId: "secret-chat", authorType: "bot", authorId: "bot", blocks: [{ type: "text", text: "TOP SECRET FROM OLD IDENTITY" }], status: "complete", createdAt: 100, version: 2 },
+        });
+        if (reader.peekMessages("secret-chat") !== undefined) throw new Error("expected cold cache");
+
+        let readStarted!: () => void;
+        const readReady = new Promise<void>(resolve => { readStarted = resolve; });
+
+        // Defer tx.done ("complete" event) on the readonly messages read so forgetIdentity()
+        // commits while reader.messages() is still in flight.
+        const origTx = IDBDatabase.prototype.transaction;
+        const origAddListener = EventTarget.prototype.addEventListener;
+        let deferredComplete: (() => void) | undefined;
+        let readTx: IDBTransaction | undefined;
+        IDBDatabase.prototype.transaction = function (storeNames, mode, ...rest) {
+          const tx = origTx.call(this, storeNames, mode, ...rest);
+          if (!readTx && Array.isArray(storeNames) && storeNames.includes("messages") && (!mode || mode === "readonly")) {
+            readTx = tx;
+          }
+          return tx;
+        };
+        EventTarget.prototype.addEventListener = function (type, listener, options) {
+          if (this === readTx && type === "complete" && typeof listener === "function") {
+            return origAddListener.call(this, type, (ev) => {
+              deferredComplete = () => listener.call(this, ev);
+              readStarted();
+            }, options);
+          }
+          return origAddListener.call(this, type, listener, options);
+        };
+        try {
+          const inFlight = reader.messages("secret-chat");
+          await readReady;
+          // The readonly IDB tx has already completed with old-identity data,
+          // while reader.messages() has not yet resumed past `await Promise.all([..., tx.done])`.
+          await reader.forgetIdentity();
+          deferredComplete!();
+          await inFlight;
+        } finally {
+          IDBDatabase.prototype.transaction = origTx;
+          EventTarget.prototype.addEventListener = origAddListener;
+        }
+
+        const peeked = reader.peekMessages("secret-chat");
+        const afterWipe = await reader.messages("secret-chat");
+        return {
+          peekedCount: peeked?.length ?? 0,
+          peekedDefined: peeked !== undefined,
+          afterWipeCount: afterWipe.length,
+        };
+      } finally {
+        reader.close();
+      }
+    } finally {
+      cache.close();
+      indexedDB.deleteDatabase(dbName);
+    }
+  });
+  expect(result).toEqual({ peekedCount: 0, peekedDefined: false, afterWipeCount: 0 });
+});
+
+test("beginReset() and finishReset() invalidate messageCache across calling, sibling, and cross-tab caches", async ({ page, context }) => {
+  const tab2 = await context.newPage();
+  const dbName = `reset-cache-${crypto.randomUUID()}`;
+  try {
+    await tab2.goto(url);
+    await tab2.waitForFunction(() => "ClientCache" in window);
+
+    const setupAndBegin = await page.evaluate(async (name) => {
+      const Constructor = (window as unknown as { ClientCache: typeof ClientCache }).ClientCache;
+      const c1 = new Constructor(name);
+      const c2 = new Constructor(name);
+      Object.assign(window, { __resetC1: c1, __resetC2: c2 });
+      await c1.saveIdentity({ deviceId: "d1", hubPublicKey: "h1", publicKey: "p1", name: "test", routes: [] });
+      await c1.apply({
+        v: 1, type: "event", conversationId: "chat-reset", seq: 1, kind: "message.created", at: 100,
+        payload: { id: "m1", conversationId: "chat-reset", authorType: "bot", authorId: "bot", blocks: [{ type: "text", text: "wipe me" }], status: "complete", createdAt: 100, version: 1 },
+      });
+      await c1.messages("chat-reset");
+      await c2.messages("chat-reset");
+      return { c1Warm: c1.peekMessages("chat-reset")?.length, c2Warm: c2.peekMessages("chat-reset")?.length };
+    }, dbName);
+    expect(setupAndBegin).toEqual({ c1Warm: 1, c2Warm: 1 });
+
+    // Warm cross-tab cache in tab2 as well.
+    const tab2Warm = await tab2.evaluate(async (name) => {
+      const Constructor = (window as unknown as { ClientCache: typeof ClientCache }).ClientCache;
+      const c3 = new Constructor(name);
+      Object.assign(window, { __resetC3: c3 });
+      await c3.messages("chat-reset");
+      return c3.peekMessages("chat-reset")?.length;
+    }, dbName);
+    expect(tab2Warm).toBe(1);
+
+    // beginReset() must invalidate calling cache, sibling cache, and cross-tab cache.
+    const afterBegin = await page.evaluate(async () => {
+      const { __resetC1: c1, __resetC2: c2 } = window as unknown as { __resetC1: ClientCache; __resetC2: ClientCache };
+      await c1.beginReset();
+      return {
+        c1Peek: c1.peekMessages("chat-reset"),
+        c2Peek: c2.peekMessages("chat-reset"),
+      };
+    });
+    expect(afterBegin).toEqual({ c1Peek: undefined, c2Peek: undefined });
+    await expect.poll(() => tab2.evaluate(() => (window as unknown as { __resetC3: ClientCache }).__resetC3.peekMessages("chat-reset"))).toBeUndefined();
+
+    // Even if caches are re-warmed before finishReset(), finishReset() must wipe IDB and invalidate every cache.
+    await page.evaluate(async () => {
+      const { __resetC1: c1, __resetC2: c2 } = window as unknown as { __resetC1: ClientCache; __resetC2: ClientCache };
+      await c1.messages("chat-reset");
+      await c2.messages("chat-reset");
+    });
+    await tab2.evaluate(async () => {
+      await (window as unknown as { __resetC3: ClientCache }).__resetC3.messages("chat-reset");
+    });
+
+    const afterFinish = await page.evaluate(async (name) => {
+      const Constructor = (window as unknown as { ClientCache: typeof ClientCache }).ClientCache;
+      const { __resetC1: c1, __resetC2: c2 } = window as unknown as { __resetC1: ClientCache; __resetC2: ClientCache };
+      // finishReset() runs on a fresh instance matching the new cacheGeneration (as HostRegistry / reload does).
+      const finisher = new Constructor(name);
+      try {
+        await finisher.finishReset();
+        return {
+          finisherPeek: finisher.peekMessages("chat-reset"),
+          c1Peek: c1.peekMessages("chat-reset"),
+          c2Peek: c2.peekMessages("chat-reset"),
+          c1Read: (await c1.messages("chat-reset")).length,
+          c2Read: (await c2.messages("chat-reset")).length,
+        };
+      } finally {
+        finisher.close();
+        c1.close();
+        c2.close();
+      }
+    }, dbName);
+    expect(afterFinish).toEqual({ finisherPeek: undefined, c1Peek: undefined, c2Peek: undefined, c1Read: 0, c2Read: 0 });
+
+    await expect.poll(() => tab2.evaluate(() => (window as unknown as { __resetC3: ClientCache }).__resetC3.peekMessages("chat-reset"))).toBeUndefined();
+    const tab2AfterFinish = await tab2.evaluate(async () => {
+      const c3 = (window as unknown as { __resetC3: ClientCache }).__resetC3;
+      try {
+        return (await c3.messages("chat-reset")).length;
+      } finally {
+        c3.close();
+      }
+    });
+    expect(tab2AfterFinish).toBe(0);
+  } finally {
+    await tab2.close();
+    await page.evaluate((name) => { indexedDB.deleteDatabase(name); }, dbName);
+  }
+});
+
+test("cross-tab early returns in apply() and acceptSnapshot() invalidate stale messageCache without BroadcastChannel", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const Constructor = (window as unknown as { ClientCache: typeof ClientCache }).ClientCache;
+    const dbName = `cross-tab-stale-${crypto.randomUUID()}`;
+    const savedBC = globalThis.BroadcastChannel;
+    // Simulate a multi-tab race where BroadcastChannel is unavailable or has not delivered yet.
+    // To isolate two instances from in-process siblingCaches, write tab B's commits directly to IDB
+    // (the exact state visible to tab A before BroadcastChannel arrives).
+    (globalThis as unknown as { BroadcastChannel?: typeof BroadcastChannel }).BroadcastChannel = undefined;
+    const tabA = new Constructor(dbName);
+    try {
+      const m1 = { id: "m1", conversationId: "c-apply", authorType: "bot" as const, authorId: "bot", blocks: [{ type: "text" as const, text: "hello" }], status: "complete" as const, createdAt: 100, version: 1 };
+      await tabA.apply({ v: 1, type: "event", conversationId: "c-apply", seq: 1, kind: "message.created", at: 100, payload: m1 });
+      // Warm Tab A's messageCache at seq 1.
+      const beforeApply = await tabA.messages("c-apply");
+
+      // Simulate Tab B committing seq 2 (deleting m1) directly to IDB without notifying Tab A.
+      const rawDb = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open(dbName);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      try {
+        const tx = rawDb.transaction(["messages", "cursors"], "readwrite");
+        tx.objectStore("messages").put({ ...m1, status: "deleted", version: 2, activitySeq: 2, activityAt: 200 });
+        tx.objectStore("cursors").put(2, "c-apply");
+        await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); });
+      } finally {
+        rawDb.close();
+      }
+
+      // Tab A receives the duplicate WS event seq 2 -> hits early return (event.seq <= last).
+      const appliedDuplicate = await tabA.apply({
+        v: 1, type: "event", conversationId: "c-apply", seq: 2, kind: "message.updated", at: 200,
+        payload: { ...m1, status: "deleted", version: 2 },
+      });
+      const peekAfterApplyEarlyReturn = tabA.peekMessages("c-apply");
+      const messagesAfterApplyEarlyReturn = await tabA.messages("c-apply");
+
+      // Also test missed external event followed by a newer normal apply() commit (seq 3 by Tab B, then seq 4 by Tab A).
+      const rawDb2 = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open(dbName);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      try {
+        const tx = rawDb2.transaction(["messages", "cursors"], "readwrite");
+        tx.objectStore("messages").put({ id: "m-tab-b", conversationId: "c-apply", authorType: "bot", authorId: "bot", blocks: [{ type: "text", text: "from B" }], status: "complete", createdAt: 300, version: 1, activitySeq: 3, activityAt: 300 });
+        tx.objectStore("cursors").put(3, "c-apply");
+        await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); });
+      } finally {
+        rawDb2.close();
+      }
+      await tabA.apply({
+        v: 1, type: "event", conversationId: "c-apply", seq: 4, kind: "message.created", at: 400,
+        payload: { id: "m-tab-a", conversationId: "c-apply", authorType: "bot", authorId: "bot", blocks: [{ type: "text", text: "from A" }], status: "complete", createdAt: 400, version: 1 },
+      });
+      const messagesAfterGaplessNext = await tabA.messages("c-apply");
+
+      // Now test acceptSnapshot() early return when another tab already committed the snapshot.
+      const s1 = { id: "s1", conversationId: "c-snap", authorType: "bot" as const, authorId: "bot", blocks: [{ type: "text" as const, text: "old" }], status: "complete" as const, createdAt: 100, version: 1 };
+      const s2 = { id: "s2", conversationId: "c-snap", authorType: "bot" as const, authorId: "bot", blocks: [{ type: "text" as const, text: "replacement" }], status: "complete" as const, createdAt: 200, version: 1 };
+      const conv = { id: "c-snap", type: "direct" as const, title: "Snap", ownerId: "owner", botIds: ["bot"], createdAt: 50, archived: false };
+      await tabA.apply({ v: 1, type: "event", conversationId: "c-snap", seq: 1, kind: "message.created", at: 100, payload: s1 });
+      await tabA.messages("c-snap"); // warm cache with [s1]
+
+      // Tab A begins receiving snapshot (after: 1 -> seq: 2, lineage: newLineage).
+      const newLineage = crypto.randomUUID();
+      await tabA.acceptSnapshot({ v: 1, type: "snapshot.begin", id: "snap-1", conversation: conv, after: 1, seq: 2, readSeq: 0, lineage: newLineage });
+      await tabA.acceptSnapshot({ v: 1, type: "snapshot.message", id: "snap-1", index: 0, message: s2, contentSeq: 2, unreadSeq: 0 });
+
+      // Before Tab A commits snapshot.end, Tab B commits the same snapshot directly in IDB.
+      const rawDb3 = await new Promise<IDBDatabase>((resolve, reject) => {
+        const req = indexedDB.open(dbName);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      try {
+        const tx = rawDb3.transaction(["messages", "cursors", "settings"], "readwrite");
+        tx.objectStore("messages").delete("s1");
+        tx.objectStore("messages").put({ ...s2, activitySeq: 2, activityAt: 200 });
+        tx.objectStore("cursors").put(2, "c-snap");
+        tx.objectStore("settings").put(newLineage, "syncLineage:c-snap");
+        await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); });
+      } finally {
+        rawDb3.close();
+      }
+
+      const ended = await tabA.acceptSnapshot({ v: 1, type: "snapshot.end", id: "snap-1", count: 1 });
+      const peekAfterSnapEarlyReturn = tabA.peekMessages("c-snap");
+      const messagesAfterSnapEarlyReturn = await tabA.messages("c-snap");
+
+      return {
+        beforeApplyStatus: beforeApply[0]?.status,
+        appliedDuplicate: appliedDuplicate ?? null,
+        peekAfterApplyEarlyReturn: peekAfterApplyEarlyReturn ?? null,
+        statusAfterApplyEarlyReturn: messagesAfterApplyEarlyReturn.find(m => m.id === "m1")?.status,
+        idsAfterGaplessNext: messagesAfterGaplessNext.map(m => m.id),
+        ended,
+        peekAfterSnapEarlyReturn: peekAfterSnapEarlyReturn ?? null,
+        idsAfterSnapEarlyReturn: messagesAfterSnapEarlyReturn.map(m => m.id),
+      };
+    } finally {
+      tabA.close();
+      (globalThis as unknown as { BroadcastChannel?: typeof BroadcastChannel }).BroadcastChannel = savedBC;
+      indexedDB.deleteDatabase(dbName);
+    }
+  });
+
+  expect(result).toEqual({
+    beforeApplyStatus: "complete",
+    appliedDuplicate: null,
+    peekAfterApplyEarlyReturn: null,
+    statusAfterApplyEarlyReturn: "deleted",
+    idsAfterGaplessNext: ["m1", "m-tab-b", "m-tab-a"],
+    ended: true,
+    peekAfterSnapEarlyReturn: null,
+    idsAfterSnapEarlyReturn: ["s2"],
+  });
+});

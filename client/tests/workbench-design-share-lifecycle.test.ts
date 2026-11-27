@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkbenchController } from "../src/workbench-controller.js";
 import { DesignShareClient, designShareManager, existingDesignShareManager, type DesignShareTransport } from "../src/workbench-design-collaboration.js";
-import { emptyDesign, type DesignDocument } from "../src/workbench-design.js";
+import { emptySlides, type DesignDocument } from "../src/workbench-design.js";
 import { emptyWorkbench, workbenchScope, type WorkbenchLayout } from "../src/workbench-model.js";
 import type { HubConnection } from "../src/connection.js";
 import type { DesignShareServerFrame } from "../../src/client-protocol/workbench-design-sharing.js";
@@ -14,8 +14,8 @@ afterEach(() => { owners.forEach(owner => owner.dispose()); owners.length = 0; }
 let sequence = 0;
 const fresh = () => `share-life-${++sequence}`;
 function store(conversation: string) {
-  let layout: WorkbenchLayout = { ...emptyWorkbench(), tabs: [{ id: "d", kind: "design", title: "D" }], visible: ["d"], active: "d" };
-  const designs = new Map<string, DesignDocument>([["d", emptyDesign("d")]]), changes = new Set<(ids: string[]) => void>();
+  let layout: WorkbenchLayout = { ...emptyWorkbench(), tabs: [{ id: "d", kind: "design", designFormat: "slides", title: "D" }], visible: ["d"], active: "d" };
+  const designs = new Map<string, DesignDocument>([["d", emptySlides("d")]]), changes = new Set<(ids: string[]) => void>();
   const commit = (expected: number, next: WorkbenchLayout) => { if (layout.revision !== expected) throw Error("workbench_revision_conflict"); layout = structuredClone(next); };
   const cache = {
     readWorkbench: async () => structuredClone(layout), saveWorkbench: async (_scope: string, expected: number, next: WorkbenchLayout) => commit(expected, next),
@@ -24,7 +24,7 @@ function store(conversation: string) {
     deleteWorkbenchDesignAndLayout: async (_scope: string, id: string, expected: number, expectedLayout: number, next: WorkbenchLayout) => { if (designs.get(id)?.revision !== expected) throw Error("design_revision_conflict"); commit(expectedLayout, next); designs.delete(id); },
     subscribeWorkbenchChanges: (_scope: string, listener: (ids: string[]) => void) => { changes.add(listener); return () => { changes.delete(listener); }; },
   };
-  const connection = { identity: { deviceId: "device", hubPublicKey: "host" }, state: { status: "online", user: { id: "owner" }, workbenchDesignAvailable: true },
+  const connection = { identity: { deviceId: "device", hubPublicKey: "host" }, state: { status: "online", user: { id: "owner" }, workbenchDesignAvailable: true, workbenchSlidesAvailable: true },
     isClosed: false, isReadOnly: false, cache, subscribe: () => () => undefined, conversationRevision: () => 0, http: vi.fn() } as unknown as HubConnection;
   /** Another window deleted the design: storage changed, then the broadcast. */
   const deletedElsewhere = () => { layout = { ...layout, revision: layout.revision + 1, tabs: [], visible: [], active: null }; designs.delete("d"); for (const listener of [...changes]) listener(["d"]); };
@@ -32,7 +32,7 @@ function store(conversation: string) {
 }
 function scripted(conversationId: string, options: { failClose?: boolean; holdOpen?: Promise<void> } = {}) {
   const ops: string[] = []; let receive: (frame: DesignShareServerFrame) => void = () => {};
-  const view = { shareId: `ds_${"b".repeat(24)}`, conversationId, designId: "d", format: "canvas", title: "D", generation: 1, ownerUserId: "owner", ownerName: "Owner", role: "owner", revision: 0, sourceOnline: true };
+  const view = { shareId: `ds_${"b".repeat(24)}`, conversationId, designId: "d", format: "slides", title: "D", generation: 1, ownerUserId: "owner", ownerName: "Owner", role: "owner", revision: 0, sourceOnline: true };
   const transport: DesignShareTransport = { onFrame: listener => { receive = listener; return () => {}; }, send: frame => {
     const op = frame.request.op; ops.push(op);
     const error = op === "close" && options.failClose ? "design_share_app_unavailable" : undefined;

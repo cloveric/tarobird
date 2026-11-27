@@ -5,7 +5,7 @@ import path from "node:path";
 import { z } from "zod";
 import { pairingSchema } from "../client-protocol/index.js";
 import { authDeniedProof, authDeniedSchema, type AuthDenied } from "../client-protocol/auth-status.js";
-import { tlsIdentityNonceSchema, tlsIdentityProof, type TlsIdentity, type TlsIdentityUnsigned } from "../client-protocol/tls-identity.js";
+import { edgeIdentityProof, edgeOriginSchema, tlsIdentityNonceSchema, tlsIdentityProof, type EdgeIdentity, type EdgeIdentityUnsigned, type TlsIdentity, type TlsIdentityUnsigned } from "../client-protocol/tls-identity.js";
 import { JsonStore } from "../state/json-store.js";
 import { withFileMutex } from "../state/file-mutex.js";
 import { isLoopback } from "./network.js";
@@ -32,18 +32,19 @@ export function parsePublicKey(value: string): KeyObject {
     return key;
   } catch { throw new HubError("invalid_device_key"); }
 }
-export type AuthSession = { deviceId: string; userId: string; expiresAt: number };
+export type AuthSession = { deviceId: string; userId: string; expiresAt: number; capabilities?: readonly string[] };
 type Challenge = { deviceId: string; nonce: string; clientNonce: string; expiresAt: number; source: string };
 type PairingRow = { device_id: string; name: string; platform: string; public_key: string; expires_at: number; status: string };
 /** Rate-limit key for a caller; never an authorization input. Addresses are
  * canonicalized like relay sources (dotted or hex IPv4-mapped forms become
  * IPv4); one IPv6 /64, which a single host usually controls, is one source.
- * Relay namespaces (`relay:<id>:<address>`) are kept; other labels are as-is. */
+ * Relay (`relay:<id>:<address>`) and edge-proxy (`edge-proxy:<address>`)
+ * namespaces are kept; other labels are as-is. */
 export function rateSource(source: string): string {
-  const relay = /^(relay:[A-Za-z0-9_-]{1,128}:)(.+)$/.exec(source);
-  const prefix = relay?.[1] ?? "";
+  const namespaced = /^((?:relay:[A-Za-z0-9_-]{1,128}|edge-proxy):)(.+)$/.exec(source);
+  const prefix = namespaced?.[1] ?? "";
   let address: string;
-  try { address = sourceAddress(relay?.[2] ?? source); } catch { return source; }
+  try { address = sourceAddress(namespaced?.[2] ?? source); } catch { return source; }
   if (isIP(address) === 4) return prefix + address;
   const [head = "", tail = ""] = address.split("::"), left = head ? head.split(":") : [], right = tail ? tail.split(":") : [];
   const groups = address.includes("::") ? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right] : left;
@@ -58,8 +59,10 @@ export class HubAuth {
   private actions = new Map<string, { session: AuthSession; statement: DeviceActionStatement }>();
   private desktopControllers = new Map<string, DesktopControllerChallenge>();
   private limits = new Map<string, { count: number; until: number }>();
+  private edgeLimits = new Map<string, { count: number; until: number }>();
   private knownLimits = new Map<string, { count: number; until: number }>();
   private trustedLimits = new Map<string, { count: number; until: number }>();
+  private nextLimitExpiry = Infinity;
   private revocationListeners = new Set<(deviceId: string) => void>();
   private readonly invites: PairingInviteRegistry;
   private constructor(readonly store: HubStore, identity: z.infer<typeof identitySchema>, private readonly now: () => number, monotonic: () => number) {
@@ -85,24 +88,46 @@ export class HubAuth {
   signBotPassport(p: BotPassport): string { return sign(null, Buffer.from(botPassportProof(p)), this.privateKey).toString("base64"); }
   signBotChallenge(nonce: string): string { return sign(null, Buffer.from(botChallengeProof(this.publicKey, nonce)), this.privateKey).toString("base64"); }
   signBotReply(nonce: string, result: unknown): string { return sign(null, Buffer.from(botReplyProof(nonce, result)), this.privateKey).toString("base64"); }
+  signGroupMail(payload: string): string { return sign(null, Buffer.from(payload), this.privateKey).toString("base64"); }
   private prune(): void {
     const now = this.now();
     for (const [id, c] of this.challenges) if (c.expiresAt < now) this.challenges.delete(id);
     for (const [id, t] of this.tokens) if (t.expiresAt < now) this.tokens.delete(id);
-    for (const limits of [this.limits, this.knownLimits, this.trustedLimits]) for (const [id, l] of limits) if (l.until < now) limits.delete(id);
+    if (now > this.nextLimitExpiry) {
+      let next = Infinity;
+      for (const limits of [this.limits, this.edgeLimits, this.knownLimits, this.trustedLimits]) {
+        for (const [id, l] of limits) {
+          if (l.until < now) limits.delete(id);
+          else if (l.until < next) next = l.until;
+        }
+      }
+      this.nextLimitExpiry = next;
+    }
     for (const [id, a] of this.actions) if (a.statement.expiresAt <= now || a.session.expiresAt <= now) this.actions.delete(id);
     for (const [nonce, challenge] of this.desktopControllers) if (challenge.expiresAt <= now) this.desktopControllers.delete(nonce);
   }
-  private rate(key: string, maximum: number, table: "anonymous" | "device" | "trusted" = "anonymous"): void {
+  private rate(key: string, maximum: number, table: "anonymous" | "edge" | "device" | "trusted" = "anonymous"): void {
     this.prune();
     // Source-aware tunnels can introduce many distinct public addresses. Never
     // allocate unbounded buckets or evict an existing caller to admit a new one.
-    // Remote callers citing an enrolled device get their own table; owner
-    // approvals and actual local callers use one remote input can never fill.
-    // Relay metadata is namespaced and can never claim to be a local socket.
-    const limits = table === "trusted" ? this.trustedLimits : table === "device" ? this.knownLimits : this.limits;
-    if (!limits.has(key) && limits.size >= 4096) throw new HubError("rate_limited", 429);
+    // Remote callers citing an enrolled device get their own table; anonymous
+    // edge-identity probes get their own bounded table separate from direct/VPS
+    // anonymous limits; owner approvals and actual local callers use one remote
+    // input can never fill. Relay/edge metadata is namespaced and can never
+    // claim to be a local socket.
+    // Per-source limits apply to tracked sources. When the `edge` table is full,
+    // further callers are served untracked instead of rejected: the edge-identity
+    // proof is a cheap public signature over an allowed origin with nothing to
+    // brute-force, and current clients present no device id, so every real client
+    // shares this table and ~4096 distinct addresses could otherwise lock all of
+    // them out. The other tables still reject new keys when full.
+    const limits = table === "trusted" ? this.trustedLimits : table === "device" ? this.knownLimits : table === "edge" ? this.edgeLimits : this.limits;
+    if (!limits.has(key) && limits.size >= 4096) {
+      if (table === "edge") return;
+      throw new HubError("rate_limited", 429);
+    }
     const old = limits.get(key) ?? { count: 0, until: this.now() + PAIRING_MS };
+    if (old.until < this.nextLimitExpiry) this.nextLimitExpiry = old.until;
     old.count = Math.min(old.count + 1, maximum + 1); limits.set(key, old);
     if (old.count > maximum) throw new HubError("rate_limited", 429);
   }
@@ -320,7 +345,7 @@ export class HubAuth {
   }
   /** Caller holds the DB queue so the subject cannot change during verification. */
   private async actionTargetDigest(action: DeviceAction): Promise<string> {
-    if (action.operation === "network" || action.operation === "bot-message-grant" || action.operation === "screen-grant") return action.target;
+    if (action.operation === "network" || action.operation === "bot-message-grant" || action.operation === "screen-grant" || action.operation === "cloudflare-tunnel" || action.operation === "terminal-grant") return action.target;
     if (action.operation === "approve") {
       const row = await this.store.db.get<PairingRow>("SELECT * FROM pairing_requests WHERE code_hash=? AND status='pending'", [hashSecret(action.target)]);
       if (!row || row.expires_at <= this.now()) throw new HubError("pairing_expired_or_invalid", 403);
@@ -362,6 +387,20 @@ export class HubAuth {
     if (!(await this.localDesktopControllersInTransaction()).has(session.deviceId)) throw new HubError("local_controller_required", 403);
     await this.consumeDeviceAction(session, { operation: "screen-grant", target }, proof);
   }
+  /** Host terminal configuration has its own signed domain and requires a local desktop controller. */
+  async consumeTerminalGrant(session: AuthSession, target: string, proof?: DeviceActionProof): Promise<void> {
+    await this.validateSessionInTransaction(session); await this.store.requireOwner(session.userId);
+    if (!(await this.localDesktopControllersInTransaction()).has(session.deviceId)) throw new HubError("local_controller_required", 403);
+    await this.consumeDeviceAction(session, { operation: "terminal-grant", target }, proof);
+  }
+  /** Cloudflare Tunnel configuration widens the Host's external trust/ingress
+   * surface and can spawn local cloudflared. Require an enrolled local owner
+   * controller plus a fresh one-use device action proof bound to the command. */
+  async consumeCloudflareAction(session: AuthSession, target: string, proof?: DeviceActionProof): Promise<void> {
+    await this.validateSessionInTransaction(session); await this.store.requireOwner(session.userId);
+    if (!(await this.localDesktopControllersInTransaction()).has(session.deviceId)) throw new HubError("local_controller_required", 403);
+    await this.consumeDeviceAction(session, { operation: "cloudflare-tunnel", target }, proof);
+  }
   /** Called only inside the mutation transaction, after current owner/trust checks. */
   private async consumeDeviceAction(session: AuthSession | undefined, action: DeviceAction, proof?: DeviceActionProof, admit?: () => void): Promise<DeviceActionStatement> {
     if (!session || !proof) throw new HubError("device_action_proof_required", 403);
@@ -393,6 +432,35 @@ export class HubAuth {
       certificateSha256: createHash("sha256").update(certificate).digest("hex") };
     return { ...proof, signature: sign(null, Buffer.from(tlsIdentityProof(proof)), this.privateKey).toString("base64") };
   }
+  /** Signed proof for an explicitly authorized edge-terminated HTTPS route
+   * (e.g. DIY Cloudflare Tunnel). Never granted loopback trusted quota:
+   * unauthenticated callers are bucketed per (source, origin) in a dedicated
+   * bounded edge table; when it is full, further callers are served untracked.
+   * A caller presenting a session or an enrolled device id is counted in the
+   * device table instead (current clients do not send one yet). */
+  edgeIdentity(nonce: string, rawOrigin: string, source: string, knownDeviceId?: string): EdgeIdentity {
+    const canonicalOrigin = edgeOriginSchema.safeParse(rawOrigin).data ?? "invalid";
+    if (knownDeviceId) {
+      this.rate(`edge-identity-known:${JSON.stringify([rateSource(source), knownDeviceId, canonicalOrigin])}`, 60, "device");
+    } else {
+      this.rate(`edge-identity:${JSON.stringify([rateSource(source), canonicalOrigin])}`, 60, "edge");
+    }
+    tlsIdentityNonceSchema.parse(nonce);
+    const origin = edgeOriginSchema.parse(rawOrigin);
+    const proof: EdgeIdentityUnsigned = { v: 1, type: "edge.identity", publicKey: this.publicKey, nonce, origin };
+    return { ...proof, signature: sign(null, Buffer.from(edgeIdentityProof(proof)), this.privateKey).toString("base64") };
+  }
+  /** Quiet session lookup for rate-limit bucket isolation only; never authorizes
+   * an operation and never emits rejection audits when absent or stale. */
+  async activeSessionDeviceId(token: string | undefined): Promise<string | undefined> {
+    if (!token) return undefined;
+    this.prune();
+    const session = this.tokens.get(hashSecret(token));
+    if (!session || session.expiresAt <= this.now()) return undefined;
+    const device = await this.store.device(session.deviceId);
+    if (!device || device.revoked) { this.tokens.delete(hashSecret(token)); return undefined; }
+    return session.deviceId;
+  }
   async challenge(connectionId: string, deviceId: string, clientNonce: string, source: string): Promise<{ nonce: string; signature: string; publicKey: string }> {
     const device = await this.store.device(deviceId);
     if (!device || device.revoked) {
@@ -405,7 +473,7 @@ export class HubAuth {
     this.challenges.set(connectionId, { nonce, deviceId, clientNonce, expiresAt: this.now() + CHALLENGE_MS, source });
     return { nonce, publicKey: this.publicKey, signature: sign(null, serverProof(deviceId, nonce, clientNonce), this.privateKey).toString("base64") };
   }
-  async authenticate(connectionId: string, signature: string): Promise<AuthSession & { token: string }> {
+  async authenticate(connectionId: string, signature: string, capabilities?: readonly string[]): Promise<AuthSession & { token: string }> {
     const challenge = this.challenges.get(connectionId);
     this.challenges.delete(connectionId); // Consume even on a failed signature.
     if (!challenge || challenge.expiresAt <= this.now()) { await this.store.audit("auth.rejected", challenge?.deviceId ?? null, { reason: "challenge_expired" }); throw new HubError("challenge_expired", 401); }
@@ -416,7 +484,7 @@ export class HubAuth {
     if (!valid || !device) { this.rate(`auth-failed:${JSON.stringify([rateSource(source), deviceId])}`, 5, isLoopback(source) ? "trusted" : "device"); await this.store.audit("auth.rejected", deviceId, { reason: "signature_invalid", source }); throw new HubError("signature_invalid", 401); }
     // A correct proof must not be locked out by another caller's bad signatures.
     const token = randomBytes(32).toString("base64url");
-    const session = { deviceId, userId: device.user_id, expiresAt: this.now() + TOKEN_MS };
+    const session: AuthSession = { deviceId, userId: device.user_id, expiresAt: this.now() + TOKEN_MS, ...(capabilities ? { capabilities: [...capabilities] } : {}) };
     await this.store.db.transaction(async () => {
       await this.validateSessionInTransaction(session);
       await this.store.db.run("UPDATE devices SET last_seen=? WHERE id=?", [this.now(), deviceId]);

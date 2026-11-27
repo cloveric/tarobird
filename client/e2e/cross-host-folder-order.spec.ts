@@ -312,7 +312,7 @@ test('desktop and phone interleave cross-host folders via actions and manager, p
     expect((await foldersA.read('owner')).folders.map(f => f.id)).toEqual(['f1', 'f2']);
     expect((await foldersB.read('owner')).folders.map(f => f.id)).toEqual(['f3']);
 
-    // Independent phone device verifies touch long-press + touch drag in unified manager (App-local per device).
+    // Independent phone device receives Desktop's synced cross-host order and syncs changes back.
     await phone.setViewportSize({ width: 1360, height: 900 });
     await pair(phone, a, '主机 A');
     await pair(phone, b, '主机 B', true);
@@ -320,37 +320,56 @@ test('desktop and phone interleave cross-host folders via actions and manager, p
     await openMobileHome(phone);
     const home = mobileHome(phone);
     await expect.poll(() => folderSequence(home)).toEqual([
+      '主机 B/分组 3',
       '主机 A/分组 1',
       '主机 A/分组 2',
       '主机 A/未分组',
-      '主机 B/分组 3',
       '主机 B/未分组',
     ]);
 
-    // Phone long-press on 主机 B / 分组 3 -> 移到最上面.
-    const phoneB3 = home.locator(`[data-folder-host="${hostId(b)}"] [data-folder-id="f3"] .folder-heading`);
+    // Phone long-press on 主机 A / 分组 2 -> 移到最上面 (syncs live to desktop).
+    const phoneA2 = home.locator(`[data-folder-host="${hostId(a)}"] [data-folder-id="f2"] .folder-heading`);
     const actions = dialog(phone, '分组操作');
-    await phoneB3.dispatchEvent('pointerdown', { pointerId: 9, pointerType: 'touch', isPrimary: true, button: 0, clientX: 120, clientY: 260 });
+    await phoneA2.dispatchEvent('pointerdown', { pointerId: 9, pointerType: 'touch', isPrimary: true, button: 0, clientX: 120, clientY: 320 });
     await expect(actions).toBeVisible();
-    await phoneB3.dispatchEvent('pointerup', { pointerId: 9, pointerType: 'touch', isPrimary: true, button: 0 });
+    await phoneA2.dispatchEvent('pointerup', { pointerId: 9, pointerType: 'touch', isPrimary: true, button: 0 });
     await actions.getByRole('button', { name: '移到最上面', exact: true }).tap();
     await expect(actions).toHaveCount(0);
     await expect.poll(() => folderSequence(home)).toEqual([
+      '主机 A/分组 2',
       '主机 B/分组 3',
       '主机 A/分组 1',
+      '主机 A/未分组',
+      '主机 B/未分组',
+    ]);
+    await expect.poll(() => folderSequence(sidebar(page))).toEqual([
       '主机 A/分组 2',
+      '主机 B/分组 3',
+      '主机 A/分组 1',
       '主机 A/未分组',
       '主机 B/未分组',
     ]);
 
-    // Phone Manage folders (single unified entry, no choose-host step): touch-drag to interleave.
+    // Phone Manage folders: touch-drag to interleave, verify Back protects unsaved changes, then save.
     await openFolderManager(phone);
     const phoneManager = dialog(phone, '管理分组');
-    await dragCrossHostRow(phone, '分组 1（主机 A）', '分组 3（主机 B）', true);
+    await dragCrossHostRow(phone, '分组 1（主机 A）', '分组 2（主机 A）', true);
     await expect.poll(() => managerSequence(phoneManager)).toEqual([
       '主机 A/分组 1',
-      '主机 B/分组 3',
       '主机 A/分组 2',
+      '主机 B/分组 3',
+      '主机 A/未分组',
+      '主机 B/未分组',
+    ]);
+    await phoneManager.getByRole('button', { name: '关闭分组', exact: true }).tap();
+    const confirmDiscard = dialog(phone, '放弃未保存的修改？');
+    await expect(confirmDiscard).toBeVisible();
+    await confirmDiscard.getByRole('button', { name: '继续编辑', exact: true }).tap();
+    await expect(confirmDiscard).toHaveCount(0);
+    await expect.poll(() => managerSequence(phoneManager)).toEqual([
+      '主机 A/分组 1',
+      '主机 A/分组 2',
+      '主机 B/分组 3',
       '主机 A/未分组',
       '主机 B/未分组',
     ]);
@@ -359,8 +378,15 @@ test('desktop and phone interleave cross-host folders via actions and manager, p
     await expect(phoneManager).toHaveCount(0);
     await expect.poll(() => folderSequence(home)).toEqual([
       '主机 A/分组 1',
-      '主机 B/分组 3',
       '主机 A/分组 2',
+      '主机 B/分组 3',
+      '主机 A/未分组',
+      '主机 B/未分组',
+    ]);
+    await expect.poll(() => folderSequence(sidebar(page))).toEqual([
+      '主机 A/分组 1',
+      '主机 A/分组 2',
+      '主机 B/分组 3',
       '主机 A/未分组',
       '主机 B/未分组',
     ]);
@@ -371,8 +397,8 @@ test('desktop and phone interleave cross-host folders via actions and manager, p
     await openMobileHome(phone);
     await expect.poll(() => folderSequence(home)).toEqual([
       '主机 A/分组 1',
-      '主机 B/分组 3',
       '主机 A/分组 2',
+      '主机 B/分组 3',
       '主机 A/未分组',
       '主机 B/未分组',
     ]);

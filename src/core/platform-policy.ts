@@ -7,7 +7,7 @@ export interface PlatformPolicy {
  groupMode?: (stateDir: string, chatId: string | undefined, group: boolean, action: string, locale: Locale, defaultMention?: boolean) => Promise<string>;
  requiresMention?: (stateDir: string, chatId: string, defaultMention?: boolean) => Promise<boolean>;
  nativeCommandHelp?: (command: string, locale: Locale) => string | undefined;
- help?: (engine: string, locale: Locale) => string;
+ help?: (engine: string, locale: Locale, supportsRestart?: boolean) => string;
  checkGroupScope?: (input: { appId?: string; appSecret?: string; domain?: string; timeoutMs?: number }) => Promise<"ok" | "missing" | "unknown">;
  groupScopeWarning?: (locale: Locale, appId?: string, domain?: string, instanceName?: string) => string;
  scopeAuth?: (input: { channel: CoreChannelLike; chatId: string; appId?: string; domain?: string; options?: CoreSendOptions; locale: Locale }, error: unknown) => Promise<boolean>;

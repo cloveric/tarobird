@@ -1,9 +1,10 @@
 import { expect, it } from 'vitest';
-import { conversationUnreadTotal } from '../client/src/conversation-unread.js';
+import { conversationUnreadTotal, filterUnreadHostItems, isUnreadSelectionTarget } from '../client/src/conversation-unread.js';
 import { setTicketConversationsVisible } from '../client/src/dispatcher.js';
 import type { Conversation } from '../src/client-protocol/index.js';
 import type { ConversationActivity } from '../client/src/storage.js';
-const chat = (id: string, archived = false, parentId?: string) => ({ id, archived, parentId } as Conversation);
+const chat = (id: string, archived = false, parentId?: string, type: Conversation['type'] = 'direct', botIds: string[] = []) =>
+  ({ id, archived, parentId, type, botIds } as Conversation);
 const activity = (count: number): ConversationActivity => ({ preview: '', at: 1, lastContentSeq: 1, unread: Object.fromEntries(Array.from({ length: count }, (_, i) => [`m${i}`, 100 + i])) });
 
 it('excludes 53 archived unread messages without erasing their state, and restores them with the conversation', () => {
@@ -36,4 +37,89 @@ it('leaves hidden dispatcher worker conversations out of the badge unless the de
   expect(conversationUnreadTotal(chats, state)).toBe(1);
   setTicketConversationsVisible(true);
   try { expect(conversationUnreadTotal(chats, state)).toBe(5); } finally { setTicketConversationsVisible(false); }
+});
+
+it('counts a hidden ticket conversation in the badge only while it waits for the owner', () => {
+  const chats = [chat('home'), { ...chat('worker'), hidden: true } as Conversation];
+  const waiting = { home: activity(1), worker: { ...activity(2), attention: { m0: { kind: 'approval' as const, at: 100 } } } };
+  expect(conversationUnreadTotal(chats, waiting)).toBe(3);
+  expect(filterUnreadHostItems(chats, waiting).matchingIds.has('worker')).toBe(true);
+  const answered = { home: activity(1), worker: { ...activity(2), attention: {} } };
+  expect(conversationUnreadTotal(chats, answered)).toBe(1);
+  expect(filterUnreadHostItems(chats, answered).matchingIds.has('worker')).toBe(false);
+});
+
+it('filters unread conversations, bots, groups and retained open chats without including archived or read items', () => {
+  const chats = [
+    chat('d1', false, undefined, 'direct', ['botA']),
+    chat('d2', false, undefined, 'direct', ['botA']),
+    chat('d3', false, undefined, 'direct', ['botB']),
+    chat('dPinned', false, undefined, 'direct', ['botPinnedOnly']),
+    chat('dArchived', true, undefined, 'direct', ['botArchived']),
+    chat('g1', false, undefined, 'group', ['botA']),
+    chat('t1', false, 'g1', 'group'),
+    chat('t2', false, 'g1', 'group'),
+    chat('gPinnedParent', false, undefined, 'group', ['botA']),
+    chat('tPinned', false, 'gPinnedParent', 'group'),
+    chat('gArchived', true, undefined, 'group', ['botA']),
+    chat('tUnderArchived', false, 'gArchived', 'group'),
+  ];
+  const state: Record<string, ConversationActivity> = {
+    d1: activity(2),
+    d2: activity(0),
+    d3: activity(0),
+    dPinned: activity(3),
+    dArchived: activity(10),
+    g1: activity(0),
+    t1: activity(4),
+    t2: activity(0),
+    gPinnedParent: activity(0),
+    tPinned: activity(1),
+    gArchived: activity(0),
+    tUnderArchived: activity(5),
+  };
+
+  const match = filterUnreadHostItems(chats, state, ['dPinned', 'tPinned']);
+  expect([...match.matchingIds].sort()).toEqual(['d1', 'dPinned', 't1', 'tPinned']);
+  // Globally pinned direct chat stays in GlobalPinSection, not as an empty Bot row.
+  expect([...match.botIds].sort()).toEqual(['botA']);
+  // g1 is included because t1 is a non-globally-pinned unread topic; gPinnedParent stays out of groups.
+  expect([...match.groupIds]).toEqual(['g1']);
+  // gPinnedParent remains in conversations so tPinned can still resolve its parent title.
+  expect(match.conversations.map(c => c.id).sort()).toEqual(['d1', 'dPinned', 'g1', 'gPinnedParent', 't1', 'tPinned']);
+
+  // Retained open conversation stays visible after its unread drops to 0, until navigating away.
+  const retained = filterUnreadHostItems(chats, { ...state, d1: activity(0) }, ['dPinned', 'tPinned'], 'd1');
+  expect(retained.matchingIds.has('d1')).toBe(true);
+  expect(retained.botIds.has('botA')).toBe(true);
+
+  // Archived conversations are never retained even if passed as retainedId.
+  const archivedRetained = filterUnreadHostItems(chats, state, [], 'dArchived');
+  expect(archivedRetained.matchingIds.has('dArchived')).toBe(false);
+});
+
+it('detects unread selection targets accurately for bots and conversations layouts', () => {
+  const chats = [
+    chat('d1', false, undefined, 'direct', ['botA']),
+    chat('d2', false, undefined, 'direct', ['botA']),
+    chat('g1', false, undefined, 'group', ['botA']),
+    chat('t1', false, 'g1', 'group'),
+    chat('gArchived', true, undefined, 'group', ['botA']),
+    chat('tArchivedParent', false, 'gArchived', 'group'),
+  ];
+  const state = {
+    d1: activity(1),
+    d2: activity(0),
+    g1: activity(0),
+    t1: activity(2),
+    gArchived: activity(3),
+    tArchivedParent: activity(4),
+  };
+  expect(isUnreadSelectionTarget(chats, state, [], 'd1', 'bots')).toBe(true);
+  expect(isUnreadSelectionTarget(chats, state, [], 'd2', 'bots')).toBe(false);
+  expect(isUnreadSelectionTarget(chats, state, [], 'g1', 'conversations')).toBe(true);
+  expect(isUnreadSelectionTarget(chats, state, [], 'g1', 'bots')).toBe(false);
+  expect(isUnreadSelectionTarget(chats, state, [], 't1', 'bots')).toBe(true);
+  expect(isUnreadSelectionTarget(chats, state, [], 'gArchived', 'conversations')).toBe(false);
+  expect(isUnreadSelectionTarget(chats, state, [], 'tArchivedParent', 'bots')).toBe(false);
 });

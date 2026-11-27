@@ -102,7 +102,7 @@ public class NotificationAlertsTest {
         assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility);
         assertNotNull(notification.contentIntent);
         assertNotNull(notification.publicVersion);
-        assertEquals("TaroBot", notification.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString());
+        assertEquals("TaroBird", notification.publicVersion.extras.getCharSequence(Notification.EXTRA_TITLE).toString());
         assertFalse(notification.publicVersion.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("草稿"));
         TaroCubNotifications.show(context, reply);
         assertEquals(1, manager.getActiveNotifications().length);
@@ -130,6 +130,15 @@ public class NotificationAlertsTest {
             assertEquals(host + ":up-preview", active[0].getTag());
             assertEquals("「备用线路」 · CC1", active[0].getNotification().extras.getCharSequence(Notification.EXTRA_TITLE).toString());
             assertEquals("回复完成：已完成代码审阅。", active[0].getNotification().extras.getCharSequence(Notification.EXTRA_TEXT).toString());
+            manager.cancelAll(); data.put("hostId", JSONObject.NULL);
+            receiver.onMessage(new PushMessage(data.toString().getBytes(StandardCharsets.UTF_8), true), registration);
+            assertEquals(1, manager.getActiveNotifications().length);
+            assertEquals(host + ":up-preview", manager.getActiveNotifications()[0].getTag());
+            TaroCubNotifications.show(context, Map.of("id", "other-host", "conversationId", "preview-chat", "messageId", "preview-message", "hostId", other, "kind", "answer"));
+            assertEquals(2, manager.getActiveNotifications().length);
+            TaroCubNotifications.clearHost(context, host);
+            assertEquals(1, manager.getActiveNotifications().length);
+            assertEquals(other + ":other-host", manager.getActiveNotifications()[0].getTag());
             manager.cancelAll(); data.put("hostId", other);
             receiver.onMessage(new PushMessage(data.toString().getBytes(StandardCharsets.UTF_8), true), registration);
             assertEquals(0, manager.getActiveNotifications().length);

@@ -113,7 +113,27 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
     DefWindowProcW(hwnd, message, wparam, lparam)
 }
 
-pub fn capture(english: bool) -> Result<Option<Vec<u8>>, String> {
+fn capture_hint(english: bool, locale: Option<&str>) -> &'static str {
+    if let Some(raw) = locale {
+        let base = raw.trim().split(|c| c == '-' || c == '_').next().unwrap_or("");
+        if base.eq_ignore_ascii_case("ja") {
+            return "ドラッグして範囲選択  ·  Esc でキャンセル";
+        }
+        if base.eq_ignore_ascii_case("zh") {
+            return "拖动框选截屏  ·  Esc 取消";
+        }
+        if !base.is_empty() {
+            return "Drag to capture  ·  Esc to cancel";
+        }
+    }
+    if english {
+        "Drag to capture  ·  Esc to cancel"
+    } else {
+        "拖动框选截屏  ·  Esc 取消"
+    }
+}
+
+pub fn capture(english: bool, locale: Option<&str>) -> Result<Option<Vec<u8>>, String> {
     // The selector owns a separate message loop. No GDI handle crosses threads.
     unsafe {
         let previous_dpi = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -133,7 +153,7 @@ pub fn capture(english: bool) -> Result<Option<Vec<u8>>, String> {
         for (target, pixel) in dest.chunks_exact_mut(4).zip(source.chunks_exact(4)) {
             for i in 0..3 { target[i] = pixel[i] / 2; } target[3] = 255;
         }
-        let hint = if english { "Drag to capture  ·  Esc to cancel" } else { "拖动框选截屏  ·  Esc 取消" }.encode_utf16().collect();
+        let hint = capture_hint(english, locale).encode_utf16().collect();
         let mut state = Box::new(Selection { original, dimmed, x, y, width, height, hint,
             start: None, current: (0, 0), selected: None, done: false, activated: false });
         let class = Class {
@@ -178,5 +198,20 @@ pub fn capture(english: bool) -> Result<Option<Vec<u8>>, String> {
             writer.finish().map_err(|_| FAILED)?;
         }
         Ok(Some(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capture_hint;
+
+    #[test]
+    fn capture_hint_prefers_normalized_locale_and_falls_back_to_english_flag() {
+        assert_eq!(capture_hint(true, Some("ja")), "ドラッグして範囲選択  ·  Esc でキャンセル");
+        assert_eq!(capture_hint(false, Some("ja-JP")), "ドラッグして範囲選択  ·  Esc でキャンセル");
+        assert_eq!(capture_hint(true, Some("zh-CN")), "拖动框选截屏  ·  Esc 取消");
+        assert_eq!(capture_hint(false, Some("fr-FR")), "Drag to capture  ·  Esc to cancel");
+        assert_eq!(capture_hint(true, None), "Drag to capture  ·  Esc to cancel");
+        assert_eq!(capture_hint(false, None), "拖动框选截屏  ·  Esc 取消");
     }
 }

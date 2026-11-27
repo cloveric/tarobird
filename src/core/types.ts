@@ -16,8 +16,9 @@ import type {
   EngineContextUsage,
   EngineStreamEvent,
 } from "../codex/adapter.js";
-import type { BridgeAccessDecision } from "../runtime/bridge.js";
+import type { BridgeAccessDecision, BridgeConversationRestartInput, BridgeConversationRestartOutcome } from "../runtime/bridge.js";
 import type { EngineTaskSnapshot, EngineTaskControlResult } from "../client-protocol/engine-tasks.js";
+import type { Locale } from "../runtime/locale.js";
 import type { PiSessionSnapshot, PiSessionResult, PiSessionChange } from "../client-protocol/pi-session.js";
 import type { BridgeTurnLockWaitEvent } from "../runtime/turn-lock.js";
 import type { TurnPoolWaitEvent } from "../runtime/turn-pool.js";
@@ -51,6 +52,7 @@ export interface CoreChannelLike {
   /** Optional authenticated-surface preparation, executed inside the conversation queue. */
   prepareConversation?(chatId: string): Promise<void>;
   canSteerConversation?(chatId: string): Promise<boolean>;
+  conversationWorkspace?(conversationId: string): Promise<string | undefined>;
   profile?: import("./channel-profile.js").ChannelProfile;
   send(to: string, input: unknown, opts?: CoreSendOptions): Promise<{ messageId: string }>;
   stream(to: string, input: {
@@ -105,12 +107,12 @@ export interface CoreRuntimeChannelLike extends CoreChannelLike {
 }
 
 export interface CoreBridgeLike {
-  getConversationHistory?(input: import("../runtime/conversation-history.js").ConversationHistoryScope): Promise<import("../client-protocol/conversation-history.js").HistoryInternalSnapshot>;
+  getConversationHistory?(input: import("../runtime/conversation-history.js").ConversationHistoryScope, options?: { turnPending?: boolean }): Promise<import("../runtime/conversation-history.js").ConversationHistoryRead>;
   applyConversationHistory?(input: import("../runtime/conversation-history.js").ConversationHistoryApply): Promise<import("../client-protocol/conversation-history.js").HistoryNativeResult>;
   finalizeConversationHistory?(input: import("../runtime/conversation-history.js").ConversationHistoryFinalize): Promise<{ revision: string }>;
   readAccountQuota?(options: import("../codex/adapter.js").EngineQuotaReadOptions): Promise<import("../codex/adapter.js").EngineQuotaReadResult | undefined>;
   sideCapability?(input?: { workspaceOverride?: string; tools?: "inherited" }): import("../codex/adapter.js").SideCapability;
-  openSideSession?(input: { chatId: number; userId: number; chatType: string; conversationKey: string; workspaceOverride?: string; tools?: "inherited"; locale?: "en" | "zh"; abortSignal?: AbortSignal }): Promise<import("../codex/adapter.js").EngineSideSession>;
+  openSideSession?(input: { chatId: number; userId: number; chatType: string; conversationKey: string; workspaceOverride?: string; tools?: "inherited"; locale?: Locale; abortSignal?: AbortSignal }): Promise<import("../codex/adapter.js").EngineSideSession>;
   /** Shares the underlying engine/session state for an independently authenticated transport. */
   createAuthenticatedSurface?(): CoreBridgeLike;
   /** Native background work/reviews still owned by this worker, without polling the engine. */
@@ -123,7 +125,7 @@ export interface CoreBridgeLike {
     chatType: string;
     messageThreadId?: number;
     conversationKey?: string;
-    locale?: "en" | "zh";
+    locale?: Locale;
   }): Promise<BridgeAccessDecision>;
   checkUserAuthorization?(input: {
     chatId: number;
@@ -131,14 +133,14 @@ export interface CoreBridgeLike {
     chatType: string;
     messageThreadId?: number;
     conversationKey?: string;
-    locale?: "en" | "zh";
+    locale?: Locale;
   }): Promise<BridgeAccessDecision>;
   handleAuthorizedMessage(input: {
     chatId: number;
     userId: number;
     chatType: string;
     messageThreadId?: number;
-    locale?: "en" | "zh";
+    locale?: Locale;
     text: string;
     /** The owner's own typed text for this turn; see `CodexUserMessageInput.authoredText`. */
     authoredText?: string;
@@ -172,6 +174,7 @@ export interface CoreBridgeLike {
     abortSignal?: AbortSignal;
     disableRuntimeTimeout?: boolean;
     onTurnLockWait?: (event: BridgeTurnLockWaitEvent) => void | Promise<void>;
+    onTurnLockAcquired?: (event: { waitedMs: number }) => void | Promise<void>;
     turnPoolWaitNotifyAfterMs?: number;
     onTurnPoolWait?: (event: TurnPoolWaitEvent) => void | Promise<void>;
   }): Promise<{ text: string; nativeGoal?: ClaudeNativeGoalReceipt; appDeliveries?: AppDeliveryReceipt[]; usage?: { inputTokens: number; outputTokens: number; cachedTokens?: number; costUsd?: number } }>;
@@ -190,6 +193,8 @@ export interface CoreBridgeLike {
     title?: string;
     updatedAt?: string;
   }>>;
+  supportsConversationRestart?(): boolean;
+  restartConversationSession?(input: BridgeConversationRestartInput): Promise<BridgeConversationRestartOutcome>;
   getContextUsage?(input: {
     chatId: number;
     messageThreadId?: number;
@@ -207,6 +212,10 @@ export interface CoreBridgeLike {
   listTasks?(input: { chatId: number; conversationKey: string }): Promise<EngineTaskSnapshot>;
   /** The engine's own slash commands for the command menu, when it advertises them. */
   advertisedCommands?(): Array<{ name: string; description: string }>;
+  /** Whether the engine has delivered an authoritative advertised-command snapshot yet. */
+  hasReceivedAdvertisedCommands?(): boolean;
+  /** Stop background native work (such as an active Antigravity swarm) after its initiating turn ended. */
+  stopBackgroundWork?(input: { chatId: number; conversationKey: string; locale?: "en" | "zh"; scope?: "swarm" | "all" }): Promise<{ stopped: boolean; summary?: string }>;
   getPiSession?(input: { chatId: number; conversationKey: string; isCurrentSession?: () => Promise<boolean> }): Promise<PiSessionSnapshot>;
   changePiSession?(input: { chatId: number; conversationKey: string; isCurrentSession?: () => Promise<boolean> } & Pick<PiSessionChange, "expectedSession" | "action" | "value">): Promise<PiSessionResult>;
   stopTask?(input: { chatId: number; conversationKey: string; taskId: string; isCurrentSession?: () => Promise<boolean> }): Promise<EngineTaskControlResult>;

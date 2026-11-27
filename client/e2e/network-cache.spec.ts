@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import type { ViteDevServer } from "vite";
 import { createServer } from "./fixtures/vite.js";
-import { networkGenesisText, networkManifestProof, type NetworkManifest, type SignedNetworkManifest } from "../../src/client-protocol/private-network.js";
+import { networkGenesisText, networkManifestProof, networkProposalProof, type NetworkManifest, type SignedNetworkManifest, type SignedNetworkProposal } from "../../src/client-protocol/private-network.js";
 import type { ClientCache, Identity } from "../src/storage.js";
 import type { HostRegistry } from "../src/host-registry.js";
 import type { HubConnection } from "../src/connection.js";
@@ -620,4 +620,96 @@ test("a stale wake attempt cannot replace a newly paired host or clear its pause
     const remembered=await registry.nativeLocalHost(); pool.close();registry.close();return {status,published,key:pool.localHostKey,pending:pool.localControllerPending,remembered};
   },{rootKey,peerKey});
   expect(result).toEqual({status:"local_controller_recovery_superseded",published:0,key:peerKey,pending:true,remembered:rootKey});
+});
+
+test("recovery propose from a forcibly-removed host transitions the cache and pin cleanly without network_membership_changed", async ({ page }) => {
+  const removed = directory(4, {
+    v: 2,
+    hosts: [
+      { publicKey: rootKey, name: "Root", routes: [], state: "active", revoked: false, protocol: 2 },
+      { publicKey: peerKey, name: "Peer", routes: [], state: "active", revoked: true, protocol: 2 },
+    ],
+  });
+  const nonce = randomBytes(32).toString("base64url");
+  const seenManifestHash = createHash("sha256").update(JSON.stringify(removed.manifest)).digest("hex");
+  const unsignedProposal: SignedNetworkProposal["proposal"] = {
+    v: 1,
+    host: { publicKey: peerKey, name: "Peer", routes: [], protocol: 2, generation: 2 },
+    devices: [],
+    networkId: id,
+    authorityKey: rootKey,
+    seenManifestHash,
+    nonce,
+    expiresAt: Date.now() + 60_000,
+  };
+  const proposal: SignedNetworkProposal = {
+    proposal: unsignedProposal,
+    signature: sign(null, Buffer.from(networkProposalProof(unsignedProposal)), peer.privateKey).toString("base64"),
+  };
+  const recovered = directory(6, {
+    v: 2,
+    hosts: [
+      { publicKey: rootKey, name: "Root", routes: [], state: "active", revoked: false, protocol: 2 },
+      { publicKey: peerKey, name: "Peer", routes: [], state: "active", revoked: false, protocol: 2, generation: 2 },
+    ],
+  });
+  const pkcs8 = device.privateKey.export({ type: "pkcs8", format: "der" }).toString("base64");
+  const sessionHash = createHash("sha256").update("fixture-session").digest("hex");
+
+  const result = await page.evaluate(async ({ removed, proposal, recovered, seenManifestHash, pkcs8, sessionHash, rootKey, peerKey }) => {
+    const f = (window as unknown as { networkCacheFixture: Fixture }).networkCacheFixture;
+    const privateKey = await crypto.subtle.importKey("pkcs8", Uint8Array.from(atob(pkcs8), c => c.charCodeAt(0)), "Ed25519", false, ["sign"]);
+    const peerIdentity = { ...f.identity, hubPublicKey: peerKey, privateKey };
+    const cache = new f.ClientCache("removed-host-recovery-fixture");
+    await cache.initializeIdentity(peerIdentity);
+    await cache.saveNetworkMembership(peerIdentity, removed);
+    const connection = new f.HubConnection(peerIdentity, cache);
+    const removedView = { host: removed.manifest.hosts[1]!, membership: removed, sync: "removed" as const, lastSyncedAt: 1 };
+    const standaloneView = { host: { publicKey: peerKey, name: "Peer", routes: [], state: "active" as const, revoked: false, protocol: 2 as const }, sync: "standalone" as const, lastSyncedAt: 0 };
+    const recoveredView = { host: recovered.manifest.hosts[1]!, membership: recovered, sync: "current" as const, lastSyncedAt: 2 };
+    connection.networkKnown = removed; connection.networkRemote = removed;
+    connection.pinNetwork(removed.manifest.id, removed.manifest.authorityKey);
+    connection.state = { ...connection.state, status: "online", networkAvailable: true, user: { id: "owner", name: "Owner", role: "owner" }, network: removedView };
+    let phase: "removed" | "standalone" | "recovered" = "removed";
+    const internals = connection as unknown as { token: string; httpRequest(path: string, init?: RequestInit): Promise<unknown> };
+    internals.token = "fixture-session";
+    internals.httpRequest = async (path, init) => {
+      if (path === "/api/network") return phase === "standalone" ? standaloneView : phase === "recovered" ? recoveredView : removedView;
+      if (path === "/api/host-profile") return { name: "Peer", revision: 1 };
+      if (path === "/api/devices/challenge") {
+        const action = JSON.parse(String(init!.body));
+        return { hubPublicKey: peerKey, deviceId: peerIdentity.deviceId, sessionHash, action, targetDigest: action.target, nonce: "A".repeat(43), expiresAt: Date.now() + 30_000 };
+      }
+      if (path === "/api/network/manage") {
+        const parsed = JSON.parse(String(init!.body)) as { command: { operation: string } };
+        if (parsed.command.operation === "propose") { phase = "standalone"; return { view: standaloneView, proposal }; }
+        if (parsed.command.operation === "join") { phase = "recovered"; return { view: recoveredView, membership: recovered }; }
+      }
+      throw new Error(`unexpected_request:${path}`);
+    };
+    const proposed = await connection.networkCommand({ operation: "propose", networkId: removed.manifest.id, authorityKey: rootKey, seenManifestHash, generation: 2, recover: true });
+    const afterPropose = {
+      sync: proposed.view.sync,
+      cached: await cache.networkMembership(),
+      known: connection.networkKnown,
+      networkChange: connection.state.networkChange,
+    };
+    await connection.refreshNetwork();
+    const afterRefreshChange = connection.state.networkChange;
+    const joined = await connection.networkCommand({ operation: "join", membership: recovered, nonce: proposal.proposal.nonce });
+    const afterJoin = {
+      sync: joined.view.sync,
+      generation: joined.view.host.generation,
+      cachedRev: (await cache.networkMembership())?.manifest.revision,
+      networkChange: connection.state.networkChange,
+    };
+    connection.close(); cache.close();
+    return { afterPropose, afterRefreshChange, afterJoin };
+  }, { removed, proposal, recovered, seenManifestHash, pkcs8, sessionHash, rootKey, peerKey });
+
+  expect(result).toEqual({
+    afterPropose: { sync: "standalone", cached: undefined, known: undefined, networkChange: undefined },
+    afterRefreshChange: undefined,
+    afterJoin: { sync: "current", generation: 2, cachedRev: 6, networkChange: undefined },
+  });
 });

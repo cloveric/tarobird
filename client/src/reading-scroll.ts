@@ -32,7 +32,7 @@ export function createReadingScroll(getHistory: () => HTMLDivElement | null) {
     // coordinates, so that frame cannot paint the origin with old row positions.
     const positions = new Map(list.getVirtualItems().map(item => [String(item.key), item.start]));
     for (const row of history.children) {
-      const node = row as HTMLElement, start = positions.get(node.dataset.messageId ?? "");
+      const node = row as HTMLElement, start = positions.get(node.dataset.rowKey ?? node.dataset.messageId ?? "");
       if (start !== undefined) node.style.transform = `translateY(${start}px)`;
     }
     history.style.transform = shift ? `translateY(${-shift}px)` : "";

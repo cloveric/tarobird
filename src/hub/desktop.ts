@@ -1,5 +1,7 @@
 import { HostDirectoryError, guardHostDirectory, assertHostStateIntegrity, hostDirectoryState, assertWindowsRuntimeAdmission } from "../host-cli/windows-state-admission.js";
 import { desktopTls, desktopLanAddresses, desktopTailscaleAddresses } from "./desktop-tls.js";
+import { annotateAndRankRoutes } from "./network-discovery.js";
+import { inspectWindowsMobileFirewall } from "./windows-network-check.js";
 import { readHubConfig, type HubConfig } from "./config.js";
 import { isTailscaleAddress } from "./network.js";
 import { desktopNetworkFile } from "./host-routes.js";
@@ -278,7 +280,19 @@ export async function desktopHost(action: string, directory: string, entrypoint:
       const failed = checks.filter((check): check is PromiseRejectedResult => check.status === "rejected");
       const verified = routes.filter((_, index) => checks[index]!.status === "fulfilled");
       if (!verified.length) throw new Error(command === "tailscale" ? "desktop_host_tailscale_not_listening" : "desktop_host_lan_not_listening", { cause: failed[0]?.reason });
-      return { available: true, ...status, routes: verified, ...(failed.length ? { unavailableRouteCount: failed.length } : {}) };
+      const ranked = await annotateAndRankRoutes(verified);
+      const primaryAddress = ranked.candidates.find(candidate => !candidate.demoted)?.address ?? ranked.candidates[0]?.address;
+      const windowsFirewall = command === "network"
+        ? await inspectWindowsMobileFirewall(port, primaryAddress)
+        : undefined;
+      return {
+        available: true,
+        ...status,
+        routes: ranked.routes,
+        candidates: ranked.candidates,
+        ...(windowsFirewall?.supported ? { windowsFirewall } : {}),
+        ...(failed.length ? { unavailableRouteCount: failed.length } : {}),
+      };
     });
   }
   const { nativeProof, ...device } = pairingSchema.extend({ nativeProof: desktopControllerProofSchema.optional() }).parse(input);

@@ -7,7 +7,7 @@ const html = `<!doctype html><html><body><script type="module">
 import {ClientCache} from '/src/storage.ts';
 import {emptyWorkbench,emptyBoard,changeWorkbench,workbenchScope} from '/src/workbench-model.ts';
 import {emptyMarkdown} from '/src/workbench-markdown.ts';
-import {emptyDesign} from '/src/workbench-design.ts';
+import {emptyDesign,emptySlides} from '/src/workbench-design.ts';
 import {noteRecoveryKey,rememberNoteRecovery,readNoteRecovery} from '/src/workbench-note-recovery.ts';
 import {listWorkbenchLibrary,deleteWorkbenchLibraryEntries,workbenchEditorLock,workbenchLibraryKey,designEditorLocks} from '/src/workbench-library.ts';
 import {DesignSession} from '/src/workbench-design-session.ts';
@@ -37,7 +37,7 @@ function readsDuring(){
   for(const name of Object.keys(saved))proto[name]=function(...args){reads.push(name+':'+this.name);return saved[name].apply(this,args);};
   return ()=>{Object.assign(proto,saved);return reads;};
 }
-window.fixture={ClientCache,workbenchScope,emptyWorkbench,emptyBoard,emptyMarkdown,changeWorkbench,noteRecoveryKey,rememberNoteRecovery,readNoteRecovery,listWorkbenchLibrary,deleteWorkbenchLibraryEntries,workbenchEditorLock,emptyDesign,DesignSession,designFrame,designEditorLocks,connection,item,list,seed,raw,rawMany,readsDuring};
+window.fixture={ClientCache,workbenchScope,emptyWorkbench,emptyBoard,emptyMarkdown,changeWorkbench,noteRecoveryKey,rememberNoteRecovery,readNoteRecovery,listWorkbenchLibrary,deleteWorkbenchLibraryEntries,workbenchEditorLock,emptyDesign,emptySlides,DesignSession,designFrame,designEditorLocks,connection,item,list,seed,raw,rawMany,readsDuring};
 document.body.append('ready');
 </script></body></html>`;
 let server: ViteDevServer, url: string;
@@ -183,7 +183,7 @@ test("designs with an open or closed Tab but no editor are deleted with their re
 async function designHarness(page: Page) {
   await page.evaluate(() => {
     const w = window as any, f = w.fixture, scope = f.workbenchScope("hub", "owner", "c1"), name = f.workbenchEditorLock("design", scope, "d");
-    w.stored = f.emptyDesign("d"); w.errors = [];
+    w.stored = f.emptySlides("d"); w.errors = [];
     const session = new f.DesignSession(w.stored, async () => w.stored, async (_expected: number, next: unknown) => { w.stored = next; }, () => undefined);
     f.designEditorLocks.set(session, name); w.session = session; w.lockName = name;
     w.place = document.createElement("div"); w.place.style.cssText = "width:480px;height:320px"; document.body.append(w.place);

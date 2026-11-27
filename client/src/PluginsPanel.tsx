@@ -1,3 +1,4 @@
+import { isPluginSandboxSupported } from "./plugin-sandbox-runtime.js";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import {
   AlertTriangle,
@@ -144,6 +145,10 @@ function displayTitle(manifest: PluginManifest, locale: string): string {
 }
 
 function displayDescription(manifest: PluginManifest, locale: string): string {
+  if (locale === "ja" && manifest.official && manifest.descriptionZh) {
+    const translated = t(manifest.descriptionZh);
+    if (translated !== manifest.descriptionZh) return translated;
+  }
   return locale === "zh" ? manifest.descriptionZh ?? manifest.description : manifest.description;
 }
 
@@ -208,8 +213,10 @@ export function PluginsView({
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
   backActionRef?: RefObject<(() => boolean) | null>;
 }) {
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const activeRegistry = registry === undefined ? defaultPluginRegistry : registry;
   const locale = useLocale();
+  const sandboxSupported = isPluginSandboxSupported();
   const state = useSyncExternalStore(
     activeRegistry ? activeRegistry.subscribe : noopSubscribe,
     activeRegistry ? activeRegistry.getSnapshot : emptySnapshot,
@@ -224,7 +231,6 @@ export function PluginsView({
   const [confirmThirdParty, setConfirmThirdParty] = useState(false);
   const [busyId, setBusyId] = useState<string>();
   const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
-  const folderInputRef = useRef<HTMLInputElement>(null);
   const searchId = useId();
 
   useEffect(() => {
@@ -258,12 +264,12 @@ export function PluginsView({
   );
 
   useEffect(() => {
-    if (!initialInstallId) return;
+    if (!initialInstallId || !sandboxSupported) return;
     const match = catalog.find((item) => item.manifest.id === initialInstallId);
     if (match && !state.installed[match.manifest.id]) {
       setReviewTarget({ kind: "catalog", entry: match, ...splitDeclaredDomains(match.manifest.domains) });
     }
-  }, [initialInstallId, catalog, state.installed]);
+  }, [initialInstallId, catalog, state.installed, sandboxSupported]);
 
   const allEntries = useMemo<MarketplaceEntry[]>(() => {
     const map = new Map<string, MarketplaceEntry>();
@@ -331,6 +337,7 @@ export function PluginsView({
     : undefined;
 
   const openReview = (entry: PluginCatalogEntry) => {
+    if (!sandboxSupported || !entry.manifest.official) return;
     setConsentError(undefined);
     const { sanitizedDomains, blockedDomains } = splitDeclaredDomains(entry.manifest.domains);
     setReviewTarget({ kind: "catalog", entry, sanitizedDomains, blockedDomains });
@@ -442,6 +449,10 @@ export function PluginsView({
   };
 
   const openContribution = (manifest: PluginManifest, contribution: PluginContribution) => {
+    if (!sandboxSupported || !manifest.official) {
+      setFeedback({ text: !sandboxSupported ? t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。") : t("此版本暂不运行未经审核的 HTML 插件。"), error: true });
+      return;
+    }
     onOpenContribution?.(
       manifest.id,
       contribution.id,
@@ -462,7 +473,7 @@ export function PluginsView({
         <button
           type="button"
           className="primary"
-          disabled={isBusy || thirdPartyBlocked}
+          disabled={isBusy || thirdPartyBlocked || !sandboxSupported || !manifest.official}
           onClick={() => openReview(catalogEntry)}
         >
           <Download size={14}/>
@@ -787,6 +798,7 @@ export function PluginsView({
 
     return (
       <div className="plugins-view" data-platform={platform}>
+      {!sandboxSupported && <p className="plugins-off-banner" role="status">{t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。")}</p>}
         {feedback && (
           <div className={`plugins-feedback${feedback.error ? " is-error" : ""}`} role={feedback.error ? "alert" : "status"}>
             {feedback.error ? <AlertTriangle size={15}/> : <CheckCircle2 size={15}/>}
@@ -956,6 +968,7 @@ export function PluginsView({
 
   return (
     <div className="plugins-view" data-platform={platform}>
+      {!sandboxSupported && <p className="plugins-off-banner" role="status">{t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。")}</p>}
       <div className="plugins-marketplace-toolbar">
         <div className="plugins-tabs" role="tablist" aria-label={t("插件市场导航")}>
           <button
@@ -1180,7 +1193,7 @@ export function PluginsView({
           <header className="plugins-section-head">
             <div>
               <h4>{t("开发者模式")}</h4>
-              <span className="muted">{t("从本机文件夹加载未发布的插件进行调试")}</span>
+              <span className="muted">{t("此版本暂不运行未经审核的 HTML 插件。")}</span>
             </div>
             <label className="plugins-switch-label">
               <input
@@ -1197,6 +1210,7 @@ export function PluginsView({
                 ref={folderInputRef}
                 type="file"
                 hidden
+                disabled
                 multiple
                 {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
                 onChange={(e) => {
@@ -1204,18 +1218,18 @@ export function PluginsView({
                   e.currentTarget.value = "";
                 }}
               />
-              <button type="button" className="secondary" onClick={() => folderInputRef.current?.click()}>
+              <button type="button" className="secondary" disabled onClick={() => folderInputRef.current?.click()}>
                 <FolderOpen size={15}/>{t("从本地文件夹加载插件")}
               </button>
-              <small className="muted">{t("目录中需包含符合规范的 manifest.json 与入口 HTML 文件，加载前仍会展示权限与域名确认弹窗。")}</small>
+              <small className="muted">{t("此版本暂不运行未经审核的 HTML 插件。")}</small>
             </div>
           ) : (
             <div className="plugins-off-banner">
               <div className="plugins-off-banner-copy">
                 <Code2 size={17} aria-hidden="true"/>
                 <div>
-                  <strong>{t("开启开发者模式后可加载本地插件")}</strong>
-                  <p>{t("本地加载的插件需先通过同样的权限与网络域名确认弹窗，并运行在独立 opaque-origin iframe 沙箱中（非系统级防火墙）。")}</p>
+                  <strong>{t("本地 HTML 插件不可用")}</strong>
+                  <p>{t("此版本暂不运行未经审核的 HTML 插件。")}</p>
                 </div>
               </div>
             </div>
@@ -1250,8 +1264,8 @@ export function PluginsModal({
   close: () => void;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
 }) {
-  const locale = useLocale();
-  const modalTitle = locale === "en" ? "Plugin Marketplace" : "插件市场";
+  useLocale();
+  const modalTitle = t("插件市场");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closingRef = useRef(false);
   const viewBackRef = useRef<(() => boolean) | null>(null);

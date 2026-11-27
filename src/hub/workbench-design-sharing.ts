@@ -191,6 +191,7 @@ export class DesignShareBroker {
   // ---- owner / source window ------------------------------------------------
   private async open(peer: DesignSharePeer, request: Extract<DesignShareRequest, { op: "open" }>) {
     await this.port.requireMember(peer.userId, request.conversationId);
+    if (request.format !== "slides") throw new HubError("design_canvas_removed", 400);
     return this.serial(`open:${peer.userId}`, async () => {
       const mine = await this.port.repository.openByOwner(peer.userId);
       const candidate = mine.find(item => item.sourceDeviceId === peer.deviceId && item.designId === request.designId && item.conversationId === request.conversationId);
@@ -239,6 +240,7 @@ export class DesignShareBroker {
   private async attach(peer: DesignSharePeer, request: Extract<DesignShareRequest, { op: "attach" }>) {
     const live = await this.loadLive(request.shareId), record = live.record;
     if (record.state !== "open") throw new HubError("design_share_closed", 410);
+    if (record.format !== "slides") throw new HubError("design_canvas_removed", 400);
     if (record.ownerUserId !== peer.userId || record.sourceDeviceId !== peer.deviceId) throw forbidden();
     await this.port.requireMember(peer.userId, record.conversationId);
     await this.bindSource(record, peer, request.windowId, request.revision);
@@ -312,6 +314,7 @@ export class DesignShareBroker {
   private async join(peer: DesignSharePeer, request: Extract<DesignShareRequest, { op: "join" }>) {
     const live = await this.loadLive(request.shareId), record = live.record;
     if (record.state !== "open") throw new HubError("design_share_closed", 410);
+    if (record.format !== "slides") throw new HubError("design_canvas_removed", 400);
     if (record.ownerUserId === peer.userId && record.sourceDeviceId === peer.deviceId) throw new HubError("design_share_source_device", 409);
     await this.port.requireMember(peer.userId, record.conversationId);
     const role = this.currentRole(live, peer.userId);

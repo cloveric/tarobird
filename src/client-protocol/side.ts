@@ -26,7 +26,7 @@ export const sideAttachmentIdsSchema = z.array(id).min(1).max(SIDE_ATTACHMENT_CO
 export const sideAskSchema = z.object({ botId: id, requestId: id, text: z.string().trim().max(SIDE_QUESTION_LIMIT).default(""), attachments: sideAttachmentIdsSchema.optional() }).strict()
   .refine(ask => ask.text.length > 0 || !!ask.attachments?.length, { message: "empty_question", path: ["text"] });
 /** Hub-resolved metadata the Gateway uses to fetch and verify each file. */
-export const sideAttachmentRefSchema = z.object({ id, name: z.string().min(1).max(1024), mime: z.string().min(1).max(255), size: z.number().int().nonnegative(), sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
+export const sideAttachmentRefSchema = z.object({ id, name: z.string().min(1).max(1024), mime: z.string().min(1).max(255), size: z.number().int().nonnegative(), sha256: z.string().regex(/^[0-9a-f]{64}$/), recording: z.boolean().optional() }).strict();
 /** Display metadata, shaped like the message image/file blocks. */
 export const sideExchangeAttachmentSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("image"), attachmentId: id, title: z.string().max(1024) }).strict(),

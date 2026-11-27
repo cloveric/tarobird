@@ -28,7 +28,7 @@ export function instanceAttachmentDownload(transport: { httpUrl: string; authHea
   };
 }
 
-export function gatewaySideSessions(bridge: CoreBridgeLike, stateDir: string, botId: string, bindingReady: (conversationId: string) => Promise<boolean>, download?: SideAttachmentDownload, transcribe?: SideTranscribe, channel?: Pick<GatewayChannel, "uploadSideArtifact">) {
+export function gatewaySideSessions(bridge: CoreBridgeLike, stateDir: string, botId: string, bindingReady: (conversationId: string) => Promise<boolean>, download?: SideAttachmentDownload, transcribe?: SideTranscribe, channel?: Pick<GatewayChannel, "uploadSideArtifact"> & Partial<Pick<GatewayChannel, "conversationWorkspace">>) {
   // Private copies sit beside ordinary inbound files, under per-handle names
   // that never collide with message directories; Hub uploads are untouched.
   const attachmentRoot = workspaceArtifactRoot(stateDir, "input", "gateway");
@@ -38,7 +38,11 @@ export function gatewaySideSessions(bridge: CoreBridgeLike, stateDir: string, bo
     return { ...cfg, approvalMode: raw.approvalMode, claudePermissionMode: raw.claudePermissionMode };
   };
   let fingerprint: string | undefined;
-  const signature = (value: Awaited<ReturnType<typeof config>>) => JSON.stringify([value.engine, value.model, value.effort, value.approvalMode, value.claudePermissionMode, resolveInstanceWorkspacePath(value)]);
+  const signature = (value: Awaited<ReturnType<typeof config>>) => JSON.stringify([value.engine, value.model, value.effort, value.approvalMode, value.claudePermissionMode]);
+  const scopeKey = (scope: SideScope) => `${scope.userId}:${scope.deviceId}:${scope.conversationId}`;
+  const sessionWorkspaces = new Map<string, string | undefined>();
+  const conversationWorkspace = async (conversationId: string, cfg: Awaited<ReturnType<typeof config>>) =>
+    (await channel?.conversationWorkspace?.(conversationId)) ?? resolveInstanceWorkspacePath(cfg);
   let sessions: CoreSideSessions;
   const deliveryBudgets = new WeakMap<SideScope, SideDeliveryBudget>();
   const create = () => new CoreSideSessions({
@@ -48,19 +52,28 @@ export function gatewaySideSessions(bridge: CoreBridgeLike, stateDir: string, bo
       if (!await bindingReady(scope.conversationId)) throw new SideSessionError("no_main_session");
       const cfg = await config(), conversationKey = buildCoreConversationKey(scope.conversationId);
       if (!bridge.openSideSession) throw new SideSessionError("unsupported");
-      return bridge.openSideSession({ chatId: stableCoreNumericId(conversationKey), conversationKey, userId: stableCoreNumericId(`user:gwuser_${scope.userId}`), chatType: "bus", locale: cfg.locale === "zh" ? "zh" : "en", workspaceOverride: resolveInstanceWorkspacePath(cfg), ...(tools === "inherited" ? { tools } : {}), abortSignal });
+      const workspaceOverride = await conversationWorkspace(scope.conversationId, cfg);
+      sessionWorkspaces.set(scopeKey(scope), workspaceOverride);
+      return bridge.openSideSession({ chatId: stableCoreNumericId(conversationKey), conversationKey, userId: stableCoreNumericId(`user:gwuser_${scope.userId}`), chatType: "bus", locale: cfg.locale, workspaceOverride, ...(tools === "inherited" ? { tools } : {}), abortSignal });
     },
     ...(channel ? { deliveryTools: async (scope: SideScope, _sideId: string, _requestId: string, signal: AbortSignal, publish: Parameters<typeof createSideDeliveryTools>[0]["publish"]) => {
       const cfg = await config();
       if (signature(cfg) !== fingerprint) throw new SideSessionError("expired");
+      const workspaceOverride = await conversationWorkspace(scope.conversationId, cfg);
+      const key = scopeKey(scope);
+      if (sessionWorkspaces.has(key) && sessionWorkspaces.get(key) !== workspaceOverride) throw new SideSessionError("expired");
       let budget = deliveryBudgets.get(scope);
       if (!budget) { budget = { bytes: 0, files: 0 }; deliveryBudgets.set(scope, budget); }
-      return createSideDeliveryTools({ channel, stateDir, workspaceOverride: resolveInstanceWorkspacePath(cfg), conversationId: scope.conversationId, signal, budget, publish });
+      return createSideDeliveryTools({ channel, stateDir, workspaceOverride, conversationId: scope.conversationId, signal, budget, publish });
     } } : {}),
-    beforeAsk: async () => {
+    beforeAsk: async (scope) => {
       const cfg = await config();
       if (signature(cfg) !== fingerprint) throw new SideSessionError("expired");
-      if (await checkBudgetAvailability(stateDir, cfg.budgetUsd, cfg.locale === "zh" ? "zh" : "en")) throw new SideSessionError("budget_exhausted");
+      const key = scopeKey(scope);
+      if (sessionWorkspaces.has(key) && sessionWorkspaces.get(key) !== await conversationWorkspace(scope.conversationId, cfg)) {
+        throw new SideSessionError("expired");
+      }
+      if (await checkBudgetAvailability(stateDir, cfg.budgetUsd, cfg.locale)) throw new SideSessionError("budget_exhausted");
     },
     ...(download ? {
       prepareAttachments: async (scope, sideId, requestId, refs, signal) => {
@@ -78,11 +91,14 @@ export function gatewaySideSessions(bridge: CoreBridgeLike, stateDir: string, bo
     },
   });
   sessions = create();
-  const nativeCapability = async (tools?: "inherited") => { const cfg = await config(); return { cfg, native: bridge.sideCapability?.({ workspaceOverride: resolveInstanceWorkspacePath(cfg), ...(tools ? { tools } : {}) }) }; };
+  const nativeCapability = async (conversationId: string, tools?: "inherited") => {
+    const cfg = await config();
+    return { cfg, native: bridge.sideCapability?.({ workspaceOverride: await conversationWorkspace(conversationId, cfg), ...(tools ? { tools } : {}) }) };
+  };
   /** attachments/audio: only for callers that opted in; strict older clients reject unknown keys.
    * audio reports this Gateway's ASR step; transcripts reach every engine as text. */
-  const capability = async (attachments = false, audio = false, tools?: "inherited", delivery = false): Promise<SideCapabilityView> => {
-    const { cfg, native } = await nativeCapability(tools);
+  const capability = async (conversationId: string, attachments = false, audio = false, tools?: "inherited", delivery = false): Promise<SideCapabilityView> => {
+    const { cfg, native } = await nativeCapability(conversationId, tools);
     const supported = !!bridge.openSideSession && native?.context === "native" && (native.readOnly !== "advisory" || tools === "inherited" && native.toolAccess === "inherited") && native.residue !== "residual";
     const files = supported && attachments && download ? native?.attachments : undefined;
     return { supported, concurrent: native?.concurrent ?? false, liveContext: native?.seesInProgressTurn ?? false, tools: tools === "inherited" && native?.toolAccess === "inherited" ? "inherited" : native?.readOnly === "enforced" ? "read-only" : "none", ...(cfg.engine === "claude" ? { usage: "unavailable" as const } : {}),
@@ -90,29 +106,42 @@ export function gatewaySideSessions(bridge: CoreBridgeLike, stateDir: string, bo
       ...(files ? { attachments: { images: files.images, files: files.files, maxCount: SIDE_ATTACHMENT_COUNT_LIMIT, maxFileBytes: SIDE_ATTACHMENT_FILE_BYTES, maxImageBytes: SIDE_ATTACHMENT_IMAGE_BYTES, maxTotalBytes: SIDE_ATTACHMENT_TOTAL_BYTES, ...(audio && transcribe ? { audio: true as const } : {}) } } : {}),
       ...(!supported ? { reason: "unsupported" as const } : {}) };
   };
+  const assertScopeWorkspace = async (scope: SideScope, sideId: string, cfg: Awaited<ReturnType<typeof config>>) => {
+    const key = scopeKey(scope);
+    if (!sessionWorkspaces.has(key)) return;
+    const current = await conversationWorkspace(scope.conversationId, cfg);
+    if (sessionWorkspaces.get(key) !== current) {
+      sessionWorkspaces.delete(key);
+      await sessions.close(scope, sideId).catch(() => undefined);
+      throw new SideSessionError("expired");
+    }
+  };
   const scopeWithId = sideScopeSchema.extend({ sideId: idSchema });
   return {
-    activeCount: () => sessions.activeCount(),
-    close: () => sessions.closeAll(),
+    activeCount: (conversationId?: string) => sessions.activeCount(conversationId),
+    hasOpenSession: (conversationId: string) => sessions.hasOpenSession(conversationId),
+    close: () => { sessionWorkspaces.clear(); return sessions.closeAll(); },
     async call(method: string, raw: unknown) {
       try {
         const cfg = await config(), next = signature(cfg);
-        if (fingerprint && fingerprint !== next) { await sessions.closeAll(); sessions = create(); }
+        if (fingerprint && fingerprint !== next) { sessionWorkspaces.clear(); await sessions.closeAll(); sessions = create(); }
         fingerprint = next;
-        if (method === "side.status") { const { attachments, audio, tools, delivery } = sideScopeSchema.extend({ attachments: z.literal(true).optional(), audio: z.literal(true).optional(), tools: z.literal(true).optional(), delivery: z.literal(true).optional() }).strict().parse(raw); return { ok: true, capability: await capability(attachments, audio, tools ? "inherited" : undefined, delivery) }; }
-        if (method === "side.open") { const { requestId, tools, delivery, ...scope } = sideScopeSchema.extend({ requestId: idSchema, tools: z.literal("inherited").optional(), delivery: z.literal(true).optional() }).strict().parse(raw); const supported = await capability(false, false, tools, delivery); if (delivery && !supported.delivery || tools && supported.tools !== tools) throw new SideSessionError("unsupported"); return sessions.open(scope, requestId, supported); }
+        if (method === "side.status") { const { attachments, audio, tools, delivery, ...scope } = sideScopeSchema.extend({ attachments: z.literal(true).optional(), audio: z.literal(true).optional(), tools: z.literal(true).optional(), delivery: z.literal(true).optional() }).strict().parse(raw); return { ok: true, capability: await capability(scope.conversationId, attachments, audio, tools ? "inherited" : undefined, delivery) }; }
+        if (method === "side.open") { const { requestId, tools, delivery, ...scope } = sideScopeSchema.extend({ requestId: idSchema, tools: z.literal("inherited").optional(), delivery: z.literal(true).optional() }).strict().parse(raw); const supported = await capability(scope.conversationId, false, false, tools, delivery); if (delivery && !supported.delivery || tools && supported.tools !== tools) throw new SideSessionError("unsupported"); return sessions.open(scope, requestId, supported); }
         if (method === "side.read") {
           const { sideId, revision, ...scope } = scopeWithId.extend({ revision: z.number().int().nonnegative().optional() }).strict().parse(raw);
+          await assertScopeWorkspace(scope, sideId, cfg);
           return { ok: true, ...sessions.read(scope, sideId, revision) };
         }
         if (method === "side.ask") {
           const { sideId, requestId, text, attachments = [], ...scope } = scopeWithId.extend({ requestId: idSchema, text: z.string().trim().max(SIDE_QUESTION_LIMIT), attachments: z.array(sideAttachmentRefSchema).min(1).max(SIDE_ATTACHMENT_COUNT_LIMIT).optional() }).strict()
             .refine(ask => ask.text.length > 0 || !!ask.attachments?.length).parse(raw);
-          return sessions.ask(scope, sideId, requestId, text, attachments, attachments.length && download ? (await nativeCapability()).native?.attachments : undefined);
+          await assertScopeWorkspace(scope, sideId, cfg);
+          return sessions.ask(scope, sideId, requestId, text, attachments, attachments.length && download ? (await nativeCapability(scope.conversationId)).native?.attachments : undefined);
         }
         const { sideId, ...scope } = scopeWithId.strict().parse(raw);
-        if (method === "side.stop") return sessions.stop(scope, sideId);
-        if (method === "side.close") return await sessions.close(scope, sideId);
+        if (method === "side.stop") { await assertScopeWorkspace(scope, sideId, cfg); return sessions.stop(scope, sideId); }
+        if (method === "side.close") { sessionWorkspaces.delete(scopeKey(scope)); return await sessions.close(scope, sideId); }
         throw new SideSessionError("unsupported");
       } catch (error) { if (error instanceof z.ZodError) throw error; return { ok: false, error: sideErrorCode(error) }; }
     },

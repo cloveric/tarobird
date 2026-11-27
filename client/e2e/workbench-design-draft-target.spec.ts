@@ -37,25 +37,26 @@ async function storedAssociation(page:Page,conversationId:string){return page.ev
 },conversationId);}
 async function comment(page:Page,title:string,text:string){
  const editor=page.frameLocator(".workbench-design-frame:visible");
- await expect(editor.getByRole("button",{name:"Comments",exact:true})).toBeVisible({timeout:30000});
+ const heading=editor.getByText(title,{exact:true}).first();
+ await expect(heading).toBeVisible({timeout:45000});
  await editor.getByRole("button",{name:"Comments",exact:true}).click();
- const target=editor.getByRole("button",{name:"Comment on artboard "+title,exact:true});const bounds=await target.boundingBox();expect(bounds).not.toBeNull();
+ const bounds=await heading.boundingBox();expect(bounds).not.toBeNull();
  await page.mouse.click(bounds!.x+bounds!.width/2,bounds!.y+bounds!.height/2);
  await editor.getByRole("textbox",{name:"Comment",exact:true}).fill(text);
  await editor.getByRole("checkbox",{name:"Send to Agent",exact:true}).check();
  await editor.getByRole("button",{name:"Send",exact:true}).click();
 }
-test("a second canvas comment cannot retarget an existing draft, including after reload",async({page})=>{
+test("a second PPT comment cannot retarget an existing draft, including after reload",async({page})=>{
  test.setTimeout(150000);const f=await fixture(page);try{
-  const first=await f.command({requestId:"draft-a",operation:"design.create",payload:{title:"画布 A"}});expect(first).toMatchObject({status:"applied",saved:true});
+  const first=await f.command({requestId:"draft-a",operation:"design.create",payload:{title:"演示 A",format:"slides"}});expect(first).toMatchObject({status:"applied",saved:true});
   const firstId=(first.result as {tabId:string}).tabId;
-  await comment(page,"画布 A","保留 A 的说明 — keep original A");
+  await comment(page,"演示 A","保留 A 的说明 — keep original A");
   const field=page.getByRole("textbox",{name:"消息",exact:true});await expect(field).toHaveValue(/keep original A/);const text=await field.inputValue();
   await expect.poll(()=>storedAssociation(page,f.conversation.id)).toMatchObject({context:{target:{tabId:firstId}}});
   const original=await storedAssociation(page,f.conversation.id);
-  const second=await f.command({requestId:"draft-b",operation:"design.create",payload:{title:"Canvas B"}});expect(second).toMatchObject({status:"applied",saved:true});
+  const second=await f.command({requestId:"draft-b",operation:"design.create",payload:{title:"Slides B",format:"slides"}});expect(second).toMatchObject({status:"applied",saved:true});
   const secondTarget={...second.target,tabId:(second.result as {tabId:string}).tabId};
-  await comment(page,"Canvas B","B must remain separate 独立");
+  await comment(page,"Slides B","B must remain separate 独立");
   await expect.poll(async()=>{const reply=await f.command({requestId:"draft-b-comments-"+Date.now(),operation:"design.comments.read",target:secondTarget,payload:{}});return (reply.result as any)?.threads?.length;}).toBe(1);
   await expect(field).toHaveValue(text);
   expect(await storedAssociation(page,f.conversation.id)).toEqual(original);
@@ -65,16 +66,11 @@ test("a second canvas comment cannot retarget an existing draft, including after
  }finally{await f.close();}
 });
 
-for (const format of ["canvas","slides"] as const) test(`an actual message ACK marks its frozen ${format} comment delivered`,async({page},info)=>{
+for (const format of ["slides"] as const) test(`an actual message ACK marks its frozen ${format} comment delivered`,async({page},info)=>{
  test.setTimeout(150000);const f=await fixture(page);try{
   const created=await f.command({requestId:"delivery-"+format,operation:"design.create",payload:{title:"送达验证",format}});expect(created).toMatchObject({status:"applied",saved:true});
   const target={...created.target,tabId:(created.result as {tabId:string}).tabId};
-  if(format==="canvas")await comment(page,"送达验证","请改善说明 — verified delivery");
-  else {
-   const editor=page.frameLocator(".workbench-design-frame:visible"),heading=editor.getByText("送达验证",{exact:true}).first();await expect(heading).toBeVisible({timeout:45000});
-   await editor.getByRole("button",{name:"Comments",exact:true}).click();const bounds=await heading.boundingBox();expect(bounds).not.toBeNull();await page.mouse.click(bounds!.x+bounds!.width/2,bounds!.y+bounds!.height/2);
-   await editor.getByRole("textbox",{name:"Comment",exact:true}).fill("请改善说明 — verified delivery");await editor.getByRole("checkbox",{name:"Send to Agent",exact:true}).check();await editor.getByRole("button",{name:"Send",exact:true}).click();
-  }
+  await comment(page,"送达验证","请改善说明 — verified delivery");
   const field=page.getByRole("textbox",{name:"消息",exact:true});await expect(field).toHaveValue(/verified delivery/);
   await expect.poll(()=>storedAssociation(page,f.conversation.id)).toMatchObject({designCommentVersions:expect.any(Object)});
   await page.getByRole("button",{name:"发送消息",exact:true}).click();await expect(field).toHaveValue("");

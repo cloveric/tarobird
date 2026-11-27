@@ -2,7 +2,7 @@
 
 Owner authorized publication and local Mac installation. Candidate App 1.0.125, Host/standalone CLI 0.1.470, protocol 1, Hub schemas 1–23; source baseline `42e271d5f260438f9091f0c20af3a0a52a904962`. Windows actual-runtime acceptance and publication remain owner-deferred.
 
-This release includes the Chancellor/dispatcher work and adjudicated DeepSeek/Opus audit fixes, plus background-task/composer refinements. See the dispatcher post-merge, efficiency/stability and DeepSeek audit reports for precise findings and limits. Unknown results retain work rather than automatically replaying it; old attempts cannot overwrite newer worker-health failures.
+This release includes the Superagent/dispatcher work and adjudicated DeepSeek/Opus audit fixes, plus background-task/composer refinements. See the dispatcher post-merge, efficiency/stability and DeepSeek audit reports for precise findings and limits. Unknown results retain work rather than automatically replaying it; old attempts cannot overwrite newer worker-health failures.
 
 The [upstream inventory](release-1.0.125-dependency-inventory.md) checks the integrated editors/fonts and all 68 direct package entries. Design is upgraded from 2.5.0 to 2.6.1 at `0c257e5e9def6723fdc69a95ec59fc8c414a8282`. Its 26 vendored files retain exact upstream hashes. LICENSE, NOTICE, runtime, reference documents, fonts and CSS are unchanged; the entry HTML and editor JS change. Guarded adapter anchors preserve local opaque-origin embedding, asset mapping, settle-before-flush, and disabled comments/chat. Upstream standalone room/clash UI is not enabled. Existing mixed-license disclosures and owner retention decision are unchanged.
 

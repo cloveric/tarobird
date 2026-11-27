@@ -1,5 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "../client/src/i18n.js";
 import { sendSteering, settleSteeringRequest, hasSteeringDraft, clearSteeringDraft, retireEditedSteeringDraft, recoverSteeringDraft } from "../client/src/steering-request.js";
+
+beforeEach(() => {
+  vi.stubGlobal("document", { documentElement: { lang: "zh-CN" } });
+  setLocale("zh");
+});
+afterEach(() => {
+  setLocale("zh");
+  vi.unstubAllGlobals();
+});
 import { codexSupplementTarget } from "../client/src/use-codex-send-choice.js";
 import type { HubConnection } from "../client/src/connection.js";
 import type { Message } from "../src/client-protocol/index.js";

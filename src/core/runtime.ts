@@ -1,4 +1,5 @@
 import type { EngineApprovalDecision, EngineApprovalRequest } from "../codex/adapter.js";
+import type { Locale } from "../runtime/locale.js";
 import { delegateToInstance as defaultDelegateToInstance } from "../bus/bus-client.js";
 import { loadBusConfig as defaultLoadBusConfig } from "../bus/bus-config.js";
 import type { TranscribeMediaOptions } from "../runtime/asr-cloud.js";
@@ -38,6 +39,8 @@ export interface CoreActiveRun {
   startedAt?: number;
   /** The queued input this run executes, for an exactly targeted Stop. */
   sourceMessageId?: string;
+  /** True while preparing attachments / transcribing audio before any engine turn starts. */
+  preparingMedia?: boolean;
 }
 
 export interface CoreQueuePolicy {
@@ -107,6 +110,8 @@ export interface PendingCoreApproval {
   replyInThread?: boolean;
   askUserQuestionInput?: unknown;
   approvalEngine?: EngineApprovalRequest["engine"];
+  /** Optional swarm/subagent worker name requesting the approval or question. */
+  approvalWorkerName?: string;
   /** Tool name/input of a regular (non-AskUserQuestion) approval, kept so the decision handler can re-render the card in place as resolved. */
   approvalToolName?: string;
   approvalToolInput?: unknown;
@@ -191,7 +196,7 @@ export interface CoreServiceRuntime {
   cronRuntime?: CoreCronRuntime;
   /** VC bot-meeting support; present ONLY when config.meeting.enabled (gated). */
   meetingSupport?: {
-    handleMeetingCommand(text: string, locale: "en" | "zh", context?: { mentionOpenIds?: readonly string[] }): Promise<string | null>;
+    handleMeetingCommand(text: string, locale: Locale, context?: { mentionOpenIds?: readonly string[] }): Promise<string | null>;
     dispose(): Promise<void>;
   };
   busRuntime?: CoreBusRuntime;
@@ -212,7 +217,7 @@ export function createCoreServiceRuntime(options: {
   cronRuntime?: CoreCronRuntime;
   /** VC bot-meeting support; present ONLY when config.meeting.enabled (gated). */
   meetingSupport?: {
-    handleMeetingCommand(text: string, locale: "en" | "zh", context?: { mentionOpenIds?: readonly string[] }): Promise<string | null>;
+    handleMeetingCommand(text: string, locale: Locale, context?: { mentionOpenIds?: readonly string[] }): Promise<string | null>;
     dispose(): Promise<void>;
   };
   busRuntime?: CoreBusRuntime;

@@ -986,6 +986,28 @@ describe("ProcessAntigravityAdapter", () => {
     expect(child.stdin.ended).toBe(true);
   });
 
+  it("expands other native Antigravity slash commands (/swarm, /grill-me, /plan, /teamwork, /run-workflow, /browser, /learn) outside <user_message> via text stdin", async () => {
+    for (const cmd of ["/swarm split across packages", "/grill-me design auth", "/plan migrate db", "/teamwork ship v2", "/run-workflow audit prs", "/browser check checkout", "/learn capture rule"]) {
+      const { spawnAntigravity, child, calls } = createSpawnHarness();
+      const adapter = new ProcessAntigravityAdapter(
+        "agy", { HOME: "/tmp/home" }, spawnAntigravity, undefined, undefined, "/tmp/workspace",
+      );
+      const promise = adapter.sendUserMessage("telegram-12345", {
+        text: cmd,
+        files: [],
+        instructions: "Private instructions",
+      });
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+      emitSuccess(child, "SLASH_OK");
+      child.close(0);
+      await expect(promise).resolves.toMatchObject({ text: "SLASH_OK" });
+      expect(calls[0]?.args).toEqual(expect.arrayContaining(["--input-format", "text", "--output-format", "stream-json"]));
+      const prompt = child.stdin.writes[0]!;
+      expect(prompt.startsWith(cmd)).toBe(true);
+      expect(prompt).not.toContain(`<user_message>\n${cmd}`);
+    }
+  });
+
   it("rejects an empty successful native /goal result", async () => {
     const { spawnAntigravity, child, calls } = createSpawnHarness();
     const adapter = new ProcessAntigravityAdapter("agy", { HOME: "/tmp/home" }, spawnAntigravity);

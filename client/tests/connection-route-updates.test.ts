@@ -3,6 +3,7 @@ import type { ClientCache, Identity } from "../src/storage.js";
 vi.mock("../src/storage.js", () => ({ cache: {}, ClientCache: class {}, defaultPreferences: {} }));
 vi.mock("../src/transport.js", () => ({ hubFetch: vi.fn(), hubSocket: vi.fn(), usesPinnedTransport: () => false }));
 import { HubConnection } from "../src/connection.js";
+import { rememberRouteTrust, routeTrust } from "../src/route-trust.js";
 const lan = { name: "Direct" as const, url: "https://lan.example" };
 const vpn = { name: "Tailscale" as const, url: "https://vpn.example" };
 const relay = { name: "VPS" as const, url: "https://relay.example" };
@@ -72,4 +73,28 @@ it("rejects late sync diagnostics after edits, identity replacement, closure or 
   expect(connection.state.routeSync).toBe(saved);
   Reflect.set(connection, "closed", false); Reflect.set(connection, "deviceRevoked", true); connection.recordRouteSyncResult("host", original, true);
   expect(connection.state.routeSync).toBe(saved);
+});
+
+it("updateRoutes refreshes rememberRouteTrust immediately while staying online", async () => {
+  const ca = "A".repeat(120);
+  const pinnedVps = { name: "VPS" as const, url: "https://cf-switch.example", certificateAuthority: ca };
+  const cf = { name: "Cloudflare" as const, url: "https://cf-switch.example" };
+  const { identity, connection } = fixture();
+  identity.routes = [lan, pinnedVps];
+  rememberRouteTrust(identity.routes, identity.hubPublicKey);
+  expect(routeTrust(pinnedVps.url, identity.hubPublicKey)).toEqual({ certificateAuthority: ca });
+
+  // Simulate already online on `lan` so updateRoutes does not trigger connect() -> selectRoute().
+  connection.state = { ...connection.state, status: "online", route: lan };
+  await connection.updateRoutes([lan, cf], { expected: identity.routes, reason: "user" });
+  expect(routeTrust(cf.url, identity.hubPublicKey)).toEqual({ edgeTls: true });
+
+  // Adding a brand-new Cloudflare route while online also populates edgeTls immediately.
+  const addedCf = { name: "Cloudflare" as const, url: "https://added-cf.example" };
+  await connection.updateRoutes([lan, cf, addedCf], { expected: identity.routes, reason: "user" });
+  expect(routeTrust(addedCf.url, identity.hubPublicKey)).toEqual({ edgeTls: true });
+
+  // Switching back to VPS clears edgeTls immediately.
+  await connection.updateRoutes([lan, { name: "VPS", url: cf.url }], { expected: identity.routes, reason: "user" });
+  expect(routeTrust(cf.url, identity.hubPublicKey)).toEqual({});
 });

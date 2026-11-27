@@ -12,15 +12,14 @@ function fixture(tabs: WorkbenchTab[], active: string) {
     getRegistration:()=>({visible:true,tabs})} as unknown as WorkbenchController;
   return {controller,opened,created};
 }
-describe('explicit Baoyu opener chooses the requested format',()=>{
+describe('explicit Baoyu opener chooses slides and rejects removed canvas',()=>{
   const canvas:WorkbenchTab={id:'canvas',kind:'design',title:'Same title'}, slides:WorkbenchTab={id:'slides',kind:'design',designFormat:'slides',title:'Same title'};
-  it('selects the requested format even when the other project is active and has the same title',async()=>{
-    const f=fixture([canvas,slides],'slides'),signal=new AbortController().signal;
-    expect((await openWorkbenchDesign(f.controller,'canvas-open',()=>{},signal)).target.tabId).toBe('canvas');
+  it('selects the slides project even when another design tab exists with the same title',async()=>{
+    const f=fixture([canvas,slides],'canvas'),signal=new AbortController().signal;
     expect((await openWorkbenchDesign(f.controller,'slides-open',()=>{},signal,'slides')).target.tabId).toBe('slides');
-    expect(f.opened).toEqual(['canvas','slides']);expect(f.created).toEqual([]);
+    expect(f.opened).toEqual(['slides']);expect(f.created).toEqual([]);
   });
-  it('creates slides when only a canvas exists, and does not mutate that canvas',async()=>{
+  it('creates slides when only a legacy canvas tab exists, and does not mutate that tab',async()=>{
     const f=fixture([canvas],'canvas');
     expect((await openWorkbenchDesign(f.controller,'ppt-open',()=>{},new AbortController().signal,'slides')).created).toBe(true);
     expect(f.created).toEqual(['slides']);expect(canvas).toEqual({id:'canvas',kind:'design',title:'Same title'});

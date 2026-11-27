@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } fro
 import { CreationDialog } from "./CreationDialog.js";
 import { ExplanationList } from "./ExplanationList.js";
 import { t, useLocale } from "./i18n.js";
+import { routeDiagnosisMessage } from "./route-diagnostics.js";
 import type { HubConnection } from "./connection.js";
 import type { Conversation } from "../../src/client-protocol/index.js";
 
@@ -46,7 +47,7 @@ export function RemoveConversation({ connection, conversation, close, removed, r
       { label: t("运行任务"), description: t("继续执行，不会停止。") },
     ]}/>
     {!allowed && <p className="muted" role="status">{state.status !== "online" ? t("连接恢复后即可操作") : t("仅对话创建者可修改或删除此对话。")}</p>}
-    {(error || state.error) && <p className="error-text" role="alert">{error || state.error}</p>}
+    {(error || (state.routeDiagnosis ? routeDiagnosisMessage(state.routeDiagnosis) : state.error)) && <p className="error-text" role="alert">{error || (state.routeDiagnosis ? routeDiagnosisMessage(state.routeDiagnosis) : state.error)}</p>}
     <div className="confirmation-actions"><button ref={cancel} disabled={busy} onClick={close}>{t("取消")}</button><button className="text-danger" disabled={busy || !allowed} onClick={() => { void remove(); }}>{busy ? t("正在处理…") : label}</button></div>
   </CreationDialog>;
 }

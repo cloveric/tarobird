@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { idSchema } from "./index.js";
 
-export const deviceActionSchema = z.object({ operation: z.enum(["approve", "revoke", "network", "bot-message-grant", "screen-grant"]), target: z.string() }).strict()
+export const deviceActionSchema = z.object({ operation: z.enum(["approve", "revoke", "network", "bot-message-grant", "screen-grant", "cloudflare-tunnel", "terminal-grant"]), target: z.string() }).strict()
   .refine((value) => value.operation === "approve" ? /^\d{8}$/.test(value.target)
-    : (value.operation === "network" || value.operation === "bot-message-grant" || value.operation === "screen-grant") ? value.target.length === 64 && /^[a-f0-9]{64}$/.test(value.target)
+    : (value.operation === "network" || value.operation === "bot-message-grant" || value.operation === "screen-grant" || value.operation === "cloudflare-tunnel" || value.operation === "terminal-grant") ? value.target.length === 64 && /^[a-f0-9]{64}$/.test(value.target)
     : idSchema.safeParse(value.target).success, { message: "invalid_device_action_target" });
 export type DeviceAction = z.infer<typeof deviceActionSchema>;
 export const deviceActionStatementSchema = z.object({

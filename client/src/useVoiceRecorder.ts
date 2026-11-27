@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "./i18n.js";
 import { createVoiceMeter, type VoiceMeter } from "./voice-meter.js";
+import { markRecordedVoiceFile } from "./voice-recording-marker.js";
 
 type Phase = "idle" | "requesting" | "recording" | "stopping";
 type Capture = { generation: number; recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; bytes: number; started: number; discard: boolean; finishing: boolean; released: boolean; delivered: boolean; held: boolean; send: boolean; meter?: VoiceMeter; timer?: ReturnType<typeof setInterval> };
@@ -80,7 +81,7 @@ export function useVoiceRecorder(conversationId: string, captured: (file: File, 
         if (active.current === capture) { active.current = undefined; pending.current = false; if (alive.current) setPhase("idle"); }
         if (!capture.bytes) { origin.failed(t("没有录到声音，请重试。")); return; }
         const mime = recorder.mimeType || mimeType || "audio/webm", extension = mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : "webm";
-        origin.captured(new File(capture.chunks, `voice-${Date.now()}.${extension}`, { type: mime }), capture.send);
+        origin.captured(markRecordedVoiceFile(new File(capture.chunks, `voice-${Date.now()}.${extension}`, { type: mime })), capture.send);
       };
       recorder.onerror = () => {
         if (capture.delivered || capture.discard) return;

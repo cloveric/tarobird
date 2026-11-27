@@ -25,8 +25,13 @@ const invites = inviteApiFixture();
 const inviteConnection = { identity: { deviceId: "tailscale-fixture", hubPublicKey: key },
   state: { status: "online", user: { role: "owner" }, pairingInvitesAvailable: true, networkAvailable: false },
   subscribe: () => () => {}, http: invites.http } as unknown as HubConnection;
-const state = { calls: [] as string[], lanAddresses: ["192.168.10.20"], unavailableRouteCount: 0, networkStatus: "online" as "online" | "connecting", fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, lanSelectionRequired: false, selectionAvailable: true, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
+const state = { calls: [] as string[], networkSettingsCalls: 0, networkSettingsFail: false, lanAddresses: ["192.168.10.20"], selectedLanUrl: "https://192.168.10.20:8788", candidates: undefined as undefined | Record<string, unknown>[], windowsFirewall: undefined as undefined | Record<string, unknown>, unavailableRouteCount: 0, networkStatus: "online" as "online" | "connecting", fail: false, unpublished: false, wrongHost: false, statusFail: false, statusWrongHost: false, legacy: false, reads: 0, lanSelectionRequired: false, selectionAvailable: true, local: { lan: { enabled: true, listening: true }, tailscale: { enabled: false, listening: false } }, certificateAuthority: "", hold: undefined as undefined | (() => void) };
 mockIPC(async (command, args) => {
+  if (command === "desktop_network_settings") {
+    state.networkSettingsCalls++;
+    if (state.networkSettingsFail) throw Error("network_settings_unavailable");
+    return null;
+  }
   if (command !== "desktop_host") throw Error("unexpected_command");
   const action = String(args?.action); state.calls.push(action);
   if (action === "status") return { running: true, publicKey: state.wrongHost ? "wrong-host" : key };
@@ -34,7 +39,14 @@ mockIPC(async (command, args) => {
   if (state.fail) throw Error("desktop_host_operation_failed");
   state.local[action === "tailscale" ? "tailscale" : "lan"] = { enabled: true, listening: true };
   const addresses = action === "tailscale" ? ["100.101.102.103"] : state.lanAddresses;
-  return { running: true, publicKey: key, ...(state.unavailableRouteCount > 0 ? { unavailableRouteCount: state.unavailableRouteCount } : {}), routes: addresses.map(address => ({ name: action === "tailscale" ? "Tailscale" : "Direct", url: `https://${address}:8788`, certificateAuthority: state.certificateAuthority })) };
+  return {
+    running: true,
+    publicKey: key,
+    ...(state.unavailableRouteCount > 0 ? { unavailableRouteCount: state.unavailableRouteCount } : {}),
+    ...(action !== "tailscale" && state.candidates ? { candidates: state.candidates } : {}),
+    ...(action !== "tailscale" && state.windowsFirewall ? { windowsFirewall: state.windowsFirewall } : {}),
+    routes: addresses.map(address => ({ name: action === "tailscale" ? "Tailscale" : "Direct", url: `https://${address}:8788`, certificateAuthority: state.certificateAuthority })),
+  };
 });
 const render = () => root.render(<FlowDialog title="添加设备" close={() => root.render(null)} className="pairing-wizard"><div className="settings-invite"><DesktopHostInvite hubKey={key} connection={inviteConnection}/></div></FlowDialog>);
 const shared: Route[] = [{ name: "Tailscale", url: "https://100.101.102.103:8788" }];
@@ -58,10 +70,11 @@ const settingsConnection = {
       if (init?.method !== "POST") throw Error("unexpected_method");
       const { route } = JSON.parse(String(init.body));
       if (!state.lanAddresses.some(address => route.url === `https://${address}:8788`) || route.certificateAuthority !== state.certificateAuthority) throw Error("managed_lan_route_unavailable");
+      state.selectedLanUrl = route.url;
       state.lanSelectionRequired = false;
     }
     ++state.reads; if (state.statusFail) throw Error("read_failed"); return { v: 1, hostPublicKey: state.statusWrongHost ? "other-host" : key,
-    routes: [...(shared[0] ? [{ source: "shared", route: shared[0] }] : []), ...(state.lanSelectionRequired || shared.some(route => route.url === "https://192.168.10.20:8788") ? [] : [{ source: "managed", route: { name: "Direct", url: "https://192.168.10.20:8788", certificateAuthority: state.certificateAuthority } }])], local: state.local, notices: state.local.lan.enabled && state.lanSelectionRequired ? ["lan_selection_required"] : [], observedAt: Date.now() }; },
+    routes: [...(shared[0] ? [{ source: "shared", route: shared[0] }] : []), ...(state.lanSelectionRequired || shared.some(route => route.url === state.selectedLanUrl) ? [] : [{ source: "managed", route: { name: "Direct", url: state.selectedLanUrl, certificateAuthority: state.certificateAuthority } }])], local: state.local, notices: state.local.lan.enabled && state.lanSelectionRequired ? ["lan_selection_required"] : [], observedAt: Date.now() }; },
   refreshNetwork: async () => ({ host: { routes: shared } }),
   networkCommand: async (command: { routes: Route[] }) => { networkCalls.push(command); if (holdRoutes) await new Promise<void>(resolve => { routeRelease = resolve; }); shared.splice(0, shared.length, ...command.routes); if (command.routes.some(route => route.name === "Direct")) state.lanSelectionRequired = false; }
 } as unknown as HubConnection;

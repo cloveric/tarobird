@@ -1518,11 +1518,12 @@ describe("core service compatibility profile", () => {
     }
   }, 15_000);
 
-  it("notifies Lark users and records a timeline event when a turn waits on the shared engine lock", async () => {
+  it("notifies Lark users and records waiting for and acquiring the shared engine lock", async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-lock-wait-"));
     const channel = fakeChannel();
     const bridge = {
       handleAuthorizedMessage: vi.fn(async (input: {
+        onTurnLockAcquired?: (event: { waitedMs: number }) => void | Promise<void>;
         onTurnLockWait?: (event: {
           sessionId: string;
           waitedMs: number;
@@ -1536,6 +1537,7 @@ describe("core service compatibility profile", () => {
           reason: "file_lock",
           lockPath: "/tmp/tarocub-turn-locks/test.lock",
         });
+        await input.onTurnLockAcquired?.({ waitedMs: 10_250 });
         return { text: "Done from bridge" };
       }),
     };
@@ -1572,6 +1574,10 @@ describe("core service compatibility profile", () => {
           larkChatId: "oc_chat",
           larkMessageId: "om_1",
         }),
+      }));
+      expect(timeline).toContainEqual(expect.objectContaining({
+        type: "engine.event", detail: "engine.lock.acquired",
+        metadata: expect.objectContaining({ waitedMs: 10_250 }),
       }));
     } finally {
       await rm(stateDir, { recursive: true, force: true });
@@ -11850,6 +11856,7 @@ describe("core service compatibility profile", () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-message-skipped-"));
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
         onSkipped?: () => T | Promise<T>;
       }): Promise<T> => {
@@ -11898,6 +11905,7 @@ describe("core service compatibility profile", () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-message-queue-wait-"));
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: string }) => void | Promise<void>;
       }): Promise<T> => {
@@ -11954,6 +11962,7 @@ describe("core service compatibility profile", () => {
     const runtime = createCoreServiceRuntime();
     runtime.cancelledQueueTaskIds.add("om_waiting_cancelled"); // user already tapped "cancel queue"
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: string }) => void | Promise<void>;
       }): Promise<T> => {
@@ -12421,6 +12430,7 @@ describe("core service compatibility profile", () => {
     const channel = fakeChannel();
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
       }): Promise<T> => {
@@ -12459,6 +12469,7 @@ describe("core service compatibility profile", () => {
     });
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
       }): Promise<T> => {
@@ -12515,6 +12526,7 @@ describe("core service compatibility profile", () => {
     const channel = fakeChannel();
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
       }): Promise<T> => {
@@ -12559,6 +12571,7 @@ describe("core service compatibility profile", () => {
     // Stub the queue so each task fires its wait notification but stays "queued"
     // (job not run), letting us inspect how its card is keyed.
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
       }): Promise<T> => {
@@ -12593,6 +12606,7 @@ describe("core service compatibility profile", () => {
     const runtime = createCoreServiceRuntime();
     // Stay queued (don't run the job) so the managed card isn't taken over.
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
       }): Promise<T> => {
@@ -12628,6 +12642,7 @@ describe("core service compatibility profile", () => {
     });
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, job: () => Promise<T>, options?: {
         onWait?: (event: { chatId: string | number; waitedMs: number; reason: "conversation_queue" }) => void | Promise<void>;
       }): Promise<T> => {
@@ -12776,6 +12791,7 @@ describe("core service compatibility profile", () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-message-skipped-en-"));
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
         onSkipped?: () => T | Promise<T>;
       }): Promise<T> => {
@@ -13596,6 +13612,7 @@ describe("core service compatibility profile", () => {
     const runtime = createCoreServiceRuntime();
     const enqueueSpy = vi.fn();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(conversationKey: string | number, job: () => Promise<T>, options?: {
         onSkipped?: () => T | Promise<T>;
       }): Promise<T> => {
@@ -13668,6 +13685,7 @@ describe("core service compatibility profile", () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-archive-skipped-"));
     const runtime = createCoreServiceRuntime();
     runtime.chatQueue = {
+      pausedUntil: () => undefined,
       enqueue: async <T,>(_conversationKey: string | number, _job: () => Promise<T>, options?: {
         onSkipped?: () => T | Promise<T>;
       }): Promise<T> => {

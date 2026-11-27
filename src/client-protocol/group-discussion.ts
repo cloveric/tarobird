@@ -24,7 +24,7 @@ export const GROUP_STANCE_FENCE = "group_stance";
  * actual prose, emoji or scripts. Historical reads remain permissive. */
 export const hasVisibleGroupText = (text: string): boolean => /[^\s\p{Default_Ignorable_Code_Point}]/u.test(text);
 
-export const groupDiscussionModeSchema = z.enum(["mentions", "parallel", "sequential", "independent"]);
+export const groupDiscussionModeSchema = z.enum(["designated", "mentions", "parallel", "sequential", "independent"]);
 export function automaticGroupDiscussion(mode: string): mode is "sequential" | "independent" {
   return mode === "sequential" || mode === "independent";
 }

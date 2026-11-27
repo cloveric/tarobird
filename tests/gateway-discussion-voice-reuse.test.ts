@@ -52,7 +52,7 @@ it("reuses the topic recording transcript across all discussion turns", async ()
   const current = await hub.store.groupSettings("owner", chat.id);
   await hub.store.updateGroup("owner", chat.id, { title: "Panel", botIds: chat.botIds, expectedTitle: "Panel", expectedBotIds: chat.botIds, policy: { mode: "sequential", botOrder: ids, maxRounds: 2 }, expectedRevision: current.revision });
   const revision = (await hub.store.groupSettings("owner", chat.id)).revision;
-  const bytes = Buffer.from("topic meeting recording"), upload = await hub.attachments.create("owner", { conversationId: chat.id, name: "meeting.m4a", mime: "audio/mp4", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+  const bytes = Buffer.from("topic meeting recording"), upload = await hub.attachments.create("owner", { conversationId: chat.id, name: "meeting.m4a", mime: "audio/mp4", size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), recording: true });
   await hub.attachments.putChunk("owner", upload.id, 0, bytes); await hub.attachments.complete("owner", upload.id);
   await hub.groupDiscussions.start("owner", chat.id, { requestId: "voice-topic", revision, text: "请讨论这段录音", attachments: [upload.id] });
   await until(async () => { const run = (await hub.groupDiscussions.view("owner", chat.id)).run; return !!run && !groupDiscussionActive(run); });

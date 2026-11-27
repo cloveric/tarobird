@@ -1,8 +1,11 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { Message } from "../src/client-protocol/index.js";
 import { classifyNotification, decodeNotificationClass, encodeNotificationClass, genericNotificationBody, notificationPreview } from "../src/client-protocol/notification-content.js";
 import { notificationAllowed, notificationPreferencesSchema } from "../src/client-protocol/push.js";
-import { desktopNotice } from "../client/src/message-notification.js";
+import { desktopNotice, desktopNotificationLocale } from "../client/src/message-notification.js";
+import { getLocale, setLocale } from "../client/src/i18n.js";
+
+afterEach(() => { setLocale("zh"); vi.unstubAllGlobals(); });
 
 const base: Message = { id: "reply", conversationId: "chat", authorId: "alpha", authorType: "bot", status: "complete", createdAt: 1, version: 1, blocks: [] };
 const file = { type: "file" as const, attachmentId: "att", name: "contract.pdf", mime: "application/pdf", size: 1 };
@@ -18,6 +21,11 @@ test("answers split into reply/file topics while approval and failure are attent
   expect(classifyNotification({ ...base, blocks: [run("interrupted")] })).toMatchObject({ kind: "error", incomplete: true, topics: ["needsAttention"] });
   expect(classifyNotification({ ...base, blocks: [run("working")] })).toBeUndefined();
   expect(classifyNotification({ ...base, authorType: "user" })).toBeUndefined();
+  // Host transcription cards are preparation bookkeeping, never a completed reply notice.
+  expect(classifyNotification({ ...base, status: "streaming", blocks: [{ type: "card", elements: [{ type: "markdown", text: "**正在转写音频…**" }], extra: { appTranscription: { version: 1, active: true, at: 1 } } }] })).toBeUndefined();
+  expect(classifyNotification({ ...base, status: "complete", blocks: [{ type: "card", elements: [{ type: "markdown", text: "**音频转写完成**" }, { type: "markdown", text: "你好" }], extra: { appTranscription: { version: 1, active: false, at: 1 } } }] })).toBeUndefined();
+  expect(classifyNotification({ ...base, status: "complete", blocks: [{ type: "card", elements: [{ type: "markdown", text: "**已停止转写**" }, { type: "markdown", text: "原录音仍保留在对话中。" }], extra: { appTranscription: { version: 1, active: false, at: 1 } } }] })).toBeUndefined();
+  expect(classifyNotification({ ...base, status: "error", blocks: [{ type: "card", elements: [{ type: "markdown", text: "**转写已中断**" }], extra: { appTranscription: { version: 1, active: false, at: 1 } } }] })).toBeUndefined();
 });
 
 test("a mixed reply is admitted when either applicable topic is on", () => {
@@ -55,4 +63,26 @@ test("desktop notices follow topic and preview preferences without reading the t
   expect(desktopNotice({ ...base, blocks: [file] }, notificationPreferencesSchema.parse({ enabled: true, filesReceived: false }))).toBeUndefined();
   expect(desktopNotice({ ...base, status: "error" }, notificationPreferencesSchema.parse({ enabled: true, needsAttention: false }))).toBeUndefined();
   expect(desktopNotice({ ...base, status: "error" }, notificationPreferencesSchema.parse({ enabled: true, replyCompleted: false, filesReceived: false }))?.kind).toBe("error");
+});
+
+test("Japanese desktop notifications resolve from <html lang=\"ja\"> and render Japanese previews and generic bodies", () => {
+  const doc = { documentElement: { lang: "zh-CN" } };
+  vi.stubGlobal("document", doc);
+  setLocale("ja");
+  expect(doc.documentElement.lang).toBe("ja");
+  expect(desktopNotificationLocale(doc.documentElement.lang, getLocale())).toBe("ja");
+  expect(desktopNotificationLocale("ja-JP", "zh")).toBe("ja");
+  expect(desktopNotificationLocale("zh-CN", "en")).toBe("zh");
+  expect(desktopNotificationLocale("en-US", "zh")).toBe("en");
+  expect(desktopNotificationLocale("fr-FR", "zh")).toBe("en");
+  expect(desktopNotificationLocale("", getLocale())).toBe("ja");
+
+  const replyMessage: Message = { ...base, blocks: [{ type: "text", text: "サイドバーを修正しました" }] };
+  const locale = desktopNotificationLocale(doc.documentElement.lang, getLocale());
+  const shown = desktopNotice(replyMessage, notificationPreferencesSchema.parse({ enabled: true }))!;
+  expect(shown.body({ title: "リリース準備", botName: "CC1", locale })).toBe("「リリース準備」 · CC1\n返信完了: サイドバーを修正しました");
+
+  const hidden = desktopNotice(replyMessage, notificationPreferencesSchema.parse({ enabled: true, showPreview: false }))!;
+  expect(hidden.body({ title: "リリース準備", botName: "CC1", locale })).toBe("Bot が返信を完了しました。タップして確認。");
+  expect(genericNotificationBody("files", "ja-JP")).toBe("Bot がファイルを送信しました。タップして確認。");
 });

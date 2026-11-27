@@ -1,4 +1,6 @@
 import { createDesignBackup, type DesignBackupContent } from "./workbench-design-backup.js";
+import { isRecordedVoiceFile, markRecordedVoiceFile } from "./voice-recording-marker.js";
+import { isGeneratedVoiceFilename } from "../../src/client-protocol/voice-presentation.js";
 import { clearAttachmentDiskCache } from "./attachment-disk-cache.js";
 import type { DesignPersistSidecar } from "./workbench-design-session.js";
 import { designDocumentSchema, encodeDesignFile, decodeDesignFile, type DesignFile, type DesignDocument } from "./workbench-design.js";
@@ -14,13 +16,16 @@ import { projectConversationPreview, systemRunPreview, type ConversationPreviewS
 import { reviewReferenceKey, reviewReferencesSchema, validateReviewReferences, type RunReviewReferences } from "./diff-review-reference.js";
 import { networkCanonical, type SignedNetworkManifest } from "../../src/client-protocol/private-network.js";
 import { conversationFoldersSchema, emptyConversationFolders, type ConversationFoldersState } from "../../src/client-protocol/conversation-folders.js";
+import { conversationPinsSchema, pinReconcileItemSchema, type ConversationPinsState, type PinReconcileItem, type PinScope } from "../../src/client-protocol/conversation-pins.js";
+import { crossHostFolderOrderSchema, type CrossHostFolderOrderState } from "../../src/client-protocol/cross-host-folder-order.js";
 import { DEFAULT_MONO_ACCENT, DEFAULT_PALETTE, DEFAULT_THEME, isColorPalette, isMonoAccent, type ColorPalette, type MonoAccent } from "./palettes.js";
 import { normalizeLayoutDensity, type LayoutDensity } from "./layout-density.js";
-import { storedLocale, systemLocale } from "./system-locale.js";
+import { storedLocale, type LocalePreference } from "./system-locale.js";
 import { forgetSavedQuotaHost } from "./usage-readings.js";
 import type { NamedBot } from "./bot-references.js";
 import { profileCacheSchema, type ProfileCache } from "../../src/client-protocol/avatars.js";
 import { openDB, type DBSchema, type StoreNames, type IDBPTransaction, type IDBPDatabase } from "idb";
+import { compareMessages, ConversationMessageCache } from "./message-lru-cache.js";
 import { activeQuestionDrafts, questionDraftPrefix, questionDraftSchema, type QuestionDraft } from "./question-draft.js";
 import { messageAttention, type MessageAttention } from "./attention.js";
 import { projectReply, projectWorkingReply, type BotReply } from "./agent-state.js";
@@ -42,15 +47,77 @@ export type Identity = { deviceId: string; name: string; privateKey?: CryptoKey;
 export type LocalReset = { keyRef?: string };
 export type ConversationActivity = { preview: string; previewStatus?: ConversationPreviewStatus | null; at: number; unread: Record<string, number>; lastContentSeq: number; attention?: Record<string, MessageAttention>; replies?: Record<string, BotReply>; workingReplies?: Record<string, number> };
 export type SidebarLayout = "bots" | "conversations";
-export type Preferences = { sidebarLayout: SidebarLayout; sidebarGroupByHost: boolean; showDisconnectedBots: boolean; showTicketConversations: boolean; layoutDensity: LayoutDensity; theme: "system" | "light" | "dark"; palette: ColorPalette; monoAccent?: MonoAccent; locale: "zh" | "en"; fontSize: number; quietStart: string; quietEnd: string; showModelIcons: boolean; animatedAvatars: boolean; animations: boolean; linkPreviewStyle: LinkPreviewStyle };
-export const defaultPreferences: Preferences = { sidebarLayout: "bots", sidebarGroupByHost: false, showDisconnectedBots: false, showTicketConversations: false, layoutDensity: normalizeLayoutDensity(undefined), theme: DEFAULT_THEME, palette: DEFAULT_PALETTE, monoAccent: DEFAULT_MONO_ACCENT, locale: systemLocale(), fontSize: 14, quietStart: "", quietEnd: "", showModelIcons: true, animatedAvatars: true, animations: true, linkPreviewStyle: "card" };
+import { defaultLoadBalancingPreferences, type LoadBalancingPreferences } from "../../src/client-protocol/host-balancer.js";
+export type Preferences = { sidebarLayout: SidebarLayout; sidebarGroupByHost: boolean; showDisconnectedBots: boolean; showTicketConversations: boolean; layoutDensity: LayoutDensity; theme: "system" | "light" | "dark"; palette: ColorPalette; monoAccent?: MonoAccent; locale: LocalePreference; fontSize: number; quietStart: string; quietEnd: string; showModelIcons: boolean; animatedAvatars: boolean; animations: boolean; linkPreviewStyle: LinkPreviewStyle; loadBalancing?: LoadBalancingPreferences };
+export const defaultPreferences: Preferences = { sidebarLayout: "bots", sidebarGroupByHost: false, showDisconnectedBots: false, showTicketConversations: false, layoutDensity: normalizeLayoutDensity(undefined), theme: DEFAULT_THEME, palette: DEFAULT_PALETTE, monoAccent: DEFAULT_MONO_ACCENT, locale: "system", fontSize: 14, quietStart: "", quietEnd: "", showModelIcons: true, animatedAvatars: true, animations: true, linkPreviewStyle: "card", loadBalancing: defaultLoadBalancingPreferences };
 export type ConversationDraft = { files: File[]; workbench?: WorkbenchDraft; reply?: Message; previewChoice?: string | null; previewStyle: import("../../src/client-protocol/links.js").LinkPreviewStyle; recipients?: string[] };
 export type DraftPreview = { text: string; files: number; reply: boolean };
-type StoredConversationDraft = Omit<ConversationDraft, "files"> & { files: { bytes: ArrayBuffer; name: string; type: string; lastModified: number }[]; revision: string; owner: string; size: number; active: number };
+type StoredConversationDraft = Omit<ConversationDraft, "files"> & { files: { bytes: ArrayBuffer; name: string; type: string; lastModified: number; recording?: boolean }[]; revision: string; owner: string; size: number; active: number };
 export const DRAFT_CONVERSATION_BYTES = 64 * 1024 * 1024;
 export const DRAFT_TOTAL_BYTES = 128 * 1024 * 1024;
 export const SHARE_DRAFT_RETENTION_MS = 24 * 60 * 60 * 1000;
 const draftOwner = (identity: Identity) => JSON.stringify([identity.deviceId, identity.hubPublicKey, identity.publicKey]);
+const pinConversationId = /^[A-Za-z0-9_-]{1,128}$/;
+const MAX_PIN_LIST = 2048;
+export type PendingPinChange = PinReconcileItem & { seq?: number };
+export type PreUpgradePins = { pins: string[]; globalPins: string[] };
+function parsePinList(raw: unknown): string[] {
+  try {
+    const value: unknown = JSON.parse(typeof raw === "string" ? raw : "[]");
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const id of value) {
+      if (typeof id !== "string" || !pinConversationId.test(id) || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+      if (out.length >= MAX_PIN_LIST) break;
+    }
+    return out;
+  } catch { return []; }
+}
+function parsePreUpgradePins(raw: unknown): PreUpgradePins | undefined {
+  if (typeof raw !== "string") return undefined;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const record = value as Record<string, unknown>;
+    const pins = parsePinList(JSON.stringify(Array.isArray(record.pins) ? record.pins : []));
+    const globalPins = parsePinList(JSON.stringify(Array.isArray(record.globalPins) ? record.globalPins : []));
+    if (!pins.length && !globalPins.length) return undefined;
+    return { pins, globalPins };
+  } catch { return undefined; }
+}
+function parsePendingPinChanges(raw: unknown): PendingPinChange[] {
+  try {
+    const value: unknown = JSON.parse(typeof raw === "string" ? raw : "[]");
+    if (!Array.isArray(value)) return [];
+    const byKey = new Map<string, PendingPinChange>();
+    for (const item of value) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const { seq, ...rest } = item as Record<string, unknown>;
+      const parsed = pinReconcileItemSchema.safeParse(rest);
+      if (!parsed.success) continue;
+      const validSeq = typeof seq === "number" && Number.isSafeInteger(seq) && seq > 0 ? seq : undefined;
+      const entry: PendingPinChange = validSeq !== undefined ? { ...parsed.data, seq: validSeq } : parsed.data;
+      const key = `${entry.scope}:${entry.conversationId}`;
+      const existing = byKey.get(key);
+      const newer = !existing
+        || (entry.seq !== undefined && existing.seq !== undefined ? entry.seq >= existing.seq : entry.at >= existing.at);
+      if (newer) byKey.set(key, entry);
+    }
+    return [...byKey.values()];
+  } catch { return []; }
+}
+function applyPendingPins(base: readonly string[], pending: readonly PendingPinChange[], scope: PinScope): string[] {
+  const result = new Set(base);
+  for (const item of pending) {
+    if (item.scope !== scope) continue;
+    if (item.pinned) result.add(item.conversationId);
+    else result.delete(item.conversationId);
+  }
+  return [...result];
+}
 export interface Cache extends DBSchema {
   workbenchLayouts: { key: string; value: WorkbenchLayout };
   workbenchBoards: { key: [string, string]; value: BoardDocument };
@@ -73,6 +140,7 @@ export interface Cache extends DBSchema {
   syncMessages: { key: [string, string]; value: Extract<SnapshotFrame, { type: "snapshot.message" }> & { owner: string }; indexes: { owner: string } };
 }
 export type OutboxEntry = Cache["outbox"]["value"];
+export type AcknowledgeResult = { entry?: OutboxEntry; alreadyDeleted: boolean };
 const workbenchItemStores = { whiteboard: "workbenchBoards", markdown: "workbenchMarkdown", design: "workbenchDesign" } as const;
 const workbenchItemId = /^[A-Za-z0-9_-]{1,128}$/;
 function workbenchChange(value: unknown): { scope: string; ids: string[] } | undefined {
@@ -81,6 +149,17 @@ function workbenchChange(value: unknown): { scope: string; ids: string[] } | und
   if (v !== 1 || typeof scope !== "string" || scope.length > 4096 || !Array.isArray(ids) || !ids.length || ids.length > 256
     || !ids.every(id => typeof id === "string" && workbenchItemId.test(id))) return;
   return { scope, ids: ids as string[] };
+}
+const siblingCaches = new Map<string, Set<ClientCache>>();
+function stripMessageMeta(raw: Cache["messages"]["value"]): Message {
+  const { activitySeq: _seq, activityAt: _at, ...message } = raw;
+  return message;
+}
+function messageInvalidation(value: unknown): { conversationId?: string } | undefined {
+  if (!value || typeof value !== "object") return;
+  const { v, conversationId } = value as Record<string, unknown>;
+  if (v !== 1 || (conversationId !== undefined && (typeof conversationId !== "string" || conversationId.length > 512))) return;
+  return { conversationId };
 }
 export class ClientCache {
   private draftListeners = new Set<() => void>();
@@ -176,9 +255,73 @@ export class ClientCache {
   private readonly snapshotOwner = crypto.randomUUID();
   private snapshotLease?: Promise<void>;
   private releaseSnapshotLease?: () => void;
+  private readonly messageCache = new ConversationMessageCache();
+  private readonly messageEpochs = new Map<string, number>();
+  private epochSeq = 0;
+  private globalMessageEpoch = 0;
+  private messageChannel?: BroadcastChannel;
+  private messageEpoch(conversationId: string): number {
+    return Math.max(this.globalMessageEpoch, this.messageEpochs.get(conversationId) ?? 0);
+  }
+  private ensureMessageChannel(): void {
+    if (this.closed || this.messageChannel || typeof BroadcastChannel === "undefined") return;
+    this.messageChannel = new BroadcastChannel(`tarobot-messages:${this.databaseName}`);
+    this.messageChannel.onmessage = (event) => {
+      const change = messageInvalidation(event.data);
+      if (change) this.bumpMessageEpoch(change.conversationId);
+    };
+  }
+  private bumpMessageEpoch(conversationId?: string): void {
+    if (conversationId === undefined) {
+      this.globalMessageEpoch = ++this.epochSeq;
+      this.messageEpochs.clear();
+      this.messageCache.invalidate();
+      return;
+    }
+    this.messageEpochs.set(conversationId, ++this.epochSeq);
+    this.messageCache.invalidate(conversationId);
+  }
+  private notifyMessageMutation(
+    conversationId?: string,
+    patched?: { message: Message; expectedCursor: number; nextCursor: number; lineage?: string },
+  ): void {
+    if (patched && conversationId !== undefined) {
+      const expectedEpoch = this.messageEpoch(conversationId);
+      const nextEpoch = ++this.epochSeq;
+      this.messageEpochs.set(conversationId, nextEpoch);
+      this.messageCache.patchMessage(conversationId, patched.message, {
+        expectedEpoch,
+        nextEpoch,
+        expectedRevision: patched.expectedCursor,
+        revision: patched.nextCursor,
+        expectedLineage: patched.lineage,
+        hasExpectedLineage: true,
+      });
+    } else {
+      this.bumpMessageEpoch(conversationId);
+    }
+    const siblings = siblingCaches.get(this.databaseName);
+    if (siblings) {
+      for (const sibling of siblings) {
+        if (sibling !== this) sibling.bumpMessageEpoch(conversationId);
+      }
+    }
+    if (typeof BroadcastChannel !== "undefined") {
+      const channel = this.messageChannel ?? new BroadcastChannel(`tarobot-messages:${this.databaseName}`);
+      channel.postMessage({ v: 1, ...(conversationId !== undefined ? { conversationId } : {}) });
+      if (channel !== this.messageChannel) channel.close();
+    }
+  }
+  /** Drop cached history for one or all conversations so the next read fails closed to IDB. */
+  invalidateMessages(conversationId?: string): void {
+    this.bumpMessageEpoch(conversationId);
+  }
   // A cache's namespace never changes when the user selects another host.
   // Delayed requests retain the cache belonging to their original connection.
   constructor(readonly databaseName = "tarocub-v1") {
+    let siblings = siblingCaches.get(databaseName);
+    if (!siblings) siblingCaches.set(databaseName, siblings = new Set());
+    siblings.add(this);
     this.db = openDB<Cache>(databaseName, 13, { upgrade(db, oldVersion, _newVersion, transaction) {
       if (oldVersion < 13) { db.createObjectStore("workbenchDesignMeta"); db.createObjectStore("workbenchDesignObjects"); }
       if (oldVersion < 12) db.createObjectStore("workbenchDesign");
@@ -226,7 +369,7 @@ export class ClientCache {
     // depend on mounting its ShareInbox. A closed app cleans up on next open.
     void this.identity().then(identity => identity ? this.pruneExpiredShareDrafts(identity) : undefined).catch(() => undefined);
   }
-  close(): void { this.closed = true; this.notifyDiffReviews(); this.diffReviewChannel?.close(); this.diffReviewChannel = undefined; this.workbenchChannel?.close(); this.workbenchChannel = undefined; this.designCommentChannel?.close(); this.designCommentChannel = undefined; this.releaseSnapshotLease?.(); void this.db.then((db) => db.close(), () => undefined); }
+  close(): void { this.closed = true; const siblings = siblingCaches.get(this.databaseName); siblings?.delete(this); if (siblings && !siblings.size) siblingCaches.delete(this.databaseName); this.messageChannel?.close(); this.messageChannel = undefined; this.bumpMessageEpoch(undefined); this.notifyDiffReviews(); this.diffReviewChannel?.close(); this.diffReviewChannel = undefined; this.workbenchChannel?.close(); this.workbenchChannel = undefined; this.designCommentChannel?.close(); this.designCommentChannel = undefined; this.releaseSnapshotLease?.(); void this.db.then((db) => db.close(), () => undefined); }
   private ownSnapshot(): Promise<void> {
     if (this.closed) return Promise.reject(new Error("local_cache_closed"));
     if (!navigator.locks) return Promise.resolve();
@@ -600,6 +743,7 @@ export class ClientCache {
     await settings.put(JSON.stringify({ ...(identity?.keyRef ? { keyRef: identity.keyRef } : {}) }), "pendingReset");
     await settings.put(crypto.randomUUID(), "cacheGeneration");
     await tx.done;
+    this.notifyMessageMutation(undefined);
     this.diffReviewsChanged();
     if (identity) clearNoteRecoveries(identity.deviceId);
     if (identity) this.clearSelectionHint(this.selectionHintKey(identity, await this.generation));
@@ -617,6 +761,7 @@ export class ClientCache {
       if (preferences) await settings.put(preferences, "preferences");
       if (generation) await settings.put(generation, "cacheGeneration");
       await tx.done;
+      this.notifyMessageMutation(undefined);
       this.diffReviewsChanged();
     } catch (error) { try { tx.abort(); } catch { /* Already aborted. */ } await tx.done.catch(() => undefined); throw error; }
   }
@@ -725,6 +870,7 @@ export class ClientCache {
     if (preferences) await tx.objectStore("settings").put(preferences, "preferences");
     if (generation) await tx.objectStore("settings").put(generation, "cacheGeneration");
     await tx.done;
+    this.notifyMessageMutation(undefined);
     // Large downloads live on disk, outside these stores; drop them with the rest.
     await clearAttachmentDiskCache();
     if (identity) { clearNoteRecoveries(identity.deviceId); this.clearSelectionHint(this.selectionHintKey(identity, generation as string | undefined)); }
@@ -765,12 +911,12 @@ export class ClientCache {
   }
   async botNames(): Promise<NamedBot[]> {
     try { const raw = await (await this.db).get("settings", "botNames"); const values: unknown = JSON.parse(typeof raw === "string" ? raw : "[]");
-      return Array.isArray(values) ? values.filter((v): v is NamedBot => !!v && typeof v.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(v.id) && typeof v.name === "string" && v.name.length <= 100).map(({ id, name, engine, model, deletedAt, defaultAvatar, role }) => ({ id, name, ...(typeof deletedAt === "number" && deletedAt > 0 ? { deletedAt } : {}), ...(typeof engine === "string" && engine.length <= 64 ? { engine } : {}), ...(typeof model === "string" && model.length <= (engine === "pi" || engine === "deepseek" ? 512 : 128) ? { model } : {}), ...(typeof defaultAvatar === "string" && /^[a-z-]{1,64}$/.test(defaultAvatar) ? { defaultAvatar } : {}), ...(role === "dispatcher" ? { role } : {}) })) : [];
+      return Array.isArray(values) ? values.filter((v): v is NamedBot => !!v && typeof v.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(v.id) && typeof v.name === "string" && v.name.length <= 100).map(({ id, name, engine, model, deletedAt, defaultAvatar, role }) => ({ id, name, ...(typeof deletedAt === "number" && deletedAt > 0 ? { deletedAt } : {}), ...(typeof engine === "string" && engine.length <= 64 ? { engine } : {}), ...(typeof model === "string" && model.length <= (engine === "pi" || engine === "omp" || engine === "deepseek" ? 512 : 128) ? { model } : {}), ...(typeof defaultAvatar === "string" && /^[a-z-]{1,64}$/.test(defaultAvatar) ? { defaultAvatar } : {}), ...(role === "dispatcher" ? { role } : {}) })) : [];
     } catch { return []; }
   }
   async saveBotNames(bots: readonly NamedBot[], identity: Identity): Promise<void> {
     const tx = await this.write(["settings"]); const current = await tx.objectStore("settings").get("identity") as Identity | undefined;
-    if (current?.deviceId === identity.deviceId && current.hubPublicKey === identity.hubPublicKey) await tx.objectStore("settings").put(JSON.stringify(bots.map(({ id, name, engine, model, deletedAt, defaultAvatar, role }) => ({ id, name, ...(typeof deletedAt === "number" && deletedAt > 0 ? { deletedAt } : {}), ...(typeof engine === "string" && engine.length <= 64 ? { engine } : {}), ...(typeof model === "string" && model.length <= (engine === "pi" || engine === "deepseek" ? 512 : 128) ? { model } : {}), ...(typeof defaultAvatar === "string" && /^[a-z-]{1,64}$/.test(defaultAvatar) ? { defaultAvatar } : {}), ...(role === "dispatcher" ? { role } : {}) }))), "botNames");
+    if (current?.deviceId === identity.deviceId && current.hubPublicKey === identity.hubPublicKey) await tx.objectStore("settings").put(JSON.stringify(bots.map(({ id, name, engine, model, deletedAt, defaultAvatar, role }) => ({ id, name, ...(typeof deletedAt === "number" && deletedAt > 0 ? { deletedAt } : {}), ...(typeof engine === "string" && engine.length <= 64 ? { engine } : {}), ...(typeof model === "string" && model.length <= (engine === "pi" || engine === "omp" || engine === "deepseek" ? 512 : 128) ? { model } : {}), ...(typeof defaultAvatar === "string" && /^[a-z-]{1,64}$/.test(defaultAvatar) ? { defaultAvatar } : {}), ...(role === "dispatcher" ? { role } : {}) }))), "botNames");
     await tx.done;
   }
   /** Authenticated routing metadata is not an unsent user draft. */
@@ -795,6 +941,30 @@ export class ClientCache {
     if (current?.deviceId === identity.deviceId && current.hubPublicKey === identity.hubPublicKey) await tx.objectStore("settings").put(JSON.stringify(profiles), "profiles");
     await tx.done;
   }
+  async crossHostFolderOrder(): Promise<CrossHostFolderOrderState | undefined> {
+    try {
+      const raw = await (await this.db).get("settings", "crossHostFolderOrder");
+      if (typeof raw !== "string") return undefined;
+      const parsed = crossHostFolderOrderSchema.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : undefined;
+    } catch { return undefined; }
+  }
+  async saveCrossHostFolderOrder(value: CrossHostFolderOrderState, identity: Identity, authoritative = false): Promise<boolean> {
+    const tx = await this.write(["settings"]), settings = tx.objectStore("settings");
+    const current = await settings.get("identity") as Identity | undefined;
+    let accepted = false;
+    if (current?.deviceId === identity.deviceId && current.hubPublicKey === identity.hubPublicKey) {
+      const old = await settings.get("crossHostFolderOrder") as string | undefined;
+      let parsed;
+      try { parsed = old ? crossHostFolderOrderSchema.safeParse(JSON.parse(old)) : undefined; } catch { /* Replace an unreadable cache with the confirmed Hub snapshot. */ }
+      if (authoritative || !parsed?.success || parsed.data.revision <= value.revision) {
+        await settings.put(JSON.stringify(value), "crossHostFolderOrder");
+        accepted = true;
+      }
+    }
+    await tx.done;
+    return accepted;
+  }
   async conversationFolders(): Promise<ConversationFoldersState> {
     try { return conversationFoldersSchema.parse(JSON.parse((await (await this.db).get("settings", "conversationFolders")) as string)); }
     catch { return emptyConversationFolders(); }
@@ -812,18 +982,171 @@ export class ClientCache {
     }
     await tx.done;
   }
-  async pins(scope: "group" | "global" = "group"): Promise<string[]> {
-    try { const value: unknown = JSON.parse((await (await this.db).get("settings", scope === "global" ? "globalPins" : "pins")) as string ?? "[]"); return Array.isArray(value) ? [...new Set(value.filter((id): id is string => typeof id === "string"))] : []; } catch { return []; }
+  async pins(scope: PinScope = "group"): Promise<string[]> {
+    return parsePinList(await (await this.db).get("settings", scope === "global" ? "globalPins" : "pins"));
   }
   async savePins(pins: string[]): Promise<void> { const tx = await this.write(["settings"]); await tx.objectStore("settings").put(JSON.stringify(pins), "pins"); await tx.done; }
   /** Update one local pin atomically, so concurrent rows cannot overwrite each other. */
-  async setPinned(id: string, pinned: boolean, scope: "group" | "global" = "group"): Promise<void> {
+  async setPinned(id: string, pinned: boolean, scope: PinScope = "group", sync?: { at: number; identity: Identity; queuePending: boolean }): Promise<number | undefined> {
+    if (!pinConversationId.test(id)) return undefined;
     const key = scope === "global" ? "globalPins" : "pins";
     const tx = await this.write(["settings"]), settings = tx.objectStore("settings");
-    let pins: string[] = [];
-    try { const saved: unknown = JSON.parse((await settings.get(key)) as string ?? "[]"); if (Array.isArray(saved)) pins = saved.filter((value): value is string => typeof value === "string"); } catch { /* Keep the existing corrupt-cache fallback. */ }
-    await settings.put(JSON.stringify(pinned ? [...new Set([...pins, id])] : pins.filter(value => value !== id)), key);
+    const pins = parsePinList(await settings.get(key));
+    const nextPins = pinned
+      ? [...new Set([...pins, id])].slice(0, MAX_PIN_LIST)
+      : pins.filter(value => value !== id);
+    await settings.put(JSON.stringify(nextPins), key);
+    let assignedSeq: number | undefined;
+    if (sync?.queuePending) {
+      const current = await settings.get("identity") as Identity | undefined;
+      if (current?.deviceId === sync.identity.deviceId && current.hubPublicKey === sync.identity.hubPublicKey) {
+        const pending = parsePendingPinChanges(await settings.get("pendingPinChanges"));
+        const savedSeqRaw = await settings.get("pendingPinSeq");
+        const savedSeq = typeof savedSeqRaw === "string" && /^\d+$/.test(savedSeqRaw) ? Number(savedSeqRaw) : 0;
+        const maxPendingSeq = pending.reduce((max, item) => Math.max(max, item.seq ?? 0), 0);
+        const seq = Math.max(Number.isSafeInteger(savedSeq) ? savedSeq : 0, maxPendingSeq) + 1;
+        const existing = pending.find(item => item.scope === scope && item.conversationId === id);
+        // Strictly advance timestamp over any queued entry for the same key so
+        // rapid toggles or backward clock adjustments cannot be dropped by clearPending.
+        const at = existing ? Math.max(sync.at, existing.at + 1) : sync.at;
+        const next: PendingPinChange[] = [
+          ...pending.filter(item => !(item.scope === scope && item.conversationId === id)),
+          { scope, conversationId: id, pinned, at, seq },
+        ];
+        await settings.put(String(seq), "pendingPinSeq");
+        await settings.put(JSON.stringify(next), "pendingPinChanges");
+        assignedSeq = seq;
+      }
+    }
     await tx.done;
+    return assignedSeq;
+  }
+  async conversationPins(): Promise<ConversationPinsState | undefined> {
+    try {
+      const raw = await (await this.db).get("settings", "conversationPins");
+      if (typeof raw !== "string") return undefined;
+      const parsed = conversationPinsSchema.safeParse(JSON.parse(raw));
+      return parsed.success ? parsed.data : undefined;
+    } catch { return undefined; }
+  }
+  async preUpgradePins(): Promise<PreUpgradePins | undefined> {
+    return parsePreUpgradePins(await (await this.db).get("settings", "preUpgradePins"));
+  }
+  async pendingPinChanges(): Promise<PendingPinChange[]> {
+    return parsePendingPinChanges(await (await this.db).get("settings", "pendingPinChanges"));
+  }
+  async serverTimeOffset(): Promise<number> {
+    try {
+      const raw = await (await this.db).get("settings", "serverTimeOffset");
+      if (typeof raw !== "string") return 0;
+      const value = Number(JSON.parse(raw));
+      return Number.isFinite(value) ? value : 0;
+    } catch { return 0; }
+  }
+  async saveServerTimeOffset(offset: number, identity: Identity): Promise<void> {
+    if (!Number.isFinite(offset)) return;
+    const tx = await this.write(["settings"]), settings = tx.objectStore("settings");
+    const current = await settings.get("identity") as Identity | undefined;
+    if (current?.deviceId === identity.deviceId && current.hubPublicKey === identity.hubPublicKey) {
+      await settings.put(JSON.stringify(Math.round(offset)), "serverTimeOffset");
+    }
+    await tx.done;
+  }
+  async acceptConversationPins(
+    value: ConversationPinsState,
+    identity: Identity,
+    authoritative = false,
+    options?: { markMigrated?: boolean; clearPending?: readonly PendingPinChange[] },
+  ): Promise<{ migrated: boolean; preUpgradePins: PreUpgradePins; pending: PendingPinChange[]; accepted: boolean; cacheChanged: boolean }> {
+    const tx = await this.write(["settings"]), settings = tx.objectStore("settings");
+    const current = await settings.get("identity") as Identity | undefined;
+    if (current?.deviceId !== identity.deviceId || current.hubPublicKey !== identity.hubPublicKey) {
+      await tx.done;
+      return { migrated: false, preUpgradePins: { pins: [], globalPins: [] }, pending: [], accepted: false, cacheChanged: false };
+    }
+    const oldRaw = await settings.get("conversationPins") as string | undefined;
+    let existingSynced: ConversationPinsState | undefined;
+    try {
+      const parsed = oldRaw ? conversationPinsSchema.safeParse(JSON.parse(oldRaw)) : undefined;
+      if (parsed?.success) existingSynced = parsed.data;
+    } catch { /* Replace an unreadable cache with the confirmed Hub snapshot. */ }
+    const existingPreUpgrade = parsePreUpgradePins(await settings.get("preUpgradePins"));
+    const localPins = parsePinList(await settings.get("pins"));
+    const localGlobalPins = parsePinList(await settings.get("globalPins"));
+    let pending = parsePendingPinChanges(await settings.get("pendingPinChanges"));
+    let pendingCleared = false;
+    if (options?.clearPending?.length) {
+      const cleared = new Map<string, { at: number; seq?: number }>();
+      for (const item of options.clearPending) {
+        const key = `${item.scope}:${item.conversationId}`;
+        const prev = cleared.get(key);
+        const at = Math.max(prev?.at ?? 0, item.at);
+        const seq = prev?.seq !== undefined || item.seq !== undefined
+          ? Math.max(prev?.seq ?? 0, item.seq ?? 0)
+          : undefined;
+        cleared.set(key, { at, seq });
+      }
+      const nextPending = pending.filter(item => {
+        const entry = cleared.get(`${item.scope}:${item.conversationId}`);
+        if (!entry) return true;
+        if (item.seq !== undefined && entry.seq !== undefined) return item.seq > entry.seq;
+        return item.at > entry.at;
+      });
+      if (nextPending.length !== pending.length) {
+        pending = nextPending;
+        pendingCleared = true;
+        if (pending.length) await settings.put(JSON.stringify(pending), "pendingPinChanges");
+        else await settings.delete("pendingPinChanges");
+      }
+    }
+    let activePreUpgrade: PreUpgradePins | undefined;
+    let migrationCleared = false;
+    if (options?.markMigrated) {
+      if (existingPreUpgrade) {
+        await settings.delete("preUpgradePins");
+        migrationCleared = true;
+      }
+      activePreUpgrade = undefined;
+    } else if (existingPreUpgrade) {
+      activePreUpgrade = existingPreUpgrade;
+    } else if (!existingSynced && (localPins.length > 0 || localGlobalPins.length > 0)) {
+      // Preserve original pre-upgrade device-local pins in their own key so
+      // remote Hub pins are never mixed into retried merge payloads.
+      activePreUpgrade = { pins: localPins, globalPins: localGlobalPins };
+      await settings.put(JSON.stringify(activePreUpgrade), "preUpgradePins");
+    }
+
+    if (!authoritative && existingSynced && value.revision < existingSynced.revision) {
+      const cacheChanged = pendingCleared || migrationCleared;
+      if (cacheChanged) {
+        const basePins = activePreUpgrade ? [...new Set([...existingSynced.pins, ...activePreUpgrade.pins])] : existingSynced.pins;
+        const baseGlobalPins = activePreUpgrade ? [...new Set([...existingSynced.globalPins, ...activePreUpgrade.globalPins])] : existingSynced.globalPins;
+        await settings.put(JSON.stringify(applyPendingPins(basePins, pending, "group")), "pins");
+        await settings.put(JSON.stringify(applyPendingPins(baseGlobalPins, pending, "global")), "globalPins");
+      }
+      await tx.done;
+      return {
+        migrated: !activePreUpgrade,
+        preUpgradePins: activePreUpgrade ?? { pins: [], globalPins: [] },
+        pending,
+        accepted: false,
+        cacheChanged,
+      };
+    }
+
+    await settings.put(JSON.stringify(value), "conversationPins");
+    const basePins = activePreUpgrade ? [...new Set([...value.pins, ...activePreUpgrade.pins])] : value.pins;
+    const baseGlobalPins = activePreUpgrade ? [...new Set([...value.globalPins, ...activePreUpgrade.globalPins])] : value.globalPins;
+    await settings.put(JSON.stringify(applyPendingPins(basePins, pending, "group")), "pins");
+    await settings.put(JSON.stringify(applyPendingPins(baseGlobalPins, pending, "global")), "globalPins");
+    await tx.done;
+    return {
+      migrated: !activePreUpgrade,
+      preUpgradePins: activePreUpgrade ?? { pins: [], globalPins: [] },
+      pending,
+      accepted: true,
+      cacheChanged: true,
+    };
   }
   private selectionHintKey(identity: Identity, generation: string | undefined): string {
     return `tarocub-selection:${JSON.stringify([this.databaseName, generation ?? null, draftOwner(identity)])}`;
@@ -916,11 +1239,16 @@ export class ClientCache {
     if (!stored) return { draft: { files: [], previewStyle: "card" } };
     if (stored.owner !== draftOwner(identity)) throw new Error("draft_identity_changed");
     const { revision, owner: _owner, size: _size, active: _active, files, ...metadata } = stored;
-    return { revision, draft: { ...metadata, files: files.map(file => new File([file.bytes], file.name, { type: file.type, lastModified: file.lastModified })) } };
+    return { revision, draft: { ...metadata, files: files.map(file => {
+      const restored = new File([file.bytes], file.name, { type: file.type, lastModified: file.lastModified });
+      const isRecording = file.recording === true
+        || (file.recording === undefined && /^audio\//i.test(file.type) && isGeneratedVoiceFilename(file.name));
+      return isRecording ? markRecordedVoiceFile(restored) : restored;
+    }) } };
   }
   async saveConversationDraft(id: string, draft: ConversationDraft, identity: Identity, expectedRevision?: string): Promise<string | undefined> {
     const { files, ...metadata } = draft;
-    const metadataBytes = new TextEncoder().encode(JSON.stringify({ ...metadata, fileMetadata: files.map(({ name, type, lastModified }) => ({ name, type, lastModified })) })).byteLength;
+    const metadataBytes = new TextEncoder().encode(JSON.stringify({ ...metadata, fileMetadata: files.map((file) => ({ name: file.name, type: file.type, lastModified: file.lastModified, recording: isRecordedVoiceFile(file) })) })).byteLength;
     const size = files.reduce((sum, file) => sum + file.size, 0) + metadataBytes;
     if (metadataBytes > 1024 * 1024) throw new Error("draft_metadata_too_large");
     if (files.length > 32 || size > DRAFT_CONVERSATION_BYTES) throw new Error("draft_capacity_exceeded");
@@ -933,7 +1261,7 @@ export class ClientCache {
         bytes = file.arrayBuffer().finally(() => this.draftFileBytes.delete(file));
         this.draftFileBytes.set(file, bytes);
       }
-      return { bytes: await bytes, name: file.name, type: file.type, lastModified: file.lastModified };
+      return { bytes: await bytes, name: file.name, type: file.type, lastModified: file.lastModified, recording: isRecordedVoiceFile(file) };
     }));
     const tx = await this.write(["conversationDrafts", ...(metadata.reply ? ["messages" as const] : [])]), settings = tx.objectStore("settings"), store = tx.objectStore("conversationDrafts");
     if (metadata.reply && (await tx.objectStore("messages").get(metadata.reply.id))?.status === "deleted") delete metadata.reply;
@@ -1210,7 +1538,40 @@ export class ClientCache {
     if (!current) await store.put(value);
     await tx.done; return current ?? value;
   }
-  async messages(conversationId: string): Promise<Message[]> { return (await (await this.db).getAllFromIndex("messages", "conversation", conversationId)).sort((a, b) => a.createdAt - b.createdAt).map(({ activitySeq: _seq, activityAt: _at, ...message }) => message); }
+  peekMessages(conversationId: string): readonly Message[] | undefined {
+    if (this.closed) return undefined;
+    this.ensureMessageChannel();
+    return this.messageCache.peek(conversationId, this.messageEpoch(conversationId))?.messages;
+  }
+  async messages(conversationId: string): Promise<Message[]> {
+    this.ensureMessageChannel();
+    const cached = this.closed ? undefined : this.messageCache.peek(conversationId, this.messageEpoch(conversationId));
+    if (cached) return cached.messages.slice();
+    const epoch = this.messageEpoch(conversationId);
+    const tx = (await this.db).transaction(["messages", "cursors", "settings"]);
+    const [rawMessages, rawCursor, rawLineage] = await Promise.all([
+      tx.objectStore("messages").index("conversation").getAll(conversationId),
+      tx.objectStore("cursors").get(conversationId),
+      tx.objectStore("settings").get(`syncLineage:${conversationId}`),
+      tx.done,
+    ]);
+    const cursor = rawCursor ?? 0;
+    const lineage = typeof rawLineage === "string" ? rawLineage : undefined;
+    const loaded = rawMessages
+      .sort(compareMessages)
+      .map(stripMessageMeta);
+    if (!this.closed && this.messageEpoch(conversationId) === epoch) {
+      const existing = this.messageCache.inspect(conversationId);
+      if (!existing || existing.epoch !== epoch) {
+        this.messageCache.set(conversationId, loaded, cursor, { epoch, hasFullSnapshot: true, lineage });
+      } else if (existing.lineage !== lineage) {
+        this.messageCache.invalidate(conversationId);
+      } else if (cursor > existing.revision) {
+        this.messageCache.set(conversationId, loaded, cursor, { epoch, hasFullSnapshot: true, lineage });
+      }
+    }
+    return loaded.slice();
+  }
   async deletedMessageIds(): Promise<Set<string>> { return new Set(await (await this.db).getAllKeysFromIndex("messages", "status", "deleted")); }
   async activeMessages(): Promise<string[]> {
     const tx = (await this.db).transaction("messages"), status = tx.store.index("status");
@@ -1317,6 +1678,7 @@ export class ClientCache {
     await this.ownSnapshot();
     const tx = await this.write(["syncState", "syncMessages", "messages", "activity", "cursors", "conversations", "conversationDrafts", "settings"]);
     const complete = tx.done; void complete.catch(() => undefined);
+    let snapshotConversationId: string | undefined;
     try {
       if (frame.type === "snapshot.begin") {
         if (frame.readSeq > frame.seq || (await tx.objectStore("cursors").get(frame.conversation.id) ?? 0) !== frame.after) throw new Error("snapshot_cursor_mismatch");
@@ -1335,6 +1697,7 @@ export class ClientCache {
           await tx.objectStore("syncState").put({ ...state, count: state.count + 1, updatedAt: Date.now() }, this.snapshotOwner);
         } else {
           const conversationId = state.conversation.id;
+          snapshotConversationId = conversationId;
           if (frame.count !== state.count) throw new Error("snapshot_incomplete");
           const lineage = await tx.objectStore("settings").get(`syncLineage:${conversationId}`) as string | undefined;
           if (lineage !== state.previousLineage && lineage !== state.lineage) throw new Error("snapshot_lineage_mismatch");
@@ -1342,7 +1705,7 @@ export class ClientCache {
           if (cursor !== state.after || lineage !== state.previousLineage) {
             // A different tab already committed this (or newer) history. Finish
             // our stream without overwriting it or starting a reconnect loop.
-            if (lineage === state.lineage && cursor >= state.seq) { await this.dropSnapshot(tx, this.snapshotOwner); await complete; return true; }
+            if (lineage === state.lineage && cursor >= state.seq) { await this.dropSnapshot(tx, this.snapshotOwner); await complete; this.bumpMessageEpoch(conversationId); return true; }
             throw new Error("snapshot_incomplete");
           }
           // No visible state changes until all frames are present. Replacing
@@ -1399,7 +1762,7 @@ export class ClientCache {
           await this.dropSnapshot(tx, this.snapshotOwner);
         }
       }
-      await complete; if (frame.type === "snapshot.end") this.draftsChanged(); return frame.type === "snapshot.end";
+      await complete; if (frame.type === "snapshot.end") { if (snapshotConversationId !== undefined) this.notifyMessageMutation(snapshotConversationId); this.draftsChanged(); } return frame.type === "snapshot.end";
     } catch (error) { try { tx.abort(); } catch { /* Already aborted. */ } await complete.catch(() => undefined); throw error; }
   }
   async apply(raw: HubEvent, userId?: string, expected?: { lineage?: string }): Promise<Message | undefined> {
@@ -1407,9 +1770,24 @@ export class ClientCache {
     // Observe transaction failure even when validation rejects before tx.done.
     const complete = tx.done; void complete.catch(() => undefined);
     try {
-      if (expected && await tx.objectStore("settings").get(`syncLineage:${event.conversationId}`) !== expected.lineage) throw new Error("sync_lineage_mismatch");
+      const rawLineage = await tx.objectStore("settings").get(`syncLineage:${event.conversationId}`);
+      const lineage = typeof rawLineage === "string" ? rawLineage : undefined;
+      if (expected && lineage !== expected.lineage) throw new Error("sync_lineage_mismatch");
       const last = await tx.objectStore("cursors").get(event.conversationId) ?? 0;
-      if (event.seq <= last) { await tx.done; return; }
+      if (event.seq <= last) {
+        await complete;
+        const cached = this.messageCache.inspect(event.conversationId);
+        if (
+          !cached
+          || !cached.hasFullSnapshot
+          || cached.epoch !== this.messageEpoch(event.conversationId)
+          || cached.revision !== last
+          || cached.lineage !== lineage
+        ) {
+          this.bumpMessageEpoch(event.conversationId);
+        }
+        return;
+      }
       if (event.seq !== last + 1) { tx.abort(); await tx.done.catch(() => undefined); throw new Error("sync_gap"); }
       let applied: Message | undefined, draftChanged = false;
       if (event.kind === "message.stream") {
@@ -1470,7 +1848,32 @@ export class ClientCache {
         const activity = await tx.objectStore("activity").get(event.conversationId);
         if (activity) { const readSeq = event.payload.seq; activity.unread = Object.fromEntries(Object.entries(activity.unread).filter(([, seq]) => seq > readSeq)); await tx.objectStore("activity").put(activity, event.conversationId); }
       }
-      await tx.objectStore("cursors").put(event.seq, event.conversationId); await complete; if (draftChanged) this.draftsChanged(); return applied;
+      await tx.objectStore("cursors").put(event.seq, event.conversationId); await complete;
+      const cached = this.messageCache.inspect(event.conversationId);
+      const cacheMatchesBase = cached !== undefined
+        && cached.hasFullSnapshot
+        && cached.epoch === this.messageEpoch(event.conversationId)
+        && cached.revision === last
+        && cached.lineage === lineage;
+      if (applied) {
+        const clean = stripMessageMeta(applied as Cache["messages"]["value"]);
+        if (cacheMatchesBase) {
+          this.notifyMessageMutation(event.conversationId, {
+            message: clean,
+            expectedCursor: last,
+            nextCursor: event.seq,
+            lineage,
+          });
+        } else {
+          this.notifyMessageMutation(event.conversationId);
+        }
+        applied = clean;
+      } else if (cacheMatchesBase) {
+        this.messageCache.setRevision(event.conversationId, event.seq, lineage);
+      } else {
+        this.bumpMessageEpoch(event.conversationId);
+      }
+      if (draftChanged) this.draftsChanged(); return applied;
     } catch (error) { try { tx.abort(); } catch { /* Already completed or aborted. */ } await complete.catch(() => undefined); throw error; }
   }
   private async putOutboxFrame(tx: IDBPTransaction<Cache, StoreNames<Cache>[], "readwrite">, frame: ClientFrame): Promise<OutboxEntry> {
@@ -1547,7 +1950,7 @@ export class ClientCache {
     const scope = await this.diffReviewReceiptScope(tx, id);
     await tx.done; if (scope) this.diffReviewsChanged(scope); return true;
   }
-  async discardFailed(id: string): Promise<OutboxEntry | undefined> { return this.removeOutbox(id, true); }
+  async discardFailed(id: string): Promise<OutboxEntry | undefined> { return (await this.removeOutbox(id, true)).entry; }
   private async diffReviewReceiptScope(tx: IDBPTransaction<Cache, StoreNames<Cache>[], "readwrite">, id: string): Promise<DiffReviewScope | undefined> {
     const raw = await tx.objectStore("settings").get(diffReviewReceiptKey(id));
     // Notification lookup must not change generic outbox error handling.
@@ -1578,15 +1981,27 @@ export class ClientCache {
     }
     await settings.delete(diffReviewReceiptKey(id)); return receipt.scope;
   }
-  private async removeOutbox(id: string, failedOnly = false, messageAccepted = false, acceptance?: DesignCommentAcceptance): Promise<OutboxEntry | undefined> {
-    const tx = await this.write(["outbox", "workbenchDesign", "workbenchDesignMeta"]), store = tx.objectStore("outbox");
+  private async removeOutbox(id: string, failedOnly = false, messageAccepted = false, acceptance?: DesignCommentAcceptance): Promise<AcknowledgeResult> {
+    const messageId = messageAccepted && acceptance?.messageId ? acceptance.messageId : undefined;
+    const tx = await this.write(["outbox", "workbenchDesign", "workbenchDesignMeta", ...(messageId ? ["messages" as const] : [])]), store = tx.objectStore("outbox");
     let attemptedCommentWrite = false;
     // Return the actual removed entry only after commit. Observe transaction
     // aborts alongside request failures, including reset/identity fences.
     try {
       const entry = await store.get(id);
-      if (failedOnly && !entry?.error) { await tx.done; return undefined; }
+      if (failedOnly && !entry?.error) { await tx.done; return { entry: undefined, alreadyDeleted: false }; }
       if (entry) await store.delete(id);
+      let alreadyDeleted = false;
+      if (messageId) {
+        const existing = await tx.objectStore("messages").get(messageId);
+        alreadyDeleted = existing?.status === "deleted"
+          && (!entry || !("conversationId" in entry.frame) || existing.conversationId === entry.frame.conversationId);
+      } else if (messageAccepted && entry && "conversationId" in entry.frame) {
+        const cached = this.messageCache.inspect(entry.frame.conversationId);
+        alreadyDeleted = !!(cached?.hasFullSnapshot
+          && cached.epoch === this.messageEpoch(entry.frame.conversationId)
+          && cached.messages.some(message => message.clientMsgId === id && message.status === "deleted"));
+      }
       // A non-message ACK is not acceptance. Keep the pending receipt so an
       // explicit uncertain retry can use its original immutable ID and frame.
       const scope = messageAccepted || failedOnly ? await this.settleDiffReview(tx, id, messageAccepted) : entry ? await this.diffReviewReceiptScope(tx, id) : undefined;
@@ -1607,7 +2022,7 @@ export class ClientCache {
           await settings.delete(key);
         }
       }
-      await tx.done; if (scope) this.diffReviewsChanged(scope); if(changed)this.designCommentsChanged(changed.scope,[changed.id]);return entry;
+      await tx.done; if (scope) this.diffReviewsChanged(scope); if(changed)this.designCommentsChanged(changed.scope,[changed.id]);return { entry, alreadyDeleted };
     } catch (error) {
       try { tx.abort(); } catch { /* Already completed. */ } await tx.done.catch(() => undefined);
       // Receipt metadata is optional. If storage is full, commit acceptance
@@ -1626,6 +2041,7 @@ export class ClientCache {
     }
     await tx.done; if (scope) this.diffReviewsChanged(scope);
   }
-  async acknowledge(id: string, messageAccepted = false, acceptance?: DesignCommentAcceptance): Promise<OutboxEntry | undefined> { return this.removeOutbox(id, false, messageAccepted, acceptance); }
+  async acknowledge(id: string, messageAccepted = false, acceptance?: DesignCommentAcceptance): Promise<OutboxEntry | undefined> { return (await this.removeOutbox(id, false, messageAccepted, acceptance)).entry; }
+  async acknowledgeReceipt(id: string, messageAccepted = false, acceptance?: DesignCommentAcceptance): Promise<AcknowledgeResult> { return this.removeOutbox(id, false, messageAccepted, acceptance); }
 }
 export const cache = new ClientCache();

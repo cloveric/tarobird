@@ -111,11 +111,11 @@ describe('durable per-message queue pause (#104)', () => {
         await change({ type: 'pause', messageId: a.id });
         expect((await store.db.get<{
             value: string;
-        }>("SELECT value FROM meta WHERE key='schema_version'"))?.value).toBe('26');
+        }>("SELECT value FROM meta WHERE key='schema_version'"))?.value).toBe('28');
         const old = path.join(dir, 'old-runtime');
         await mkdir(old);
         await writeFile(path.join(old, 'package.json'), JSON.stringify({ tarobotHostUpdate: { format: 1, minHubSchema: 1, maxHubSchema: 24 } }));
-        await expect(assertHostRuntimeCompatible(dir, path.join(old, 'index.js'))).rejects.toThrow('host_schema_incompatible:26:runtime_1-24');
+        await expect(assertHostRuntimeCompatible(dir, path.join(old, 'index.js'))).rejects.toThrow('host_schema_incompatible:28:runtime_1-24');
     });
     it('reads old snapshots without inventing support for pausing', () => {
         const old = promptQueueSnapshotSchema.parse({ supported: true, botId: 'bot', conversationId: 'chat', revision: 'r', items: [], capabilities: { reorder: true, edit: true, cancel: true } });

@@ -1,7 +1,7 @@
 import { retiredTransportPath, checkRetiredTransportSources } from './retired-transport-guard.mjs';
 import { build } from 'esbuild';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
-const result = await build({ entryPoints: ['src/index.ts', 'src/codex/claude-permission-mcp-server.ts', 'src/codex/claude-history-native-helper.ts', 'src/codex/deepseek-app-plugin.ts', 'src/codex/pi-bridge-extension.ts'], outdir: 'standalone-graph', bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false, metafile: true, logLevel: 'silent' });
+const result = await build({ entryPoints: ['src/index.ts', 'src/codex/claude-permission-mcp-server.ts', 'src/codex/claude-history-native-helper.ts', 'src/codex/deepseek-app-plugin.ts', 'src/codex/pi-bridge-extension.ts', 'src/codex/omp-bridge-extension.ts'], outdir: 'standalone-graph', bundle: true, platform: 'node', format: 'esm', packages: 'external', write: false, metafile: true, logLevel: 'silent' });
 // Runtime and TypeScript/test imports must both stay independent.
 const forbidden = Object.keys(result.metafile.inputs).filter(retiredTransportPath);
 const externals = Object.values(result.metafile.outputs).flatMap(o => o.imports).filter(i => i.path.includes('larksuite'));

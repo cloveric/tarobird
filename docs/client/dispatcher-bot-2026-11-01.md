@@ -1,14 +1,17 @@
 # Dispatcher Bots (2026-11-01, issue #110)
 
-The App calls this Bot type **幕僚长** (English: **Chancellor**); code, APIs and
+The App calls this Bot type **幕僚长** (English: **Superagent**); code, APIs and
 the CLI keep the technical name *dispatcher* (`role: "dispatcher"`, `tickets`).
 
-A dispatcher Bot is a Bot type chosen only when the Bot is created. The owner
-talks to it in a single conversation; it splits requests into tickets and runs
+A dispatcher Bot is a Bot type chosen only when the Bot is created. Like an
+ordinary Bot, it supports multiple direct conversations, group chats, and
+Bot-to-Bot collaboration messages; it splits requests into tickets and runs
 each ticket directly on an engine CLI installed on the Host (Codex, Claude,
-Kimi, DeepSeek, Antigravity), in its own hidden worker conversation. The owner
-does not configure other Bots for this. The
-design discussion and decisions are recorded in issue #110 and
+Kimi, DeepSeek, Antigravity), in its own hidden worker conversation. Each
+ticket remembers the conversation it came from, reports notices back to that
+conversation, and the ticket bar defaults to the current conversation with a
+toggle to view all tickets. The owner does not configure other Bots for this. The
+design discussion and decisions are recorded in issue #110, issue #122, and
 [the design notes](../design/dispatcher-bot-20261101/README.md).
 
 ## Identity
@@ -20,9 +23,12 @@ design discussion and decisions are recorded in issue #110 and
 - `BotManager.create` stores `bots.role`, the initial `dispatcher_settings` row
   and `config.json` `role`. Ordinary Bots cannot be converted later, and a
   dispatcher cannot be converted back; it can be deleted.
-- `HubStore.createConversationInTransaction` allows one direct conversation per
-  dispatcher (`dispatcher_single_conversation`) and no group membership
-  (`dispatcher_group_forbidden`, also in `updateGroup`).
+- `HubStore.createConversationInTransaction` and `updateGroup` allow dispatchers
+  in multiple direct conversations and group chats just like ordinary Bots,
+  while keeping internal engine workers restricted (`dispatch_worker_internal`).
+  Tickets record their originating `conversationId` (from the active turn's
+  `contextMessage` or explicit `conversationId`, falling back to the earliest
+  conversation for compatibility) and deliver notices back to that conversation.
 - The Gateway adds the host-owned dispatcher contract
   (`gateway/agent-instructions.ts::dispatcherInstructions`) to every turn of a
   dispatcher Bot. Ticket writes explicitly pass the current turn's

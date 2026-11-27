@@ -1,3 +1,5 @@
+import { addGlobalListener } from "./global-event-hub.js";
+
 /** A single pointer-owned toolbar, including across ADHD panes. Delegation
  * avoids React renders on mouse movement and does not depend on WebKit's
  * retained :hover state on transformed/streaming message rows. */
@@ -31,25 +33,19 @@ export function installMessageActionHover(): () => void {
     if (document.documentElement.dataset.focusIntent === "keyboard") clear();
   };
   const focus = (event: FocusEvent) => { if (event.target instanceof Element && event.target.closest("dialog")) clear(); };
-  document.addEventListener("pointerover", pointer, true);
-  document.addEventListener("pointermove", pointer, true);
-  document.addEventListener("pointerdown", pointer, true);
-  document.addEventListener("pointerout", leave, true);
-  document.addEventListener("keydown", keyboard, true);
-  document.addEventListener("focusin", focus, true);
-  document.addEventListener("scroll", scroll, true);
-  document.addEventListener("visibilitychange", clear);
-  window.addEventListener("blur", clear);
+  const cleanups = [
+    addGlobalListener(document, "pointerover", pointer, { capture: true }),
+    addGlobalListener(document, "pointermove", pointer, { capture: true }),
+    addGlobalListener(document, "pointerdown", pointer, { capture: true }),
+    addGlobalListener(document, "pointerout", leave, { capture: true }),
+    addGlobalListener(document, "keydown", keyboard, { capture: true }),
+    addGlobalListener(document, "focusin", focus, { capture: true }),
+    addGlobalListener(document, "scroll", scroll, { capture: true }),
+    addGlobalListener(document, "visibilitychange", clear),
+    addGlobalListener(window, "blur", clear),
+  ];
   return () => {
     clear();
-    document.removeEventListener("pointerover", pointer, true);
-    document.removeEventListener("pointermove", pointer, true);
-    document.removeEventListener("pointerdown", pointer, true);
-    document.removeEventListener("pointerout", leave, true);
-    document.removeEventListener("keydown", keyboard, true);
-    document.removeEventListener("focusin", focus, true);
-    document.removeEventListener("scroll", scroll, true);
-    document.removeEventListener("visibilitychange", clear);
-    window.removeEventListener("blur", clear);
+    for (const cleanup of cleanups) cleanup();
   };
 }

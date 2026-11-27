@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { antigravityEffortChoices, discoverAntigravityModels, parseAntigravityModels, preferredAntigravityModel } from "../src/codex/antigravity-models.js";
+import { ANTIGRAVITY_MODELS_TIMEOUT_MS, antigravityEffortChoices, discoverAntigravityModels, parseAntigravityModels, preferredAntigravityModel } from "../src/codex/antigravity-models.js";
 
 describe("Antigravity provider model capabilities", () => {
   it("keeps concrete model effort fixed while collecting advertised family aliases", () => {
@@ -31,5 +33,26 @@ describe("Antigravity provider model capabilities", () => {
     expect(await discoverAntigravityModels({ PATH: "", ANTIGRAVITY_EXECUTABLE: "/missing/agy" })).toEqual([]);
     expect(preferredAntigravityModel([])).toBe("");
     expect(preferredAntigravityModel([{ id: "gemini-3.8-flash-medium" }, { id: "gemini-4-argon-high" }])).toBe("");
+  });
+  it("gives Antigravity model discovery at least 15s and keeps Hub RPC and client budgets above it", async () => {
+    const { BOT_MODEL_SETTINGS_RPC_TIMEOUT_MS } = await import("../src/hub/server.js");
+    const { BOT_SETTINGS_REQUEST_TIMEOUT_MS } = await import("../client/src/bot-settings-request.js");
+    expect(ANTIGRAVITY_MODELS_TIMEOUT_MS).toBeGreaterThanOrEqual(15_000);
+    expect(BOT_MODEL_SETTINGS_RPC_TIMEOUT_MS - ANTIGRAVITY_MODELS_TIMEOUT_MS).toBeGreaterThanOrEqual(2_000);
+    expect(BOT_SETTINGS_REQUEST_TIMEOUT_MS - BOT_MODEL_SETTINGS_RPC_TIMEOUT_MS).toBeGreaterThanOrEqual(2_000);
+  });
+  it("loads a slow `agy models` response within the timeout budget and falls back cleanly when exceeded", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "agy-slow-models-"));
+    try {
+      const script = path.join(dir, "slow-agy.mjs");
+      await writeFile(script, `#!/usr/bin/env node\nsetTimeout(() => { console.log("gemini-4-argon-medium\\tGemini 4 Argon (Medium)"); }, 150);\n`, "utf8");
+      await chmod(script, 0o755);
+      const env = { ...process.env, ANTIGRAVITY_EXECUTABLE: script };
+      expect(await discoverAntigravityModels(env, true, 40)).toEqual([]);
+      const loaded = await discoverAntigravityModels(env, true, 2_000);
+      expect(loaded.map((m) => m.id)).toEqual(["gemini-4-argon-medium"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

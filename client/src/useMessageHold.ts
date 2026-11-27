@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { addGlobalListener } from "./global-event-hub.js";
 
 /** Delegated touch gesture: no per-message timers, pointer capture or blocked scrolling. */
 export function useMessageHold(root: RefObject<HTMLElement | null>, scope: string, enabled: boolean, open: (messageId: string, trigger: HTMLElement) => void) {
@@ -51,28 +52,21 @@ export function useMessageHold(root: RefObject<HTMLElement | null>, scope: strin
       // file/button. A genuinely new pointerdown clears this guard immediately.
       if (event.detail > 0 && Date.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); suppressClickUntil = 0; }
     };
-    document.addEventListener("pointerdown", down, true);
-    document.addEventListener("pointermove", move, true);
-    document.addEventListener("pointerup", up, true);
-    document.addEventListener("pointercancel", up, true);
-    document.addEventListener("scroll", scrolled, true);
-    document.addEventListener("selectionchange", selection);
-    document.addEventListener("visibilitychange", cancel);
-    document.addEventListener("contextmenu", context, true);
-    document.addEventListener("click", click, true);
-    window.addEventListener("blur", cancel);
+    const cleanups = [
+      addGlobalListener(document, "pointerdown", down, { capture: true }),
+      addGlobalListener(document, "pointermove", move, { capture: true }),
+      addGlobalListener(document, "pointerup", up, { capture: true }),
+      addGlobalListener(document, "pointercancel", up, { capture: true }),
+      addGlobalListener(document, "scroll", scrolled, { capture: true }),
+      addGlobalListener(document, "selectionchange", selection),
+      addGlobalListener(document, "visibilitychange", cancel),
+      addGlobalListener(document, "contextmenu", context, { capture: true }),
+      addGlobalListener(document, "click", click, { capture: true }),
+      addGlobalListener(window, "blur", cancel),
+    ];
     return () => {
       cancel();
-      document.removeEventListener("pointerdown", down, true);
-      document.removeEventListener("pointermove", move, true);
-      document.removeEventListener("pointerup", up, true);
-      document.removeEventListener("pointercancel", up, true);
-      document.removeEventListener("scroll", scrolled, true);
-      document.removeEventListener("selectionchange", selection);
-      document.removeEventListener("visibilitychange", cancel);
-      document.removeEventListener("contextmenu", context, true);
-      document.removeEventListener("click", click, true);
-      window.removeEventListener("blur", cancel);
+      for (const cleanup of cleanups) cleanup();
     };
   }, [root, scope, enabled]);
 }

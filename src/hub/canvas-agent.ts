@@ -333,7 +333,12 @@ export class CanvasAgentBroker {
     };
   }
 
-  private pickSessionForConversation(actor: WorkbenchActor): ClientSession | undefined {
+  /** A dispatch hint only. Each live tool invocation still validates its actor and target. */
+  hasConnectedCanvas(target: Pick<WorkbenchActor, "userId" | "conversationId" | "context">): boolean {
+    return this.sessions.size > 0 && this.pickSessionForConversation(target) !== undefined;
+  }
+
+  private pickSessionForConversation(actor: Pick<WorkbenchActor, "userId" | "conversationId" | "context">): ClientSession | undefined {
     this.pruneExpired();
     const now = Date.now();
     const candidates = [...this.sessions.values()]

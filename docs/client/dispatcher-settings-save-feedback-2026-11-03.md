@@ -1,4 +1,4 @@
-# Chancellor settings: save feedback and unsaved edits
+# Superagent settings: save feedback and unsaved edits
 
 The owner reported that the dispatch mode and concurrency controls were unclear,
 and that values appeared to reset after leaving and reopening settings.

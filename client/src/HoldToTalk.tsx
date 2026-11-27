@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Keyboard, Mic, Trash2 } from "lucide-react";
 import { t } from "./i18n.js";
 import type { useVoiceRecorder } from "./useVoiceRecorder.js";
@@ -48,8 +48,8 @@ export function VoiceRecordingPanel({ voice, cancelling }: { voice: ReturnType<t
     </div>;
 }
 
-type Props = { voice: ReturnType<typeof useVoiceRecorder>; disabled: boolean; progress?: number; recovering: boolean; cancelUpload: () => void; hasDraft: boolean; start: () => void; close: () => void };
-export function HoldToTalk({ voice, disabled, progress, recovering, cancelUpload, hasDraft, start, close }: Props) {
+type Props = { voice: ReturnType<typeof useVoiceRecorder>; disabled: boolean; progress?: number; recovering: boolean; cancelUpload: () => void; hasDraft: boolean; start: () => void; close: () => void; stop?: ReactNode };
+export function HoldToTalk({ voice, disabled, progress, recovering, cancelUpload, hasDraft, start, close, stop }: Props) {
   const helpId = useId();
   const press = useRef<{ pointer?: number; key?: string; y: number; cancel: boolean } | undefined>(undefined);
   const [cancelling, setCancelling] = useState(false);
@@ -92,6 +92,7 @@ export function HoldToTalk({ voice, disabled, progress, recovering, cancelUpload
         onBlur={() => { if (press.current?.key) cancel(); }}>
         <Mic size={25}/><span>{uploading ? t("正在发送…") : cancelling ? t("松开取消") : busy ? t("松开发送") : t("按住说话")}</span>
       </button>
+      {!busy && !uploading && stop}
     </div>
     <span id={helpId} className="screen-reader-only">{t("按住空格或回车录音，松开发送；按 Esc 取消。")}</span>
   </section>;

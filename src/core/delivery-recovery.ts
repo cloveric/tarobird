@@ -4,6 +4,7 @@
 // a mock channel. Best-effort: a redelivery failure marks the row failed (a
 // later boot retries up to the attempts cap) and never blocks startup.
 
+import path from "node:path";
 import {
   markDeliveryAbandoned,
   markDeliveryAttempting,
@@ -12,6 +13,8 @@ import {
   readDeliveryObligationContent,
   sweepRecoverableDeliveries,
 } from "../state/delivery-obligation-store.js";
+import { SessionStore } from "../state/session-store.js";
+import { resolveConversationResume } from "../runtime/conversation-resume.js";
 import { appendTimelineEventBestEffort } from "../runtime/timeline-events.js";
 import { buildCoreRecoveryResponse, deliverCoreResponse } from "./delivery.js";
 import { preflightCoreResponseDeliveryDirectives } from "./delivery-followup.js";
@@ -21,10 +24,13 @@ import { redactCoreErrorDetail } from "./redaction.js";
 import { createCoreServiceRuntime, type CoreServiceRuntime } from "./runtime.js";
 import type { CoreChannelLike } from "./types.js";
 import { isGatewayChannel } from "./channel-profile.js";
+import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 
 export interface CoreRedeliveryChannel {
   profile?: "gateway" | "feishu";
   inConversation?<T>(chatId: string, operation: () => T): T;
+  conversationWorkspace?: CoreChannelLike["conversationWorkspace"];
   send(to: string, input: unknown, opts?: { replyTo?: string; replyInThread?: boolean }): Promise<unknown>;
   uploadImage?: CoreChannelLike["uploadImage"];
   managedCards?: CoreChannelLike["managedCards"];
@@ -32,10 +38,8 @@ export interface CoreRedeliveryChannel {
 
 /** Visible prefix for redeliveries that might duplicate an already-received
  *  message (crash mid-send / post-rejection retry). Honest at-least-once. */
-export function recoveredReplyMarker(locale: "en" | "zh"): string {
-  return locale === "zh"
-    ? "♻️ 服务重启前有一条回复未确认送达，现补发（可能与之前收到的重复）："
-    : "♻️ Recovered reply — the service restarted during delivery, so this may be a duplicate:";
+export function recoveredReplyMarker(locale: Locale): string {
+  return hostT(locale, "♻️ 服务重启前有一条回复未确认送达，现补发（可能与之前收到的重复）：");
 }
 
 export async function redeliverRecoveredCoreObligations(input: {
@@ -43,7 +47,7 @@ export async function redeliverRecoveredCoreObligations(input: {
   stateDir: string;
   workspaceOverride?: string;
   instanceName?: string;
-  locale: "en" | "zh";
+  locale: Locale;
   runtime?: CoreServiceRuntime;
   log?: (message: string) => void;
 }): Promise<{ recovered: number; failed: number; abandoned: number }> {
@@ -61,12 +65,20 @@ export async function redeliverRecoveredCoreObligations(input: {
       const conversationKey = row.conversationKey ?? `lark:${row.chatId}`;
       try {
         const content = await readDeliveryObligationContent(input.stateDir, row);
-        const safeReplay = buildCoreRecoveryResponse(content).trim() || (input.locale === "en"
-          ? "A recovered reply contained only actions that are unsafe to rerun, so those actions were skipped."
-          : "恢复的回复只包含不适合自动重跑的操作，因此已跳过这些操作。");
+        let resumedWorkspace: string | undefined;
+        try {
+          const session = await new SessionStore(path.join(input.stateDir, "session.json")).findByConversationKeySafe(conversationKey);
+          resumedWorkspace = session.warning ? undefined : resolveConversationResume(session.record, undefined)?.workspacePath;
+        } catch {
+          resumedWorkspace = undefined;
+        }
+        const workspaceOverride = resumedWorkspace
+          ?? (await input.channel.conversationWorkspace?.(row.chatId))
+          ?? input.workspaceOverride;
+        const safeReplay = buildCoreRecoveryResponse(content).trim() || hostT(input.locale, "恢复的回复只包含不适合自动重跑的操作，因此已跳过这些操作。");
         const replayPreflight = await preflightCoreResponseDeliveryDirectives(safeReplay, {
           stateDir: input.stateDir,
-          workspaceOverride: input.workspaceOverride,
+          workspaceOverride,
         });
         // A failed row was already attempted and its deterministic path errors
         // were surfaced to the user. Replaying valid siblings cannot fix a
@@ -113,7 +125,7 @@ export async function redeliverRecoveredCoreObligations(input: {
             ? `${recoveredReplyMarker(input.locale)}\n\n${safeReplay}`
             : safeReplay,
           stateDir: input.stateDir,
-          workspaceOverride: input.workspaceOverride,
+          workspaceOverride,
           conversationKey,
           bridgeChatId: stableCoreNumericId(conversationKey),
           ...(row.replyTo ? { replyTo: row.replyTo } : {}),

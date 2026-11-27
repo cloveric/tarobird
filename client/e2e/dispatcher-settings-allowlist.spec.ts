@@ -202,3 +202,57 @@ test("a lost save receipt is not success or rollback; reloading reconciles the H
     expect(writes).toBe(1);
   } finally { await hub.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("cross-host node settings reflect draft enabled status, refresh nodes on save, and persist per-node allowedEngines", async ({ page }) => {
+  const { root, hub } = await start({ mode: "ask", maxConcurrent: 2 });
+  try {
+    const localHostId = `hub_${"a".repeat(64)}`;
+    const remoteHostId = `hub_${"b".repeat(64)}`;
+    let nodeReads = 0;
+    await page.route("**/api/bots/disp/dispatch-nodes", async route => {
+      nodeReads++;
+      const current = (await hub.dispatch.settings("owner", "disp")).settings;
+      const remoteCfg = current.nodes?.find(n => n.hostId === remoteHostId);
+      const engines = [
+        { engine: "codex", installed: true, available: true, quotaState: "ok", models: [{ id: "", efforts: [""] }], defaultModel: "", defaultEffort: "" },
+        { engine: "claude", installed: true, available: true, quotaState: "ok", models: [{ id: "", efforts: [""] }], defaultModel: "", defaultEffort: "" },
+      ];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ownHostId: localHostId,
+          settings: current,
+          nodes: [
+            { hostId: localHostId, hostName: "macmini", local: true, enabled: true, online: true, authorized: true, preference: "normal", maxConcurrent: 2, activeOnNode: 0, load: { hostId: localHostId, hostName: "macmini", online: true, authorized: true, activeTurns: 0, activeTickets: 0, engines, observedAt: Date.now() }, eligible: true },
+            { hostId: remoteHostId, hostName: "studio-b", local: false, enabled: remoteCfg?.enabled ?? false, online: true, authorized: true, preference: remoteCfg?.preference ?? "normal", maxConcurrent: remoteCfg?.maxConcurrent ?? 2, ...(remoteCfg?.allowedEngines ? { allowedEngines: remoteCfg.allowedEngines } : {}), activeOnNode: 0, load: { hostId: remoteHostId, hostName: "studio-b", online: true, authorized: true, activeTurns: 0, activeTickets: 0, engines, observedAt: Date.now() }, eligible: !!(remoteCfg?.enabled) },
+          ],
+        }),
+      });
+    });
+    const editor = await openEditor(page, hub);
+    const remoteRow = editor.locator(".dispatcher-node-row", { hasText: "studio-b" });
+    await expect(remoteRow).toBeVisible();
+    await expect(remoteRow.locator(".dispatch-node-pill")).toHaveText("已停用");
+
+    // Enabling updates badge immediately from draft state (no stale "已停用").
+    await remoteRow.getByRole("checkbox", { name: "studio-b" }).check();
+    await expect(remoteRow.locator(".dispatch-node-pill")).toHaveText("可用");
+
+    // Per-node allowedEngines: uncheck Codex -> studio-b restricted to ["claude"].
+    await remoteRow.locator(".dispatcher-node-engines").getByRole("checkbox", { name: "Codex", exact: true }).uncheck();
+    const readsBeforeSave = nodeReads;
+    await save(editor);
+    await expect.poll(() => nodeReads).toBeGreaterThan(readsBeforeSave);
+    expect((await hub.dispatch.settings("owner", "disp")).settings.nodes?.find(n => n.hostId === remoteHostId)).toMatchObject({
+      enabled: true,
+      allowedEngines: ["claude"],
+    });
+    await expect(remoteRow.locator(".dispatch-node-pill")).toHaveText("可用");
+
+    // Clicking "跟随全局 CLI 设置" clears per-node allowedEngines override.
+    await remoteRow.getByRole("checkbox", { name: "跟随全局 CLI 设置", exact: true }).check();
+    await save(editor);
+    expect((await hub.dispatch.settings("owner", "disp")).settings.nodes?.find(n => n.hostId === remoteHostId)?.allowedEngines).toBeUndefined();
+  } finally { await hub.close(); await rm(root, { recursive: true, force: true }); }
+});

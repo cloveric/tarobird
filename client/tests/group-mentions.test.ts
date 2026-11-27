@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { groupMentions } from "../src/group-mentions.js";
+import { formatWorkspaceFileMention } from "../src/workspace-files-meta.js";
 const members = [{ id: "alpha", names: ["研究助手", "Research Bot"] }, { id: "beta", names: ["研究助手二", "Beta"] }];
 it("accepts names, IDs, spaced aliases and punctuation with longest exact matching", () => {
   expect(groupMentions("@研究助手二，请检查。 @研究助手 好的 @ALPHA! @research bot: 分析", members)).toEqual({ ids: ["beta", "alpha"], unresolved: [] });
@@ -68,4 +69,18 @@ it('preserves full dotted/slashed Bot aliases and keeps prefix collisions explic
   expect(groupMentions('@GG1/CC1 @types/node 邮箱@example.com Hi @GG1.Please check', bots)).toEqual({ ids: [], unresolved: ['GG1/CC1', 'types/node', 'example.com', 'GG1.Please'] });
   expect(groupMentions('@scope/pkg foo@example.net', bots)).toEqual({ ids: [], unresolved: [] });
   expect(groupMentions('@gpt-5.1/agents @DeepSeek-V3.2.Please @Team/Bot.more', bots)).toEqual({ ids: [], unresolved: ['gpt-5.1/agents', 'DeepSeek-V3.2.Please', 'Team/Bot.more'] });
+});
+
+it("does not treat formatted workspace file mentions as unresolved or colliding Bot recipients", () => {
+  const bots = [{ id: "alpha", names: ["alpha", "src"] }, { id: "beta", names: ["Beta"] }];
+  const tokens = [
+    formatWorkspaceFileMention("Makefile"),
+    formatWorkspaceFileMention("src"),
+    formatWorkspaceFileMention("My Notes.md"),
+    formatWorkspaceFileMention("需求文档.md"),
+    formatWorkspaceFileMention("alpha"),
+    formatWorkspaceFileMention("weird`name.md"),
+  ];
+  expect(groupMentions(tokens.join(" "), bots)).toEqual({ ids: [], unresolved: [] });
+  expect(groupMentions(`@Beta 请检查 ${tokens.join(" ")}`, bots)).toEqual({ ids: ["beta"], unresolved: [] });
 });

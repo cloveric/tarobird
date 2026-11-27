@@ -13,6 +13,7 @@ export const CODEX_MODEL_CHOICES = [
 
 export const CODEX_EFFORT_COMPATIBILITY_EN = "Astra/Sol/Terra support max and ultra; Luna supports max but not ultra.";
 export const CODEX_EFFORT_COMPATIBILITY_ZH = "Astra/Sol/Terra 支持 max 和 ultra；Luna 支持 max，但不支持 ultra。";
+export const CODEX_EFFORT_COMPATIBILITY_JA = "Astra/Sol/Terra は max と ultra に対応しています。Luna は max に対応していますが ultra には非対応です。";
 
 const CODEX_MODEL_MAX_EFFORT: Readonly<Record<string, EffortLevel>> = {
   "gpt-6-astra": "ultra",

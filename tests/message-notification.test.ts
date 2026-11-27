@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
 import type { Message } from "../src/client-protocol/index.js";
-import { shouldNotifyBotMessage } from "../client/src/message-notification.js";
+import { desktopNotice, shouldNotifyBotMessage } from "../client/src/message-notification.js";
+import { notificationPreferencesSchema } from "../src/client-protocol/push.js";
 import { translateCard } from "../src/gateway/card-translator.js";
 import { renderCoreQueueWaitCard } from "../src/core/card-renderer.js";
 const spec = { profile: "gateway" as const, taskId: "task", conversationKey: "lark:chat", waitedMs: 0 };
@@ -16,4 +17,20 @@ it("ignores legacy queue publication and lets the same ID's actual reply claim e
   const claimed = new Set<string>(), notify = vi.fn(), claim = vi.fn(async (id: string) => { if (claimed.has(id)) return false; claimed.add(id); return true; });
   for (const message of [{ ...base, blocks: [queued] }, complete, complete]) if (shouldNotifyBotMessage(message) && await claim(message.id)) notify(message.id);
   expect(claim).toHaveBeenCalledTimes(2); expect(notify).toHaveBeenCalledExactlyOnceWith(base.id);
+});
+it.each([
+  ["streaming", true, "**正在转写音频…**"],
+  ["complete", false, "**音频转写完成**"],
+  ["complete", false, "**已停止转写**"],
+  ["complete", false, "**转写已中断**"],
+] as const)("suppresses desktop notifications for transcription cards (%s active=%s %s)", (status, active, heading) => {
+  const prefs = notificationPreferencesSchema.parse({ enabled: true });
+  const card: Message = {
+    ...base,
+    id: "transcribe_card",
+    status,
+    blocks: [{ type: "card", elements: [{ type: "markdown", text: heading }], extra: { appTranscription: { version: 1, active, at: 1 } } }],
+  };
+  expect(shouldNotifyBotMessage(card)).toBe(false);
+  expect(desktopNotice(card, prefs)).toBeUndefined();
 });

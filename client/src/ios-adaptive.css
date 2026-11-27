@@ -67,7 +67,7 @@
     padding-left: 16px;
   }
   :root[data-platform=ios] :is(.conversation-header, .composer-toolbar, .sidebar .brand, .sidebar-footer, .host-controls) .icon-button,
-  :root[data-platform=ios] .sidebar :is(.workspace-footer-trigger, .sidebar-layout-switch > button, .bot-tree-heading > button, .group-toggle),
+  :root[data-platform=ios] .sidebar :is(.workspace-footer-trigger, .sidebar-layout-switch > button, .sidebar-unread-filter > button, .bot-tree-heading > button, .group-toggle),
   :root[data-platform=ios] .claude-send-choice :is([role=radio], .send-choice-help) {
     min-height: 44px; min-width: 44px;
   }

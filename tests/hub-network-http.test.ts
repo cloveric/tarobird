@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import WebSocket from "ws";
 import { HubServer } from "../src/hub/server.js";
 import { deviceProof, hashSecret } from "../src/hub/auth.js";
 import { CAPABILITIES } from "../src/client-protocol/index.js";
@@ -108,6 +109,25 @@ it("keeps pre-auth peer/enroll endpoints signed, bounded, rate-limited and behin
     const oversized = await fetch(endpointUrl, { method: "POST", body: "x".repeat(MAX_NETWORK_BYTES + 1) });
     expect(oversized.status).toBe(413);
   }
+  const port = new URL(hub.url).port;
+  const localhostAllowed = await fetch(hub.url + "/api/pair", { method: "POST", headers: { Origin: `http://localhost:${port}` }, body: "{}" });
+  expect(localhostAllowed.status).toBe(400);
+  expect(await localhostAllowed.json()).toEqual({ error: "invalid_request" });
+  const wrongPort = await fetch(hub.url + "/api/pair", { method: "POST", headers: { Origin: `http://localhost:${Number(port) === 65535 ? 65534 : Number(port) + 1}` }, body: "{}" });
+  expect(wrongPort.status).toBe(403);
+  expect(await wrongPort.json()).toEqual({ error: "origin_forbidden" });
+  const wsAllowed = await new Promise<boolean>((resolve) => {
+    const socket = new WebSocket(hub.url.replace(/^http/, "ws") + "/ws", { headers: { Origin: `http://localhost:${port}` } });
+    socket.once("open", () => { socket.close(); resolve(true); });
+    socket.once("error", () => resolve(false));
+  });
+  expect(wsAllowed).toBe(true);
+  const wsForbidden = await new Promise<boolean>((resolve) => {
+    const socket = new WebSocket(hub.url.replace(/^http/, "ws") + "/ws", { headers: { Origin: `http://localhost:${Number(port) === 65535 ? 65534 : Number(port) + 1}` } });
+    socket.once("open", () => { socket.close(); resolve(true); });
+    socket.once("error", () => resolve(false));
+  });
+  expect(wsForbidden).toBe(false);
   for (let i = 0; i < 58; i++) await fetch(hub.url + "/api/network/enroll", { method: "POST", body: "{}" });
   const limited = await fetch(hub.url + "/api/network/enroll", { method: "POST", body: "{}", headers: { "X-Forwarded-For": "pretend-new-source" } });
   expect(limited.status).toBe(429);

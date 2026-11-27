@@ -6,7 +6,7 @@ import { HubError, HubStore } from "../src/hub/store.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "../src/hub/workbench-design-sharing.js";
 import { DESIGN_SHARE_LIMITS, type DesignShareServerFrame } from "../src/client-protocol/workbench-design-sharing.js";
 import { DesignShareClient, DesignShareManager, designShareListActions, type DesignShareTransport, type DesignShareView } from "../client/src/workbench-design-collaboration.js";
-import { emptyDesign } from "../client/src/workbench-design.js";
+import { emptySlides } from "../client/src/workbench-design.js";
 import { memoryDesign } from "../client/tests/design-session-fixture.js";
 
 // Owners end shares without the shared document's DesignSession: a share whose
@@ -48,7 +48,7 @@ describe("owners end shares by ID, without the shared document", () => {
 
   /** WorkbenchController.endDesignShare while the App is offline: the design is gone, its share is not. */
   async function orphan(owner: ReturnType<typeof device>, name: string) {
-    const made = memoryDesign(emptyDesign(name));
+    const made = memoryDesign(emptySlides(name));
     const view = await owner.manager.share(made.session, { conversationId, windowId: "w-src", title: name });
     await owner.manager.grant(made.session, "guest", "editor");
     owner.setOnline(false);
@@ -59,7 +59,7 @@ describe("owners end shares by ID, without the shared document", () => {
 
   it("does not adopt an open reply after another owner device has already ended that share", async () => {
     const mac = device("owner", "mac"), phone = device("owner", "phone");
-    const made = memoryDesign(emptyDesign("pending-open"));
+    const made = memoryDesign(emptySlides("pending-open"));
     let release!: () => void, opened!: (id: string) => void, hold = true;
     const blocked = new Promise<void>(resolve => { release = resolve; }), waiting = new Promise<string>(resolve => { opened = resolve; });
     const send = mac.peer.send.bind(mac.peer);
@@ -93,7 +93,7 @@ describe("owners end shares by ID, without the shared document", () => {
 
   it("lets the owner's other device end it; the serving window retires and a joined copy shows the end", async () => {
     const mac = device("owner", "mac"), phone = device("owner", "phone");
-    const made = memoryDesign(emptyDesign("active"));
+    const made = memoryDesign(emptySlides("active"));
     const view = await mac.manager.share(made.session, { conversationId, windowId: "w-src", title: "Active" });
     const onPhone = (await listed(phone)).find(share => share.shareId === view.shareId)!;
     expect(onPhone).toMatchObject({ role: "owner", onThisDevice: false, sourceOnline: true });
@@ -112,7 +112,7 @@ describe("owners end shares by ID, without the shared document", () => {
 
   it("a source window that was offline when its share ended does not stay stuck on the closed share", async () => {
     const mac = device("owner", "mac"), phone = device("owner", "phone");
-    const made = memoryDesign(emptyDesign("offline-source"));
+    const made = memoryDesign(emptySlides("offline-source"));
     const view = await mac.manager.share(made.session, { conversationId, windowId: "w-src", title: "Offline" });
     mac.setOnline(false);
     // Ended elsewhere (the Host has always authorised any owner device).
@@ -138,7 +138,7 @@ describe("owners end shares by ID, without the shared document", () => {
     const mac = device("owner", "mac");
     const orphans: string[] = [];
     for (let i = 0; i < DESIGN_SHARE_LIMITS.sharesPerOwner; i++) orphans.push(await orphan(mac, `deleted-${i}`));
-    const fresh = memoryDesign(emptyDesign("fresh"));
+    const fresh = memoryDesign(emptySlides("fresh"));
     await expect(mac.manager.share(fresh.session, { conversationId, windowId: "w-src", title: "Fresh" })).rejects.toThrow("design_share_limit");
     await mac.manager.closeShare(orphans[0]!);
     expect((await mac.manager.share(fresh.session, { conversationId, windowId: "w-src", title: "Fresh" })).shareId).toMatch(/^ds_/);
@@ -146,7 +146,7 @@ describe("owners end shares by ID, without the shared document", () => {
 
   it("retires this manager's active source only after the Host confirms the close", async () => {
     const mac = device("owner", "mac");
-    const made = memoryDesign(emptyDesign("served"));
+    const made = memoryDesign(emptySlides("served"));
     const view = await mac.manager.share(made.session, { conversationId, windowId: "w-src", title: "Served" });
     const source = mac.manager.sourceFor(made.session)!.source;
     // Offline: nothing was closed, so the source is kept for its reconnect.

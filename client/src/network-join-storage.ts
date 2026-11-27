@@ -4,9 +4,11 @@ import { reviewedNetworkHash, type NetworkJoinAttempt } from "./network-join.js"
 
 const attemptSchema = z.object({
   networkId: z.string().min(1).max(128), authorityKey: z.string().length(60), sourceKey: z.string().length(60),
-  seenManifestHash: z.string().length(64).regex(/^[a-f0-9]{64}$/), reviewedManifest: networkManifestSchema.optional(),
+  seenManifestHash: z.string().length(64).regex(/^[a-f0-9]{64}$/),
+  generation: z.number().int().min(2).safe().optional(), recover: z.literal(true).optional(),
+  reviewedManifest: networkManifestSchema.optional(),
   proposal: signedNetworkProposalSchema.optional(), membership: signedNetworkManifestSchema.optional(),
-}).strict();
+}).strict().refine(value => Boolean(value.recover) === Boolean(value.generation), { message: "invalid_network_recover_attempt" });
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 const keyFor = (networkId: string, authorityKey: string, sourceKey: string) => `tarobot:network-join:v1:${networkId}:${encodeURIComponent(authorityKey)}:${encodeURIComponent(sourceKey)}`;
 
@@ -30,7 +32,7 @@ export function loadNetworkJoinAttempt(networkId: string, authorityKey: string, 
     if (attempt.reviewedManifest && (attempt.reviewedManifest.id !== networkId || attempt.reviewedManifest.authorityKey !== authorityKey || reviewedNetworkHash(attempt.reviewedManifest) !== attempt.seenManifestHash)) return;
     if (attempt.membership && (attempt.membership.manifest.id !== networkId || attempt.membership.manifest.authorityKey !== authorityKey)) return;
     const proposal = attempt.proposal?.proposal;
-    if (proposal && (proposal.networkId !== networkId || proposal.authorityKey !== authorityKey || proposal.host.publicKey !== sourceKey || proposal.seenManifestHash !== attempt.seenManifestHash)) return;
+    if (proposal && (proposal.networkId !== networkId || proposal.authorityKey !== authorityKey || proposal.host.publicKey !== sourceKey || proposal.seenManifestHash !== attempt.seenManifestHash || (proposal.host.generation ?? 1) !== (attempt.generation ?? 1))) return;
     return attempt;
   } catch { return; }
 }

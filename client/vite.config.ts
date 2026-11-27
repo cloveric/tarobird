@@ -28,7 +28,7 @@ export default defineConfig({ plugins: [react(), designAssets(), pdfAssets(), ex
     const workbenchRoots = new Set(Object.values(bundle).filter(chunk => chunk.type === "chunk" && !initial.has(chunk.fileName) && Object.keys(chunk.modules).some(id => /\/src\/(?:WorkbenchCanvas|Workbench)\.tsx$/.test(id))).map(chunk => chunk.fileName));
     for (const name of workbenchRoots) visit(name, deferred, true);
     for (const name of initial) { const chunk = bundle[name]; if (chunk?.type === "chunk") for (const child of chunk.dynamicImports ?? []) visit(child, existing, true, workbenchRoots); }
-    const precache = files.filter(file => !file.startsWith("excalidraw/") && !file.startsWith("vditor/") && file !== "design-sandbox.html" && file !== "slides-sandbox.html" && (!deferred.has(file) || initial.has(file) || existing.has(file)));
+    const precache = files.filter(file => !file.startsWith("excalidraw/") && !file.startsWith("vditor/") && file !== "slides-sandbox.html" && (!deferred.has(file) || initial.has(file) || existing.has(file)));
     const version = createHash("sha256").update(files.join("\n")).digest("hex").slice(0, 16);
     this.emitFile({ type: "asset", fileName: "sw.js", source: `
 const CACHE = 'tarocub-shell-${version}';

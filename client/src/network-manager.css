@@ -193,6 +193,15 @@
 .network-prepare-route > span { min-width: 0; overflow-wrap: anywhere; }
 .network-prepare-route > svg { flex: none; }
 .network-departure-effects { display: grid; gap: 8px; margin: 4px 0 12px; padding-left: 20px; color: var(--text); font-size: 13px; line-height: 1.65; }
+.network-warning-lead { margin: 4px 0 12px; padding: 10px 12px; border-left: 3px solid var(--red); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--red-soft); color: var(--text); font-size: 14px; font-weight: 550; line-height: 1.6; overflow-wrap: anywhere; }
+.network-recovery-lead { margin: 4px 0 12px; padding: 10px 12px; border-left: 3px solid var(--accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--surface); color: var(--text); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.network-recovery-lead p { margin: 0; }
+.network-recovery-lead p + p { margin-top: 6px; color: var(--grey); }
+.network-recovery-panel { margin-top: 10px; }
+.network-recovery-panel .network-actions { justify-content: flex-start; margin-top: 10px; }
+.network-confirm-help { margin: 12px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--grey); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.network-confirm-help p { margin: 0 0 6px; }
+.network-danger-consent { margin-top: 12px; }
 .network-onboarding-note { margin-bottom: 14px; padding: 12px 14px; border-left: 2px solid var(--accent); background: var(--surface); }
 .network-onboarding-note h3 { margin: 0 0 4px; font-size: 14px; }
 

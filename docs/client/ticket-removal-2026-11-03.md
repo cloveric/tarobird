@@ -1,6 +1,6 @@
 # Remove completed and cancelled tickets
 
-The owner can remove a completed or cancelled ticket from a Chancellor’s ticket
+The owner can remove a completed or cancelled ticket from a Superagent’s ticket
 list. Desktop and phone ticket rows expose **移除 / Remove** with an inline
 confirmation that states the retained scope. Active, paused, blocked and
 awaiting-review tickets cannot be removed; cancel them first. Pending execution

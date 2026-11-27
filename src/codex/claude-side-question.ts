@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { lstat, readdir, rm } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { readPlatformEnv, resolvePlatformHome } from "./adapter-account-quota.js";
 import { killProcessTree } from "./process-tree.js";
 
 /** Native Claude Code side questions (`control_request` subtype
@@ -200,8 +200,10 @@ export class ClaudeSideProcess {
   }
 }
 
-export function resolveClaudeConfigDir(env: NodeJS.ProcessEnv): string {
-  return env.CLAUDE_CONFIG_DIR?.trim() || path.join(os.homedir(), ".claude");
+export function resolveClaudeConfigDir(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
+  const configured = readPlatformEnv(env, "CLAUDE_CONFIG_DIR", platform)?.trim();
+  if (configured) return configured;
+  return path.join(resolvePlatformHome(env, platform), ".claude");
 }
 
 /** Returns the path when an owned entry is still present after removal. */

@@ -1,5 +1,6 @@
 import type { AdapterUsage } from "./adapter.js";
 import { classifyFailure } from "../runtime/error-classification.js";
+import type { Locale } from "../runtime/locale.js";
 
 export type EngineRetryReason = "capacity" | "connection" | "rate-limit";
 export interface EngineRetryReceipt {
@@ -13,7 +14,7 @@ export interface EngineRetryReceipt {
   unfinishedWork?: true;
   /** Read-only, same-turn reconciliation of observed tools. Only the adapter
    * can publish terminal tool events; this never authorizes replay or input. */
-  reconcileTools?: (toolUseIds: readonly string[], signal?: AbortSignal, locale?: "en" | "zh") => Promise<void>;
+  reconcileTools?: (toolUseIds: readonly string[], signal?: AbortSignal, locale?: Locale) => Promise<void>;
   /** Release the adapter's recovery lease even when the bridge rejects it. */
   releaseTools?: () => void;
   retryAfterMs?: number;

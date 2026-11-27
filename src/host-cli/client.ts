@@ -6,6 +6,7 @@ import { WebSocket } from "ws";
 import { z } from "zod";
 import { botRoleSchema } from "../client-protocol/dispatch.js";
 import { CHUNK_BYTES, idSchema, MAX_FRAME_BYTES, pairingSchema } from "../client-protocol/index.js";
+import { CROSS_HOST_GROUPS_CAPABILITY } from "../client-protocol/group-members.js";
 import { nodeFrameReader } from "../client-protocol/fragments-node.js";
 import { BOT_LOCAL_REQUEST_TIMEOUT_MS } from "../client-protocol/bot-messages.js";
 import { boundDeviceActionStatement, deviceActionProofText, type DeviceAction, type DeviceActionProof } from "../client-protocol/device-actions.js";
@@ -215,7 +216,7 @@ export class LocalHostClient {
     const raw = await this.request("/api/devices/challenge", "POST", action);
     const statement = boundDeviceActionStatement(raw, { hubPublicKey: this.publicKey, deviceId: this.deviceId, sessionHash: hashSecret(this.#token), action });
     if (statement.expiresAt <= Date.now() || statement.expiresAt > Math.min(this.ready.expiresAt, Date.now() + 31_000)
-      || (action.operation === "network" || action.operation === "bot-message-grant" || action.operation === "screen-grant") && statement.targetDigest !== action.target) throw new HostCliError("device_action_invalid");
+      || (action.operation === "network" || action.operation === "bot-message-grant" || action.operation === "screen-grant" || action.operation === "cloudflare-tunnel" || action.operation === "terminal-grant") && statement.targetDigest !== action.target) throw new HostCliError("device_action_invalid");
     return { nonce: statement.nonce, signature: sign(null, Buffer.from(deviceActionProofText(statement)), this.#key).toString("base64") };
   }
 }
@@ -232,7 +233,7 @@ function authenticate(url: string, deviceId: string, publicKey: string, key: Key
     const timer = setTimeout(() => finish(new HostCliError("cli_auth_timeout")), TIMEOUT_MS);
     socket.on("error", error => finish(error));
     socket.on("close", () => { if (!settled) finish(new HostCliError("cli_auth_disconnected")); });
-    socket.on("open", () => socket.send(JSON.stringify({ v: 1, type: "hello", deviceId, nonce, protocolVersions: [1], capabilities: ["fragments.v1", "management.v1"], cursors: {} })));
+    socket.on("open", () => socket.send(JSON.stringify({ v: 1, type: "hello", deviceId, nonce, protocolVersions: [1], capabilities: ["fragments.v1", "management.v1", CROSS_HOST_GROUPS_CAPABILITY], cursors: {} })));
     socket.on("message", (raw, binary) => {
       if (settled) return;
       try {

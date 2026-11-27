@@ -15,7 +15,7 @@ const fixture = {
     const registration = [...registrations.values()][0]; if (!registration) throw new Error("No opener");
     const frame = { v: 1, type: "workbench.command", dispatchId: "queued", deadline: Date.now() + 10000,
       userId: "owner", conversationId: "chat", generation: registration.generation,
-      target: { deviceId: "desktop", windowId: registration.windowId }, request: { requestId: "queued", operation: "design.open", payload: {} } };
+      target: { deviceId: "desktop", windowId: registration.windowId }, request: { requestId: "queued", operation: "design.open", payload: { format: "slides" } } };
     for (const fn of [...commands]) fn(frame);
   },
 };
@@ -30,7 +30,7 @@ if (!query.has("web")) window.tarobotDesktop = {
 };
 const connection = {
   identity: { deviceId: "desktop", hubPublicKey: "host" }, sessionEpoch: 1, isClosed: false, isReadOnly: false,
-  state: { status: "online", user: { id: "owner" }, workbenchDesignOpenAvailable: true },
+  state: { status: "online", user: { id: "owner" }, workbenchDesignOpenAvailable: true, workbenchSlidesAvailable: true },
   subscribe(fn: () => void) { changes.add(fn); return () => { changes.delete(fn); }; },
   subscribeWorkbench(fn: (value: any) => void) { commands.add(fn); return () => { commands.delete(fn); }; },
   async send(value: any) {

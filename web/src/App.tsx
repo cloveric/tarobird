@@ -69,13 +69,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
-const ENGINES = ["codex", "claude", "kimi", "deepseek", "antigravity"] as const;
+const ENGINES = ["codex", "claude", "kimi", "deepseek", "antigravity", "pi", "omp"] as const;
 const ENGINE_LABELS: Record<string, string> = {
   codex: "Codex",
   claude: "Claude Code",
   kimi: "Kimi Code",
   deepseek: "DeepSeek Harness",
   antigravity: "Antigravity",
+  pi: "Pi",
+  omp: "oh-my-pi (omp)",
 };
 // The config schema (z.enum(EFFORT_LEVELS)) only accepts these; blank = unset.
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -85,6 +87,8 @@ const ENGINE_EFFORTS: Record<string, readonly string[]> = {
   kimi: ["", "low", "high", "max"],
   deepseek: ["", "low", "high", "max"],
   antigravity: ["", "low", "medium", "high", "xhigh", "max"],
+  pi: ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"],
+  omp: ["", "off", "minimal", "low", "medium", "high", "xhigh", "max"],
 };
 const LOCALES = [
   { value: "en", label: "English (en)" },

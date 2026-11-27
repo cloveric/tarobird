@@ -5,7 +5,7 @@ The English overview is now the main [README](README.md). It is kept current the
 - [README](README.md): product overview, engines and quick start
 - [Workbench and slides](README.md#workbench)
 - [Remote screen control](README.md#remote-screen)
-- [Chancellor](README.md#chancellor)
+- [Superagent](README.md#chancellor)
 - [Details](docs/details.md): features, engines and permissions, CLI, queues, architecture, updating, building and project status
 - [An assistant for your assistant](docs/details.md#an-assistant-for-your-assistant): let Dot, Grok or another assistant with host command access use TaroBird through its CLI
 - [Downloads](https://github.com/cloveric/tarobird/releases/latest): current installers and matching standalone CLI archives

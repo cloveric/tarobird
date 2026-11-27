@@ -3,12 +3,14 @@ import { emptyConversationFolders } from '../../src/client-protocol/conversation
 import type { HubConnection } from './connection.js';
 import type { InboxRow } from './conversation-inbox.js';
 import {
+  crossHostFolderOrderWriteError,
   folderHostIdentity,
   readCrossHostFolderOrder,
   subscribeCrossHostFolderOrder,
   type CrossHostFolderSource,
   type StoredCrossHostFolderOrder,
 } from './cross-host-folder-order.js';
+import { CrossHostFolderOrderSync, type CrossHostOrderConnectionSource } from './cross-host-folder-order-sync.js';
 
 export type CrossHostFolderHost = {
   id: string;
@@ -18,6 +20,17 @@ export type CrossHostFolderHost = {
 
 export function useCrossHostFolderOrder(): StoredCrossHostFolderOrder {
   return useSyncExternalStore(subscribeCrossHostFolderOrder, readCrossHostFolderOrder, readCrossHostFolderOrder);
+}
+
+export function useCrossHostFolderOrderWriteError(): string | undefined {
+  return useSyncExternalStore(subscribeCrossHostFolderOrder, crossHostFolderOrderWriteError, crossHostFolderOrderWriteError);
+}
+
+export function useCrossHostFolderOrderSync(source: CrossHostOrderConnectionSource): void {
+  useEffect(() => {
+    const coordinator = new CrossHostFolderOrderSync(source);
+    return () => coordinator.dispose();
+  }, [source]);
 }
 
 const connectionTokens = new WeakMap<HubConnection, number>();

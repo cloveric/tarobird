@@ -20,11 +20,13 @@ const chapters=[
  ['canvas-demo','画布 · 选中文字，继续修改','Canvas · Select the text. Make it yours.',0,9,''],
  ['workbench-tools-demo','侧边工作台 · 白板与笔记','Side panel · Whiteboard and notes',0,6.6,''],
  ['screen-demo','屏幕控制 · 查看与接管','Screen control · View and interact.',0,4.3,''],
- ['chancellor-demo','幕僚长 · 跟进每张工单','Chancellor · Follow every ticket.',0,3.8,''],
+ ['chancellor-demo','幕僚长 · 跟进每张工单','Superagent · Follow every ticket.',0,3.8,''],
 ];
+const locales=process.argv.slice(2).length?process.argv.slice(2):['zh','en'];
+for(const locale of locales)if(locale!=='zh'&&locale!=='en')throw new Error(`Unknown locale: ${locale}`);
 const browser=await chromium.launch({headless:true}),images=[];
 try{
- for(const locale of ['zh','en']){
+ for(const locale of locales){
   const work=await mkdtemp(path.join(os.tmpdir(),'readme-overview-')),page=await browser.newPage({viewport:{width:1280,height:72},deviceScaleFactor:1});
   try{
    const scenes=[];let start=0;
@@ -50,5 +52,9 @@ try{
    console.log(`Composed ${file}: ${start}s, ${(bytes.length/1048576).toFixed(1)} MiB`);
   }finally{await page.close();await rm(work,{recursive:true,force:true});}
  }
- await writeFile(path.join(output,'demo-capture.json'),JSON.stringify({...await captureProvenance(root),captured:new Date().toISOString(),source:'Overview assembled from the actual UI recordings referenced in each scene. Synthetic conversations and workflow states; native browser uses an isolated Electron harness and a fictional local website; remote screen data and connection are simulated. No model execution, real repository push, installed-App or physical-device acceptance.',images},null,2)+'\n');
+ const metaFile=path.join(output,'demo-capture.json');
+ let previous=[];
+ if(locales.length<2){try{previous=JSON.parse(await readFile(metaFile,'utf8')).images??[];}catch{}}
+ const merged=[...previous.filter(item=>!locales.includes(item.locale)),...images];
+ await writeFile(metaFile,JSON.stringify({...await captureProvenance(root),captured:new Date().toISOString(),source:'Overview assembled from the actual UI recordings referenced in each scene. Synthetic conversations and workflow states; native browser uses an isolated Electron harness and a fictional local website; remote screen data and connection are simulated. No model execution, real repository push, installed-App or physical-device acceptance.',images:merged},null,2)+'\n');
 }finally{await browser.close();}

@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import { PRIVATE_NETWORK_RECOVERY_CAPABILITY } from "../../src/client-protocol/private-network.js";
 
 const io = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("../src/storage.js", () => ({ cache: {}, ClientCache: class {}, defaultPreferences: {} }));
@@ -44,4 +45,25 @@ it("a confirmed network departure clears that network's diagnosis without hiding
   await connection.confirmNetworkChange(view(0) as Parameters<HubConnection["confirmNetworkChange"]>[0]);
   expect(connection.state.routeSync?.host?.limited).toBe(true);
   expect(connection.state.routeSync?.network).toBeUndefined();
+});
+
+it("negotiates ?capabilities=1 only when the Host advertises private-network.recovery.v1", async () => {
+  const routes: string[] = [];
+  const capView = { ...view(7), hostCapabilities: { [hubPublicKey]: [PRIVATE_NETWORK_RECOVERY_CAPABILITY] } };
+  io.fetch.mockImplementation(async (_url: string, route: string) => {
+    routes.push(route);
+    if (route === "/api/network?capabilities=1") return Response.json(capView);
+    if (route === "/api/network") return Response.json(view(5));
+    return Response.json({ name: "example-host", revision: 1 });
+  });
+  await connection.refreshNetwork();
+  expect(routes).toContain("/api/network");
+  expect(routes).not.toContain("/api/network?capabilities=1");
+  expect(connection.state.network?.hostCapabilities).toBeUndefined();
+
+  routes.length = 0;
+  connection.state = { ...connection.state, networkRecoveryAvailable: true };
+  await connection.refreshNetwork();
+  expect(routes).toContain("/api/network?capabilities=1");
+  expect(connection.state.network?.hostCapabilities).toEqual({ [hubPublicKey]: [PRIVATE_NETWORK_RECOVERY_CAPABILITY] });
 });

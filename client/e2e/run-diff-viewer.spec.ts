@@ -21,8 +21,24 @@ test("reply's entry reads 本轮改动, with no counts, and opens recorded chang
 test("phone loads one selected operation, scrolls large preview, and offers no annotation", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto(url + "?mode=android");
   await expect(file(page)).toBeVisible();
+  const listCounts = await page.locator(".diff-file .diff-counts").first().evaluate(node => {
+    const style = getComputedStyle(node);
+    const spans = [...node.querySelectorAll("span")].map(span => ({ text: span.textContent, ...span.getBoundingClientRect().toJSON() }));
+    return { alignItems: style.alignItems, fontVariantNumeric: style.fontVariantNumeric, spans };
+  });
+  expect(listCounts.alignItems).toBe("baseline");
+  expect(listCounts.fontVariantNumeric).toBe("tabular-nums");
+  expect(listCounts.spans.map(s => s.text)).toEqual(["+4", "-2"]);
+  expect(Math.abs(listCounts.spans[0]!.top - listCounts.spans[1]!.top)).toBeLessThan(0.5);
+  expect(Math.abs(listCounts.spans[0]!.height - listCounts.spans[1]!.height)).toBeLessThan(0.5);
   expect(await page.evaluate(() => (window as any).runDiffFixture.requests.length)).toBe(1);
   await file(page).click(); await expect(page.getByTestId("diff-code")).toContainText("one-1");
+  const toolbarCounts = await page.locator(".diff-file-toolbar .diff-counts").evaluate(node => {
+    return [...node.querySelectorAll("span")].map(span => ({ text: span.textContent, ...span.getBoundingClientRect().toJSON() }));
+  });
+  expect(toolbarCounts.map(s => s.text)).toEqual(["+2", "-1"]);
+  expect(Math.abs(toolbarCounts[0]!.top - toolbarCounts[1]!.top)).toBeLessThan(0.5);
+  expect(Math.abs(toolbarCounts[0]!.height - toolbarCounts[1]!.height)).toBeLessThan(0.5);
   await expect(page.getByRole("button", { name: /批注第/ })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "审阅批注" })).toHaveCount(0);
   if (process.env.DIFF_SCREENSHOTS) await page.screenshot({ path: process.env.DIFF_SCREENSHOTS + "/mobile-recorded-diff.png" });

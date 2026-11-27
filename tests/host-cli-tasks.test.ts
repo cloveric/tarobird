@@ -3,19 +3,20 @@ import { runSteeringCommand, steeringReceiptHint, steeringCommandFailure, steeri
 import { runTasksCommand } from "../src/host-cli/tasks.js";
 
 describe("headless native task controls", () => {
+  const mockRequest = <R,>(impl: () => Promise<R>) => vi.fn(impl) as unknown as (<T = unknown>(route: string, method?: string, body?: unknown) => Promise<T>);
   it("lists live native tasks through the same conversation API", async () => {
-    const request = vi.fn(async () => ({ supported: true, tasks: [] }));
+    const request = mockRequest(async () => ({ supported: true, tasks: [] }));
     await runTasksCommand({ request }, "list", "chat", { bot: "bot" });
-    expect(request).toHaveBeenCalledExactlyOnceWith("/api/conversations/chat/tasks?botId=bot");
+    expect(request).toHaveBeenCalledExactlyOnceWith("/api/conversations/chat/tasks?botId=bot&swarmTasks=1");
   });
   it("stops exactly one handle and returns its native receipt", async () => {
-    const request = vi.fn(async () => ({ outcome: "accepted" })), receipts: string[] = [];
+    const request = mockRequest(async () => ({ outcome: "accepted" })), receipts: string[] = [];
     expect(await runTasksCommand({ request }, "stop", "chat", { bot: "bot", task: "opaque_task", "request-id": "operation" }, id => receipts.push(id))).toEqual({ outcome: "accepted" });
     expect(request).toHaveBeenCalledExactlyOnceWith("/api/conversations/chat/tasks", "POST", { botId: "bot", taskId: "opaque_task", requestId: "operation" });
     expect(receipts).toEqual(["operation"]);
   });
   it("forced recovery requires explicit confirmation and exact fence token", async () => {
-    const request = vi.fn(async () => ({ outcome: "accepted" }));
+    const request = mockRequest(async () => ({ outcome: "accepted" }));
     await expect(runTasksCommand({ request }, "recover", "chat", { bot: "bot", token: "fence" })).rejects.toThrow("--yes");
     expect(request).not.toHaveBeenCalled();
     await runTasksCommand({ request }, "recover", "chat", { bot: "bot", token: "fence", yes: true, "request-id": "recover" });
@@ -32,8 +33,9 @@ describe("headless native task controls", () => {
 });
 
 describe("headless exact-turn input", () => {
+  const mockRequest = <R,>(impl: () => Promise<R>) => vi.fn(impl) as unknown as (<T = unknown>(route: string, method?: string, body?: unknown) => Promise<T>);
   it("explains an accepted no-op without changing the receipt, failing, or retrying", async () => {
-    const request = vi.fn(async () => ({ outcome: "accepted", result: "nothing_waiting" }));
+    const request = mockRequest(async () => ({ outcome: "accepted", result: "nothing_waiting" }));
     const result = await runSteeringCommand({ request }, "send-now", "chat", { message: "original-input", "request-id": "control-id" });
     expect(result).toEqual({ outcome: "accepted", result: "nothing_waiting" });
     expect(steeringCommandFailure("send-now", result)).toBeUndefined();
@@ -43,7 +45,7 @@ describe("headless exact-turn input", () => {
   });
   it.each(["send-now", "cancel"])("%s preserves the native control receipt and reports refusal or uncertainty without retry", async command => {
     for (const outcome of ["accepted", "rejected", "unknown"] as const) {
-      const request = vi.fn(async () => ({ outcome }));
+      const request = mockRequest(async () => ({ outcome }));
       const result = await runSteeringCommand({ request }, command, "chat", { message: "original-input", "request-id": "control-id" });
       expect(result).toEqual({ outcome });
       expect(Boolean(steeringCommandFailure(command, result))).toBe(outcome !== "accepted");
@@ -62,12 +64,12 @@ describe("headless exact-turn input", () => {
     expect(steeringReceiptHint("send", "op")).toContain("原目标和原内容");
   });
   it("reads the same active target without creating a turn", async () => {
-    const request = vi.fn(async () => ({ supported: true, targetId: "active", sendBehavior: "steer" }));
+    const request = mockRequest(async () => ({ supported: true, targetId: "active", sendBehavior: "steer" }));
     expect(await runSteeringCommand({ request }, "status", "chat", { bot: "bot" })).toMatchObject({ targetId: "active" });
     expect(request).toHaveBeenCalledExactlyOnceWith("/api/conversations/chat/steer?botId=bot&review=1");
   });
   it("reports a background-review target with the App's capability and no send-now", async () => {
-    const request = vi.fn(async () => ({ supported: true, targetId: "review", targetKind: "background-review", sendBehavior: "steer", nativeInput: { sendNow: false, cancel: true, modelReceipt: true } }));
+    const request = mockRequest(async () => ({ supported: true, targetId: "review", targetKind: "background-review", sendBehavior: "steer", nativeInput: { sendNow: false, cancel: true, modelReceipt: true } }));
     expect(await runSteeringCommand({ request }, "status", "chat", { bot: "bot" })).toEqual({ supported: true, targetId: "review", targetKind: "background-review", sendBehavior: "steer", nativeInput: { sendNow: false, cancel: true, modelReceipt: true } });
   });
   it("prints its recovery ID before uncertain delivery without fetching another target", async () => {

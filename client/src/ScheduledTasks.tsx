@@ -8,7 +8,7 @@ import { Avatar } from "./Avatar.js";
 import { useBotLabels } from "./BotReferences.js";
 import { scheduleCadence } from "./schedule-cadence.js";
 import { HubHttpError } from "./http-error.js";
-import { t, useLocale } from "./i18n.js";
+import { hostRequestLocale, localeIntlTag, t, useLocale } from "./i18n.js";
 import "./scheduled-tasks.css";
 
 type Frequency = "daily" | "weekdays" | "weekly" | "once" | "custom";
@@ -126,7 +126,8 @@ export function ScheduledTasks({ connection, bots, conversations, initialBot, in
     wasOffline.current = !hostOnline;
   }, [hostOnline]);
   const request = async (mutation: ScheduleMutation, targetBotId = botId) => {
-    await connection.http(`/api/bots/${targetBotId}/schedules`, { method: "POST", body: JSON.stringify({ mutation, locale }) });
+    // A 1.6.0 Host rejects any locale but "zh"/"en" with 400; see hostRequestLocale.
+    await connection.http(`/api/bots/${targetBotId}/schedules`, { method: "POST", body: JSON.stringify({ mutation, locale: hostRequestLocale(locale, connection.state.requestLocalesAvailable) }) });
   };
   const save = async () => {
     if (!draft || busy || !online) return;
@@ -168,7 +169,7 @@ export function ScheduledTasks({ connection, bots, conversations, initialBot, in
       if (alive.current) setError(refreshed ? errorText(e, "mutate") : `${errorText(e, "mutate")} ${t("暂时无法读取定时任务，请检查连接后刷新。")}`);
     } finally { if (alive.current) setBusy(false); }
   };
-  const date = (value: string | null, timezone: string) => value ? new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en-US", { timeZone: timezone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : t("尚无执行记录");
+  const date = (value: string | null, timezone: string) => value ? new Intl.DateTimeFormat(localeIntlTag(locale), { timeZone: timezone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : t("尚无执行记录");
   return <CreationDialog title={choosingBot ? t("选择执行 Bot") : draft ? editing ? t("编辑定时任务") : t("新建定时任务") : t("定时任务")} close={choosingBot ? finishChoosingBot : close} back={choosingBot} busy={busy} closeLabel={choosingBot ? t("返回定时任务") : t("关闭定时任务")} movable className={`scheduled-tasks${choosingBot ? " choosing-bot" : ""}`}>
     {!owner ? <p role="alert">{t("需要管理员权限")}</p> : <>
       {choosingBot && <section className="schedule-bot-picker" aria-label={t("选择执行 Bot")}>

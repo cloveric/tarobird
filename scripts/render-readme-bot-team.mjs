@@ -54,7 +54,7 @@ try {
   ${rect(352,726,416,36,'#f0ede7',10,'#f0ede7')}${text(560,751,w('Peer handoffs · separately authorized','机器间相互接力 · 按方向单独授权'),19,'#7d6b8d',500,'text-anchor="middle"')}
   ${text(56,829,w('Choose who can send to whom.','由你决定，谁可以给谁发任务。'),24,'#302b27',600)}
   ${text(56,864,w('Bots execute on their owning hosts; results return through collaboration messages.','Bot 在所属主机上执行；结果通过协作消息回传。'),20)}
-  ${text(56,898,w('Illustrative messaging pattern · Agent Bus and Chancellor ticket dispatch remain host-local.','消息协作方式示意 · Agent Bus 与幕僚长工单派发仍限定在本机。'),16,'#8b7e71')}
+  ${text(56,898,w('Illustrative messaging pattern · Agent Bus and Superagent ticket dispatch remain host-local.','消息协作方式示意 · Agent Bus 与幕僚长工单派发仍限定在本机。'),16,'#8b7e71')}
   </svg>`;
   await page.setContent(`<meta charset="utf-8"><style>@font-face{font-family:Body;src:url(data:font/ttf;base64,${font})}body{margin:0}svg{display:block;font-family:Body,"PingFang SC",sans-serif}</style>${svg}`);
   await page.evaluate(()=>document.fonts.ready);

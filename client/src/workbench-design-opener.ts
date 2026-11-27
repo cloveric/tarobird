@@ -41,6 +41,7 @@ export class WorkbenchDesignOpener {
   private available() {
     return !this.disposed && this.options.eligible() && !this.connection.isClosed && !this.connection.isReadOnly
       && this.connection.state.status === "online" && this.connection.state.workbenchDesignOpenAvailable === true
+      && this.connection.state.workbenchSlidesAvailable === true
       && !!this.userId && this.connection.state.user?.id === this.userId;
   }
   private target(): WorkbenchTarget { return { deviceId: this.connection.identity.deviceId, windowId: this.windowId }; }
@@ -48,19 +49,27 @@ export class WorkbenchDesignOpener {
     return { windowId: this.windowId, generation: this.generation, conversationId: this.conversationId,
       capabilities: ["design.open.v1", ...(this.connection.state.workbenchSlidesAvailable ? ["design.slides.v1" as const] : [])], tabs: [], visible: true };
   }
-  private sync() {
-    if (!this.available()) {
-      for (const task of this.pending.values()) task.abort.abort();
-      this.confirmed = -1; this.epoch = -1; return;
-    }
-    const epoch = this.connection.sessionEpoch;
-    if (this.epoch === epoch) return;
-    this.epoch = epoch; this.confirmed = -1;
+  private ensureRegistration(epoch: number): Promise<void> {
+    if (this.registration) return this.registration;
     const registration = this.register(epoch);
     this.registration = registration;
     // Optional UI metadata must never break ordinary chat or produce an
     // unhandled rejection when an App goes offline during registration.
-    void registration.catch(() => undefined);
+    void registration.then(
+      () => { if (this.registration === registration && this.confirmed !== epoch) this.registration = undefined; },
+      () => { if (this.registration === registration) this.registration = undefined; },
+    );
+    return registration;
+  }
+  private sync() {
+    if (!this.available()) {
+      for (const task of this.pending.values()) task.abort.abort();
+      this.confirmed = -1; this.epoch = -1; this.registration = undefined; return;
+    }
+    const epoch = this.connection.sessionEpoch;
+    if (this.epoch === epoch) return;
+    this.epoch = epoch; this.confirmed = -1; this.registration = undefined;
+    this.ensureRegistration(epoch);
   }
   private async register(epoch: number) {
     await this.connection.send({ v: 1, type: "workbench.register", registration: this.snapshot() });
@@ -77,18 +86,32 @@ export class WorkbenchDesignOpener {
       }
       await new Promise<void>((resolve, reject) => {
         const stop = () => { clearTimeout(timer); reject(new Error("workbench_cancelled")); };
-        const timer = setTimeout(() => { signal.removeEventListener("abort", stop); resolve(); }, 40);
+        const timer = setTimeout(() => { signal.removeEventListener("abort", stop); resolve(); }, attempt === 0 ? 10 : 40);
         if (signal.aborted) stop(); else signal.addEventListener("abort", stop, { once: true });
       });
     }
     throw new Error("workbench_open_unavailable");
   }
+  /** Non-blocking snapshot for message send/steer: kicks off background
+   * registration when needed and attaches `openTarget` only if already
+   * confirmed for the current connection epoch, never stalling chat sends. */
+  contextSnapshot(existing?: WorkbenchContext): WorkbenchContext | undefined {
+    if (!this.available()) return existing;
+    this.sync();
+    const epoch = this.connection.sessionEpoch;
+    if (this.confirmed !== epoch) {
+      this.ensureRegistration(epoch);
+      return existing;
+    }
+    const openTarget = this.target();
+    return { ...(existing ?? { target: openTarget }), openTarget };
+  }
   async context(existing?: WorkbenchContext): Promise<WorkbenchContext | undefined> {
     if (!this.available()) return existing;
     this.sync();
-    if (!this.registration) this.registration = this.register(this.connection.sessionEpoch);
-    try { await this.registration; } catch { this.registration = undefined; return existing; }
-    if (!this.available() || this.confirmed !== this.connection.sessionEpoch) return existing;
+    const epoch = this.connection.sessionEpoch;
+    try { await this.ensureRegistration(epoch); } catch { return existing; }
+    if (!this.available() || this.connection.sessionEpoch !== epoch || this.confirmed !== epoch) return existing;
     const openTarget = this.target();
     return { ...(existing ?? { target: openTarget }), openTarget };
   }
@@ -116,7 +139,8 @@ export class WorkbenchDesignOpener {
     try {
       check();
       const {format} = designOpenSchema.parse(frame.request.payload ?? {});
-      if (format === "slides" && !this.connection.state.workbenchSlidesAvailable) throw new Error("workbench_slides_host_update_required");
+      if (format !== "slides") throw new Error("design_canvas_removed");
+      if (!this.connection.state.workbenchSlidesAvailable) throw new Error("workbench_slides_host_update_required");
       const admission = await untilCancelled(this.connection.http<{admitted: boolean; generation: string; target: WorkbenchTarget}>("/api/workbench/admit", {
         method: "POST", body: JSON.stringify({ dispatchId: frame.dispatchId }), signal: task.abort.signal,
       }), task.abort.signal);

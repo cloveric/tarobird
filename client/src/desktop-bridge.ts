@@ -37,3 +37,6 @@ export async function openDesktopUrl(url: string): Promise<void> {
   if (isElectron()) return invoke("desktop_open_url", { url });
   return (await import("@tauri-apps/plugin-opener")).openUrl(url);
 }
+export async function openWindowsNetworkSettings(): Promise<void> {
+  return invoke<void>("desktop_network_settings");
+}

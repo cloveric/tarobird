@@ -1,4 +1,5 @@
 import { runToolAction, runToolLabels } from "../client-protocol/run-tools.js";
+import { serializeRunPlanInput } from "../client-protocol/run-plan.js";
 import { randomUUID } from "node:crypto";
 import type { EngineStreamEvent } from "../codex/adapter.js";
 import { RUN_BYTE_LIMIT, RUN_ENTRY_LIMIT, isContextMaintenance, type RunEntry, type RunSummary, type RunScope } from "../client-protocol/run.js";
@@ -156,7 +157,7 @@ export function recordRunEvent(record: RunRecord, event: EngineStreamEvent, now 
   } else if (event.type === "tool_use" || event.type === "permission_request") {
     if (runToolAction(event.toolName) === "plan") {
       const previous = event.toolUseId ? record.entries.find(e => sameScope(e) && e.kind === "plan" && e.callId === event.toolUseId) : undefined;
-      const plan = { kind: "plan" as const, status: "done" as const, name: event.toolName.slice(0, 512), callId: event.toolUseId?.slice(0, 512), input: json(event.toolInput) };
+      const plan = { kind: "plan" as const, status: "done" as const, name: event.toolName.slice(0, 512), callId: event.toolUseId?.slice(0, 512), input: serializeRunPlanInput(event.toolInput) };
       if (previous) update(record, { ...previous, ...plan, revision: record.revision }, previous); else add(plan);
       return;
     }

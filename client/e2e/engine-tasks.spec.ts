@@ -118,3 +118,35 @@ for (const lang of ["zh", "en"] as const) for (const phone of [false, true]) tes
   await page.mouse.move(0, 0);
   await page.screenshot({ path: info.outputPath(`kimi-tasks-${lang}-${phone ? "phone" : "desktop"}.png`) });
 });
+
+test("swarm view omits false individual-stop claim, restricts Message @worker to active non-helpers, preserves composer focus, and keeps openTab=board across initial load", async ({ page }) => {
+  await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/engine-tasks.html?shape=swarm&openTab=board&delay=120");
+  const dialog = page.getByRole("dialog", { name: "子代理与后台任务", exact: true });
+  // Opening directly to board before first snapshot finishes must NOT bounce back to tasks tab.
+  await expect(dialog.getByRole("tab", { name: /Swarm 看板/ })).toHaveAttribute("aria-selected", "true");
+  await expect(dialog).toContainText("Checking token signature");
+  expect(await page.evaluate(() => (window as any).taskFixture.calls.find((c: any) => !c.input)?.route)).toContain("swarmTasks=1");
+
+  // Board view: Message @worker renders ONLY for active non-helper author (@auth-fix), NOT killed (@old-worker) or helper (@monitor).
+  await expect(dialog.getByRole("button", { name: "向 @auth-fix 发消息", exact: true })).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "向 @old-worker 发消息", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "向 @monitor 发消息", exact: true })).toHaveCount(0);
+
+  // Switch to Workers & tasks tab: read-only tasks must NOT show "可在任务列表单独停止".
+  await dialog.getByRole("tab", { name: /Worker 与任务/ }).click();
+  await expect(dialog).toContainText("停止当前轮次也会结束 2 个后台任务。");
+  await expect(dialog).not.toContainText("可在任务列表单独停止");
+
+  // Tasks view: Message @worker renders ONLY on running non-helper worker (@auth-fix), NOT done/killed/helper.
+  await expect(dialog.getByRole("button", { name: "向 @auth-fix 发消息", exact: true })).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "向 @lint-pass 发消息", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "向 @old-worker 发消息", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "向 @monitor 发消息", exact: true })).toHaveCount(0);
+
+  // Clicking Message @auth-fix closes dialog, fills draft, and keeps focus on the composer textarea (not stolen back by CreationDialog returnFocus).
+  await dialog.getByRole("button", { name: "向 @auth-fix 发消息", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const composer = page.getByRole("textbox", { name: "消息", exact: true });
+  await expect(composer).toHaveValue("@auth-fix ");
+  await expect(composer).toBeFocused();
+});

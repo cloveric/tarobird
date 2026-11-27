@@ -12,6 +12,7 @@ export class UnifiedPushRemovalError extends Error {
 export interface UnifiedPushNative extends UnifiedBridge {
   notificationStatus(): Promise<{ appEnabled: boolean; channel: "enabled" | "disabled" | "missing" | "not-required"; soundEnabled?: boolean; vibrationEnabled?: boolean }>;
   openNotificationSettings(): Promise<void>;
+  clearHostNotifications?(options: { hostId: string }): Promise<void>;
   distributors(): Promise<{ distributors: { id: string; name: string }[] }>;
   unregister(scope: Pick<UnifiedScope, "instance">): Promise<void>;
   beginUnregister(scope: UnifiedScope & { remoteRemoval?: boolean }): Promise<UnifiedRegistration>;
@@ -40,6 +41,8 @@ export async function enableUnifiedPush(connection: HubConnection, distributor: 
   await unifiedState(scope); // Verify the installed interface before permission UI.
   const { PushNotifications } = await import("@capacitor/push-notifications");
   if ((await PushNotifications.requestPermissions()).receive !== "granted") throw new Error("unifiedpush_permission_required");
+  const status = await UnifiedPush.notificationStatus?.().catch(() => undefined);
+  if (status && status.appEnabled === false) throw new Error("unifiedpush_permission_required");
   await withUnifiedChange(scope, async () => {
     const previous = await unifiedState(scope);
     try {

@@ -30,13 +30,17 @@
 .bot-setup .new-bot-hint,.bot-setup .permission-select>p{font-size:12px;line-height:1.55;color:var(--muted);overflow-wrap:anywhere}
 .bot-setup .new-bot-cli{display:flex;align-items:flex-start;gap:6px}
 .bot-setup .new-bot-cli>svg{flex:none;margin-top:2px;color:var(--label,var(--muted))}
+.bot-setup .new-bot-unavailable{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px}
+.bot-setup .new-bot-redetect{min-height:32px;padding:4px 12px;font-size:12px}
 .bot-setup .new-bot-block>.dashboard-notice{margin-bottom:0}
 
-/* Chancellor: one bordered option, short by default; details follow the tick. */
+/* Superagent: one bordered option, short by default; details follow the tick. */
 .bot-setup .new-bot-role{padding:2px 12px 12px;border:1px solid var(--border);border-radius:12px;transition:background-color var(--t-fast,.12s) var(--ease,ease),border-color var(--t-fast,.12s) var(--ease,ease)}
 .bot-setup .new-bot-role[data-checked]{border-color:var(--border-strong);background:color-mix(in srgb,var(--surface) 45%,var(--bg))}
-.bot-setup .new-bot-role>.dispatcher-role-row{min-height:40px}
-.bot-setup .new-bot-role>.dispatcher-role-row>.collaboration-check{margin:0;min-height:36px;font-size:14px;font-weight:500;cursor:pointer}
+.bot-setup .new-bot-role>.dispatcher-role-row{min-width:0;min-height:40px;flex-wrap:wrap;gap:0 6px}
+.bot-setup .new-bot-role>.dispatcher-role-row>.collaboration-check{flex:0 1 auto;min-width:0;margin:0;min-height:36px;font-size:14px;font-weight:500;cursor:pointer}
+.bot-setup .new-bot-role>.dispatcher-role-row>.dispatcher-role-meta{display:inline-flex;align-items:center;flex:none;gap:6px;max-width:100%}
+.bot-setup .new-bot-experimental-badge{flex:none;padding:1px 7px;border-radius:999px;background:var(--surface);color:var(--muted);font-size:11px;font-weight:500;line-height:1.5;white-space:nowrap}
 /* Align secondary copy with the label text (16px box + 8px gap). */
 .bot-setup .new-bot-role>:not(.dispatcher-role-row){margin-left:24px}
 .bot-setup .new-bot-role-details>*{margin-top:8px}
@@ -68,6 +72,9 @@
 
 @media (max-width:360px){
   .bot-setup .new-bot-role{padding-inline:10px}
+  .bot-setup .new-bot-role>.dispatcher-role-row{column-gap:4px}
+  .bot-setup .new-bot-role>.dispatcher-role-row>.dispatcher-role-meta{gap:4px}
+  .bot-setup .new-bot-experimental-badge{padding:1px 6px}
   .bot-setup .new-bot-role>:not(.dispatcher-role-row){margin-left:0}
 }
 @media (prefers-reduced-motion:reduce){.bot-setup .new-bot-role{transition:none}}

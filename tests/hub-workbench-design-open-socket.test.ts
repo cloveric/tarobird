@@ -8,7 +8,7 @@ import { HubServer } from '../src/hub/server.js';
 import { deviceProof, hashSecret } from '../src/hub/auth.js';
 import { nodeFrameReader } from '../src/client-protocol/fragments-node.js';
 import { WORKBENCH_CAPABILITY } from '../src/client-protocol/workbench.js';
-import { WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY } from '../src/client-protocol/workbench-design.js';
+import { WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY } from '../src/client-protocol/workbench-design.js';
 
 class Peer {
   frames: any[] = [];
@@ -22,10 +22,10 @@ async function until<T>(fn: () => T | undefined | Promise<T | undefined>) { cons
 describe('design.open over the signed App socket and Bot instance API', () => {
   let dir: string, hub: HubServer, conversationId: string, app: Peer, token: string; const peers: Peer[] = [];
   const secret = 'design-open-fixture-' + 'a'.repeat(40), secret2 = 'design-open-legacy-' + 'b'.repeat(40);
-  const appCapabilities = [WORKBENCH_CAPABILITY, WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY];
+  const appCapabilities = [WORKBENCH_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY];
   const opener = { deviceId: 'desktop', windowId: 'opener' }, real = { deviceId: 'desktop', windowId: 'controller', tabId: 'design-a' };
-  const openerRegistration = (conversation: string, windowId = 'opener') => ({ windowId, generation: 'opener-gen', conversationId: conversation, capabilities: ['design.open.v1'], tabs: [], visible: true });
-  const controllerRegistration = (conversation: string) => ({ windowId: 'controller', generation: 'controller-gen', conversationId: conversation, capabilities: ['whiteboard.v1', 'design.v1'], tabs: [{ id: 'design-a', kind: 'design', title: 'A', revision: 2 }], activeTabId: 'design-a', visible: true });
+  const openerRegistration = (conversation: string, windowId = 'opener') => ({ windowId, generation: 'opener-gen', conversationId: conversation, capabilities: ['design.open.v1', 'design.slides.v1'], tabs: [], visible: true });
+  const controllerRegistration = (conversation: string) => ({ windowId: 'controller', generation: 'controller-gen', conversationId: conversation, capabilities: ['whiteboard.v1', 'design.slides.v1'], tabs: [{ id: 'design-a', kind: 'design', title: 'A', revision: 2, designFormat: 'slides' as const }], activeTabId: 'design-a', visible: true });
   async function client(deviceId: string, capabilities = appCapabilities) {
     const keys = generateKeyPairSync('ed25519');
     const pair = await hub.auth.pair({ deviceId, name: deviceId, platform: 'web', publicKey: keys.publicKey.export({ type: 'spki', format: 'der' }).toString('base64') }, '127.0.0.1');
@@ -112,17 +112,17 @@ describe('design.open over the signed App socket and Bot instance API', () => {
     const message = (await bot.peer.next('instance.message')).message;
     const call = (id: string, request: object) => bot.peer.send({ type: 'instance.request', id, method: 'workbench.command', params: { conversationId, contextMessageId: message.id, request: { ...request, contextMessageId: message.id } } });
     const result = (id: string) => until(() => { const i = bot.peer.frames.findIndex(f => f.type === 'instance.result' && f.id === id); return i < 0 ? undefined : bot.peer.frames.splice(i, 1)[0]; });
-    call('elsewhere', { requestId: 'open-elsewhere', operation: 'design.open', target: { deviceId: 'phone', windowId: 'opener' }, payload: {} });
+    call('elsewhere', { requestId: 'open-elsewhere', operation: 'design.open', target: { deviceId: 'phone', windowId: 'opener' }, payload: { format: 'slides' } });
     expect((await result('elsewhere')).error).toBe('workbench_open_target_mismatch');
     // Receipt before the real registration: the App may have opened, outcome unknown.
-    call('early', { requestId: 'open-early', operation: 'design.open', payload: {} });
+    call('early', { requestId: 'open-early', operation: 'design.open', payload: { format: 'slides' } });
     const early = await app.next('workbench.command');
     expect((await api('/api/workbench/admit', { dispatchId: early.dispatchId })).status).toBe(200);
     app.send({ type: 'workbench.receipt', dispatchId: early.dispatchId, receipt: { requestId: 'open-early', target: early.target, status: 'applied', saved: true, revision: 2, result: { target: real, created: false } } });
     expect((await result('early')).result).toMatchObject({ status: 'unknown', error: 'workbench_open_target_unregistered' });
-    call('open', { requestId: 'open', operation: 'design.open', payload: {} });
+    call('open', { requestId: 'open', operation: 'design.open', payload: { format: 'slides' } });
     const frame = await app.next('workbench.command');
-    expect(frame).toMatchObject({ conversationId, target: opener, request: { operation: 'design.open', payload: {}, contextMessageId: message.id } });
+    expect(frame).toMatchObject({ conversationId, target: opener, request: { operation: 'design.open', payload: { format: 'slides' }, contextMessageId: message.id } });
     expect((await api('/api/workbench/admit', { dispatchId: frame.dispatchId })).status).toBe(200);
     // Same ordered socket: registration first, then the receipt.
     app.send({ type: 'workbench.register', registration: controllerRegistration(conversationId) });

@@ -158,3 +158,46 @@ test("phone details offer group settings while inside a topic", async ({ page },
     await expect(workspace(page).getByRole("heading", { name: "发布话题", exact: true })).toBeVisible();
   } finally { await hub.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test("designated reply mode saves cleanly, displays responder accurately, and Add Member keeps unsaved edits without 409 conflicts", async ({ page }) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "group-designated-"));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+  try {
+    await seed(hub);
+    await pair(page, hub);
+    await workspace(page).locator(".group-tree-heading .conversation-row").click();
+    await open(page);
+
+    // 1. Editing title then switching Bot dropdown in Add Member MUST NOT wipe unsaved title edits!
+    const titleField = dialog(page).getByLabel("群组名称", { exact: true });
+    await titleField.fill("未保存的新群名");
+    const botPicker = dialog(page).locator(".group-add-member-box label", { hasText: /^Bot/ }).locator("select");
+    await expect(botPicker).toBeVisible();
+    await botPicker.selectOption("beta");
+    await expect(titleField).toHaveValue("未保存的新群名");
+
+    // 2. Adding a local Bot via Add Member and then saving Group Settings succeeds with NO 409 conflict!
+    await dialog(page).getByRole("button", { name: "加入群组", exact: true }).click();
+    await expect(dialog(page)).toContainText("已按会话添加成员");
+    await expect(titleField).toHaveValue("未保存的新群名");
+
+    // 3. Switch to '指定 Bot 回复', verify explicit unset option first, select '研究助手', then Save!
+    const designatedRadio = dialog(page).getByRole("radio", { name: /^指定 Bot 回复/ });
+    await expect(designatedRadio).toBeEnabled();
+    await designatedRadio.check();
+    const designatedSelect = dialog(page).locator(".group-designated-picker select");
+    await expect(designatedSelect).toHaveValue("");
+    await expect(designatedSelect.locator("option[value='']")).toHaveText("未指定（仅 @ 时回复）");
+    await designatedSelect.selectOption("local:alpha");
+    await expect(designatedSelect).toHaveValue("local:alpha");
+    await expect(designatedSelect).toBeEnabled();
+
+    await dialog(page).getByRole("button", { name: "保存", exact: true }).click();
+    await expect(dialog(page)).toHaveCount(0);
+
+    // 4. Verify GroupDiscussionBar and composer recipient summary display designated mode & responder accurately!
+    await expect(workspace(page).getByRole("region", { name: "群聊方式与讨论状态" })).toContainText("指定 Bot 回复");
+    await expect(workspace(page).getByRole("region", { name: "群聊方式与讨论状态" })).toContainText("默认 研究助手 回复");
+    await expect(workspace(page).getByRole("button", { name: /让谁回复：默认：研究助手/ })).toBeVisible();
+  } finally { await page.close(); await hub.close(); await rm(root, { recursive: true, force: true }); }
+});

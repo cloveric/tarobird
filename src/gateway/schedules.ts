@@ -2,6 +2,7 @@ import { z } from "zod";
 import { conversationSchema, idSchema, type Json } from "../client-protocol/index.js";
 import { scheduleMutationSchema, type ScheduledTask } from "../client-protocol/schedules.js";
 import { buildCronInput } from "../tools/cron-add-tool.js";
+import { LocaleSchema } from "../runtime/locale.js";
 import { buildCoreConversationKey, stableCoreNumericId } from "../core/message-normalizer.js";
 import { createCronSnapshotter } from "../runtime/cron-snapshot.js";
 import { redactSecrets } from "../runtime/secret-redaction.js";
@@ -28,7 +29,7 @@ export function gatewaySchedules(options: GatewayServiceOptions, channel: Gatewa
       }));
       return { jobs, schedulerAvailable: true };
     }
-    const { userId, locale, mutation } = z.object({ userId: idSchema, locale: z.enum(["zh", "en"]), mutation: scheduleMutationSchema }).strict().parse(raw);
+    const { userId, locale, mutation } = z.object({ userId: idSchema, locale: LocaleSchema, mutation: scheduleMutationSchema }).strict().parse(raw);
     // Even replays check the Bot's current membership before accessing receipts.
     const conversation = conversationSchema.parse(await channel.transport.request("conversation", { conversationId: mutation.conversationId }));
     if (!conversation.botIds.includes(options.botId)) throw new Error("bot_forbidden");

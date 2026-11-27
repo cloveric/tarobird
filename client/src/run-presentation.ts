@@ -100,6 +100,20 @@ export function runEntryTitle(entry: RunEntry): string {
       case "listAgents": return t("查看子代理"); default: return t("子代理");
     }
   }
+  if (entry.kind === "tool" && entry.name === "wait_agent") return t("等待子代理");
+  if (entry.kind === "tool" && entry.name === "list_agents") return t("查看子代理");
+  if (entry.kind === "tool" && (entry.name === "send_message" || entry.name === "interrupt_agent")) {
+    const target = runInput(entry).agent;
+    const base = entry.name === "send_message" ? t("向子代理发送消息") : t("中断子代理");
+    return typeof target === "string" && target.trim() ? `${base} · ${target.trim().slice(0, 80)}` : base;
+  }
+  if (entry.kind === "tool" && entry.name === "subagent") {
+    const input = runInput(entry);
+    const description = typeof input.description === "string" && input.description.trim() ? input.description.trim().slice(0, 160) : "";
+    const name = typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 80) : "";
+    const suffix = [name, description].filter(Boolean).join(" · ");
+    return suffix ? `${t("启动子代理")} · ${suffix}` : t("启动子代理");
+  }
   if (entry.kind === "text" && entry.name?.startsWith("subagent_")) {
     const title = entry.name === "subagent_started" ? t("子代理已启动") : entry.name === "subagent_interacted" ? t("与子代理交互")
       : entry.name === "subagent_interrupted" ? t("子代理已中断") : entry.name === "subagent_completed" ? t("子代理已完成") : t("子代理动态");

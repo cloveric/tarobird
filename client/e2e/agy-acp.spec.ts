@@ -78,10 +78,10 @@ for (const english of [false, true]) for (const phone of [false, true]) test(`An
     await shot(page, info, `${tag}-tasks`);
     await dialog.getByRole("button", { name: tr("关闭任务列表", "Close task list"), exact: true }).click();
 
-    // Command menu: native AGY commands follow the Host commands; a Host command keeps one entry.
+    // Command menu: native AGY commands follow the Host commands with localized copy; Host commands keep one entry.
     const menu = page.locator(".command-menu");
     await input.fill("/g");
-    await expect(menu.getByRole("button", { name: /^\/grill-me\s/ })).toContainText("Interview me to align on a plan.");
+    await expect(menu.getByRole("button", { name: /^\/grill-me\s/ })).toContainText(tr("逐题访谈", "Interview me to align on a plan"));
     await expect(menu.getByRole("button", { name: /^\/goal\s/ })).toHaveCount(1);
     await noHorizontalOverflow(page, ".command-menu");
     await shot(page, info, `${tag}-commands`);

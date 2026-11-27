@@ -155,6 +155,29 @@ has a setting for it: to switch an existing Bot, edit that key in the Bot's
   message. An idle process is closed after two hours unless one of its
   background commands still runs.
 - The account quota is read with the same one-shot `agy -p /usage` as print.
+- **Swarm mode (`/swarm`, Preview & Quota Heavy)**: Supported on the ACP runtime
+  when `agy` is 1.5.5+ (ACP requires 1.5.10+) and `agy acp` advertises `/swarm`.
+  Rejected locally without forwarding to the model on the print runtime, older
+  `agy` versions, or sessions without `/swarm`. While swarm workers are
+  genuinely executing (`working` primary workers, tracked via
+  `brain/<sessionId>/.system_generated/swarm/{members.json,board.jsonl}` merged
+  with ACP updates), inactivity timeout and idle-worker reaping are paused up to
+  the hard total ceiling (6 hours by default, aligned with `turnTimeoutMs` and
+  enforced unconditionally by both the turn total timer and the swarm ceiling
+  timer). Permanently `paused` (quota-exhausted) or all-`waiting` idle swarms do
+  not bypass inactivity timeout or idle-worker reaping. `listTasks` exposes
+  workers, models, states, helper roles (`monitor`/`narrator`), and the
+  read-only Swarm Board to callers that opt in via `?swarmTasks=1` (Hub/Gateway
+  negotiation `conversations.tasks.swarm.v1`), while stripping post-1.6.0 Swarm
+  fields for strict 1.6.0 clients and Hubs; active-turn worker approvals and
+  `AskUserQuestion` (`elicitation/create`) remain interactive and attributed to
+  the requesting worker, while orphan requests with no live owning turn are
+  declined/rejected cleanly instead of borrowing a previous turn's handler;
+  `@worker <message>` is forwarded unwrapped; and Stop cancels the swarm by
+  closing the ACP session so all workers exit. Swarm lifecycle behavior in
+  TaroBird is verified against fake ACP harnesses and temporary
+  `brain/<sessionId>/.system_generated/swarm/` fixtures rather than live
+  quota-heavy swarm runs.
 
 ## 中文摘要
 
@@ -180,6 +203,14 @@ Antigravity headless 暂无单工具远程审批、运行中 steer、结果后�
 
 以上是 print 运行时。Bot 的 `config.json` 里 `antigravityRuntime: "acp"` 时改走
 官方 ACP 服务 `agy acp`：逐次审批（普通审批不带终端沙箱）、运行中引导、上下文
-用量、原生 `/compact` 和后台命令列表都可用。agy 1.5.10 及以上时，新建的普通
-Antigravity Bot 默认用 ACP；幕僚长及其派出的 Bot、已有 Bot 保持原运行时。App
-和 CLI 没有切换入口，需手改该 Bot 的 `config.json` 后重启 Bot。
+用量、原生 `/compact`、后台命令列表和 `/swarm`（Preview & Quota Heavy）都可用。
+print 运行时与未开放 `/swarm` 的版本/会话会在本地明确拒绝 `/swarm` 而不送入模型；
+Swarm 真正执行期间（存在 `working` 主 worker）在 6 小时总时长硬上限内暂停空闲超时与
+idle 回收（总轮次超时与 Swarm 硬上限不会无限顺延，且全员 `paused`/`waiting` 的空闲
+Swarm 不再无限保活）；`/tasks` 对声明 `?swarmTasks=1` 的新客户端展示只读 Swarm 看板
+与 worker 状态/辅助角色，对 1.6.0 客户端和旧 Hub 自动剥离新增字段以保持严格 schema 兼容；
+当前活跃轮次中的审批与提问保留 worker 名称归属，无活跃轮次归属的孤儿审批/提问请求直接
+拒绝，不借用上一轮处理器；Stop 通过关闭 ACP 会话彻底终止 worker。
+agy 1.5.10 及以上时，新建的普通 Antigravity Bot 默认用 ACP；幕僚长及其派出的 Bot、
+已有 Bot 保持原运行时。App 和 CLI 没有切换入口，需手改该 Bot 的 `config.json`
+后重启 Bot。

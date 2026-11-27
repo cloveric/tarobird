@@ -8,7 +8,7 @@ source revision; publication and installed verification are separate gates.
 
 ## Release content
 
-This release carries the post-1.0.125 Chancellor repairs: independently delivered
+This release carries the post-1.0.125 Superagent repairs: independently delivered
 ticket authorization and selection context, clearer inactive-context errors,
 per-task worker model/effort selection, confirmation/acceptance boundaries and
 explicit scheduled-dispatch limitations. Omitted model/effort values remain
@@ -42,6 +42,6 @@ Both results are retained. Complete final-source results and remaining platform
 limitations belong in the release verification document; this preflight does
 not claim publication, installation or physical-device acceptance.
 
-CLI impact: all Chancellor changes use the shared Host/Gateway/CLI ticket path,
+CLI impact: all Superagent changes use the shared Host/Gateway/CLI ticket path,
 and ship in the same canonical CLI archive as the App-bundled Host. There is no
 separate UI-only routing implementation or new command surface.

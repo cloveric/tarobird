@@ -217,7 +217,9 @@ it("exposes the shared Argon catalog and creates an AGY Bot through the headless
 
 it("uses live APIs for create/rename/restart/delete and keeps history and files after retirement", async () => {
   const root = await host(), local = await client(root), management = new HostManagement(local);
-  const catalog = await management.catalog(); expect(catalog.engines.map(engine => engine.id).sort()).toEqual(["antigravity", "claude", "codex", "deepseek", "kimi", "pi"]);
+  const catalog = await management.catalog(); expect(catalog.engines.map(engine => engine.id).sort()).toEqual(["antigravity", "claude", "codex", "deepseek", "kimi", "omp", "pi"]);
+  const v16Catalog = await local.request("/api/bots/catalog?includePi=1") as { engines: { id: string }[] };
+  expect(v16Catalog.engines.map(engine => engine.id).sort()).toEqual(["antigravity", "claude", "codex", "deepseek", "kimi", "pi"]);
   const legacyCatalog = await local.request("/api/bots/catalog") as { engines: { id: string }[] };
   expect(legacyCatalog.engines.map(engine => engine.id).sort()).toEqual(["antigravity", "claude", "codex", "deepseek", "kimi"]);
   const bot = await management.createBot({ requestId: "create_once", name: "Local Bot", engine: "codex", model: "", effort: "", workspace: "" });

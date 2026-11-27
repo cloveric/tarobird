@@ -47,6 +47,12 @@ condition = "AND"
 paths = ['^tests/client-pairing-qr\.test\.ts$']
 regexTarget = "secret"
 regexes = ['^MCowBQYDK2VwAyEA$']
+[[allowlists]]
+description = "1.6.0 Workbench project fixtures: the history index maps the design-system file named tokens.json to its SHA-256; a file hash, not a credential"
+condition = "AND"
+paths = ['^client/e2e/fixtures/legacy-1\.6\.0/design-system-deck\.(?:stored|tarobot-design)\.json$']
+regexTarget = "match"
+regexes = ['\Atokens\.json":"[a-f0-9]{64}"\z']
 
 # Public Happy DOM virtual-server fixture; exact PEM bytes AND exact vendored path.
 # Proof: docs/client/release-1.0.123-preflight-2026-10-31.md

@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 
 export interface LarkAccountCardInput {
   appId?: string;
@@ -60,12 +61,12 @@ function maskAppId(appId: string | undefined): string {
 function resolveTenantLabel(domain: string | undefined, locale: Locale): string {
   const normalized = (domain ?? "").toLowerCase();
   if (normalized.includes("lark") || normalized === "1") {
-    return locale === "en" ? "Lark (international)" : "Lark（海外）";
+    return hostT(locale, "Lark（海外）");
   }
   if (normalized.includes("feishu") || normalized === "" || normalized === "0") {
-    return locale === "en" ? "Feishu (China)" : "飞书（国内）";
+    return hostT(locale, "飞书（国内）");
   }
-  return domain ?? (locale === "en" ? "Feishu (China)" : "飞书（国内）");
+  return domain ?? hostT(locale, "飞书（国内）");
 }
 
 function accountCardLabels(locale: Locale): {
@@ -75,20 +76,11 @@ function accountCardLabels(locale: Locale): {
   stateDir: string;
   switchHint: string;
 } {
-  if (locale === "en") {
-    return {
-      title: "Current Lark app",
-      tenant: "Tenant",
-      instance: "Instance",
-      stateDir: "State dir",
-      switchHint: "_To switch the bound app, run `lark wizard` on the host and scan the QR code (no secret is typed into chat)._",
-    };
-  }
   return {
-    title: "当前飞书应用",
-    tenant: "租户",
-    instance: "实例",
-    stateDir: "状态目录",
-    switchHint: "_要更换绑定的 app，请在本机运行 `lark wizard` 扫码绑定（不在聊天里输入 secret）。_",
+    title: hostT(locale, "当前飞书应用"),
+    tenant: hostT(locale, "租户"),
+    instance: hostT(locale, "实例"),
+    stateDir: hostT(locale, "状态目录"),
+    switchHint: hostT(locale, "_要更换绑定的 app，请在本机运行 `lark wizard` 扫码绑定（不在聊天里输入 secret）。_"),
   };
 }

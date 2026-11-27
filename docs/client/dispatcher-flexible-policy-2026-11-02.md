@@ -1,4 +1,4 @@
-# Chancellor selection: preserve autonomous judgment
+# Superagent selection: preserve autonomous judgment
 
 Follow-up: the owner subsequently authorized implementation. See the
 [final wording, bounded observations and real ticket verification](dispatcher-permissive-selection-2026-11-02.md).
@@ -7,7 +7,7 @@ the follow-up uses a more precise empty-catalog-value definition.
 
 ## Owner's direction and current boundary
 
-The owner prefers a permissive selection mechanism: a Chancellor chooses
+The owner prefers a permissive selection mechanism: a Superagent chooses
 workers according to the task, rather than a provider-to-topic lookup table.
 DeepSeek's single default entry is intentional and sufficient. Do not invent
 more variants or treat that entry as inferior because its model ID is empty.
@@ -24,7 +24,7 @@ execution evidence; this discussion adds no model tests.
 Keep selection with the coordinator. Existing owner choices, allowed targets,
 availability, compatible parameters, ask/auto and cost-confirmation boundaries
 remain in force. These are authority/execution boundaries, not a vendor-ranking
-algorithm. A Chancellor may select the same provider repeatedly when that is
+algorithm. A Superagent may select the same provider repeatedly when that is
 appropriate; diversity is not an objective.
 
 The existing short instruction already asks for task complexity, risk, required

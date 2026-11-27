@@ -44,6 +44,7 @@ jobs:
           TAROBOT_UPDATER_LAB_ROOT: ${{ runner.temp }}/electron-contracts.noindex
           TAROBOT_NSIS_PLUGINS_DIR: ${{ runner.temp }}/electron-contracts.noindex/nsis-plugins
       - run: npm run build
+      - run: npm run check:translations
       - run: mkdir -p /tmp/t
       - run: npm test -- --maxWorkers=2 --testTimeout=15000
         env:

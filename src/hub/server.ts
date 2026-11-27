@@ -1,15 +1,18 @@
 import { HISTORY_RELEASE_AFTER_MS, HubConversationHistory } from "./conversation-history.js";
-import { CONVERSATION_HISTORY_CAPABILITY, historyChangeSchema } from "../client-protocol/conversation-history.js";
-import { hubEngineQuotas } from "./engine-quota.js";
+import { LocaleSchema } from "../runtime/locale.js";
+import { CONVERSATION_HISTORY_CAPABILITY, HISTORY_SIDE_REASON_QUERY, compatHistoryReason, historyChangeSchema } from "../client-protocol/conversation-history.js";
+import { hubEngineQuotas, type HubQuotaProofEntry } from "./engine-quota.js";
 import { ENGINE_QUOTA_CAPABILITY, ENGINE_QUOTA_HUB_REFRESH_MS } from "../client-protocol/engine-quota.js";
+import { ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY, quotaAccountProofReplySchema } from "../runtime/engine-quota-scope.js";
 import { DesignShareBroker, metaDesignShareRepository, type DesignSharePeer } from "./workbench-design-sharing.js";
 import { DESIGN_SHARE_CLIENT_CAPABILITY } from "../client-protocol/workbench-design-sharing.js";
 import { readCanvasArtifact } from "./canvas-artifact.js";
 import { CanvasAgentBroker } from "./canvas-agent.js";
-import { canvasAgentTokenRequestSchema } from "../client-protocol/infinite-canvas.js";
+import { CANVAS_AGENT_HOST_CAPABILITY, canvasAgentTokenRequestSchema } from "../client-protocol/infinite-canvas.js";
 import { HubRemoteScreen } from "./remote-screen.js";
 import { RemoteScreenSockets } from "./remote-screen-sockets.js";
 import { signedScreenConfigureSchema, screenStopSchema, SCREEN_MAX_CONTROL_BYTES } from "../client-protocol/remote-screen.js";
+import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
 import { WorkbenchBroker, type WorkbenchActor, type WorkbenchPeer } from "./workbench.js";
 import { readWorkbenchTurnMetadata, type WorkbenchContextReceipt } from "./workbench-history.js";
 import type { WorkbenchContext } from "../client-protocol/workbench.js";
@@ -37,11 +40,13 @@ import { asrInstallSchema } from "../client-protocol/asr-setup.js";
 import { acquireHostIdentityAdmission, acquireExistingHostIdentityAdmission, HostDirectoryError } from "../host-cli/windows-state-admission.js";
 import { chromePatchSchema, chromeResultSchema } from "../client-protocol/chrome.js";
 import { networkCanonical } from "../client-protocol/private-network.js";
-import { BotMessages } from "./bot-messages.js";
+import { BotMessages, messageHostId } from "./bot-messages.js";
 import { STEER_CALL_TIMEOUT_MS, STEER_RECONCILE_TIMEOUT_MS, STEER_STATUS_TIMEOUT_MS, botMessageSteeringProofTarget } from "./bot-message-steering.js";
 import { BOT_MESSAGE_STEER_CAPABILITY, botMessageSteeringCommandSchema } from "../client-protocol/bot-message-delivery.js";
 import { HubAgentBuses } from "./agent-bus.js";
 import { HubGroupDiscussions } from "./group-discussions.js";
+import { HubCrossHostGroups } from "./group-cross-host.js";
+import { CROSS_HOST_GROUPS_CAPABILITY } from "../client-protocol/group-members.js";
 import { GROUP_DISCUSSION_WORKER_CAPABILITY, GROUP_PARALLEL_CAPABILITY } from "../client-protocol/group-discussion.js";
 import { AGENT_BUS_WORKER_CAPABILITY } from "../client-protocol/agent-bus.js";
 import { BOT_TRANSFER_BYTES } from "./bot-message-transport.js";
@@ -56,11 +61,17 @@ import { RUN_CHANGES_CAPABILITY, runChangesQuerySchema, runChangeFileQuerySchema
 import { RUN_CAPABILITY, RUN_RECOVERY_CAPABILITY, RUN_SCOPES_CAPABILITY } from "../client-protocol/run.js";
 import { BACKGROUND_TASK_GROUP_CAPABILITY } from "../client-protocol/background-task-group.js";
 import { ConversationFolders } from "./conversation-folders.js";
+import { ConversationPins } from "./conversation-pins.js";
+import { CrossHostFolderOrder } from "./cross-host-folder-order.js";
 import { HostProfile } from "./host-profile.js";
+import { HOST_BALANCE_RESOURCES_PATH } from "../client-protocol/host-balance-resources.js";
+import { readHostBalanceResources } from "./host-balance-resources.js";
 import { hostNameSchema } from "../client-protocol/host-profile.js";
 import { PrivateNetwork } from "./private-network.js";
 import { certificateAuthorityFromChain, lanInterfaceKey, HostRoutes, type ManagedListener } from "./host-routes.js";
 import { HOST_ROUTES_PATH, HOST_LAN_SELECTION_PATH, managedLanSelectionSchema } from "../client-protocol/host-routes.js";
+import { HOST_CLOUDFLARE_PATH, HOST_CLOUDFLARE_QUICK_PATH, cloudflareQuickActionProofText, cloudflareQuickActionSchema, cloudflareUpdateProofText, cloudflareUpdateSchema } from "../client-protocol/cloudflare.js";
+import { HubCloudflareTunnel } from "./cloudflare-tunnel.js";
 import { markDeviceNameAlias } from "./network-device-name.js";
 import { networkCommandSchema } from "../client-protocol/private-network.js";
 import { exchangeNetworkPeer, MAX_NETWORK_BYTES } from "./network-peer.js";
@@ -68,7 +79,7 @@ import { permissionPatchSchema, permissionResultSchema } from "../client-protoco
 import { personaPatchSchema, personaResultSchema } from "../client-protocol/persona.js";
 import { steerRequestSchema, steerResultSchema, steerStatusSchema } from "../client-protocol/steering.js";
 import { CONTEXT_USAGE_CAPABILITY, contextUsageSchema } from "../client-protocol/context-usage.js";
-import { ENGINE_TASKS_CAPABILITY, engineSessionRecoverySchema, engineTaskSnapshotSchema, engineTaskStopSchema, engineTaskControlResultSchema } from "../client-protocol/engine-tasks.js";
+import { ENGINE_TASKS_CAPABILITY, SWARM_TASKS_CAPABILITY, stripSwarmTaskFields, engineSessionRecoverySchema, engineTaskSnapshotSchema, engineTaskStopSchema, engineTaskControlResultSchema } from "../client-protocol/engine-tasks.js";
 import { PI_SESSION_CAPABILITY, piSessionChangeSchema, piSessionSnapshotSchema, piSessionResultSchema } from "../client-protocol/pi-session.js";
 import { deviceActionProofSchema } from "../client-protocol/device-actions.js";
 import { effortPatchSchema, effortResultSchema } from "../client-protocol/effort.js";
@@ -92,13 +103,22 @@ import { fileLabelPatchSchema, fileUnitIdSchema } from "../client-protocol/file-
 import { HubFileCenter, type FileCenterRoots } from "./file-center.js";
 import { HubWorkspaceDiff } from "./workspace-diff.js";
 import { workspaceChangesQuerySchema, workspaceFileDiffQuerySchema } from "../client-protocol/workspace-diff.js";
+import { SavedWorkspaces, resolveExistingWorkspaceDirectory } from "./saved-workspaces.js";
+import { botWorkspacePatchSchema, botWorkspaceResultSchema, type BotWorkspacePatch } from "../client-protocol/saved-workspaces.js";
+import { workspaceSettings } from "../runtime/workspace-settings.js";
+import { HubWorkspaceFiles } from "./workspace-files.js";
+import { workspacePreviewQuerySchema, workspaceTreeQuerySchema } from "../client-protocol/workspace-files.js";
 import { nodeFrameReader, writeFrame } from "../client-protocol/fragments-node.js";
 import { linkUrlSchema } from "../client-protocol/links.js";
 import { HubLinkPreviews } from "./link-previews.js";
+import { HOST_TERMINAL_CONFIGURE_PATH, HOST_TERMINAL_STATUS_PATH, HOST_TERMINALS_PATH } from "../client-protocol/host-terminal.js";
+import { HubHostTerminal, type TerminalProcessHandle } from "./host-terminal.js";
+import { HOST_RESOURCES_PATH, HOST_RESOURCES_STOP_PATH, hostResourceStopRequestSchema } from "../client-protocol/host-resources.js";
+import { HubHostResources, type OsProcessSample } from "./host-resources.js";
 import { BotManager, createBotSchema, type BotManagerOptions } from "./bot-manager.js";
 import { deleteBotSchema, renameBotSchema } from "../client-protocol/bots.js";
 import { type RouteAlert } from "./route-monitor.js";
-import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { attachmentResponse } from "./attachment-response.js";
 import { AUTH_STATUS_CAPABILITY } from "../client-protocol/auth-status.js";
@@ -112,18 +132,25 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { WebSocket, WebSocketServer } from "ws";
 import { z } from "zod";
-import { SERVER_CAPABILITIES, CHUNK_BYTES, MAX_FRAME_BYTES, blocksText, idSchema, messageSchema, pairingSchema, parseClientFrame, type Block, type CardElement, type ClientFrame, type Conversation, type HubEvent, type Json, type Message } from "../client-protocol/index.js";
-import { DISPATCH_CAPABILITY } from "../client-protocol/dispatch.js";
+import { AUDIO_RECORDING_CAPABILITY, SERVER_CAPABILITIES, CHUNK_BYTES, MAX_FRAME_BYTES, blocksText, idSchema, messageSchema, pairingSchema, parseClientFrame, type Block, type CardElement, type ClientFrame, type Conversation, type HubEvent, type Json, type Message } from "../client-protocol/index.js";
+import { DISPATCH_CAPABILITY, legacyDispatcherSettings, legacyDispatchTicket, REMOTE_DISPATCH_TARGET_BOT } from "../client-protocol/dispatch.js";
 import { HubDispatch } from "./dispatch.js";
+import { handleRemoteDispatchRequest, readCrossHostDispatchGrants, readLocalHostLoad, updateCrossHostDispatchGrants, type RemoteDispatchContext } from "./dispatch-remote.js";
+import { BOT_PASSPORT_TTL_MS, type BotPassport } from "../client-protocol/bot-messages.js";
 import type { Bot } from "./store.js";
 /** Dispatcher engine workers are listed only to dispatch.v1 clients, which hide them. */
 const listedBots = (bots: Bot[], capabilities: string[]) => capabilities.includes(DISPATCH_CAPABILITY) ? bots : bots.filter(bot => bot.role !== "worker");
+const omitConversationWorkspace = (conversation: Conversation): Conversation => {
+  if (!conversation.workspacePath) return conversation;
+  const { workspacePath: _workspacePath, ...rest } = conversation;
+  return rest;
+};
 import { CARD_EXTRA_STREAM_CAPABILITY, messageDelta } from "../client-protocol/stream.js";
 import { CONVERSATION_SYNC_CAPABILITY, SNAPSHOT_ACTIVITY_CAPABILITY, SNAPSHOT_DELTA_CAPABILITY, SNAPSHOT_DELTA_THRESHOLD, SNAPSHOT_EVENT_THRESHOLD, SYNC_LINEAGE_CAPABILITY } from "../client-protocol/snapshot.js";
 import { botPublishSchema, instanceFrameSchema } from "../client-protocol/instance.js";
 import { HubAttachments } from "./attachments.js";
 import { HubAuth, hashSecret, parsePublicKey, type AuthSession } from "./auth.js";
-import { assertSafeBind, isLocalNetworkAddress, isLoopback, NATIVE_ORIGINS, type ListenerExposure } from "./network.js";
+import { assertSafeBind, isLocalNetworkAddress, isLoopback, isTailscaleAddress, NATIVE_ORIGINS, type ListenerExposure } from "./network.js";
 import { HubError, HubStore, newId } from "./store.js";
 import { NOTIFICATION_OPTION_KEYS, notificationPreferencesSchema, pushSubscriptionSchema, pushRotationSchema } from "../client-protocol/push.js";
 import { allowedApnsTopics, assertApnsTopicAllowed, createPushSender, validatePushDestination, type PushConfig } from "./push/providers.js";
@@ -134,18 +161,18 @@ import { googleDocsErrorCode } from "../gdocs/errors.js";
 import { googleDocsStatus } from "../gdocs/settings.js";
 import { hubServiceCommand } from "./service.js";
 import { redactSecrets } from "../runtime/secret-redaction.js";
-import { RelaySources } from "../relay/sources.js";
+import { RelaySources, sourceAddress } from "../relay/sources.js";
 import { exportGoogleDocument } from "./google-export.js";
 import { ShutdownErrors } from "./shutdown.js";
 
 const SNAPSHOT_WINDOW_MESSAGES = 32, SNAPSHOT_WINDOW_BYTES = 1024 * 1024;
 const BOT_RPC_TIMEOUT_MS = 10_000;
-/** Model/effort reads and saves may run an explicit DeepSeek catalog refresh (its own 12 s startup
- * budget, including the bounded wait for a previous reader). The RPC outlives it, so a slow but
- * successful refresh is not reported as an unconfirmed save. */
-export const BOT_MODEL_SETTINGS_RPC_TIMEOUT_MS = 15_000;
+/** Model/effort reads and saves may run an explicit DeepSeek catalog refresh (12 s budget)
+ * or Antigravity `agy models` discovery (15 s budget). The RPC outlives both, so a slow
+ * but successful catalog read is not reported as an unconfirmed save. */
+export const BOT_MODEL_SETTINGS_RPC_TIMEOUT_MS = 18_000;
 type SnapshotTransfer = { id: string; sent: number; received: number; bytes: number; pending: { count: number; bytes: number }[]; changed?: () => void };
-type Client = { foreground: boolean; ws: WebSocket; session?: AuthSession; rejected?: "device_revoked" | "session_expired"; capabilities: string[]; cursors: Record<string, number>; syncLineages: Record<string, string>; conversationIds: Set<string>; readySent: boolean; pendingPublications: unknown[]; syncing: boolean; pendingSync: Set<string>; syncingConversations: Set<string>; syncFailures: Set<string>; streams: Map<string, Message>; snapshot?: SnapshotTransfer };
+type Client = { foreground: boolean; lastSeenAt: number; ws: WebSocket; session?: AuthSession; rejected?: "device_revoked" | "session_expired"; capabilities: string[]; cursors: Record<string, number>; syncLineages: Record<string, string>; conversationIds: Set<string>; readySent: boolean; pendingPublications: unknown[]; syncing: boolean; pendingSync: Set<string>; syncingConversations: Set<string>; syncFailures: Set<string>; streams: Map<string, Message>; snapshot?: SnapshotTransfer };
 /** Older gateways parse turn metadata strictly and predate design.open: give
  * them the context exactly as an older App would have frozen it. */
 function gatewayWorkbenchMetadata<T extends { workbench?: WorkbenchContext }>(metadata: T, designOpen: boolean): T {
@@ -153,19 +180,24 @@ function gatewayWorkbenchMetadata<T extends { workbench?: WorkbenchContext }>(me
   const { workbench, ...rest } = metadata, { openTarget: _opener, ...context } = workbench;
   return (workbenchOpenerOnly(workbench) ? rest : { ...rest, workbench: context }) as T;
 }
-type BotConnection = { botSteer: boolean; engineQuota: boolean; contextUsage: boolean; history: boolean; designOpen: boolean; nativeInput: boolean; nativeReviewInput: boolean; engineTasks: boolean; piSession: boolean; ws: WebSocket; botId: string; queueCapable: boolean; queuePull: boolean; queueAdvertised: boolean; botMessages: boolean; agentBus: boolean; groupDiscussion: boolean; voicePolicy: boolean; widgetPolicy: boolean; replayQueue: boolean; ready: boolean };
+type BotConnection = { canvasAgent: boolean; audioRecording: boolean; botSteer: boolean; engineQuota: boolean; engineQuotaAccountMatch: boolean; contextUsage: boolean; history: boolean; designOpen: boolean; nativeInput: boolean; nativeReviewInput: boolean; engineTasks: boolean; piSession: boolean; ws: WebSocket; botId: string; queueCapable: boolean; queuePull: boolean; queueAdvertised: boolean; botMessages: boolean; agentBus: boolean; groupDiscussion: boolean; voicePolicy: boolean; widgetPolicy: boolean; replayQueue: boolean; ready: boolean };
 type Rpc = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; ws: WebSocket };
 export interface HubTlsListener { exposure?: ListenerExposure; host: string; port: number; tls: TlsOptions; managed?: boolean }
-export interface HubServerOptions { pluginArtifactsDir?: string; voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; relaySources?: RelaySources; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
+export interface HubServerOptions { pluginArtifactsDir?: string; voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; /** Max silence before a foreground client socket stops suppressing pushes. */ foregroundTimeoutMs?: number; relaySources?: RelaySources; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; hostResourcesSampler?: () => Promise<OsProcessSample[]>; hostResourcesBotPids?: () => Map<string, number>; hostResourcesTurnPids?: (botId: string) => ReadonlyMap<string, readonly number[]> | undefined; hostResourcesKillPid?: (pid: number) => Promise<void>; hostResourcesStopBotTurn?: (botId: string, conversationId: string, userId: string) => Promise<boolean>; hostResourcesDesktopAppPid?: number | (() => number | undefined); hostResourcesSampleCacheTtlMs?: number; hostResourcesNow?: () => number; hostTerminalSpawner?: (options: { cwd: string; cols: number; rows: number }) => Promise<TerminalProcessHandle>; hostTerminalDefaultWorkspace?: string; hostTerminalIdleTimeoutMs?: number; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; edgePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
 export class HubServer {
   private readonly relaySources: RelaySources;
   private readonly fragmentSockets = new WeakSet<WebSocket>();
   private readonly requestGuards = new WeakMap<IncomingMessage, () => Promise<void>>();
   private readonly downloads = new Map<AbortController, AuthSession>();
   readonly http: Server;
+  readonly hostTerminal: HubHostTerminal;
+  readonly hostResources: HubHostResources;
+  readonly edgeHttp: Server;
   readonly linkPreviews: HubLinkPreviews;
   readonly fileCenter: HubFileCenter;
   readonly workspaceDiff: HubWorkspaceDiff;
+  readonly savedWorkspaces: SavedWorkspaces;
+  readonly workspaceFiles: HubWorkspaceFiles;
   readonly runChanges: HubRunChanges;
   readonly engineSettings: HubEngineSettings;
   readonly widgetSettings: HubWidgetSettings;
@@ -175,24 +207,32 @@ export class HubServer {
   readonly profile: HostProfile;
   readonly network: PrivateNetwork;
   readonly hostRoutes: HostRoutes;
+  readonly cloudflare: HubCloudflareTunnel;
   readonly botMessages: BotMessages;
   readonly agentBuses: HubAgentBuses;
   readonly dispatch: HubDispatch;
+  private readonly remoteDispatchCtx: RemoteDispatchContext;
   readonly groupDiscussions: HubGroupDiscussions;
+  readonly crossHostGroups: HubCrossHostGroups;
   readonly conversationHistory: HubConversationHistory;
   private readonly networkAbort = new AbortController();
   private networkTick?: Promise<void>;
   private readonly networkSources = new Map<string, { remaining: number; updatedAt: number; until: number }>();
-  private readonly listeners: { server: Server; host: string; port: number; tls: boolean; instance: boolean; managed?: boolean; retired?: boolean; authority?: string }[] = [];
+  private readonly listeners: { server: Server; host: string; port: number; tls: boolean; instance: boolean; edgeProxy?: boolean; managed?: boolean; retired?: boolean; authority?: string }[] = [];
   private readonly listenerStarts = new Map<Server, Promise<void>>();
   readonly remoteScreen: HubRemoteScreen;
   private readonly screenSockets: RemoteScreenSockets;
   private readonly sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES, perMessageDeflate: false });
   private clients = new Set<Client>();
   private bots = new Map<string, BotConnection>();
+  /** Ephemeral per-Hub HMAC key and in-memory proof cache for verifying whether
+   * two Bots on this Host share an account. Never written to disk or client DTOs. */
+  private readonly quotaProofKey = randomBytes(32);
+  private readonly quotaAccountProofs = new Map<string, HubQuotaProofEntry>();
   private readonly dispatchTails = new Map<string, Promise<void>>();
   private permissionOperations = new Map<string, Promise<void>>();
   private effortOperations = new Map<string, Promise<void>>();
+  private workspaceOperations = new Map<string, Promise<void>>();
   private pendingRpc = new Map<string, Rpc>();
   private actionDispatch = new Set<string>();
   private stopping = false;
@@ -330,6 +370,8 @@ export class HubServer {
   private disposers: (() => void)[] = [];
   private syncLineage?: string;
   private readonly conversationFolders: ConversationFolders;
+  private readonly conversationPins: ConversationPins;
+  private readonly crossHostFolderOrder: CrossHostFolderOrder;
   private readonly avatars: HubAvatars;
   private constructor(readonly store: HubStore, readonly auth: HubAuth, readonly attachments: HubAttachments, readonly options: HubServerOptions) {
     this.conversationHistory = new HubConversationHistory(store, {
@@ -338,10 +380,33 @@ export class HubServer {
       // A native fork or rewind may legitimately run for minutes (Codex thread/fork alone allows 180 s);
       // an earlier timeout would report a success as unknown. Reads keep the ordinary RPC deadline.
       call: (botId, method, input) => this.callBot(botId, method, input, method === "history.apply" ? HISTORY_RELEASE_AFTER_MS : undefined),
-      changed: async conversation => { for (const client of this.clients) if (client.session?.userId === conversation.ownerId) { client.conversationIds.add(conversation.id); this.publishClient(client, { v: 1, type: "conversation.updated", conversation }); } },
+      changed: async conversation => { await this.broadcastConversation(conversation, client => client.session?.userId === conversation.ownerId, undefined, true); },
       log: line => options.onWarning?.(line),
     });
     this.remoteScreen = new HubRemoteScreen(store, auth);
+    this.hostTerminal = new HubHostTerminal({
+      store,
+      auth,
+      stateDir: options.stateDir,
+      defaultWorkspace: options.hostTerminalDefaultWorkspace,
+      resolveBotStateDir: async (botId) => {
+        if (this.botManager && await this.botManager.owns(botId)) {
+          return path.join(options.stateDir, "bots", botId);
+        }
+        if (this.bots.get(botId)?.ready) {
+          try {
+            return z.object({ stateDir: z.string().refine(path.isAbsolute) }).parse(await this.callBot(botId, "files.root", {}, 5_000)).stateDir;
+          } catch { /* fall through */ }
+        }
+        if (!this.botManager) {
+          const localDir = path.join(options.stateDir, "bots", botId);
+          if (await stat(localDir).then((s) => s.isDirectory(), () => false)) return localDir;
+        }
+        return undefined;
+      },
+      spawnProcess: options.hostTerminalSpawner,
+      idleTimeoutMs: options.hostTerminalIdleTimeoutMs,
+    });
     this.screenSockets = new RemoteScreenSockets(this.remoteScreen);
     this.disposers.push(() => { this.remoteScreen.dispose(); this.screenSockets.dispose(); });
     const screenTick = setInterval(() => this.remoteScreen.tick(), 250); screenTick.unref(); this.disposers.push(() => clearInterval(screenTick));
@@ -353,7 +418,7 @@ export class HubServer {
     this.relaySources = options.relaySources ?? new RelaySources();
     this.engineSettings = new HubEngineSettings(options.stateDir, () => options.managedBots?.env ?? process.env);
     this.widgetSettings = new HubWidgetSettings(options.stateDir);
-    this.sideSessions = new HubSideSessions(store, auth, (botId, method, params, timeout) => this.callBot(botId, method, params, timeout));
+    this.sideSessions = new HubSideSessions(store, auth, (botId, method, params, timeout) => this.callBot(botId, method, params, timeout), botId => this.bots.get(botId)?.audioRecording ?? false);
     this.disposers.push(() => this.sideSessions.dispose());
     this.voiceSettings = options.voiceSettings ?? new HubVoiceSettings(options.stateDir);
     this.asrSetup = options.asrSetup ?? new QwenAsrSetup();
@@ -362,8 +427,35 @@ export class HubServer {
       exchange: options.networkExchange ?? ((host, request) => exchangeNetworkPeer(host, request, { signal: this.networkAbort.signal })),
     });
     this.hostRoutes = new HostRoutes({ store, network: this.network, publicKey: auth.publicKey, stateDir: options.stateDir, listeners: () => this.managedListeners() });
+    this.hostResources = new HubHostResources({
+      store,
+      desktopAppPid: options.hostResourcesDesktopAppPid,
+      childPids: options.hostResourcesBotPids ?? (() => this.botManager?.childPids() ?? new Map()),
+      turnPids: options.hostResourcesTurnPids,
+      stopBotTurn: options.hostResourcesStopBotTurn ?? (async (botId, conversationId, userId) => {
+        const result = z.object({ stopped: z.boolean() }).parse(await this.callBot(botId, "stop", { conversationId, userId }));
+        return result.stopped;
+      }),
+      sampleProcesses: options.hostResourcesSampler,
+      killPid: options.hostResourcesKillPid,
+      sampleCacheTtlMs: options.hostResourcesSampleCacheTtlMs,
+      now: options.hostResourcesNow,
+    });
+    this.cloudflare = new HubCloudflareTunnel({
+      store,
+      // When the edge listener could not bind, status still names the configured port.
+      loopbackTarget: () => this.edgeHttp.listening ? this.edgeUrl : `http://127.0.0.1:${options.edgePort ?? 0}`,
+      listenerUnavailable: () => this.edgeListenerError,
+    });
     const conversationsCreated = (userId: string, conversations: Conversation[]) => {
-      for (const conversation of conversations) for (const c of this.clients) if (c.session?.userId === userId && (!conversation.hidden || c.capabilities.includes(DISPATCH_CAPABILITY))) { c.conversationIds.add(conversation.id); this.publishClient(c, { v: 1, type: "conversation.updated", conversation }); }
+      for (const conversation of conversations) {
+        this.trackTask(this.broadcastConversation(
+          conversation,
+          c => c.session?.userId === userId && (!conversation.hidden || c.capabilities.includes(DISPATCH_CAPABILITY)),
+          undefined,
+          true,
+        ).catch(() => undefined));
+      }
     };
     this.botMessages = new BotMessages(store, auth, this.network, attachments, undefined,
       botId => { const connection = this.bots.get(botId); return connection?.ready ? connection.botMessages : undefined; },
@@ -379,7 +471,96 @@ export class HubServer {
       source: () => this.botMessages.ownSource(),
       conversationCreated: (userId, conversation) => conversationsCreated(userId, [conversation]),
       stop: (botId, conversationId, userId, messageId) => this.callBot(botId, "stop", { conversationId, userId, messageId }),
+      copyAttachment: (attachmentId, targetConversationId, ownerId) => attachments.copyToConversation(attachmentId, targetConversationId, ownerId),
     });
+    const remoteDispatchCtx: RemoteDispatchContext = {
+      store,
+      auth,
+      network: this.network,
+      attachments,
+      get workers() { return server.botManager ?? server.dispatch.workers; },
+      workerCapable: botId => { const connection = this.bots.get(botId); return connection?.ready ? connection.botMessages : undefined; },
+      quotaScopes: async () => {
+        const quotas = hubEngineQuotas({
+          bots: () => store.bots("owner"),
+          validate: async () => undefined,
+          connection: id => { const connection = this.bots.get(id); return connection ? { key: connection, supported: connection.engineQuota, ready: connection.ready } : undefined; },
+          call: (id, request) => this.callBot(id, "quota.get", request, 2_000),
+        });
+        return (await quotas.directory()).scopes;
+      },
+      conversationCreated: (userId, conversation) => conversationsCreated(userId, [conversation]),
+      stop: (botId, conversationId, userId, messageId) => this.callBot(botId, "stop", { conversationId, userId, messageId }),
+    };
+    const server = this;
+    this.remoteDispatchCtx = remoteDispatchCtx;
+    this.botMessages.remoteDispatch = (passport, routePath, data, localAdmission) =>
+      handleRemoteDispatchRequest(remoteDispatchCtx, passport.sourceKey, passport.source, passport.targetBot, routePath, data, localAdmission);
+    this.dispatch.remote = {
+      ownHost: () => this.botMessages.ownSource(),
+      networkPeers: async () => {
+        const view = await this.network.view();
+        return (view.membership?.manifest.hosts ?? []).filter(h => h.publicKey !== auth.publicKey && h.state === "active" && !h.revoked);
+      },
+      localLoad: health => readLocalHostLoad(remoteDispatchCtx, health),
+      callPeer: async (peer, sourceBot, routePath, data, requestId) => {
+        const own = await this.botMessages.ownSource();
+        const body = Buffer.from(JSON.stringify(data));
+        const passport: BotPassport = {
+          v: 1,
+          sourceKey: auth.publicKey,
+          targetKey: peer.publicKey,
+          source: { hostId: own.hostId, hostName: own.hostName.slice(0, 256), botId: sourceBot.id, botName: sourceBot.name.slice(0, 256), requestId: requestId.slice(0, 128), hops: 1 },
+          targetBot: REMOTE_DISPATCH_TARGET_BOT,
+          method: "POST",
+          path: routePath,
+          digest: createHash("sha256").update(body).digest("hex"),
+          expiresAt: Date.now() + BOT_PASSPORT_TTL_MS,
+          nonce: randomUUID(),
+        };
+        const signed = { passport, signature: auth.signBotPassport(passport) };
+        return this.botMessages.exchange(peer, signed, body);
+      },
+      importAttachment: async (conversationId, ownerId, file, readChunk) => {
+        if (!file.sha256) throw new HubError("remote_attachment_sha256_required", 502);
+        if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new HubError("remote_attachment_invalid_size", 502);
+        if (file.size > attachments.maxFileBytes) throw new HubError("file_too_large", 413);
+        const created = await attachments.create(ownerId, {
+          conversationId,
+          name: file.name,
+          size: file.size,
+          mime: file.mime,
+          sha256: file.sha256,
+        });
+        if ((await attachments.status(ownerId, created.id)).complete) return created.id;
+        const hasher = createHash("sha256");
+        let offset = 0;
+        let chunkIndex = 0;
+        while (offset < file.size) {
+          const expectedChunkSize = Math.min(CHUNK_BYTES, file.size - offset);
+          const parts: Buffer[] = [];
+          let collected = 0;
+          while (collected < expectedChunkSize) {
+            const slice = await readChunk(offset);
+            if (!slice.length) throw new HubError("remote_attachment_truncated", 502);
+            const remainingInChunk = expectedChunkSize - collected;
+            const piece = slice.length > remainingInChunk ? slice.subarray(0, remainingInChunk) : slice;
+            parts.push(piece);
+            hasher.update(piece);
+            collected += piece.length;
+            offset += piece.length;
+          }
+          const chunkBuf = parts.length === 1 ? parts[0]! : Buffer.concat(parts, expectedChunkSize);
+          await attachments.putChunk(ownerId, created.id, chunkIndex, chunkBuf);
+          chunkIndex++;
+        }
+        if (offset !== file.size || hasher.digest("hex") !== file.sha256) {
+          throw new HubError("remote_attachment_integrity_failed", 502);
+        }
+        await attachments.complete(ownerId, created.id);
+        return created.id;
+      },
+    };
     this.agentBuses = new HubAgentBuses(store, {
       workerCapable: (botId) => { const connection = this.bots.get(botId); return connection?.ready ? connection.agentBus : undefined; },
       stop: (botId, params) => this.callBot(botId, "agentBus.stop", params),
@@ -390,14 +571,54 @@ export class HubServer {
       // Exactly this input's live run; never another turn of the conversation.
       stop: (botId, conversationId, messageId) => this.callBot(botId, "stop", { conversationId, messageId }),
     });
+    this.crossHostGroups = new HubCrossHostGroups(store, this.auth, {
+      localUrl: () => this.http.listening ? this.url : undefined,
+      localHostName: async () => (await this.profile.read()).name,
+      stopping: () => this.stopping,
+      networkPeers: async () => {
+        const view = await this.network.view().catch(() => undefined);
+        const hosts = view?.membership?.manifest?.hosts ?? [];
+        return hosts
+          .filter((h) => !h.revoked && h.state === "active" && h.publicKey !== this.auth.publicKey && h.routes.length > 0)
+          .map((h) => ({
+            hostId: `host_${createHash("sha256").update(h.publicKey).digest("hex").slice(0, 12)}`,
+            hostName: h.name,
+            publicKey: h.publicKey,
+            url: h.routes[0]!.url,
+            routes: h.routes,
+          }));
+      },
+      requireNetworkPeerInTransaction: (publicKey) => this.network.requireMessagePeerInTransaction(publicKey),
+      onConversationsChanged: (userId, conversations) => conversationsCreated(userId, conversations),
+      onGroupStopLocal: async (groupId, userId) => {
+        await this.groupDiscussions.endActiveForGroup(groupId, userId).catch(() => options.onWarning?.("group_discussion_settle_failed"));
+        const targets = await this.store.db.serial(async () => {
+          const convs = await this.store.db.all<{ id: string }>("SELECT id FROM conversations WHERE id=? OR parent_id=?", [groupId, groupId]);
+          const pairs: Array<{ conversationId: string; botId: string }> = [];
+          for (const row of convs) {
+            const bots = await this.store.db.all<{ member_id: string }>("SELECT member_id FROM conversation_members WHERE conversation_id=? AND member_type='bot'", [row.id]);
+            for (const b of bots) pairs.push({ conversationId: row.id, botId: b.member_id });
+          }
+          return pairs;
+        });
+        await Promise.allSettled(targets.map((t) => this.callBot(t.botId, "stop", { conversationId: t.conversationId }).catch(() => undefined)));
+      },
+    });
     this.conversationFolders = new ConversationFolders(store.db);
+    this.conversationPins = new ConversationPins(store.db);
+    this.crossHostFolderOrder = new CrossHostFolderOrder(store.db);
     this.avatars = new HubAvatars(store);
     this.linkPreviews = new HubLinkPreviews(store, attachments);
-    this.workspaceDiff = new HubWorkspaceDiff(async (botId, remainingMs) => {
+    this.savedWorkspaces = new SavedWorkspaces(store);
+    const resolveBotStateDir = async (botId: string, remainingMs: number) => {
       const deadline = Date.now() + remainingMs;
       if (this.botManager && await this.botManager.owns(botId)) return path.join(options.stateDir, "bots", botId);
       return z.object({ stateDir: z.string().refine(path.isAbsolute) }).parse(await this.callBot(botId, "files.root", {}, Math.max(1, deadline - Date.now()))).stateDir;
-    });
+    };
+    // A conversation may use its own folder (saved workspaces). The diff viewer and the Files panel must agree on it.
+    const conversationWorkspace = (conversationId: string) => store.conversationWorkspacePath(conversationId);
+    this.workspaceDiff = new HubWorkspaceDiff(resolveBotStateDir, { conversationWorkspace });
+    this.workspaceFiles = new HubWorkspaceFiles(resolveBotStateDir, this.workspaceDiff, conversationWorkspace);
     this.fileCenter = new HubFileCenter(options.stateDir, async () => {
       const result: FileCenterRoots = { instances: [], warnings: [] };
       for (const bot of await store.bots("owner")) {
@@ -411,10 +632,19 @@ export class HubServer {
       return result;
     });
     const pushSender = createPushSender(options.push ?? {}), pushHostId = `hub_${createHash("sha256").update(Buffer.from(this.auth.publicKey, "base64")).digest("hex")}`;
-    this.pushWorker = new PushWorker(store, (subscription, payload) => pushSender(subscription, { ...payload, hostId: pushHostId }), (deviceId) => [...this.clients].some((c) => c.session?.deviceId === deviceId && c.foreground && c.ws.readyState === WebSocket.OPEN));
+    const foregroundTimeoutMs = options.foregroundTimeoutMs ?? 20_000;
+    this.pushWorker = new PushWorker(store, (subscription, payload) => pushSender(subscription, { ...payload, hostId: pushHostId }), (deviceId) => {
+      const now = Date.now();
+      return [...this.clients].some((c) => c.session?.deviceId === deviceId && c.foreground && c.ws.readyState === WebSocket.OPEN && now - c.lastSeenAt <= foregroundTimeoutMs);
+    });
     this.http = options.tls ? createTlsServer(options.tls) : createServer();
     this.attachListener(this.http, options.host ?? "127.0.0.1", options.port ?? 0, !!options.tls, !options.tls, options.exposure);
     if (options.tls) this.attachListener(createServer(), "127.0.0.1", options.instancePort ?? 0, false, true);
+    // Dedicated non-instance loopback listener exclusively for edge-terminated
+    // tunnels (e.g. DIY Cloudflare Tunnel). Local vs remote trust and instance
+    // privileges are enforced by listener boundary, never by HTTP headers.
+    this.edgeHttp = createServer();
+    this.attachListener(this.edgeHttp, "127.0.0.1", options.edgePort ?? 0, false, false, "private", false, undefined, true);
     for (const listener of options.tlsListeners ?? []) this.attachListener(createTlsServer(listener.tls), listener.host, listener.port, true, false, listener.exposure, listener.managed, listener.managed ? certificateAuthorityFromChain(listener.tls.cert) : undefined);
     this.disposers.push(store.subscribe((event) => {
       this.trackTask(this.broadcast(event).catch(() => options.onWarning?.("broadcast_failed")));
@@ -424,7 +654,10 @@ export class HubServer {
         this.trackTask(this.dispatchPending().catch(() => options.onWarning?.("queue_dispatch_failed")));
       }
     }));
-    this.disposers.push(auth.onRevoke((deviceId) => { for (const c of this.clients) if (c.session?.deviceId === deviceId) this.endClientSession(c, "device_revoked"); }));
+    this.disposers.push(store.onRemoteDispatch((dispatch) => {
+      this.trackTask(this.crossHostGroups.deliverQueuedQuestions(dispatch).catch(() => options.onWarning?.("cross_host_group_dispatch_failed")));
+    }));
+    this.disposers.push(auth.onRevoke((deviceId) => { this.trackTask(this.hostTerminal.revokeDevice(deviceId)); for (const c of this.clients) if (c.session?.deviceId === deviceId) this.endClientSession(c, "device_revoked"); }));
     this.disposers.push(auth.onRevoke((deviceId) => {
       this.sideSessions.revoke(deviceId);
       this.canvasAgent.revokeForDevice(deviceId);
@@ -442,16 +675,16 @@ export class HubServer {
       void this.sweep().catch(() => options.onWarning?.("hub_sweep_failed")).finally(() => { checking = false; });
     }, 500); sweep.unref(); this.disposers.push(() => clearInterval(sweep));
   }
-  private attachListener(server: Server, host: string, port: number, tls: boolean, instance: boolean, exposure?: ListenerExposure, managed = false, authority?: string): void {
+  private attachListener(server: Server, host: string, port: number, tls: boolean, instance: boolean, exposure?: ListenerExposure, managed = false, authority?: string, edgeProxy = false): void {
     assertSafeBind(host, tls, exposure);
-    this.listeners.push({ server, host, port, tls, instance, managed, ...(authority ? { authority } : {}) });
+    this.listeners.push({ server, host, port, tls, instance, ...(edgeProxy ? { edgeProxy: true } : {}), managed, ...(authority ? { authority } : {}) });
     server.on("connection", (socket) => {
       this.connections.add(socket);
       socket.once("close", () => this.connections.delete(socket));
     });
     server.on("request", (req, res) => {
       if (this.stopping) { res.setHeader("Connection", "close"); this.respondError(res, new HubError("hub_stopping", 503)); return; }
-      const task = this.request(req, res, instance).catch(async (e: unknown) => {
+      const task = this.request(req, res, instance, edgeProxy).catch(async (e: unknown) => {
         if (req.url?.startsWith("/api/bot-messages/") || req.url?.startsWith("/api/instance/bot-messages") || req.headers["x-tarobot-message-passport"]) {
           await this.store.audit("bot-message.rejected", null, { stage: "http", reason: e instanceof HubError ? e.code.slice(0, 256) : "invalid_request" });
         }
@@ -462,13 +695,20 @@ export class HubServer {
     });
     server.on("upgrade", (req, socket, head) => {
       if (!this.stopping && this.originAllowed(req) && this.screenSockets.handles(req.url ?? "")) {
-        this.screenSockets.upgrade(req, socket, head, instance && !tls && isLoopback(req.socket.remoteAddress ?? ""), isLocalNetworkAddress(req.socket.remoteAddress ?? "")); return;
+        this.screenSockets.upgrade(req, socket, head, instance && !tls, isLocalNetworkAddress(req.socket.remoteAddress ?? ""), this.screenRouteFromSource(this.relaySources.source(req.socket))); return;
       }
-      // A relay arrives from loopback, so the socket address alone cannot
-      // distinguish an instance connection from an untrusted remote client.
-      if (this.stopping || !this.originAllowed(req) || !["/ws", "/instance"].includes(req.url ?? "") || (req.url === "/instance" && (!instance || !isLoopback(req.socket.remoteAddress ?? "")))) { socket.destroy(); return; }
-      this.sockets.handleUpgrade(req, socket, head, (ws) => req.url === "/instance" ? this.instanceSocket(ws) : this.clientSocket(ws, this.relaySources.source(req.socket)));
+      // Instance sockets are strictly fenced to listeners with `instance === true`.
+      // Remote TLS listeners and the dedicated `edgeProxy` loopback listener have
+      // `instance === false` so tunnel/relay traffic can never reach `/instance`.
+      if (this.stopping || !this.originAllowed(req) || !["/ws", "/instance"].includes(req.url ?? "") || (req.url === "/instance" && !instance)) { socket.destroy(); return; }
+      this.sockets.handleUpgrade(req, socket, head, (ws) => req.url === "/instance" ? this.instanceSocket(ws) : this.clientSocket(ws, this.requestSource(req, edgeProxy)));
     });
+  }
+  private screenRouteFromSource(source: string): ScreenRouteKind {
+    if (source.startsWith("relay:")) return "tcp_vps_relay";
+    if (isTailscaleAddress(source)) return "tcp_tailscale";
+    if (isLocalNetworkAddress(source) || isLoopback(source)) return "tcp_lan_direct";
+    return "tcp_default";
   }
   private trackTask(work: Promise<unknown>): void {
     this.httpTasks.add(work);
@@ -487,8 +727,16 @@ export class HubServer {
     }).catch(error => {
       // A missing Wi-Fi/VPN address must not take down the local controller,
       // workers or relay. Only additional TLS endpoints may recover later.
-      if (server !== this.http && !listener.instance && ["EADDRNOTAVAIL", "EADDRINUSE", "ENODEV", "ENETUNREACH", "EAFNOSUPPORT"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+      if (server !== this.http && !listener.instance && !listener.edgeProxy && ["EADDRNOTAVAIL", "EADDRINUSE", "ENODEV", "ENETUNREACH", "EAFNOSUPPORT"].includes((error as NodeJS.ErrnoException).code ?? "")) {
         this.options.onWarning?.("optional_listener_unavailable"); return;
+      }
+      // The Cloudflare edge-proxy listener is optional: the Host starts without it
+      // and the tunnel route stays unavailable for this run (no retry, no other
+      // port: a named tunnel's ingress points at this exact port).
+      if (listener.edgeProxy) {
+        listener.retired = true;
+        this.edgeListenerError = `edge_listener_unavailable: 127.0.0.1:${port} ${(error as NodeJS.ErrnoException).code ?? "bind_failed"}`;
+        this.options.onWarning?.(this.edgeListenerError); return;
       }
       throw error;
     });
@@ -557,7 +805,9 @@ export class HubServer {
       await hub.agentBuses.reconcile();
       // Discussion turns settled while stopped advance once; uncertain ones pause.
       await hub.groupDiscussions.reconcile();
+      await hub.cloudflare.load();
       for (const listener of hub.listeners) await hub.bindListener(listener);
+      await hub.crossHostGroups.init();
       const runningHub = hub;
       const retryListeners = setInterval(() => {
         if (runningHub.stopping) return;
@@ -565,7 +815,7 @@ export class HubServer {
       }, 30_000); retryListeners.unref(); hub.disposers.push(() => clearInterval(retryListeners));
       if (options.managedBots) {
         const running = hub;
-        hub.botManager = new BotManager(store, options.stateDir, options.managedBots, () => running.instanceUrl, (id) => running.broadcastBotStatus(id));
+        hub.botManager = new BotManager(store, options.stateDir, { ...options.managedBots, engineSettings: hub.engineSettings }, () => running.instanceUrl, (id) => running.broadcastBotStatus(id), options.onWarning);
         hub.dispatch.workers = hub.botManager;
         await hub.botManager.restore();
       }
@@ -573,18 +823,28 @@ export class HubServer {
       hub.dispatch.start();
       hub.startNetworkSync();
       store.activityIndex.start();
+      // Recover persisted `sending` cross-host questions in the background, after
+      // listeners bind (callback routes are live) and Bots start: a sleeping peer
+      // must not delay start. Same serialized path as the sweep (one recovery at a
+      // time, per-question in-flight guard, stops between questions on stop());
+      // tracked so close() drains it before SQLite closes.
+      hub.trackTask(hub.crossHostGroups.recoverPendingQuestions({ includeRecent: true }).catch(() => options.onWarning?.("cross_host_question_recovery_failed")));
       return hub;
     } catch (error) { if (hub) await hub.close(); else { try { await store?.db.close(); } finally { await releaseIdentity?.(); } } throw error; }
   }
   private listenerUrl(server: Server, tls: boolean): string { const address = server.address(); if (!address || typeof address === "string") throw new Error("not_listening"); return `${tls ? "https" : "http"}://${address.family === "IPv6" ? `[${address.address}]` : address.address}:${address.port}`; }
   get url(): string { return this.listenerUrl(this.http, !!this.options.tls); }
-  get urls(): string[] { return this.listeners.filter(({ server }) => server.listening).map(({ server, tls }) => this.listenerUrl(server, tls)); }
+  get urls(): string[] { return this.listeners.filter(({ server, edgeProxy }) => server.listening && !edgeProxy).map(({ server, tls }) => this.listenerUrl(server, tls)); }
   get instanceUrl(): string { const listener = this.listeners.find((l) => l.instance)!; return this.listenerUrl(listener.server, false); }
+  get edgeUrl(): string { return this.listenerUrl(this.edgeHttp, false); }
+  /** Set when the Cloudflare edge-proxy listener failed to bind at start. */
+  edgeListenerError?: string;
   /** Terminal intent is synchronous, before any maintenance or route I/O.
    * Once accepted, an expired/cancelled CLI drain must never resume work. */
   beginShutdown(): void {
     this.stopping = true;
     this.workbench.close(); this.designSharing.close();
+    this.hostTerminal.beginShutdown();
     if (this.hostDrainLease) clearTimeout(this.hostDrainLease.timer);
     this.hostDrainLease = undefined;
     this.botManager?.beginShutdown();
@@ -610,8 +870,11 @@ export class HubServer {
     await errors.run("workspace-diff.cancel", () => this.workspaceDiff.close());
     await errors.run("previews.stop", () => this.linkPreviews.stop());
     await errors.run("workers.close", () => this.botManager?.close());
+    await errors.run("engine-settings.close", () => this.engineSettings.close());
+    await errors.run("host-terminal.close", () => this.hostTerminal.dispose());
     await errors.run("dispatch.stop", () => this.dispatch.stop());
     await errors.run("push.stop", () => this.pushWorker.stop());
+    await errors.run("cloudflare.close", () => this.cloudflare.close());
     for (const dispose of this.disposers.splice(0)) await errors.run("subscription.close", dispose);
     await errors.run("listeners.finish", () => Promise.allSettled([...this.listenerStarts.values()]));
     for (const ws of this.sockets.clients) await errors.run("websocket.close", () => ws.terminate());
@@ -633,6 +896,7 @@ export class HubServer {
     // Accepted socket work can enqueue its final publication while settling.
     // Admission is frozen; drain the complete set before closing SQLite.
     while (this.httpTasks.size) await Promise.allSettled([...this.httpTasks]);
+    await errors.run("host-terminal.drain", () => this.hostTerminal.dispose());
     await errors.run("controller.finish", () => this.controllerEnrollment);
     await errors.run("drain.finish", () => this.hostDrainControl);
     await errors.run("audit.flush", () => this.store.flushAudit());
@@ -647,6 +911,7 @@ export class HubServer {
   private async sweep(): Promise<void> {
     await this.remoteScreen.sweep();
     await this.canvasAgent.sweepRevokedDevices();
+    await this.hostTerminal.sweep();
     for (const client of this.clients) if (client.session) {
       try { await this.auth.validateSession(client.session); }
       catch (error) { this.endClientSession(client, error instanceof HubError && error.code === "device_revoked" ? "device_revoked" : "session_expired"); }
@@ -656,6 +921,8 @@ export class HubServer {
       catch (error) { controller.abort(error); }
     }
     for (const botId of this.bots.keys()) void this.dispatchActions(botId).catch(() => this.options.onWarning?.("action_dispatch_failed"));
+    this.trackTask(this.crossHostGroups.flushPendingReplies().catch(() => this.options.onWarning?.("cross_host_reply_retry_failed")));
+    this.trackTask(this.crossHostGroups.recoverPendingQuestions().catch(() => this.options.onWarning?.("cross_host_question_recovery_failed")));
     if (Date.now() >= this.historyReleaseCheckAt) {
       this.historyReleaseCheckAt = Date.now() + 10_000;
       this.trackTask(this.conversationHistory.releaseExpired().catch(() => this.options.onWarning?.("history_release_failed")));
@@ -665,7 +932,28 @@ export class HubServer {
   private originAllowed(req: IncomingMessage): boolean {
     const origin = req.headers.origin;
     if (!origin) return true;
-    return [...this.urls, ...NATIVE_ORIGINS, ...(this.options.origins ?? [])].includes(origin);
+    // Like `urls`, the dedicated edge-proxy (Cloudflare Tunnel) listener is not a local origin.
+    const loopbackLocalhost = this.listeners.flatMap(({ server, tls, edgeProxy }) => {
+      if (tls || edgeProxy || !server.listening) return [];
+      const address = server.address();
+      if (!address || typeof address === "string" || (address.address !== "127.0.0.1" && address.address !== "::1")) return [];
+      return [new URL(`http://localhost:${address.port}`).origin];
+    });
+    return [...this.urls, ...loopbackLocalhost, ...NATIVE_ORIGINS, ...(this.options.origins ?? [])].includes(origin) || this.cloudflare.isOriginAllowed(origin);
+  }
+  private requestSource(req: IncomingMessage, edgeProxy = false): string {
+    if (edgeProxy) {
+      // Dedicated non-instance loopback listener for Cloudflare Tunnel only.
+      // Attribute rate-limit/audit sources per external client IP from
+      // Cloudflare's edge-inserted CF-Connecting-IP header, always strictly
+      // inside the edge-proxy namespace (never loopback/trusted, never auth).
+      const header = req.headers["cf-connecting-ip"];
+      if (typeof header === "string") {
+        try { return `edge-proxy:${sourceAddress(header.trim())}`; } catch { /* fall back to shared edge bucket */ }
+      }
+      return "edge-proxy:shared";
+    }
+    return this.relaySources.source(req.socket);
   }
   private send(ws: WebSocket, value: unknown): Promise<void> {
     const work = writeFrame(ws, value, this.fragmentSockets.has(ws));
@@ -676,7 +964,10 @@ export class HubServer {
     });
     return work;
   }
-  private errorFrame(ws: WebSocket, error: unknown, requestId?: string, conversationId?: string, title?: string): Promise<void> { return this.send(ws, { v: 1, type: "error", requestId, conversationId, code: error instanceof HubError ? error.code : error instanceof z.ZodError ? "invalid_request" : "internal_error", message: error instanceof HubError ? error.code === "client_update_required_after_restore" ? "主机已从备份恢复，请更新客户端以重新同步完整聊天记录。" : error.code === "history_metadata_unavailable" ? `${title ? `对话「${title.slice(0,80)}」` : "该对话"}的同步索引不完整，请联系主机管理员检查或从可信备份恢复；聊天原文仍保留，修复后重新连接。` : error.code : "Request failed", retryable: error instanceof HubError ? (error.status >= 500 || error.code === "session_expired") : !(error instanceof z.ZodError) }); }
+  private sessionDesignatedCapable(session: AuthSession): boolean {
+    return session.capabilities?.includes(CROSS_HOST_GROUPS_CAPABILITY) ?? false;
+  }
+  private errorFrame(ws: WebSocket, error: unknown, requestId?: string, conversationId?: string, title?: string): Promise<void> { return this.send(ws, { v: 1, type: "error", requestId, conversationId, code: error instanceof HubError ? error.code : error instanceof z.ZodError ? "invalid_request" : "internal_error", message: error instanceof HubError ? error.code === "client_update_required_after_restore" ? "主机已从备份恢复，请更新客户端以重新同步完整聊天记录。" : error.code === "history_metadata_unavailable" ? `${title ? `对话「${title.slice(0,80)}」` : "该对话"}的同步索引不完整，请联系主机管理员检查或从可信备份恢复；聊天原文仍保留，修复后重新连接。` : error.code === "group_designated_client_update_required" ? "此群已开启指定 Bot 回复，请更新 App 后发送，或先 @ 指定回复的 Bot。" : error.code : "Request failed", retryable: error instanceof HubError ? (error.status >= 500 || error.code === "session_expired") : !(error instanceof z.ZodError) }); }
   private endClientSession(client: Client, code: "device_revoked" | "session_expired"): void {
     if (client.rejected) return;
     client.rejected = code;
@@ -902,7 +1193,7 @@ export class HubServer {
   }
   private clientSocket(ws: WebSocket, source: string): void {
     const id = newId("connection");
-    const client: Client = { foreground: false, ws, capabilities: [], cursors: {}, syncLineages: {}, conversationIds: new Set(), readySent: false, pendingPublications: [], syncing: true, pendingSync: new Set(), syncingConversations: new Set(), syncFailures: new Set(), streams: new Map() };
+    const client: Client = { foreground: false, lastSeenAt: Date.now(), ws, capabilities: [], cursors: {}, syncLineages: {}, conversationIds: new Set(), readySent: false, pendingPublications: [], syncing: true, pendingSync: new Set(), syncingConversations: new Set(), syncFailures: new Set(), streams: new Map() };
     this.clients.add(client);
     const timeout = setTimeout(() => { if (!client.session) ws.close(4001, "auth_timeout"); }, 30_000); timeout.unref();
     let hello: Extract<ClientFrame, { type: "hello" }> | undefined;
@@ -937,6 +1228,7 @@ export class HubServer {
     };
     ws.on("message", (data, binary) => {
       if (this.stopping) return;
+      client.lastSeenAt = Date.now();
       // Authentication catch-up can span many frames. Keep liveness probes out
       // of its request queue, or healthy large syncs look like broken routes.
       if (client.session && !binary && data.toString().length < 512) {
@@ -993,13 +1285,15 @@ export class HubServer {
         }
         if (frame.type === "auth") {
           if (!hello || client.session) throw new HubError("unexpected_auth");
-          const session = await this.auth.authenticate(id, frame.signature); client.session = session; clearTimeout(timeout);
+          const session = await this.auth.authenticate(id, frame.signature, client.capabilities); client.session = session; clearTimeout(timeout);
           // A short-lived host management client needs the owner APIs, not a
           // copy of every conversation/avatar/history merely to list Bots.
           // Authentication and all subsequent HTTP authorization are unchanged.
           if (client.capabilities.includes("management.v1")) {
+            const user = await this.store.user(session.userId);
+            const bots = listedBots(await this.store.bots(session.userId, client.capabilities.includes("bots.delete.v1")), client.capabilities);
             await this.sendClient(client, { v: 1, type: "ready", sessionToken: session.token, expiresAt: session.expiresAt, serverTime: Date.now(), serverCapabilities: SERVER_CAPABILITIES,
-              uploadLimits: { maxFileBytes: this.attachments.maxFileBytes, chunkBytes: CHUNK_BYTES }, user: await this.store.user(session.userId), bots: listedBots(await this.store.bots(session.userId, client.capabilities.includes("bots.delete.v1")), client.capabilities), conversations: [], avatars: [] });
+              uploadLimits: { maxFileBytes: this.attachments.maxFileBytes, chunkBytes: CHUNK_BYTES }, user, bots, conversations: [], avatars: [] });
             client.readySent = true; client.syncing = false;
             client.pendingPublications.length = 0; client.pendingSync.clear();
             await this.sendClient(client, { v: 1, type: "sync.complete" }); return;
@@ -1012,7 +1306,18 @@ export class HubServer {
             this.options.onWarning?.("conversation_folders_unavailable");
             return undefined;
           });
-          await this.sendClient(client, { v: 1, type: "ready", sessionToken: session.token, expiresAt: session.expiresAt, serverTime: Date.now(), serverCapabilities: SERVER_CAPABILITIES, uploadLimits: { maxFileBytes: this.attachments.maxFileBytes, chunkBytes: CHUNK_BYTES }, user: await this.store.user(session.userId), bots: listedBots(await this.store.bots(session.userId, client.capabilities.includes("bots.delete.v1")), client.capabilities), conversations, ...(conversationFolders ? { conversationFolders } : {}), avatars: await this.avatars.list(session.userId, session) });
+          const conversationPins = await this.conversationPins.read(session.userId).catch(() => {
+            this.options.onWarning?.("conversation_pins_unavailable");
+            return undefined;
+          });
+          const crossHostFolderOrder = await this.crossHostFolderOrder.read(session.userId).catch(() => {
+            this.options.onWarning?.("cross_host_folder_order_unavailable");
+            return undefined;
+          });
+          const user = await this.store.user(session.userId);
+          const bots = listedBots(await this.store.bots(session.userId, client.capabilities.includes("bots.delete.v1")), client.capabilities);
+          const avatars = await this.avatars.list(session.userId, session);
+          await this.sendClient(client, { v: 1, type: "ready", sessionToken: session.token, expiresAt: session.expiresAt, serverTime: Date.now(), serverCapabilities: SERVER_CAPABILITIES, uploadLimits: { maxFileBytes: this.attachments.maxFileBytes, chunkBytes: CHUNK_BYTES }, user, bots, conversations, ...(conversationFolders ? { conversationFolders } : {}), ...(conversationPins ? { conversationPins } : {}), ...(crossHostFolderOrder ? { crossHostFolderOrder } : {}), avatars });
           while (client.pendingPublications.length) await this.sendClient(client, client.pendingPublications.shift());
           client.readySent = true;
           if (client.capabilities.includes(CONVERSATION_SYNC_CAPABILITY)) {
@@ -1038,12 +1343,65 @@ export class HubServer {
     ws.on("error", () => { this.options.onWarning?.("client_socket_error"); });
     ws.on("close", () => { if (client.session) { this.workbench.unregister(this.workbenchPeer(client)); this.designSharing.disconnect(this.designSharePeer(client)); this.canvasAgent.detachForOwner(client); } clearTimeout(timeout); client.pendingPublications.length = 0; this.auth.forgetConnection(id); this.clients.delete(client); });
   }
+  private async conversationForUser(userId: string, conversation: Conversation): Promise<Conversation> {
+    if (!conversation.workspacePath) return conversation;
+    return (await this.store.isOwner(userId)) ? conversation : omitConversationWorkspace(conversation);
+  }
+  private async broadcastConversation(
+    conversation: Conversation,
+    predicate: (client: Client) => boolean,
+    extra?: (client: Client) => Record<string, unknown>,
+    addConversationId = false,
+  ): Promise<void> {
+    const targets = [...this.clients].filter(client => client.session && predicate(client));
+    if (!targets.length) return;
+    if (addConversationId) for (const client of targets) client.conversationIds.add(conversation.id);
+    const ownerByUser = new Map<string, boolean>();
+    if (conversation.workspacePath) {
+      const userIds = [...new Set(targets.map(client => client.session!.userId))];
+      const roles = await this.store.db.serial(() =>
+        Promise.all(userIds.map(async id => [id, (await this.store.db.get<{ role: string }>("SELECT role FROM users WHERE id=?", [id]))?.role === "owner"] as const)),
+      );
+      for (const [id, isOwner] of roles) ownerByUser.set(id, isOwner);
+    }
+    for (const client of targets) {
+      const visible = !conversation.workspacePath || ownerByUser.get(client.session!.userId) ? conversation : omitConversationWorkspace(conversation);
+      this.publishClient(client, { v: 1, type: "conversation.updated", conversation: visible, ...(extra?.(client) ?? {}) });
+    }
+  }
+  private async resolveBotDefaultWorkspace(botId: string): Promise<string | undefined> {
+    if (this.botManager && await this.botManager.owns(botId)) {
+      const stateDir = path.join(this.options.stateDir, "bots", botId);
+      const read = await workspaceSettings(stateDir, 0).catch(() => undefined);
+      if (read?.ok) return read.settings.workspacePath;
+    }
+    const row = await this.store.db.serial(() => this.store.db.get<{ workspace_path: string | null }>("SELECT workspace_path FROM bots WHERE id=?", [botId]));
+    return row?.workspace_path?.trim() || undefined;
+  }
   private async createConversation(userId: string, frame: Extract<ClientFrame, { type: "conversation.create" | "topic.create" }>, validate: () => Promise<unknown>) {
+    let workspacePath: string | undefined;
+    if (frame.type === "conversation.create") {
+      if (frame.workspacePath) {
+        await this.store.db.serial(() => this.store.requireOwner(userId));
+        workspacePath = await resolveExistingWorkspaceDirectory(frame.workspacePath);
+        await this.savedWorkspaces.touch(userId, workspacePath);
+      } else {
+        const uniqueBots = [...new Set(frame.botIds)];
+        if (uniqueBots.length === 1) {
+          workspacePath = await this.resolveBotDefaultWorkspace(uniqueBots[0]!);
+        }
+      }
+    }
     const conversation = frame.type === "topic.create"
       ? await this.store.createConversation(userId, [], frame.title, frame.clientActionId, { parentId: frame.groupId }, validate)
-      : await this.store.createConversation(userId, frame.botIds, frame.title, frame.clientActionId, { type: frame.conversationType }, validate);
-    for (const c of this.clients) if (c.session && (c.session.userId === userId || conversation.parentId && c.conversationIds.has(conversation.parentId))) { c.conversationIds.add(conversation.id); this.publishClient(c, { v: 1, type: "conversation.updated", conversation, ...(c.session.userId === userId ? { clientActionId: frame.clientActionId } : {}) }); }
-    return conversation;
+      : await this.store.createConversation(userId, frame.botIds, frame.title, frame.clientActionId, { type: frame.conversationType, ...(workspacePath ? { workspacePath } : {}) }, validate);
+    await this.broadcastConversation(
+      conversation,
+      c => c.session!.userId === userId || !!(conversation.parentId && c.conversationIds.has(conversation.parentId)),
+      c => c.session!.userId === userId ? { clientActionId: frame.clientActionId } : {},
+      true,
+    );
+    return this.conversationForUser(userId, conversation);
   }
   private designSharePeer(client:Client):DesignSharePeer {
     const session=client.session!;
@@ -1082,6 +1440,12 @@ export class HubServer {
     const bot = await this.store.db.serial(() => this.store.db.get<{name:string}>("SELECT name FROM bots WHERE id=?",[botId]));
     return { actor:{kind:"bot",id:botId,name:bot?.name?.slice(0,128) ?? botId}, sourceMessageId: messageId, userId: source.authorId, conversationId, validate, validateInQueue, context: await this.workbench.contextForMessage(source.authorId, messageId, conversationId) };
   }
+  private canvasTurnHint(connection: BotConnection, message: Message, metadata: { workbench?: WorkbenchContext; workbenchContextOmitted?: string }) {
+    if (!connection.canvasAgent || message.authorType !== "user" || message.botSource || message.groupDiscussion || message.forwardedFrom || metadata.workbenchContextOmitted) return {};
+    return this.canvasAgent.hasConnectedCanvas({ userId: message.authorId, conversationId: message.conversationId, context: metadata.workbench })
+      ? { canvasConnected: true } : {};
+  }
+
   private async canvasBotActor(botId: string, conversationId: string, messageId: string, socket?: WebSocket): Promise<WorkbenchActor> {
     const connection = this.bots.get(botId);
     if (socket && connection?.ws !== socket) throw new HubError("workbench_bot_disconnected", 409);
@@ -1150,7 +1514,7 @@ export class HubServer {
           await this.workbench.validateContext(userId, frame.conversationId, frame.workbench, client.session!.deviceId);
         }
         const guarded = async () => { await validate(); if (frame.type === "message.send" && frame.workbench && !priorWorkbenchMessage) this.workbench.assertContextActive(userId, frame.conversationId, frame.workbench); };
-        const result = frame.type === "message.forward" ? await this.attachments.forward(userId, frame, validate) : await this.store.sendMessage(userId, { ...frame, parallelCapable: client.capabilities.includes(GROUP_PARALLEL_CAPABILITY) }, guarded);
+        const result = frame.type === "message.forward" ? await this.attachments.forward(userId, frame, validate) : await this.store.sendMessage(userId, { ...frame, parallelCapable: client.capabilities.includes(GROUP_PARALLEL_CAPABILITY), designatedCapable: client.capabilities.includes(CROSS_HOST_GROUPS_CAPABILITY) }, guarded);
         const workbenchContextOmitted = "workbenchContextOmitted" in result ? result.workbenchContextOmitted : undefined;
         await this.sendClient(client, { v: 1, type: "message.ack", clientMsgId: frame.clientMsgId, messageId: result.message.id, ...(workbenchContextOmitted ? { workbenchContextOmitted } : {}) });
         break;
@@ -1174,7 +1538,7 @@ export class HubServer {
         }
         const conversation = await this.store.updateConversation(userId, frame.conversationId, frame, validate);
         if (frame.type === "conversation.bind" && frame.sessionId === null) await this.store.audit("conversation.binding_cleared", userId, { conversationId: frame.conversationId });
-        for (const c of this.clients) if (c.conversationIds.has(conversation.id)) this.publishClient(c, { v: 1, type: "conversation.updated", conversation });
+        await this.broadcastConversation(conversation, c => c.conversationIds.has(conversation.id));
         break;
       }
       case "turn.stop": {
@@ -1255,12 +1619,20 @@ export class HubServer {
             throw error;
           }
           if (!active()) { connection.replayQueue = true; break; }
+          const localBinding = await this.crossHostGroups.localDispatchBinding(id, message, conversation);
+          if (localBinding.blocked) {
+            if (await queue.settleInaccessible(id, message.id)) continue;
+          }
           const agentBus = connection.agentBus ? await this.agentBuses.dispatch(id, message.id) : undefined;
           // Trusted turn metadata comes only from the Hub's own turn record.
           const groupDiscussion = connection.groupDiscussion ? await this.groupDiscussions.dispatch(id, message.id) : undefined;
           if (!active()) { connection.replayQueue = true; break; }
           const workbenchMetadata = gatewayWorkbenchMetadata(await this.store.db.serial(() => readWorkbenchTurnMetadata(this.store.db, message.id)), connection.designOpen);
-          await this.send(connection.ws, { v: 1, type: "instance.message", message, conversation, ...workbenchMetadata, ...(agentBus ? { agentBus } : {}), ...(groupDiscussion ? { groupDiscussion } : {}) });
+          await this.send(connection.ws, { v: 1, type: "instance.message", message, conversation, ...workbenchMetadata, ...(!agentBus && !groupDiscussion && this.canvasTurnHint(connection, message, workbenchMetadata)), ...(message.botSource ? { ticketNotice: this.isHostTicketNotice(message) } : {}), ...(agentBus ? { agentBus } : {}), ...(groupDiscussion ? { groupDiscussion } : {}), ...(localBinding.blocked === false && localBinding.groupSession ? { groupSession: localBinding.groupSession } : {}) });
+          if (localBinding.blocked === false && localBinding.historyIncluded) {
+            const { scopeConversationId, memberKey, sessionId } = localBinding.historyIncluded;
+            this.trackTask(this.crossHostGroups.markLocalHistoryBackfilled(scopeConversationId, memberKey, sessionId).catch(() => undefined));
+          }
           // Readers see "speaking" instead of "waiting" without polling.
           if (groupDiscussion) this.trackTask(this.groupDiscussions.markDispatched(id, message.id).catch(() => this.options.onWarning?.("group_discussion_settle_failed")));
         }
@@ -1276,6 +1648,10 @@ export class HubServer {
     const tail = work.catch(() => undefined); this.dispatchTails.set(id, tail);
     void tail.then(() => { if (this.dispatchTails.get(id) === tail) this.dispatchTails.delete(id); });
     this.trackTask(work); return work;
+  }
+  private isHostTicketNotice(message: Message): boolean {
+    return message.authorType === "user" && !!message.botSource && /^tn_/.test(message.clientMsgId ?? "")
+      && /^tk_/.test(message.botSource.requestId) && message.botSource.hostId === messageHostId(this.auth.publicKey);
   }
   private scheduleDispatch(botId: string): void {
     // Delivery settlement is an RPC response boundary, not a wait for the next
@@ -1336,14 +1712,15 @@ export class HubServer {
           botId = frame.botId; if (frame.capabilities?.includes(FRAGMENT_CAPABILITY)) this.fragmentSockets.add(ws); clearTimeout(timeout); this.bots.get(botId)?.ws.close(4000, "replaced");
           const queueAdvertised = frame.capabilities?.includes(PROMPT_QUEUE_CAPABILITY) ?? false;
           const queueCapable = queueAdvertised && supportsPromptQueueEngine(frame.engine);
-          const connection: BotConnection = { botSteer: frame.capabilities?.includes(BOT_MESSAGE_STEER_CAPABILITY) ?? false, engineQuota: frame.capabilities?.includes(ENGINE_QUOTA_CAPABILITY) ?? false, contextUsage: frame.capabilities?.includes(CONTEXT_USAGE_CAPABILITY) ?? false, history: frame.capabilities?.includes(CONVERSATION_HISTORY_CAPABILITY) ?? false, designOpen: frame.capabilities?.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY) ?? false, nativeInput: frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) ?? false, nativeReviewInput: (frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) && frame.capabilities.includes(NATIVE_REVIEW_INPUT_CAPABILITY)) ?? false, engineTasks: frame.capabilities?.includes(ENGINE_TASKS_CAPABILITY) ?? false, piSession: frame.engine === "pi" && (frame.capabilities?.includes(PI_SESSION_CAPABILITY) ?? false), ws, botId, widgetPolicy: frame.capabilities?.includes(WIDGET_POLICY_CAPABILITY) ?? false, voicePolicy: frame.capabilities?.includes(VOICE_POLICY_CAPABILITY) ?? false, queueAdvertised, queueCapable, queuePull: frame.capabilities?.includes(PROMPT_QUEUE_PULL_CAPABILITY) ?? false, botMessages: frame.capabilities?.includes("bot-messages.v1") ?? false, agentBus: frame.capabilities?.includes(AGENT_BUS_WORKER_CAPABILITY) ?? false, groupDiscussion: frame.capabilities?.includes(GROUP_DISCUSSION_WORKER_CAPABILITY) ?? false, replayQueue: true, ready: false };
+          const connection: BotConnection = { canvasAgent: frame.capabilities?.includes(CANVAS_AGENT_HOST_CAPABILITY) ?? false, audioRecording: frame.capabilities?.includes(AUDIO_RECORDING_CAPABILITY) ?? false, botSteer: frame.capabilities?.includes(BOT_MESSAGE_STEER_CAPABILITY) ?? false, engineQuota: frame.capabilities?.includes(ENGINE_QUOTA_CAPABILITY) ?? false, engineQuotaAccountMatch: frame.capabilities?.includes(ENGINE_QUOTA_ACCOUNT_MATCH_CAPABILITY) ?? false, contextUsage: frame.capabilities?.includes(CONTEXT_USAGE_CAPABILITY) ?? false, history: frame.capabilities?.includes(CONVERSATION_HISTORY_CAPABILITY) ?? false, designOpen: frame.capabilities?.includes(WORKBENCH_DESIGN_OPEN_CAPABILITY) ?? false, nativeInput: frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) ?? false, nativeReviewInput: (frame.capabilities?.includes(NATIVE_INPUT_CAPABILITY) && frame.capabilities.includes(NATIVE_REVIEW_INPUT_CAPABILITY)) ?? false, engineTasks: frame.capabilities?.includes(ENGINE_TASKS_CAPABILITY) ?? false, piSession: frame.engine === "pi" && (frame.capabilities?.includes(PI_SESSION_CAPABILITY) ?? false), ws, botId, widgetPolicy: frame.capabilities?.includes(WIDGET_POLICY_CAPABILITY) ?? false, voicePolicy: frame.capabilities?.includes(VOICE_POLICY_CAPABILITY) ?? false, queueAdvertised, queueCapable, queuePull: frame.capabilities?.includes(PROMPT_QUEUE_PULL_CAPABILITY) ?? false, botMessages: frame.capabilities?.includes("bot-messages.v1") ?? false, agentBus: frame.capabilities?.includes(AGENT_BUS_WORKER_CAPABILITY) ?? false, groupDiscussion: frame.capabilities?.includes(GROUP_DISCUSSION_WORKER_CAPABILITY) ?? false, replayQueue: true, ready: false };
           // Reserve socket ownership before awaiting SQLite. Concurrent hellos
           // must replace this exact socket, not both replace its predecessor.
           this.bots.set(botId, connection);
+          this.quotaAccountProofs.delete(botId);
           const ownsConnection = () => active() && this.bots.get(botId!) === connection;
           if (!await new HubPromptQueue(this.store).registerWorker(botId, queueCapable, ownsConnection, frame) || !ownsConnection()) return;
           connection.ready = true;
-          this.send(ws, { v: 1, type: "instance.ready", capabilities: [CONVERSATION_HISTORY_CAPABILITY, PI_SESSION_CAPABILITY, WORKBENCH_CAPABILITY, WORKBENCH_MARKDOWN_CAPABILITY, WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_DESIGN_COMMENTS_CAPABILITY, WORKBENCH_DESIGN_HISTORY_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, NATIVE_INPUT_CAPABILITY, NATIVE_REVIEW_INPUT_CAPABILITY, STEERING_OUTCOME_CAPABILITY, FRAGMENT_CAPABILITY, RUN_CAPABILITY, RUN_RECOVERY_CAPABILITY, RUN_SCOPES_CAPABILITY, RUN_CHANGES_CAPABILITY, BACKGROUND_TASK_GROUP_CAPABILITY, PROMPT_QUEUE_CAPABILITY, PROMPT_QUEUE_PULL_CAPABILITY] });
+          this.send(ws, { v: 1, type: "instance.ready", ...(connection.engineQuotaAccountMatch ? { quotaProofKey: this.quotaProofKey.toString("hex") } : {}), capabilities: [CONVERSATION_HISTORY_CAPABILITY, PI_SESSION_CAPABILITY, WORKBENCH_CAPABILITY, WORKBENCH_MARKDOWN_CAPABILITY, WORKBENCH_DESIGN_CAPABILITY, WORKBENCH_DESIGN_OPEN_CAPABILITY, WORKBENCH_DESIGN_COMMENTS_CAPABILITY, WORKBENCH_DESIGN_HISTORY_CAPABILITY, WORKBENCH_SLIDES_CAPABILITY, NATIVE_INPUT_CAPABILITY, NATIVE_REVIEW_INPUT_CAPABILITY, STEERING_OUTCOME_CAPABILITY, FRAGMENT_CAPABILITY, RUN_CAPABILITY, RUN_RECOVERY_CAPABILITY, RUN_SCOPES_CAPABILITY, RUN_CHANGES_CAPABILITY, BACKGROUND_TASK_GROUP_CAPABILITY, PROMPT_QUEUE_CAPABILITY, PROMPT_QUEUE_PULL_CAPABILITY, SWARM_TASKS_CAPABILITY] });
           // Never await RPC results in this socket's frame chain: its result
           // frames are handled by that same chain after hello completes.
           if (connection.history) this.trackTask(this.conversationHistory.recoverBot(botId).catch(() => this.options.onWarning?.("history_recovery_failed")));
@@ -1352,25 +1729,33 @@ export class HubServer {
           // Issue #62: open Bot steers learn their journaled outcome now, not on the sender's next wait.
           if (connection.botSteer) this.trackTask(this.botMessages.reconcileForBot(botId).catch(() => this.options.onWarning?.("bot_steer_reconcile_failed")));
           else this.trackTask(this.botMessages.closeOpenSteersForBot(botId, "worker_without_steer").catch(() => this.options.onWarning?.("bot_steer_close_failed")));
-          this.scheduleDispatch(botId); await this.broadcastBotStatus(botId); return;
+          this.scheduleDispatch(botId);
+          await this.broadcastBotStatus(botId); return;
         }
         if (!botId) throw new HubError("instance_unauthorized", 401);
         if (frame.type === "ping") {
           if (frame.status && this.bots.get(botId)?.ws === ws) {
             const status = frame.status;
-            const changed = await this.store.db.serial(async () => {
-              const current = await this.store.db.get<{ engine: string; model: string; effort: string }>("SELECT engine,model,effort FROM bots WHERE id=?", [botId!]);
-              if (this.bots.get(botId!)?.ws !== ws || !current || (current.engine === status.engine && current.model === status.model && current.effort === status.effort)) return false;
-              await this.store.db.run("UPDATE bots SET engine=?,model=?,effort=? WHERE id=?", [status.engine, status.model, status.effort, botId!]);
-              return true;
+            const nextWorkspace = status.workspacePath?.trim() || undefined;
+            const change = await this.store.db.serial(async () => {
+              const current = await this.store.db.get<{ engine: string; model: string; effort: string; workspace_path: string | null }>("SELECT engine,model,effort,workspace_path FROM bots WHERE id=?", [botId!]);
+              if (this.bots.get(botId!)?.ws !== ws || !current) return { meta: false, workspace: false };
+              const meta = current.engine !== status.engine || current.model !== status.model || current.effort !== status.effort;
+              const workspace = nextWorkspace !== undefined && nextWorkspace !== (current.workspace_path?.trim() || undefined);
+              if (!meta && !workspace) return { meta: false, workspace: false };
+              await this.store.db.run("UPDATE bots SET engine=?,model=?,effort=?,workspace_path=? WHERE id=?", [status.engine, status.model, status.effort, nextWorkspace ?? current.workspace_path, botId!]);
+              return { meta, workspace };
             });
-            if (changed) {
-              const connection = this.bots.get(botId);
-              if (connection?.ws === ws) {
-                connection.queueCapable = connection.queueAdvertised && supportsPromptQueueEngine(status.engine);
-                await new HubPromptQueue(this.store).registerWorker(botId, connection.queueCapable, () => active() && this.bots.get(botId!) === connection);
+            if (change.meta || change.workspace) {
+              if (change.meta) {
+                const connection = this.bots.get(botId);
+                if (connection?.ws === ws) {
+                  connection.queueCapable = connection.queueAdvertised && supportsPromptQueueEngine(status.engine);
+                  await new HubPromptQueue(this.store).registerWorker(botId, connection.queueCapable, () => active() && this.bots.get(botId!) === connection);
+                }
               }
-              await this.broadcastBotStatus(botId); this.scheduleDispatch(botId);
+              await this.broadcastBotStatus(botId);
+              if (change.meta) this.scheduleDispatch(botId);
             }
           }
           this.send(ws, { v: 1, type: "pong" }); return;
@@ -1400,7 +1785,7 @@ export class HubServer {
     ws.on("close", () => {
       clearTimeout(timeout); reader.clear();
       for (const [id, lease] of this.nativeTurns) if (lease.connection.ws === ws) this.nativeTurns.delete(id);
-      if (botId && this.bots.get(botId)?.ws === ws) { this.bots.delete(botId); this.trackTask(this.store.botStatus(botId, { online: 0 }).then(() => this.broadcastBotStatus(botId!)).catch(() => undefined)); }
+      if (botId && this.bots.get(botId)?.ws === ws) { this.bots.delete(botId); this.quotaAccountProofs.delete(botId); this.trackTask(this.store.botStatus(botId, { online: 0 }).then(() => this.broadcastBotStatus(botId!)).catch(() => undefined)); }
       for (const [id, rpc] of this.pendingRpc) if (rpc.ws === ws) { clearTimeout(rpc.timer); this.pendingRpc.delete(id); rpc.reject(new HubError("bot_offline", 503)); }
     });
   }
@@ -1497,7 +1882,7 @@ export class HubServer {
       const metadata = await this.store.db.serial(() => readWorkbenchTurnMetadata(this.store.db, input.messageId));
       if (flight.ended || flight.calls <= 0 || this.steersInFlight.get(input.messageId) !== flight || this.bots.get(botId) !== connection || connection.ws.readyState !== WebSocket.OPEN || this.stopping) throw new HubError("workbench_turn_unavailable", 409);
       this.nativeTurns.set(input.messageId, { botId, conversationId: input.conversationId, connection });
-      return metadata;
+      return { ...metadata, ...this.canvasTurnHint(connection, record, metadata) };
     }
     if (["workbench.command", "workbench.cancel", "workbench.context", "workbench.targets"].includes(method)) {
       const input = z.object({ conversationId: idSchema, contextMessageId: idSchema, requestId: idSchema.optional(), request: workbenchRequestSchema.optional() }).strict().parse(params);
@@ -1514,10 +1899,22 @@ export class HubServer {
       const connection = this.bots.get(botId);
       if (!connection?.queuePull || !connection.queueCapable) throw new HubError("queue_unsupported", 409);
       const active = () => !this.stopping && !this.hostDrainStatus().draining && this.bots.get(botId) === connection && connection.ready && connection.ws.readyState === WebSocket.OPEN;
-      const message = await new HubPromptQueue(this.store).take(botId, conversationId, active, connection.botMessages);
-      if (!message) return null;
-      const workbenchMetadata = gatewayWorkbenchMetadata(await this.store.db.serial(() => readWorkbenchTurnMetadata(this.store.db, message.id)), connection.designOpen);
-      return { message, conversation: await this.store.conversationForBot(botId, conversationId), ...workbenchMetadata };
+      const queue = new HubPromptQueue(this.store);
+      for (;;) {
+        const message = await queue.take(botId, conversationId, active, connection.botMessages);
+        if (!message) return null;
+        const conversation = await this.store.conversationForBot(botId, conversationId);
+        const localBinding = await this.crossHostGroups.localDispatchBinding(botId, message, conversation);
+        if (localBinding.blocked) {
+          if (await queue.settleInaccessible(botId, message.id)) continue;
+        }
+        if (localBinding.blocked === false && localBinding.historyIncluded) {
+          const { scopeConversationId, memberKey, sessionId } = localBinding.historyIncluded;
+          this.trackTask(this.crossHostGroups.markLocalHistoryBackfilled(scopeConversationId, memberKey, sessionId).catch(() => undefined));
+        }
+        const workbenchMetadata = gatewayWorkbenchMetadata(await this.store.db.serial(() => readWorkbenchTurnMetadata(this.store.db, message.id)), connection.designOpen);
+        return { message, conversation, ...workbenchMetadata, ...this.canvasTurnHint(connection, message, workbenchMetadata), ...(message.botSource ? { ticketNotice: this.isHostTicketNotice(message) } : {}), ...(localBinding.blocked === false && localBinding.groupSession ? { groupSession: localBinding.groupSession } : {}) };
+      }
     }
     if (method === "run.recover") { const input = z.object({ before: z.number().int().nonnegative().max(Date.now()) }).strict().parse(params); await this.store.recoverOrphanRuns(botId, input.before); await this.store.retireNativeInputs(botId, input.before); await this.settleDiscussion(() => this.groupDiscussions.settleBot(botId)); return null; }
     if (method === "input.progress") { if (!this.bots.get(botId)?.nativeInput) throw new HubError("unsupported", 409); await this.store.applyNativeInputProgress(botId, params); return null; }
@@ -1528,6 +1925,7 @@ export class HubServer {
       const message = await this.store.publishBotMessage(botId, botPublishSchema.parse(params), (blocks, previous) => { if (blocks.some(block => block.type === "card" && block.extra?.widget !== undefined && !previous.some(old => JSON.stringify(old) === JSON.stringify(block)))) this.widgetSettings.assertEnabled(); });
       // A receipt may precede the final run-card publication; settle again here.
       await this.settleDiscussion(() => this.groupDiscussions.published(botId, message));
+      this.trackTask(this.crossHostGroups.onBotMessagePublished(botId, message).catch(() => this.options.onWarning?.("cross_host_reply_forward_failed")));
       return message;
     }
     if (method === "fetch") return this.store.messageForBot(botId, z.object({ messageId: idSchema }).parse(params).messageId);
@@ -1537,9 +1935,10 @@ export class HubServer {
       await this.store.acknowledgeDelivery(botId, messageId); await new HubPromptQueue(this.store).settled(botId, messageId);
       await this.agentBuses.settleDelivery(botId, messageId);
       await this.settleDiscussion(() => this.groupDiscussions.settleInput(botId, messageId));
+      this.trackTask(this.crossHostGroups.onBotTurnSettled(botId, messageId).catch(() => this.options.onWarning?.("cross_host_reply_forward_failed")));
       this.scheduleDispatch(botId); return null;
     }
-    if (method === "delivery.fail") { const p = z.object({ messageId: idSchema, reason: z.enum(["interrupted", "failed"]) }).parse(params); await this.store.failDelivery(botId, p.messageId, p.reason); await new HubPromptQueue(this.store).settled(botId, p.messageId); await this.agentBuses.settleDelivery(botId, p.messageId); await this.settleDiscussion(() => this.groupDiscussions.settleInput(botId, p.messageId, p.reason)); this.scheduleDispatch(botId); return null; }
+    if (method === "delivery.fail") { const p = z.object({ messageId: idSchema, reason: z.enum(["interrupted", "failed"]) }).parse(params); await this.store.failDelivery(botId, p.messageId, p.reason); await new HubPromptQueue(this.store).settled(botId, p.messageId); await this.agentBuses.settleDelivery(botId, p.messageId); await this.settleDiscussion(() => this.groupDiscussions.settleInput(botId, p.messageId, p.reason)); this.trackTask(this.crossHostGroups.onBotTurnSettled(botId, p.messageId).catch(() => this.options.onWarning?.("cross_host_reply_forward_failed"))); this.scheduleDispatch(botId); return null; }
     if (method === "agentBus.event") { await this.agentBuses.event(botId, params); return null; }
     if (method === "groupDiscussion.report") { await this.groupDiscussions.report(botId, params); return null; }
     if (method === "reaction" || method === "turn.state") { const p = z.object({ conversationId: idSchema, payload: z.json() }).parse(params); await this.store.appendBotEvent(botId, p.conversationId, method, p.payload); return null; }
@@ -1591,14 +1990,14 @@ export class HubServer {
     if (bucket.remaining < 1) throw new HubError("rate_limited", 429);
     bucket.remaining--;
   }
-  private async request(req: IncomingMessage, res: ServerResponse, instanceAllowed: boolean): Promise<void> {
-    const source = this.relaySources.source(req.socket);
+  private async request(req: IncomingMessage, res: ServerResponse, instanceAllowed: boolean, edgeProxy = false): Promise<void> {
+    const source = this.requestSource(req, edgeProxy);
     const url = new URL(req.url ?? "/", this.url); const route = url.pathname;
     const isCanvasAgentBridgeRoute = /^\/api\/canvas-agent\/(?:state|activate|result)$/.test(route);
     if (!this.originAllowed(req) || route.startsWith("/api/canvas-agent/") && req.headers.origin === "null") throw new HubError("origin_forbidden", 403);
     if (req.headers.origin) { res.setHeader("Access-Control-Allow-Origin", req.headers.origin); res.setHeader("Vary", "Origin"); }
     res.setHeader("Access-Control-Expose-Headers", "ETag, Content-Range, Accept-Ranges, Date");
-    if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type, Range, If-Range, x-tarobird-conversation-id", "Access-Control-Max-Age": "600" }); res.end(); return; }
+    if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type, Range, If-Range", "Access-Control-Max-Age": "600" }); res.end(); return; }
     // Worker-only, one-use browser downloads must never fall back to HTML when
     // a worker has expired or a browser retries the navigation on the network.
     if (route.startsWith("/__tarocub_download/")) { res.writeHead(204, { "Cache-Control": "no-store" }); res.end(); return; }
@@ -1654,6 +2053,26 @@ export class HubServer {
       if (!Buffer.isBuffer(certificate) || !certificate.length) throw new HubError("tls_identity_unavailable", 503);
       this.json(res, 200, this.auth.tlsIdentity(url.searchParams.get("nonce") ?? "", certificate, source)); return;
     }
+    if (route === "/api/edge-identity" && req.method === "GET") {
+      // Edge-terminated HTTPS proofs (e.g. DIY Cloudflare Tunnel) are ONLY
+      // issued on the dedicated non-instance loopback edge-proxy listener and
+      // ONLY for explicitly authorized origins, preventing remote third-party
+      // proxies or misconfigured tunnels pointing at the main listener from
+      // obtaining edge proofs.
+      if (!edgeProxy || !isLoopback(req.socket.remoteAddress ?? "")) throw new HubError("edge_identity_loopback_only", 403);
+      const requestedOrigin = url.searchParams.get("origin") ?? "";
+      if (!this.cloudflare.isOriginAllowed(requestedOrigin)) throw new HubError("edge_origin_not_allowed", 403);
+      const bearer = req.headers.authorization?.replace(/^Bearer /, "");
+      let knownDeviceId = await this.auth.activeSessionDeviceId(bearer);
+      if (!knownDeviceId) {
+        const candidate = url.searchParams.get("deviceId");
+        if (candidate && idSchema.safeParse(candidate).success) {
+          const device = await this.store.device(candidate);
+          if (device && !device.revoked) knownDeviceId = device.id;
+        }
+      }
+      this.json(res, 200, this.auth.edgeIdentity(url.searchParams.get("nonce") ?? "", requestedOrigin, source, knownDeviceId)); return;
+    }
     if (route === "/api/pair" && req.method === "POST") { this.json(res, 201, await this.auth.pairInvited(await this.jsonBody(req, 8192), source)); return; }
     if (route === "/api/bot-messages/challenge" && req.method === "GET") {
       this.networkRate(source, "bot-message");
@@ -1682,7 +2101,40 @@ export class HubServer {
       this.networkRate(source, "enroll");
       this.json(res, 200, await this.network.enroll(await this.jsonBody(req, MAX_NETWORK_BYTES))); return;
     }
+    if (route.startsWith("/api/group-mail/")) {
+      this.networkRate(source, "bot-message");
+      const method = req.method === "POST" ? "POST" : req.method === "GET" ? "GET" : undefined;
+      if (!method) throw new HubError("method_not_allowed", 405);
+      const rawBuf = method === "POST" ? await this.body(req, 2 * MAX_FRAME_BYTES) : Buffer.alloc(0);
+      const bodyText = rawBuf.toString("utf8");
+      const peer = await this.crossHostGroups.verifyPeerRequest(method, route, req.headers, bodyText);
+      const parsePeerJson = (): unknown => {
+        try { return JSON.parse(bodyText); }
+        catch { throw new HubError("invalid_json", 400); }
+      };
+      if (route === "/api/group-mail/directory" && method === "GET") {
+        this.json(res, 200, await this.crossHostGroups.handlePeerDirectory(peer)); return;
+      }
+      if (route === "/api/group-mail/sessions" && method === "POST") {
+        const parsed = z.object({ botId: idSchema, title: z.string().trim().min(1).max(256), requestId: idSchema.optional() }).strict().parse(parsePeerJson());
+        this.json(res, 200, await this.crossHostGroups.handlePeerEnsureSession(peer, parsed)); return;
+      }
+      if (route === "/api/group-mail/deliver" && method === "POST") {
+        this.json(res, 200, await this.crossHostGroups.handlePeerDeliver(peer, parsePeerJson())); return;
+      }
+      if (route === "/api/group-mail/reply" && method === "POST") {
+        this.json(res, 200, await this.crossHostGroups.handlePeerReply(peer, parsePeerJson())); return;
+      }
+      const statusRoute = route.match(/^\/api\/group-mail\/status\/([A-Za-z0-9_-]+)$/);
+      if (statusRoute && method === "GET") {
+        this.json(res, 200, await this.crossHostGroups.handlePeerStatus(peer, statusRoute[1]!)); return;
+      }
+      throw new HubError("not_found", 404);
+    }
     if (route.startsWith("/api/instance/")) { if (!instanceAllowed) throw new HubError("instance_unauthorized", 401); await this.instanceHttp(req, res, route); return; }
+    if ((route === "/api/bot-messages/grant" || route === "/api/bot-messages/local") && (!instanceAllowed || !isLoopback(req.socket.remoteAddress ?? ""))) {
+      throw new HubError("local_controller_required", 403);
+    }
     if (!route.startsWith("/api/")) { await this.staticFile(route, res); return; }
     const token = req.headers.authorization?.replace(/^Bearer /, "");
     const session = await this.auth.authorize(token, source);
@@ -1703,6 +2155,7 @@ export class HubServer {
     try {
       if (route.startsWith("/api/plugins/artifacts/")) {
         if (req.method !== "GET" || url.search || route !== "/api/plugins/artifacts/tarobird.infinite-canvas/1.0.0/bundle.html") throw new HubError("not_found", 404);
+        await requireOwner();
         const data = await readCanvasArtifact(this.options.pluginArtifactsDir ?? path.resolve("dist/plugins"));
         await validate();
         res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Content-Disposition": 'attachment; filename="bundle.html"',
@@ -1713,13 +2166,26 @@ export class HubServer {
       const quotaRoute = route.match(/^\/api\/engine-quotas(?:\/([A-Za-z0-9_-]+))?$/);
       if (quotaRoute && req.method === "GET") {
         await requireOwner();
-        const url = new URL(req.url ?? "/", "http://hub"), refresh = url.searchParams.get("refresh") === "1", revision = url.searchParams.get("revision") ?? undefined;
+        const url = new URL(req.url ?? "/", "http://hub"), refresh = url.searchParams.get("refresh") === "1", revision = url.searchParams.get("revision") ?? undefined, includeCurrencyBalances = url.searchParams.get("balances") === "currency";
+        const includeOmp = url.searchParams.get("includeOmp") === "1";
         if (revision && (revision.length > 128 || !/^[a-zA-Z0-9_.:-]+$/.test(revision)) || refresh && !quotaRoute[1]) throw new HubError("quota_request_invalid", 400);
-        const quotas = hubEngineQuotas({ bots: () => this.store.bots(userId), validate,
+        const quotas = hubEngineQuotas({ bots: () => this.store.bots(userId), validate, includeOmp,
           connection: id => { const connection = this.bots.get(id); return connection ? { key: connection, supported: connection.engineQuota, ready: connection.ready } : undefined; },
           call: (id, request) => this.callBot(id, "quota.get", request, request.refresh ? ENGINE_QUOTA_HUB_REFRESH_MS : 2_500),
+          proofStore: this.quotaAccountProofs,
+          accountProof: async (id, expectedRevision) => {
+            const conn = this.bots.get(id);
+            if (!conn?.ready || !conn.engineQuotaAccountMatch) return undefined;
+            try {
+              const raw = await this.callBot(id, "quota.accountProof", { scopeId: id, expectedRevision }, 2_000);
+              const parsed = quotaAccountProofReplySchema.safeParse(raw);
+              return parsed.success && parsed.data.scopeId === id && parsed.data.revision === expectedRevision ? parsed.data.accountKey : undefined;
+            } catch {
+              return undefined;
+            }
+          },
         });
-        await reply(200, quotaRoute[1] ? await quotas.scope(quotaRoute[1], refresh, revision) : await quotas.directory()); return;
+        await reply(200, quotaRoute[1] ? await quotas.scope(quotaRoute[1], refresh, revision, { includeCurrencyBalances }) : await quotas.directory({ includeCurrencyBalances })); return;
       }
       if (route === "/api/workbench/admit" && req.method === "POST") {
         const input = z.object({ dispatchId: idSchema }).strict().parse(await this.jsonBody(req, 2048));
@@ -1776,10 +2242,19 @@ export class HubServer {
             // Executable paths are private host diagnostics, never audit payloads.
             await this.store.db.run("INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)", [Date.now(), session.deviceId, "engines.settings-updated", JSON.stringify({ engine: command.engine, manual: command.path !== null, requestId: command.requestId })]);
           }));
-        } else view = this.engineSettings.status(idSchema.optional().parse(url.searchParams.get("requestId") ?? undefined));
-        // Existing clients validate a closed five-engine enum. Keep their
-        // complete settings page usable until they opt into Pi support.
-        await reply(200, url.searchParams.get("includePi") === "1" ? view : { ...view, engines: view.engines.filter(engine => engine.id !== "pi") }); return;
+        } else {
+          await this.engineSettings.refresh();
+          view = await this.engineSettings.statusAsync(
+            idSchema.optional().parse(url.searchParams.get("requestId") ?? undefined),
+            // refresh() above already force-read the registry PATH; discovery reuses it.
+            { forceRefresh: url.searchParams.get("refresh") === "1", registryRefreshed: true },
+          );
+        }
+        // Existing clients validate a closed engine enum (five pre-Pi, six in v1.6.0).
+        // Gate Pi on includePi=1 and omp on includeOmp=1 so older clients stay compatible.
+        const includePi = url.searchParams.get("includePi") === "1";
+        const includeOmp = url.searchParams.get("includeOmp") === "1";
+        await reply(200, { ...view, engines: view.engines.filter(engine => (engine.id !== "pi" || includePi) && (engine.id !== "omp" || includeOmp)) }); return;
       }
       if (route === "/api/settings/widgets" && ["GET", "PUT"].includes(req.method ?? "")) {
         await requireOwner();
@@ -1818,11 +2293,16 @@ export class HubServer {
         } catch (error) { if (error instanceof VoiceSettingsError) throw new HubError(error.code, error.status); throw error; }
       }
       // `includeWindows=1`: this client can read a Windows desktop. Older ones parse the reply strictly as a Mac's.
-      const screenViewer = { windows: url.searchParams.get("includeWindows") === "1" };
+      // `includeUdpStatus=1`: this client can read `udpStatus` and `policy.udpBoost`. Older ones parse the reply strictly.
+      const screenViewer = {
+        windows: url.searchParams.get("includeWindows") === "1",
+        udpStatus: url.searchParams.get("includeUdpStatus") === "1",
+        route: this.screenRouteFromSource(source),
+      };
       if (route === "/api/screens/status" && req.method === "GET") { await reply(200, await this.remoteScreen.status(session, screenViewer)); return; }
       if (route === "/api/screens/configure" && req.method === "POST") {
         const { command, proof } = signedScreenConfigureSchema.parse(await this.jsonBody(req, SCREEN_MAX_CONTROL_BYTES));
-        await reply(200, await this.remoteScreen.configure(session, command, proof)); return;
+        await reply(200, await this.remoteScreen.configure(session, command, proof, screenViewer)); return;
       }
       if (route === "/api/screens/sessions" && req.method === "POST") { await reply(201, await this.remoteScreen.open(session, await this.jsonBody(req, SCREEN_MAX_CONTROL_BYTES), screenViewer)); return; }
       if (route === "/api/screens/stop" && req.method === "POST") { const input = screenStopSchema.parse(await this.jsonBody(req, 4096)); await this.remoteScreen.stop(session, input.sessionId); await reply(200, { ok: true }); return; }
@@ -1874,6 +2354,28 @@ export class HubServer {
           const result = fileQuery
             ? await this.workspaceDiff.file(scope, fileQuery.path, fileQuery.preview === "1", controller.signal, authorize)
             : await this.workspaceDiff.list(scope, controller.signal, authorize);
+          await authorize(); await reply(200, result);
+        } finally { res.off("close", cancel); this.downloads.delete(controller); }
+        return;
+      }
+      const workspaceFilesRoute = route.match(/^\/api\/conversations\/([A-Za-z0-9_-]+)\/workspace-files\/(tree|preview)$/);
+      if (workspaceFilesRoute && req.method === "GET") {
+        await requireOwner();
+        if ([...url.searchParams.keys()].length !== new Set(url.searchParams.keys()).size) throw new HubError("invalid_request", 400);
+        const mode = workspaceFilesRoute[2]!;
+        const treeQuery = mode === "tree" ? workspaceTreeQuerySchema.parse(Object.fromEntries(url.searchParams)) : undefined;
+        const previewQuery = mode === "preview" ? workspacePreviewQuerySchema.parse(Object.fromEntries(url.searchParams)) : undefined;
+        const botId = (treeQuery ?? previewQuery)!.botId;
+        const scope = { conversationId: workspaceFilesRoute[1]!, botId };
+        const authorize = () => serial(async () => { await this.store.requireMember(userId, scope.conversationId); await this.store.requireBot(scope.botId, scope.conversationId); });
+        await authorize();
+        const controller = new AbortController(); this.downloads.set(controller, session);
+        const cancel = () => controller.abort(new HubError("request_aborted", 499));
+        res.once("close", cancel); if (res.destroyed) cancel();
+        try {
+          const result = treeQuery
+            ? await this.workspaceFiles.list(scope, treeQuery.path, controller.signal, authorize, { includeChanges: treeQuery.changes !== "0" })
+            : await this.workspaceFiles.preview(scope, previewQuery!.path, previewQuery!.reveal === "1", controller.signal, authorize);
           await authorize(); await reply(200, result);
         } finally { res.off("close", cancel); this.downloads.delete(controller); }
         return;
@@ -1936,13 +2438,91 @@ export class HubServer {
         const includeScopes = url.searchParams.get("scopes") === "1";
         await reply(200, await new RunJournal(this.store).read(userId, runRoute[1]!, after, query, includeScopes, { tail, before })); return;
       }
+      if (route === HOST_TERMINAL_STATUS_PATH && req.method === "GET") {
+        await validate();
+        await reply(200, await this.hostTerminal.status(session));
+        return;
+      }
+      if (route === HOST_TERMINAL_CONFIGURE_PATH && req.method === "POST") {
+        await requireOwner();
+        const input = z.object({ command: z.unknown(), proof: deviceActionProofSchema.optional() }).strict().parse(await this.jsonBody(req));
+        await reply(200, await this.hostTerminal.configure(session, input.command, input.proof));
+        return;
+      }
+      if (route === HOST_TERMINALS_PATH && req.method === "GET") {
+        await validate();
+        const conversationId = idSchema.parse(url.searchParams.get("conversationId") ?? "");
+        await reply(200, { sessions: await this.hostTerminal.list(session, conversationId) });
+        return;
+      }
+      if (route === HOST_TERMINALS_PATH && req.method === "POST") {
+        await validate();
+        await reply(201, { terminal: await this.hostTerminal.create(session, await this.jsonBody(req)) });
+        return;
+      }
+      const termRoute = route.match(/^\/api\/terminals\/([A-Za-z0-9_-]+)(?:\/(output|input|resize))?$/);
+      if (termRoute) {
+        const termId = termRoute[1]!;
+        const sub = termRoute[2];
+        await validate();
+        if (!sub && req.method === "DELETE") {
+          await reply(200, await this.hostTerminal.close(session, termId));
+          return;
+        }
+        if (sub === "output" && req.method === "GET") {
+          const after = z.coerce.number().int().min(0).default(0).parse(url.searchParams.get("after") ?? "0");
+          const wait = z.coerce.number().int().min(0).max(8000).default(0).parse(url.searchParams.get("wait") ?? "0");
+          const controller = new AbortController();
+          this.downloads.set(controller, session);
+          const cancel = () => controller.abort(new HubError("request_aborted", 499));
+          res.once("close", cancel);
+          if (res.destroyed) cancel();
+          try {
+            const output = await this.hostTerminal.readOutput(session, termId, after, wait, controller.signal);
+            if (controller.signal.aborted) throw controller.signal.reason instanceof Error ? controller.signal.reason : new HubError("request_aborted", 499);
+            await reply(200, output);
+          } finally {
+            res.off("close", cancel);
+            this.downloads.delete(controller);
+          }
+          return;
+        }
+        if (sub === "input" && req.method === "POST") {
+          await reply(200, await this.hostTerminal.writeInput(session, termId, await this.jsonBody(req, 128 * 1024)));
+          return;
+        }
+        if (sub === "resize" && req.method === "POST") {
+          await reply(200, await this.hostTerminal.resize(session, termId, await this.jsonBody(req)));
+          return;
+        }
+      }
+      if (route === HOST_RESOURCES_PATH && req.method === "GET") {
+        await validate();
+        const user = await this.store.user(userId);
+        const force = url.searchParams.get("force") === "1";
+        await reply(200, await this.hostResources.snapshot(userId, user?.role === "owner", force));
+        return;
+      }
+      if (route === HOST_RESOURCES_STOP_PATH && req.method === "POST") {
+        await requireOwner();
+        const input = hostResourceStopRequestSchema.parse(await this.jsonBody(req));
+        await requireOwner();
+        await reply(200, await this.hostResources.stop(userId, input, requireOwner));
+        return;
+      }
       if (route === "/api/host-profile" && (req.method === "GET" || req.method === "PATCH")) {
         if (req.method === "GET") await reply(200, await this.profile.read(validateInQueue));
         else { await requireOwner(); await reply(200, await this.profile.update(await this.jsonBody(req), validateInQueue)); }
         return;
       }
+      if (route === HOST_BALANCE_RESOURCES_PATH && req.method === "GET") {
+        await reply(200, await readHostBalanceResources(this.store));
+        return;
+      }
       if (route === "/api/network" && req.method === "GET") {
-        await requireOwner(); await reply(200, await this.network.view(validateInQueue)); return;
+        await requireOwner();
+        const includeCapabilities = url.searchParams.get("capabilities") === "1";
+        await reply(200, await this.network.view(validateInQueue, { includeCapabilities })); return;
       }
       if (route === HOST_LAN_SELECTION_PATH && req.method === "POST") {
         await requireOwner();
@@ -1953,12 +2533,45 @@ export class HubServer {
       if (route === HOST_ROUTES_PATH && req.method === "GET") {
         await requireOwner(); await reply(200, await this.hostRoutes.view(validateInQueue)); return;
       }
+      if (route === HOST_CLOUDFLARE_PATH && req.method === "GET") {
+        await requireOwner(); await reply(200, await this.cloudflare.view()); return;
+      }
+      if (route === HOST_CLOUDFLARE_PATH && req.method === "PUT") {
+        if (edgeProxy) throw new HubError("local_controller_required", 403);
+        messageControllerRequired = true; await requireOwner();
+        const input = z.object({ command: cloudflareUpdateSchema, proof: deviceActionProofSchema.optional() }).strict().parse(await this.jsonBody(req, 8192));
+        const target = hashSecret(cloudflareUpdateProofText(input.command));
+        const view = await this.cloudflare.update(input.command, async () => {
+          await this.auth.consumeCloudflareAction(session, target, input.proof);
+          await this.store.db.run(
+            "INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)",
+            [Date.now(), session.deviceId, "cloudflare.updated", JSON.stringify({ ...(input.command.mode ? { mode: input.command.mode } : {}), ...(input.command.protocol ? { protocol: input.command.protocol } : {}), ...(input.command.origins ? { originsCount: input.command.origins.length } : {}) })],
+          );
+        });
+        await reply(200, view); return;
+      }
+      if (route === HOST_CLOUDFLARE_QUICK_PATH && req.method === "POST") {
+        if (edgeProxy) throw new HubError("local_controller_required", 403);
+        messageControllerRequired = true; await requireOwner();
+        const input = z.object({ command: cloudflareQuickActionSchema, proof: deviceActionProofSchema.optional() }).strict().parse(await this.jsonBody(req, 2048));
+        const target = hashSecret(cloudflareQuickActionProofText(input.command));
+        await this.store.db.transaction(async () => {
+          await this.auth.consumeCloudflareAction(session, target, input.proof);
+          await this.store.db.run(
+            "INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)",
+            [Date.now(), session.deviceId, input.command.action === "start" ? "cloudflare.quick_started" : "cloudflare.quick_stopped", JSON.stringify({ action: input.command.action, ...(input.command.protocol ? { protocol: input.command.protocol } : {}) })],
+          );
+        });
+        const view = input.command.action === "start" ? await this.cloudflare.startQuickTunnel(input.command.protocol, validate) : await this.cloudflare.stopQuickTunnel();
+        await reply(200, view); return;
+      }
       if (route === "/api/network/manage" && req.method === "POST") {
         await requireOwner();
+        const includeCapabilities = url.searchParams.get("capabilities") === "1";
         // Keep the signed command's original representation for the network
         // layer's canonical-input check; do not normalize nested names/routes.
         const input = z.object({ command: z.unknown(), proof: deviceActionProofSchema.optional() }).strict().parse(await this.jsonBody(req, MAX_NETWORK_BYTES));
-        const result = await this.network.command(input.command, session, input.proof);
+        const result = await this.network.command(input.command, session, input.proof, { includeCapabilities });
         const completed = networkCommandSchema.parse(input.command);
         // An active departure intentionally revokes the requesting phone too.
         // Only return its already-authorized, root-verified departure receipt;
@@ -1971,11 +2584,12 @@ export class HubServer {
       }
       if (route === "/api/conversations/batch" && req.method === "POST") {
         const result = await new ConversationBatchOperations(this.store).apply(userId, await this.jsonBody(req), validateInQueue);
-        for (const conversation of result.conversations) for (const client of this.clients) {
-          if (client.conversationIds.has(conversation.id)) this.publishClient(client, { v: 1, type: "conversation.updated", conversation });
+        for (const conversation of result.conversations) {
+          await this.broadcastConversation(conversation, client => client.conversationIds.has(conversation.id));
         }
         if (result.folders) for (const client of this.clients) if (client.session?.userId === userId) this.publishClient(client, { v: 1, type: "conversation-folders.updated", folders: result.folders });
-        await reply(200, result);
+        const visibleConversations = await Promise.all(result.conversations.map(conversation => this.conversationForUser(userId, conversation)));
+        await reply(200, { ...result, conversations: visibleConversations });
         return;
       }
       if (route === "/api/conversation-folders" && (req.method === "GET" || req.method === "PATCH")) {
@@ -1984,6 +2598,28 @@ export class HubServer {
           const folders = await this.conversationFolders.change(userId, await this.jsonBody(req), validateInQueue);
           for (const client of this.clients) if (client.session?.userId === userId) this.publishClient(client, { v: 1, type: "conversation-folders.updated", folders });
           await reply(200, folders);
+        }
+        return;
+      }
+      if (route === "/api/conversation-pins" && (req.method === "GET" || req.method === "PATCH")) {
+        if (req.method === "GET") await reply(200, await this.conversationPins.read(userId, validateInQueue));
+        else {
+          const result = await this.conversationPins.change(userId, await this.jsonBody(req), validateInQueue);
+          if (result.changed) {
+            for (const client of this.clients) if (client.session?.userId === userId) this.publishClient(client, { v: 1, type: "conversation-pins.updated", pins: result.state });
+          }
+          await reply(200, result.state);
+        }
+        return;
+      }
+      if (route === "/api/cross-host-folder-order" && (req.method === "GET" || req.method === "PATCH")) {
+        if (req.method === "GET") await reply(200, await this.crossHostFolderOrder.read(userId, validateInQueue));
+        else {
+          const result = await this.crossHostFolderOrder.change(userId, await this.jsonBody(req), validateInQueue);
+          if (result.changed) {
+            for (const client of this.clients) if (client.session?.userId === userId) this.publishClient(client, { v: 1, type: "cross-host-folder-order.updated", order: result.state });
+          }
+          await reply(200, result.state);
         }
         return;
       }
@@ -2038,24 +2674,31 @@ export class HubServer {
       const historyRoute = route.match(/^\/api\/conversations\/([A-Za-z0-9_-]+)\/history(?:\/(anchors|operations)(?:\/([A-Za-z0-9_-]+)(\/reconcile)?)?)?$/);
       if (historyRoute) {
         const conversationId = historyRoute[1]!, part = historyRoute[2], requestId = historyRoute[3];
+        // Older v1.6.0 clients parse `historyReasonSchema` strictly without `side_session`.
+        // Project `side_session` back to `background_work` unless the caller opted in via `?sideReason=1`.
+        const allowSideReason = url.searchParams.get(HISTORY_SIDE_REASON_QUERY) === "1";
+        const projectSnapshot = <T extends { blocked?: import("../client-protocol/conversation-history.js").HistoryReason }>(value: T): T =>
+          value.blocked === "side_session" && !allowSideReason ? { ...value, blocked: compatHistoryReason(value.blocked, false) } : value;
+        const projectOperation = <T extends { reason?: import("../client-protocol/conversation-history.js").HistoryReason }>(value: T): T =>
+          value.reason === "side_session" && !allowSideReason ? { ...value, reason: compatHistoryReason(value.reason, false) } : value;
         if (req.method === "POST" && part === "operations" && requestId && historyRoute[4]) {
           const input = historyChangeSchema.parse(await this.jsonBody(req, 16384));
           if (input.requestId !== requestId) throw new HubError("history_request_conflict", 409);
-          await reply(200, await this.conversationHistory.reconcile(userId, conversationId, input, validateInQueue)); return;
+          await reply(200, projectOperation(await this.conversationHistory.reconcile(userId, conversationId, input, validateInQueue))); return;
         }
         if (historyRoute[4]) throw new HubError("method_not_allowed", 405);
         if (req.method === "POST" && part === "operations" && !requestId) {
           const input = historyChangeSchema.parse(await this.jsonBody(req, 16384));
-          await reply(200, await this.conversationHistory.start(userId, conversationId, input, validateInQueue)); return;
+          await reply(200, projectOperation(await this.conversationHistory.start(userId, conversationId, input, validateInQueue))); return;
         }
         if (req.method !== "GET") throw new HubError("method_not_allowed", 405);
         const botId = idSchema.parse(url.searchParams.get("botId"));
-        if (!part) { await reply(200, await this.conversationHistory.snapshot(userId, botId, conversationId, validateInQueue)); return; }
+        if (!part) { await reply(200, projectSnapshot(await this.conversationHistory.snapshot(userId, botId, conversationId, validateInQueue))); return; }
         if (part === "anchors" && !requestId) {
           const query = { messageId: idSchema.optional().parse(url.searchParams.get("messageId") ?? undefined), cursor: idSchema.optional().parse(url.searchParams.get("cursor") ?? undefined) };
           await reply(200, await this.conversationHistory.anchors(userId, botId, conversationId, query, validateInQueue)); return;
         }
-        if (part === "operations" && requestId) { await reply(200, await this.conversationHistory.status(userId, botId, conversationId, requestId, validateInQueue)); return; }
+        if (part === "operations" && requestId) { await reply(200, projectOperation(await this.conversationHistory.status(userId, botId, conversationId, requestId, validateInQueue))); return; }
         throw new HubError("not_found", 404);
       }
       const piSessionRoute = route.match(/^\/api\/conversations\/([A-Za-z0-9_-]+)\/pi-session$/);
@@ -2095,6 +2738,7 @@ export class HubServer {
         if (tasksRoute[2] && req.method !== "POST") throw new HubError("not_found", 404);
         const input = req.method === "POST" ? (tasksRoute[2] ? engineSessionRecoverySchema : engineTaskStopSchema).parse(await this.jsonBody(req, 4096)) : undefined;
         const botId = input?.botId ?? idSchema.parse(url.searchParams.get("botId"));
+        const includeSwarmTasks = !input && url.searchParams.get("swarmTasks") === "1";
         const authorize = async () => {
           await this.auth.validateSession(session);
           await serial(async () => { await this.store.requireMember(userId, conversationId); await this.store.requireBot(botId, conversationId); });
@@ -2107,7 +2751,9 @@ export class HubServer {
           ? engineTaskControlResultSchema.parse(await this.callBot(botId, "token" in input ? "tasks.recover" : "tasks.stop", { conversationId, userId, requestId: input.requestId, ...("token" in input ? { token: input.token } : { taskId: input.taskId }) }))
           : engineTaskSnapshotSchema.parse(await this.callBot(botId, "tasks.list", { conversationId }));
         await authorize();
-        await reply(200, result); return;
+        // Swarm task metadata and board snapshots go only to callers that opt in (`?swarmTasks=1`):
+        // 1.6.0 clients validate `engineTaskSchema` and `engineTaskSnapshotSchema` strictly.
+        await reply(200, input || includeSwarmTasks ? result : stripSwarmTaskFields(result as ReturnType<typeof engineTaskSnapshotSchema.parse>)); return;
       }
       const contextRoute = route.match(/^\/api\/conversations\/([A-Za-z0-9_-]+)\/context-usage$/);
       if (contextRoute && req.method === "GET") {
@@ -2230,10 +2876,13 @@ export class HubServer {
           // `refresh=<engine>` is the owner's "Refresh models": a new read of that engine, past the short retry
           // window that keeps an unanswered read from starting the CLI on every look.
           const refresh = createBotSchema.shape.engine.optional().parse(url.searchParams.get("refresh") ?? undefined);
-          const catalog = await this.botManager.catalog(z.string().max(4096).optional().parse(url.searchParams.get("workspace") ?? undefined), refresh);
-          // Existing clients do not understand Pi's provider/effort settings.
-          // New App and CLI catalog readers opt in, just as engine settings do.
-          await reply(200, url.searchParams.get("includePi") === "1" ? catalog : { ...catalog, engines: catalog.engines.filter(engine => engine.id !== "pi") });
+          const redetect = url.searchParams.get("redetect") === "1";
+          const catalog = await this.botManager.catalog(z.string().max(4096).optional().parse(url.searchParams.get("workspace") ?? undefined), refresh, { forceRefresh: redetect });
+          // Existing clients validate closed engine enums (five pre-Pi, six in v1.6.0).
+          // Gate Pi on includePi=1 and omp on includeOmp=1 independently.
+          const includePi = url.searchParams.get("includePi") === "1";
+          const includeOmp = url.searchParams.get("includeOmp") === "1";
+          await reply(200, { ...catalog, engines: catalog.engines.filter(engine => (engine.id !== "pi" || includePi) && (engine.id !== "omp" || includeOmp)) });
         }
         else await reply(201, await this.botManager.create(userId, createBotSchema.parse(await this.jsonBody(req)), validateInQueue));
         return;
@@ -2251,7 +2900,7 @@ export class HubServer {
         await this.settleDiscussion(() => this.groupDiscussions.settleBot(botId));
         // The deletion is committed; later Bus reads and startup reconcile retry.
         await this.agentBuses.settleCoordinator(botId).catch(() => this.options.onWarning?.("agent_bus_settle_failed"));
-        for (const conversation of conversations) for (const client of this.clients) if (client.conversationIds.has(conversation.id)) this.publishClient(client, { v: 1, type: "conversation.updated", conversation });
+        for (const conversation of conversations) await this.broadcastConversation(conversation, client => client.conversationIds.has(conversation.id));
         await reply(200, { bot: (await this.store.bots(userId, true)).find(bot => bot.id === botId), conversations });
         return;
       }
@@ -2269,26 +2918,49 @@ export class HubServer {
         return;
       }
       const groupSettingsRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/settings$/);
-      if (groupSettingsRoute && req.method === "GET") { await reply(200, await this.store.groupSettings(userId, groupSettingsRoute[1]!, validateInQueue)); return; }
+      if (groupSettingsRoute && req.method === "GET") { await reply(200, await this.store.groupSettings(userId, groupSettingsRoute[1]!, validateInQueue, { designatedCapable: this.sessionDesignatedCapable(session) })); return; }
       if (groupSettingsRoute && req.method === "PUT") {
         const { groupSettingsSchema } = await import("../client-protocol/groups.js");
         const changed = await this.store.updateGroup(userId, groupSettingsRoute[1]!, groupSettingsSchema.parse(await this.jsonBody(req)), validateInQueue);
-        for (const conversation of changed) for (const client of this.clients) if (client.conversationIds.has(conversation.id)) this.publishClient(client, { v: 1, type: "conversation.updated", conversation });
-        await reply(200, changed); return;
+        for (const conversation of changed) await this.broadcastConversation(conversation, client => client.conversationIds.has(conversation.id));
+        await reply(200, await Promise.all(changed.map(conversation => this.conversationForUser(userId, conversation)))); return;
       }
+      const groupMembersRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/members(?:\/([A-Za-z0-9_.:%-]+)(?:\/(session))?)?$/);
+      if (groupMembersRoute) {
+        const groupId = groupMembersRoute[1]!;
+        let memberKeyParam: string | undefined;
+        if (groupMembersRoute[2]) {
+          try { memberKeyParam = decodeURIComponent(groupMembersRoute[2]); }
+          catch { throw new HubError("invalid_request", 400); }
+        }
+        const sub = groupMembersRoute[3];
+        if (!memberKeyParam && req.method === "GET") { await reply(200, await this.crossHostGroups.getState(userId, groupId, url.searchParams.get("directory") !== "0", validateInQueue)); return; }
+        if (!memberKeyParam && req.method === "POST") { await reply(200, await this.crossHostGroups.addMember(userId, groupId, await this.jsonBody(req), validateInQueue)); return; }
+        if (memberKeyParam && sub === "session" && req.method === "PATCH") { await reply(200, await this.crossHostGroups.switchMemberSession(userId, groupId, memberKeyParam, await this.jsonBody(req), validateInQueue)); return; }
+        if (memberKeyParam && !sub && req.method === "DELETE") { await reply(200, await this.crossHostGroups.removeMember(userId, groupId, memberKeyParam, validateInQueue)); return; }
+      }
+      const groupDesignatedRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/designated$/);
+      if (groupDesignatedRoute && req.method === "PUT") { await reply(200, await this.crossHostGroups.setDesignatedMember(userId, groupDesignatedRoute[1]!, await this.jsonBody(req), validateInQueue)); return; }
+      const groupRoomsRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/rooms$/);
+      if (groupRoomsRoute && req.method === "POST") { await reply(201, await this.crossHostGroups.createRoom(userId, groupRoomsRoute[1]!, await this.jsonBody(req), validateInQueue)); return; }
+      const groupStopRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/stop$/);
+      if (groupStopRoute && req.method === "POST") { await reply(200, await this.crossHostGroups.stopGroup(userId, groupStopRoute[1]!, validateInQueue)); return; }
+      const groupQuestionRetryRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/questions\/([A-Za-z0-9_-]+)\/retry$/);
+      if (groupQuestionRetryRoute && req.method === "POST") { await reply(200, await this.crossHostGroups.reconcileOrRetryQuestion(userId, groupQuestionRetryRoute[1]!, groupQuestionRetryRoute[2]!, validateInQueue)); return; }
       const discussionRoute = route.match(/^\/api\/conversations\/([A-Za-z0-9_-]+)\/discussion(?:\/([A-Za-z0-9_-]+)\/(control|notes|steps\/([A-Za-z0-9_-]+)))?$/);
       if (discussionRoute && (req.method === "POST" ? !discussionRoute[3] || discussionRoute[3] === "control" || discussionRoute[3] === "notes" : req.method === "GET" && (!discussionRoute[2] || !!discussionRoute[4]))) {
         const conversationId = discussionRoute[1]!, runId = discussionRoute[2];
+        const designatedCapable = this.sessionDesignatedCapable(session);
         // Reads never settle or advance a run; only receipts and controls do.
         if (req.method === "GET" && discussionRoute[4]) await reply(200, await this.groupDiscussions.step(userId, conversationId, runId!, discussionRoute[4], validateInQueue));
         else if (req.method === "GET") {
           const query = z.object({ brief: z.literal("1").optional(), known: z.string().max(260).optional() }).strict().parse(Object.fromEntries(url.searchParams));
-          await reply(200, await this.groupDiscussions.read(userId, conversationId, validateInQueue, { brief: query.brief === "1", ...(query.known !== undefined ? { known: query.known } : {}) }));
+          await reply(200, await this.groupDiscussions.read(userId, conversationId, validateInQueue, { brief: query.brief === "1", ...(query.known !== undefined ? { known: query.known } : {}), designatedCapable }));
         }
-        else if (!runId) await reply(200, await this.groupDiscussions.start(userId, conversationId, await this.jsonBody(req), validateInQueue));
-        else if (discussionRoute[3] === "notes") await reply(200, await this.groupDiscussions.note(userId, conversationId, runId, await this.jsonBody(req), validateInQueue));
+        else if (!runId) await reply(200, await this.groupDiscussions.start(userId, conversationId, await this.jsonBody(req), validateInQueue, { designatedCapable }));
+        else if (discussionRoute[3] === "notes") await reply(200, await this.groupDiscussions.note(userId, conversationId, runId, await this.jsonBody(req), validateInQueue, { designatedCapable }));
         else {
-          await reply(200, await this.groupDiscussions.control(userId, conversationId, runId, await this.jsonBody(req), validateInQueue));
+          await reply(200, await this.groupDiscussions.control(userId, conversationId, runId, await this.jsonBody(req), validateInQueue, { designatedCapable }));
           // A resumed run may release a held input; let every Bot claim now.
           this.trackTask(this.dispatchPending().catch(() => this.options.onWarning?.("queue_dispatch_failed")));
         }
@@ -2375,7 +3047,7 @@ export class HubServer {
           const allowed = new Set((await this.store.conversations(userId)).filter(c => c.botIds.includes(botId)).map(c => c.id));
           await reply(200, { ...result.data, jobs: result.data.jobs.filter(job => allowed.has(job.conversationId)) });
         } else {
-          const input = z.object({ mutation: scheduleMutationSchema, locale: z.enum(["zh", "en"]) }).strict().parse(await this.jsonBody(req));
+          const input = z.object({ mutation: scheduleMutationSchema, locale: LocaleSchema }).strict().parse(await this.jsonBody(req));
           const conversations = await this.store.conversations(userId);
           const conversation = conversations.find(c => c.id === input.mutation.conversationId && c.botIds.includes(botId));
           if (!conversation) throw new HubError("conversation_forbidden", 403);
@@ -2389,34 +3061,136 @@ export class HubServer {
         }
         return;
       }
-      const dispatcher = route.match(/^\/api\/bots\/([A-Za-z0-9_-]+)\/(dispatcher|tickets|tickets\/dispatch|tickets\/update|dispatch-targets|dispatch-capabilities)$/);
+      const dispatchQuery = new URL(req.url ?? "/", "http://hub").searchParams;
+      const crossHostDispatch = dispatchQuery.get("crossHostDispatch") === "1";
+      const ticketForClient = (ticket: Parameters<typeof legacyDispatchTicket>[0]) => crossHostDispatch ? ticket : legacyDispatchTicket(ticket);
+      const dispatcher = route.match(/^\/api\/bots\/([A-Za-z0-9_-]+)\/(dispatcher|tickets|tickets\/dispatch|tickets\/update|tickets\/plan|tickets\/bulk-action|dispatch-targets|dispatch-capabilities|dispatch-nodes)$/);
       if (dispatcher) {
         await requireOwner();
         const [, botId, kind] = dispatcher as unknown as [string, string, string], owner = { kind: "owner" as const, userId, validate: validateInQueue };
-        if (kind === "dispatcher" && req.method === "GET") { await reply(200, await this.dispatch.settings(userId, botId)); return; }
-        if (kind === "dispatcher" && req.method === "PUT") { const result = await this.dispatch.updateSettings(userId, botId, await this.jsonBody(req), validateInQueue); await this.store.audit("dispatch.settings_updated", session.deviceId, { botId }); await reply(200, result); return; }
-        if (kind === "tickets" && req.method === "GET") {
-          const query = new URL(req.url ?? "/", "http://hub").searchParams, options = { open: query.get("open") === "1", capabilities: query.get("capabilities") === "1" };
-          await reply(200, query.get("summary") === "1" ? await this.dispatch.overview(owner, botId, options) : await this.dispatch.list(owner, botId, options)); return;
+        if (kind === "dispatcher" && req.method === "GET") {
+          const result = await this.dispatch.settings(userId, botId);
+          await reply(200, crossHostDispatch ? result : legacyDispatcherSettings(result)); return;
         }
-        if (kind === "tickets" && req.method === "POST") { await reply(201, await this.dispatch.create(owner, botId, await this.jsonBody(req))); return; }
-        if (kind === "tickets/dispatch" && req.method === "POST") { await reply(200, await this.dispatch.dispatch(owner, botId, await this.jsonBody(req))); return; }
-        if (kind === "tickets/update" && req.method === "POST") { await reply(200, await this.dispatch.update(owner, botId, await this.jsonBody(req))); return; }
+        if (kind === "dispatcher" && req.method === "PUT") { const result = await this.dispatch.updateSettings(userId, botId, await this.jsonBody(req), validateInQueue, !crossHostDispatch); await this.store.audit("dispatch.settings_updated", session.deviceId, { botId }); await reply(200, crossHostDispatch ? result : legacyDispatcherSettings(result)); return; }
+        if (kind === "tickets" && req.method === "GET") {
+          const conversationId = dispatchQuery.get("conversationId");
+          const options = { ...(conversationId ? { conversationId: idSchema.parse(conversationId) } : {}), open: dispatchQuery.get("open") === "1", capabilities: dispatchQuery.get("capabilities") === "1", excerpts: crossHostDispatch && dispatchQuery.get("excerpts") === "1" };
+          const list = dispatchQuery.get("summary") === "1" ? await this.dispatch.overview(owner, botId, options) : await this.dispatch.list(owner, botId, options);
+          await reply(200, crossHostDispatch ? list : { ...list, tickets: list.tickets.map(legacyDispatchTicket) }); return;
+        }
+        if (kind === "tickets" && req.method === "POST") { await reply(201, ticketForClient(await this.dispatch.create(owner, botId, await this.jsonBody(req)))); return; }
+        if (kind === "tickets/dispatch" && req.method === "POST") { await reply(200, ticketForClient(await this.dispatch.dispatch(owner, botId, await this.jsonBody(req)))); return; }
+        if (kind === "tickets/update" && req.method === "POST") { await reply(200, ticketForClient(await this.dispatch.update(owner, botId, await this.jsonBody(req)))); return; }
+        if (kind === "tickets/plan" && req.method === "POST") { await reply(200, await this.dispatch.plan(owner, botId, await this.jsonBody(req))); return; }
+        if (kind === "tickets/bulk-action" && req.method === "POST") { await reply(200, await this.dispatch.bulkAction(userId, botId, await this.jsonBody(req), validateInQueue)); return; }
+        if (kind === "dispatch-nodes" && req.method === "GET") { await reply(200, await this.dispatch.nodes(owner, botId)); return; }
         if (kind === "dispatch-targets" && req.method === "GET") { await reply(200, await this.dispatch.targets(owner, botId)); return; }
         if (kind === "dispatch-capabilities" && req.method === "GET") {
           const query = new URL(req.url ?? "/", "http://hub").searchParams;
           await reply(200, await this.dispatch.capabilities(owner, botId, { ...Object.fromEntries(query), ...(query.has("offset") ? { offset: Number(query.get("offset")) } : {}) })); return;
         }
       }
+      if (route === "/api/dispatch/load" && req.method === "GET") {
+        await requireOwner();
+        const health = await serial(async () => {
+          const rows = await this.store.db.all<{ engine: string; state: string; until: number | null; reason: string | null; updated_at: number }>("SELECT * FROM engine_health ORDER BY engine");
+          const now = Date.now();
+          return rows.flatMap(r => !(r.state === "cooldown" && r.until !== null && r.until <= now) ? [{ engine: r.engine as any, state: r.state as any, ...(r.until ? { until: r.until } : {}), ...(r.reason ? { reason: r.reason } : {}), updatedAt: r.updated_at }] : []);
+        });
+        await reply(200, await readLocalHostLoad(this.remoteDispatchCtx, health)); return;
+      }
+      if (route === "/api/dispatch/cross-host-grants" && (req.method === "GET" || req.method === "POST")) {
+        await requireOwner();
+        if (req.method === "GET") await reply(200, await readCrossHostDispatchGrants(this.remoteDispatchCtx, userId, validateInQueue));
+        else {
+          const input = z.object({ command: z.record(z.string(), z.unknown()), proof: deviceActionProofSchema }).strict().parse(await this.jsonBody(req));
+          await reply(200, await updateCrossHostDispatchGrants(this.remoteDispatchCtx, userId, session.deviceId, input.command, validateInQueue,
+            () => this.auth.consumeBotMessageGrant(session, hashSecret(networkCanonical(input.command)), input.proof)));
+        }
+        return;
+      }
       const ticket = route.match(/^\/api\/tickets\/([A-Za-z0-9_-]+)(\/action|\/assists)?$/);
       if (ticket) {
         await requireOwner();
-        if (!ticket[2] && req.method === "GET") { await reply(200, await this.dispatch.show({ kind: "owner", userId }, ticket[1]!)); return; }
+        if (!ticket[2] && req.method === "GET") { await reply(200, ticketForClient(await this.dispatch.show({ kind: "owner", userId }, ticket[1]!))); return; }
         if (ticket[2] === "/assists" && req.method === "GET") { await reply(200, await this.dispatch.assists({ kind: "owner", userId }, ticket[1]!)); return; }
-        if (ticket[2] === "/action" && req.method === "POST") { await reply(200, await this.dispatch.action(userId, ticket[1]!, await this.jsonBody(req), validateInQueue)); return; }
+        if (ticket[2] === "/action" && req.method === "POST") { await reply(200, ticketForClient(await this.dispatch.action(userId, ticket[1]!, await this.jsonBody(req), validateInQueue))); return; }
       }
       const engineReset = route.match(/^\/api\/dispatch\/engines\/([a-z]+)\/reset$/);
       if (engineReset && req.method === "POST") { await requireOwner(); await reply(200, await this.dispatch.resetEngine(userId, engineReset[1], validateInQueue)); return; }
+      if (route === "/api/workspaces" && (req.method === "GET" || req.method === "POST")) {
+        await requireOwner();
+        if (req.method === "GET") { await reply(200, { items: await this.savedWorkspaces.list(userId) }); return; }
+        const added = await this.savedWorkspaces.add(userId, await this.jsonBody(req), validateInQueue);
+        await this.store.audit("workspace.saved", session.deviceId, { workspaceId: added.workspace.id });
+        await reply(201, added);
+        return;
+      }
+      if (route === "/api/workspaces/browse" && req.method === "GET") {
+        await requireOwner();
+        const target = url.searchParams.get("path") ?? undefined;
+        const showHidden = url.searchParams.get("showHidden") === "1";
+        await reply(200, await this.savedWorkspaces.browse(userId, target, showHidden));
+        return;
+      }
+      const workspaceItem = route.match(/^\/api\/workspaces\/([A-Za-z0-9_-]+)$/);
+      if (workspaceItem && req.method === "DELETE") {
+        await requireOwner();
+        const items = await this.savedWorkspaces.remove(userId, workspaceItem[1]!, validateInQueue);
+        await this.store.audit("workspace.removed", session.deviceId, { workspaceId: workspaceItem[1]! });
+        await reply(200, { items });
+        return;
+      }
+      const botWorkspace = route.match(/^\/api\/bots\/([A-Za-z0-9_-]+)\/workspace$/);
+      if (botWorkspace && (req.method === "GET" || req.method === "PUT")) {
+        await requireOwner();
+        const botId = botWorkspace[1]!;
+        if (!(await this.store.bots(userId)).some(bot => bot.id === botId)) throw new HubError("bot_forbidden", 403);
+        const input = req.method === "PUT" ? botWorkspacePatchSchema.parse(await this.jsonBody(req)) : {};
+        const operation = (this.workspaceOperations.get(botId) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+          await this.auth.validateSession(session);
+          await requireOwner();
+          const managed = this.botManager ? await this.botManager.owns(botId) : false;
+          const readOrWrite = async (method: "workspace.get" | "workspace.set", payload: unknown) => {
+            if (this.bots.get(botId)?.ready) return botWorkspaceResultSchema.parse(await this.callBot(botId, method, payload));
+            if (managed) return workspaceSettings(path.join(this.options.stateDir, "bots", botId), 0, method === "workspace.set" ? payload : undefined);
+            throw new HubError("bot_offline", 503);
+          };
+          if (req.method === "GET") {
+            const result = await readOrWrite("workspace.get", input);
+            if (!result.ok) throw new HubError(result.error, result.error === "workspace_unavailable" ? 400 : 409);
+            await this.store.botStatus(botId, { workspacePath: result.settings.workspacePath }, validateInQueue).catch(() => undefined);
+            await reply(200, result.settings);
+            return;
+          }
+          const patch = input as BotWorkspacePatch;
+          const current = await readOrWrite("workspace.get", {});
+          if (!current.ok) throw new HubError(current.error, current.error === "workspace_unavailable" ? 400 : 409);
+          if (patch.revision !== current.settings.revision) throw new HubError("workspace_conflict", 409);
+          const requested = patch.workspacePath.trim();
+          const targetPath = requested ? await resolveExistingWorkspaceDirectory(requested) : current.settings.defaultWorkspacePath;
+          const previousWorkspace = current.settings.workspacePath;
+          if (previousWorkspace && previousWorkspace !== targetPath) {
+            const pinned = await this.store.pinUnassignedBotConversations(botId, previousWorkspace, validateInQueue);
+            for (const conversation of pinned) {
+              await this.broadcastConversation(conversation, c => c.conversationIds.has(conversation.id));
+            }
+          }
+          await this.auth.validateSession(session);
+          await requireOwner();
+          const result = await readOrWrite("workspace.set", patch);
+          if (!result.ok) throw new HubError(result.error, result.error === "workspace_unavailable" ? 400 : 409);
+          await this.store.botStatus(botId, { workspacePath: result.settings.workspacePath });
+          await this.savedWorkspaces.touch(userId, result.settings.workspacePath);
+          await this.broadcastBotStatus(botId);
+          await this.store.audit("bot.workspace_updated", session.deviceId, { botId });
+          await reply(200, result.settings);
+        });
+        this.workspaceOperations.set(botId, operation);
+        try { await operation; } finally { if (this.workspaceOperations.get(botId) === operation) this.workspaceOperations.delete(botId); }
+        return;
+      }
       const persona = route.match(/^\/api\/bots\/([A-Za-z0-9_-]+)\/persona$/);
       if (persona && (req.method === "GET" || req.method === "PUT")) {
         await requireOwner();
@@ -2790,8 +3564,9 @@ export class HubServer {
       res.end(await readFile(file)); return;
     }
     if (relative === "plugin-sandbox.html") {
+      res.setHeader("X-DNS-Prefetch-Control", "off");
       res.writeHead(200, { "Content-Type": "text/html", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
-        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts" });
+        "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src https: wss:; child-src about:; frame-src about:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts" });
       res.end(await readFile(file)); return;
     }
     if (/^assets\/canvas-node\.worker-[A-Za-z0-9_-]+\.js$/.test(relative)) {
@@ -2852,7 +3627,7 @@ export class HubServer {
       // The dispatcher's own engine session drives its ledger through the CLI. A
       // hidden worker reads targets for, and requests help within, its own
       // active ticket turn only; the Hub resolves that ticket from the turn.
-      const input = z.object({ operation: z.enum(["list", "show", "targets", "capabilities", "create", "dispatch", "update", "assist", "assist-status", "assists"]), contextMessage: idSchema.optional(), data: z.record(z.string(), z.unknown()).default({}) }).strict().parse(await this.jsonBody(req, 64 * 1024));
+      const input = z.object({ operation: z.enum(["list", "show", "targets", "capabilities", "nodes", "plan", "create", "dispatch", "update", "assist", "assist-status", "assists"]), contextMessage: idSchema.optional(), data: z.record(z.string(), z.unknown()).default({}) }).strict().parse(await this.jsonBody(req, 64 * 1024));
       const guard = async () => {
         const current = await this.store.db.get<{ secret_hash: string }>("SELECT secret_hash FROM bots WHERE id=? AND deleted_at IS NULL", [botId]);
         if (!current || current.secret_hash !== record.secret_hash) throw new HubError("instance_unauthorized", 401);
@@ -2866,10 +3641,12 @@ export class HubServer {
         : input.operation === "assist" ? await this.dispatch.requestAssist(actor, input.data)
         : input.operation === "assist-status" ? await this.dispatch.assistStatus(actor)
         : input.operation === "assists" ? await this.dispatch.assists(actor, idSchema.parse(input.data.ticketId))
-        : input.operation === "list" ? await this.dispatch.list(actor, botId, { open: input.data.open === true })
+        : input.operation === "list" ? await this.dispatch.list(actor, botId, { open: input.data.open === true, ...(input.data.conversationId !== undefined ? { conversationId: idSchema.parse(input.data.conversationId) } : {}) })
         : input.operation === "show" ? await this.dispatch.show(actor, idSchema.parse(input.data.ticketId))
         : input.operation === "targets" ? await this.dispatch.targets(actor, botId)
         : input.operation === "capabilities" ? await this.dispatch.capabilities(actor, botId, input.data)
+        : input.operation === "nodes" ? await this.dispatch.nodes(actor, botId)
+        : input.operation === "plan" ? await this.dispatch.plan(actor, botId, input.data)
         : input.operation === "create" ? await this.dispatch.create(actor, botId, input.data)
         : input.operation === "dispatch" ? await this.dispatch.dispatch(actor, botId, input.data)
         : await this.dispatch.update(actor, botId, input.data);

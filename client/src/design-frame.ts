@@ -10,9 +10,10 @@ import { nativePlatform } from "./native.js";
 // not make it same-origin with TaroBird. Never replace this with an App/blob URL.
 const loaderURL = () => location.protocol === "tarobot:" ? "tarobot-widget://sandbox/design-loader.html" : new URL("design-loader.html", document.baseURI).href;
 const runtimes = new Map<string, Promise<string>>();
-const loadRuntime = (format = "canvas") => {
+const loadRuntime = (format = "slides") => {
+  if (format !== "slides") return Promise.reject(new Error("design_canvas_removed"));
   let runtime = runtimes.get(format);
-  if (!runtime) { runtime = fetch(new URL(({canvas:"design",slides:"slides"} as Record<string,string>)[format] + "-sandbox.html", document.baseURI)).then(async response => { if (!response.ok) throw new Error("design_editor_load_failed"); return response.text(); }).catch(error => { runtimes.delete(format); throw error; }); runtimes.set(format, runtime); }
+  if (!runtime) { runtime = fetch(new URL("slides-sandbox.html", document.baseURI)).then(async response => { if (!response.ok) throw new Error("design_editor_load_failed"); return response.text(); }).catch(error => { runtimes.delete(format); throw error; }); runtimes.set(format, runtime); }
   return runtime;
 };
 const overlays = () => [...document.querySelectorAll<HTMLElement>('dialog:modal,[aria-modal="true"],[role="menu"],.desktop-menu,[data-workbench-overlay]')].some(node => !node.hidden && node.getBoundingClientRect().width > 0 && getComputedStyle(node).visibility !== "hidden");
@@ -49,13 +50,21 @@ class DesignFrame {
   private readyTimer?: ReturnType<typeof setTimeout>;
   private exportPrompt?: ReturnType<typeof designExportPrompt>;
   private exportBusy = false;
+  private readOnly = false;
+  private frameReadOnly = false;
+  private title = "";
   private activate: () => void = () => {};
   private pending = new Map<string, { resolve(): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
   private report: (error?: string) => void = () => {};
   constructor(private readonly session: DesignSession) {}
-  attach(element: HTMLElement, report: (error?: string) => void, activate: () => void) {
+  attach(element: HTMLElement, report: (error?: string) => void, activate: () => void, options: { readOnly?: boolean; title?: string } = {}) {
+    const nextReadOnly = options.readOnly === true || this.session.readOnly;
+    const readOnlyChanged = !!this.iframe && this.readOnly !== nextReadOnly;
+    this.readOnly = nextReadOnly;
+    if (options.title !== undefined) this.title = options.title;
     this.placeholder = element; this.report = report; this.activate = activate;
     if (!this.iframe) this.open();
+    else if (readOnlyChanged) void this.reload().catch(() => this.report("design_not_saved"));
     else this.observePlaceholder();
     this.layout();
     return () => {
@@ -65,6 +74,18 @@ class DesignFrame {
       // A failed flush retains the editor for retry; never pretend it was saved.
       void this.flush().then(() => { if (!this.placeholder) this.destroy(); }, () => {});
     };
+  }
+  setTitle(title: string) {
+    if (this.title === title) return;
+    this.title = title;
+    const resolved = title || designFormatTitle(this.session.document.format === "slides" ? "slides" : "canvas");
+    if (this.port) this.iframe?.contentWindow?.postMessage({ type: "tarobot-design-title", title: resolved }, "*");
+  }
+  setReadOnly(readOnly: boolean) {
+    const nextReadOnly = readOnly || this.session.readOnly;
+    if (this.readOnly === nextReadOnly) return;
+    this.readOnly = nextReadOnly;
+    if (this.iframe) void this.reload().catch(() => this.report("design_not_saved"));
   }
   private observePlaceholder() {
     this.observer?.disconnect();
@@ -106,7 +127,7 @@ class DesignFrame {
   };
   private open() {
     const format = designFormatSchema.safeParse(this.session.document.format ?? "canvas");
-    if (!format.success) { this.report("design_format_unavailable"); return; }
+    if (!format.success || format.data !== "slides") { this.report("design_canvas_removed"); return; }
     const frame = document.createElement("iframe"); this.iframe = frame; const generation = ++this.generation;
     this.updateTheme();
     this.themeObserver = new MutationObserver(this.updateTheme);
@@ -160,9 +181,16 @@ class DesignFrame {
     }
     if (value?.type === "tarobot-design-ready" && !this.port) {
       const channel = new MessageChannel(), generation = this.generation; this.port = channel.port1;
+      const frameReadOnly = this.readOnly || this.session.readOnly;
+      this.frameReadOnly = frameReadOnly;
+      const readOnlyBlockedOps = new Set(["publish", "db.write", "db-write", "comments.create", "comments.reply", "comments.edit", "comments.status", "comments.delete", "comments.move", "comments.send", "comments.request", "comments.sent"]);
       let count = 0;
       channel.port1.onmessage = ({ data }) => {
         if (this.generation !== generation || !Number.isSafeInteger(data?.id) || typeof data?.operation !== "string") return;
+        if (frameReadOnly || this.session.readOnly) {
+          if (data.operation === "upload") { channel.port1.postMessage({ id: data.id, error: "design_read_only" }); return; }
+          if (readOnlyBlockedOps.has(data.operation)) { channel.port1.postMessage({ id: data.id, result: { status: 403, body: { code: "not_writer", message: "Read-only preview" } } }); return; }
+        }
         if (count >= 32) { channel.port1.postMessage({ id: data.id, error: "design_busy" }); return; }
         count++;
         void this.session.request(data.operation, data.payload).then(result => { if (generation === this.generation) channel.port1.postMessage({ id: data.id, result }); }, () => { if (generation === this.generation) channel.port1.postMessage({ id: data.id, error: "design_save_failed" }); }).finally(() => { count--; });
@@ -170,7 +198,14 @@ class DesignFrame {
       this.unsubscribeEvents = this.session.onEvent(event=>{if(this.generation===generation)channel.port1.postMessage({type:"design-event",event});});
       let revision = this.session.document.revision;
       this.unsubscribe = this.session.subscribe(()=>{ if(generation===this.generation && revision!==this.session.document.revision) {revision=this.session.document.revision;channel.port1.postMessage({type:"document-changed",revision});} });
-      frame!.contentWindow!.postMessage({ type: "tarobot-design-init", dark: this.dark, repairRequests: nativePlatform() !== "ios" }, "*", [channel.port2]); return;
+      frame!.contentWindow!.postMessage({
+        type: "tarobot-design-init",
+        dark: this.dark,
+        repairRequests: nativePlatform() !== "ios",
+        readOnly: frameReadOnly,
+        designId: this.session.document.id,
+        title: this.title || designFormatTitle(this.session.document.format === "slides" ? "slides" : "canvas"),
+      }, "*", [channel.port2]); return;
     }
     if (value?.type === "tarobot-design-error") { clearTimeout(this.readyTimer); this.report("design_editor_load_failed"); return; }
     if (value?.type === "editor:ready") { this.ready = true; clearTimeout(this.readyTimer); this.report(undefined); return; }
@@ -179,7 +214,9 @@ class DesignFrame {
     }
     if (value?.type === "editor:flushed" && typeof value.requestId === "string") {
       const task = this.pending.get(value.requestId); if (!task) return; this.pending.delete(value.requestId); clearTimeout(task.timer);
-      value.saved === true ? task.resolve() : task.reject(new Error("design_not_saved")); return;
+      if (value.saved === true) { this.report(undefined); task.resolve(); }
+      else task.reject(new Error("design_not_saved"));
+      return;
     }
     if (value?.type === "editor:save-file") {
       const id = value.requestId;
@@ -256,7 +293,7 @@ class DesignFrame {
   async retire() { this.placeholder = undefined; this.layout(); await this.flush(); this.destroy(); }
   private destroy() {
     this.exportPrompt?.cancel(); this.exportPrompt = undefined; this.exportBusy = false;
-    this.generation++; this.ready = this.revealReady = this.revealed = false; this.quitEpoch++; this.quitLock = this.quitPrepared = false; clearTimeout(this.readyTimer); this.port?.close(); this.port = undefined;
+    this.generation++; this.ready = this.revealReady = this.revealed = this.frameReadOnly = false; this.quitEpoch++; this.quitLock = this.quitPrepared = false; clearTimeout(this.readyTimer); this.port?.close(); this.port = undefined;
     this.unsubscribe?.(); this.unsubscribe=undefined; this.unsubscribeEvents?.(); this.unsubscribeEvents=undefined;
     this.iframe?.remove(); this.iframe = undefined; this.unbind?.(); this.unbind = undefined;
     this.mutation?.disconnect(); this.observer?.disconnect(); cancelAnimationFrame(this.raf); this.raf = 0;

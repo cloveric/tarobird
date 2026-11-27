@@ -26,8 +26,8 @@ test('document/history commit atomically, stale sidecar refuses, delete removes 
  const result=await page.evaluate(async()=>{
   const f=(window as any).fixture,c=f.cache,d=f.emptyDesignDocument('design','Original'),scope='scope';
   await c.saveWorkbenchDesign(scope,-1,d);await c.saveWorkbenchDesign('other',-1,d);
-  const next=f.applyDesignFiles(d,{'project/Main.dc.html':{base64:f.designTextFile('<h1>Changed</h1>','text/html').base64,contentType:'text/html',ifMatch:d.files['project/Main.dc.html'].sha256}});
-  const file=d.files['project/Main.dc.html'],sidecar={history:{expected:-1,next:{revision:0},put:{[file.sha256]:file},drop:[]}};
+  const next=f.applyDesignFiles(d,{'project/slides/cover.html':{base64:f.designTextFile('<section id="cover"><h1>Changed</h1></section>','text/html').base64,contentType:'text/html',ifMatch:d.files['project/slides/cover.html'].sha256}});
+  const file=d.files['project/slides/cover.html'],sidecar={history:{expected:-1,next:{revision:0},put:{[file.sha256]:file},drop:[]}};
   await c.saveWorkbenchDesign(scope,0,next,sidecar);
   await c.saveWorkbenchDesignMeta(scope,d.id,'comments',0,{revision:1,threads:[]});
   await c.saveWorkbenchDesignMeta('other',d.id,'comments',0,{revision:1,threads:['keep']});
@@ -59,9 +59,9 @@ test('actual IndexedDB export/import/reopen retains comment and history sidecars
  const result=await page.evaluate(async()=>{
   const f=(window as any).fixture,c=new f.ClientCache('tarocub-v1'),scope='scope',d=f.emptyDesignDocument('design','Migrated');
   await c.initializeIdentity(f.identity);await c.saveWorkbenchDesign(scope,-1,d);
-  const source=d.files['project/Main.dc.html'],changed=f.designTextFile('<h1>Edited</h1>','text/html');
-  const next=f.applyDesignFiles(d,{'project/Main.dc.html':{base64:changed.base64,contentType:'text/html',ifMatch:source.sha256}});
-  const history={revision:0,rows:[{n:1,files:{'project/Main.dc.html':source.sha256}}]},comments={revision:1,threads:[{id:'c_0123456789',text:'Keep this note'}]};
+  const source=d.files['project/slides/cover.html'],changed=f.designTextFile('<section id="cover"><h1>Edited</h1></section>','text/html');
+  const next=f.applyDesignFiles(d,{'project/slides/cover.html':{base64:changed.base64,contentType:'text/html',ifMatch:source.sha256}});
+  const history={revision:0,rows:[{n:1,files:{'project/slides/cover.html':source.sha256}}]},comments={revision:1,threads:[{id:'c_0123456789',text:'Keep this note'}]};
   await c.saveWorkbenchDesign(scope,0,next,{history:{expected:-1,next:history,put:{[source.sha256]:source},drop:[]}});
   await c.saveWorkbenchDesignMeta(scope,d.id,'comments',0,comments);c.close();
   const parts:string[]=[],blobs:Record<string,Uint8Array>={},exportId=crypto.randomUUID();let metadata:any;
@@ -85,11 +85,11 @@ test('actual IndexedDB export/import/reopen retains comment and history sidecars
 
 const makeBackup = async (page: import('@playwright/test').Page) => page.evaluate(() => {
  const f=(window as any).fixture,d0=f.emptyDesignDocument('source','Source project');
- const edit=(doc:any,text:string)=>f.applyDesignFiles(doc,{'project/Main.dc.html':{base64:f.designTextFile(text,'text/html').base64,contentType:'text/html',ifMatch:doc.files['project/Main.dc.html'].sha256}});
- const d1=edit(d0,'<h1>First version</h1>'),h1=f.planDesignHistory({before:d0,after:d1,author:{by:'agent',user:{id:'bot:trusted',name:'Trusted Bot'},requestId:'first'}});
- const d2=edit(d1,'<h1>Second version</h1>'),h2=f.planDesignHistory({index:h1.next,before:d1,after:d2,author:{by:'agent',user:{id:'bot:trusted',name:'Trusted Bot'},requestId:'second'}});
+ const edit=(doc:any,text:string)=>f.applyDesignFiles(doc,{'project/slides/cover.html':{base64:f.designTextFile(text,'text/html').base64,contentType:'text/html',ifMatch:doc.files['project/slides/cover.html'].sha256}});
+ const d1=edit(d0,'<section id="cover"><h1>First version</h1></section>'),h1=f.planDesignHistory({before:d0,after:d1,author:{by:'agent',user:{id:'bot:trusted',name:'Trusted Bot'},requestId:'first'}});
+ const d2=edit(d1,'<section id="cover"><h1>Second version</h1></section>'),h2=f.planDesignHistory({index:h1.next,before:d1,after:d2,author:{by:'agent',user:{id:'bot:trusted',name:'Trusted Bot'},requestId:'second'}});
  const objects={...h1.put,...h2.put};for(const sha of h2.drop)delete objects[sha];
- const comments={schema:1,revision:1,receipts:[],threads:[{id:'c_0123456789',anchor:'title',label:'Title',location:{file:'project/Main.dc.html'},status:'open',createdAt:'2026-11-03T00:00:00Z',updatedAt:'2026-11-03T00:00:00Z',messages:[{id:'m_0123456789',author:{kind:'agent',name:'Trusted Bot',principal:'bot:trusted'},text:'Keep this comment',at:'2026-11-03T00:00:00Z'}]}]};
+ const comments={schema:1,revision:1,receipts:[],threads:[{id:'c_0123456789',anchor:'title',label:'Title',location:{file:'project/slides/cover.html'},status:'open',createdAt:'2026-11-03T00:00:00Z',updatedAt:'2026-11-03T00:00:00Z',messages:[{id:'m_0123456789',author:{kind:'agent',name:'Trusted Bot',principal:'bot:trusted'},text:'Keep this comment',at:'2026-11-03T00:00:00Z'}]}]};
  return f.serializeDesignBackup({title:'Full backup',document:d2,comments,history:h2.next,objects});
 });
 
@@ -109,7 +109,7 @@ test('controller imports a full backup, reopens it and restores a real stored hi
  expect(result.first.comments.threads[0].messages[0].author).toMatchObject({kind:'user',principal:expect.stringMatching(/^imported:/)});
  expect(result.first.history.versions).toHaveLength(3);expect(Object.keys(result.first.objects)).toHaveLength(2);
  expect(result.listing.result.rows).toHaveLength(3);expect(result.restore).toMatchObject({revision:1,restoredFrom:2});
- expect(Buffer.from(result.last.document.files['project/Main.dc.html'].base64,'base64').toString()).toBe('<h1>First version</h1>');
+ expect(Buffer.from(result.last.document.files['project/slides/cover.html'].base64,'base64').toString()).toBe('<section id="cover"><h1>First version</h1></section>');
  expect(result.last.history.versions.at(-1)).toMatchObject({restoredFrom:2,by:'human'});
 });
 
@@ -147,7 +147,7 @@ test('backup snapshots stay internally consistent while another cache commits a 
   const revisions:number[]=[];
   for(let n=0;n<4;n++){
    const doc=await other.readWorkbenchDesign(scope,'snapshot-design'),history=await other.readWorkbenchDesignMeta(scope,'snapshot-design','history');
-   const changed=f.designTextFile(`<h1>Concurrent ${n}</h1>`,'text/html'),next=f.applyDesignFiles(doc,{'project/Main.dc.html':{base64:changed.base64,contentType:'text/html',ifMatch:doc.files['project/Main.dc.html'].sha256}}),plan=f.planDesignHistory({index:history,before:doc,after:next,author:{by:'agent',user:{id:'bot:writer',name:'Writer'},requestId:`write-${n}`}});
+   const changed=f.designTextFile(`<section id="cover"><h1>Concurrent ${n}</h1></section>`,'text/html'),next=f.applyDesignFiles(doc,{'project/slides/cover.html':{base64:changed.base64,contentType:'text/html',ifMatch:doc.files['project/slides/cover.html'].sha256}}),plan=f.planDesignHistory({index:history,before:doc,after:next,author:{by:'agent',user:{id:'bot:writer',name:'Writer'},requestId:`write-${n}`}});
    const [snapshot]=await Promise.all([c.readWorkbenchDesignBackup(scope,'snapshot-design','Snapshot'),other.saveWorkbenchDesign(scope,doc.revision,next,{history:plan})]);
    f.createDesignBackup(snapshot);revisions.push(snapshot.document.revision);
   }

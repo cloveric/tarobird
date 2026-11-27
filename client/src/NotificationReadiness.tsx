@@ -30,10 +30,11 @@ function copy(result: Readiness): [string, string] {
   }
 }
 
-export function NotificationReadiness({ connection, state, online, working, refresh, repair, renderDiagnostics }: {
+export function NotificationReadiness({ connection, state, online, working, refresh, repair, renderDiagnostics, openSystemSettings, openingSystem = false }: {
   connection: HubConnection; state: NotificationState; online: boolean; working: boolean;
   refresh: () => Promise<unknown>; repair: (work: () => Promise<void>) => Promise<void>;
   renderDiagnostics: (value: DesktopNotificationDiagnostics) => ReactNode;
+  openSystemSettings?: () => void; openingSystem?: boolean;
 }) {
   const [check, setCheck] = useState(0);
   const [expanded, setExpanded] = useState<boolean>();
@@ -57,6 +58,7 @@ export function NotificationReadiness({ connection, state, online, working, refr
     : value ? copy(value) : [t("正在检查接收状态…"), t("只读取权限与连接状态，不发送测试通知。")];
   const provider = value?.provider, canRepair = value?.reason === "subscription" && (provider === "apns" || provider === "fcm");
   const windows = nativePlatform() === "windows", reRegister = windows && (value?.reason === "prompt" || value?.reason === "shortcut");
+  const openSettingsAction = !!openSystemSettings && (value?.reason === "denied" || value?.reason === "channel-disabled");
   // Explicit user action only: the request shows one confirmation toast; a
   // missing shortcut is created first (tier 3). Hub preferences stay unchanged.
   const register = () => {
@@ -96,6 +98,7 @@ export function NotificationReadiness({ connection, state, online, working, refr
         }).finally(() => { clearTimeout(timeout); if (action.current === controller) { action.current = undefined; if (!controller.signal.aborted) setCheck(n => n + 1); } });
       }}>{t("重新连接推送")}</button>}
       {reRegister && <button className="primary" disabled={working || !online} onClick={register}>{value?.reason === "shortcut" ? t("创建快捷方式并开启") : t("重新启用通知")}</button>}
+      {openSettingsAction && <button type="button" className="primary" disabled={openingSystem || working} onClick={openSystemSettings}>{openingSystem ? t("正在打开…") : t("前往系统设置")}</button>}
       <button className="secondary" disabled={!online || working} aria-disabled={!value || working || !online} onClick={() => { if (!value || working || !online) return; setCheck(n => n + 1); setRepairFailed(false); void refresh(); }}>{t("检查接收状态")}</button>
     </div>
     {value?.reason === "windows-unverified" && value.diagnostics && renderDiagnostics(value.diagnostics)}

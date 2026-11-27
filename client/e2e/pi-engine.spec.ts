@@ -49,7 +49,7 @@ for (const width of [390, 1360]) for (const english of [false, true]) {
       await page.getByRole("menuitem", { name: english ? "New Bot" : "新建 Bot", exact: true }).or(page.getByRole("button", { name: english ? "New Bot" : "新建 Bot", exact: true })).filter({ visible: true }).click();
       const engine = page.getByLabel(english ? "Engine" : "引擎", { exact: true });
       await expect(engine).toHaveValue("codex");
-      const chief = page.getByRole("checkbox", { name: english ? "Make it a Chancellor" : "作为幕僚长", exact: true });
+      const chief = page.getByRole("checkbox", { name: english ? "Make it a Superagent" : "作为幕僚长", exact: true });
       await expect(chief).toBeVisible(); await chief.check();
       await engine.selectOption("pi"); await expect(chief).toHaveCount(0);
       const provider = page.getByLabel(english ? "Model provider" : "模型提供商", { exact: true });

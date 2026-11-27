@@ -1,3 +1,4 @@
+import { hostT } from "../locales/index.js";
 import type { Locale } from "./locale.js";
 
 /**
@@ -14,23 +15,23 @@ export function renderBackgroundTaskHeader(locale: Locale, status?: string): str
   switch (status?.trim().toLowerCase()) {
     case "failed":
     case "error":
-      return locale === "en" ? "Background task failed" : "后台任务失败";
+      return hostT(locale, "后台任务失败");
     case "interrupted":
-      return locale === "en" ? "Background task interrupted" : "后台任务已中断";
+      return hostT(locale, "后台任务已中断");
     case "stopped":
     case "cancelled":
     case "canceled":
     case "aborted":
-      return locale === "en" ? "Background task stopped" : "后台任务已停止";
+      return hostT(locale, "后台任务已停止");
     case "done":
     case "completed":
     case "success":
     case "succeeded":
-      return locale === "en" ? "Background task completed" : "后台任务完成";
+      return hostT(locale, "后台任务完成");
     case "running":
     case "in_progress":
-      return locale === "en" ? "Background task running" : "后台任务执行中";
+      return hostT(locale, "后台任务执行中");
     default:
-      return locale === "en" ? "Background task update" : "后台任务更新";
+      return hostT(locale, "后台任务更新");
   }
 }

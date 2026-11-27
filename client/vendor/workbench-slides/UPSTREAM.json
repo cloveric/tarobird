@@ -1,0 +1,33 @@
+{
+  "repository": "https://github.com/JimLiu/open-artifact",
+  "commit": "132c038529e4527d1bc30561a855ffd958aa7302",
+  "version": "0.14.6",
+  "component": "@open-artifact/slides-editor",
+  "license": "Apache-2.0",
+  "modifications": [
+    "packages/wasm-export/src/index.ts: inline export fallback in opaque data: sandbox iframes",
+    "packages/editor-kit/src/session.ts: avoid evaluating createPageProvider() when host installed window.openartifact",
+    "packages/runtime/src/shell.ts: guard non-hierarchical data: URLs in shellOrigin()",
+    "packages/slides-editor/src/components/views/engineBoard.ts: static import of @open-artifact/canvas-engine for single-bundle sandbox loading",
+    "packages/slides-editor/src/services/session.ts: resolve /_blob/ and project/ds/ assets via sandbox asset map",
+    "packages/slides-editor/src/services/location.ts: guard history.replaceState in opaque data: origin",
+    "packages/slides-editor/src/services/comments.ts: enable comments capability without external Open Artifact Shell",
+    "packages/slides-editor/src/components/EndCard.tsx: expose Export (PPTX/PDF/HTML/PNG) and Comments controls in embedded mode",
+    "packages/slides-editor/src/App.tsx: emit editor:ready / editor:flushed host handshake and compact phone read-only slide pager"
+  ],
+  "files": {
+    "editor/assets/index-BAI7EalN.css": "482d9d2346377a4561b65545ba288299eba257b18a24b976c864842e9d37880f",
+    "editor/assets/index-DaF3puIc.js": "2c4af5c5e5d54b58c191bef23b6c5f97f6c0dc2336cff8b759994efa6c6b0968",
+    "editor/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2": "ca157063339ac4ad418f214f3abfed119b0798ab4d377386ce5c9e5a7a435ebd",
+    "editor/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2": "71d5ee93cc1e9f1d520a3a8b66456de18c7879d8df09d57fcd2eaff75fef0075",
+    "editor/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2": "6e9e020a25f9b56d418f2c085b1d3c09725a4da23fe693a5b463064606732190",
+    "editor/assets/inter-greek-wght-normal-CkhJZR-_.woff2": "1be3448e292fbf05ffe176fe1e43f135013d50b1e7d324ad1a558f623d3bb6f6",
+    "editor/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2": "34b9c504cab7a73e37b746343a449132e56cf7b5481af2cb81dc74dcff25c956",
+    "editor/assets/inter-latin-wght-normal-Dx4kXJAl.woff2": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+    "editor/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2": "5c66f9e07e90c6d4ac4922cc68d60de26c17b1858e677fb5e603fce3952b3ff2",
+    "editor/assets/worker-B9d56lMl.js": "8264cf41edebc76fc84a3b930a86a253c5b28d7f8a4e8a75c99c60dea90d0870",
+    "editor/index.html": "038f63894436cb7e24c84fff329febe9c27d42065aebad29b6c02a1aeb714b4f",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "NOTICE": "1150ca1f2518af4a5cce6ae6d791a951fcf90734e002b512f4be6c3618081718"
+  }
+}

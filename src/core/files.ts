@@ -15,6 +15,7 @@ import {
 import { detectImageMediaType, normalizeImageFileName } from "../runtime/image-media.js";
 import { ELEMENT_CONTENT_MAX_BYTES, truncateBytes } from "./card-renderer.js";
 import type { Locale } from "../runtime/locale.js";
+import { hostT } from "../locales/index.js";
 import type { CommandAttachment } from "../runtime/command-message.js";
 import type { CoreChannelLike, CoreMessageResourceType } from "./types.js";
 import type {
@@ -352,26 +353,26 @@ const ARCHIVE_CARD_BODY_MAX = 2000;
  * markdown element; the plain-text fallback passes false. Bounded by chars (to
  * stay compact) then bytes (same Feishu per-element limit as every Lark card).
  */
-function archiveSummaryBody(data: ArchiveSummaryData, en: boolean, boldHeader: boolean): string {
+function archiveSummaryBody(data: ArchiveSummaryData, locale: Locale, boldHeader: boolean): string {
   const treeLines = data.treeLines.slice(0, ARCHIVE_CARD_TREE_MAX_LINES);
   const treeTruncated = data.treeLines.length > treeLines.length;
   const extensions = data.topExtensions.length > 0
     ? data.topExtensions.map(([extension, count]) => `${extension} (${count})`).join(", ")
-    : (en ? "none" : "无");
+    : hostT(locale, "无");
   const keyFiles = data.keyFiles.length > 0
     ? data.keyFiles.join(", ")
-    : (en ? "none detected" : "未检测到");
+    : hostT(locale, "未检测到");
 
-  const label = en ? "📦 Archive Summary" : "📦 压缩包摘要";
+  const label = hostT(locale, "📦 压缩包摘要");
   const lines = [
     `${boldHeader ? `**${label}**` : label} · ${data.archiveName}`,
-    en ? `Files: ${data.fileCount}` : `文件数：${data.fileCount}`,
-    en ? `Key files: ${keyFiles}` : `关键文件：${keyFiles}`,
-    en ? `Top extensions: ${extensions}` : `主要类型：${extensions}`,
+    hostT(locale, "文件数：{0}", data.fileCount),
+    hostT(locale, "关键文件：{0}", keyFiles),
+    hostT(locale, "主要类型：{0}", extensions),
     "",
-    en ? "Tree:" : "目录：",
+    hostT(locale, "目录："),
     ...treeLines,
-    ...(treeTruncated ? [en ? `… (+${data.treeLines.length - treeLines.length} more)` : `… (还有 ${data.treeLines.length - treeLines.length} 项)`] : []),
+    ...(treeTruncated ? [hostT(locale, "… (还有 {0} 项)", data.treeLines.length - treeLines.length)] : []),
   ];
   let content = lines.join("\n");
   if (content.length > ARCHIVE_CARD_BODY_MAX) {
@@ -386,7 +387,7 @@ function archiveSummaryBody(data: ArchiveSummaryData, en: boolean, boldHeader: b
  * of dropping back to the English Telegram blob.
  */
 export function renderCoreArchiveSummaryText(data: ArchiveSummaryData, locale: Locale = "zh"): string {
-  return archiveSummaryBody(data, locale === "en", false);
+  return archiveSummaryBody(data, locale, false);
 }
 
 /**
@@ -406,14 +407,13 @@ export function renderCoreArchiveSummaryCard(input: {
 }): Record<string, unknown> {
   const locale = input.locale ?? "zh";
   const { data } = input;
-  const en = locale === "en";
-  const content = archiveSummaryBody(data, en, true);
+  const content = archiveSummaryBody(data, locale, true);
 
   return {
     schema: "2.0",
     config: {
       update_multi: true,
-      summary: { content: en ? "Archive summary" : "压缩包摘要" },
+      summary: { content: hostT(locale, "压缩包摘要") },
     },
     body: {
       direction: "vertical",
@@ -422,13 +422,11 @@ export function renderCoreArchiveSummaryCard(input: {
         { tag: "markdown", content },
         {
           tag: "markdown",
-          content: en
-            ? "Continue deeper analysis below, or reply `/continue`."
-            : "需要继续深入分析，点下方按钮或回复 `/continue`。",
+          content: hostT(locale, "需要继续深入分析，点下方按钮或回复 `/continue`。"),
         },
         {
           tag: "button",
-          text: { tag: "plain_text", content: en ? "Continue Analysis" : "继续分析" },
+          text: { tag: "plain_text", content: hostT(locale, "继续分析") },
           type: "primary",
           behaviors: [{
             type: "callback",

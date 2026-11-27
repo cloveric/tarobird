@@ -21,7 +21,7 @@ beforeEach(async () => {
 afterEach(async () => { broker.close(); await store.db.close(); await rm(directory, { recursive: true, force: true }); });
 async function register(capabilities: WorkbenchRegistration['capabilities']) {
   await broker.register(peer, { windowId: 'window', generation: 'generation', conversationId, capabilities,
-    tabs: [{ id: 'design', kind: 'design', title: 'Design', revision: 0 }], activeTabId: 'design', visible: true });
+    tabs: [{ id: 'design', kind: 'design', designFormat: 'slides', title: 'PPT', revision: 0 }], activeTabId: 'design', visible: true });
 }
 async function dispatch(request: WorkbenchRequest) {
   const result = broker.request({ userId: 'owner', conversationId, actor: bot, validate: async () => {} }, request);
@@ -33,23 +33,23 @@ async function dispatch(request: WorkbenchRequest) {
   return frame;
 }
 it('a comments-only App receives the trusted Bot actor without requiring history capability', async () => {
-  await register(['design.v1', 'design.comments.v1']);
+  await register(['design.slides.v1', 'design.comments.v1']);
   const frame = await dispatch({ requestId: 'reply', operation: 'design.comments.reply', target, payload: { threadId: 'c_0123456789', text: 'Reply' } });
   expect(frame.actor).toEqual(bot);
   expect(workbenchCommandFrameSchema.parse(frame).actor).toEqual(bot);
 });
 it('a history-only App receives the trusted actor for a restore', async () => {
-  await register(['design.v1', 'design.history.v1']);
+  await register(['design.slides.v1', 'design.history.v1']);
   expect((await dispatch({ requestId: 'restore', operation: 'design.restore', target, expectedRevision: 0, payload: { version: 1 } })).actor).toEqual(bot);
 });
 it('an older App still receives the strict command shape without actor', async () => {
-  await register(['design.v1']);
-  const frame = await dispatch({ requestId: 'publish', operation: 'design.publish', target, expectedRevision: 0, payload: { files: { 'project/Main.dc.html': { content: '<h1>Hello</h1>', contentType: 'text/html' } } } });
+  await register(['design.slides.v1']);
+  const frame = await dispatch({ requestId: 'publish', operation: 'design.publish', target, expectedRevision: 0, payload: { files: { 'project/slides/cover.html': { content: '<section id="cover"><h1>Hello</h1></section>', contentType: 'text/html' } } } });
   expect(frame).not.toHaveProperty('actor');
   expect(() => workbenchCommandFrameSchema.omit({ actor: true }).strict().parse(frame)).not.toThrow();
 });
 it('a history-only App cannot receive a comment mutation', async () => {
-  await register(['design.v1', 'design.history.v1']);
+  await register(['design.slides.v1', 'design.history.v1']);
   await expect(broker.request({ userId: 'owner', conversationId, actor: bot, validate: async () => {} }, {
     requestId: 'wrong-capability', operation: 'design.comments.reply', target, payload: { threadId: 'c_0123456789', text: 'Reply' },
   })).rejects.toMatchObject({ code: 'workbench_app_unavailable' });

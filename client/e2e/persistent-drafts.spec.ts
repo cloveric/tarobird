@@ -7,13 +7,14 @@ import type { ClientCache, Identity, ConversationDraft } from "../src/storage.js
 const html = `<!doctype html><html><body><div id="root"></div><script type="module">
 import React from 'react'; import { createRoot } from 'react-dom/client';
 import { ClientCache } from '/src/storage.ts'; import { useConversationDrafts } from '/src/conversation-drafts.ts';
+import { isRecordedVoiceFile, markRecordedVoiceFile } from '/src/voice-recording-marker.ts';
 const identity={deviceId:'device',hubPublicKey:'hub',publicKey:'key',name:'test',routes:[]};
 const cache=new ClientCache('persistent-drafts'); await cache.initializeIdentity(identity);
-const f=window.draftsFixture={cache,ClientCache,identity};
+const f=window.draftsFixture={cache,ClientCache,identity,isRecordedVoiceFile,markRecordedVoiceFile};
 function App(){const [id,select]=React.useState('one');const draft=useConversationDrafts(id,cache,identity);Object.assign(f,{draft,select});return React.createElement('div',null,React.createElement('output',{id:'state'},JSON.stringify({id,ready:draft.ready,saving:draft.saving,error:draft.error,files:draft.files.map(f=>f.name),reply:draft.reply?.id,choice:draft.previewChoice,style:draft.previewStyle,recipients:draft.recipients})),React.createElement('button',{id:'act',disabled:!draft.ready,onClick:()=>{f.activations=(f.activations??0)+1;f.activatedFiles=draft.files.map(file=>file.name);}},'Use draft'));}
 createRoot(document.getElementById('root')).render(React.createElement(App));
 </script></body></html>`;
-type Fixture = { cache: ClientCache; ClientCache: typeof ClientCache; identity: Identity; draft: ReturnType<typeof import('../src/conversation-drafts.js').useConversationDrafts>; select: (id: string) => void; receipt?: () => void };
+type Fixture = { cache: ClientCache; ClientCache: typeof ClientCache; identity: Identity; isRecordedVoiceFile: (file: object) => boolean; markRecordedVoiceFile: (file: File) => File; draft: ReturnType<typeof import('../src/conversation-drafts.js').useConversationDrafts>; select: (id: string) => void; receipt?: () => void };
 let server: ViteDevServer;
 let url: string;
 test.beforeAll(async () => {
@@ -370,6 +371,68 @@ test('internal discussion send receipts never appear as another user draft', asy
   });
   expect(result.alone).toEqual({ count: 0, previews: {} });
   expect(result.count).toBe(1); expect(Object.keys(result.previews)).toEqual(['group']); expect(result.previews.group?.text).toBe('真正的未发送文字');
+});
+
+test('pre-upgrade voice recording drafts restore marked while post-upgrade uploaded voice-* files persist recording:false', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { cache, identity, isRecordedVoiceFile, markRecordedVoiceFile } = (window as unknown as { draftsFixture: Fixture }).draftsFixture;
+    const owner = JSON.stringify([identity.deviceId, identity.hubPublicKey, identity.publicKey]);
+    // Seed a pre-upgrade IndexedDB draft record whose files omit `recording`.
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(cache.databaseName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const tx = db.transaction('conversationDrafts', 'readwrite');
+    tx.objectStore('conversationDrafts').put({
+      files: [
+        { bytes: new Uint8Array([1, 2, 3]).buffer, name: 'voice-1730000000000.m4a', type: 'audio/mp4', lastModified: 10 },
+        { bytes: new Uint8Array([4, 5, 6]).buffer, name: 'meeting.m4a', type: 'audio/mp4', lastModified: 20 },
+        { bytes: new Uint8Array([7, 8, 9]).buffer, name: 'voice-1730000000001.m4a', type: 'application/octet-stream', lastModified: 30 },
+      ],
+      previewStyle: 'card',
+      revision: 'legacy-rev',
+      owner,
+      size: 64,
+      active: 1,
+    }, 'legacy-voice');
+    await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+
+    const legacyRestored = await cache.conversationDraft('legacy-voice', identity);
+    const legacyMarks = legacyRestored.draft.files.map(file => ({ name: file.name, marked: isRecordedVoiceFile(file) }));
+
+    // Save a post-upgrade draft with an unmarked uploaded file named voice-<ts>.m4a and a real recording.
+    const uploadedVoiceNamed = new File([new Uint8Array([1, 2])], 'voice-1730000000002.m4a', { type: 'audio/mp4', lastModified: 40 });
+    const recordedVoice = markRecordedVoiceFile(new File([new Uint8Array([3, 4])], 'voice-1730000000003.m4a', { type: 'audio/mp4', lastModified: 50 }));
+    await cache.saveConversationDraft('modern-voice', { files: [uploadedVoiceNamed, recordedVoice], previewStyle: 'card' }, identity);
+
+    // Inspect raw stored records to verify explicit boolean recording flags.
+    const readTx = db.transaction('conversationDrafts', 'readonly');
+    const storedModern = await new Promise<{ files: Array<{ name: string; recording?: boolean }> }>((resolve, reject) => {
+      const req = readTx.objectStore('conversationDrafts').get('modern-voice');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+
+    const modernRestored = await cache.conversationDraft('modern-voice', identity);
+    const modernMarks = modernRestored.draft.files.map(file => ({ name: file.name, marked: isRecordedVoiceFile(file) }));
+    return { legacyMarks, storedFlags: storedModern.files.map(f => ({ name: f.name, recording: f.recording })), modernMarks };
+  });
+
+  expect(result.legacyMarks).toEqual([
+    { name: 'voice-1730000000000.m4a', marked: true },
+    { name: 'meeting.m4a', marked: false },
+    { name: 'voice-1730000000001.m4a', marked: false },
+  ]);
+  expect(result.storedFlags).toEqual([
+    { name: 'voice-1730000000002.m4a', recording: false },
+    { name: 'voice-1730000000003.m4a', recording: true },
+  ]);
+  expect(result.modernMarks).toEqual([
+    { name: 'voice-1730000000002.m4a', marked: false },
+    { name: 'voice-1730000000003.m4a', marked: true },
+  ]);
 });
 
 

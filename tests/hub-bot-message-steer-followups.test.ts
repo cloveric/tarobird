@@ -99,9 +99,11 @@ describe("Bot steer follow-ups", () => {
     await vi.waitFor(async () => expect(await b.store.db.get("SELECT 1 FROM meta WHERE key LIKE 'bot-messages:steer-open:%'")).toBeUndefined());
   });
 
-  it("does not offer the steering switch for a dispatcher, whose chats only queue", async () => {
+  it("offers the steering switch for a dispatcher on a supported engine, and hides internal workers", async () => {
     expect(await b.botMessages.readSteering("owner", "target", guard)).toMatchObject({ supported: true });
     await b.store.db.run("UPDATE bots SET role='dispatcher' WHERE id='target'");
-    expect(await b.botMessages.readSteering("owner", "target", guard)).toMatchObject({ botId: "target", supported: false });
+    expect(await b.botMessages.readSteering("owner", "target", guard)).toMatchObject({ botId: "target", supported: true, allowed: true });
+    await b.store.db.run("UPDATE bots SET role='worker' WHERE id='target'");
+    await expect(b.botMessages.readSteering("owner", "target", guard)).rejects.toThrow("bot_not_found");
   });
 });

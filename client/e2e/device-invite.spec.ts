@@ -126,11 +126,41 @@ test("every offered connection choice yields a decodable code for that network",
     expect(payload.hubPublicKey).toBe(keyA);
     expect(shareable(payload)).toBe(true);
     const direct = payload.routes.filter(route => route.name !== "VPS");
-    expect(direct.length).toBeLessThanOrEqual(1);
-    if (direct[0]) { directs.add(direct[0].url); expect(direct[0].certificateAuthority).toBe(ca); }
-    else relayOnly = payload;
+    if (direct[0]) {
+      // Unless the owner asks for more, the code is the single-direct v1 that
+      // Apps up to 1.6.0 can read.
+      expect(payload.v).toBe(1);
+      expect(direct.map(route => route.url)).toEqual([value]);
+      expect(direct[0].certificateAuthority).toBe(ca);
+      directs.add(direct[0].url);
+    } else relayOnly = payload;
   }
   expect([...directs].sort()).toEqual([tailnet, lan].sort());
+  // The explicit choice for newer Apps emits a v2 QR: the chosen route first,
+  // then the host's other direct candidate.
+  await choice.selectOption(lan);
+  const several = page.getByLabel("加入多个候选地址（仅适用于高于 1.6.0 的 App）");
+  await expect(several).not.toBeChecked();
+  await several.check();
+  await expect.poll(async () => {
+    const links = await page.evaluate(() => window.inviteFixture.decodeAll());
+    if (links.length !== 1) return false;
+    const p = parsePairingLink(links[0]!);
+    return p.kind === "connect" && p.v === 2 && p.routes.filter(r => r.name !== "VPS").length === 2;
+  }).toBe(true);
+  const multiPayload = await scanned(page);
+  expect(multiPayload.routes.filter(route => route.name !== "VPS").map(route => route.url)).toEqual([lan, tailnet]);
+  for (const route of multiPayload.routes.filter(route => route.name !== "VPS")) expect(route.certificateAuthority).toBe(ca);
+  // Unticking returns to the single-direct v1 QR for the chosen route.
+  await several.uncheck();
+  await expect.poll(async () => {
+    const links = await page.evaluate(() => window.inviteFixture.decodeAll());
+    if (links.length !== 1) return false;
+    const p = parsePairingLink(links[0]!);
+    return p.kind === "connect" && p.v === 1 && p.routes.filter(r => r.name !== "VPS").length === 1;
+  }).toBe(true);
+  const legacyPayload = await scanned(page);
+  expect(legacyPayload.routes.filter(route => route.name !== "VPS").map(route => route.url)).toEqual([lan]);
   // A relay-only code still carries every relay the host shares.
   expect(relayOnly?.routes.map(route => route.url).sort()).toEqual([relay, relay2].sort());
   await onlyRead(page, "A");
@@ -378,9 +408,20 @@ test("first-time compact pairing waits for the chosen LAN address before advanci
   expect((await calls(page)).network).toEqual([]);
   expect((await calls(page)).http.filter(call => call.method === "POST")).toEqual([]);
   await expect.poll(async () => (await calls(page)).busy).toBe(false);
-  await selector.selectOption({ label: "192.168.10.20" });
+  await selector.selectOption({ label: "局域网 · 192.168.10.20" });
   await expect(selector).toHaveCount(0);
-  expect(await scanned(page)).toMatchObject({ routes: [{ url: lan }] });
+  // The handed-off code is the single-direct v1. The other prepared address
+  // joins it only when the owner asks for several candidates.
+  const payload = await scanned(page);
+  expect(payload.v).toBe(1);
+  expect(payload.routes.map(route => route.url)).toEqual([lan]);
+  await page.getByLabel("加入多个候选地址（仅适用于高于 1.6.0 的 App）").check();
+  await expect.poll(async () => {
+    const links = await page.evaluate(() => window.inviteFixture.decodeAll());
+    if (links.length !== 1) return undefined;
+    const p = parsePairingLink(links[0]!);
+    return p.kind === "connect" ? { v: p.v, routes: p.routes.map(route => route.url) } : undefined;
+  }).toEqual({ v: 2, routes: [lan, "https://192.168.50.2:8788"] });
   await expect.poll(async () => (await calls(page)).busy).toBe(false);
 });
 
@@ -470,7 +511,7 @@ test("the waiting notice alone never mints a temporary code before the handoff",
   await add(page, "L", { key: keyA, holdNetwork: true, identityRoutes: [{ name: "Direct", url: "http://127.0.0.1:8787" }], view: { routes: [] } });
   await show(page, "L", true);
   await page.getByRole("button", { name: "生成局域网二维码", exact: true }).click();
-  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption({ label: "192.168.10.20" });
+  await page.getByRole("combobox", { name: /^选择电脑所在网络/ }).selectOption({ label: "局域网 · 192.168.10.20" });
   await expect(page.getByText("正在等待本机重新连接并共享线路…", { exact: true })).toBeVisible();
   await page.clock.fastForward(21_000);
   // Publication is late, not rejected: it may still succeed and hand off.
@@ -479,7 +520,60 @@ test("the waiting notice alone never mints a temporary code before the handoff",
   expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toEqual([]);
   await page.evaluate(() => window.inviteFixture.release("L"));
   await expect(page.getByText("其他连接方式", { exact: true })).toBeVisible();
-  expect(await scanned(page)).toMatchObject({ routes: [{ name: "Direct", url: lan }] });
+  const handedOff = await scanned(page);
+  expect(handedOff.v).toBe(1);
+  expect(handedOff.routes).toHaveLength(1);
+  expect(handedOff.routes[0]).toMatchObject({ name: "Direct", url: lan });
   expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITES_PATH && call.method === "POST")).toHaveLength(1);
   expect((await calls(page)).http.filter(call => call.path === PAIRING_INVITE_REVOKE_PATH)).toEqual([]);
+});
+
+test("LAN, Tailscale, and VPS invites exclude Cloudflare for v1.6.0 compatibility, and VPS vs Cloudflare produce distinct QRs", async ({ page }) => {
+  const cfUrl = "https://cf-hub.example.com";
+  await add(page, "CF", {
+    key: keyA,
+    identityRoutes: [
+      { name: "Direct", url: lan, certificateAuthority: ca },
+      { name: "VPS", url: relay },
+      { name: "Cloudflare", url: cfUrl },
+    ],
+    view: {
+      routes: [
+        managed({ name: "Direct", url: lan, certificateAuthority: ca }),
+        managed({ name: "Tailscale", url: tailnet, certificateAuthority: ca }),
+        shared({ name: "VPS", url: relay }),
+      ],
+      lan: { enabled: true, listening: true },
+      tailscale: { enabled: true, listening: true },
+    },
+  });
+  await show(page, "CF");
+  await scanned(page);
+  const choice = page.getByRole("combobox");
+
+  const decodeFor = async (value: string, expectUrl: string) => {
+    await choice.selectOption(value);
+    await expect.poll(async () => {
+      const links = await page.evaluate(() => window.inviteFixture.decodeAll());
+      if (links.length !== 1) return false;
+      const p = parsePairingLink(links[0]!);
+      return p.kind === "connect" && p.routes[0]?.url === expectUrl;
+    }).toBe(true);
+    return scanned(page);
+  };
+
+  const lanPayload = await decodeFor(lan, lan);
+  expect(lanPayload.routes.some(r => r.name === "Cloudflare")).toBe(false);
+  expect(lanPayload.routes.map(r => r.url)).toEqual([lan, relay]);
+
+  const tsPayload = await decodeFor(tailnet, tailnet);
+  expect(tsPayload.routes.some(r => r.name === "Cloudflare")).toBe(false);
+  expect(tsPayload.routes.map(r => r.url)).toEqual([tailnet, relay]);
+
+  const vpsPayload = await decodeFor(relay, relay);
+  expect(vpsPayload.routes).toEqual([{ name: "VPS", url: relay }]);
+
+  const cfPayload = await decodeFor(cfUrl, cfUrl);
+  expect(cfPayload.routes).toEqual([{ name: "Cloudflare", url: cfUrl }]);
+  expect(vpsPayload.routes).not.toEqual(cfPayload.routes);
 });
