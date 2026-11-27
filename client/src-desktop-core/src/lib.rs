@@ -1,6 +1,7 @@
 //! Native core for the Electron desktop shell, run as one helper process per
 //! trusted WebContents. See `opus-initial-review.md` in the migration lab for
 //! the JSONL protocol; stdout carries protocol lines only.
+pub mod canvas_credentials;
 pub mod config;
 pub mod desktop_host;
 pub mod identity;

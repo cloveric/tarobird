@@ -50,7 +50,7 @@ export function AdhdWorkspaceTools({ host, connection, preferences, updatePrefer
     {view === "operations" && <OperationsPanel connection={connection} close={close}/>}
     {view === "schedules" && <ScheduledTasks connection={connection} bots={bots} conversations={listed} close={close} openConversation={openConversation} newBot={() => { close(); actions.createBot(host.host.id); }}/>}
     {view === "archives" && <ArchivedConversations connection={connection} conversations={listed} close={close} open={openConversation}/>}
-    {view === "plugins" && <PluginsModal platform="desktop" registry={(() => { const scope = resolvePluginScopeId(connection.identity.hubPublicKey, state.user?.id, connection.identity.deviceId); return scope ? getPluginRegistry(scope) : null; })()} close={close}/>}
+    {view === "plugins" && <PluginsModal platform="desktop" registry={(() => { const scope = resolvePluginScopeId(connection.identity.hubPublicKey, state.user?.id, connection.identity.deviceId); return scope ? getPluginRegistry(scope) : null; })()} connection={connection} close={close}/>}
     </>, document.body)}
   </BotReferences></AvatarProvider></RuntimeHostContext.Provider></DesktopMenuPortalContext.Provider>;
 }

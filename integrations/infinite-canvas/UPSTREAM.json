@@ -1,0 +1,9 @@
+{
+  "name": "infinite-canvas",
+  "repository": "https://github.com/basketikun/infinite-canvas",
+  "commit": "4c67f1ece4f4edaef81e58e964eb78abb1e9809d",
+  "author": "basketikun",
+  "license": "MIT",
+  "packageManager": "pnpm@12.6.0",
+  "lockSha256": "d5bbc2d7ff2ae47461c7e95f36cc9fc2e5d7bd5b27c9cc68f0042e976f0a3692"
+}

@@ -233,7 +233,25 @@ export function appTurnInstructions(text: string, options: AppInstructionOptions
   if (/(?:文件夹|目录|外置|磁盘|gdrive|folder|directory|external drive)/iu.test(text)) {
     guidance.push("For filesystem discovery, start with a small scoped probe and an explicit short timeout. A timeout or blocked read is not an empty/missing folder. Report the blockage promptly, do not repeat the same stalled probe, and use a cloud copy only when the user authorized that fallback. Loading a skill is preparation, not completion of the requested file work.");
   }
+  if (/(?:无限画布|infinite[\s-]*canvas|canvas[\s-]*agent)/iu.test(text)) {
+    guidance.push(infiniteCanvasInstructions());
+  }
   return guidance.length ? guidance.join("\n\n") : undefined;
+}
+
+export function infiniteCanvasInstructions(status?: { connected: boolean; projectId?: string; title?: string }, conversationId?: string, messageId?: string): string {
+  const stateLine = status?.connected
+    ? `Infinite Canvas Agent is connected for this conversation${status.projectId ? ` (projectId=${status.projectId}${status.title ? `, title=${JSON.stringify(status.title)}` : ""})` : ""}.`
+    : "Infinite Canvas Agent bridges the open Infinite Canvas tab in this conversation via TaroBird Host.";
+  const cliFallback = conversationId && messageId
+    ? `If app_canvas_agent is unavailable in your engine/session, write {"tool":"canvas_get_state","arguments":{}} to a JSON file and run: tarobot workbench canvas-agent ${conversationId} --from /absolute/request.json --context-message ${messageId} --json.`
+    : "If app_canvas_agent is unavailable in your engine/session, use `tarobot workbench canvas-agent <conversationId> --from /absolute/request.json --context-message <messageId> --json`.";
+  return [
+    stateLine,
+    "Invoke Infinite Canvas tools with `app_canvas_agent({ tool, arguments, projectId? })`. Available tools: canvas_get_state, canvas_get_nodes, canvas_list_models, canvas_apply_ops, canvas_list_references, canvas_insert_media, canvas_view_image, canvas_create_text_nodes, canvas_create_generation_flow, generation_get_status, prompts_search, assets_list, assets_add (plus canvas_list_tools for full schemas).",
+    cliFallback,
+    "Generation rule: when the user asks to generate images or media on Infinite Canvas, create and run the canvas's generation nodes by default (canvas_create_generation_flow / canvas_apply_ops run_generation); only use your own engine image generation when the user explicitly requests it, and write any external result back to the canvas via canvas_insert_media / assets_add.",
+  ].join(" ");
 }
 
 /** Turn-scoped metadata is a locator, never an authority or a full scene. */

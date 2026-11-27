@@ -1,6 +1,7 @@
 //! Request routing. Command names and argument shapes mirror the Tauri
 //! `invoke` handlers; unknown commands or fields fail instead of succeeding.
 use crate::{
+    canvas_credentials::{CanvasCredentials, Request as CanvasCredentialRequest},
     desktop_host::DesktopHost,
     identity::{device_actions::Statement, Identity},
     protocol::{self, Line, Output, Request, MAX_INFLIGHT, MAX_REQUEST_LINE},
@@ -17,15 +18,20 @@ use tokio::{
 
 pub const PROTOCOL: u32 = 1;
 /// Commands the renderer may reach through the preload bridge.
-pub const VIEW_COMMANDS: [&str; 14] = [
-    "device_create", "device_sign", "device_sign_action", "device_forget",
+pub const VIEW_COMMANDS: [&str; 15] = [
+    "device_create", "device_sign", "device_sign_action", "device_forget", "canvas_credentials",
     "net_document", "net_allocate", "net_cancel", "net_http_open", "net_http_read",
     "net_socket_open", "net_socket_send", "net_socket_ack", "net_socket_close", "desktop_host",
 ];
 /// Main-process only; never exposed through preload.
 pub const MAIN_COMMANDS: [&str; 2] = ["net_reset", "helper_info"];
 
-pub struct Services { pub identity: Identity, pub transport: Arc<Transport>, pub host: Arc<DesktopHost> }
+pub struct Services {
+    pub identity: Identity,
+    pub transport: Arc<Transport>,
+    pub host: Arc<DesktopHost>,
+    pub canvas_credentials: CanvasCredentials,
+}
 
 fn args<T: DeserializeOwned>(value: Value) -> Result<T, String> {
     serde_json::from_value(value).map_err(|_| "invalid_arguments".into())
@@ -68,6 +74,10 @@ async fn dispatch(services: &Services, output: &Output, command: &str, value: Va
     match command {
         "helper_info" => plain(args::<Empty>(value).map(|_| json!({ "protocol": PROTOCOL, "version": env!("CARGO_PKG_VERSION") }))),
         "net_reset" => plain(args::<Empty>(value).map(|_| { services.transport.reset(VIEW); Value::Null })),
+        "canvas_credentials" => plain(match args::<CanvasCredentialRequest>(value) {
+            Ok(request) => services.canvas_credentials.run(request).await,
+            Err(e) => Err(e),
+        }),
         "device_create" => plain(match args::<Empty>(value) {
             Ok(_) => services.identity.create().await.and_then(|v| serde_json::to_value(v).map_err(|_| "device_storage_failed".into())),
             Err(e) => Err(e),
@@ -211,7 +221,7 @@ mod tests {
             let identity = Identity::new(Arc::new(MemoryVault::default()), root.join("state"));
             let services = Arc::new(Services {
                 host: DesktopHost::new(identity.clone(), root.join("resources/host"), root.join("data/com.tarobot.client")),
-                identity, transport: Arc::new(Transport::new().unwrap()),
+                identity, transport: Arc::new(Transport::new().unwrap()), canvas_credentials: CanvasCredentials::default(),
             });
             let (input, server_in) = tokio::io::duplex(1 << 20);
             let (server_out, output) = tokio::io::duplex(1 << 20);

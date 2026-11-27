@@ -190,6 +190,29 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
       throw error;
     }
   }
+  async canvasAgentStatus(signal?: AbortSignal): Promise<{ connected: boolean; projectId?: string; title?: string }> {
+    const turn = context.getStore();
+    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion || turn.workbenchContextOmitted || this.processingAgentBus.has(turn.messageId)) return { connected: false };
+    return z.object({ connected: z.boolean(), projectId: z.string().optional(), title: z.string().optional() }).parse(
+      await this.transport.requestLive("canvas.agent.status", { conversationId: turn.conversationId, contextMessageId: turn.messageId }, signal),
+    );
+  }
+  async canvasAgentTools(signal?: AbortSignal): Promise<unknown> {
+    const turn = context.getStore();
+    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion || turn.workbenchContextOmitted || this.processingAgentBus.has(turn.messageId)) throw new Error("canvas_agent_user_turn_required");
+    return this.transport.requestLive("canvas.agent.tools", { conversationId: turn.conversationId, contextMessageId: turn.messageId }, signal);
+  }
+  async canvasAgentCall(name: string, args: Record<string, unknown>, projectId?: string, signal?: AbortSignal): Promise<unknown> {
+    const turn = context.getStore();
+    if (!turn?.conversationId || !turn.messageId || turn.botSource || turn.groupDiscussion || turn.workbenchContextOmitted || this.processingAgentBus.has(turn.messageId)) throw new Error("canvas_agent_user_turn_required");
+    return this.transport.requestLive("canvas.agent.call", {
+      contextMessageId: turn.messageId,
+      conversationId: turn.conversationId,
+      name,
+      arguments: args,
+      ...(projectId ? { projectId } : {}),
+    }, signal);
+  }
   async workbenchImage(image: { bytes: Buffer; mime: string; name: string }, signal?: AbortSignal): Promise<string> {
     const turn = context.getStore(); if (!turn?.messageId || turn.botSource || turn.groupDiscussion) throw new Error("workbench_user_turn_required");
     if (turn.workbenchContextOmitted) throw new Error("workbench_context_unavailable");

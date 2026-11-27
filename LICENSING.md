@@ -28,6 +28,7 @@ The project license does not replace those component notices.
 | `client/public/licenses/` | Runtime notices for bundled libraries, fonts and icons |
 | Bundled Claude history helper | Official `@anthropic-ai/claude-agent-sdk` JavaScript; Anthropic terms, not the project AGPL grant. Exact build dependency is pinned in `package-lock.json`; the unmodified upstream README and LICENSE are shipped in `dist/licenses/claude-agent-sdk/`. No additional Claude CLI binary is bundled. |
 | `skills/scrapling/SKILL.md` | Retains its attribution to the MIT-licensed upstream fetching reference |
+| `integrations/infinite-canvas/` | Integrates `basketikun/infinite-canvas` (commit `4c67f1ece4f4edaef81e58e964eb78abb1e9809d`); MIT License, Copyright (c) 2026 basketikun, retained in `integrations/infinite-canvas/LICENSE` and `UPSTREAM.json` |
 | Gradle wrapper and other dependencies | Their own file headers, package licenses and notices |
 
 The standalone CLI package includes this notice, the project LICENSE and the

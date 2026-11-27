@@ -9,9 +9,13 @@ export type PluginPlatform = z.infer<typeof pluginPlatformSchema>;
 export const pluginCapabilitySchema = z.enum([
   "theme.read",
   "storage.device",
+  "credentials.device",
+  "files.export",
+  "network.domains",
   "clipboard.write",
   "workbench.canvas",
   "chat.draft",
+  "canvas.agent",
 ]);
 export type PluginCapability = z.infer<typeof pluginCapabilitySchema>;
 
@@ -51,6 +55,12 @@ export const pluginManifestSchema = z.object({
     sha256: z.string().trim().regex(/^[0-9a-f]{64}$/i),
     sizeBytes: z.number().int().positive().max(64 * 1024 * 1024),
   }).strict(),
+  attribution: z.object({
+    author: z.string().trim().min(1).max(120),
+    license: z.string().trim().min(1).max(64),
+    homepage: z.string().trim().max(256).optional(),
+    notice: z.string().trim().max(512).optional(),
+  }).strict().optional(),
   entry: z.string().trim().min(1).max(160).refine(
     (value) => !value.startsWith("/") && !value.includes("..") && !/^[a-zA-Z]+:/.test(value),
     "entry_must_be_relative",
@@ -64,14 +74,42 @@ export const pluginManifestSchema = z.object({
 }).strict();
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 
+const binaryPayload = z.instanceof(Uint8Array).refine(value => value.byteLength <= 32 * 1024 * 1024);
+const canvasRequest = { protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64) };
+const canvasDataKey = z.string().min(1).max(256);
 export const pluginHostRequestSchema = z.discriminatedUnion("method", [
+  z.object({ ...canvasRequest, method: z.literal("canvas.nodes.list") }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.nodes.enable"), enabled: z.boolean() }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.nodes.install"), url: z.string().min(1).max(1024) }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.nodes.remove"), pluginId: z.string().min(1).max(128) }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.nodes.render"), pluginId: z.string().min(1).max(128),
+    node: z.object({ text: z.string().max(16384), title: z.string().max(160).optional() }).strict() }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.data.get"), key: canvasDataKey }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.data.put"), key: canvasDataKey, value: binaryPayload }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.data.remove"), key: canvasDataKey }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.data.keys") }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.provider.request"), url: z.string().url().max(1024),
+    httpMethod: z.enum(["GET", "POST"]), headers: z.object({ authorization: z.string().max(16384).optional(), accept: z.string().max(256).optional(), "content-type": z.string().max(256).optional() }).strict(), body: binaryPayload.optional() }).strict(),
+  z.object({ ...canvasRequest, method: z.literal("canvas.prompts.request"), url: z.string().url().max(1024) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("host.hello") }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("theme.get") }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.get"), key: z.string().min(1).max(128) }).strict(),
-  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.set"), key: z.string().min(1).max(128), value: z.string().max(256 * 1024) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.set"), key: z.string().min(1).max(128), value: z.string().max(4 * 1024 * 1024) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.remove"), key: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.list") }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("storage.clear") }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("credentials.get"), key: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("credentials.set"), key: z.string().min(1).max(128), value: z.string().max(16 * 1024) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("credentials.remove"), key: z.string().min(1).max(128) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("clipboard.write"), text: z.string().max(64 * 1024) }).strict(),
   z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("workbench.status") }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("workspace.export"), filename: z.string().trim().min(1).max(200), content: z.union([z.string().max(16 * 1024 * 1024), binaryPayload]), mime: z.string().trim().min(1).max(128).optional() }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("domains.request"), domain: z.string().trim().min(1).max(256), reason: z.string().trim().max(256).optional() }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.connect"), clientId: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.disconnect"), clientId: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.state"), clientId: z.string().min(1).max(128), snapshot: z.object({ projectId: z.string().max(128), title: z.string().max(256) }).nullable() }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.activate"), clientId: z.string().min(1).max(128) }).strict(),
+  z.object({ protocol: z.literal(PLUGIN_HOST_PROTOCOL), id: z.string().min(1).max(64), method: z.literal("canvas.agent.result"), clientId: z.string().min(1).max(128), requestId: z.string().min(1).max(128), result: z.unknown().optional(), error: z.object({ code: z.string().max(128), message: z.string().max(512) }).optional() }).strict(),
 ]);
 export type PluginHostRequest = z.infer<typeof pluginHostRequestSchema>;
 
@@ -93,11 +131,38 @@ export function requiredCapabilityForMethod(method: PluginHostRequest["method"])
     case "storage.get":
     case "storage.set":
     case "storage.remove":
+    case "storage.list":
+    case "storage.clear":
+    case "canvas.nodes.list":
+    case "canvas.nodes.enable":
+    case "canvas.nodes.install":
+    case "canvas.nodes.remove":
+    case "canvas.nodes.render":
+    case "canvas.data.get":
+    case "canvas.data.put":
+    case "canvas.data.keys":
+    case "canvas.data.remove":
       return "storage.device";
+    case "credentials.get":
+    case "credentials.set":
+    case "credentials.remove":
+      return "credentials.device";
+    case "workspace.export":
+      return "files.export";
+    case "canvas.provider.request":
+    case "canvas.prompts.request":
+    case "domains.request":
+      return "network.domains";
     case "clipboard.write":
       return "clipboard.write";
     case "workbench.status":
       return "workbench.canvas";
+    case "canvas.agent.connect":
+    case "canvas.agent.disconnect":
+    case "canvas.agent.state":
+    case "canvas.agent.activate":
+    case "canvas.agent.result":
+      return "canvas.agent";
   }
 }
 

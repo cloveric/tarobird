@@ -1,4 +1,11 @@
 import "./plugin-crypto.js";
+import { isElectron } from "./desktop-bridge.js";
+import canvasArtifact from "./infinite-canvas-artifact.json";
+import canvasCatalog from "./infinite-canvas-catalog.json";
+import { canvasDataStore, OFFICIAL_CANVAS_PLUGIN_ID, type CanvasDataStore } from "./canvas-data-store.js";
+import { canvasNodeRegistry } from "./canvas-node-registry.js";
+import { createSystemCanvasCredentialVault } from "./canvas-credential-vault.js";
+import type { PluginCredentialVault } from "./plugin-sandbox-runtime.js";
 import { openDB, type IDBPDatabase } from "idb";
 import {
   comparePluginVersions,
@@ -11,7 +18,7 @@ import {
   type PluginPlatform,
 } from "../../src/client-protocol/plugins.js";
 import {
-  INFINITE_CANVAS_BUNDLE_HTML,
+
   QUICK_SCRATCHPAD_BUNDLE_HTML,
 } from "./plugin-bundles.js";
 import {
@@ -20,7 +27,7 @@ import {
   type PluginKvStore,
 } from "./plugin-sandbox-runtime.js";
 
-export type { PluginKvStore };
+export type { PluginKvStore, PluginCredentialVault };
 
 export const PLUGIN_STORE_KEY = "tarobird.plugins.v1";
 
@@ -32,30 +39,9 @@ export type PluginCatalogEntry = {
 export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
   {
     manifest: pluginManifestSchema.parse({
-      schemaVersion: 1,
-      id: "tarobird.infinite-canvas",
-      name: "Infinite Canvas",
-      nameZh: "无限画布",
-      version: "1.0.0",
-      description: "Zoomable, pannable infinite canvas workspace for architecture notes, diagrams and visual thinking.",
-      descriptionZh: "支持缩放与拖拽的无限画布工作区，适合架构草图、便签与自由排版。",
-      icon: "canvas",
-      source: { repository: "cloveric/tarobird", commit: "636ada65833c" },
-      artifact: {
-        sha256: "f85bd9adcb3ebe136bdd6b5085cc515812d0a2256de439434b194c22d39361e9",
-        sizeBytes: 9825,
-      },
-      entry: "dist/index.html",
-      platforms: ["desktop"],
-      contributions: [
-        { kind: "workbench-item", id: "infinite-canvas", title: "Infinite Canvas", titleZh: "无限画布", icon: "canvas" },
-      ],
-      domains: [],
-      capabilities: ["theme.read", "storage.device", "workbench.canvas"],
-      requiresHost: false,
-      official: true,
+      ...canvasCatalog,
+      artifact: { sha256: canvasArtifact.sha256, sizeBytes: canvasArtifact.size },
     }),
-    bundleHtml: INFINITE_CANVAS_BUNDLE_HTML,
   },
   {
     manifest: pluginManifestSchema.parse({
@@ -100,6 +86,15 @@ export type InstalledPluginRecord = {
   grantedDomains: string[];
 };
 
+function matchesPinnedCanvas(record: InstalledPluginRecord): boolean {
+  const pinned = OFFICIAL_PLUGIN_CATALOG.find(entry => entry.manifest.id === OFFICIAL_CANVAS_PLUGIN_ID)!;
+  return record.sourceKind === "official" && JSON.stringify(record.manifest) === JSON.stringify(pinned.manifest);
+}
+
+export function isPinnedCanvas(record: InstalledPluginRecord): boolean {
+  return record.enabled && record.bundleHtml !== "" && matchesPinnedCanvas(record);
+}
+
 export type PreparedLocalDevPlugin = {
   manifest: PluginManifest;
   bundleHtml: string;
@@ -108,6 +103,7 @@ export type PreparedLocalDevPlugin = {
 };
 
 export type PluginInstallGrantOptions = {
+  loadCanvasBundle?: () => Promise<string>;
   grantedCapabilities?: readonly PluginCapability[];
   grantedDomains?: readonly string[];
 };
@@ -131,7 +127,8 @@ export function pluginScopeId(hostPublicKey?: string | null, userId?: string | n
   const u = (userId ?? "").trim();
   const d = (deviceId ?? "").trim();
   if (!h && !u && !d) return "default";
-  return [d || "device", h.slice(0, 16) || "host", u || "user"].join(":");
+  if (!h || !u || !d) throw new Error("plugin_scope_incomplete");
+  return `v2:${JSON.stringify([d, h, u])}`;
 }
 
 /** Returns null when host/device identity is known but `userId` has not hydrated yet,
@@ -141,7 +138,7 @@ export function resolvePluginScopeId(hostPublicKey?: string | null, userId?: str
   const u = (userId ?? "").trim();
   const d = (deviceId ?? "").trim();
   if (!h && !u && !d) return "default";
-  if (!u) return null;
+  if (!h || !u || !d) return null;
   return pluginScopeId(h, u, d);
 }
 
@@ -336,7 +333,31 @@ function intersectReviewedDomains(
   return out;
 }
 
+const legacyCredentialClears = new WeakMap<IDBFactory, Promise<void>>();
+
+/** The preview vault stored plaintext. Delete the database by name, without
+ * opening it or inspecting any records. A blocked delete completes once the
+ * previous app document closes, and an actual failure may be retried. */
+export function clearLegacyCanvasCredentials(factory = globalThis.indexedDB): Promise<void> {
+  if (!factory) return Promise.resolve();
+  const previous = legacyCredentialClears.get(factory);
+  if (previous) return previous;
+  const clearing = new Promise<void>((resolve, reject) => {
+    const request = factory.deleteDatabase("tarobird.plugin.credentials.v1");
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new Error("legacy_canvas_credentials_clear_failed"));
+  }).catch(error => {
+    legacyCredentialClears.delete(factory);
+    throw error;
+  });
+  legacyCredentialClears.set(factory, clearing);
+  return clearing;
+}
+
 export class PluginRegistry {
+  private readonly hasInjectedVault: boolean;
+  private readonly canvasStore?: Pick<CanvasDataStore, "clear">;
+  readonly credentialVault: PluginCredentialVault;
   readonly storage: PluginStorageAdapter;
   readonly kvStore?: PluginKvStore;
   private readonly bundleStore?: PluginBundleStore;
@@ -344,16 +365,24 @@ export class PluginRegistry {
   private scopeId: string;
   private idbStoredIds = new Set<string>();
   private state: PluginStoreState;
+  private inlineCanvasPending = new Map<string, string>();
   private listeners = new Set<() => void>();
+  private readonly clearingPlugins = new Set<string>();
+  private readonly storageWork = new Map<string, Set<Promise<unknown>>>();
 
   constructor(options?: {
     storage?: PluginStorageAdapter;
     kvStore?: PluginKvStore;
     bundleStore?: PluginBundleStore;
     scopeId?: string;
+    credentialVault?: PluginCredentialVault;
+    canvasStore?: Pick<CanvasDataStore, "clear">;
     catalog?: readonly PluginCatalogEntry[];
   }) {
     const usesBrowserIdb = !options?.storage && !options?.bundleStore && typeof indexedDB !== "undefined";
+    this.hasInjectedVault = !!options?.credentialVault;
+    this.credentialVault = options?.credentialVault ?? createSystemCanvasCredentialVault();
+    this.canvasStore = options?.canvasStore ?? (typeof indexedDB === "undefined" ? undefined : canvasDataStore);
     this.storage = options?.storage ?? createDefaultPluginStorage();
     if (options?.bundleStore) {
       this.bundleStore = options.bundleStore;
@@ -367,9 +396,8 @@ export class PluginRegistry {
     this.scopeId = options?.scopeId?.trim() || "default";
     this.catalog = [...(options?.catalog ?? [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG])];
     this.state = this.load();
-    if (this.bundleStore) {
-      void this.hydrateBundles();
-    }
+    void clearLegacyCanvasCredentials().catch(() => undefined);
+    void this.hydrateBundles();
   }
 
   private storeKey(): string {
@@ -384,26 +412,24 @@ export class PluginRegistry {
     const clean = scopeId.trim() || "default";
     if (this.scopeId === clean) return;
     this.scopeId = clean;
+    this.inlineCanvasPending.clear();
     this.state = this.load();
     for (const listener of this.listeners) listener();
-    if (this.bundleStore) {
-      void this.hydrateBundles();
-    }
+    void this.hydrateBundles();
   }
 
   private async hydrateBundles(): Promise<void> {
-    if (!this.bundleStore) return;
     const scope = this.scopeId;
     const records = Object.values(this.state.installed);
     if (!records.length) return;
 
     let changed = false;
     let migratedToIdb = false;
-    const nextInstalled = { ...this.state.installed };
+
 
     for (const current of records) {
       const id = current.manifest.id;
-      if (current.bundleHtml && !this.idbStoredIds.has(id)) {
+      if (this.bundleStore && current.bundleHtml && !this.idbStoredIds.has(id)) {
         const stored = await this.bundleStore.putBundle(scope, id, current.bundleHtml).catch(() => false);
         if (this.scopeId !== scope) return;
         if (stored && this.state.installed[id]?.installedAt === current.installedAt) {
@@ -413,7 +439,7 @@ export class PluginRegistry {
         continue;
       }
       if (!current.bundleHtml) {
-        let html = await this.bundleStore.getBundle(scope, id).catch(() => null);
+        let html = this.inlineCanvasPending.get(id) ?? await this.bundleStore?.getBundle(scope, id).catch(() => null);
         if (!html) {
           const inlineCatalog = this.catalog.find((entry) => entry.manifest.id === id && entry.bundleHtml);
           if (inlineCatalog?.bundleHtml && inlineCatalog.manifest.artifact.sha256 === current.manifest.artifact.sha256) {
@@ -421,8 +447,16 @@ export class PluginRegistry {
           }
         }
         if (this.scopeId !== scope) return;
-        if (html && this.state.installed[id]?.installedAt === current.installedAt) {
-          nextInstalled[id] = { ...current, bundleHtml: html };
+        if (html && id === OFFICIAL_CANVAS_PLUGIN_ID && (!matchesPinnedCanvas(current) ||
+          new TextEncoder().encode(html).length !== canvasArtifact.size || !(await verifyPluginArtifactHash(html, canvasArtifact.sha256)))) html = null;
+        if (this.scopeId !== scope) return;
+        const latest = this.state.installed[id];
+        // Toggling an installation while the digest is pending does not
+        // change its artifact. Keep the newer enabled state and grants.
+        if (html && latest?.installedAt === current.installedAt && latest.manifest === current.manifest
+          && !this.clearingPlugins.has(this.storageKey(scope, id))) {
+          this.state = { ...this.state, installed: { ...this.state.installed, [id]: { ...latest, bundleHtml: html } } };
+          this.inlineCanvasPending.delete(id);
           changed = true;
         }
       }
@@ -430,7 +464,6 @@ export class PluginRegistry {
 
     if (this.scopeId !== scope) return;
     if (changed) {
-      this.state = { ...this.state, installed: nextInstalled };
       for (const listener of this.listeners) listener();
     }
     if (migratedToIdb) {
@@ -469,6 +502,7 @@ export class PluginRegistry {
               bundleHtml = inlineCatalog.bundleHtml;
             }
           }
+          if (id === OFFICIAL_CANVAS_PLUGIN_ID && bundleHtml) { this.inlineCanvasPending.set(id, bundleHtml); bundleHtml = ""; }
           if (hasStoredBundle) idbIds.add(id);
           installed[id] = {
             manifest: manifest.data,
@@ -476,8 +510,8 @@ export class PluginRegistry {
             enabled: item.enabled !== false,
             installedAt: typeof item.installedAt === "number" ? item.installedAt : Date.now(),
             sourceKind: item.sourceKind === "local-dev" ? "local-dev" : manifest.data.official ? "official" : "third-party",
-            grantedCapabilities: Array.isArray(item.grantedCapabilities) ? item.grantedCapabilities : [...manifest.data.capabilities],
-            grantedDomains: Array.isArray(item.grantedDomains) ? item.grantedDomains : [...manifest.data.domains],
+            grantedCapabilities: intersectReviewedCapabilities(manifest.data.capabilities, item.grantedCapabilities ?? []),
+            grantedDomains: intersectReviewedDomains(manifest.data.domains, item.grantedDomains ?? []),
           };
         }
       }
@@ -495,44 +529,13 @@ export class PluginRegistry {
   }
 
   private load(): PluginStoreState {
-    const key = this.storeKey();
-    let raw = this.storage.getItem(key);
-    let migratedFromLegacy = false;
-    if (!raw && this.scopeId !== "default") {
-      const legacyRaw = this.storage.getItem(PLUGIN_STORE_KEY);
-      if (legacyRaw) {
-        raw = legacyRaw;
-        migratedFromLegacy = true;
-      }
-    }
+    // Preview scope identifiers did not identify a unique Host. Only read
+    // metadata and assets from this exact installation scope.
+    const raw = this.storage.getItem(this.storeKey());
     this.idbStoredIds = new Set<string>();
-    if (!raw) return { allowThirdParty: false, developerMode: false, installed: {} };
-    const parsed = this.parseStoreJson(raw);
+    const parsed = raw ? this.parseStoreJson(raw) : null;
     if (!parsed) return { allowThirdParty: false, developerMode: false, installed: {} };
     this.idbStoredIds = parsed.idbIds;
-
-    if (migratedFromLegacy) {
-      // Crash-safe one-way migration from legacy unscoped `tarobird.plugins.v1`
-      // into this scope's key + scoped KV buckets so upgrades never lose installs
-      // and never leak legacy state into a second user/host scope.
-      try {
-        this.storage.setItem(key, this.serializeStateForStorage(parsed.state));
-        for (const id of Object.keys(parsed.state.installed)) {
-          const legacyBucketKey = pluginStorageBucketKey(id);
-          const scopedBucketKey = pluginStorageBucketKey(id, this.scopeId);
-          if (legacyBucketKey !== scopedBucketKey) {
-            const legacyBucket = this.storage.getItem(legacyBucketKey);
-            if (legacyBucket !== null && this.storage.getItem(scopedBucketKey) === null) {
-              this.storage.setItem(scopedBucketKey, legacyBucket);
-              this.storage.removeItem(legacyBucketKey);
-            }
-          }
-        }
-        this.storage.removeItem(PLUGIN_STORE_KEY);
-      } catch {
-        // Keep legacy data untouched if writing the migrated key fails (e.g. quota).
-      }
-    }
     return parsed.state;
   }
 
@@ -635,6 +638,36 @@ export class PluginRegistry {
     }
   }
 
+  private storageKey(scope: string, pluginId: string): string {
+    return JSON.stringify([scope, pluginId]);
+  }
+
+  isActive(record: InstalledPluginRecord): boolean {
+    const id = record.manifest.id;
+    return record.enabled && this.state.installed[id] === record && !this.clearingPlugins.has(this.storageKey(this.scopeId, id));
+  }
+
+  runStorageOperation<T>(record: InstalledPluginRecord, run: () => Promise<T>): Promise<T> {
+    if (!this.isActive(record)) return Promise.reject(new Error("plugin_storage_inactive"));
+    const scope = this.scopeId;
+    const key = this.storageKey(scope, record.manifest.id);
+    const pending = this.storageWork.get(key) ?? new Set<Promise<unknown>>();
+    this.storageWork.set(key, pending);
+    const operation = Promise.resolve().then(() => {
+      if (this.scopeId !== scope || !this.isActive(record)) throw new Error("plugin_storage_inactive");
+      return run();
+    });
+    pending.add(operation);
+    return operation.finally(() => {
+      pending.delete(operation);
+      if (!pending.size && this.storageWork.get(key) === pending) this.storageWork.delete(key);
+    });
+  }
+
+  private assertNotClearing(scope: string, pluginId: string): void {
+    if (this.clearingPlugins.has(this.storageKey(scope, pluginId))) throw new Error("plugin_uninstalling");
+  }
+
   private assertNotReservedOfficialId(pluginId: string): void {
     if (
       pluginId.startsWith("tarobird.")
@@ -655,7 +688,9 @@ export class PluginRegistry {
     const manifest = pluginManifestSchema.parse(pinned.manifest);
     if (JSON.stringify(requested) !== JSON.stringify(manifest)) throw new Error("plugin_catalog_mismatch");
     if (!manifest.official && !this.state.allowThirdParty) throw new Error("plugin_third_party_disabled");
-    const bundleHtml = entry.bundleHtml;
+    const scope = this.scopeId;
+    this.assertNotClearing(scope, manifest.id);
+    const bundleHtml = entry.bundleHtml ?? (manifest.id === OFFICIAL_CANVAS_PLUGIN_ID ? await options?.loadCanvasBundle?.() : undefined);
     if (bundleHtml === undefined) throw new Error("plugin_artifact_missing");
     const actualSizeBytes = new TextEncoder().encode(bundleHtml).byteLength;
     if (actualSizeBytes !== manifest.artifact.sizeBytes) {
@@ -668,9 +703,8 @@ export class PluginRegistry {
     const previous = this.state.installed[manifest.id];
     const reviewedCapabilities = intersectReviewedCapabilities(manifest.capabilities, options?.grantedCapabilities);
     const reviewedDomains = intersectReviewedDomains(manifest.domains, options?.grantedDomains);
-    const preservedDomains = previous
-      ? [...new Set([...reviewedDomains, ...previous.grantedDomains.filter((d) => sanitizePluginDomain(d) !== null)])]
-      : reviewedDomains;
+    if (scope !== this.scopeId) throw new Error("plugin_scope_changed");
+    this.assertNotClearing(scope, manifest.id);
     const record: InstalledPluginRecord = {
       manifest,
       bundleHtml,
@@ -678,11 +712,13 @@ export class PluginRegistry {
       installedAt: Math.max(Date.now(), (previous?.installedAt ?? 0) + 1),
       sourceKind: manifest.official ? "official" : "third-party",
       grantedCapabilities: reviewedCapabilities,
-      grantedDomains: preservedDomains,
+      grantedDomains: reviewedDomains,
     };
     const prevIdbStored = this.idbStoredIds.has(manifest.id);
     if (this.bundleStore) {
       const stored = await this.bundleStore.putBundle(this.scopeId, manifest.id, bundleHtml).catch(() => false);
+      if (scope !== this.scopeId) throw new Error("plugin_scope_changed");
+      this.assertNotClearing(scope, manifest.id);
       if (stored) this.idbStoredIds.add(manifest.id);
       else this.idbStoredIds.delete(manifest.id);
     }
@@ -802,6 +838,7 @@ export class PluginRegistry {
   }
 
   setEnabled(pluginId: string, enabled: boolean): void {
+    this.assertNotClearing(this.scopeId, pluginId);
     const existing = this.state.installed[pluginId];
     if (!existing || existing.enabled === enabled) return;
     const prev = this.state;
@@ -817,39 +854,56 @@ export class PluginRegistry {
     }
   }
 
+  grantDomain(pluginId: string, domain: string): string | undefined {
+    const current = this.state.installed[pluginId];
+    const clean = sanitizePluginDomain(domain);
+    if (!current?.enabled || !clean || !current.grantedCapabilities.includes("network.domains")
+      || !intersectReviewedDomains(current.manifest.domains, [clean]).length) return undefined;
+    if (!current.grantedDomains.includes(clean)) {
+      const previous = this.state;
+      this.state = { ...previous, installed: { ...previous.installed, [pluginId]: { ...current, grantedDomains: [...current.grantedDomains, clean] } } };
+      try { this.save(); } catch (error) { this.state = previous; throw error; }
+    }
+    return clean;
+  }
+
   async uninstall(pluginId: string, options?: { keepData?: boolean }): Promise<void> {
-    if (this.state.installed[pluginId]) {
-      const next = { ...this.state.installed };
-      delete next[pluginId];
-      this.state = { ...this.state, installed: next };
-      this.idbStoredIds.delete(pluginId);
-      this.save();
-    }
-    const shouldWipe = options?.keepData !== true;
-    if (shouldWipe) {
-      this.storage.removeItem(pluginStorageBucketKey(pluginId, this.scopeId));
-      if (this.scopeId === "default") {
-        this.storage.removeItem(pluginStorageBucketKey(pluginId));
+    const scope = this.scopeId;
+    const key = this.storageKey(scope, pluginId);
+    this.assertNotClearing(scope, pluginId);
+    this.clearingPlugins.add(key);
+    try {
+      // Stop admitting work synchronously, then let writes that had already
+      // reached the trusted host finish before any namespace is erased.
+      await Promise.allSettled(this.storageWork.get(key) ?? []);
+      const shouldWipe = options?.keepData !== true;
+      if (shouldWipe && pluginId === OFFICIAL_CANVAS_PLUGIN_ID && scope !== "default") {
+        await this.canvasStore?.clear(scope, pluginId);
+        if (typeof indexedDB !== "undefined") await canvasNodeRegistry.clear(scope);
+        if (isElectron() || this.hasInjectedVault) await this.credentialVault.clearPluginSecrets(scope, pluginId);
       }
-      const prefix = pluginDataPrefix(this.scopeId, pluginId);
-      const legacyPrefix = `tarobird.plugin.data.${pluginId}.`;
-      const maybeData = (this.storage as unknown as { data?: Map<string, string> }).data;
-      const allKeys = this.storage.keys
-        ? this.storage.keys()
-        : maybeData instanceof Map
-          ? [...maybeData.keys()]
-          : [];
-      for (const key of allKeys) {
-        if (key.startsWith(prefix) || (this.scopeId === "default" && key.startsWith(legacyPrefix))) {
-          this.storage.removeItem(key);
+      if (shouldWipe) {
+        this.storage.removeItem(pluginStorageBucketKey(pluginId, scope));
+        const prefix = pluginDataPrefix(scope, pluginId);
+        const data = (this.storage as { data?: Map<string, string> }).data;
+        const allKeys = this.storage.keys?.() ?? (data instanceof Map ? [...data.keys()] : []);
+        for (const entry of allKeys) {
+          if (entry.startsWith(prefix)) this.storage.removeItem(entry);
         }
+        await this.kvStore?.clear(scope, pluginId);
       }
-    }
-    if (this.bundleStore) {
-      await this.bundleStore.deleteBundle(this.scopeId, pluginId).catch(() => undefined);
-    }
-    if (shouldWipe && this.kvStore) {
-      await this.kvStore.clear(this.scopeId, pluginId).catch(() => undefined);
+      await this.bundleStore?.deleteBundle(scope, pluginId);
+      if (scope !== this.scopeId) throw new Error("plugin_scope_changed");
+      this.inlineCanvasPending.delete(pluginId);
+      if (this.state.installed[pluginId]) {
+        const next = { ...this.state.installed };
+        delete next[pluginId];
+        this.state = { ...this.state, installed: next };
+        this.idbStoredIds.delete(pluginId);
+        this.save();
+      }
+    } finally {
+      this.clearingPlugins.delete(key);
     }
   }
 
@@ -857,6 +911,16 @@ export class PluginRegistry {
     return this.state.installed[pluginId];
   }
 }
+
+/** Partial authentication must never fall back to the unscoped registry. */
+export const unavailablePluginRegistry = new PluginRegistry({
+  storage: {
+    getItem: () => null,
+    setItem: () => { throw new Error("plugin_scope_incomplete"); },
+    removeItem: () => { throw new Error("plugin_scope_incomplete"); },
+  },
+  catalog: [],
+});
 
 const scopedRegistries = new Map<string, PluginRegistry>();
 

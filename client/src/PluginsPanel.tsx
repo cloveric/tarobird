@@ -38,6 +38,7 @@ import {
   type PreparedLocalDevPlugin,
 } from "./plugin-registry.js";
 import { sanitizePluginDomain } from "./plugin-sandbox-runtime.js";
+import type { HubConnection } from "./connection.js";
 import {
   matchesPluginMarketplaceQuery,
   pluginMarketplaceCategory,
@@ -114,10 +115,14 @@ function FeaturedArtBanner({ icon }: { icon: PluginIcon }) {
 function capabilityLabel(cap: PluginCapability): string {
   switch (cap) {
     case "theme.read": return t("读取界面主题");
+    case "credentials.device": return t("在系统钥匙串中读写画布 API Key");
+    case "files.export": return t("导出文件到设备");
+    case "network.domains": return t("访问清单中已确认的域名");
     case "storage.device": return t("本机插件隔离存储");
     case "clipboard.write": return t("写入剪贴板");
     case "workbench.canvas": return t("工作台画布扩展");
     case "chat.draft": return t("向输入框插入草稿");
+    case "canvas.agent": return t("画布 Agent 与当前对话 Bot 桥接");
   }
 }
 
@@ -191,11 +196,15 @@ function splitDeclaredDomains(domains: readonly string[]): {
 export function PluginsView({
   platform,
   registry,
+  connection,
+  initialInstallId,
   onOpenContribution,
   backActionRef,
 }: {
   platform: PluginPlatform;
   registry?: PluginRegistry | null;
+  connection?: HubConnection;
+  initialInstallId?: string;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
   backActionRef?: RefObject<(() => boolean) | null>;
 }) {
@@ -210,6 +219,7 @@ export function PluginsView({
   const [query, setQuery] = useState("");
   const [selectedPluginId, setSelectedPluginId] = useState<string>();
   const [reviewTarget, setReviewTarget] = useState<PendingInstallReview>();
+  const [uninstallTarget, setUninstallTarget] = useState<InstalledPluginRecord>();
   const [consentError, setConsentError] = useState<string>();
   const [confirmThirdParty, setConfirmThirdParty] = useState(false);
   const [busyId, setBusyId] = useState<string>();
@@ -220,6 +230,10 @@ export function PluginsView({
   useEffect(() => {
     if (!backActionRef) return;
     backActionRef.current = () => {
+      if (uninstallTarget) {
+        setUninstallTarget(undefined);
+        return true;
+      }
       if (reviewTarget) {
         setReviewTarget(undefined);
         setConsentError(undefined);
@@ -234,7 +248,7 @@ export function PluginsView({
     return () => {
       if (backActionRef.current) backActionRef.current = null;
     };
-  }, [backActionRef, reviewTarget, selectedPluginId]);
+  }, [backActionRef, uninstallTarget, reviewTarget, selectedPluginId]);
 
   const catalog = useMemo(() => (activeRegistry ?? defaultPluginRegistry).catalogForPlatform(platform), [activeRegistry, platform]);
   const installedList = useMemo(() => (activeRegistry ? activeRegistry.installedForPlatform(platform) : []), [activeRegistry, state.installed, platform]);
@@ -242,6 +256,14 @@ export function PluginsView({
     () => installedList.filter((item) => item.sourceKind === "local-dev"),
     [installedList],
   );
+
+  useEffect(() => {
+    if (!initialInstallId) return;
+    const match = catalog.find((item) => item.manifest.id === initialInstallId);
+    if (match && !state.installed[match.manifest.id]) {
+      setReviewTarget({ kind: "catalog", entry: match, ...splitDeclaredDomains(match.manifest.domains) });
+    }
+  }, [initialInstallId, catalog, state.installed]);
 
   const allEntries = useMemo<MarketplaceEntry[]>(() => {
     const map = new Map<string, MarketplaceEntry>();
@@ -335,6 +357,7 @@ export function PluginsView({
         await activeRegistry.install(target.entry, {
           grantedCapabilities: manifest.capabilities,
           grantedDomains: target.sanitizedDomains,
+          loadCanvasBundle: connection ? () => connection.fetchInfiniteCanvasArtifact() : undefined,
         });
         setReviewTarget(undefined);
         setConsentError(undefined);
@@ -350,7 +373,9 @@ export function PluginsView({
       }
     } catch (error) {
       const code = error instanceof Error ? error.message : "install_failed";
-      const message = code === "plugin_size_mismatch"
+      const message = code === "canvas_agent_unavailable"
+        ? t("请更新主机以安装无限画布扩展。")
+        : code === "plugin_size_mismatch"
         ? t("校验失败：插件构建产物的体积与声明不符，已阻止安装。")
         : code === "plugin_hash_mismatch"
           ? t("校验失败：插件构建产物的 SHA-256 哈希不匹配，已阻止安装。")
@@ -368,6 +393,18 @@ export function PluginsView({
     } finally {
       setBusyId(undefined);
     }
+  };
+
+  const performUninstall = async (record: InstalledPluginRecord, keepData: boolean) => {
+    if (!activeRegistry) return;
+    const title = displayTitle(record.manifest, locale);
+    await activeRegistry.uninstall(record.manifest.id, { keepData });
+    setUninstallTarget(undefined);
+    setFeedback({
+      text: keepData
+        ? t("已卸载插件「{0}」，本地扩展数据已保留。", title)
+        : t("已卸载插件「{0}」，并清除其本地扩展数据。", title),
+    });
   };
 
   const handleLocalFolderFiles = async (files: FileList | null) => {
@@ -429,7 +466,7 @@ export function PluginsView({
           onClick={() => openReview(catalogEntry)}
         >
           <Download size={14}/>
-          {t("安装")}
+          {!catalogEntry.bundleHtml ? t("下载并安装") : t("安装")}
         </button>
       );
     }
@@ -490,10 +527,7 @@ export function PluginsView({
         <button
           type="button"
           className="text-danger"
-          onClick={() => {
-            void activeRegistry?.uninstall(manifest.id);
-            setFeedback({ text: t("已卸载插件「{0}」", displayTitle(manifest, locale)) });
-          }}
+          onClick={() => setUninstallTarget(installed)}
         >
           <Trash2 size={14}/>{t("卸载")}
         </button>
@@ -502,7 +536,7 @@ export function PluginsView({
   };
 
   const renderCard = (entry: MarketplaceEntry, variant: "featured" | "grid" = "grid") => {
-    const { manifest, installed } = entry;
+    const { manifest, installed, catalogEntry } = entry;
     const isOfficial = installed ? installed.sourceKind === "official" : manifest.official;
     const title = displayTitle(manifest, locale);
     const description = displayDescription(manifest, locale);
@@ -553,6 +587,11 @@ export function PluginsView({
               </div>
             </div>
             <p className="plugin-card-desc">{description}</p>
+            {manifest.attribution && (
+              <p className="plugin-card-attribution">
+                {t("原作者：{0} · {1}", manifest.attribution.author, manifest.attribution.license)}
+              </p>
+            )}
           </div>
         </article>
       );
@@ -592,10 +631,18 @@ export function PluginsView({
         </div>
 
         <p className="plugin-card-desc">{description}</p>
+        {manifest.attribution && (
+          <p className="plugin-card-attribution">
+            {t("原作者：{0} · {1}", manifest.attribution.author, manifest.attribution.license)}
+          </p>
+        )}
 
         <div className="plugin-card-footer">
           <div className="plugin-card-tags">
             <span className="plugin-category-tag">{categoryLabel(cat)}</span>
+            {catalogEntry && !catalogEntry.bundleHtml && !installed && (
+              <span className="plugin-badge">{t("按需下载")}</span>
+            )}
             {installed && (
               <span className={`plugin-badge ${installed.enabled ? "is-enabled" : "is-disabled"}`}>
                 {installed.enabled ? t("已启用") : t("已停用")}
@@ -707,6 +754,25 @@ export function PluginsView({
           <button type="button" className="primary" disabled={busyId === reviewManifest.id} onClick={() => void performInstall(reviewTarget)}>
             <Download size={14}/>{t("确认并安装")}
           </button>
+        </div>
+      </section>
+    </div>
+  );
+
+  const uninstallOverlay = uninstallTarget && (
+    <div className="plugin-consent-backdrop" role="presentation">
+      <section className="plugin-consent-box" role="alertdialog" aria-label={t("卸载确认")}>
+        <header>
+          <strong>{t("卸载「{0}」？", displayTitle(uninstallTarget.manifest, locale))}</strong>
+          <button type="button" className="icon-button" aria-label={t("取消")} onClick={() => setUninstallTarget(undefined)}><X size={16}/></button>
+        </header>
+        <p className="muted">
+          {t("请选择是否同时删除该扩展在当前设备保存的本地数据（画布内容、素材与本地隔离 API Key）。")}
+        </p>
+        <div className="plugin-consent-actions">
+          <button type="button" className="secondary" onClick={() => setUninstallTarget(undefined)}>{t("取消")}</button>
+          <button type="button" className="secondary" onClick={() => void performUninstall(uninstallTarget, true)}>{t("仅卸载，保留数据")}</button>
+          <button type="button" className="text-danger" onClick={() => void performUninstall(uninstallTarget, false)}>{t("卸载并删除数据")}</button>
         </div>
       </section>
     </div>
@@ -854,6 +920,12 @@ export function PluginsView({
                     <dt>{t("来源")}</dt>
                     <dd><code>{manifest.source.repository}@{manifest.source.commit}</code></dd>
                   </div>
+                  {manifest.attribution && (
+                    <div>
+                      <dt>{t("原作者与协议")}</dt>
+                      <dd>{manifest.attribution.author} ({manifest.attribution.license})</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>{t("体积")}</dt>
                     <dd>{formatPluginSize(manifest.artifact.sizeBytes)}</dd>
@@ -877,6 +949,7 @@ export function PluginsView({
         </article>
 
         {consentOverlay}
+        {uninstallOverlay}
       </div>
     );
   }
@@ -1157,6 +1230,7 @@ export function PluginsView({
       )}
 
       {consentOverlay}
+      {uninstallOverlay}
     </div>
   );
 }
@@ -1164,11 +1238,15 @@ export function PluginsView({
 export function PluginsModal({
   platform,
   registry,
+  connection,
+  initialInstallId,
   close,
   onOpenContribution,
 }: {
   platform: PluginPlatform;
   registry?: PluginRegistry | null;
+  connection?: HubConnection;
+  initialInstallId?: string;
   close: () => void;
   onOpenContribution?: (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => void;
 }) {
@@ -1224,6 +1302,8 @@ export function PluginsModal({
         <PluginsView
           platform={platform}
           registry={registry}
+          connection={connection}
+          initialInstallId={initialInstallId}
           backActionRef={viewBackRef}
           onOpenContribution={onOpenContribution ? (pluginId, contributionId, kind, title) => {
             close();

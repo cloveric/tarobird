@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { createHash } from "node:crypto";
+import WebSocket from "ws";
 import { createSocket } from "node:dgram";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -12,7 +14,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
   test("desktop welcome screen: Escape step-back, clean third-party section, and localized prompt when opening workbench plugin without active conversation", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const root = await mkdtemp(path.join(os.tmpdir(), "plugins-welcome-"));
-    const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+    const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist"), pluginArtifactsDir: path.resolve("../dist/plugins") });
     try {
       await page.goto(hub.url);
       await preparePairing(page, hub);
@@ -46,7 +48,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await page.locator(".conversation-header .plugins-trigger").click();
       await expect(modal).toBeVisible();
       const canvasCard = modal.locator('[data-plugin-id="tarobird.infinite-canvas"]').first();
-      await canvasCard.getByRole("button", { name: "安装" }).click();
+      await canvasCard.getByRole("button", { name: "下载并安装" }).click();
       await modal.locator(".plugin-consent-box").getByRole("button", { name: "确认并安装" }).click();
       await expect(canvasCard.getByRole("button", { name: "打开" })).toBeVisible();
       await canvasCard.getByRole("button", { name: "打开" }).click();
@@ -168,7 +170,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     await page.emulateMedia({ colorScheme: "dark" });
     await page.setViewportSize({ width: 1280, height: 800 });
     const root = await mkdtemp(path.join(os.tmpdir(), "plugins-desktop-"));
-    const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+    const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist"), pluginArtifactsDir: path.resolve("../dist/plugins") });
     try {
       await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','助手','fixture')");
       await hub.store.createConversation("owner", ["alpha"], "插件测试对话", "plugins-chat");
@@ -252,7 +254,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     });
     const page = await context.newPage();
     const root = await mkdtemp(path.join(os.tmpdir(), "plugins-phone-"));
-    const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+    const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist"), pluginArtifactsDir: path.resolve("../dist/plugins") });
     try {
       await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','助手','fixture')");
       await hub.store.createConversation("owner", ["alpha"], "移动端插件测试", "phone-plugins");
@@ -486,4 +488,191 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       udp.close();
     }
   });
+
+  test("Infinite Canvas E2E (#81): installs the release artifact and edits a native project through a live Bot turn", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const root = await mkdtemp(path.join(os.tmpdir(), "plugins-ic-e2e-"));
+    const hub = await HubServer.start({
+      stateDir: root,
+      clientDir: path.resolve("dist"),
+      pluginArtifactsDir: path.resolve("../dist/plugins"),
+    });
+    const botSecret = "canvas_e2e_fixture".repeat(3);
+    let worker: WebSocket | undefined;
+    try {
+      await hub.store.db.run(
+        "INSERT INTO bots(id,name,engine,secret_hash,online) VALUES('alpha','画布助手','codex',?,1)",
+        [createHash("sha256").update(botSecret).digest("hex")],
+      );
+      const conversation = await hub.store.createConversation("owner", ["alpha"], "无限画布联调", "ic-e2e-chat");
+      const conversationId = conversation.id;
+
+      await page.goto(hub.url);
+      await preparePairing(page, hub);
+      await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+      await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+      await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+      await expect(page.locator(".connection-pill.online")).toHaveCount(1);
+      await expect(page.getByRole("heading", { name: "无限画布联调", level: 1 })).toBeVisible();
+
+      // Install Infinite Canvas on demand from Hub artifacts and open it in Workbench
+      await page.locator(".conversation-header .plugins-trigger").click();
+      const modal = page.locator("dialog.plugins-modal-dialog[open]");
+      await expect(modal).toBeVisible();
+      const canvasCard = modal.locator('[data-plugin-id="tarobird.infinite-canvas"]').first();
+      await canvasCard.getByRole("button", { name: "下载并安装" }).click();
+      await modal.locator(".plugin-consent-box").getByRole("button", { name: "确认并安装" }).click();
+      await expect(canvasCard.getByRole("button", { name: "打开" })).toBeVisible();
+      await canvasCard.getByRole("button", { name: "打开" }).click();
+      await expect(modal).toHaveCount(0);
+
+      const guest = page.frameLocator(".plugin-sandbox-frame").frameLocator("iframe");
+      await expect(guest.locator("#root")).not.toBeEmpty({ timeout: 15_000 });
+      const startup = await guest.locator("#root").innerText();
+      if (startup.includes("无法打开无限画布")) throw new Error(startup.slice(0, 180));
+      await guest.getByRole("button", { name: "画布", exact: true }).click();
+      await guest.getByRole("button", { name: "新建画布", exact: true }).first().click({ timeout: 25_000 });
+      await guest.getByRole("button", { name: "Agent", exact: true }).click();
+      await guest.getByText("MCP", { exact: true }).click();
+      await guest.getByRole("button", { name: "连接", exact: true }).click();
+      await expect(guest.getByText("Agent 连接已就绪", { exact: true })).toBeVisible();
+      worker = new WebSocket(hub.instanceUrl.replace(/^http/, "ws") + "/instance");
+      await new Promise<void>((resolve, reject) => {
+        worker!.once("open", () => worker!.send(JSON.stringify({ v: 1, type: "instance.hello", botId: "alpha", secret: botSecret, engine: "codex", model: "", effort: "", capabilities: [] })));
+        worker!.on("message", value => { if (JSON.parse(String(value)).type === "instance.ready") resolve(); });
+        worker!.once("error", reject);
+      });
+      const received = new Promise<string>(resolve => {
+        worker!.on("message", value => {
+          const frame = JSON.parse(String(value));
+          if (frame.type === "instance.message") resolve(frame.message.id);
+        });
+      });
+      const turn = await hub.store.sendMessage("owner", { conversationId, clientMsgId: "canvas_editor_task", text: "Add a text node", attachments: [] });
+      // Wait for the actual worker socket delivery and the Host's current-turn fence.
+      await expect(received).resolves.toBe(turn.message.id);
+      const call = async (name: string, args: Record<string, unknown>) => {
+        const response = await fetch(hub.instanceUrl + "/api/canvas-agent/mcp", {
+          method: "POST", headers: { Authorization: `Instance alpha:${botSecret}`, "x-tarobird-conversation-id": conversationId,
+            "x-tarobird-context-message": turn.message.id, "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+        });
+        expect(response.ok).toBe(true);
+        const result = await response.json();
+        expect(result.result?.isError, JSON.stringify(result)).not.toBe(true);
+        return result.result.content[0].text as string;
+      };
+      await call("canvas_apply_ops", { ops: [{ type: "add_node", id: "e2e_text", nodeType: "text", title: "Native canvas note", x: 60, y: 80 }] });
+      expect(await call("canvas_get_state", {})).toContain("Native canvas note");
+    } finally {
+      worker?.terminate();
+      await page.close();
+      await hub.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Infinite Canvas third-party nodes require consent and run the selected input in isolation", async ({ page }) => {
+    test.setTimeout(75_000);
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const root = await mkdtemp(path.join(os.tmpdir(), "plugins-canvas-nodes-"));
+    const hub = await HubServer.start({
+      stateDir: root,
+      clientDir: path.resolve("dist"),
+      pluginArtifactsDir: path.resolve("../dist/plugins"),
+    });
+    const url = `https://raw.githubusercontent.com/example/canvas-fixture/${"a".repeat(40)}/upper.js`;
+    const source = 'export default function render(node) { return { text: "Fixture rendered: " + node.text.toUpperCase(), color: "#335577" }; }\n';
+    const digest = createHash("sha256").update(source).digest("hex");
+    let sourceRequests = 0;
+    try {
+      await page.route(url, route => {
+        sourceRequests++;
+        return route.fulfill({ contentType: "text/plain; charset=utf-8", body: source });
+      });
+      await hub.store.db.run(
+        "INSERT INTO bots(id,name,engine,secret_hash,online) VALUES('alpha','画布助手','codex',?,1)",
+        [createHash("sha256").update("canvas_node_e2e_fixture").digest("hex")],
+      );
+      await hub.store.createConversation("owner", ["alpha"], "第三方画布节点联调", "ic-node-e2e");
+      await page.goto(hub.url);
+      await preparePairing(page, hub);
+      await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+      await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+      await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+      await expect(page.getByRole("heading", { name: "第三方画布节点联调", level: 1 })).toBeVisible();
+
+      await page.locator(".conversation-header .plugins-trigger").click();
+      const marketplace = page.locator("dialog.plugins-modal-dialog[open]");
+      const card = marketplace.locator('[data-plugin-id="tarobird.infinite-canvas"]').first();
+      await card.getByRole("button", { name: "下载并安装" }).click();
+      await marketplace.locator(".plugin-consent-box").getByRole("button", { name: "确认并安装" }).click();
+      await card.getByRole("button", { name: "打开" }).click();
+      await expect(marketplace).toHaveCount(0);
+
+      const guest = page.frameLocator(".plugin-sandbox-frame").frameLocator("iframe");
+      const openSettings = async () => {
+        await guest.getByRole("button", { name: "配置", exact: true }).click();
+        const settings = guest.getByRole("dialog", { name: "设置", exact: true });
+        await settings.getByRole("tab", { name: "插件", exact: true }).click();
+        return settings;
+      };
+      let settings = await openSettings();
+      const allow = guest.getByRole("checkbox", { name: "允许安装第三方节点" });
+      await expect(allow).not.toBeChecked();
+      await expect(guest.getByRole("textbox", { name: "源文件 URL" })).toHaveCount(0);
+      await allow.click();
+      const guestReview = guest.getByRole("alertdialog", { name: "确认第三方节点操作" });
+      await expect(guestReview).toContainText("独立运行环境");
+      await guestReview.getByRole("button", { name: "取消", exact: true }).click();
+      await expect(allow).not.toBeChecked();
+      await allow.click();
+      await guestReview.getByRole("button", { name: "继续", exact: true }).click();
+      const allowDialog = page.getByRole("alertdialog", { name: "允许第三方画布节点" });
+      await allowDialog.getByRole("button", { name: "允许", exact: true }).click();
+      await expect(allow).toBeChecked();
+
+      await guest.getByRole("textbox", { name: "源文件 URL" }).fill(url);
+      await guest.getByRole("button", { name: "检查并安装", exact: true }).click();
+      await expect(guestReview).toContainText(url);
+      expect(sourceRequests).toBe(0);
+      await guestReview.getByRole("button", { name: "继续", exact: true }).click();
+      const installDialog = page.getByRole("alertdialog", { name: "安装第三方画布节点" });
+      await expect(installDialog).toContainText(url);
+      await expect(installDialog).toContainText(digest);
+      await installDialog.getByRole("button", { name: "确认安装", exact: true }).click();
+      const installed = settings.getByRole("listitem").filter({ hasText: digest });
+      await expect(installed).toContainText("Third-party");
+      expect(sourceRequests).toBe(1);
+      await settings.getByRole("button", { name: "关闭", exact: true }).click();
+
+      await guest.getByRole("button", { name: "画布", exact: true }).click();
+      await guest.getByRole("button", { name: "新建画布", exact: true }).first().click();
+      await guest.getByRole("button", { name: "扩展节点与工具", exact: true }).click();
+      await guest.getByRole("button", { name: /^第三方节点/ }).click();
+      const node = guest.locator("[data-node-id]").filter({ hasText: "第三方节点" });
+      await node.dblclick();
+      const panel = guest.locator("[data-node-panel]");
+      await panel.getByRole("combobox", { name: "第三方插件" }).selectOption({ index: 1 });
+      await panel.getByRole("textbox", { name: "节点文本" }).fill("only this node");
+      await panel.getByRole("button", { name: "完成", exact: true }).click();
+      await node.getByRole("button", { name: "运行节点", exact: true }).click();
+      await expect(node.getByText("Fixture rendered: ONLY THIS NODE", { exact: true })).toBeVisible();
+      expect(sourceRequests).toBe(1);
+
+      settings = await openSettings();
+      await allow.click();
+      await expect(allow).not.toBeChecked();
+      await expect(settings.getByRole("listitem").filter({ hasText: digest })).toBeVisible();
+      await settings.getByRole("button", { name: "关闭", exact: true }).click();
+      await expect(node.getByText("第三方节点已停用", { exact: true })).toBeVisible();
+      await expect(node.getByRole("button", { name: "运行节点", exact: true })).toHaveCount(0);
+      await expect(node.getByText("Fixture rendered: ONLY THIS NODE", { exact: true })).toHaveCount(0);
+    } finally {
+      await page.close();
+      await hub.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
 });

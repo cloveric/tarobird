@@ -14,7 +14,7 @@ export const DESKTOP_COMMANDS = Object.freeze([
   'github_update_info', 'github_update_login_start', 'github_update_login_poll', 'github_update_login_cancel',
   'github_update_logout', 'github_update_check', 'github_update_install', 'github_update_close', 'restart_client',
   'desktop_migration_inspect', 'desktop_migration_prepare', 'desktop_migration_read', 'desktop_migration_complete',
-  'desktop_recover', 'desktop_native_state', 'desktop_window_read', 'desktop_window_size', 'desktop_window_position', 'desktop_window_side_minimum',
+  'desktop_canvas_network', 'desktop_recover', 'desktop_native_state', 'desktop_window_read', 'desktop_window_size', 'desktop_window_position', 'desktop_window_side_minimum',
   'desktop_window_fullscreen', 'desktop_window_focus', 'desktop_context_menu', 'desktop_open_url', 'desktop_clipboard_image',
   'desktop_launch_links', 'desktop_autostart_get', 'desktop_autostart_set', 'unread_count', 'desktop_notification_settings',
   'desktop_save_begin', 'desktop_save_write', 'desktop_save_commit', 'desktop_save_cancel', 'open_saved_file', 'reveal_saved_file',
@@ -30,7 +30,7 @@ export const DESKTOP_COMMANDS = Object.freeze([
   'workbench_browser_extensions',
 ]);
 export const VIEW_COMMANDS = Object.freeze([
-  'device_create', 'device_sign', 'device_sign_action', 'device_forget',
+  'device_create', 'device_sign', 'device_sign_action', 'device_forget', 'canvas_credentials',
   'net_document', 'net_allocate', 'net_cancel', 'net_http_open', 'net_http_read',
   'net_socket_open', 'net_socket_send', 'net_socket_ack', 'net_socket_close', 'desktop_host',
 ]);
@@ -70,8 +70,18 @@ export function validateViewRequest(request, { controller = false } = {}) {
     || ![...VIEW_COMMANDS, ...DESKTOP_COMMANDS].includes(request.command) || !isObject(request.args)) {
     throw new Error('invalid_native_request');
   }
-  if (!controller && (request.command.startsWith('device_') || request.command === 'desktop_host' || DESKTOP_COMMANDS.includes(request.command))) {
+  if (!controller && (request.command.startsWith('device_') || request.command === 'canvas_credentials' || request.command === 'desktop_host' || DESKTOP_COMMANDS.includes(request.command))) {
     throw new Error('native_controller_required');
+  }
+  if (request.command === 'canvas_credentials') {
+    const { action, scopeId, key, value, ...unexpected } = request.args;
+    if (!['get', 'set', 'remove', 'clear'].includes(action) || Object.keys(unexpected).length
+      || action === 'clear' && Object.hasOwn(request.args, 'key')
+      || action !== 'set' && Object.hasOwn(request.args, 'value')) throw new Error('invalid_native_request');
+    if (typeof scopeId !== 'string' || !scopeId.length || scopeId === 'default'
+      || scopeId.length > 512 || scopeId.trim() !== scopeId || /[\u0000-\u001f\u007f]/.test(scopeId)) throw new Error('credential_scope_invalid');
+    if (action !== 'clear' && (typeof key !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(key))) throw new Error('credential_key_invalid');
+    if (action === 'set' && (typeof value !== 'string' || value.length > 2048 || new TextEncoder().encode(value).length > 2048)) throw new Error('credential_value_invalid');
   }
   if (request.command === 'net_socket_open') {
     if (!Number.isSafeInteger(request.subscription) || request.subscription < 1

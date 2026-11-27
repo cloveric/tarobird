@@ -1,17 +1,21 @@
+import { useCanvasNodeConsent } from "./CanvasNodeConsent.js";
 import { Capacitor } from "@capacitor/core";
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PLUGIN_HOST_PROTOCOL } from "../../src/client-protocol/plugins.js";
 import {
-  pluginRegistry,
+  isPinnedCanvas,
   type InstalledPluginRecord,
   type PluginRegistry,
 } from "./plugin-registry.js";
+import type { HubConnection } from "./connection.js";
+import { exportAttachment } from "./attachment-export.js";
 import { t, useLocale } from "./i18n.js";
 import {
   handlePluginHostMessage,
   resolvePluginSandboxSrc,
   resolvePluginTheme,
   wrapSandboxedDocument,
+  type CanvasAgentBridgeAdapter,
 } from "./plugin-sandbox-runtime.js";
 
 export { handlePluginHostMessage } from "./plugin-sandbox-runtime.js";
@@ -29,36 +33,57 @@ export function isPluginSandboxSupported(): boolean {
   return supported;
 }
 
+type DomainPromptState = {
+  domain: string;
+  reason?: string;
+  resolve: (result: { granted: boolean; domain?: string; grantedDomains?: string[] }) => void;
+};
+
 /** Isolated iframe runtime for an installed plugin. Loads the runtime-appropriate
  * `plugin-sandbox.html` shell inside `sandbox="allow-scripts"` WITHOUT `allow-same-origin`
- * (unique opaque origin), injects a per-plugin CSP scoped strictly to validated
- * `grantedDomains`, and disables WebRTC constructors in the trusted bootstrap before
- * plugin code executes. */
+ * (unique opaque origin) and injects a per-plugin CSP scoped strictly to validated
+ * `grantedDomains`, so the plugin cannot access App tokens, cookies, IndexedDB,
+ * localStorage, native bridges, or the Hub API. */
 export function PluginSandboxFrame({
   plugin,
   title,
   registry,
+  connection,
+  conversationId,
+  windowId,
+  tabId,
 }: {
   plugin: InstalledPluginRecord;
   title?: string;
-  registry?: PluginRegistry;
+  registry: PluginRegistry;
+  connection?: HubConnection;
+  conversationId?: string;
+  windowId?: string;
+  tabId?: string;
 }) {
-  const activeRegistry = registry ?? pluginRegistry;
+  const activeRegistry = registry;
   const locale = useLocale();
   const supported = isPluginSandboxSupported();
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [domainPrompt, setDomainPrompt] = useState<DomainPromptState | null>(null);
+  const domainPromptRef = useRef<DomainPromptState | null>(null);
+  domainPromptRef.current = domainPrompt;
+
   const frameTitle = title ?? (locale === "zh" ? plugin.manifest.nameZh ?? plugin.manifest.name : plugin.manifest.name);
   const grantedDomainsKey = plugin.grantedDomains.join(",");
   const bundleReady = plugin.bundleHtml.length > 0;
-  const frameKey = `${plugin.manifest.id}:${plugin.manifest.version}:${plugin.manifest.artifact.sha256}:${plugin.installedAt}:${grantedDomainsKey}:${bundleReady ? "1" : "0"}`;
+  const frameKey = `${activeRegistry.getScopeId()}:${plugin.grantedCapabilities.join(",")}:${plugin.manifest.id}:${plugin.manifest.version}:${plugin.manifest.artifact.sha256}:${plugin.installedAt}:${grantedDomainsKey}:${bundleReady ? "1" : "0"}`;
+  const nodeConsent = useCanvasNodeConsent(frameKey);
   const sandboxSrc = resolvePluginSandboxSrc();
   const wrappedDoc = useMemo(
-    () => (bundleReady ? wrapSandboxedDocument(plugin.bundleHtml, plugin.grantedDomains) : ""),
-    [bundleReady, plugin.bundleHtml, plugin.grantedDomains],
+    () => (bundleReady ? wrapSandboxedDocument(plugin.bundleHtml, isPinnedCanvas(plugin) ? [] : plugin.grantedDomains) : ""),
+    [bundleReady, plugin],
   );
+
   const initializedKeyRef = useRef<string>("");
   const latestInitRef = useRef({ title: frameTitle, document: wrappedDoc });
   latestInitRef.current = { title: frameTitle, document: wrappedDoc };
+
   const latestContextRef = useRef({
     pluginId: plugin.manifest.id,
     registry: activeRegistry,
@@ -88,8 +113,107 @@ export function PluginSandboxFrame({
     );
   }, [frameKey]);
 
+  const canvasAgentClients = useMemo(() => new Map<string, Window>(), [connection, conversationId, windowId, tabId, frameKey]);
+  const canvasAgent = useMemo<CanvasAgentBridgeAdapter | undefined>(() => {
+    if (!isPinnedCanvas(plugin) || !connection || !conversationId || !windowId || !tabId || !plugin.grantedCapabilities.includes("canvas.agent")) {
+      return undefined;
+    }
+    const isCurrent = (frame: Window) =>
+      iframeRef.current?.contentWindow === frame && activeRegistry.isActive(plugin);
+    const assertClient = (clientId: string) => {
+      const frame = canvasAgentClients.get(clientId);
+      if (!frame || !isCurrent(frame)) throw new Error("canvas_agent_offline");
+    };
+    return {
+      async connect(clientId) {
+        const frame = iframeRef.current?.contentWindow;
+        if (!frame || !isCurrent(frame)) throw new Error("canvas_agent_offline");
+        if (canvasAgentClients.has(clientId)) throw new Error("canvas_agent_already_attached");
+        // Record the attachment before token issuance so iframe cleanup can
+        // cancel an in-flight attach as well as an already connected one.
+        canvasAgentClients.set(clientId, frame);
+        let attachedHere = false;
+        try {
+          const attached = await connection.canvasAgentAttach(conversationId, windowId, tabId, clientId, event => {
+            if (canvasAgentClients.get(clientId) !== frame || !isCurrent(frame)) return;
+            if (event.event === "closed") canvasAgentClients.delete(clientId);
+            frame.postMessage({
+              protocol: PLUGIN_HOST_PROTOCOL,
+              type: `canvas.agent.${event.event}`,
+              clientId,
+              ...(event.data ?? {}),
+            }, "*");
+          });
+          attachedHere = true;
+          assertClient(clientId);
+          return { connected: true, protocolVersion: attached.protocolVersion, conversationId: attached.conversationId };
+        } catch (error) {
+          if (canvasAgentClients.get(clientId) === frame) {
+            canvasAgentClients.delete(clientId);
+            if (attachedHere) void connection.canvasAgentDetach(clientId, true).catch(() => undefined);
+          }
+          throw error;
+        }
+      },
+      async disconnect(clientId) {
+        assertClient(clientId);
+        canvasAgentClients.delete(clientId);
+        return connection.canvasAgentDetach(clientId, true);
+      },
+      async sendState(clientId, snapshot) {
+        assertClient(clientId);
+        const response = await connection.canvasAgentRequest(clientId, "state", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot }),
+        });
+        return response.ok;
+      },
+      async activate(clientId) {
+        assertClient(clientId);
+        return (await connection.canvasAgentRequest(clientId, "activate", { method: "POST" })).ok;
+      },
+      async sendResult(clientId, requestId, payload) {
+        assertClient(clientId);
+        const response = await connection.canvasAgentRequest(clientId, "result", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId, ...payload }),
+        });
+        return response.ok;
+      },
+    };
+  }, [connection, conversationId, windowId, tabId, plugin, activeRegistry, canvasAgentClients]);
+
+  useLayoutEffect(() => () => {
+    for (const clientId of canvasAgentClients.keys()) {
+      void connection?.canvasAgentDetach(clientId, true).catch(() => undefined);
+    }
+    canvasAgentClients.clear();
+  }, [connection, canvasAgentClients]);
+
+  // Cancel any pending domain confirmation modal if the frame unmounts.
+  useEffect(() => () => {
+    if (domainPromptRef.current) {
+      domainPromptRef.current.resolve({ granted: false });
+      domainPromptRef.current = null;
+    }
+  }, []);
+
+  // Push live locale/theme/domain context updates to the guest without reloading the iframe.
+  useEffect(() => {
+    const frameWindow = iframeRef.current?.contentWindow;
+    if (!frameWindow || initializedKeyRef.current !== frameKey) return;
+    frameWindow.postMessage(
+      {
+        protocol: PLUGIN_HOST_PROTOCOL,
+        type: "host.context",
+        theme: resolvePluginTheme(),
+        locale,
+        grantedDomains: [...plugin.grantedDomains],
+      },
+      "*",
+    );
+  }, [locale, frameKey, plugin.grantedDomains]);
+
   useLayoutEffect(() => {
-    if (!supported || !bundleReady) return;
+    if (!supported || !bundleReady || activeRegistry.getPlugin(plugin.manifest.id) !== plugin) return;
     const onMessage = (event: MessageEvent) => {
       const frameWindow = iframeRef.current?.contentWindow;
       if (!frameWindow || event.source !== frameWindow) return;
@@ -98,18 +222,41 @@ export function PluginSandboxFrame({
         return;
       }
       const ctx = latestContextRef.current;
-      void handlePluginHostMessage(event.data, {
+      if (!ctx.registry.isActive(plugin)) return;
+      const scopeId = ctx.registry.getScopeId();
+      const dispatch = () => handlePluginHostMessage(event.data, {
         pluginId: ctx.pluginId,
-        scopeId: ctx.registry.getScopeId(),
+        scopeId,
+        officialBundledCanvas: ctx.registry.isActive(plugin) && isPinnedCanvas(plugin),
+        declaredDomains: plugin.manifest.domains,
+        confirmNode: nodeConsent.confirm,
+        active: () => iframeRef.current?.contentWindow === frameWindow && ctx.registry.isActive(plugin),
         grantedCapabilities: ctx.grantedCapabilities,
         grantedDomains: ctx.grantedDomains,
         theme: resolvePluginTheme(),
         locale: ctx.locale,
-        storage: window.localStorage,
+        storage: ctx.registry.storage,
         kvStore: ctx.registry.kvStore,
-      })
+        credentialVault: ctx.registry.credentialVault,
+        exportWorkspace: async (filename, content, mime) => {
+          const blob = new Blob([typeof content === "string" ? content : new Uint8Array(content)], { type: mime ?? "application/json" });
+          return exportAttachment(blob, filename);
+        },
+        requestDomain: (domain, reason) => new Promise((resolve) => {
+          if (domainPromptRef.current) {
+            domainPromptRef.current.resolve({ granted: false });
+          }
+          setDomainPrompt({ domain, reason, resolve });
+        }),
+        canvasAgent,
+      });
+      const method = event.data?.method;
+      const operation = typeof method === "string" && /^(?:storage\.|credentials\.|canvas\.(?:data|nodes)\.)/.test(method)
+        ? ctx.registry.runStorageOperation(plugin, dispatch)
+        : dispatch();
+      void operation
         .then((response) => {
-          if (response && iframeRef.current?.contentWindow === frameWindow) {
+          if (response && iframeRef.current?.contentWindow === frameWindow && ctx.registry.isActive(plugin)) {
             frameWindow.postMessage(response, "*");
           }
         })
@@ -122,7 +269,7 @@ export function PluginSandboxFrame({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [supported, bundleReady, frameKey, initialize]);
+  }, [supported, bundleReady, frameKey, initialize, canvasAgent, plugin, activeRegistry]);
 
   if (!supported) {
     return (
@@ -141,16 +288,66 @@ export function PluginSandboxFrame({
   }
 
   return (
-    <iframe
-      key={frameKey}
-      ref={iframeRef}
-      className="plugin-sandbox-frame"
-      title={frameTitle}
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-      allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
-      src={sandboxSrc}
-      onLoad={initialize}
-    />
+    <div className="plugin-sandbox-host" style={{ position: "relative", width: "100%", height: "100%" }}>
+      <iframe
+        key={frameKey}
+        ref={iframeRef}
+        className="plugin-sandbox-frame"
+        title={frameTitle}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
+        src={sandboxSrc}
+        onLoad={initialize}
+      />
+      {nodeConsent.dialog}
+      {domainPrompt && (
+        <div className="plugin-consent-backdrop" role="presentation" style={{ position: "absolute", inset: 0, zIndex: 20 }}>
+          <section className="plugin-consent-box" role="alertdialog" aria-label={t("授权插件访问新域名")}>
+            <header>
+              <strong>{t("允许「{0}」访问此域名？", frameTitle)}</strong>
+            </header>
+            <p className="muted">
+              {t("插件请求将其沙箱网络白名单扩展到以下公网 HTTPS 域名：")}
+            </p>
+            <p><code>{domainPrompt.domain}</code></p>
+            {domainPrompt.reason && <p className="muted">{domainPrompt.reason}</p>}
+            <p className="muted">
+              {t("仅在信任该自定义 API 地址时允许；授权后插件沙箱将重新加载以生效。")}
+            </p>
+            <div className="plugin-consent-actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  const current = domainPrompt;
+                  setDomainPrompt(null);
+                  current.resolve({ granted: false });
+                }}
+              >
+                {t("拒绝")}
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  const current = domainPrompt;
+                  setDomainPrompt(null);
+                  const granted = activeRegistry.grantDomain(plugin.manifest.id, current.domain);
+                  const updated = activeRegistry.getPlugin(plugin.manifest.id);
+                  current.resolve({
+                    granted: !!granted,
+                    ...(granted ? { domain: granted } : {}),
+                    ...(updated ? { grantedDomains: [...updated.grantedDomains] } : {}),
+                  });
+                }}
+              >
+                {t("允许并重载")}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
   );
 }

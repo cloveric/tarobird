@@ -5,8 +5,11 @@ import {
   type PluginCapability,
   type PluginHostResponse,
 } from "../../src/client-protocol/plugins.js";
+import { handleCanvasNodeRequest, type NodeConsent } from "./canvas-node-host.js";
 import { writeClipboardText } from "./clipboard-write.js";
-import { isDesktop, isElectron } from "./desktop-bridge.js";
+import { handleCanvasDataRequest, requireCanvasStorageAccess } from "./canvas-data-store.js";
+import { canvasNetworkRequest, type CanvasNetworkInput } from "../electron/canvas-network.mjs";
+import { isDesktop, isElectron, invoke } from "./desktop-bridge.js";
 
 /** Unambiguous per-plugin KV storage key (`/` is forbidden in pluginId). */
 export function pluginStorageBucketKey(pluginId: string, scopeId?: string): string {
@@ -17,12 +20,27 @@ export function pluginStorageBucketKey(pluginId: string, scopeId?: string): stri
   return `tarobird.plugin.kv/${encodeURIComponent(cleanScope)}/${encodeURIComponent(pluginId)}`;
 }
 
+export type PluginCredentialVault = {
+  getSecret(scopeId: string, pluginId: string, key: string): Promise<string | null>;
+  setSecret(scopeId: string, pluginId: string, key: string, value: string): Promise<void>;
+  removeSecret(scopeId: string, pluginId: string, key: string): Promise<void>;
+  clearPluginSecrets(scopeId: string, pluginId: string): Promise<void>;
+};
+
 export type PluginKvStore = {
   get(scopeId: string, pluginId: string, key: string): Promise<string | null>;
   set(scopeId: string, pluginId: string, key: string, value: string): Promise<void>;
   remove(scopeId: string, pluginId: string, key: string): Promise<void>;
   list(scopeId: string, pluginId: string): Promise<Record<string, string>>;
   clear(scopeId: string, pluginId: string): Promise<void>;
+};
+
+export type CanvasAgentBridgeAdapter = {
+  connect(clientId: string): Promise<{ connected: boolean; protocolVersion: number; conversationId?: string }>;
+  disconnect(clientId: string): Promise<boolean>;
+  sendState(clientId: string, snapshot: { projectId: string; title: string } | null): Promise<boolean>;
+  activate(clientId: string): Promise<boolean>;
+  sendResult(clientId: string, requestId: string, payload: { result?: unknown; error?: { code: string; message: string } }): Promise<boolean>;
 };
 
 export const MAX_PLUGIN_STORAGE_KEYS = 64;
@@ -100,11 +118,19 @@ export async function handlePluginHostMessage(
     scopeId?: string;
     grantedCapabilities: readonly PluginCapability[];
     grantedDomains?: readonly string[];
+    declaredDomains?: readonly string[];
+    officialBundledCanvas?: boolean;
+    active?: () => boolean;
+    confirmNode?: (request: NodeConsent) => Promise<boolean>;
     theme: "light" | "dark";
     locale: string;
     storage: Pick<Storage, "getItem" | "setItem" | "removeItem">;
     kvStore?: PluginKvStore;
+    credentialVault?: PluginCredentialVault;
     writeClipboard?: (text: string) => Promise<void>;
+    exportWorkspace?: (filename: string, content: string | Uint8Array, mime?: string) => Promise<boolean>;
+    requestDomain?: (domain: string, reason?: string) => Promise<{ granted: boolean; domain?: string; grantedDomains?: string[] }>;
+    canvasAgent?: CanvasAgentBridgeAdapter;
   },
 ): Promise<PluginHostResponse | null> {
   const parsed = pluginHostRequestSchema.safeParse(raw);
@@ -121,6 +147,16 @@ export async function handlePluginHostMessage(
   }
   const scopeId = context.scopeId?.trim() || "default";
   const bucketKey = pluginStorageBucketKey(context.pluginId, scopeId);
+  const errorCode = (err: unknown, fallback: string): string =>
+    err instanceof Error && err.message ? err.message : fallback;
+
+  const officialBundledCanvas = context.officialBundledCanvas === true;
+  if ((req.method.startsWith("canvas.") || req.method.startsWith("credentials.")) && !officialBundledCanvas)
+    return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "capability_denied" };
+  if (req.method.startsWith("credentials.")) {
+    try { requireCanvasStorageAccess({ scopeId, pluginId: context.pluginId, officialBundledCanvas }, true); }
+    catch { return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "capability_denied" }; }
+  }
   switch (req.method) {
     case "host.hello":
       return {
@@ -195,6 +231,84 @@ export async function handlePluginHostMessage(
           error: isQuotaError(error) ? "storage_quota_exceeded" : "storage_unavailable",
         };
       }
+    case "storage.list":
+      try {
+        const result: Record<string, string> = {};
+        const bucket = readPluginBucket(context.storage, bucketKey);
+        for (const [k, v] of bucket.entries()) result[k] = v;
+        if (context.kvStore) {
+          const kvEntries = await context.kvStore.list(scopeId, context.pluginId);
+          for (const [k, v] of Object.entries(kvEntries)) result[k] = v;
+        }
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result };
+      } catch {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "storage_unavailable" };
+      }
+    case "storage.clear":
+      try {
+        if (context.kvStore) {
+          await context.kvStore.clear(scopeId, context.pluginId);
+        }
+        context.storage.removeItem(bucketKey);
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
+      } catch {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "storage_unavailable" };
+      }
+    case "canvas.nodes.list":
+    case "canvas.nodes.enable":
+    case "canvas.nodes.install":
+    case "canvas.nodes.remove":
+    case "canvas.nodes.render":
+      try {
+        requireCanvasStorageAccess({ scopeId, pluginId: context.pluginId, officialBundledCanvas }, true);
+        if (!context.active || !context.confirmNode) throw new Error("canvas_node_unavailable");
+        const result = await handleCanvasNodeRequest(req, { scope: scopeId, active: context.active, confirm: context.confirmNode,
+          networkAllowed: context.grantedCapabilities.includes("network.domains") && !!context.declaredDomains?.includes("raw.githubusercontent.com") && !!context.grantedDomains?.includes("raw.githubusercontent.com") });
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result };
+      } catch (error) { return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "canvas_node_unavailable") }; }
+    case "canvas.data.get":
+    case "canvas.data.put":
+    case "canvas.data.remove":
+    case "canvas.data.keys":
+      try {
+        const result = await handleCanvasDataRequest(req, { scopeId, pluginId: context.pluginId, officialBundledCanvas, storageGranted: true });
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result };
+      } catch (error) { return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "canvas_data_unavailable") }; }
+    case "canvas.provider.request":
+    case "canvas.prompts.request":
+      try {
+        const host = new URL(req.url).hostname;
+        if (!context.declaredDomains?.includes(host) || !context.grantedDomains?.includes(host) || context.active?.() === false) throw new Error("canvas_network_denied");
+        const input: CanvasNetworkInput = req.method === "canvas.prompts.request"
+          ? { kind: "prompts", url: req.url, httpMethod: "GET" }
+          : { kind: "provider", url: req.url, headers: req.headers, httpMethod: req.httpMethod, body: req.body };
+        const result = isElectron() ? await invoke("desktop_canvas_network", { ...input }) : await canvasNetworkRequest(input, context.active);
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result };
+      } catch { return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "canvas_network_failed" }; }
+    case "credentials.get":
+      if (!context.credentialVault) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "credentials_unavailable" };
+      try {
+        const val = await context.credentialVault.getSecret(scopeId, context.pluginId, req.key);
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: val };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "credentials_error") };
+      }
+    case "credentials.set":
+      if (!context.credentialVault) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "credentials_unavailable" };
+      try {
+        await context.credentialVault.setSecret(scopeId, context.pluginId, req.key, req.value);
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "credentials_error") };
+      }
+    case "credentials.remove":
+      if (!context.credentialVault) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "credentials_unavailable" };
+      try {
+        await context.credentialVault.removeSecret(scopeId, context.pluginId, req.key);
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "credentials_error") };
+      }
     case "clipboard.write":
       try {
         await (context.writeClipboard ? context.writeClipboard(req.text) : writeClipboardText(req.text));
@@ -202,8 +316,84 @@ export async function handlePluginHostMessage(
       } catch {
         return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "clipboard_write_failed" };
       }
+    case "workspace.export":
+      if (!context.exportWorkspace) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "export_unavailable" };
+      }
+      try {
+        const saved = await context.exportWorkspace(req.filename, req.content, req.mime);
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: { saved } };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "export_failed") };
+      }
+    case "domains.request": {
+      const sanitized = sanitizePluginDomain(req.domain);
+      if (!sanitized || !context.declaredDomains?.includes(sanitized)) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "invalid_domain" };
+      }
+      if (context.grantedDomains?.includes(sanitized)) {
+        return {
+          protocol: PLUGIN_HOST_PROTOCOL,
+          id: req.id,
+          ok: true,
+          result: { granted: true, domain: sanitized, grantedDomains: [...context.grantedDomains] },
+        };
+      }
+      if (!context.requestDomain) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "domain_request_unavailable" };
+      }
+      try {
+        const res = await context.requestDomain(sanitized, req.reason);
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: res };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "domain_request_failed") };
+      }
+    }
     case "workbench.status":
       return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: { isolated: true, sandbox: "opaque-origin" } };
+    case "canvas.agent.connect":
+      if (!context.canvasAgent) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "canvas_agent_unavailable" };
+      try {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: await context.canvasAgent.connect(req.clientId) };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "canvas_agent_connect_failed") };
+      }
+    case "canvas.agent.disconnect":
+      if (!context.canvasAgent) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: true };
+      try {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: await context.canvasAgent.disconnect(req.clientId) };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "canvas_agent_disconnect_failed") };
+      }
+    case "canvas.agent.state":
+      if (!context.canvasAgent) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "canvas_agent_unavailable" };
+      try {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: await context.canvasAgent.sendState(req.clientId, req.snapshot) };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "canvas_agent_state_failed") };
+      }
+    case "canvas.agent.activate":
+      if (!context.canvasAgent) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "canvas_agent_unavailable" };
+      try {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: true, result: await context.canvasAgent.activate(req.clientId) };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "canvas_agent_activate_failed") };
+      }
+    case "canvas.agent.result":
+      if (!context.canvasAgent) return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: "canvas_agent_unavailable" };
+      try {
+        return {
+          protocol: PLUGIN_HOST_PROTOCOL,
+          id: req.id,
+          ok: true,
+          result: await context.canvasAgent.sendResult(req.clientId, req.requestId, {
+            ...(req.result !== undefined ? { result: req.result } : {}),
+            ...(req.error ? { error: req.error } : {}),
+          }),
+        };
+      } catch (error) {
+        return { protocol: PLUGIN_HOST_PROTOCOL, id: req.id, ok: false, error: errorCode(error, "canvas_agent_result_failed") };
+      }
   }
 }
 
@@ -286,6 +476,7 @@ export function buildPluginCsp(grantedDomains: readonly string[]): string {
     "worker-src 'none'",
     "style-src 'unsafe-inline'",
     "img-src data: blob:",
+    "media-src data: blob:",
     "font-src data:",
     `connect-src ${connectSources || "'none'"}`,
     "frame-src 'none'",

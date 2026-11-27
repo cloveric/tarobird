@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe title="Plugin sandbox" sandbox="allow-scripts" referrerpolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"></iframe><script>
+<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe title="Plugin sandbox" sandbox="allow-scripts" referrerpolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"></iframe><script>
 (() => {
   const rtcNames = ["RTCPeerConnection","webkitRTCPeerConnection","mozRTCPeerConnection","RTCDataChannel","RTCSessionDescription","RTCIceCandidate","RTCRtpSender","RTCRtpReceiver","RTCRtpTransceiver","RTCDtlsTransport","RTCIceTransport","RTCSctpTransport","RTCCertificate","RTCStatsReport","RTCDataChannelEvent","RTCPeerConnectionIceEvent","RTCTrackEvent","RTCEncodedAudioFrame","RTCEncodedVideoFrame"];
   const seen = new Set();
@@ -20,7 +20,7 @@
     const data = event.data;
     if (!data || typeof data !== "object") return;
     if (event.source === parent) {
-      if (data.type === "tarobird-plugin-init" && !initialized && typeof data.document === "string" && data.document.length < 4194304) {
+      if (data.type === "tarobird-plugin-init" && !initialized && typeof data.document === "string" && data.document.length <= 65 * 1024 * 1024) {
         initialized = true;
         if (typeof data.title === "string" && data.title.length <= 200) guest.title = data.title;
         guest.srcdoc = data.document;

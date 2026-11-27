@@ -10,7 +10,7 @@ pub fn response(path: &str) -> tauri::http::Response<Vec<u8>> {
         ),
         "/plugin-sandbox.html" => (
             200,
-            "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
+            "default-src 'none'; script-src 'unsafe-inline'; worker-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; font-src data:; connect-src https: wss:; frame-src about:; base-uri 'none'; form-action 'none'; sandbox allow-scripts",
             include_bytes!("../../public/plugin-sandbox.html").to_vec(),
         ),
         _ => (

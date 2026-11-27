@@ -30,6 +30,23 @@ test('iframe/untrusted IPC is denied before spawning any helper', async () => {
   await assert.rejects(f.call('net_reset'), /invalid_native_request/);
   assert.equal(f.helpers.length, 0); f.owner.dispose();
 });
+test('canvas credentials reach only the current trusted main frame with bounded scoped requests', async () => {
+  const f = fixture();
+  const token = f.owner.bootstrap(f.event);
+  const command = 'canvas_credentials';
+  const args = { action: 'get', scopeId: 'fixture-scope', key: 'channel:default:apiKey' };
+  await assert.rejects(f.owner.request({ ...f.event, senderFrame: { ...f.event.senderFrame } }, { command, args, token }), /untrusted/);
+  await assert.rejects(f.call(command, { ...args, service: 'other' }), /invalid_native_request/);
+  await assert.rejects(f.call(command, { ...args, scopeId: 'default' }), /credential_scope_invalid/);
+  await assert.rejects(f.call(command, { ...args, action: 'set', value: '界'.repeat(1024) }), /credential_value_invalid/);
+  assert.equal(f.helpers.length, 0);
+  assert.equal(await f.call(command, args), null);
+  assert.deepEqual(f.helpers[0].calls.at(-1), { command, args });
+  f.contents.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+  await assert.rejects(f.owner.request(f.event, { command, args, token }), /native_document_retired/);
+  f.owner.dispose();
+});
+
 test('native channel IDs are assigned by main and old-document events cannot cross reload', async () => {
   const f = fixture(); const document = await f.call('net_document');
   const id = await f.call('net_allocate', { kind: 'socket', document });

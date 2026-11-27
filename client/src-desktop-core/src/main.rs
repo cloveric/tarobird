@@ -1,5 +1,6 @@
 use std::{process::ExitCode, sync::Arc};
 use tarobot_desktop_core::{
+    canvas_credentials::CanvasCredentials,
     config::Config,
     desktop_host::DesktopHost,
     identity::{Identity, KeyringVault},
@@ -27,12 +28,12 @@ fn main() -> ExitCode {
     // Before any Keychain access: a certificate-signed helper serves only the
     // main executable of its own App, and only that App's Host runtime.
     #[cfg(target_os = "macos")]
-    let launcher = {
+    let (launcher, production_launcher) = {
         use tarobot_desktop_core::launch_guard::{self as guard, Launch};
         let launch = guard::verify("Contents/Resources/native/tarobot-desktop-core").and_then(|launch| match launch {
             Launch::Verified { production, .. } if !service_allowed(&config.keyring_service, production) => Err(guard::UNVERIFIED),
-            Launch::Verified { bundle, launcher, .. } => guard::bound(&config.resources_dir, &bundle, "Contents/Resources/host").map(|_| Some(launcher)),
-            Launch::Unsigned => Ok(None),
+            Launch::Verified { bundle, launcher, production, .. } => guard::bound(&config.resources_dir, &bundle, "Contents/Resources/host").map(|_| (Some(launcher), production)),
+            Launch::Unsigned => Ok((None, false)),
         });
         match launch { Ok(launcher) => launcher, Err(code) => { eprintln!("{code}"); return ExitCode::from(77); } }
     };
@@ -44,9 +45,14 @@ fn main() -> ExitCode {
         Ok(transport) => Arc::new(transport),
         Err(code) => { eprintln!("{code}"); return ExitCode::from(70); }
     };
+    #[cfg(target_os = "macos")]
+    let canvas_allowed = service_allowed(&config.keyring_service, production_launcher);
+    #[cfg(not(target_os = "macos"))]
+    let canvas_allowed = true;
+    let canvas_credentials = CanvasCredentials::new(config.keyring_service.clone(), canvas_allowed);
     let identity = Identity::new(Arc::new(KeyringVault::new(config.keyring_service)), config.state_dir);
     let host = DesktopHost::new(identity.clone(), config.resources_dir, config.host_state_dir);
-    let services = Arc::new(Services { identity, transport, host });
+    let services = Arc::new(Services { identity, transport, host, canvas_credentials });
     #[cfg(target_os = "macos")]
     let refused = runtime.block_on(serve_authorized(services, tokio::io::stdin(), tokio::io::stdout(),
         move || launcher.as_ref().is_none_or(tarobot_desktop_core::launch_guard::sent_by)));

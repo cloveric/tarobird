@@ -29,14 +29,23 @@ export async function runWorkbenchCommand(directory: string, command: string | u
       appCapabilityInstructions(conversationId, { widgetsEnabled: true }),
     ].join("\n\n"), staticGuide: true };
   }
-  if (!["targets", "run", "context", "publish"].includes(command ?? "")) throw new Error("用法：tarobot workbench guide widgets|browser | context CONVERSATION --context-message ID | targets CONVERSATION | run|publish CONVERSATION --from REQUEST.json --request-id ID [--context-message ID] --json");
+  if (!["targets", "run", "context", "publish", "canvas-agent"].includes(command ?? "")) throw new Error("用法：tarobot workbench guide widgets|browser | context CONVERSATION --context-message ID | targets CONVERSATION | run|publish CONVERSATION --from REQUEST.json --request-id ID [--context-message ID] --json | canvas-agent CONVERSATION --from REQUEST.json --context-message ID --json");
   const conversation = idSchema.parse(conversationId);
   const contextMessageId = options.contextMessageId ?? process.env.TAROBOT_MESSAGE_ID;
   if (contextMessageId) idSchema.parse(contextMessageId);
-  if (command !== "run" && command !== "publish" && (options.from || options.requestId || options.file)) throw new Error(`workbench_${command}_does_not_accept_request`);
-  if (command === "context" && !contextMessageId) throw new Error("workbench_current_context_required");
+  if (command !== "run" && command !== "publish" && command !== "canvas-agent" && (options.from || options.requestId || options.file)) throw new Error(`workbench_${command}_does_not_accept_request`);
+  if (command === "canvas-agent" && options.file) throw new Error("workbench_canvas_agent_does_not_accept_file");
+  if ((command === "context" || command === "canvas-agent") && !contextMessageId) throw new Error("workbench_current_context_required");
   let request: WorkbenchRequest | undefined;
   let widget: WidgetInput | undefined;
+  let canvasAgentBody: { tool?: string; arguments?: Record<string, unknown>; projectId?: string; method?: string } | undefined;
+  if (command === "canvas-agent") {
+    if (!options.from) throw new Error("workbench_request_file_required");
+    if ((await stat(options.from)).size > WORKBENCH_MAX_BYTES) throw new Error("workbench_request_too_large");
+    const raw: unknown = JSON.parse(await readFile(options.from, "utf8"));
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid_canvas_agent_request");
+    canvasAgentBody = raw as typeof canvasAgentBody;
+  }
   if (command === "publish") {
     if (!options.from || !options.requestId) throw new Error("workbench_request_file_and_id_required");
     idSchema.parse(options.requestId);
@@ -67,6 +76,7 @@ export async function runWorkbenchCommand(directory: string, command: string | u
     request.payload={...payload,attachmentId:created.id};
   };
   if (!botId) {
+    if (command === "canvas-agent") throw new Error("canvas_agent_bot_instance_required");
     const client = await LocalHostClient.connect(directory);
     try {
       const feature = request && designOperationCapability(request.operation); if(feature && !client.supports(feature)) throw new Error("workbench_design_suite_host_update_required");
@@ -107,6 +117,38 @@ export async function runWorkbenchCommand(directory: string, command: string | u
     const result = JSON.parse(text); if (!response.ok) throw new HostCliError(result.error ?? "workbench_rejected", response.status);
     return result;
   };
+  if (command === "canvas-agent") {
+    const mcpReq = canvasAgentBody?.method === "tools/list" || canvasAgentBody?.tool === "canvas_list_tools"
+      ? { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }
+      : {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: canvasAgentBody?.tool ?? "",
+            arguments: {
+              ...(canvasAgentBody?.arguments ?? {}),
+              ...(canvasAgentBody?.projectId ? { projectId: canvasAgentBody.projectId } : {}),
+            },
+          },
+        };
+    const response = await fetch(new URL("/api/canvas-agent/mcp", base), {
+      method: "POST",
+      signal: AbortSignal.timeout(35_000),
+      headers: {
+        Authorization: `Instance ${botId}:${secret}`,
+        "x-tarobird-conversation-id": conversation,
+        "x-tarobird-context-message": contextMessageId!,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(mcpReq),
+    });
+    const text = await response.text();
+    if (Buffer.byteLength(text) > 1024 * 1024) throw new Error("workbench_reply_too_large");
+    const result = JSON.parse(text);
+    if (!response.ok) throw new HostCliError(result.error?.message ?? result.error ?? "canvas_agent_rejected", response.status);
+    return result;
+  }
   if (command === "publish") return call("/workbench/publish", "POST", { conversationId: conversation, contextMessageId, requestId: options.requestId, widget });
   await attachImage(call, (route,bytes)=>call(route,"PUT",bytes));
   return call("/workbench", "POST", {method: command === "targets" ? "workbench.targets" : command === "context" ? "workbench.context" : "workbench.command", params:{conversationId:conversation, contextMessageId,...(request?{request}:{})}});

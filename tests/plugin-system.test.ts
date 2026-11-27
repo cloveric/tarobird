@@ -39,7 +39,7 @@ import {
   selectLocalEntryFile,
   selectLocalManifestFile,
 } from "../client/src/plugin-marketplace.js";
-import { INFINITE_CANVAS_BUNDLE_HTML } from "../client/src/plugin-bundles.js";
+
 
 function memoryStorage(): PluginStorageAdapter & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -148,54 +148,54 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     expect(phoneIds).toContain("tarobird.quick-scratchpad");
   });
 
-  it("installs, enables, disables, updates and uninstalls Infinite Canvas end-to-end with the catalog digest", async () => {
+  it("installs, enables, disables, updates and uninstalls Quick Scratchpad end-to-end with the catalog digest", async () => {
     const store = memoryStorage();
     const registry = new PluginRegistry({ storage: store });
-    const infiniteCanvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
+    const scratchpad = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.quick-scratchpad")!;
 
-    expect(await verifyPluginArtifactHash(infiniteCanvas.bundleHtml!, infiniteCanvas.manifest.artifact.sha256)).toBe(true);
+    expect(await verifyPluginArtifactHash(scratchpad.bundleHtml!, scratchpad.manifest.artifact.sha256)).toBe(true);
 
-    const installed = await registry.install(infiniteCanvas);
+    const installed = await registry.install(scratchpad);
     expect(installed.enabled).toBe(true);
-    expect(registry.enabledContributions("desktop", "workbench-item").map((item) => item.plugin.manifest.id)).toEqual(["tarobird.infinite-canvas"]);
+    expect(registry.enabledContributions("desktop", "side-panel").map((item) => item.plugin.manifest.id)).toEqual(["tarobird.quick-scratchpad"]);
 
     // Store plugin KV data and verify uninstall cleans it up
     await handlePluginHostMessage(
       { protocol: PLUGIN_HOST_PROTOCOL, id: "s1", method: "storage.set", key: "canvas-v1", value: "SECRET_CANVAS" },
-      { pluginId: "tarobird.infinite-canvas", grantedCapabilities: ["storage.device"], theme: "light", locale: "en", storage: store },
+      { pluginId: "tarobird.quick-scratchpad", grantedCapabilities: ["storage.device"], theme: "light", locale: "en", storage: store },
     );
-    expect(store.data.has(pluginStorageBucketKey("tarobird.infinite-canvas"))).toBe(true);
+    expect(store.data.has(pluginStorageBucketKey("tarobird.quick-scratchpad"))).toBe(true);
 
     // Disable removes it from Workbench contributions without losing installation
-    registry.setEnabled("tarobird.infinite-canvas", false);
-    expect(registry.enabledContributions("desktop", "workbench-item")).toEqual([]);
-    expect(registry.getPlugin("tarobird.infinite-canvas")?.enabled).toBe(false);
+    registry.setEnabled("tarobird.quick-scratchpad", false);
+    expect(registry.enabledContributions("desktop", "side-panel")).toEqual([]);
+    expect(registry.getPlugin("tarobird.quick-scratchpad")?.enabled).toBe(false);
 
     // Re-enable restores it
-    registry.setEnabled("tarobird.infinite-canvas", true);
-    expect(registry.enabledContributions("desktop", "workbench-item")).toHaveLength(1);
+    registry.setEnabled("tarobird.quick-scratchpad", true);
+    expect(registry.enabledContributions("desktop", "side-panel")).toHaveLength(1);
 
     // Persists across device reload
     const reloaded = new PluginRegistry({ storage: store });
-    expect(reloaded.getPlugin("tarobird.infinite-canvas")?.enabled).toBe(true);
+    expect(reloaded.getPlugin("tarobird.quick-scratchpad")?.enabled).toBe(true);
 
     // Uninstall keeping data preserves isolated storage bucket
-    await reloaded.uninstall("tarobird.infinite-canvas", { keepData: true });
-    expect(reloaded.getPlugin("tarobird.infinite-canvas")).toBeUndefined();
-    expect(store.data.has(pluginStorageBucketKey("tarobird.infinite-canvas"))).toBe(true);
+    await reloaded.uninstall("tarobird.quick-scratchpad", { keepData: true });
+    expect(reloaded.getPlugin("tarobird.quick-scratchpad")).toBeUndefined();
+    expect(store.data.has(pluginStorageBucketKey("tarobird.quick-scratchpad"))).toBe(true);
 
     // Reinstall and uninstall without keeping data deletes isolated storage bucket
-    await reloaded.install(infiniteCanvas);
-    await reloaded.uninstall("tarobird.infinite-canvas");
-    expect(reloaded.getPlugin("tarobird.infinite-canvas")).toBeUndefined();
-    expect(reloaded.enabledContributions("desktop", "workbench-item")).toEqual([]);
-    expect(store.data.has(pluginStorageBucketKey("tarobird.infinite-canvas"))).toBe(false);
+    await reloaded.install(scratchpad);
+    await reloaded.uninstall("tarobird.quick-scratchpad");
+    expect(reloaded.getPlugin("tarobird.quick-scratchpad")).toBeUndefined();
+    expect(reloaded.enabledContributions("desktop", "side-panel")).toEqual([]);
+    expect(store.data.has(pluginStorageBucketKey("tarobird.quick-scratchpad"))).toBe(false);
   });
 
   it("verifies all catalog bundles including exact UTF-8 sizeBytes and pinned hashes", async () => {
     const registry = new PluginRegistry({ storage: memoryStorage() });
     registry.setAllowThirdParty(true);
-    for (const entry of [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG]) {
+    for (const entry of [...OFFICIAL_PLUGIN_CATALOG, ...THIRD_PARTY_PLUGIN_CATALOG].filter(entry => entry.bundleHtml !== undefined)) {
       expect(entry.bundleHtml).toBeDefined();
       expect(new TextEncoder().encode(entry.bundleHtml!).byteLength).toBe(entry.manifest.artifact.sizeBytes);
       expect(await verifyPluginArtifactHash(entry.bundleHtml!, entry.manifest.artifact.sha256)).toBe(true);
@@ -205,15 +205,15 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
 
   it("checks the byte count and pinned digest and rejects replacement catalog metadata", async () => {
     const registry = new PluginRegistry({ storage: memoryStorage() });
-    const infiniteCanvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
+    const entry = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.quick-scratchpad")!;
 
-    await expect(registry.install({ ...infiniteCanvas, bundleHtml: infiniteCanvas.bundleHtml + "!" })).rejects.toThrow("plugin_size_mismatch");
+    await expect(registry.install({ ...entry, bundleHtml: entry.bundleHtml + "!" })).rejects.toThrow("plugin_size_mismatch");
 
     // Same byte length but tampered bundle payload -> hash mismatch blocked!
-    const sameLenTampered = `<!--x-->${infiniteCanvas.bundleHtml!.slice(8)}`;
-    expect(new TextEncoder().encode(sameLenTampered).byteLength).toBe(infiniteCanvas.manifest.artifact.sizeBytes);
+    const sameLenTampered = `<!--x-->${entry.bundleHtml!.slice(8)}`;
+    expect(new TextEncoder().encode(sameLenTampered).byteLength).toBe(entry.manifest.artifact.sizeBytes);
     await expect(registry.install({
-      manifest: infiniteCanvas.manifest,
+      manifest: entry.manifest,
       bundleHtml: sameLenTampered,
     })).rejects.toThrow("plugin_hash_mismatch");
 
@@ -222,7 +222,7 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     const alteredHash = await sha256Hex(alteredHtml);
     await expect(registry.install({
       manifest: {
-        ...infiniteCanvas.manifest,
+        ...entry.manifest,
         artifact: {
           sha256: alteredHash,
           sizeBytes: new TextEncoder().encode(alteredHtml).byteLength,
@@ -233,31 +233,31 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
 
     // Grants and labels must come from the same catalog entry as the digest.
     const tamperedManifests = [
-      { ...infiniteCanvas.manifest, name: "Spoofed Canvas" },
-      { ...infiniteCanvas.manifest, nameZh: "伪造画布" },
-      { ...infiniteCanvas.manifest, description: "Tampered description" },
-      { ...infiniteCanvas.manifest, descriptionZh: "伪造说明" },
-      { ...infiniteCanvas.manifest, icon: "code" as const },
+      { ...entry.manifest, name: "Spoofed Canvas" },
+      { ...entry.manifest, nameZh: "伪造画布" },
+      { ...entry.manifest, description: "Tampered description" },
+      { ...entry.manifest, descriptionZh: "伪造说明" },
+      { ...entry.manifest, icon: "code" as const },
       {
-        ...infiniteCanvas.manifest,
+        ...entry.manifest,
         contributions: [{ kind: "side-panel" as const, id: "infinite-canvas", title: "Spoofed Panel" }],
       },
     ];
     for (const tampered of tamperedManifests) {
-      await expect(registry.install({ manifest: tampered, bundleHtml: infiniteCanvas.bundleHtml })).rejects.toThrow("plugin_catalog_mismatch");
+      await expect(registry.install({ manifest: tampered, bundleHtml: entry.bundleHtml })).rejects.toThrow("plugin_catalog_mismatch");
     }
   });
 
   it("verifies SHA-256 without globalThis.crypto.subtle (plain-HTTP LAN / legacy WebViews)", async () => {
-    const infiniteCanvas = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
+    const entry = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.quick-scratchpad")!;
     const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
     const originalCrypto = globalThis.crypto;
     try {
       Object.defineProperty(globalThis, "crypto", { value: {}, configurable: true, writable: true });
       expect(globalThis.crypto.subtle).toBeUndefined();
-      expect(await verifyPluginArtifactHash(infiniteCanvas.bundleHtml!, infiniteCanvas.manifest.artifact.sha256)).toBe(true);
+      expect(await verifyPluginArtifactHash(entry.bundleHtml!, entry.manifest.artifact.sha256)).toBe(true);
       const registry = new PluginRegistry({ storage: memoryStorage() });
-      const installed = await registry.install(infiniteCanvas);
+      const installed = await registry.install(entry);
       expect(installed.sourceKind).toBe("official");
     } finally {
       if (descriptor) Object.defineProperty(globalThis, "crypto", descriptor);
@@ -353,65 +353,37 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     await expect(registry.prepareLocalDev(reservedPrefixManifest, html)).rejects.toThrow("plugin_official_id_reserved");
   });
 
-  it("scopes registry & KV storage per (device, host, user), migrates legacy unscoped installs and inline bundles without loss", async () => {
+  it("isolates full host identities and does not import ambiguous preview installs or KV", async () => {
     expect(resolvePluginScopeId("host_alpha", undefined, "dev_1")).toBeNull();
-    expect(resolvePluginScopeId("host_alpha", "", "dev_1")).toBeNull();
-    expect(resolvePluginScopeId(undefined, undefined, undefined)).toBe("default");
-    const scopeA = resolvePluginScopeId("host_alpha_1234567890", "user_a", "dev_1")!;
-    const scopeB = resolvePluginScopeId("host_beta_1234567890", "user_b", "dev_1")!;
-    expect(scopeA).toBe(pluginScopeId("host_alpha_1234567890", "user_a", "dev_1"));
+    expect(resolvePluginScopeId(undefined, "owner", "dev_1")).toBeNull();
+    expect(resolvePluginScopeId("host_alpha", "owner", undefined)).toBeNull();
+    expect(resolvePluginScopeId()).toBe("default");
+    const scopeA = resolvePluginScopeId("MCowBQYDK2VwAyEA_host_a", "owner", "dev_1")!;
+    const scopeB = resolvePluginScopeId("MCowBQYDK2VwAyEA_host_b", "owner", "dev_1")!;
+    expect(scopeA).toBe(pluginScopeId("MCowBQYDK2VwAyEA_host_a", "owner", "dev_1"));
     expect(scopeA).not.toBe(scopeB);
 
-    // Seed a legacy unscoped #141 install + legacy unscoped KV bucket
     const store = memoryStorage();
-    const scratchpad = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.quick-scratchpad")!;
-    const legacyRegistry = new PluginRegistry({ storage: store });
-    await legacyRegistry.install(scratchpad);
-    await handlePluginHostMessage(
-      { protocol: PLUGIN_HOST_PROTOCOL, id: "m1", method: "storage.set", key: "text", value: "LEGACY_NOTE" },
-      { pluginId: "tarobird.quick-scratchpad", grantedCapabilities: ["storage.device"], theme: "light", locale: "en", storage: store },
-    );
-    expect(store.data.has(PLUGIN_STORE_KEY)).toBe(true);
-    expect(store.data.has(pluginStorageBucketKey("tarobird.quick-scratchpad"))).toBe(true);
+    const scratchpad = OFFICIAL_PLUGIN_CATALOG.find(item => item.manifest.id === "tarobird.quick-scratchpad")!;
+    const id = scratchpad.manifest.id;
+    const unscoped = new PluginRegistry({ storage: store });
+    await unscoped.install(scratchpad);
+    store.setItem(pluginStorageBucketKey(id), JSON.stringify({ text: "PREVIEW_NOTE" }));
+    store.setItem(PLUGIN_STORE_KEY + ".dev_1:MCowBQYDK2VwAyEA:owner", store.getItem(PLUGIN_STORE_KEY)!);
 
-    // Opening scoped registry for scopeA migrates legacy install + KV cleanly, then removes legacy key
     const bundleStore = memoryBundleStore();
-    const migratedA = new PluginRegistry({ storage: store, bundleStore, scopeId: scopeA });
-    expect(migratedA.getPlugin("tarobird.quick-scratchpad")?.enabled).toBe(true);
-    expect(migratedA.getPlugin("tarobird.quick-scratchpad")?.bundleHtml).toBe(scratchpad.bundleHtml);
-    expect(store.data.has(PLUGIN_STORE_KEY)).toBe(false);
-    expect(store.data.has(`${PLUGIN_STORE_KEY}.${scopeA}`)).toBe(true);
-    expect(store.data.has(pluginStorageBucketKey("tarobird.quick-scratchpad", scopeA))).toBe(true);
-    expect(store.data.has(pluginStorageBucketKey("tarobird.quick-scratchpad"))).toBe(false);
+    const scoped = new PluginRegistry({ storage: store, bundleStore, scopeId: scopeA });
+    expect(scoped.getPlugin(id)).toBeUndefined();
+    expect(store.data.has(pluginStorageBucketKey(id, scopeA))).toBe(false);
+    expect(bundleStore.bundles.size).toBe(0);
+    expect(unscoped.getPlugin(id)?.bundleHtml).toBe(scratchpad.bundleHtml);
 
-    // Wait for async inline -> IDB compaction
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(bundleStore.bundles.get(`${scopeA}\0tarobird.quick-scratchpad`)).toBe(scratchpad.bundleHtml);
-    const compacted = JSON.parse(store.getItem(`${PLUGIN_STORE_KEY}.${scopeA}`)!);
-    expect(compacted.installed["tarobird.quick-scratchpad"].bundleStoredInIdb).toBe(true);
-    expect(compacted.installed["tarobird.quick-scratchpad"].bundleHtml).toBe("");
-
-    // Reloading scoped registry hydrates bundleHtml from IDB and still reads migrated KV note
-    const reloadedA = new PluginRegistry({ storage: store, bundleStore, scopeId: scopeA });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(reloadedA.getPlugin("tarobird.quick-scratchpad")?.bundleHtml).toBe(scratchpad.bundleHtml);
-    const kvRead = await handlePluginHostMessage(
-      { protocol: PLUGIN_HOST_PROTOCOL, id: "m2", method: "storage.get", key: "text" },
-      { pluginId: "tarobird.quick-scratchpad", scopeId: scopeA, grantedCapabilities: ["storage.device"], theme: "light", locale: "en", storage: store, kvStore: bundleStore.kv },
-    );
-    expect(kvRead).toMatchObject({ ok: true, result: "LEGACY_NOTE" });
-
-    // Second scopeB remains completely isolated (no leakage of migrated legacy installs)
-    const regB = new PluginRegistry({ storage: store, bundleStore, scopeId: scopeB });
-    expect(regB.getPlugin("tarobird.quick-scratchpad")).toBeUndefined();
-
-    // Concurrent cached scoped registries via getPluginRegistry stay isolated
-    const cachedA = getPluginRegistry(scopeA);
-    const cachedB = getPluginRegistry(scopeB);
-    expect(cachedA).not.toBe(cachedB);
-    cachedA.setAllowThirdParty(true);
-    expect(cachedB.getSnapshot().allowThirdParty).toBe(false);
-    cachedA.setAllowThirdParty(false);
+    await scoped.install(scratchpad, { grantedCapabilities: ["storage.device"] });
+    const reloaded = new PluginRegistry({ storage: store, bundleStore, scopeId: scopeA });
+    await expect.poll(() => reloaded.getPlugin(id)?.bundleHtml).toBe(scratchpad.bundleHtml);
+    expect(reloaded.getPlugin(id)?.grantedCapabilities).toEqual(["storage.device"]);
+    expect(new PluginRegistry({ storage: store, bundleStore, scopeId: scopeB }).getPlugin(id)).toBeUndefined();
+    expect(getPluginRegistry(scopeA)).not.toBe(getPluginRegistry(scopeB));
   });
 
   it("propagates QuotaExceededError instead of silently masking failed persistence", () => {
@@ -455,7 +427,7 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
     expect(comparePluginVersions("1.0.0", "2.0.0")).toBe(-1);
 
     const store = memoryStorage();
-    const initial = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.infinite-canvas")!;
+    const initial = OFFICIAL_PLUGIN_CATALOG.find((item) => item.manifest.id === "tarobird.quick-scratchpad")!;
     const regV1 = new PluginRegistry({ storage: store, catalog: [initial] });
     await regV1.install(initial);
 
@@ -470,7 +442,7 @@ describe("Plugin manifest, integrity and registry (#101)", () => {
       },
     };
     const regUpgraded = new PluginRegistry({ storage: store, catalog: [upgradedCatalogEntry] });
-    expect(regUpgraded.hasUpdate("tarobird.infinite-canvas")?.manifest.artifact.sha256).toBe("a".repeat(64));
+    expect(regUpgraded.hasUpdate("tarobird.quick-scratchpad")?.manifest.artifact.sha256).toBe("a".repeat(64));
   });
 
   it("rejects path traversal entries in manifest validation", () => {
@@ -728,8 +700,5 @@ describe("Plugin Marketplace categorization, filtering and local folder selectio
     expect(selectLocalManifestFile([files[0]!])).toBeUndefined();
   });
 
-  it("preserves pointer capture and cancel handling in Infinite Canvas bundle", () => {
-    expect(INFINITE_CANVAS_BUNDLE_HTML).toContain("setPointerCapture");
-    expect(INFINITE_CANVAS_BUNDLE_HTML).toContain("pointercancel");
-  });
+
 });
