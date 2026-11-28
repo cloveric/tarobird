@@ -587,6 +587,22 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const filesEligible = !pane && !!selected && !!filesBotId && !!state.user && state.user.role === "owner" && !connection.isReadOnly && !current?.archived && !!state.workspaceFilesAvailable;
   const filesVisible = filesEligible && rightMode === "files" && visible && !details && searchResults === undefined && !sidebar;
   const latestChangedFiles = latestRunChanges ? recordedRunChanges(latestRunChanges).summary?.files ?? 0 : 0;
+  // The header count works like unread: opening the Files panel marks this run's changes as seen (kept locally per
+  // conversation), and a newer run — or more files in the same run — brings it back.
+  const latestFilesMark = latestRunChanges && latestChangedFiles > 0 ? `${latestRunChanges.id}:${latestChangedFiles}` : undefined;
+  const [filesSeen, setFilesSeen] = useState<Record<string, string>>(() => {
+    try { const stored = JSON.parse(localStorage.getItem("tarobird.filesChangesSeen") ?? "{}"); return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {}; } catch { return {}; }
+  });
+  useEffect(() => {
+    if (!filesVisible || !selected || !latestFilesMark || filesSeen[selected] === latestFilesMark) return;
+    setFilesSeen(previous => {
+      const next = { ...previous, [selected]: latestFilesMark }, keys = Object.keys(next);
+      for (const key of keys.slice(0, Math.max(0, keys.length - 200))) delete next[key];
+      try { localStorage.setItem("tarobird.filesChangesSeen", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, [filesVisible, selected, latestFilesMark, filesSeen]);
+  const unseenChangedFiles = latestFilesMark && selected && filesSeen[selected] !== latestFilesMark ? latestChangedFiles : 0;
   const workbench = useWorkbench(connection, selected, state.user?.id, workbenchVisible);
   const workbenchLibrary = useContext(WorkbenchLibraryContext);
   const [localLibraryRequest, setLocalLibraryRequest] = useState<WorkbenchFileRequest>();
@@ -2199,8 +2215,8 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     return true;
   } : undefined;
   // Option A (owner, 2026-11-28): a labelled 「文件」 button like 「工作区」, with this turn's changed-file count after it.
-  const filesLabel = latestChangedFiles > 0 ? t("文件，本轮改动 {0} 个", latestChangedFiles) : t("文件");
-  const filesButton = filesEligible && <button ref={filesTrigger} className="workspace-rail-trigger files-trigger" aria-label={filesLabel} title={latestChangedFiles > 0 ? filesLabel : t("工作区文件")} aria-expanded={filesVisible} aria-controls={filesId} onClick={() => { if (filesVisible) setRightMode("side"); else { setFilesFocus(undefined); openFiles(); } }}><FolderTree size={16}/><span className="workspace-rail-trigger-label">{t("文件")}</span>{latestChangedFiles > 0 && <span className="workspace-rail-trigger-badge" aria-hidden="true">{latestChangedFiles}</span>}</button>;
+  const filesLabel = unseenChangedFiles > 0 ? t("文件，本轮改动 {0} 个", unseenChangedFiles) : t("文件");
+  const filesButton = filesEligible && <button ref={filesTrigger} className="workspace-rail-trigger files-trigger" aria-label={filesLabel} title={unseenChangedFiles > 0 ? filesLabel : t("工作区文件")} aria-expanded={filesVisible} aria-controls={filesId} onClick={() => { if (filesVisible) setRightMode("side"); else { setFilesFocus(undefined); openFiles(); } }}><FolderTree size={16}/><span className="workspace-rail-trigger-label">{t("文件")}</span>{unseenChangedFiles > 0 && <span className="workspace-rail-trigger-badge" aria-hidden="true">{unseenChangedFiles}</span>}</button>;
   // Two ordinary header icons, spaced like the others: no shared frame around them.
   const rightPanelSwitcher = <>{workbenchButton}{filesButton}</>;
   const mentionWorkspaceFile = useCallback((relativePath: string) => {

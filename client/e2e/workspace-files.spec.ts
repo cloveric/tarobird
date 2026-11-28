@@ -324,6 +324,10 @@ test("Files panel says where the Bot works and what this turn changed; 文件 is
     await filesBtn.click();
     const panel = page.locator("aside.workspace-files-panel");
     await expect(panel).toBeVisible();
+    // Like unread: opening the panel marks this turn's changes as seen, so the count goes away.
+    const trigger = header.locator(".files-trigger");
+    await expect(trigger).toHaveAccessibleName("文件");
+    await expect(trigger.locator(".workspace-rail-trigger-badge")).toHaveCount(0);
 
     // Where the Bot works: the real directory, not only its name.
     const root = panel.locator(".wf-crumb-root");
@@ -369,11 +373,22 @@ test("Files panel says where the Bot works and what this turn changed; 文件 is
     await expect(changes).toBeInViewport();
     await expect(viewer).toHaveCount(0);
 
-    // A tighter window with the panel open: the label gives way, the icon and the count stay (as 「工作区」 does).
+    // A tighter window with the panel open: the label gives way to the icon (as 「工作区」 does).
     await page.setViewportSize({ width: 1280, height: 900 });
-    await expect(filesBtn.locator(".workspace-rail-trigger-label")).toBeHidden();
-    await expect(filesBtn.locator(".workspace-rail-trigger-badge")).toBeVisible();
+    await expect(trigger.locator(".workspace-rail-trigger-label")).toBeHidden();
     await page.setViewportSize({ width: 1360, height: 900 });
+
+    // Seen stays seen after a reload; a newer turn that changes files brings the count back.
+    await panel.getByRole("button", { name: "关闭文件面板", exact: true }).click();
+    await page.reload(); await waitForClientOnline(page); await selectConversation(page, f.convA.title);
+    await expect(trigger).toHaveAccessibleName("文件");
+    const { message: ask2 } = await f.hub.store.sendMessage("owner", { conversationId: f.convA.id, clientMsgId: "cm_files_turn_2", text: "再改一处", attachments: [], mentions: ["bot_a"], previewUrl: null });
+    await f.hub.store.publishBotMessage("bot_a", { conversationId: f.convA.id, replyTo: ask2.id, status: "complete", blocks: [{ type: "card", title: "完成", elements: [{ type: "markdown", text: "又改好了。" }], extra: {
+      nativeRun: { version: 1, id: "run_files_turn_2", revision: 1, phase: "done", startedAt: end, updatedAt: end + 500, endedAt: end + 500, count: 1, completed: 1, failed: 0, truncated: false },
+      runChanges: { v: 1, runId: "run_files_turn_2", revision: 1, files: 1, edits: 1, additions: 1, deletions: 0, unavailable: 0, partial: false, childEdits: 0 },
+    } }] as never });
+    await expect(trigger).toHaveAccessibleName("文件，本轮改动 1 个");
+    await expect(trigger.locator(".workspace-rail-trigger-badge")).toHaveText("1");
 
     // A conversation without recorded changes: plain 「文件」, no count.
     await selectConversation(page, f.convB.title);
@@ -415,7 +430,8 @@ test("group reply changes open the workspace of the Bot that made them", async (
     await expect(panel.locator(".wf-row", { hasText: "Makefile" })).toHaveCount(0);
     await panel.getByRole("button", { name: "关闭文件面板", exact: true }).click();
 
-    await page.locator(".conversation-header").getByRole("button", { name: "文件，本轮改动 1 个" }).click();
+    // 本轮改动 already showed these changes, so the header entry no longer counts them.
+    await page.locator(".conversation-header").getByRole("button", { name: "文件", exact: true }).click();
     await expect(panel.locator(".wf-crumb-root")).toContainText("/workspace-b");
     await expect(panel.getByRole("region", { name: "这轮改动", exact: true })).toContainText("only-in-b.txt");
   } finally {
