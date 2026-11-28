@@ -32,6 +32,7 @@ import type { Message } from "../../src/client-protocol/index.js";
 import type { HubConnection } from "./connection.js";
 import { DiffCounts } from "./DiffCounts.js";
 import { DiffViewerTrigger } from "./DiffViewerTrigger.js";
+import { SidePanelResize } from "./SidePanelResize.js";
 import { useRunChangeFiles } from "./use-run-change-files.js";
 import { MarkdownText } from "./MarkdownText.js";
 import { CodeBlock } from "./CodeBlock.js";
@@ -825,6 +826,7 @@ export function WorkspaceFilesPanel({
     inert={!visible || undefined}
     aria-label={t("工作区文件")}
   >
+    {!phone && <SidePanelResize panel={panelRef} visible={visible} controls={id} label={t("调整文件面板宽度")}/>}
     <header className="wf-header">
       <div className="wf-header-title">
         <Folder size={16} aria-hidden="true"/>
