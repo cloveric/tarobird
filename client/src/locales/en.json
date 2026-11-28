@@ -7251,5 +7251,12 @@
   "{0} 不支持": "{0} not supported",
   "读取": "Read",
   "未合并": "Not merged",
-  "{0} 个模型": "{0} models"
+  "{0} 个模型": "{0} models",
+  "已装插件": "Installed plugins",
+  "取消固定「{0}」": "Unpin “{0}”",
+  "固定「{0}」到顶栏": "Pin “{0}” to the header",
+  "最多固定 {0} 个": "Up to {0} can be pinned",
+  "已固定": "Pinned",
+  "固定": "Pin",
+  "插件市场…": "Plugin market…"
 }

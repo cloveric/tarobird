@@ -61,7 +61,8 @@ export {
   type MarketplaceTab,
 } from "./plugin-marketplace.js";
 
-function PluginGlyph({ icon, size = 18 }: { icon: PluginIcon; size?: number }) {
+/** The plugin's own monochrome glyph; shared with the conversation header's plugin entry. */
+export function PluginGlyph({ icon, size = 18 }: { icon: PluginIcon; size?: number }) {
   switch (icon) {
     case "canvas": return <LayoutGrid size={size} aria-hidden="true"/>;
     case "notes": return <NotebookPen size={size} aria-hidden="true"/>;
