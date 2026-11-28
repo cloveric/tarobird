@@ -97,8 +97,13 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   // Android hardware keyboards use Ctrl-based shortcuts; iOS keeps Mac keys.
   // Explicit on-screen shortcuts already contain the target's codes.
   const controller = windows || mobile && Capacitor.getPlatform() === "android" ? "windows" : "mac";
-  const [sharpSupported,setSharpSupported]=useState(false);
-  useEffect(()=>{let live=true;void supportedScreenCodecs("sharp").then(()=>{if(live)setSharpSupported(true);},()=>{if(live)setSharpSupported(false);});return()=>{live=false;};},[]);
+  const [sharpSupported,setSharpSupported]=useState(false),[qhdSupported,setQhdSupported]=useState(false);
+  useEffect(()=>{
+    let live=true;
+    void supportedScreenCodecs("qhd").then(()=>{if(live)setQhdSupported(true);},()=>{});
+    void supportedScreenCodecs("sharp").then(()=>{if(live)setSharpSupported(true);},()=>{});
+    return()=>{live=false;};
+  },[]);
   const [quality,setQuality]=useState<ScreenQuality>(mobile?"smooth":SCREEN_DEFAULT_QUALITY),[legacyQuality,setLegacyQuality]=useState(false);
   // Sessions and barriers belong to one Host. An unreachable previous Host
   // must not block opening the newly selected one, or clean up its sessions.
@@ -183,8 +188,9 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
       const s=await connection.screenStatus();if(n!==attempt.current)return;setStatus(s);setStatusError("");
       if(!s.enabled)throw new Error("screen_disabled");if(s.permission==="none")throw new Error("screen_not_authorized");if(s.desktop?.locked)throw new Error("screen_locked");if(s.desktop&&s.desktop.capture!=="granted")throw new Error("screen_capture_denied");
       const d=s.desktop?.displays.find(d=>d.id===display);if(!s.desktop||!d)throw new Error("screen_service_offline");
-      const codecs=await supportedScreenCodecs(connection.state.screenQualityAvailable&&!legacy?requested:SCREEN_DEFAULT_QUALITY);if(n!==attempt.current)return;
       const explicit=connection.state.screenQualityAvailable&&!legacy;
+      if(explicit&&requested==="qhd"&&!connection.state.screenQhdAvailable)throw new Error("screen_quality_qhd_host_unsupported");
+      const codecs=await supportedScreenCodecs(explicit?requested:SCREEN_DEFAULT_QUALITY);if(n!==attempt.current)return;
       // What this App can hold unacknowledged, named only to a Host that knows the field.
       const flight=connection.state.screenFlightAvailable?await screenViewerFlight():undefined;if(n!==attempt.current)return;
       const openStartMs = Date.now(), openMonoStart = performance.now();
@@ -243,7 +249,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   const actualResolution=!error&&!statusError&&state.state!=="closed"&&state.fresh&&state.width&&state.height?`${state.width}×${state.height}`:"";
   const qualityHint=sharpSupported?t("720p 节省带宽，最高 3K 保留更多文字细节"):t("此设备不支持最高 3K 解码，请改用 1080p 或 720p。");
   const qualityTitle=!connection.state.screenQualityAvailable?t("更新主机后可选择清晰度"):legacyQuality?t("目标电脑的 App 暂不支持画质选择，请更新后重试，或以默认画质连接。"):actualResolution?t("当前 {0} · {1}",actualResolution,qualityHint):qualityHint;
-  const qualitySelect=<select aria-label={t("画面清晰度")} title={qualityTitle} value={quality} disabled={!connection.state.screenQualityAvailable||legacyQuality||state.state==="connecting"} onChange={e=>changeQuality(e.target.value as ScreenQuality)}><option value="smooth">720p</option><option value="balanced">1080p</option><option value="sharp" disabled={!sharpSupported}>{t("最高 3K")}</option></select>;
+  const qualitySelect=<select aria-label={t("画面清晰度")} title={qualityTitle} value={quality} disabled={!connection.state.screenQualityAvailable||legacyQuality||state.state==="connecting"} onChange={e=>changeQuality(e.target.value as ScreenQuality)}><option value="smooth">720p</option><option value="balanced">1080p</option><option value="qhd" disabled={!connState.screenQhdAvailable||!qhdSupported}>{t("2K（1440p）")}</option><option value="sharp" disabled={!sharpSupported}>{t("最高 3K")}</option></select>;
   // Landscape status label: a calm view fades after a few seconds, anything
   // that needs attention stays. Only opacity changes; the live region remains.
   const calm=state.state!=="closed"&&state.state!=="connecting"&&state.fresh&&!state.pending&&!error&&!statusShown&&!state.reason&&!imeComposing;

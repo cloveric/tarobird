@@ -12,7 +12,7 @@
  * where text keeps its pixel structure; only a viewer that asked for it, via a
  * Host and target that both advertised quality, can ever receive such a
  * stream. The Hub enforces each session's profile caps. */
-export const SCREEN_QUALITIES = ["smooth", "balanced", "sharp"] as const;
+export const SCREEN_QUALITIES = ["smooth", "balanced", "qhd", "sharp"] as const;
 export type ScreenQuality = typeof SCREEN_QUALITIES[number];
 export const SCREEN_DEFAULT_QUALITY: ScreenQuality = "balanced";
 /** H.264 frame-size limits in 16×16 macroblocks: level 4.0 and level 5.1. */
@@ -38,6 +38,7 @@ export type ScreenQualityProfile = {
 export const SCREEN_QUALITY_PROFILES: Readonly<Record<ScreenQuality, Readonly<ScreenQualityProfile>>> = Object.freeze({
   smooth: Object.freeze({ longEdge: 1280, area: 1280 * 800, macroblocks: SCREEN_H264_L40_MACROBLOCKS, fps: 120, qpBase: 32, qpMax: 42, bitrate: 1_200_000, h264Only: false }),
   balanced: Object.freeze({ longEdge: 1920, area: 1920 * 1080, macroblocks: SCREEN_H264_L40_MACROBLOCKS, fps: 120, qpBase: 28, qpMax: 40, bitrate: 2_500_000, h264Only: false }),
+  qhd: Object.freeze({ longEdge: 2560, area: 2560 * 1440, macroblocks: SCREEN_H264_L51_MACROBLOCKS, fps: 60, qpBase: 28, qpMax: 40, bitrate: 3_000_000, h264Only: true }),
   sharp: Object.freeze({ longEdge: 3072, area: 3072 * 1920, macroblocks: SCREEN_H264_L51_MACROBLOCKS, fps: 60, qpBase: 28, qpMax: 40, bitrate: 3_200_000, h264Only: true }),
 });
 /** Largest stream any profile may produce (the shared stream schema bound). */

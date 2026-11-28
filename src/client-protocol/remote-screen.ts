@@ -11,12 +11,16 @@ export const REMOTE_SCREEN_CAPABILITY = "desktop.screen.v1";
  * registered target can honour it is decided per open: an explicit refusal
  * (`screen_quality_unsupported`), or `join.quality` confirming it. */
 export const REMOTE_SCREEN_QUALITY_CAPABILITY = "desktop.screen.quality.v1";
+/** Hub → App: `screenOpen` recognizes the additional QHD quality. */
+export const REMOTE_SCREEN_QHD_CAPABILITY = "desktop.screen.qhd.v1";
 /** Hub → App (`serverCapabilities`): `screenOpen` accepts `flight` and a viewer's `ack` may carry `heldMs`. */
 export const REMOTE_SCREEN_FLIGHT_CAPABILITY = "desktop.screen.flight.v1";
 /** Hub → App (`serverCapabilities`): `screenConfigure` accepts `udpBoost`, and `includeUdpStatus=1` returns `udpStatus` and `policy.udpBoost`. */
 export const REMOTE_SCREEN_UDP_BOOST_CAPABILITY = "desktop.screen.udp-boost.v1";
 /** Host control socket → target (`controlCapabilities`): the hello may carry `features`. */
 export const SCREEN_CONTROL_QUALITY_CAPABILITY = "screen-quality-v1";
+/** Host control socket → target: this Host can negotiate QHD. */
+export const SCREEN_CONTROL_QHD_CAPABILITY = "screen-qhd-v1";
 /** Host control socket → target (`controlCapabilities`): this Host accepts a
  * Windows desktop in the hello and in `status`. A Windows target never
  * registers with a Host that does not say so: an older Host parses the hello
@@ -30,6 +34,8 @@ export const SCREEN_CONTROL_WINDOWS_CAPABILITY = "screen-windows-v1";
 export const SCREEN_CONTROL_RATE_CAPABILITY = "screen-rate-v1";
 /** Target → Hub (hello `features`): `start` may carry `quality`. */
 export const SCREEN_SERVICE_QUALITY_FEATURE = "screen.quality.v1";
+/** Target → Hub: `start` may explicitly request QHD. */
+export const SCREEN_SERVICE_QHD_FEATURE = "screen.qhd.v1";
 /** Target → Hub (hello `features`, only to a Host with SCREEN_CONTROL_RATE_CAPABILITY): `start` may carry `flight` and `ack` may carry `heldMs`. */
 export const SCREEN_SERVICE_FLIGHT_FEATURE = "screen.flight.v1";
 const flightSchema = z.number().int().min(SCREEN_FLIGHT_MIN).max(SCREEN_FLIGHT_MAX);
