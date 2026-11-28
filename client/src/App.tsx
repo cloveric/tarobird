@@ -18,7 +18,7 @@ import type { WorkbenchContext, WorkbenchSource } from "../../src/client-protoco
 import type { BoardAnnotation } from "./workbench-board.js";
 import { ConnectionNotice } from "./ConnectionNotice.js";
 import { routeDiagnosisMessage } from "./route-diagnostics.js";
-import { conversationUnreadTotal, isUnreadSelectionTarget } from './conversation-unread.js';
+import { conversationPendingQuestionTotal, conversationUnreadTotal, isUnreadSelectionTarget, type InboxFilter } from './conversation-unread.js';
 import { WidgetComposeProvider, widgetComposeText, appendWidgetDraft } from "./widget-compose.js";
 import { useWidgetStateSelection } from "./use-widget-state-selection.js";
 import { useClaudeSendChoice } from "./use-claude-send-choice.js";
@@ -245,7 +245,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const [delegation, setDelegation] = useState<DelegationMode>();
   const [operationBot, setOperationBot] = useState<{ botId: string; name: string; view?: "dashboard" }>();
   const [conversations, setConversations] = useState<Conversation[]>([]); const [normalSelected, setNormalSelected] = useState("");
-  const [localUnreadOnly, setLocalUnreadOnly] = useState(false);
+  const [localInboxFilter, setLocalInboxFilter] = useState<InboxFilter>();
   const [localRetainedOpen, setLocalRetainedOpen] = useState<string>();
   const conversationIdSet = useMemo(() => new Set(conversations.map(c => c.id)), [conversations]);
   // Opening uses the full cache (a ticket panel may open a hidden worker chat); lists and pickers use listedChats.
@@ -978,24 +978,25 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   }, [cache, directory, ownDirectoryRevision, selected, locale, visible, pane?.directory]);
   const localUnreadCount = useMemo(() => shell || pane ? 0 : conversationUnreadTotal(conversations, activity), [activity, conversations, shell, pane, showTickets]);
   useEffect(() => { if (shell || pane) return; document.title = localUnreadCount ? `(${localUnreadCount}) TaroBird` : "TaroBird"; void updateBadge(localUnreadCount).catch(() => undefined); }, [localUnreadCount, shell, pane]);
-  const changeLocalUnreadOnly = (next: boolean) => {
-    if (next === localUnreadOnly) return;
-    setLocalUnreadOnly(next);
+  const localPendingCount = useMemo(() => shell || pane ? 0 : conversationPendingQuestionTotal(conversations, activity), [activity, conversations, shell, pane, showTickets]);
+  const changeLocalInboxFilter = (next: InboxFilter | undefined) => {
+    if (next === localInboxFilter) return;
+    setLocalInboxFilter(next);
     if (!next) { setLocalRetainedOpen(undefined); return; }
-    if (selected && isUnreadSelectionTarget(conversations, activity, globalPins, selected, preferences.sidebarLayout)) {
+    if (selected && isUnreadSelectionTarget(conversations, activity, globalPins, selected, preferences.sidebarLayout, next)) {
       setLocalRetainedOpen(selected);
     } else {
       setLocalRetainedOpen(undefined);
     }
   };
   useEffect(() => {
-    if (shell || pane || !localUnreadOnly) return;
+    if (shell || pane || !localInboxFilter) return;
     if (!selected) { setLocalRetainedOpen(undefined); return; }
     setLocalRetainedOpen(previous => {
       if (previous === selected) return previous;
-      return isUnreadSelectionTarget(conversations, activity, globalPins, selected, preferences.sidebarLayout) ? selected : undefined;
+      return isUnreadSelectionTarget(conversations, activity, globalPins, selected, preferences.sidebarLayout, localInboxFilter) ? selected : undefined;
     });
-  }, [shell, pane, localUnreadOnly, selected, conversations, activity, globalPins, preferences.sidebarLayout]);
+  }, [shell, pane, localInboxFilter, selected, conversations, activity, globalPins, preferences.sidebarLayout]);
   // Logical pane visibility keeps streams and recordings alive. A read receipt
   // also requires the latest-message edge on screen, through both scroll roots.
   const [paneMessagesVisible, setPaneMessagesVisible] = useState(false);
@@ -2251,7 +2252,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     ["bot", BotIcon, t("新建 Bot"), t("独立的工作区、人设与记忆"), () => shell ? shell.create("bot") : setNewBot(true)],
     ["group", Users, t("新建群组"), t("多个 Bot 同群，按话题分开讨论"), () => shell ? shell.create("group") : setNewChat({ kind: "group", ...(activeBot ? { botId: activeBot.id } : {}) })],
     ["schedule", CalendarClock, t("新建定时任务"), t("让 Bot 按计划自动完成工作"), () => shell ? shell.create("schedule") : setScheduledTasks("create")],
-  ] as const).map(([kind, Icon, label, detail, run]) => <button key={kind} aria-labelledby={`${menuId}-create-${kind}`} aria-describedby={`${menuId}-create-${kind}-detail`} onClick={run}><Icon size={16}/><span className="desktop-menu-text"><span id={`${menuId}-create-${kind}`}>{label}</span><small id={`${menuId}-create-${kind}-detail`}>{detail}</small></span></button>)}</DesktopMenu></div>{shell?.controls}<form className="search-box" onSubmit={(event) => search(event, true)}><Search size={16}/><input aria-label={t("搜索历史消息")} placeholder={shell ? t("搜索 {0} 的消息…", shell.host.name) : t("搜索消息…")} maxLength={256} value={query} onChange={(e) => setQuery(e.target.value)}/><kbd>↵</kbd></form><SidebarLayoutSwitch value={preferences.sidebarLayout} change={sidebarLayout => setPreferences({ ...preferences, sidebarLayout })} adhd={shell?.openAdhd ? { open: shell.openAdhd, disabled: paneBusy || shell.adhdBlocked, reason: paneBusy || shell.adhdBlocked ? t("请先完成各对话的发送、上传或录音。") : undefined } : undefined}/><SidebarUnreadFilter unreadOnly={shell ? shell.unreadOnly : localUnreadOnly} unreadCount={shell ? shell.unreadCount : localUnreadCount} change={shell ? shell.changeUnreadOnly : changeLocalUnreadOnly}/>{shell ? shell.navigation({ conversations, bots: navigationBots, selected, pins, globalPins, activity }) : <FolderListOptions hosts={standaloneSidebarHosts} defaultConnection={connection} visible={visible} scope={preferences.sidebarLayout} options={standaloneSidebarOptions}><ConversationList showDisconnectedBots={preferences.showDisconnectedBots} layout={preferences.sidebarLayout} unreadOnly={localUnreadOnly} retainedConversationId={localUnreadOnly ? localRetainedOpen : undefined} openBot={openStandaloneBot} connection={connection} newChat={newStandaloneDirectChat} conversations={conversations} bots={navigationBots} selected={selected} pins={pins} globalPins={globalPins} activity={activity} select={selectStandaloneChat}/></FolderListOptions>}<WorkspaceFooter hostName={hostName} status={state.status} userId={state.user?.id} archivedCount={archivedChats.length} menuId={`${menuId}-workspace`} menuOpen={menu === "workspace"} trigger={workspaceTrigger} toggleMenu={() => toggleMenu("workspace")} closeMenu={closeMenu} openAdhd={shell?.openAdhd} adhdBlocked={paneBusy || shell?.adhdBlocked} manageHosts={shell?.manageHosts} addHost={shell?.addHost} resourcesAvailable={desktopResourcesAvailable} open={tool => {
+  ] as const).map(([kind, Icon, label, detail, run]) => <button key={kind} aria-labelledby={`${menuId}-create-${kind}`} aria-describedby={`${menuId}-create-${kind}-detail`} onClick={run}><Icon size={16}/><span className="desktop-menu-text"><span id={`${menuId}-create-${kind}`}>{label}</span><small id={`${menuId}-create-${kind}-detail`}>{detail}</small></span></button>)}</DesktopMenu></div>{shell?.controls}<form className="search-box" onSubmit={(event) => search(event, true)}><Search size={16}/><input aria-label={t("搜索历史消息")} placeholder={shell ? t("搜索 {0} 的消息…", shell.host.name) : t("搜索消息…")} maxLength={256} value={query} onChange={(e) => setQuery(e.target.value)}/><kbd>↵</kbd></form><SidebarLayoutSwitch value={preferences.sidebarLayout} change={sidebarLayout => setPreferences({ ...preferences, sidebarLayout })} adhd={shell?.openAdhd ? { open: shell.openAdhd, disabled: paneBusy || shell.adhdBlocked, reason: paneBusy || shell.adhdBlocked ? t("请先完成各对话的发送、上传或录音。") : undefined } : undefined}/><SidebarUnreadFilter filter={shell ? shell.inboxFilter : localInboxFilter} unreadCount={shell ? shell.unreadCount : localUnreadCount} pendingCount={shell ? shell.pendingCount : localPendingCount} change={shell ? shell.changeInboxFilter : changeLocalInboxFilter}/>{shell ? shell.navigation({ conversations, bots: navigationBots, selected, pins, globalPins, activity }) : <FolderListOptions hosts={standaloneSidebarHosts} defaultConnection={connection} visible={visible} scope={preferences.sidebarLayout} options={standaloneSidebarOptions}><ConversationList showDisconnectedBots={preferences.showDisconnectedBots} layout={preferences.sidebarLayout} inboxFilter={localInboxFilter} retainedConversationId={localInboxFilter ? localRetainedOpen : undefined} openBot={openStandaloneBot} connection={connection} newChat={newStandaloneDirectChat} conversations={conversations} bots={navigationBots} selected={selected} pins={pins} globalPins={globalPins} activity={activity} select={selectStandaloneChat}/></FolderListOptions>}<WorkspaceFooter hostName={hostName} status={state.status} userId={state.user?.id} archivedCount={archivedChats.length} menuId={`${menuId}-workspace`} menuOpen={menu === "workspace"} trigger={workspaceTrigger} toggleMenu={() => toggleMenu("workspace")} closeMenu={closeMenu} openAdhd={shell?.openAdhd} adhdBlocked={paneBusy || shell?.adhdBlocked} manageHosts={shell?.manageHosts} addHost={shell?.addHost} resourcesAvailable={desktopResourcesAvailable} open={tool => {
       if (tool === "profile" || tool === "settings" || tool === "connection" || tool === "screen") { setSettingsFromMenu(false); setSettingsSection(tool === "connection" || tool === "screen" ? tool : "general"); setSettings(true); }
       else if (tool === "files") setFileCenter(true);
       else if (tool === "capabilities") { setDetailBot(undefined); setCapabilities(true); }

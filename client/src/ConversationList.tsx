@@ -7,7 +7,7 @@ import "./bot-conversation-folds.css";
 import { DraftPreviewText, listDraftPreview, useDraftPreviews } from "./DraftPreview.js";
 import { FolderSections, MoveToFolder, type CrossHostFolderActionsContext } from "./ConversationFolders.js";
 import { botAgentSignal, buildBotRows, buildConversationRows, isTicketConversation, navigationItems, formatRowTime, type InboxRow } from "./conversation-inbox.js";
-import { filterUnreadHostItems } from "./conversation-unread.js";
+import { filterUnreadHostItems, type InboxFilter } from "./conversation-unread.js";
 import { useLocalDay } from "./local-day.js";
 import { agentSignal } from "./agent-state.js";
 import { AgentAvatar } from "./AgentAvatar.js";
@@ -40,7 +40,7 @@ export type ConversationSelection = {
   disabled: (id: string) => boolean; reason?: (id: string) => string | undefined; toggle: (id: string) => void;
 };
 
-export const ConversationList = memo(function ConversationList({ connection, hostId, hostName, slice, showHostBadge = false, showDisconnectedBots = false, visible = true, layout = "bots", selection, filtered = false, unreadOnly = false, retainedConversationId, conversations, bots, selected, pins, globalPins = [], showGlobalPins = true, activity, select, newChat, openBot }: { connection: HubConnection; hostId?: string; hostName?: string; slice?: SidebarSlice; showHostBadge?: boolean; showDisconnectedBots?: boolean; visible?: boolean; layout?: SidebarLayout; selection?: ConversationSelection; filtered?: boolean; unreadOnly?: boolean; retainedConversationId?: string; conversations: Conversation[]; bots: Bot[]; selected: string; pins: string[]; globalPins?: string[]; showGlobalPins?: boolean; activity: Record<string, ConversationActivity>; select: (id: string) => void; newChat: (botId: string) => void; openBot: (botId: string, destination: "capabilities" | "operations") => void }) {
+export const ConversationList = memo(function ConversationList({ connection, hostId, hostName, slice, showHostBadge = false, showDisconnectedBots = false, visible = true, layout = "bots", selection, filtered = false, inboxFilter, retainedConversationId, conversations, bots, selected, pins, globalPins = [], showGlobalPins = true, activity, select, newChat, openBot }: { connection: HubConnection; hostId?: string; hostName?: string; slice?: SidebarSlice; showHostBadge?: boolean; showDisconnectedBots?: boolean; visible?: boolean; layout?: SidebarLayout; selection?: ConversationSelection; filtered?: boolean; inboxFilter?: InboxFilter; retainedConversationId?: string; conversations: Conversation[]; bots: Bot[]; selected: string; pins: string[]; globalPins?: string[]; showGlobalPins?: boolean; activity: Record<string, ConversationActivity>; select: (id: string) => void; newChat: (botId: string) => void; openBot: (botId: string, destination: "capabilities" | "operations") => void }) {
   const drafts = useDraftPreviews(connection.cache);
   const sourceHost = showHostBadge && hostName ? <HostSourceBadge name={hostName}/> : null;
   const bulk = useConversationBulk();
@@ -135,10 +135,10 @@ export const ConversationList = memo(function ConversationList({ connection, hos
   const pinSet = useMemo(() => new Set(pins), [pins]);
   const globalPinSet = useMemo(() => new Set(globalPins), [globalPins]);
   const parent = conversationsById.get(selected)?.parentId;
-  const effectiveFiltered = filtered || unreadOnly;
+  const effectiveFiltered = filtered || !!inboxFilter;
   const unreadMatch = useMemo(
-    () => unreadOnly ? filterUnreadHostItems(conversations, activity, globalPins, retainedConversationId) : undefined,
-    [unreadOnly, conversations, activity, globalPins, retainedConversationId, showTickets],
+    () => inboxFilter ? filterUnreadHostItems(conversations, activity, globalPins, retainedConversationId, inboxFilter) : undefined,
+    [inboxFilter, conversations, activity, globalPins, retainedConversationId, showTickets],
   );
   const retainedIds = useMemo(
     () => unreadMatch ? (selection?.selected ? new Set([...selection.selected, ...unreadMatch.matchingIds]) : unreadMatch.matchingIds) : selection?.selected,
@@ -271,7 +271,7 @@ export const ConversationList = memo(function ConversationList({ connection, hos
     {!!unassigned.length && <section><SidebarListHeading>{t("对话")}</SidebarListHeading>{unassigned.map((c) => row(c))}</section>}
     {!!groups.length && <section><SidebarListHeading>{t("群组")}</SidebarListHeading>{groups.map((c) => groupRow(c))}</section>}
     </>}
-    {!(inbox ? inbox.length : unreadMatch ? botIds.length || unassigned.length || groups.length || globalRows.length : active.length || botIds.length) && <p className="empty-sidebar">{unreadOnly ? t("没有未读会话") : (inbox ? hiddenConversations : hiddenBots) ? t("未连接的 Bot 已隐藏，勾选「显示未连接 Bot」即可查看。") : t("选择 Bot 开始新对话，或点击新建群组。")}</p>}
+    {!(inbox ? inbox.length : unreadMatch ? botIds.length || unassigned.length || groups.length || globalRows.length : active.length || botIds.length) && <p className="empty-sidebar">{inboxFilter === "pending" ? t("没有等你回答的问题") : inboxFilter ? t("没有未读会话") : (inbox ? hiddenConversations : hiddenBots) ? t("未连接的 Bot 已隐藏，勾选「显示未连接 Bot」即可查看。") : t("选择 Bot 开始新对话，或点击新建群组。")}</p>}
     </>}
     {actionError && <p className="error-text" role="alert">{actionError}</p>}
     {visible && menu && menuTarget && <DesktopMenu id={`${prefix}_actions`} label={isGroup(menuTarget) ? t("群组操作") : t("对话操作")} open point={menu.point} placement="down-start" trigger={trigger} close={() => setMenu(undefined)}>

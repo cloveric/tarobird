@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { conversationUnreadTotal, filterUnreadHostItems, isUnreadSelectionTarget } from '../client/src/conversation-unread.js';
+import { conversationPendingQuestionTotal, conversationUnreadTotal, filterUnreadHostItems, isUnreadSelectionTarget, pendingQuestionsFor } from '../client/src/conversation-unread.js';
 import { setTicketConversationsVisible } from '../client/src/dispatcher.js';
 import type { Conversation } from '../src/client-protocol/index.js';
 import type { ConversationActivity } from '../client/src/storage.js';
@@ -122,4 +122,41 @@ it('detects unread selection targets accurately for bots and conversations layou
   expect(isUnreadSelectionTarget(chats, state, [], 't1', 'bots')).toBe(true);
   expect(isUnreadSelectionTarget(chats, state, [], 'gArchived', 'conversations')).toBe(false);
   expect(isUnreadSelectionTarget(chats, state, [], 'tArchivedParent', 'bots')).toBe(false);
+});
+
+it('the 待处理 filter lists conversations with a question waiting for the owner, never command approvals', () => {
+  const chats = [
+    chat('asks', false, undefined, 'direct', ['botA']),
+    chat('approves', false, undefined, 'direct', ['botB']),
+    chat('unreadOnly', false, undefined, 'direct', ['botC']),
+    chat('archivedAsk', true, undefined, 'direct', ['botD']),
+    chat('g1', false, undefined, 'group', ['botA']),
+    chat('topicAsk', false, 'g1', 'group'),
+  ];
+  const question = (id: string) => ({ [id]: { kind: 'question' as const, at: 100 } });
+  const state: Record<string, ConversationActivity> = {
+    asks: { ...activity(0), attention: { ...question('q1'), ...question('q2') } },
+    approves: { ...activity(0), attention: { a1: { kind: 'approval' as const, at: 100 } } },
+    unreadOnly: activity(4),
+    archivedAsk: { ...activity(0), attention: question('q3') },
+    g1: activity(0),
+    topicAsk: { ...activity(0), attention: question('q4') },
+  };
+  expect(pendingQuestionsFor(state.asks)).toBe(2);
+  expect(pendingQuestionsFor(state.approves)).toBe(0);
+  expect(conversationPendingQuestionTotal(chats, state)).toBe(3);
+
+  const pending = filterUnreadHostItems(chats, state, [], undefined, 'pending');
+  expect([...pending.matchingIds].sort()).toEqual(['asks', 'topicAsk']);
+  expect([...pending.botIds]).toEqual(['botA']);
+  expect([...pending.groupIds]).toEqual(['g1']);
+  // The Unread filter is unchanged: approvals and questions alone do not make a chat unread.
+  expect([...filterUnreadHostItems(chats, state).matchingIds]).toEqual(['unreadOnly']);
+
+  // An answered question leaves the list, except for the open conversation while it is being read.
+  const answered = { ...state, asks: { ...activity(0), attention: {} } };
+  expect(filterUnreadHostItems(chats, answered, [], undefined, 'pending').matchingIds.has('asks')).toBe(false);
+  expect(filterUnreadHostItems(chats, answered, [], 'asks', 'pending').matchingIds.has('asks')).toBe(true);
+  expect(isUnreadSelectionTarget(chats, state, [], 'asks', 'bots', 'pending')).toBe(true);
+  expect(isUnreadSelectionTarget(chats, state, [], 'approves', 'bots', 'pending')).toBe(false);
 });

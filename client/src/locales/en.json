@@ -7237,5 +7237,8 @@
   "轻量级沙箱速记侧边栏，支持本机隔离存储与一键复制。": "A lightweight sandboxed scratchpad with device-local storage and one-click copy.",
   "资源管理 · TaroBird 占用 CPU {0}，内存 {1}": "Resource Manager · TaroBird uses CPU {0}, memory {1}",
   "{0} 剩 {1}%，{2}": "{0}: {1}% left, {2}",
-  "{0} 剩 {1}%": "{0}: {1}% left"
+  "{0} 剩 {1}%": "{0}: {1}% left",
+  "等你回答问题的对话": "Conversations waiting for your answer to a question",
+  "{0} 个问题等你回答": "{0} questions waiting for your answer",
+  "没有等你回答的问题": "No questions waiting for your answer"
 }

@@ -293,3 +293,61 @@ test("Unread filter resets 0-unread host filter, preserves retained chat on re-c
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("desktop 待处理 filter lists chats where a Bot waits for an answer to a question, not command approvals", async ({ page }) => {
+  test.setTimeout(90_000);
+  const root = await mkdtemp(path.join(os.tmpdir(), "sidebar-pending-filter-"));
+  const hub = await HubServer.start({ stateDir: path.join(root, "a"), clientDir: path.resolve("dist") });
+  try {
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,online) VALUES('alpha','Alpha Bot','fixture',1),('beta','Beta Bot','fixture',1)");
+    const quiet = await hub.store.createConversation("owner", ["alpha"], "Quiet Chat", "p_quiet");
+    const asking = await hub.store.createConversation("owner", ["alpha"], "Needs Answer", "p_ask");
+    const approving = await hub.store.createConversation("owner", ["beta"], "Needs Approval", "p_approve");
+
+    await pair(page, hub, "macmini");
+    await sidebar(page).locator(`[data-conversation-id="${quiet.id}"]`).click();
+    await expect(workspace(page).getByRole("heading", { name: "Quiet Chat", exact: true })).toBeVisible();
+
+    const filterGroup = sidebar(page).getByRole("group", { name: "筛选会话", exact: true });
+    const allChip = filterGroup.getByRole("button", { name: "全部", exact: true });
+    const unreadChip = filterGroup.getByRole("button", { name: /^未读/ });
+    const pendingChip = filterGroup.getByRole("button", { name: /^待处理/ });
+    // Nothing to answer yet: no count, and the filter has its own empty state.
+    await expect(pendingChip.locator(".sidebar-pending-total")).toHaveCount(0);
+    await pendingChip.click();
+    await expect(sidebar(page).locator(".empty-sidebar")).toHaveText("没有等你回答的问题");
+    await allChip.click();
+
+    await hub.store.publishBotMessage("alpha", { conversationId: asking.id, blocks: [{ type: "card", title: "需要选择", elements: [{ type: "button", text: "提交", actionId: "askq_submit", value: { cctb_lark: "ask_user_question", action: "form_submit", requestId: "question" } }] }] });
+    await hub.store.publishBotMessage("beta", { conversationId: approving.id, blocks: [{ type: "card", title: "需要批准", elements: [{ type: "button", text: "允许此次", actionId: "approve", value: { cctb_lark: "approval", decision: "allow_once", requestId: "approval" } }] }] });
+
+    // One question waits; the approval is not counted.
+    await expect(pendingChip.locator(".sidebar-pending-total")).toHaveText("1", { timeout: 20_000 });
+    await expect(pendingChip).toHaveAttribute("aria-pressed", "false");
+
+    await pendingChip.click();
+    await expect(pendingChip).toHaveAttribute("aria-pressed", "true");
+    await expect(allChip).toHaveAttribute("aria-pressed", "false");
+    await expect(unreadChip).toHaveAttribute("aria-pressed", "false");
+    await expect(sidebar(page).locator(`[data-conversation-id="${asking.id}"]`)).toBeVisible();
+    await expect(sidebar(page).locator(`[data-conversation-id="${approving.id}"]`)).toHaveCount(0);
+    await expect(sidebar(page).locator(`[data-conversation-id="${quiet.id}"]`)).toHaveCount(0);
+
+    // The By chat layout filters the same way.
+    await sidebar(page).getByRole("button", { name: "按对话", exact: true }).click();
+    await expect(sidebar(page).locator(`[data-conversation-id="${asking.id}"]`)).toBeVisible();
+    await expect(sidebar(page).locator(`[data-conversation-id="${approving.id}"]`)).toHaveCount(0);
+    await sidebar(page).getByRole("button", { name: "按 Bot", exact: true }).click();
+
+    // 未读 still lists unread chats, including the approval; 全部 shows everything again.
+    await unreadChip.click();
+    await expect(unreadChip).toHaveAttribute("aria-pressed", "true");
+    await expect(sidebar(page).locator(`[data-conversation-id="${approving.id}"]`)).toBeVisible();
+    await allChip.click();
+    await expect(sidebar(page).locator(`[data-conversation-id="${quiet.id}"]`)).toBeVisible();
+  } finally {
+    await page.close();
+    await hub.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
