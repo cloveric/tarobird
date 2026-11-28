@@ -509,6 +509,10 @@
 
 /* Who is helping you: Computer illustration + Signal bars + Readable model + Memory bar */
 .workspace-env-card {
+  /* Normal state of the card's signal, status tag and bars: the mono accent (warm gray by default), not green.
+   * Low and empty readings keep orange and red. */
+  --env-tone: var(--mono-mark, #a39b91);
+  --env-tone-text: color-mix(in srgb, var(--env-tone) 72%, var(--text));
   border: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface) 45%, var(--bg));
@@ -581,7 +585,7 @@
   flex-shrink: 0;
 }
 
-.workspace-env-signal.is-ok { color: var(--green); }
+.workspace-env-signal.is-ok { color: var(--env-tone-text, var(--green)); }
 .workspace-env-signal.is-warn { color: var(--orange); }
 .workspace-env-signal.is-bad { color: var(--red); }
 .workspace-env-signal.is-muted { color: var(--muted); }
@@ -600,7 +604,7 @@
   background: color-mix(in srgb, var(--grey) 24%, transparent);
 }
 
-.ws-signal-bars.is-ok i.is-lit { background: var(--green); }
+.ws-signal-bars.is-ok i.is-lit { background: var(--env-tone, var(--green)); }
 .ws-signal-bars.is-warn i.is-lit { background: var(--orange); }
 .ws-signal-bars.is-bad i.is-lit { background: var(--red); }
 
@@ -658,7 +662,7 @@
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--green);
+  background: var(--env-tone, var(--green));
 }
 
 .workspace-memory-bar i.is-low { background: var(--orange); }
@@ -668,7 +672,7 @@
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--green);
+  color: var(--env-tone-text, var(--green));
   flex: none;
 }
 
@@ -1353,3 +1357,12 @@
   font-size: 11px;
   color: var(--grey);
 }
+
+.workspace-env-meta .workspace-chip.is-online {
+  color: var(--env-tone-text);
+  border-color: color-mix(in srgb, var(--env-tone) 45%, var(--border));
+  background: color-mix(in srgb, var(--env-tone) 14%, var(--bg));
+}
+/* A stale quota reading greys out until the next refresh, like the composer battery. */
+.workspace-quota-row.is-stale .workspace-memory-bar i { background: var(--muted); }
+.workspace-quota-row.is-stale .workspace-memory-pct { color: var(--muted); }

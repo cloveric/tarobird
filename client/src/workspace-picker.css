@@ -416,7 +416,8 @@
   flex-wrap: wrap;
   gap: 6px;
 }
-.workspace-chip {
+/* Scoped: the conversation workspace has its own small .workspace-chip (status tags), which this must not resize. */
+.workspace-quick-chips .workspace-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -430,13 +431,13 @@
   font-size: 12px;
   font-weight: 500;
 }
-.workspace-chip > span {
+.workspace-quick-chips .workspace-chip > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 18em;
 }
-.workspace-chip.is-selected {
+.workspace-quick-chips .workspace-chip.is-selected {
   border-color: var(--accent);
   background: var(--selected);
   color: var(--accent);
@@ -483,7 +484,7 @@
 }
 
 @media (max-width: 760px) {
-  .workspace-chip,
+  .workspace-quick-chips .workspace-chip,
   .workspace-add-trigger,
   .workspace-browse-toggle {
     min-height: 38px;

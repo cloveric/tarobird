@@ -6305,10 +6305,6 @@
   "{0} 个文件已更改": "{0} files changed",
   "未连上": "Offline",
   "已连上": "Connected",
-  "很好 · {0}ms": "Great · {0}ms",
-  "不错 · {0}ms": "Good · {0}ms",
-  "有点慢 · {0}ms": "Slow · {0}ms",
-  "较卡顿 · {0}ms": "Weak · {0}ms",
   "{0} 想运行一条命令，需要你同意": "{0} wants to run a command — needs your OK",
   "{0} 想修改或写入文件，需要你同意": "{0} wants to edit a file — needs your OK",
   "{0} 想访问网络或网页，需要你同意": "{0} wants to reach the web — needs your OK",
@@ -7239,5 +7235,7 @@
   "工作台暂时不可用，请先选择一个活跃对话后重试。": "Workbench is unavailable right now. Select an active conversation and try again.",
   "完整无限画布工作台（画布编排、生图/生视频、提示词库、素材库、内置官方节点插件与对话 Bot Agent 联动）。": "Full Infinite Canvas workbench with visual workflows, image and video generation, prompt and asset libraries, bundled nodes and the conversation Bot Agent.",
   "轻量级沙箱速记侧边栏，支持本机隔离存储与一键复制。": "A lightweight sandboxed scratchpad with device-local storage and one-click copy.",
-  "资源管理 · TaroBird 占用 CPU {0}，内存 {1}": "Resource Manager · TaroBird uses CPU {0}, memory {1}"
+  "资源管理 · TaroBird 占用 CPU {0}，内存 {1}": "Resource Manager · TaroBird uses CPU {0}, memory {1}",
+  "{0} 剩 {1}%，{2}": "{0}: {1}% left, {2}",
+  "{0} 剩 {1}%": "{0}: {1}% left"
 }
