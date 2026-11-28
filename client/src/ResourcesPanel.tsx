@@ -943,27 +943,44 @@ export function MobileResourcesDialog({
   );
 }
 
-/** Lightweight Workspace Rail footer icon button that opens the shared Resource Manager dialog.
- * Does not poll in the background while the dialog is closed. */
+/** How often the Workspace Rail footer refreshes its two numbers while it is shown. */
+const FOOTER_POLL_MS = 15_000;
+
+/** Workspace Rail footer button that opens the shared Resource Manager dialog.
+ * With a `connection`, it also shows TaroBird's total CPU and memory (Host service plus engine processes),
+ * refreshed every 15 s while the rail is mounted. It pauses while the dialog is open, which polls on its own.
+ * Without one (the WelcomeHome status bar) it stays an icon and never polls. */
 export const ResourcesTriggerButton = forwardRef<HTMLButtonElement, {
   open: boolean;
   controlsId?: string;
   onOpen: () => void;
-}>(function ResourcesTriggerButton({ open, controlsId, onOpen }, ref) {
+  connection?: HubConnection;
+}>(function ResourcesTriggerButton({ open, controlsId, onOpen, connection }, ref) {
   useLocale();
+  const { snapshot, ready } = useHostResources(connection, !!connection && !open, FOOTER_POLL_MS);
+  const summary = ready ? snapshot?.summary : undefined;
+  const cpu = summary ? formatCpuPercent(summary.totalCpuPercent) : "";
+  const memory = summary ? formatMemoryBytes(summary.totalMemoryBytes) : "";
 
   return (
     <button
       ref={ref}
       type="button"
-      className={`icon-button resources-footer-button${open ? " is-open" : ""}`}
+      className={`icon-button resources-footer-button${open ? " is-open" : ""}${summary ? " has-metrics" : ""}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-controls={open ? controlsId : undefined}
       aria-label={t("资源")}
-      title={t("资源管理")}
+      title={summary ? t("资源管理 · TaroBird 占用 CPU {0}，内存 {1}", cpu, memory) : t("资源管理")}
       onClick={onOpen}
     >
+      {summary && (
+        <span className="resources-footer-metrics" aria-hidden="true">
+          <span>CPU <b>{cpu}</b></span>
+          <i />
+          <span>{t("内存")} <b>{memory}</b></span>
+        </span>
+      )}
       <Activity size={15} aria-hidden="true" />
     </button>
   );

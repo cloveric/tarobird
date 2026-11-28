@@ -90,18 +90,23 @@ test("desktop Resource Manager is reachable from WelcomeHome and rail, separates
 
     await pair(page, hub, "主机甲");
 
-    // 0. Zero background /api/host-resources requests while the dialog is closed,
-    //    even after opening the Workspace Rail (which renders ResourcesTriggerButton).
+    // 0. No /api/host-resources requests before the Workspace Rail opens. Once it opens, its footer reads
+    //    TaroBird's total CPU and memory once (then every 15 s), and the reads stop when the rail closes.
     await workspace(page).locator(".conversation-row").filter({ hasText: "Alpha Refactor" }).click();
+    await page.waitForTimeout(500);
+    expect(resourceGetUrls).toEqual([]);
     await workspace(page).getByRole("button", { name: "会话工作区", exact: true }).click();
     const railFooterBtn = workspace(page).locator("aside.conversation-workspace-rail").getByRole("button", { name: "资源", exact: true });
     await expect(railFooterBtn).toBeVisible();
-    await page.waitForTimeout(500);
-    expect(resourceGetUrls).toEqual([]);
+    await expect(railFooterBtn.locator(".resources-footer-metrics")).toContainText("CPU");
+    await expect(railFooterBtn.locator(".resources-footer-metrics")).toContainText("内存");
+    expect(resourceGetUrls.length).toBe(1);
 
     // Close Workspace Rail so we also prove persistent sidebar WorkspaceFooter works when rail is closed
     await workspace(page).getByRole("button", { name: "会话工作区", exact: true }).click();
     await expect(page.locator("aside.conversation-workspace-rail")).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(resourceGetUrls.length).toBe(1);
 
     // 1. Reachable directly from persistent sidebar WorkspaceFooter even while Workspace Rail is closed!
     await openResourcesFromSidebar(page);
