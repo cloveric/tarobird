@@ -133,17 +133,18 @@ function WindowQuota({
   </div>;
 }
 
-type OverviewRow = { key: string; names: string[]; engine: QuotaEngine; scopes: QuotaScope[]; left: number; window: string; resetsAt?: string };
+type OverviewRow = { key: string; names: string[]; engine: QuotaEngine; scopes: QuotaScope[]; left: number; displayLeft: string; window: string; resetsAt?: string };
 /** Readings this close in reset time count as the same quota window. */
 const SAME_RESET_MS = 2 * 60_000;
-const sameReading = (row: OverviewRow, engine: QuotaEngine, reading: { left: number; window: string; resetsAt?: string }) =>
-  row.engine === engine && row.left === reading.left && row.window === reading.window
+const sameReading = (row: OverviewRow, reading: OverviewRow) =>
+  row.engine === reading.engine && row.displayLeft === reading.displayLeft && row.window === reading.window
   && (row.resetsAt === undefined ? reading.resetsAt === undefined
     : reading.resetsAt !== undefined && Math.abs(Date.parse(row.resetsAt) - Date.parse(reading.resetsAt)) <= SAME_RESET_MS);
 /** One row per model and reading: Bots of the same engine whose tightest percent window reads the same share a row,
  *  different readings of one engine sit next to each other. Engines with the least left come first; Bots without a
  *  percent window are only named. */
-function overviewRows(scopes: readonly QuotaScope[], labels: ReadonlyMap<string, string>) {
+function overviewRows(scopes: readonly QuotaScope[], labels: ReadonlyMap<string, string>, formatNumber: (value: number) => string) {
+  const readings: OverviewRow[] = [];
   const rows: OverviewRow[] = [], unread: { scope: QuotaScope; names: string[] }[] = [], login: string[] = [], unsupported: string[] = [], nonPercent: string[] = [];
   for (const scope of scopes) {
     let best: { left: number; window: string; resetsAt?: string } | undefined;
@@ -157,16 +158,27 @@ function overviewRows(scopes: readonly QuotaScope[], labels: ReadonlyMap<string,
     // The Host sends one scope per Bot. botIds also contains every verified account peer.
     const name = labels.get(scope.id) ?? scope.label;
     if (best) {
-      const row = rows.find(item => sameReading(item, scope.engine, best!));
-      if (row) { row.names.push(name); row.scopes.push(scope); }
-      else rows.push({ key: scope.id, names: [name], engine: scope.engine, scopes: [scope], ...best });
+      readings.push({ key: scope.id, names: [name], engine: scope.engine, scopes: [scope], displayLeft: formatNumber(best.left), ...best });
     }
     else if (scope.state === "login_required") login.push(name);
     else if (scope.state === "unsupported" || scope.capability.mode === "unsupported") unsupported.push(name);
     else if (scope.state === "ready" || scope.state === "stale") nonPercent.push(name);
     else unread.push({ scope, names: [name] });
   }
-  for (const row of rows) row.names.sort((a, b) => a.localeCompare(b));
+  // Start each cluster at its earliest reset so all members are within the tolerance of each other.
+  const resetTime = (reading: OverviewRow) => reading.resetsAt ? Date.parse(reading.resetsAt) : 0;
+  readings.sort((a, b) => resetTime(a) - resetTime(b) || a.key.localeCompare(b.key));
+  for (const reading of readings) {
+    const row = rows.find(item => sameReading(item, reading));
+    if (!row) { rows.push(reading); continue; }
+    row.scopes.push(...reading.scopes);
+    row.left = Math.min(row.left, reading.left);
+  }
+  for (const row of rows) {
+    const scopeName = (scope: QuotaScope) => labels.get(scope.id) ?? scope.label;
+    row.scopes.sort((a, b) => scopeName(a).localeCompare(scopeName(b)) || a.id.localeCompare(b.id));
+    row.names = row.scopes.map(scopeName);
+  }
   const tightest = new Map<QuotaEngine, number>();
   for (const row of rows) tightest.set(row.engine, Math.min(tightest.get(row.engine) ?? 100, row.left));
   rows.sort((a, b) => tightest.get(a.engine)! - tightest.get(b.engine)! || engines[a.engine].localeCompare(engines[b.engine])
@@ -195,7 +207,7 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
 
   const botLabels = new Map(state.bots.map(bot => [bot.id, bot.name]));
   const cards = quota.directory ? groupQuotaScopesByAccount(quota.directory.scopes, { now, botLabels }) : [];
-  const overview = quota.directory ? overviewRows(quota.directory.scopes, botLabels) : undefined;
+  const overview = quota.directory ? overviewRows(quota.directory.scopes, botLabels, formatNumber) : undefined;
   const cardOf = new Map(cards.flatMap((card, index) => card.scopes.map(item => [item.id, index] as const)));
   const jumpTo = (scope: QuotaScope) => { const index = cardOf.get(scope.id); if (index !== undefined) document.getElementById(`quota-card-${index}`)?.scrollIntoView({ block: "start", behavior: "smooth" }); };
   const cardScopes = (scope: QuotaScope) => cards[cardOf.get(scope.id) ?? -1]?.scopes ?? [scope];

@@ -747,10 +747,17 @@ test("overview: every Bot on one table, least left first, numbers only, unreadab
 });
 
 test("overview groups Bots by model: one row per reading, rows of one model side by side", async ({ page }) => {
-  const f = await fixture(page, false, false, [["ops", "Ops Bot", "codex"], ["night", "Night Bot", "codex"]]);
+  const f = await fixture(page, false, false, [["ops", "Ops Bot", "codex"], ["night", "Night Bot", "codex"], ["late", "Late Bot", "codex"]]);
   try {
-    // Ops Bot reads exactly like Coding Bot; Night Bot is the same model with a different reading.
-    f.records.ops!.snapshot = structuredClone(f.records.coder!.snapshot);
+    // Visit the middle reset first. Endpoints three minutes apart must never share a row,
+    // while fractional readings that display alike share the earliest matching window.
+    const start = Date.now() + 3_600_000;
+    for (const [id, offset, used] of [["coder", 90_000, 37.6], ["ops", 0, 37.8], ["late", 180_000, 37.7]] as const) {
+      const snapshot = structuredClone(f.records.coder!.snapshot);
+      snapshot.pools[0]!.windows[0]!.resetsAt = new Date(start + offset).toISOString();
+      snapshot.pools[0]!.windows[0]!.usedPercent = used;
+      f.records[id]!.snapshot = snapshot;
+    }
     const other = structuredClone(f.records.coder!.snapshot); other.pools[0]!.windows[0]!.usedPercent = 50; f.records.night!.snapshot = other;
     await f.open();
     const overview = page.locator(".engine-quota:visible").getByRole("region", { name: "全部 Bot 的额度", exact: true });
@@ -759,12 +766,13 @@ test("overview groups Bots by model: one row per reading, rows of one model side
     await expect(overview.getByRole("button", { name: /^Codex（Coding Bot、Ops Bot）：.*剩余 62%$/ })).toBeVisible();
     await expect(overview.getByRole("button", { name: /^Codex（Night Bot）：.*剩余 50%$/ })).toBeVisible();
     await expect(overview.getByRole("button", { name: /^Codex（Review Bot）：.*剩余 0%$/ })).toBeVisible();
-    await expect(rows).toHaveCount(3);
+    await expect(overview.getByRole("button", { name: /^Codex（Late Bot）：.*剩余 62%$/ })).toBeVisible();
+    await expect(rows).toHaveCount(4);
     // The model is the row title; its Bots are listed under it.
     const shared = rows.filter({ hasText: "Ops Bot" });
     await expect(shared.locator(".quota-overview-bot strong")).toHaveText("Codex");
     await expect(shared.locator(".quota-overview-bot small")).toHaveText("Coding Bot、Ops Bot");
-    expect(await rows.locator(".quota-overview-pct").allInnerTexts()).toEqual(["0%", "50%", "62%"]);
+    expect(await rows.locator(".quota-overview-pct").allInnerTexts()).toEqual(["0%", "50%", "62%", "62%"]);
   } finally { await f.close(); }
 });
 
