@@ -46,6 +46,10 @@ describe("Bot permissions", () => {
     const print = await settings("antigravity");
     expect(print.choices.find(option => option.id === "normal")?.label).toContain("每轮批准");
     expect(print.revision).not.toBe(acp.revision);
+    await config({ engine: "antigravity", approvalMode: "normal", antigravityRuntime: "acp", antigravityAcpLegacyTurnApproval: true });
+    const migrated = await settings("antigravity");
+    expect(migrated.choices.find(option => option.id === "normal")).toEqual(print.choices.find(option => option.id === "normal"));
+    expect(migrated.revision).not.toBe(acp.revision);
   });
   it("rejects stale device writes, unsupported modes and saves during active turns", async () => {
     await config({ engine: "codex" }); const before = await settings("codex");

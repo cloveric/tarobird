@@ -1,6 +1,6 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { createBridgeDependencies } from "../core/engine-factory.js";
+import { buildEngineEnvironment, createBridgeDependencies } from "../core/engine-factory.js";
 import { recoverInterruptedCoreTurns } from "../core/recovery.js";
 import { appAgentInstructions } from "./agent-instructions.js";
 import type { EnvSource } from "../config.js";
@@ -24,6 +24,7 @@ import { appendAuditEventBestEffort } from "../runtime/audit-events.js";
 import { cancelDrainRequestSchema, drainCommitSchema, drainStatusRequestSchema, restartRequestSchema, shutdownRequestSchema, type DrainBlocker } from "./control.js";
 import { gatewayActiveWorkCount, gatewayDrainBlockers } from "./activity.js";
 import { createIdleWatch } from "./idle-watch.js";
+import { migrateManagedLegacyAntigravityRuntime } from "./antigravity-runtime-migration.js";
 import { settleProcessTreeKills } from "../codex/process-tree.js";
 
 export async function createGatewayBridge(env: EnvSource) {
@@ -107,7 +108,12 @@ export async function runGatewayWorker(argv: string[]): Promise<void> {
         if (!loop.tripped) {
           await new FileWorkflowStore(stateDir).failInterruptedProcessing();
           await recoverInterruptedCoreTurns(stateDir, botId);
+          if (stopRequested) break startup;
+          await migrateManagedLegacyAntigravityRuntime(stateDir, buildEngineEnvironment(workerEnv, "gateway")).catch(() => {
+            console.warn("antigravity_runtime_migration_deferred");
+          });
         }
+        if (stopRequested) break startup;
         const { bridge } = await createGatewayBridge(process.env);
         workerBridge = bridge;
         const config = await loadInstanceConfig(stateDir), runtime = createCoreServiceRuntime({ transcribeMedia: createDefaultTranscribeVoice({ stateDir, ...(process.env.ASR_MAX_AUDIO_SECONDS ? { maxAudioSeconds: Number(process.env.ASR_MAX_AUDIO_SECONDS) } : {}) }) });

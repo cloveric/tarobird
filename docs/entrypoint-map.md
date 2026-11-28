@@ -3870,13 +3870,19 @@ session, Gateway, Bus and scoped App-tool suites listed in the audit.
   when the Bot restarts). `bot-manager.ts` writes `"acp"` for an ordinary Bot it
   creates when the installed agy is 1.5.10 or newer
   (`antigravity-acp-support.ts`; the creation dialog's permission choices follow
-  the same answer); saved Bots keep what they have, and a dispatcher and its
-  workers stay on the print runtime. A conversation started in one runtime
+  the same answer). On an idle restart the Gateway can migrate a legacy
+  ordinary managed Bot with equivalent Bypass or Full-auto permissions after
+  checking ACP resume capability. Explicit runtime pins, legacy Normal
+  permissions, dispatchers, and both local and remote workers stay on their
+  configured path. See the [Host CLI guide](host-cli.md#antigravity-acp-迁移).
+  A conversation started in one runtime
   continues in the other (checked both ways against agy 1.5.14 on 2026-11-22).
   One process per session; `session/resume`
   (never `session/load`, which replays history); model/effort/mode through session
-  config; Normal approval through `session/request_permission` (allow once / reject
-  once); bypass/full-auto through launch flags. Every path that ends a process sends
+  config; new ACP Bots in Normal request approval per tool. A migrated Normal Bot
+  asks once before each turn, launches with the terminal sandbox after approval,
+  and queues new input for its own approval. Bypass/full-auto use launch flags.
+  Every path that ends a process sends
   `session/close` first: only that stops the session's background commands.
   Steering sends another `session/prompt` into the running turn; the prompt it
   replaces returns `end_turn` early and does not end the turn. A steer while an

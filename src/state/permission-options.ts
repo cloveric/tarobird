@@ -9,7 +9,8 @@ export type PermissionOption = { id: PermissionChoice; label: string; descriptio
 export function defaultPermission(engine: PermissionEngine): PermissionChoice { return engine === "kimi" ? "full-auto" : "bypass"; }
 /** The saved runtime that changes what a choice means: Codex process/app-server, Antigravity print/acp. */
 export function permissionRuntime(engine: PermissionEngine, config: Record<string, unknown>): unknown {
-  return engine === "antigravity" ? config.antigravityRuntime : config.codexRuntime;
+  if (engine !== "antigravity") return config.codexRuntime;
+  return config.antigravityAcpLegacyTurnApproval === true ? "print" : config.antigravityRuntime;
 }
 export function permissionOptions(engine: PermissionEngine, runtime?: unknown): PermissionOption[] {
   const codexRuntime = engine === "antigravity" ? undefined : runtime;

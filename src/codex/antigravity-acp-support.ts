@@ -50,27 +50,33 @@ export function antigravityVersionSupportsSwarm(versionOutput: string): boolean 
   return v.major > 1 || v.major === 1 && (v.minor > 5 || v.minor === 5 && v.patch >= 5);
 }
 
-function probeAntigravityVersion(executable: string, env: NodeJS.ProcessEnv, check: (output: string) => boolean): Promise<boolean> {
-  return new Promise<boolean>(resolve => {
+type VersionProbeStatus = "supported" | "timed_out" | "unavailable" | "unsupported";
+
+function probeAntigravityVersion(executable: string, env: NodeJS.ProcessEnv, check: (output: string) => boolean): Promise<VersionProbeStatus> {
+  return new Promise<VersionProbeStatus>(resolve => {
     let settled = false, output = "";
-    const finish = (supported: boolean) => { if (settled) return; settled = true; clearTimeout(timer); resolve(supported); };
+    const finish = (status: VersionProbeStatus) => { if (settled) return; settled = true; clearTimeout(timer); resolve(status); };
     let child: ReturnType<typeof spawnEngine>;
     try { child = spawnEngine(executable, ["--version"], { stdio: ["ignore", "pipe", "pipe"], shell: false, env, windowsHide: true }); }
-    catch { resolve(false); return; }
-    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } finish(false); }, VERSION_PROBE_TIMEOUT_MS);
+    catch { resolve("unavailable"); return; }
+    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } finish("timed_out"); }, VERSION_PROBE_TIMEOUT_MS);
     timer.unref?.();
     child.stdout?.on("data", (chunk: Buffer | string) => { output = `${output}${String(chunk)}`.slice(-4_096); });
-    child.once("error", () => finish(false));
-    child.once("close", code => finish(code === 0 && check(output)));
+    child.once("error", () => finish("unavailable"));
+    child.once("close", code => finish(code !== 0 ? "unavailable" : check(output) ? "supported" : "unsupported"));
   });
 }
 
 /** Asks the installed CLI for its version. A missing CLI, an error or no answer in three seconds all mean no. */
-export function antigravitySupportsAcp(executable: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+export async function antigravitySupportsAcp(executable: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  return await probeAntigravityAcpVersion(executable, env) === "supported";
+}
+
+export function probeAntigravityAcpVersion(executable: string, env: NodeJS.ProcessEnv): Promise<VersionProbeStatus> {
   return probeAntigravityVersion(executable, env, antigravityVersionSupportsAcp);
 }
 
 /** Checks whether the installed `agy` CLI version supports `/swarm` (>= 1.5.5). */
-export function antigravitySupportsSwarm(executable: string, env: NodeJS.ProcessEnv): Promise<boolean> {
-  return probeAntigravityVersion(executable, env, antigravityVersionSupportsSwarm);
+export async function antigravitySupportsSwarm(executable: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+  return await probeAntigravityVersion(executable, env, antigravityVersionSupportsSwarm) === "supported";
 }

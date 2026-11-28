@@ -749,6 +749,7 @@ export const HOST_EN = {
   "引擎尚未登录或登录已过期，请先在主机上完成登录。": "Engine sign-in is missing or expired. Sign in on the host. ",
   "引擎额度已用尽，请等待额度恢复或增加账户额度。": "The engine usage quota is exhausted. Wait for its reset or increase the account quota. ",
   "引擎提前结束了本轮，回答可能不完整。请先核对已执行的操作，再继续未完成的任务。原会话已保留，未自动重发请求。": "The engine ended this turn early; the answer may be incomplete. Review completed operations before continuing. The conversation is preserved and the request was not automatically replayed.",
+  "Antigravity 在命令仍处于运行状态时停止返回进度，回答可能不完整。原会话已保留。请先核对命令结果，系统未自动重发请求。": "Antigravity stopped reporting progress while a command was active. The answer may be incomplete. The conversation is preserved. Check the command result before continuing. The request was not replayed.",
   "引擎返回了占位内容，本轮未确认完成。已执行操作的结果可能仍不确定；请先查看运行过程，再决定是否继续。": "The engine returned a placeholder instead of an answer; this turn is not confirmed complete. Prior tool effects may be unknown. Review the run before deciding whether to continue.",
   "这条消息在停止请求到达前已结束，未取消任何任务；完整结果请查看主机记录。": "This message finished before Stop arrived. Nothing was cancelled; check the host record for any final output.",
   "这条消息已在目标轮次之间开始执行。DeepSeek 暂不支持单独停止它而保留目标运行，因此没有停止。": "This message has started between goal rounds. DeepSeek cannot stop it separately without pausing the goal, so it is still running.",

@@ -17,7 +17,7 @@ import type {
   EngineQuotaReadResult,
   EngineStreamEvent,
 } from "./adapter.js";
-import { EngineIncompleteResponseError } from "./adapter.js";
+import { AntigravityCommandStreamInterruptedError, EngineIncompleteResponseError } from "./adapter.js";
 import { AdapterQuotaCache } from "./adapter-account-quota.js";
 import { cancelOwnedAntigravityQuotaReads, readOwnedAntigravityQuota } from "./antigravity-account-quota.js";
 import type { AntigravityLocalProbeDeps } from "./antigravity-local-server.js";
@@ -168,6 +168,7 @@ type AntigravityPendingTurn = {
   emittedTools: Map<number, string>;
   toolProgress: Map<number, string>;
   completedTools: Set<number>;
+  activeCommands: Set<number>;
   onProgress?: CodexUserMessageInput["onProgress"];
   onEngineEvent?: CodexUserMessageInput["onEngineEvent"];
   abortCleanup?: () => void;
@@ -867,6 +868,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
         emittedTools: new Map(),
         toolProgress: new Map(),
         completedTools: new Set(),
+        activeCommands: new Set(),
         onProgress: input.onProgress,
         onEngineEvent: input.onEngineEvent,
         timeoutDisabled: input.disableRuntimeTimeout === true,
@@ -1002,6 +1004,11 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       }
       if (step.step_type === "tool" && index !== undefined) {
         const info = (asRecord(step.tool_info) ?? {}) as AntigravityToolInfo;
+        if (step.state === "DONE" || step.state === "ERROR") {
+          pending.activeCommands.delete(index);
+        } else if (!pending.completedTools.has(index) && (step.tool_name ?? info.name) === "run_command") {
+          pending.activeCommands.add(index);
+        }
         this.emitPersistentToolUse(worker, pending, step, index, info);
         const progress = publicToolProgress(pending.toolProgress, index, info.output);
         if (progress && step.state !== "DONE" && step.state !== "ERROR" && !pending.completedTools.has(index)) this.emitPersistentEngineEvent(pending, { type: "tool_progress", toolUseId: `${worker.currentSessionId ?? "antigravity"}:${index}`, text: progress, sessionId: worker.currentSessionId });
@@ -1215,9 +1222,11 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
     // the conversation and blocks safe releases until the six-hour hard cap.
     pending.inactivityTimeout = setTimeout(() => {
       if (worker.pendingTurn !== pending) return;
-      this.failAndStopWorker(worker, new Error(
-        `Antigravity process turn became inactive after ${Math.max(1, Math.round(this.inactivityTimeoutMs! / 60_000))} minutes`,
-      ));
+      const message = `Antigravity process turn became inactive after ${Math.max(1, Math.round(this.inactivityTimeoutMs! / 60_000))} minutes`;
+      const error = pending.activeCommands.size > 0
+        ? new AntigravityCommandStreamInterruptedError(message)
+        : new Error(message);
+      this.failAndStopWorker(worker, error);
     }, this.inactivityTimeoutMs);
     pending.inactivityTimeout.unref?.();
   }
@@ -1265,7 +1274,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       && error.message !== "Task was stopped by user") error = new EngineIncompleteResponseError(error.message, "interrupted");
     if (worker.removed) return;
     const stderr = worker.stderrTail.trim();
-    const diagnosed = stderr && !error.message.includes(stderr)
+    const diagnosed = stderr && !error.message.includes(stderr) && !(error instanceof AntigravityCommandStreamInterruptedError)
       ? error instanceof EngineIncompleteResponseError
         ? new EngineIncompleteResponseError(`${error.message}\n\nAntigravity stderr:\n${stderr}`, error.reason, error.requestRejection)
         : new Error(`${error.message}\n\nAntigravity stderr:\n${stderr}`)
