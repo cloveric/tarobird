@@ -283,6 +283,21 @@ describe("scoped run ownership and publication", () => {
     } finally { await rm(temp, { recursive: true, force: true }); }
   });
 
+  it("folds a long Kimi command result into the same background report card as Claude's", async () => {
+    const f = fixture(), temp = await mkdtemp(path.join(os.tmpdir(), "background-kimi-report-"));
+    try {
+      // Kimi has no scoped review; its notice now names its origin like Claude's, so the App gets the
+      // collapsible background report (background_context) instead of hundreds of output lines as a message.
+      const text = `…\n${Array.from({ length: 300 }, (_, index) => `npm warn peer dependency ${index}`).join("\n")}`;
+      await withChannelProfile("gateway", () => deliverBackgroundTaskResponse({ ...f.context, runtime: createCoreServiceRuntime(), stateDir: temp, text },
+        { type: "task_notification", origin: "bound", status: "completed", taskId: "bash-npm", summary: "npm install", text }, "zh"));
+      const card = f.messages.find(message => message.raw.card?.appBackgroundTask)?.raw.card;
+      expect(card?.appBackgroundTask).toMatchObject({ status: "done" });
+      expect(JSON.stringify(card)).toContain("background_context");
+      expect(f.messages.filter(message => !message.raw.card && JSON.stringify(message.raw).includes("npm warn"))).toHaveLength(0);
+    } finally { await rm(temp, { recursive: true, force: true }); }
+  });
+
   it("marks a legacy background report when its attachment cannot be delivered", async () => {
     const f = fixture(), temp = await mkdtemp(path.join(os.tmpdir(), "background-static-delivery-"));
     const send = f.channel.send;
