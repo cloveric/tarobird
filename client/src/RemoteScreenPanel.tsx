@@ -40,6 +40,8 @@ function routeDisplayLabel(route: ScreenRouteKind, udpRequested: boolean, udpCon
     case "udp_tailscale_direct": return t("UDP · Tailscale 直连");
     case "udp_p2p": return t("UDP · P2P 直连");
     case "udp_vps_relay": return t("UDP · VPS 中转");
+    case "udp_direct": return t("UDP · 直连（路径未细分）");
+    case "udp_connected": return t("UDP · 已连通");
     case "tcp_lan_direct": return udpRequested && !udpConnected ? t("TCP · 局域网直连（UDP 未连通）") : t("TCP · 局域网直连");
     case "tcp_tailscale": return udpRequested && !udpConnected ? t("TCP · Tailscale（UDP 未连通）") : t("TCP · Tailscale");
     case "tcp_vps_relay": return udpRequested && !udpConnected ? t("TCP · VPS 中转（UDP 未连通）") : t("TCP · VPS 中转");
@@ -52,7 +54,8 @@ function formatBitrate(kbps: number): string {
   return `${kbps} kbps`;
 }
 
-function resolveScreenRoute(routeName?: "Direct" | "Tailscale" | "VPS" | "Cloudflare"): ScreenRouteKind {
+function resolveScreenRoute(routeName?: "Direct" | "Tailscale" | "VPS" | "Cloudflare", hostRoute?: ScreenRouteKind): ScreenRouteKind {
+  if (hostRoute === "tcp_tailscale" || hostRoute === "tcp_lan_direct" || hostRoute === "tcp_vps_relay") return hostRoute;
   return tcpRouteFromConnectionRoute(routeName === "Cloudflare" ? undefined : routeName);
 }
 
@@ -108,6 +111,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   const retire=()=>{const task=lifecycle.retiring.catch(()=>undefined).then(async()=>{for(const id of lifecycle.sessions){await connection.screenStop(id);lifecycle.sessions.delete(id);}});lifecycle.retiring=task;return task;};
   const [modifierMode, setModifierMode] = useState<ScreenModifierMode>("command"), lastClick = useRef<{button:number;x:number;y:number;at:number;count:1|2|3}|undefined>(undefined);
   const knownTarget = useRef<{connection:HubConnection;platform:"macos"|"windows"}|undefined>(undefined);
+  const tcpHint = useRef<{connection: HubConnection; url?: string; route?: ScreenRouteKind}>(undefined);
   const visibleNow=useRef(visible);visibleNow.current=visible;
   const panel=useRef<HTMLElement>(null),canvas=useRef<HTMLCanvasElement>(null),keyboardButton=useRef<HTMLButtonElement>(null),tray=useRef<HTMLDivElement>(null),viewer=useRef<RemoteScreenViewer>(undefined),attempt=useRef(0);
   const [status,setStatus]=useState<ScreenStatus>(),[display,setDisplay]=useState(""),[error,setError]=useState(""),[statusError,setStatusError]=useState(""),[notice,setNotice]=useState(""),[state,setState]=useState<ViewerState>({state:"closed",controlling:false,pending:false,fresh:false});
@@ -180,6 +184,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
       // An earlier open may still return a session after cancellation. It owns
       // its cleanup; do not let a replacement race ahead of that response.
       await previous;await retire();if(n!==attempt.current)return;
+      const statusRoute = connection.state.route?.url;
       const s=await connection.screenStatus();if(n!==attempt.current)return;setStatus(s);setStatusError("");
       if(!s.enabled)throw new Error("screen_disabled");if(s.permission==="none")throw new Error("screen_not_authorized");if(s.desktop?.locked)throw new Error("screen_locked");if(s.desktop&&s.desktop.capture!=="granted")throw new Error("screen_capture_denied");
       const d=s.desktop?.displays.find(d=>d.id===display);if(!s.desktop||!d)throw new Error("screen_service_offline");
@@ -198,7 +203,9 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
       if(n!==attempt.current||!canvas.current){cleanupOnError=false;await retire();return;}
       if(explicit&&result.join.quality!==requested)throw new Error("screen_quality_unconfirmed");
       setQuality(result.join.quality??SCREEN_DEFAULT_QUALITY);
-      const connectRoute = resolveScreenRoute(connection.state.route?.name);
+      const route = connection.state.route;
+      tcpHint.current = { connection, url: statusRoute, route: s.udpStatus?.tcpRoute ?? s.udpStatus?.route };
+      const connectRoute = resolveScreenRoute(route?.name, route?.url === statusRoute ? tcpHint.current.route : undefined);
       const metricsOpts = { routeHint: connectRoute, udpRequested: s.udpStatus?.enabled ?? false, serverTimeOffsetMs, rtcSignaling: result.rtcSignaling };
       const next=new RemoteScreenViewer(result.join,canvas.current,value=>{if(n===attempt.current){if(mobile&&value.state==="closed")clearPicture();setState(value);}},mobile?{...metricsOpts,transport:mobileScreenViewerTransport,flight,inputActive:()=>activeNow.current&&document.hasFocus()&&document.visibilityState==="visible"&&!!panel.current?.contains(document.activeElement)}:{...metricsOpts,flight});viewer.current=next;
       next.visibility(visibleNow.current&&document.visibilityState==="visible");await next.open(result.network);
@@ -258,7 +265,8 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   // control, keep focus in the viewer so its input gate stays open.
   const lastFocus=useRef<Element|null>(null);
   useLayoutEffect(()=>{const node=lastFocus.current;if(!mobile||!node||node.isConnected||document.activeElement&&document.activeElement!==document.body||!activeNow.current||!document.hasFocus())return;(state.state!=="closed"?canvas.current:keyboardButton.current)?.focus({preventScroll:true});},[landscape]);
-  const activeRoute = resolveScreenRoute(connState.route?.name);
+  const hint = tcpHint.current;
+  const activeRoute = resolveScreenRoute(connState.route?.name, hint?.connection === connection && hint.url === connState.route?.url ? hint.route : undefined);
   const udpRequested = status?.udpStatus?.enabled ?? false;
   const udpConnected = state.metrics?.udpConnected === true;
   useEffect(() => {

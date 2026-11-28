@@ -19,11 +19,14 @@ timestamp, with UDP confirmed by the selected ICE pair. A receipt for that
 frame goes through the existing control connection. The target confirms its
 original capture time and geometry before a control lease can use the frame.
 The interactive picture stays in the same canvas during a transport change.
-If UDP stalls, the Hub retires the attachment and requests a fresh TCP
-keyframe; any input lease from the retired stream expires. Older peers and
-unavailable WebRTC runtimes use the TCP route. This version uses VP8 for UDP
-because the Electron sender exposes the exact capture timestamp in that path.
-The existing H.264-only quality profile continues on TCP.
+If UDP stalls after a frame stamp was forwarded, the Hub requests a fresh TCP
+keyframe even if the UDP frame was never confirmed. Control then requires a
+fresh confirmed frame of the new generation. The HUD classifies the selected
+ICE pair when the browser exposes sufficient evidence. The Hub can confirm UDP
+playback without observing the exact path. Older peers and unavailable WebRTC
+runtimes use TCP. UDP uses VP8 because the Electron sender exposes the exact
+capture timestamp for that codec. QHD and Sharp, and viewers that offer only
+H.264, use TCP.
 
 ## Relay and operations
 
@@ -34,6 +37,8 @@ that pair and limits traffic across each Host's pairs. A Host issues individual
 credentials over its authenticated mTLS control channel. They expire when its
 lease ends, the control channel is lost or it stops renewing for 90 seconds.
 Configure one pilot Host with the relay's fingerprint allowlist.
+When the external TCP port is mapped to a different relay port, TCP forwarding
+continues and the mismatched UDP endpoint is ignored.
 
 [English deployment guide](vps-relay-manual.md#optional-udp-boost-for-remote-screens) ·
 [中文部署指南](vps-relay-manual.zh-CN.md#可选的远程屏幕-udp-加速)
@@ -61,6 +66,12 @@ enrolled device without a screen grant must receive HTTP 403. Use
 `--mode lan` to exercise local ICE instead of relay-only ICE. The WebKit run
 uses a 390×844 touch viewport. Native App acceptance requires the installed
 viewer on the intended platform.
+
+For the first-frame race, run the Chromium command with `--before-confirm drop`
+and then with `--before-confirm timeout`. Both variants withhold only the Hub's
+UDP frame confirmation and exercise the receiver without the modern
+`AbortSignal` helpers. They require a new confirmed TCP generation, changed
+canvas pixels and authorized synthetic input on the original session.
 
 ## Cross-network pilot
 

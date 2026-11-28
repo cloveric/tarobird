@@ -4,7 +4,7 @@ import { readScreenFrame, SCREEN_HEADER_BYTES } from "../../src/client-protocol/
 import { ScreenMetricsTracker, type ScreenPerformanceSnapshot, type ScreenRouteKind } from "../../src/client-protocol/screen-metrics.js";
 import { electronScreenViewerTransport, type ScreenViewerChannel, type ScreenViewerPort, type ScreenViewerTransport } from "./screen-viewer-transport.js";
 
-import { SCREEN_RTC_SEQUENCE_START, screenRtcRoute, type ScreenRtcFrame } from "../../src/client-protocol/screen-rtc.js";
+import { SCREEN_RTC_SEQUENCE_START, type ScreenRtcFrame } from "../../src/client-protocol/screen-rtc.js";
 import { ScreenRtcReceiver, type ScreenRtcSignaling, type RtcDraw, type RtcStats } from "./screen-rtc-receiver.js";
 
 export type ViewerState = { state: string; reason?: string; controlAllowed?: boolean; controlling: boolean; pending: boolean; fresh: boolean; width?: number; height?: number; metrics?: ScreenPerformanceSnapshot };
@@ -130,19 +130,18 @@ export class RemoteScreenViewer {
     if(Math.max(value.width,value.height)>limit.longEdge||value.width*value.height>limit.area||limit.h264Only&&value.codec!=="h264")throw new Error("screen_stream_invalid");
   }
   private startRtc() {
-    if (this.rtc || !this.rtcSignaling || !this.visible || this.disposed) return;
+    if (this.rtc || !this.join.rtc || !this.rtcSignaling || !this.visible || this.disposed) return;
     this.rtc = new ScreenRtcReceiver(this.join, this.rtcSignaling, picture => this.drawRtc(picture),
       stamp => this.ackRtc(stamp), stats => this.updateRtcStats(stats), () => this.fallbackRtc());
     this.rtc.start();
   }
-  private drawRtc({ picture, width, height, mode, stamp }: RtcDraw) {
+  private drawRtc({ picture, width, height, route, stamp }: RtcDraw) {
     if (!this.visible || this.disposed) return;
     if (!this.rtcActive) {
       if (!stamp || stamp.streamGeneration !== this.minimumGeneration) return;
       this.rtcActive = true; this.rtcStartedAt = performance.now();
       this.clearMove(); this.picture = undefined; this.frames.clear(); this.closeDecoder(); this.stream = undefined; ++this.streamEpoch;
       this.metricsTracker.resetStream(this.minimumGeneration);
-      this.metricsTracker.setRoute(screenRtcRoute(mode), { udpRequested: true, udpConnected: true });
       this.update({ fresh: false });
     }
     if (this.canvas.width !== width) this.canvas.width = width;
@@ -150,6 +149,7 @@ export class RemoteScreenViewer {
     const context = this.canvas.getContext("2d", { alpha: false });
     if (!context) { this.rtc?.stop(); return; }
     context.drawImage(picture, 0, 0, width, height);
+    this.metricsTracker.setRoute(route, { udpRequested: true, udpConnected: true });
     this.update({ width, height });
     this.metricsTracker.recordFrameRendered({ nowMs: performance.now() });
     if (stamp) this.ackRtc(stamp);

@@ -12,7 +12,7 @@ import { CANVAS_AGENT_HOST_CAPABILITY, canvasAgentTokenRequestSchema } from "../
 import { HubRemoteScreen } from "./remote-screen.js";
 import { RemoteScreenSockets } from "./remote-screen-sockets.js";
 import { signedScreenConfigureSchema, screenStopSchema, SCREEN_MAX_CONTROL_BYTES } from "../client-protocol/remote-screen.js";
-import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
+import type { ScreenTcpRouteKind } from "../client-protocol/screen-metrics.js";
 import { WorkbenchBroker, type WorkbenchActor, type WorkbenchPeer } from "./workbench.js";
 import { readWorkbenchTurnMetadata, type WorkbenchContextReceipt } from "./workbench-history.js";
 import type { WorkbenchContext } from "../client-protocol/workbench.js";
@@ -706,7 +706,7 @@ export class HubServer {
       this.sockets.handleUpgrade(req, socket, head, (ws) => req.url === "/instance" ? this.instanceSocket(ws) : this.clientSocket(ws, this.requestSource(req, edgeProxy)));
     });
   }
-  private screenRouteFromSource(source: string): ScreenRouteKind {
+  private screenRouteFromSource(source: string): ScreenTcpRouteKind {
     if (source.startsWith("relay:")) return "tcp_vps_relay";
     if (isTailscaleAddress(source)) return "tcp_tailscale";
     if (isLocalNetworkAddress(source) || isLoopback(source)) return "tcp_lan_direct";

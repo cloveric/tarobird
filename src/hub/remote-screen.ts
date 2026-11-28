@@ -9,9 +9,9 @@ import { deviceProof, hashSecret, parsePublicKey, type AuthSession, type HubAuth
 import { HubError, type HubStore } from "./store.js";
 import type { ScreenFrameHeader } from "../client-protocol/screen-wire.js";
 import { screenQualityProfile, type ScreenQuality } from "../client-protocol/screen-quality.js";
-import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
+import type { ScreenTcpRouteKind } from "../client-protocol/screen-metrics.js";
 
-import { screenRtcAnswerText, screenRtcDirection, screenRtcHasRoute, screenRtcOfferText, screenRtcRequestSchema, screenRtcRoute, SCREEN_RTC_FEATURE, SCREEN_RTC_SEQUENCE_START,
+import { screenRtcAnswerText, screenRtcDirection, screenRtcHasRoute, screenRtcOfferText, screenRtcRequestSchema, SCREEN_RTC_FEATURE, SCREEN_RTC_SEQUENCE_START,
   type ScreenRtcAnswer, type ScreenRtcFrame, type ScreenRtcIce, type ScreenRtcMode } from "../client-protocol/screen-rtc.js";
 import type { ScreenUdpLease } from "../relay/tunnel.js";
 
@@ -31,11 +31,11 @@ const secret = () => randomBytes(32).toString("base64url");
 const id = (prefix: string) => `${prefix}_${randomUUID().replaceAll("-", "")}`;
 export type ScreenControlSink = { send(value: unknown): boolean; close(reason: string): void };
 /** What the asking client can read; from the request, never from the signed policy. */
-export type ScreenViewerOptions = { windows?: boolean; udpStatus?: boolean; rtc?: boolean; route?: ScreenRouteKind };
+export type ScreenViewerOptions = { windows?: boolean; udpStatus?: boolean; rtc?: boolean; route?: ScreenTcpRouteKind };
 export type ScreenMediaSink = { send(bytes: Uint8Array): boolean; configure(stream: ScreenStream): boolean; close(reason: string): void };
 type Lease = { id: string; expiresAt: number; ready: boolean; sequence: number; heldKeys: Set<string>; heldButtons: Set<number>; challenge: { nonce: string; validUntil: number; leaseUntil: number } };
 type Frame = { rtc?: Rtc; key: boolean; captureMs: number; confirmed: boolean; streamGeneration: number; pendingAck: boolean };
-type Live = { value: ScreenSession; auth: AuthSession; publicKey: string; control?: ScreenControlSink; media?: ScreenMediaSink; frames: Map<number, Frame>; lastFrame: number; lastKeyRequest: number; visible: boolean; started: boolean; direct: boolean; route: ScreenRouteKind; mediaBytesPerMs: number; lease?: Lease; codecs: ("h264" | "vp8")[]; quality?: ScreenQuality; flight?: number; streamGeneration: number; stream?: ScreenStream; awaitingKey: boolean; pendingControl?: number; lastCapture: number; rateAt: number; rateBudget: number; rtcAllowed: boolean; relayId?: string; rtc?: Rtc };
+type Live = { value: ScreenSession; auth: AuthSession; publicKey: string; control?: ScreenControlSink; media?: ScreenMediaSink; frames: Map<number, Frame>; lastFrame: number; lastKeyRequest: number; visible: boolean; started: boolean; direct: boolean; route: ScreenTcpRouteKind; mediaBytesPerMs: number; lease?: Lease; codecs: ("h264" | "vp8")[]; quality?: ScreenQuality; flight?: number; streamGeneration: number; stream?: ScreenStream; awaitingKey: boolean; pendingControl?: number; lastCapture: number; rateAt: number; rateBudget: number; rtcAllowed: boolean; relayId?: string; rtc?: Rtc };
 type Ticket = { kind: "service" | "target-media" | "control" | "media"; id: string; expiresAt: number; epoch?: string };
 
 /** Identity/policy stays in the Host. Frames and ephemeral input never enter
@@ -91,8 +91,10 @@ export class HubRemoteScreen {
     if (visiblePolicy && !viewer.udpStatus) delete visiblePolicy.udpBoost;
     const udpEnabled = policy.udpBoost === true;
     const visible = [...this.sessions.values()].filter(s => (canManage || s.auth.deviceId === device.id) && s.media);
-    const active = visible.find(s => s.rtc && this.rtcPlaying(s.rtc));
-    const route = active?.rtc ? screenRtcRoute(active.rtc.mode) : visible.find(s => s.auth.deviceId === device.id)?.route ?? viewer.route ?? "tcp_default";
+    // The Hub can confirm media receipts but cannot inspect the selected pair.
+    // Phase 1 clients opt into UDP settings only and parse the old route enum.
+    const active = viewer.rtc && visible.some(s => s.rtc && this.rtcPlaying(s.rtc));
+    const route = visible.find(s => s.auth.deviceId === device.id)?.route ?? viewer.route ?? "tcp_default";
     return { supported: true, enabled: policy.enabled, canManage, permission,
       ...(visiblePolicy ? { policy: visiblePolicy, devices } : {}),
       desktop: (canManage || policy.enabled && permission !== "none") && this.desktop && this.readableBy(viewer) ? structuredClone(this.desktop) : null,
@@ -100,7 +102,7 @@ export class HubRemoteScreen {
       ...(viewer.udpStatus ? {
         udpStatus: udpEnabled
           ? active
-            ? { enabled: true, state: "connected" as const, route }
+            ? { enabled: true, state: "connected" as const, route: "udp_connected" as const, tcpRoute: route }
             : { enabled: true, state: "fallback_tcp" as const, route, reasonCode: !visible.length || this.serviceFeatures.has(SCREEN_RTC_FEATURE) && visible.some(s => s.rtcAllowed || screenQualityProfile(s.quality).h264Only)
               ? "udp_transport_unavailable" as const : "peer_unsupported" as const }
           : { enabled: false, state: "disabled" as const, route, reasonCode: "disabled" as const },
@@ -247,7 +249,7 @@ export class HubRemoteScreen {
     return structuredClone(join);
   }
   /** `origin.direct`: this socket came straight from a local-network address. Only the media socket's origin matters. */
-  async attachViewer(ticket: string, kind: "control" | "media", sink: ScreenControlSink | ScreenMediaSink, origin: { direct?: boolean; route?: ScreenRouteKind; relayId?: string } = {}): Promise<string> {
+  async attachViewer(ticket: string, kind: "control" | "media", sink: ScreenControlSink | ScreenMediaSink, origin: { direct?: boolean; route?: ScreenTcpRouteKind; relayId?: string } = {}): Promise<string> {
     const claim = this.takeTicket(ticket, kind), live = this.sessions.get(claim.id);
     if (!live) throw new HubError("screen_session_closed", 410);
     await this.auth.validateSession(live.auth);

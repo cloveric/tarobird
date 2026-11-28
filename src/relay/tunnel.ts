@@ -77,8 +77,9 @@ export class RelayTunnel {
       else if (frame.type === "ping") { this.lastPong = Date.now(); sendFrame(socket, { type: "pong" }); }
       else if (frame.type === "pong") this.lastPong = Date.now();
       else if (frame.type === "screen-udp-ready" && this.connected && socket.alpnProtocol === SCREEN_UDP_CONTROL_ALPN) {
-        if (frame.port !== this.options.port) { socket.destroy(); return; }
-        this.udpEndpoint = { address: frame.address, port: frame.port };
+        // A TCP port mapping can expose a different external port. Its
+        // control/data path is valid even when this UDP endpoint is unusable.
+        this.udpEndpoint = frame.port === this.options.port ? { address: frame.address, port: frame.port } : undefined;
       }
       else if (frame.type === "screen-udp-reply" && socket.alpnProtocol === SCREEN_UDP_CONTROL_ALPN) this.udpRequests.get(frame.id)?.(frame.accepted);
       else if (frame.type === "open" && this.connected) {

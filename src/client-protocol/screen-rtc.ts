@@ -61,13 +61,10 @@ export function screenRtcAnswerText(scope: { sessionId: string; generation: stri
   return JSON.stringify(["tarobird/screen-rtc-answer/v1", scope.sessionId, scope.generation, scope.desktopId, scope.deviceId, scope.nonce, scope.mode, scope.offer, scope.sdp]);
 }
 
-export function screenRtcRoute(mode: ScreenRtcMode) {
-  switch (mode) {
-    case "lan": return "udp_lan_direct" as const;
-    case "tailscale": return "udp_tailscale_direct" as const;
-    case "p2p": return "udp_p2p" as const;
-    case "relay": return "udp_vps_relay" as const;
-  }
+export function screenRtcHostRoute(address?: string) {
+  if (!address) return;
+  if (/^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(address) || /^fd7a:115c:a1e0:/i.test(address)) return "udp_tailscale_direct" as const;
+  if (/^(?:(?:10|127)\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|169\.254\.|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:|::1$)/i.test(address)) return "udp_lan_direct" as const;
 }
 
 /** Both ends explicitly eliminate TCP and candidates outside this attempt's
@@ -75,11 +72,11 @@ export function screenRtcRoute(mode: ScreenRtcMode) {
 export function screenRtcCandidateAllowed(line: string, mode: ScreenRtcMode): boolean {
   const [, component, protocol, , address, , typ, kind] = line.trim().split(/\s+/);
   if (component !== "1" || protocol?.toLowerCase() !== "udp" || typ !== "typ") return false;
-  const tailscale = /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(address ?? "") || /^fd7a:115c:a1e0:/i.test(address ?? "");
   if (mode === "relay") return kind === "relay";
   if (mode === "p2p") return kind === "srflx";
-  if (mode === "tailscale") return kind === "host" && tailscale;
-  return kind === "host" && !tailscale && /^(?:[^.]+\.local$|(?:10|127)\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[01])\.|169\.254\.|f[cd][0-9a-f]{2}:|fe[89ab][0-9a-f]:|::1$)/i.test(address ?? "");
+  const route = screenRtcHostRoute(address);
+  if (mode === "tailscale") return kind === "host" && route === "udp_tailscale_direct";
+  return kind === "host" && (route === "udp_lan_direct" || /^[^.]+\.local$/i.test(address ?? ""));
 }
 export function screenRtcHasRoute(sdp: string, mode: ScreenRtcMode, endpoint?: ScreenRtcIce): boolean {
   const candidates = sdp.split(/\r?\n/).filter(line => line.startsWith("a=candidate:"));

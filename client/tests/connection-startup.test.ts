@@ -161,6 +161,6 @@ it.each([true, false])("requests UDP screen status only when advertised (support
   Reflect.set(connection, "screenRequest", request);
   await connection.screenStatus();
   expect(request).toHaveBeenCalledWith(supported
-    ? "/api/screens/status?includeWindows=1&includeUdpStatus=1"
+    ? "/api/screens/status?includeWindows=1&includeUdpStatus=1&screenRtc=1"
     : "/api/screens/status?includeWindows=1");
 });

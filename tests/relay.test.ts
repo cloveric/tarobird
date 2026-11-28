@@ -91,25 +91,78 @@ test("authenticated relay sources isolate proof quotas, and pairing needs an inv
   } finally { fleet.stop(); await relay.close(); await hub.close(); }
 }, 20_000);
 
-test("a new relay sends legacy control frames without extra fields to an old tunnel", async () => {
+test("an old TCP tunnel and a UDP-capable tunnel share one relay port", async () => {
+  const hub = await HubServer.start({ stateDir: path.join(root, "udp-mixed-hub"), tls: hubPair });
+  const clientFingerprint256 = new X509Certificate(clientPair.cert).fingerprint256;
+  const pilotFingerprint = new X509Certificate(otherClientPair.cert).fingerprint256;
   const relay = await RelayServer.start({ publicHost: "127.0.0.1", publicPort: 0, tunnelHost: "127.0.0.1", tunnelPort: 0,
-    serverName: "hub.test", clientFingerprint256: new X509Certificate(clientPair.cert).fingerprint256, tls: { ...relayPair, ca } });
+    serverName: "hub.test", clientFingerprint256, tls: { ...relayPair, ca },
+    additionalHosts: [{ publicPort: 0, clientFingerprint256: pilotFingerprint }],
+    screenUdp: { address: "127.0.0.1", hosts: [clientFingerprint256, pilotFingerprint] } });
+  const pilot = new RelayTunnel({ host: "127.0.0.1", port: relay.status.tunnelPort, servername: "relay.test",
+    tls: { ...otherClientPair, ca }, targetHost: "127.0.0.1", targetPort: port(hub.url) });
+  pilot.start();
   const control = connect({ host: "127.0.0.1", port: relay.status.tunnelPort, servername: "relay.test", ca, ...clientPair, ALPNProtocols: [CONTROL_ALPN] });
   control.on("error", () => undefined);
   let downstream: ReturnType<typeof connect> | undefined;
+  const frameTypes: string[] = [];
   try {
     const open = new Promise<Record<string, unknown>>((resolve, reject) => {
       let input = ""; const timer = setTimeout(() => reject(new Error("test_control_timeout")), 3000);
       control.on("data", chunk => {
         input += chunk.toString();
         for (;;) { const end = input.indexOf("\n"); if (end < 0) break; const frame = JSON.parse(input.slice(0, end)); input = input.slice(end + 1);
+          frameTypes.push(frame.type);
           if (frame.type === "ready") { downstream = connect({ host: "127.0.0.1", port: relay.status.publicPort, servername: "hub.test", ca }); downstream.on("error", () => undefined); }
           if (frame.type === "open") { clearTimeout(timer); resolve(frame); }
         }
       });
     });
     expect(Object.keys(await open).sort()).toEqual(["id", "token", "type"]);
-  } finally { downstream?.destroy(); control.destroy(); await relay.close(); }
+    expect(frameTypes).toEqual(["ready", "open"]);
+    await expect.poll(() => pilot.screenUdpEndpoint?.port).toBe(relay.status.tunnelPort);
+    const lease = await pilot.screenUdpLease();
+    expect(lease?.port).toBe(relay.status.tunnelPort);
+    lease?.close();
+    expect((await get(relay.status.hosts![1].publicPort, "/health", "hub.test")).status).toBe(200);
+    expect(relay.status.hosts?.map(host => host.connected)).toEqual([true, true]);
+  } finally { downstream?.destroy(); control.destroy(); pilot.stop(); await relay.close(); await hub.close(); }
+});
+
+test("a mapped TCP port forwards traffic when the UDP advertisement names the internal port", async () => {
+  const hub = await HubServer.start({ stateDir: path.join(root, "udp-tcp-mapped"), tls: hubPair });
+  const clientFingerprint256 = new X509Certificate(clientPair.cert).fingerprint256;
+  const relay = await RelayServer.start({ publicHost: "127.0.0.1", publicPort: 0, tunnelHost: "127.0.0.1", tunnelPort: 0,
+    serverName: "hub.test", clientFingerprint256, tls: { ...relayPair, ca },
+    screenUdp: { address: "127.0.0.1", hosts: [clientFingerprint256] } });
+  const connections = new Set<Socket>();
+  const mapping = createServer(external => {
+    const internal = tcpConnect({ host: "127.0.0.1", port: relay.status.tunnelPort });
+    for (const [socket, peer] of [[external, internal], [internal, external]]) {
+      connections.add(socket);
+      socket.on("error", () => peer.destroy());
+      socket.once("close", () => { connections.delete(socket); peer.destroy(); });
+      socket.pipe(peer);
+    }
+  });
+  await new Promise<void>(resolve => mapping.listen(0, "127.0.0.1", resolve));
+  const tunnel = new RelayTunnel({ host: "127.0.0.1", port: (mapping.address() as { port: number }).port, servername: "relay.test",
+    tls: { ...clientPair, ca }, targetHost: "127.0.0.1", targetPort: port(hub.url) });
+  tunnel.start();
+  try {
+    expect(relay.status.screenUdp?.listening).toBe(true);
+    await expect.poll(() => tunnel.online).toBe(true);
+    expect((await get(relay.status.publicPort, "/health", "hub.test")).status).toBe(200);
+    expect(tunnel.online).toBe(true);
+    expect(tunnel.screenUdpEndpoint).toBeUndefined();
+    expect(await tunnel.screenUdpLease()).toBeUndefined();
+  } finally {
+    tunnel.stop();
+    for (const socket of connections) socket.destroy();
+    await new Promise<void>(resolve => mapping.close(() => resolve()));
+    await relay.close();
+    await hub.close();
+  }
 });
 
 test.each([CONTROL_ALPN, SOURCE_CONTROL_ALPN])("new tunnel handles missing source metadata explicitly on %s", async protocol => {

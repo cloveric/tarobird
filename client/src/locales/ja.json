@@ -5049,6 +5049,8 @@
   "UDP · Tailscale 直连": "UDP · Tailscale 直接接続",
   "UDP · P2P 直连": "UDP · P2P 直接接続",
   "UDP · VPS 中转": "UDP · VPS リレー",
+  "UDP · 直连（路径未细分）": "UDP · 直接接続（経路不明）",
+  "UDP · 已连通": "UDP · 接続済み",
   "TCP · 局域网直连（UDP 未连通）": "TCP · LAN 直接接続（UDP 未接続）",
   "TCP · 局域网直连": "TCP · LAN 直接接続",
   "TCP · Tailscale（UDP 未连通）": "TCP · Tailscale（UDP 未接続）",

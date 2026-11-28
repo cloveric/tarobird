@@ -139,6 +139,12 @@ try {
   if (denied.status !== 403) throw new Error('ungranted device could reach signaling');
   browser = await (engine === 'webkit' ? webkit : chromium).launch();
   const page = await browser.newPage(engine === 'webkit' ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } : { viewport: { width: 1280, height: 800 } });
+  if (beforeConfirm) await page.addInitScript(() => {
+    // Exercise the viewer's older WebKit feature surface in Chromium.
+    delete AbortSignal.any;
+    delete AbortSignal.timeout;
+    delete AbortSignal.prototype.throwIfAborted;
+  });
   await page.addInitScript(() => {
     const native = window.RTCPeerConnection;
     window.screenPeerStats = [];
@@ -155,7 +161,8 @@ try {
       }
     };
   });
-  page.on('pageerror', error => console.error('viewer', error.message));
+  const pageErrors = [];
+  page.on('pageerror', error => { pageErrors.push(error.message); console.error('viewer', error.message); });
   await page.goto(webUrl + '/?mode=' + mode);
   let report;
   if (beforeConfirm) {
@@ -201,10 +208,18 @@ try {
     if (tamperDenied !== 403) throw new Error('a substituted DTLS fingerprint was accepted');
     const udp = await page.evaluate(() => ({ ...window.receipt, value: window.receipt.value }));
     const relayBytes = relay.status.screenUdp.hosts[0].bytesForwarded;
-    const route = mode === 'relay' ? 'udp_vps_relay' : 'udp_lan_direct';
-    if (udp.value.metrics.route !== route || mode === 'relay' && relayBytes <= 0) throw new Error('selected route was not exercised');
-    const hubStatus = await hub.remoteScreen.status(remote.session, { udpStatus: true });
-    if (hubStatus.udpStatus?.route !== route || hubStatus.udpStatus?.state !== 'connected') throw new Error('Hub did not confirm actual media');
+    if (mode === 'relay' ? udp.value.metrics.route !== 'udp_vps_relay' || relayBytes <= 0
+      : !['udp_lan_direct', 'udp_direct'].includes(udp.value.metrics.route)) throw new Error('selected route was not exercised');
+    const status = async (query, token = viewer.token) => {
+      const response = await fetch(hub.url + '/api/screens/status?' + query, { headers: { Authorization: 'Bearer ' + token } });
+      if (!response.ok) throw new Error('could not read screen status');
+      return (await response.json()).udpStatus;
+    };
+    // A controller checking Host-level status may see another viewer playing.
+    const hubStatus = await status('includeUdpStatus=1&screenRtc=1', local.token);
+    if (hubStatus?.route !== 'udp_connected' || hubStatus?.state !== 'connected' || hubStatus?.tcpRoute !== 'tcp_lan_direct') throw new Error('Hub overstated or missed media evidence');
+    const old = await status('includeUdpStatus=1', local.token);
+    if (old?.route !== 'tcp_lan_direct' || old?.state !== 'fallback_tcp' || 'tcpRoute' in old) throw new Error('legacy status fields changed');
     await page.evaluate(() => window.viewer.control());
     await page.waitForFunction(() => window.receipt.value?.controlling, undefined, { timeout: 5000 });
     await page.evaluate(() => window.viewer.input({ kind: 'move', x: .4, y: .5 }));
@@ -239,6 +254,7 @@ try {
       ...(mode === 'relay' ? { fallbackTcpAcks: after.tcpAcks - before, blackFrames: after.blackFrames,
         sampledCanvasFrames: after.watchedFrames } : {}) };
   }
+  if (pageErrors.length) throw new Error('fixture page errors: ' + pageErrors.join(', '));
   await writeFile(path.join(run, 'result.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
 } finally {

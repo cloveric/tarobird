@@ -1,8 +1,9 @@
 import type { ScreenJoin } from "../../src/client-protocol/remote-screen.js";
 import { screenRtcAnswerText, screenRtcDirection, screenRtcHasRoute, screenRtcModeSchema, screenRtcPrepareSchema, screenRtcAnswerSchema,
   type ScreenRtcMode, type ScreenRtcFrame } from "../../src/client-protocol/screen-rtc.js";
-import { screenRtcCodecs, screenRtcConfiguration, screenRtcGather } from "../../src/client-protocol/screen-rtc-browser.js";
+import { screenRtcCodecs, screenRtcConfiguration, screenRtcGather, screenRtcSelectedRoute } from "../../src/client-protocol/screen-rtc-browser.js";
 import { screenQualityProfile } from "../../src/client-protocol/screen-quality.js";
+import { anySignal, timeoutSignal } from "./abort-signals.js";
 
 export type ScreenRtcScope = Pick<ScreenJoin["session"], "id" | "generation" | "desktopId" | "deviceId">;
 export type ScreenRtcSignaling = {
@@ -10,13 +11,14 @@ export type ScreenRtcSignaling = {
   signOffer: (scope: ScreenRtcScope, nonce: string, mode: ScreenRtcMode, sdp: string) => Promise<string>;
   verifyAnswer: (text: string, signature: string) => boolean;
 };
-export type RtcDraw = { picture: CanvasImageSource; width: number; height: number; mode: ScreenRtcMode; stamp?: ScreenRtcFrame };
+type RtcRoute = NonNullable<ReturnType<typeof screenRtcSelectedRoute>>;
+export type RtcDraw = { picture: CanvasImageSource; width: number; height: number; route: RtcRoute; stamp?: ScreenRtcFrame };
 export type RtcStats = { bytes: number; dropped: number; codec: "h264" | "vp8" | "" };
 
 type Attempt = {
   mode: ScreenRtcMode; nonce: string; pc: RTCPeerConnection; video: HTMLVideoElement; scratch?: HTMLCanvasElement;
   lastPicture?: { timestamp: number; width: number; height: number }; callback?: number;
-  painted: boolean; udp: boolean; lastPaintAt: number; stamps: Map<number, ScreenRtcFrame>;
+  painted: boolean; route?: RtcRoute; lastPaintAt: number; stamps: Map<number, ScreenRtcFrame>;
 };
 export const canReceiveScreenRtc = () => typeof RTCPeerConnection === "function"
   && typeof HTMLVideoElement.prototype.requestVideoFrameCallback === "function"
@@ -43,7 +45,7 @@ export class ScreenRtcReceiver {
   receive(stamp: ScreenRtcFrame): void {
     const a = this.attempt;
     if (!a || a.nonce !== stamp.nonce) return;
-    if (a.lastPicture?.timestamp === stamp.rtpTimestamp && a.udp) {
+    if (a.lastPicture?.timestamp === stamp.rtpTimestamp && a.route) {
       if (a.painted) this.onReceipt(stamp);
       else if (a.scratch) this.draw(a, a.scratch, a.lastPicture.width, a.lastPicture.height, stamp);
       return;
@@ -61,22 +63,22 @@ export class ScreenRtcReceiver {
     const { id: sessionId, generation } = this.join.session;
     for (const mode of screenRtcModeSchema.options) {
       if (this.life.signal.aborted) break;
-      const attemptSignal = AbortSignal.any([this.life.signal, AbortSignal.timeout(13_000)]);
       let nonce: string | undefined;
       let a: Attempt | undefined;
       try {
+        const attemptSignal = anySignal([this.life.signal, timeoutSignal(13_000)]);
         const prepared = screenRtcPrepareSchema.parse(await this.signaler.request({ type: "prepare", sessionId, generation, mode }, attemptSignal));
         nonce = prepared.nonce;
-        attemptSignal.throwIfAborted();
+        if (attemptSignal.aborted) throw attemptSignal.reason;
         if (prepared.mode !== mode) throw new Error("screen_rtc_attempt_changed");
         const pc = new RTCPeerConnection(screenRtcConfiguration(mode, prepared.ice)), video = document.createElement("video");
-        a = this.attempt = { mode, nonce, pc, video, painted: false, udp: false, lastPaintAt: 0, stamps: new Map() };
+        a = this.attempt = { mode, nonce, pc, video, painted: false, lastPaintAt: 0, stamps: new Map() };
         this.watch(a);
         pc.addTransceiver("video", { direction: "recvonly" }).setCodecPreferences(screenRtcCodecs(RTCRtpReceiver.getCapabilities("video")?.codecs));
         const sdp = await screenRtcGather(pc, await pc.createOffer(), mode, attemptSignal);
         const proof = await this.signaler.signOffer(this.join.session, nonce, mode, sdp);
         const answer = screenRtcAnswerSchema.parse(await this.signaler.request({ type: "offer", sessionId, generation, nonce, sdp, signature: proof }, attemptSignal));
-        attemptSignal.throwIfAborted();
+        if (attemptSignal.aborted) throw attemptSignal.reason;
         const signed = screenRtcAnswerText({ sessionId, generation, desktopId: this.join.session.desktopId, deviceId: this.join.session.deviceId,
           nonce, mode, offer: sdp, sdp: answer.sdp });
         if (!screenRtcDirection(answer.sdp, "sendonly") || !screenRtcHasRoute(answer.sdp, mode, prepared.ice) || !this.signaler.verifyAnswer(signed, answer.signature)) throw new Error("screen_rtc_proof_invalid");
@@ -118,7 +120,7 @@ export class ScreenRtcReceiver {
     const next: VideoFrameRequestCallback = (_now, meta) => {
       if (this.attempt !== a) return;
       a.callback = video.requestVideoFrameCallback(next);
-      if (!a.udp || !Number.isInteger(meta.rtpTimestamp) || !this.sizeValid(meta.width, meta.height)) return;
+      if (!a.route || !Number.isInteger(meta.rtpTimestamp) || !this.sizeValid(meta.width, meta.height)) return;
       const timestamp = meta.rtpTimestamp!;
       a.lastPicture = { timestamp, width: meta.width, height: meta.height };
       const stamp = a.stamps.get(timestamp);
@@ -143,9 +145,9 @@ export class ScreenRtcReceiver {
         const transport = live && report.get(live.transportId);
         const selected = transport && report.get(transport.selectedCandidatePairId);
         const local = selected && report.get(selected.localCandidateId), remote = selected && report.get(selected.remoteCandidateId);
-        a.udp = transport?.dtlsState === "connected" && local?.protocol === "udp" && remote?.protocol === "udp"
-          && (a.mode === "relay" ? local.candidateType === "relay" && remote.candidateType === "relay" : local.candidateType !== "relay" && remote.candidateType !== "relay");
-        if (a.painted && !a.udp) { void this.retire(a); return; }
+        const route = screenRtcSelectedRoute(transport?.dtlsState, local, remote);
+        a.route = (a.mode === "relay") === (route === "udp_vps_relay") ? route : undefined;
+        if (a.painted && !a.route) { void this.retire(a); return; }
         if (a.painted && live) {
           const codec = report.get(live.codecId)?.mimeType?.toLowerCase();
           this.onStats({ bytes: live.bytesReceived ?? 0, dropped: live.framesDropped ?? 0, codec: codec === "video/h264" ? "h264" : codec === "video/vp8" ? "vp8" : "" });
@@ -161,9 +163,9 @@ export class ScreenRtcReceiver {
   }
 
   private draw(a: Attempt, picture: CanvasImageSource, width: number, height: number, stamp?: ScreenRtcFrame) {
-    if (this.attempt !== a) return;
+    if (this.attempt !== a || !a.route) return;
     a.painted = true; a.lastPaintAt = performance.now(); a.scratch = undefined;
-    this.onDraw({ picture, width, height, mode: a.mode, stamp });
+    this.onDraw({ picture, width, height, route: a.route, stamp });
   }
 
   private async retire(a: Attempt) {
@@ -179,6 +181,8 @@ export class ScreenRtcReceiver {
 
   private async release(nonce: string) {
     const { id: sessionId, generation } = this.join.session;
-    await this.signaler.request({ type: "close", sessionId, generation, nonce }, AbortSignal.timeout(2000)).catch(() => undefined);
+    try {
+      await this.signaler.request({ type: "close", sessionId, generation, nonce }, timeoutSignal(2000));
+    } catch { /* The Hub also expires attempts if signaling is gone. */ }
   }
 }

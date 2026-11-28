@@ -1,6 +1,24 @@
-import { screenRtcCandidateAllowed, screenRtcHasRoute, screenRtcSdpSchema, type ScreenRtcIce, type ScreenRtcMode } from "./screen-rtc.js";
+import { screenRtcCandidateAllowed, screenRtcHasRoute, screenRtcHostRoute, screenRtcSdpSchema, type ScreenRtcIce, type ScreenRtcMode } from "./screen-rtc.js";
 
 type RtcCodec = NonNullable<ReturnType<typeof RTCRtpReceiver.getCapabilities>>["codecs"][number];
+type CandidateStats = { protocol?: string; candidateType?: string; address?: string };
+
+/** ICE can select peer-reflexive candidates absent from the signed SDP. */
+export function screenRtcSelectedRoute(dtlsState?: string, local?: CandidateStats, remote?: CandidateStats) {
+  if (dtlsState !== "connected" || local?.protocol !== "udp" || remote?.protocol !== "udp") return;
+  if (local.candidateType === "relay" || remote.candidateType === "relay") {
+    if (local.candidateType === "relay" && remote.candidateType === "relay") return "udp_vps_relay" as const;
+    return;
+  }
+  if (local.candidateType === "host" && remote.candidateType === "host") {
+    const route = screenRtcHostRoute(local.address);
+    if (route && route === screenRtcHostRoute(remote.address)) return route;
+  }
+  const directTypes = ["host", "srflx", "prflx"];
+  if (!directTypes.includes(local.candidateType ?? "") || !directTypes.includes(remote.candidateType ?? "")) return "udp_connected" as const;
+  if (local.candidateType !== "host" || remote.candidateType !== "host") return "udp_p2p" as const;
+  return "udp_direct" as const;
+}
 
 /** The current Electron H.264 RTP encoder does not expose each sample's
  * original presentation timestamp. Require VP8 for the capture proof.
@@ -27,7 +45,7 @@ export async function screenRtcGather(peer: RTCPeerConnection, description: RTCS
     signal.addEventListener("abort", abort, { once: true });
     if (signal.aborted) abort();
   });
-  signal.throwIfAborted();
+  if (signal.aborted) throw signal.reason;
   const sdp = screenRtcSdpSchema.parse(peer.localDescription?.sdp.split("\n")
     .filter(line => !line.startsWith("a=candidate:") || screenRtcCandidateAllowed(line, mode)).join("\n"));
   if (!screenRtcHasRoute(sdp, mode)) throw new Error("screen_rtc_candidate_unavailable");

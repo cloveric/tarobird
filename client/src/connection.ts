@@ -1748,7 +1748,7 @@ export class HubConnection {
     await this.httpRequest(`${HOST_TERMINALS_PATH}/${encodeURIComponent(id)}`, { method: "DELETE" }, { ms: 10_000, code: "terminal_request_timeout" });
   }
   async screenStatus() {
-    return screenStatusSchema.parse(await this.screenRequest(this.state.screenUdpBoostAvailable ? "/api/screens/status?includeWindows=1&includeUdpStatus=1" : "/api/screens/status?includeWindows=1"));
+    return screenStatusSchema.parse(await this.screenRequest(this.state.screenUdpBoostAvailable ? "/api/screens/status?includeWindows=1&includeUdpStatus=1&screenRtc=1" : "/api/screens/status?includeWindows=1"));
   }
   async screenConfigure(raw: ScreenConfigure) {
     return this.duringMutation(async () => {

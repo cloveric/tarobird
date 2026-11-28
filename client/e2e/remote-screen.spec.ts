@@ -599,6 +599,22 @@ test("performance overlay tracks live route failovers, keeps desktop control whe
  expect(fsLayout).toEqual({clearsChrome:true,inside:true});
 });
 
+test("performance uses the Host TCP hint even while another viewer is on UDP", async ({ page }) => {
+  await page.getByRole("button", { name: "断开", exact: true }).click();
+  await page.evaluate(() => {
+    (window as any).screenFixture.hostUdpStatus = {
+      enabled: true, state: "connected", route: "udp_connected", tcpRoute: "tcp_tailscale",
+    };
+  });
+  await page.getByRole("button", { name: "连接屏幕", exact: true }).click();
+  await expect(page.getByRole("button", { name: "开始控制", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "屏幕更多操作", exact: true }).click();
+  await page.getByRole("checkbox", { name: "性能数据覆盖层", exact: true }).click();
+  const overlay = page.getByRole("region", { name: "屏幕性能数据", exact: true });
+  await expect(overlay).toContainText("TCP · Tailscale（UDP 未连通）");
+  await expect(overlay).not.toContainText("UDP ·");
+});
+
 test("shows viewers where UDP boost is configured before connecting", async ({ page }) => {
   await page.getByRole("button", { name: "断开", exact: true }).click();
   await page.getByRole("button", { name: "屏幕更多操作", exact: true }).click();

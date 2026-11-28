@@ -1,14 +1,15 @@
 import { z } from "zod";
 
+export const SCREEN_TCP_ROUTES = ["tcp_lan_direct", "tcp_tailscale", "tcp_vps_relay", "tcp_default"] as const;
+export type ScreenTcpRouteKind = (typeof SCREEN_TCP_ROUTES)[number];
 export const SCREEN_ROUTES = [
   "udp_lan_direct",
   "udp_tailscale_direct",
   "udp_p2p",
   "udp_vps_relay",
-  "tcp_lan_direct",
-  "tcp_tailscale",
-  "tcp_vps_relay",
-  "tcp_default",
+  "udp_direct",
+  "udp_connected",
+  ...SCREEN_TCP_ROUTES,
 ] as const;
 export type ScreenRouteKind = (typeof SCREEN_ROUTES)[number];
 
@@ -24,13 +25,14 @@ export const screenUdpStatusSchema = z.object({
   enabled: z.boolean(),
   state: z.enum(["disabled", "connected", "fallback_tcp"]),
   route: z.enum(SCREEN_ROUTES),
+  tcpRoute: z.enum(SCREEN_TCP_ROUTES).optional(),
   reasonCode: z.enum(SCREEN_UDP_REASON_CODES).optional(),
   detail: z.string().max(240).optional(),
 }).strict();
 export type ScreenUdpStatus = z.infer<typeof screenUdpStatusSchema>;
 
 /** Map a client connection route name to its corresponding TCP screen route label. */
-export function tcpRouteFromConnectionRoute(routeName?: "Direct" | "Tailscale" | "VPS"): ScreenRouteKind {
+export function tcpRouteFromConnectionRoute(routeName?: "Direct" | "Tailscale" | "VPS"): ScreenTcpRouteKind {
   switch (routeName) {
     case "Direct": return "tcp_lan_direct";
     case "Tailscale": return "tcp_tailscale";

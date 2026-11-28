@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { SCREEN_MAX_CONTROL_BYTES, SCREEN_MEDIA_BYTES_PER_MS, screenHelloSchema, screenServiceHelloSchema, screenServiceEventSchema } from "../client-protocol/remote-screen.js";
-import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
+import type { ScreenTcpRouteKind } from "../client-protocol/screen-metrics.js";
 import { readScreenFrame, SCREEN_PACKET_LIMIT } from "../client-protocol/screen-wire.js";
 import { HubRemoteScreen, type ScreenControlSink, type ScreenMediaSink } from "./remote-screen.js";
 import { HubError } from "./store.js";
@@ -25,7 +25,7 @@ export class RemoteScreenSockets {
   constructor(private authority: HubRemoteScreen) {}
   handles(route: string): boolean { return routes.has(route); }
   /** `direct`: the peer's own address is on the local network (not loopback, where a relay arrives). */
-  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, instance: boolean, direct = false, screenRoute?: ScreenRouteKind, relayId?: string): void {
+  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, instance: boolean, direct = false, screenRoute?: ScreenTcpRouteKind, relayId?: string): void {
     const route = req.url!;
     // Instance listener is separate plain loopback; TLS relay peers also arrive
     // on loopback and must never be able to register a target service.
@@ -41,7 +41,7 @@ export class RemoteScreenSockets {
     const group = this.sessionSockets.get(sessionId); this.sessionSockets.delete(sessionId);
     for (const ws of group ?? []) { if (ws.readyState === WebSocket.OPEN) ws.close(4000, reason.slice(0,100)); else ws.terminate(); }
   }
-  private accept(ws: WebSocket, route: string, direct: boolean, screenRoute?: ScreenRouteKind, relayId?: string): void {
+  private accept(ws: WebSocket, route: string, direct: boolean, screenRoute?: ScreenTcpRouteKind, relayId?: string): void {
     this.connections.add(ws);
     if (route.startsWith("/screen/v1/target")) this.targetConnections.add(ws);
     let ready = false, authenticating = false, epoch = "", sessionId = "", generation = "", localBudget = SCREEN_PACKET_LIMIT, localAt = Date.now();
