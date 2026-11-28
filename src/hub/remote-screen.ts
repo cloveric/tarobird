@@ -236,7 +236,7 @@ export class HubRemoteScreen {
     const value: ScreenSession = { id: id("screen"), desktopId: input.desktopId, generation: id("generation"), display: structuredClone(display),
       deviceId: device.id, deviceName: device.name, controlAllowed: grant.permission === "control", state: "connecting", createdAt: this.now() };
     const rtcAllowed = viewer.rtc === true && this.policy!.udpBoost === true && this.serviceFeatures.has(SCREEN_RTC_FEATURE)
-      && !screenQualityProfile(input.quality).h264Only;
+      && input.codecs.includes("vp8") && !screenQualityProfile(input.quality).h264Only;
     const join: ScreenJoin = { session: value, controlTicket: this.issueTicket("control", value.id).ticket, mediaTicket: this.issueTicket("media", value.id).ticket, expiresAt: this.now() + SCREEN_TICKET_MS, serverTime: this.now(),
       ...(input.quality !== undefined ? { quality: input.quality } : {}), ...(rtcAllowed ? { rtc: true } : {}) };
     this.sessions.set(value.id, { value, auth: session, publicKey: device.public_key, frames: new Map(), lastFrame: 0, lastKeyRequest: 0, visible: true, started: false, direct: false, route: viewer.route ?? "tcp_default", mediaBytesPerMs: SCREEN_MEDIA_BYTES_PER_MS, codecs: input.codecs, quality: input.quality, flight: input.flight, streamGeneration: 1, awaitingKey: true, lastCapture: 0, rateAt: this.now(), rateBudget: 180, rtcAllowed });
@@ -340,7 +340,9 @@ export class HubRemoteScreen {
     for (const [sequence, frame] of live.frames) if (frame.rtc === rtc) live.frames.delete(sequence);
     if (closing) return;
     this.toService({ type: "rtc-close", sessionId: live.value.id, nonce: rtc.nonce });
-    if (rtc.activeAt !== undefined) {
+    // A forwarded RTP stamp can already have switched the viewer's decoder,
+    // even if its ACK or the target's confirmation never made it back here.
+    if (rtc.lastFrame > 0) {
       this.resetStream(live);
       if (!this.toService({ type: "reset", sessionId: live.value.id, streamGeneration: live.streamGeneration })) this.closeSession(live.value.id, "screen_service_offline");
       this.notify(live);

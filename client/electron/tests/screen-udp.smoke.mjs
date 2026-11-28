@@ -14,7 +14,7 @@ import { HubServer } from '../../../src/hub/server.ts';
 import { startHubControl } from '../../../src/hub/service.ts';
 import { deviceProof, hashSecret } from '../../../src/hub/auth.ts';
 import { screenConfigureText } from '../../../src/client-protocol/remote-screen.ts';
-import { screenRtcOfferText } from '../../../src/client-protocol/screen-rtc.ts';
+import { SCREEN_RTC_SEQUENCE_START, screenRtcOfferText } from '../../../src/client-protocol/screen-rtc.ts';
 import { deviceActionProofText } from '../../../src/client-protocol/device-actions.ts';
 import { RelayServer } from '../../../src/relay/server.ts';
 import { RelayTunnel } from '../../../src/relay/tunnel.ts';
@@ -23,9 +23,12 @@ import { deviceFields, enrollTrusted, loginFor, testDevice } from '../../../test
 import { isolatedRoot } from '../isolation.mjs';
 import { helperEnvironment } from '../helper-rpc.mjs';
 
-const { values } = parseArgs({ options: { lab: { type: 'string' }, electron: { type: 'string' }, browser: { type: 'string' }, mode: { type: 'string' } } });
+const { values } = parseArgs({ options: { lab: { type: 'string' }, electron: { type: 'string' }, browser: { type: 'string' }, mode: { type: 'string' },
+  'before-confirm': { type: 'string' } } });
 if (!values.lab || !values.electron || !['chromium', 'webkit'].includes(values.browser ?? 'chromium') || !['relay', 'lan'].includes(values.mode ?? 'relay')) throw new Error('usage: --lab <private .noindex dir> --electron <executable> [--browser chromium|webkit] [--mode relay|lan]');
 const mode = values.mode ?? 'relay', engine = values.browser ?? 'chromium';
+const beforeConfirm = values['before-confirm'];
+if (beforeConfirm && (mode !== 'relay' || !['drop', 'timeout'].includes(beforeConfirm))) throw new Error('--before-confirm requires relay mode and drop or timeout');
 const run = await mkdtemp(path.join(await isolatedRoot(values.lab), 'screen-udp-'));
 const app = path.join(run, 'app'), capture = path.join(app, 'screen-capture'), hostDir = path.join(run, 'hub');
 const here = path.dirname(fileURLToPath(import.meta.url)), electronDir = path.dirname(here);
@@ -78,6 +81,9 @@ try {
         return json(res, 200, sign(null, deviceProof(join.session.deviceId, value.nonce, digest), viewer.privateKey).toString('base64'));
       }
       if (req.url === '/signal') {
+        // The timeout case lets the Hub retire the attempt even if its peer
+        // cannot deliver the best-effort close request.
+        if (beforeConfirm === 'timeout' && value.type === 'close') return json(res, 503, {});
         if (value.type === 'offer') {
           const altered = value.sdp.replace(/(a=fingerprint:sha-256 )([A-Fa-f0-9])/, (_, label, digit) => label + (digit === 'A' ? 'B' : 'A'));
           tamperDenied = (await postHub({ ...value, sdp: altered }, viewer.token)).status;
@@ -94,6 +100,14 @@ try {
   hub = await HubServer.start({ stateDir: hostDir, origins: [webUrl], screenUdpRelay: {
     endpoint: () => tunnel?.screenUdpEndpoint, lease: () => tunnel?.screenUdpLease() ?? Promise.resolve(undefined),
   } });
+  let withheld = 0;
+  if (beforeConfirm) {
+    const confirm = hub.remoteScreen.serviceFrameConfirmed.bind(hub.remoteScreen);
+    hub.remoteScreen.serviceFrameConfirmed = (...args) => {
+      if (args[2] >= SCREEN_RTC_SEQUENCE_START) withheld++;
+      else confirm(...args);
+    };
+  }
   relay = await RelayServer.start({ publicHost: '127.0.0.1', publicPort: 0, tunnelHost: '127.0.0.1', tunnelPort: 0,
     serverName: 'hub.test', clientFingerprint256: fingerprint, tls: { ca, ...serverPair }, screenUdp: { address: '127.0.0.1', hosts: [fingerprint] } });
   tunnel = new RelayTunnel({ host: '127.0.0.1', port: relay.status.tunnelPort, servername: 'relay.test', tls: { ca, ...clientPair },
@@ -143,54 +157,88 @@ try {
   });
   page.on('pageerror', error => console.error('viewer', error.message));
   await page.goto(webUrl + '/?mode=' + mode);
-  try {
-    await page.waitForFunction(() => window.receipt?.value?.metrics?.udpConnected && window.receipt?.udpAcks >= 5 && window.receipt?.value?.fresh, undefined, { timeout: 20_000 });
-  } catch (error) {
-    console.error(JSON.stringify({ viewer: await page.evaluate(() => window.receipt), stats: await page.evaluate(() => window.screenPeerStats), relay: relay.status.screenUdp,
-      hub: (await hub.remoteScreen.status(remote.session, { udpStatus: true })).udpStatus }));
-    throw error;
-  }
-  await page.waitForFunction(() => window.receipt.value?.metrics?.bitrateKbps > 0 && window.receipt.value.metrics.sampleCount >= 5);
-  if (tamperDenied !== 403) throw new Error('a substituted DTLS fingerprint was accepted');
-  const udp = await page.evaluate(() => ({ ...window.receipt, value: window.receipt.value }));
-  const relayBytes = relay.status.screenUdp.hosts[0].bytesForwarded;
-  const route = mode === 'relay' ? 'udp_vps_relay' : 'udp_lan_direct';
-  if (udp.value.metrics.route !== route || mode === 'relay' && relayBytes <= 0) throw new Error('selected route was not exercised');
-  const hubStatus = await hub.remoteScreen.status(remote.session, { udpStatus: true });
-  if (hubStatus.udpStatus?.route !== route || hubStatus.udpStatus?.state !== 'connected') throw new Error('Hub did not confirm actual media');
-  await page.evaluate(() => window.viewer.control());
-  await page.waitForFunction(() => window.receipt.value?.controlling, undefined, { timeout: 5000 });
-  await page.evaluate(() => window.viewer.input({ kind: 'move', x: .4, y: .5 }));
-  await wait(() => access(path.join(app, 'synthetic-input')).then(() => true, () => false));
-  const before = await page.evaluate(() => window.receipt.tcpAcks);
-  if (mode === 'relay') {
-    await page.evaluate(() => {
-      const canvas = document.querySelector('canvas');
-      window.blackFrames = 0;
-      window.watchedFrames = 0;
-      window.checkPixels = setInterval(() => {
-        const pixel = canvas.getContext('2d').getImageData(5, 5, 1, 1).data;
-        window.watchedFrames++;
-        if (pixel[0] + pixel[1] + pixel[2] < 20) window.blackFrames++;
-      }, 25);
+  let report;
+  if (beforeConfirm) {
+    await page.waitForFunction(() => window.receipt?.udpAcks > 0, undefined, { timeout: 20_000 });
+    await wait(() => withheld > 0);
+    const before = await page.evaluate(() => ({ ...window.receipt, pixels: window.fixturePixels() }));
+    if (before.udpReady !== 0 || before.value.fresh || before.pixels.every(n => n === 0)) throw new Error('expected a painted UDP picture without control freshness');
+    await page.evaluate(() => window.viewer.control());
+    if (await page.evaluate(() => window.receipt.controlRequests)) throw new Error('unconfirmed UDP picture allowed control');
+    if (beforeConfirm === 'drop') {
+      relay.screenUdp.close();
+      relay.screenUdp = undefined;
+    }
+    try {
+      await page.waitForFunction(generation => window.receipt.tcpGeneration > generation && window.receipt.value.fresh && !window.receipt.value.metrics?.udpConnected,
+        before.tcpGeneration, { timeout: 12_000 });
+    } catch (error) {
+      console.error(JSON.stringify({ beforeConfirm, withheld, before: before.tcpGeneration,
+        after: await page.evaluate(() => window.receipt), hub: (await hub.remoteScreen.status(remote.session, { udpStatus: true })).udpStatus }));
+      throw error;
+    }
+    const resumed = await page.evaluate(() => ({ ...window.receipt, pixels: window.fixturePixels() }));
+    await page.waitForFunction(pixels => window.fixturePixels().some((value, i) => value !== pixels[i]), resumed.pixels);
+    await page.evaluate(() => window.viewer.control());
+    await page.waitForFunction(() => window.receipt.value.controlling, undefined, { timeout: 5000 });
+    await page.evaluate(() => window.viewer.input({ kind: 'move', x: .4, y: .5 }));
+    await wait(() => access(path.join(app, 'synthetic-input')).then(() => true, () => false));
+    const after = await page.evaluate(() => window.receipt);
+    const sessions = (await hub.remoteScreen.status(remote.session)).sessions;
+    if (tamperDenied !== 403 || after.udpReady !== 0 || after.closed !== 0 || sessions.length !== 1 || sessions[0].id !== join.session.id
+      || after.lastInputFrame <= 0 || after.lastInputFrame >= SCREEN_RTC_SEQUENCE_START) throw new Error('unconfirmed fallback changed session or accepted an unconfirmed RTC frame');
+    report = { beforeConfirm, withheld, udpAcks: before.udpAcks, retiredGeneration: before.tcpGeneration,
+      tcpGeneration: resumed.tcpGeneration, confirmedControl: true, syntheticPixelsChanged: true, sameSession: true, closedSockets: after.closed };
+  } else {
+    try {
+      await page.waitForFunction(() => window.receipt?.value?.metrics?.udpConnected && window.receipt?.udpAcks >= 5 && window.receipt?.value?.fresh, undefined, { timeout: 20_000 });
+    } catch (error) {
+      console.error(JSON.stringify({ viewer: await page.evaluate(() => window.receipt), stats: await page.evaluate(() => window.screenPeerStats), relay: relay.status.screenUdp,
+        hub: (await hub.remoteScreen.status(remote.session, { udpStatus: true })).udpStatus }));
+      throw error;
+    }
+    await page.waitForFunction(() => window.receipt.value?.metrics?.bitrateKbps > 0 && window.receipt.value.metrics.sampleCount >= 5);
+    if (tamperDenied !== 403) throw new Error('a substituted DTLS fingerprint was accepted');
+    const udp = await page.evaluate(() => ({ ...window.receipt, value: window.receipt.value }));
+    const relayBytes = relay.status.screenUdp.hosts[0].bytesForwarded;
+    const route = mode === 'relay' ? 'udp_vps_relay' : 'udp_lan_direct';
+    if (udp.value.metrics.route !== route || mode === 'relay' && relayBytes <= 0) throw new Error('selected route was not exercised');
+    const hubStatus = await hub.remoteScreen.status(remote.session, { udpStatus: true });
+    if (hubStatus.udpStatus?.route !== route || hubStatus.udpStatus?.state !== 'connected') throw new Error('Hub did not confirm actual media');
+    await page.evaluate(() => window.viewer.control());
+    await page.waitForFunction(() => window.receipt.value?.controlling, undefined, { timeout: 5000 });
+    await page.evaluate(() => window.viewer.input({ kind: 'move', x: .4, y: .5 }));
+    await wait(() => access(path.join(app, 'synthetic-input')).then(() => true, () => false));
+    const before = await page.evaluate(() => window.receipt.tcpAcks);
+    if (mode === 'relay') {
+      await page.evaluate(() => {
+        const canvas = document.querySelector('canvas');
+        window.blackFrames = 0;
+        window.watchedFrames = 0;
+        window.checkPixels = setInterval(() => {
+          const pixel = canvas.getContext('2d').getImageData(5, 5, 1, 1).data;
+          window.watchedFrames++;
+          if (pixel[0] + pixel[1] + pixel[2] < 20) window.blackFrames++;
+        }, 25);
+      });
+      // Interrupt only the real UDP listener in this isolated process.
+      relay.screenUdp.close();
+      relay.screenUdp = undefined;
+    }
+    if (mode === 'relay') {
+      await page.waitForFunction(tcpAcks => window.receipt.tcpAcks > tcpAcks + 3 && window.receipt.value?.fresh && !window.receipt.value?.metrics?.udpConnected, before, { timeout: 10_000 });
+    }
+    const after = await page.evaluate(() => {
+      clearInterval(window.checkPixels);
+      return { ...window.receipt, blackFrames: window.blackFrames, watchedFrames: window.watchedFrames };
     });
-    // Interrupt only the real UDP listener in this isolated process.
-    relay.screenUdp.close();
-    relay.screenUdp = undefined;
+    if (mode === 'relay' && (!(after.watchedFrames > 10) || after.blackFrames !== 0)) throw new Error('canvas became black during fallback');
+    if (after.closed !== 0) throw new Error('screen sockets closed during fallback');
+    report = { mode, engine, viewport: page.viewportSize(), denied: denied.status, tamperDenied, udpAcks: udp.udpAcks,
+      udpMetrics: udp.value.metrics, relayBytes, confirmedControl: true, closedSockets: after.closed,
+      ...(mode === 'relay' ? { fallbackTcpAcks: after.tcpAcks - before, blackFrames: after.blackFrames,
+        sampledCanvasFrames: after.watchedFrames } : {}) };
   }
-  if (mode === 'relay') {
-    await page.waitForFunction(tcpAcks => window.receipt.tcpAcks > tcpAcks + 3 && window.receipt.value?.fresh && !window.receipt.value?.metrics?.udpConnected, before, { timeout: 10_000 });
-  }
-  const after = await page.evaluate(() => {
-    clearInterval(window.checkPixels);
-    return { ...window.receipt, blackFrames: window.blackFrames, watchedFrames: window.watchedFrames };
-  });
-  if (mode === 'relay' && (!(after.watchedFrames > 10) || after.blackFrames !== 0)) throw new Error('canvas became black during fallback');
-  if (after.closed !== 0) throw new Error('screen sockets closed during fallback');
-  const report = { mode, engine, viewport: page.viewportSize(), denied: denied.status, tamperDenied, udpAcks: udp.udpAcks,
-    udpMetrics: udp.value.metrics, relayBytes, confirmedControl: true, closedSockets: after.closed,
-    ...(mode === 'relay' ? { fallbackTcpAcks: after.tcpAcks - before, blackFrames: after.blackFrames,
-      sampledCanvasFrames: after.watchedFrames } : {}) };
   await writeFile(path.join(run, 'result.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
 } finally {

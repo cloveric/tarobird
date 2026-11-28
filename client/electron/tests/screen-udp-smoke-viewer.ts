@@ -4,7 +4,8 @@ import type { ScreenRtcSignaling } from '../../src/screen-rtc-receiver.js';
 import { SCREEN_RTC_SEQUENCE_START } from '../../../src/client-protocol/screen-rtc.js';
 import type { ScreenJoin } from '../../../src/client-protocol/remote-screen.js';
 
-const state = { value: undefined as ViewerState | undefined, tcpAcks: 0, udpAcks: 0, closed: 0, lastTcpAt: 0, lastUdpAt: 0, ready: false, rtcFrames: 0, closeCode: "", attached: 0 };
+const state = { value: undefined as ViewerState | undefined, tcpAcks: 0, udpAcks: 0, closed: 0, lastTcpAt: 0, lastUdpAt: 0, ready: false, rtcFrames: 0, closeCode: "", attached: 0,
+  udpReady: 0, tcpGeneration: 0, controlRequests: 0, lastInputFrame: 0 };
 const canvas = document.querySelector('canvas')!;
 const post = async (path: string, body?: unknown) => {
   const response = await fetch(path, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -39,6 +40,10 @@ const transport: ScreenViewerTransport = session => {
       const event = typeof data === 'string' ? JSON.parse(data) : data;
       if (event?.type === 'rtc-frame') state.rtcFrames++;
       if (event?.type === 'attached') state.attached++;
+      if (event?.type === 'frame-ready') {
+        if (event.frameSequence >= SCREEN_RTC_SEQUENCE_START) state.udpReady++;
+        else state.tcpGeneration = event.streamGeneration;
+      }
       receive(event);
     };
     connection.onclose = event => { if (!closed) { state.closed++; state.closeCode = String(event.reason || event.code); } };
@@ -53,6 +58,8 @@ const transport: ScreenViewerTransport = session => {
         start: callback => { receive = callback; },
         close: () => { closed = true; control.close(); media.close(); },
         postMessage: message => {
+          if (message.type === 'control') state.controlRequests++;
+          if (message.type === 'input') state.lastInputFrame = Number(message.frameSequence);
           if (message.type === 'ack') {
             if (Number(message.frameSequence) >= SCREEN_RTC_SEQUENCE_START) { state.udpAcks++; state.lastUdpAt = performance.now(); }
             else { state.tcpAcks++; state.lastTcpAt = performance.now(); }
@@ -67,6 +74,7 @@ const transport: ScreenViewerTransport = session => {
 const viewer = new RemoteScreenViewer(join, canvas, value => { state.value = value; }, {
   transport, inputActive: () => true, rtcSignaling: signaling, udpRequested: true, serverTimeOffsetMs: 0,
 });
-Object.assign(window, { receipt: state, viewer });
+Object.assign(window, { receipt: state, viewer,
+  fixturePixels: () => Array.from(canvas.getContext('2d')!.getImageData(30, 176, 210, 31).data).filter((_value, i) => i % 4 !== 3) });
 await viewer.open(undefined);
 state.ready = true;
