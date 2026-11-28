@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { REMOTE_SCREEN_UDP_BOOST_CAPABILITY } from "../../src/client-protocol/remote-screen.js";
 import type { ClientCache, Identity } from "../src/storage.js";
 
 const io = vi.hoisted(() => ({ socket: vi.fn(), sign: vi.fn(), verify: vi.fn() }));
@@ -133,4 +134,33 @@ it("allows an immediate stop on a live socket after cache retirement but never q
   await expect(connection.send({ v: 1, type: "message.send", conversationId: "chat", clientMsgId: "new", text: "never enqueue", attachments: [] })).rejects.toThrow("本地消息缓存已关闭");
   expect(enqueue).not.toHaveBeenCalled(); expect(connection.isClosed).toBe(true);
   expect(ws.send).toHaveBeenCalledOnce();
+});
+
+it.each([true, false])("requests UDP screen status only when advertised (supported=%s)", async supported => {
+  const ws = socket();
+  io.socket.mockReturnValue(ws);
+  const { connection, cache, connect } = fixture(async () => {});
+  Object.assign(cache, { saveConversations: vi.fn(), saveProfiles: vi.fn(), outbox: async () => [] });
+  const receive = async (frame: object) => {
+    ws.onmessage!({ data: JSON.stringify({ v: 1, ...frame }) });
+    await vi.advanceTimersByTimeAsync(0);
+  };
+  await connect();
+  ws.onopen!();
+  await vi.advanceTimersByTimeAsync(0);
+  await receive({ type: "challenge", nonce: "nonce", signature: "signed", publicKey: "key" });
+  await receive({
+    type: "ready", serverCapabilities: supported ? [REMOTE_SCREEN_UDP_BOOST_CAPABILITY] : [],
+    sessionToken: "token", expiresAt: Date.now() + 60_000,
+    user: { id: "owner", name: "Owner", role: "owner" }, bots: [], conversations: [],
+  });
+  expect(connection.state.screenUdpBoostAvailable).toBe(supported);
+  const request = vi.fn().mockResolvedValue({
+    supported: true, enabled: false, canManage: false, permission: "none", desktop: null, sessions: [], serverTime: 0,
+  });
+  Reflect.set(connection, "screenRequest", request);
+  await connection.screenStatus();
+  expect(request).toHaveBeenCalledWith(supported
+    ? "/api/screens/status?includeWindows=1&includeUdpStatus=1"
+    : "/api/screens/status?includeWindows=1");
 });
