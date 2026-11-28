@@ -82,32 +82,41 @@ const attachment = (name: string, mime: string) => ({
   authorType: "user", authorName: "Example User", createdAt: baseline,
 });
 
-it("labels visible resource totals and marks a failed refresh as stale", async () => {
-  const sample = { sampledAt: baseline, canStop: false, summary: { totalCpuPercent: 7, totalMemoryBytes: 128 * 1024 ** 2 } };
+it.each(["owner", "member"] as const)("retains and dates a failed resource sample for the %s role", async role => {
+  const sample = { sampledAt: baseline, summary: { totalCpuPercent: 7, totalMemoryBytes: 128 * 1024 ** 2 } };
   const request = vi.fn()
     .mockResolvedValueOnce(sample)
     .mockRejectedValueOnce(new HubHttpError(503, "host_resources_timeout"))
-    .mockResolvedValue({ ...sample, summary: { ...sample.summary, totalCpuPercent: 23 } });
-  const conn = connection({ hostResources: request }, { hostResourcesAvailable: true });
+    .mockImplementation(async () => ({ ...sample, sampledAt: Date.now(), summary: { ...sample.summary, totalCpuPercent: 23 } }));
+  const conn = connection({ hostResources: request }, {
+    hostResourcesAvailable: true, user: { id: "example_user", role },
+  });
   const trigger = (open: boolean) => createElement(ResourcesTriggerButton, { connection: conn, onOpen: noop, open });
   await act(async () => root.render(trigger(false)));
   expect(request).toHaveBeenCalledTimes(1);
   const button = container.querySelector("button")!;
-  expect(button.getAttribute("title")).toContain("CPU 7.0%");
+  const tooltip = () => button.getAttribute("title");
+  const description = () => document.getElementById(button.getAttribute("aria-describedby")!)?.textContent;
+  expect(tooltip()).toContain("资源管理 · TaroBird 占用 CPU 7.0%，内存 128 MB");
   await act(async () => vi.advanceTimersByTimeAsync(15_000));
   expect(request).toHaveBeenCalledTimes(2);
-  expect(button.getAttribute("title")).toContain("CPU 7.0%");
+  expect(tooltip()).toContain("CPU 7.0%，内存 128 MB");
+  expect(tooltip()).toMatch(/上次采样于 .*15秒(?:钟)?前/);
+  expect(tooltip()).toContain(new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "medium" }).format(baseline));
+  expect(description()).toBe(tooltip());
+  expect(button.getAttribute("data-stale")).toBe("true");
   expect(button.querySelector(".resources-footer-metrics")?.textContent).toContain("旧读数");
-  expect(document.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toContain("可见进程");
-  expect(document.getElementById(button.getAttribute("aria-describedby")!)?.textContent).toContain("上次读数");
-  expect(button.querySelector(".resources-footer-metrics")?.getAttribute("aria-hidden")).toBe("true");
+
   await act(async () => root.render(trigger(true)));
   await act(async () => vi.advanceTimersByTimeAsync(30_000));
   expect(request).toHaveBeenCalledTimes(2);
   await act(async () => root.render(trigger(false)));
   expect(request).toHaveBeenCalledTimes(3);
-  expect(button.getAttribute("title")).toContain("CPU 23.0%");
-  expect(button.getAttribute("title")).not.toContain("上次读数");
+  expect(tooltip()).toContain("CPU 23.0%");
+  expect(tooltip()).not.toContain("上次采样");
+  expect(button.hasAttribute("data-stale")).toBe(false);
+  expect(button.querySelector(".resources-footer-metrics")?.textContent).not.toContain("旧读数");
+
   visibility.hidden = true;
   await act(async () => vi.advanceTimersByTimeAsync(30_000));
   expect(request).toHaveBeenCalledTimes(3);
@@ -117,6 +126,30 @@ it("labels visible resource totals and marks a failed refresh as stale", async (
   await act(async () => root.render(null));
   await act(async () => vi.advanceTimersByTimeAsync(30_000));
   expect(request).toHaveBeenCalledTimes(4);
+});
+
+it("marks an aged resource sample during polling suspension using the Host clock", async () => {
+  const offset = 5 * 60_000;
+  const sample = { sampledAt: baseline + offset, summary: { totalCpuPercent: 7, totalMemoryBytes: 128 * 1024 ** 2 } };
+  const request = vi.fn().mockResolvedValueOnce(sample).mockResolvedValueOnce(sample)
+    .mockImplementation(async () => ({ ...sample, sampledAt: Date.now() + offset }));
+  const conn = connection({ hostResources: request }, { hostResourcesAvailable: true, serverTimeOffset: offset });
+  const trigger = (open: boolean) => createElement(ResourcesTriggerButton, { connection: conn, onOpen: noop, open });
+  await act(async () => root.render(trigger(false)));
+  await act(async () => root.render(trigger(true)));
+  const button = container.querySelector("button")!;
+  await act(async () => vi.advanceTimersByTimeAsync(29_999));
+  expect(button.getAttribute("title")).not.toContain("上次采样");
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(button.getAttribute("title")).toMatch(/上次采样于 .*30秒(?:钟)?前/);
+  expect(button.getAttribute("title")).toContain("CPU 7.0%");
+  await act(async () => root.render(trigger(false)));
+  expect(request).toHaveBeenCalledTimes(2);
+  expect(button.getAttribute("title")).toContain("上次采样");
+  await act(async () => vi.advanceTimersByTimeAsync(15_000));
+  expect(request).toHaveBeenCalledTimes(3);
+  expect(button.getAttribute("title")).not.toContain("上次采样");
 });
 
 it("shows a loading state until the first file response returns", async () => {

@@ -56,6 +56,10 @@
   color: var(--grey);
 }
 
+.resources-footer-button[data-stale=true] .resources-footer-metrics b {
+  color: var(--muted);
+}
+
 .resources-footer-metrics i {
   width: 1px;
   height: 10px;
