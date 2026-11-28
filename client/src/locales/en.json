@@ -6484,7 +6484,6 @@
   "无法通过中转或公网地址连接「{0}」，正在自动重试。请确认主机未休眠、TaroBird 正在运行，且中转服务在线。": "Cannot reach “{0}” through the relay or public address. Retrying automatically. Make sure the host is awake, TaroBird is running, and the relay is online.",
   "已尝试的所有线路均无法连接主机。请确认主机电脑未休眠且 TaroBird 正在运行，并检查两端 Tailscale 或 VPS 中转状态。": "All attempted routes failed to reach the host. Check that the host computer is awake and running TaroBird, and verify Tailscale or your VPS relay.",
   "已尝试的所有线路均无法连接「{0}」，正在自动重试。请确认主机未休眠、TaroBird 正在运行，并检查 Tailscale 或中转服务状态。": "All attempted routes failed to reach “{0}”. Retrying automatically. Check that the host is awake, TaroBird is running, and Tailscale or your relay is online.",
-  "右侧面板": "Side panels",
   "刷新文件树": "Refresh file tree",
   "关闭文件面板": "Close files panel",
   "文件路径": "File path",

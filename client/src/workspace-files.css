@@ -86,14 +86,10 @@
 .wf-preview-image img{max-width:100%;height:auto;border-radius:8px;border:1px solid var(--border);background:var(--hover)}
 .wf-preview-pdf{padding:0;display:flex;flex-direction:column}
 /* Right side panel switcher pill (Workbench | Files) */
-.right-panel-switcher{display:inline-flex;align-items:center;padding:2px;border-radius:9px;border:1px solid var(--border);background:color-mix(in srgb,var(--hover) 45%,var(--bg));gap:2px;flex:none}
-.right-panel-switcher .icon-button{width:28px;height:28px;border-radius:7px}
-.right-panel-switcher .icon-button[aria-expanded=true]{box-shadow:none;background:var(--bg);color:var(--text)}
 /* Phone header: no second panel icon. It took 52px from the conversation title (36px left on a 320px split screen);
    the Workbench entry stays as it was before the Files panel. */
 @media (max-width:760px){
-  .conversation-header .right-panel-switcher{padding:0;border:0;background:transparent}
-  .conversation-header .right-panel-switcher>.files-trigger{display:none}
+  .conversation-header>.workbench-trigger+.files-trigger{display:none}
 }
 @media(max-width:760px),(hover:none) and (pointer:coarse){
  .wf-row{min-height:42px}
