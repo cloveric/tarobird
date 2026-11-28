@@ -159,10 +159,17 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
         const guest = page.frames().find((f) => f.url() === "about:srcdoc");
         if (!guest) return null;
         return guest.evaluate(() => ({
-          heading: document.getElementById("heading")?.textContent ?? "",
+          copy: document.getElementById("copy-btn")?.textContent ?? "",
+          innerHeading: document.getElementById("heading") !== null,
           theme: document.body.dataset.theme ?? "light",
         })).catch(() => null);
-      }, { timeout: 10000 }).toEqual({ heading: "速记面板", theme: "light" });
+      }, { timeout: 10000 }).toEqual({ copy: "复制", innerHeading: false, theme: "light" });
+
+      // The panel header is the conversation header's height, so their bottom borders line up;
+      // the plugin's name is shown once, by the App header, not again inside the plugin.
+      const headerBottoms = await page.evaluate(() => [".conversation-header", ".plugin-side-panel-header"]
+        .map(selector => Math.round(document.querySelector(selector)!.getBoundingClientRect().bottom)));
+      expect(headerBottoms[1]).toBe(headerBottoms[0]);
 
       const scratchpad = page.frameLocator(".plugin-sandbox-frame").frameLocator("iframe");
       await scratchpad.locator("#pad").fill("验收用速记");
@@ -279,8 +286,8 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await expect.poll(async () => {
         const guest = page.frames().find((f) => f.url() === "about:srcdoc");
         if (!guest) return "";
-        return guest.evaluate(() => document.getElementById("heading")?.textContent ?? "").catch(() => "");
-      }, { timeout: 10000 }).toBe("速记面板");
+        return guest.evaluate(() => document.getElementById("copy-btn")?.textContent ?? "").catch(() => "");
+      }, { timeout: 10000 }).toBe("复制");
 
       // Native Back closes MobilePluginSheet cleanly
       const consumedBySheet = await page.evaluate(() => !window.dispatchEvent(new Event("tarocub-native-back", { cancelable: true })));
