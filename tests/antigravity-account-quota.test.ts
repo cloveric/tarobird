@@ -4,8 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { quotaSnapshotSchema } from "../src/client-protocol/engine-quota.js";
-import { isAntigravityQuotaSupportedVersion, parseAntigravityQuota } from "../src/codex/account-quota.js";
+import { isAntigravityQuotaSupportedVersion, parseAntigravityQuota, withAntigravityModelIds } from "../src/codex/account-quota.js";
+import { quotaReadingExpired } from "../src/client-protocol/engine-quota.js";
+import { poolCoversModel } from "../client/src/usage-readings.js";
 import { ProcessAntigravityAdapter } from "../src/codex/antigravity-adapter.js";
+import { AdapterQuotaCache } from "../src/codex/adapter-account-quota.js";
+import { readOwnedAntigravityQuota } from "../src/codex/antigravity-account-quota.js";
 import { AntigravityAcpAdapter } from "../src/codex/antigravity-acp-adapter.js";
 import { gatewayEngineQuota } from "../src/gateway/engine-quota.js";
 
@@ -122,6 +126,28 @@ async function agyFixture(options: { withState?: boolean; extraEnv?: Record<stri
   const env: NodeJS.ProcessEnv = { HOME: home, PATH: process.env.PATH, ...options.extraEnv };
   return { root, home, agyHome, cacheDir, env };
 }
+
+it("discards quota when the credential scope changes during model discovery", async () => {
+  const f = await agyFixture();
+  const cache = new AdapterQuotaCache("antigravity", "agy", f.env);
+  let generation = "before";
+  const captureScope = () => cache.capture(generation);
+  const spawn = vi.fn((_executable: string, args: string[]) => {
+    const child = new MockChild();
+    child.finish(0, args[0] === "--version" ? "1.2.0" : JSON.stringify(currentUsagePayload()));
+    return child;
+  });
+  const result = await readOwnedAntigravityQuota({
+    executable: "agy", cwd: f.root, env: f.env, cache, scope: captureScope(),
+    spawn, options: { refresh: true }, captureScope,
+    modelCatalog: async () => {
+      generation = "after";
+      return [];
+    },
+  });
+  expect(result.revision).toBe(captureScope().revision);
+  expect(result.snapshot).toMatchObject({ reason: "auth_changed", pools: [] });
+});
 
 describe("Antigravity quota version check and parser", () => {
   it("accepts CLI versions >= 1.1.11 and rejects older or malformed versions", () => {
@@ -486,5 +512,42 @@ describe("Antigravity ACP runtime account quota", () => {
     expect(slow.killed).toBe(true);
     expect((await reading).snapshot.pools).toEqual([]);
     expect((await adapter.getAccountQuota({ refresh: true })).snapshot).toMatchObject({ reason: "cancelled", pools: [] });
+  });
+});
+
+describe("Windows quota visibility (#205)", () => {
+  const now = Date.parse("2026-11-28T01:00:00Z");
+  const usage = (groups: unknown[]) => ({ ...sampleUsagePayload, command: { name: "usage", data: { groups } } });
+
+  it("an unused pool's epoch reset means no reset, so the reading is not born expired", () => {
+    const snapshot = parseAntigravityQuota(usage([
+      { name: "Claude and GPT models", buckets: [{ id: "3p-weekly", window: "weekly", remaining_fraction: 1, reset_time: "1970-01-01T00:00:00Z" }] },
+      { name: "Gemini Models", buckets: [{ id: "g-weekly", window: "weekly", remaining_fraction: 0.6, reset_time: "2026-12-01T00:00:00Z" }] },
+    ]), now);
+    expect(snapshot.pools[0]!.windows[0]).not.toHaveProperty("resetsAt");
+    expect(snapshot.pools[1]!.windows[0]).toMatchObject({ resetsAt: "2026-12-01T00:00:00.000Z" });
+    expect(quotaReadingExpired(snapshot, now + 1000)).toBe(false);
+  });
+
+  it("adds the agy model ids whose display name is a group's model, so the Bot's id matches", () => {
+    const snapshot = parseAntigravityQuota(usage([
+      { name: "Orchestrator", description: "Models within this group: Orchestrator (Neon), Orchestrator (Carbon)", buckets: [] },
+      { name: "Gemini 4 Argon", buckets: [] },
+    ]), now);
+    const catalog = [
+      { id: "gemini-pro-orchestrator-neon", label: "Orchestrator (Neon)" },
+      { id: "gemini-pro-orchestrator", label: "Orchestrator (Carbon)" },
+      { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)" },
+      { id: "gemini-4-neon", label: "Gemini 4 Neon" },
+      { id: "no-label" },
+    ];
+    const enriched = withAntigravityModelIds(snapshot, catalog);
+    expect(enriched.pools[0]!.models).toEqual(["Orchestrator (Neon)", "Orchestrator (Carbon)", "gemini-pro-orchestrator-neon", "gemini-pro-orchestrator"]);
+    expect(enriched.pools[1]!.models).toEqual(["Gemini 4 Argon", "gemini-4-argon-high"]);
+    // The App's matcher now finds the Bot's own id; before, only the display name was there.
+    expect(poolCoversModel(snapshot.pools[0]!.models!, "gemini-pro-orchestrator-neon")).toBe(false);
+    expect(poolCoversModel(enriched.pools[0]!.models!, "gemini-pro-orchestrator-neon")).toBe(true);
+    expect(poolCoversModel(enriched.pools[0]!.models!, "gemini-4-neon")).toBe(false);
+    expect(withAntigravityModelIds(snapshot, [])).toBe(snapshot);
   });
 });

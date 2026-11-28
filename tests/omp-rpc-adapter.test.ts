@@ -14,6 +14,9 @@ import { OmpFrameError, OmpProtocolVersionError } from "../src/codex/omp-rpc-pro
 import { OmpSessionStore } from "../src/codex/omp-session-store.js";
 import { resolveOmpExecutable } from "../src/runtime/omp-executable.js";
 import type { SteeringApplication } from "../src/client-protocol/steering-outcome.js";
+import { Bridge } from "../src/runtime/bridge.js";
+import { SessionManager } from "../src/runtime/session-manager.js";
+import { SessionStore } from "../src/state/session-store.js";
 
 class FakeOmpProcess extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -189,6 +192,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           }
           if (cmd.type === "get_state") { p.send({ id, type: "response", command: "get_state", success: true, data: defaultState() }); return; }
           if (cmd.type === "open_session") { p.send({ id, type: "response", command: "open_session", success: true, data: { cancelled: false, resumed: false, sessionId: "omp-sess-stop" } }); return; }
+          if (cmd.type === "get_entries") { p.send({ id, type: "response", command: "get_entries", success: true, data: { entries: [], leafId: null } }); return; }
           if (cmd.type === "prompt") {
             activePromptId = id;
             p.send({ id, type: "response", command: "prompt", success: true });
@@ -240,6 +244,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           }
           if (cmd.type === "get_state") { p.send({ id, type: "response", command: "get_state", success: true, data: defaultState() }); return; }
           if (cmd.type === "open_session") { p.send({ id, type: "response", command: "open_session", success: true, data: { cancelled: false, resumed: false, sessionId: "omp-sess-q" } }); return; }
+          if (cmd.type === "get_entries") { p.send({ id, type: "response", command: "get_entries", success: true, data: { entries: [], leafId: null } }); return; }
           if (cmd.type === "prompt") {
             activePromptId = id;
             p.send({ id, type: "response", command: "prompt", success: true });
@@ -315,6 +320,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           }
           if (cmd.type === "get_state") { p.send({ id, type: "response", command: "get_state", success: true, data: defaultState() }); return; }
           if (cmd.type === "open_session") { p.send({ id, type: "response", command: "open_session", success: true, data: { cancelled: false, resumed: false, sessionId: "omp-sess-sub" } }); return; }
+          if (cmd.type === "get_entries") { p.send({ id, type: "response", command: "get_entries", success: true, data: { entries: [], leafId: null } }); return; }
           if (cmd.type === "cancel_subagent") {
             cancelledId = cmd.subagentId as string;
             p.send({ id, type: "response", command: "cancel_subagent", success: true, data: { cancelled: true } });
@@ -428,7 +434,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
 
     let activeSessionFile = path.join(dir, "sess-main.jsonl");
     const forkedSessionFile = path.join(dir, "sess-fork.jsonl");
-    const entries: Array<{ id: string; parentId: string | null; type: string; message?: { role: string; content: unknown } }> = [];
+    const entries: Array<{ id: string; parentId: string | null; type: string; message?: { role: string; content: unknown; timestamp?: number } }> = [];
     let leafId: string | null = null;
     let currentGoal: { objective: string; status: string; tokenBudget: number | null; tokensUsed: number; timeUsedSeconds: number } | null = null;
     let receivedImagesCount = 0;
@@ -436,6 +442,10 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
     let hostToolResultReceived: unknown;
     let askResponseReceived: unknown;
     let steeredText: string | undefined;
+    let forkedAt: unknown;
+    let publishUserEvent = true;
+    const mainScope = { chatId: 7, userId: 42, chatType: "private", conversationKey: "lark:main" };
+    const otherScope = { ...mainScope, chatId: 8, conversationKey: "lark:other" };
     let resolvePromptReady!: () => void;
     const promptReady = new Promise<void>(r => { resolvePromptReady = r; });
     let finishPrompt!: () => void;
@@ -495,8 +505,22 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
             askResponseReceived = cmd;
             return;
           }
+          if (cmd.type === "btw_cancel") {
+            p.send({ id, type: "response", command: "btw_cancel", success: true, data: {} });
+            return;
+          }
+          if (cmd.type === "btw") {
+            p.send({ id, type: "response", command: "btw", success: true, data: { record: {
+              id: "side-1", question: cmd.question, answer: "Main context.", status: "complete", leafId, createdAt: 1, updatedAt: 2,
+            } } });
+            return;
+          }
           if (cmd.type === "steer") {
             steeredText = cmd.message as string;
+            entries.push({ id: "u_steer", parentId: leafId, type: "message", message: { role: "user", content: steeredText, timestamp: 2000 } });
+            entries.push({ id: "a_steer", parentId: "u_steer", type: "message", message: { role: "assistant", content: "Aligned reply." } });
+            leafId = "a_steer";
+            p.send({ type: "message_start", messageId: "stream_steer", message: { role: "user", content: steeredText, timestamp: 2000 } });
             p.send({ id, type: "response", command: "steer", success: true });
             return;
           }
@@ -505,6 +529,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
             return;
           }
           if (cmd.type === "fork") {
+            forkedAt = cmd.entryId;
             activeSessionFile = forkedSessionFile;
             p.send({ id, type: "response", command: "fork", success: true, data: { cancelled: false } });
             return;
@@ -531,11 +556,13 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
             receivedImagesCount = Array.isArray(cmd.images) ? cmd.images.length : 0;
             const userId = `u_${entries.length + 1}`;
             const asstId = `a_${entries.length + 2}`;
-            entries.push({ id: userId, parentId: leafId, type: "message", message: { role: "user", content: cmd.message } });
-            entries.push({ id: asstId, parentId: userId, type: "message", message: { role: "assistant", content: [{ type: "text", text: "Aligned reply." }] } });
-            leafId = asstId;
+            entries.push({ id: userId, parentId: leafId, type: "message", message: { role: "user", content: cmd.message, timestamp: 1000 } });
+            leafId = userId;
             p.send({ id, type: "response", command: "prompt", success: true });
             p.send({ type: "agent_start" });
+            if (publishUserEvent) {
+              p.send({ type: "message_start", messageId: "stream_main", message: { role: "user", content: cmd.message, timestamp: 1000 } });
+            }
             p.send({ type: "auto_retry_start", attempt: 1, delayMs: 250, errorMessage: "HTTP 429 rate limit" });
             p.send({ type: "auto_retry_end", success: true, attempt: 1 });
             p.send({ type: "host_tool_call", id: "ht_1", toolCallId: "tc_1", toolName: "send_file", arguments: { path: "out.txt" } });
@@ -547,6 +574,8 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
             });
             resolvePromptReady();
             void promptGate.then(() => {
+              entries.push({ id: asstId, parentId: leafId, type: "message", message: { role: "assistant", content: [{ type: "text", text: "Aligned reply." }] } });
+              leafId = asstId;
               p.send({
                 type: "message_end",
                 messageId: "m-p",
@@ -567,8 +596,16 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
       },
     });
 
+    await expect(adapter.openSideSession({ sourceSessionId: "missing-native-session" })).rejects.toThrow("no_main_session");
     const events: EngineStreamEvent[] = [];
-    const turnPromise = adapter.sendUserMessage("conv-parity", {
+    const access = { load: vi.fn().mockResolvedValue({ policy: "allowlist", allowlist: [7, 8], pairedUsers: [], pendingPairs: [] }), issuePairingCode: vi.fn() };
+    const sessions = new SessionManager(new SessionStore(path.join(dir, "session.json")), adapter);
+    const bridge = new Bridge(access, sessions, adapter);
+    const onHistoryAnchor = vi.fn();
+    const turnPromise = bridge.handleAuthorizedMessage({
+      ...mainScope,
+      historyInputMessageId: "app-main",
+      onHistoryAnchor,
       text: "Check image and call host tool",
       files: [pngPath],
       appPlatformTools: {
@@ -586,13 +623,24 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
       onEngineEvent: (ev) => { events.push(ev); },
     });
 
-    await promptReady;
-    expect(adapter.supportsSessionSteering("conv-parity")).toBe(true);
-    const steered = await adapter.steerActiveTurn("conv-parity", { text: "Keep it concise" });
-    expect(steered).toBe(true);
-    expect(steeredText).toBe("Keep it concise");
-    finishPrompt();
-
+    let sessionId: string;
+    try {
+      await promptReady;
+      await expect.poll(() => bridge.inFlightSendBehavior(mainScope)).toBe("steer");
+      sessionId = (await sessions.getExistingSession(mainScope))!.sessionId;
+      expect(await bridge.inFlightSendBehavior(otherScope)).toBeUndefined();
+      expect(await bridge.steerActiveTurn({ ...otherScope, text: "Wrong turn" })).toBe(false);
+      await expect(bridge.openSideSession(otherScope)).rejects.toThrow("no_main_session");
+      const runningSide = await bridge.openSideSession(mainScope);
+      try {
+        expect(await runningSide.send({ text: "What is the topic?", files: [], onEngineEvent: vi.fn() })).toEqual({ text: "Main context." });
+      } finally { await runningSide.dispose(); }
+      expect(await bridge.steerActiveTurn({ ...mainScope, text: "Keep it concise" })).toBe(true);
+      expect(steeredText).toBe("Keep it concise");
+    } finally {
+      finishPrompt();
+      await turnPromise;
+    }
     const response = await turnPromise;
     expect(response.text).toBe("Aligned reply.");
     expect(response.usage).toEqual({ inputTokens: 500, outputTokens: 120, cachedTokens: 80, costUsd: 0.0125 });
@@ -601,36 +649,150 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
     expect((hostToolResultReceived as { result?: { content?: Array<{ text?: string }> } })?.result?.content?.[0]?.text).toContain("delivered:send_file");
     expect((askResponseReceived as { answers?: Array<{ id: string; selectedOptions: string[] }> })?.answers).toEqual([{ id: "db", selectedOptions: ["Postgres"] }]);
     expect(events.some(e => e.type === "engine_retry" && e.status === "waiting" && e.reason === "rate-limit")).toBe(true);
-    expect(events.some(e => e.type === "history_anchor" && e.anchor.fork && e.anchor.rewind)).toBe(true);
+    expect(onHistoryAnchor).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      messageId: "app-main", sessionId,
+      nativeAnchor: expect.objectContaining({ inputId: "u_1", fork: true, rewind: true, data: { forkLeafId: "a_2" } }),
+    }));
     expect(adapter.advertisedCommands()).toEqual([{ name: "compact", description: "Compact context" }]);
 
+    const idleSide = await bridge.openSideSession(mainScope);
+    expect(await idleSide.send({ text: "What is the topic?", files: [], onEngineEvent: vi.fn() })).toEqual({ text: "Main context." });
+    await idleSide.dispose();
+
     // Passive context usage reads cached state without extra RPC
-    const ctxUsage = await adapter.getContextUsage("conv-parity", { passive: true });
+    const ctxUsage = await adapter.getContextUsage(sessionId, { passive: true });
     expect(ctxUsage).toEqual({ pressureTokens: 1200, contextWindow: 200000 });
 
     // History state, non-destructive fork, and rewind
-    const hist = await adapter.getHistoryState("conv-parity");
+    const hist = await adapter.getHistoryState(sessionId);
     expect(hist.fork).toEqual({ whole: true, anchored: true });
     expect(hist.rewind).toBe(true);
-    const forked = await adapter.forkHistory("conv-parity", { expectedHead: hist.head });
+    const anchor = onHistoryAnchor.mock.calls[0]![0].nativeAnchor;
+    const forked = await adapter.forkHistory(sessionId, { anchor, expectedHead: hist.head });
     expect(forked.outcome).toBe("applied");
+    expect(forkedAt).toBe("a_2");
     // Source worker was restored to original session file!
     expect(activeSessionFile).toBe(path.join(dir, "sess-main.jsonl"));
 
-    const anchorEvent = events.find((e): e is Extract<EngineStreamEvent, { type: "history_anchor" }> => e.type === "history_anchor")!;
-    const rewound = await adapter.rewindHistory("conv-parity", { anchor: anchorEvent.anchor, expectedHead: hist.head });
+    const rewound = await adapter.rewindHistory(sessionId, { anchor, expectedHead: hist.head });
     expect(rewound.outcome).toBe("applied");
+    publishUserEvent = false;
+    const unmappedHistory = vi.fn();
+    await bridge.handleAuthorizedMessage({
+      ...mainScope, text: "An unattributed input", files: [],
+      historyInputMessageId: "app-unmapped", onHistoryAnchor: unmappedHistory,
+    });
+    expect(unmappedHistory).not.toHaveBeenCalled();
 
     // Native goal lifecycle
-    const createdGoal = await adapter.setThreadGoal("conv-parity", { objective: "Ship omp parity", tokenBudget: 50000 });
+    const createdGoal = await adapter.setThreadGoal(sessionId, { objective: "Ship omp parity", tokenBudget: 50000 });
     expect(createdGoal.goal?.objective).toBe("Ship omp parity");
     expect(createdGoal.goal?.status).toBe("active");
-    const pausedGoal = await adapter.updateThreadGoal("conv-parity", { status: "paused" });
+    const pausedGoal = await adapter.updateThreadGoal(sessionId, { status: "paused" });
     expect(pausedGoal.goal?.status).toBe("paused");
-    const cleared = await adapter.clearThreadGoal("conv-parity");
+    const cleared = await adapter.clearThreadGoal(sessionId);
     expect(cleared.cleared).toBe(true);
 
     await adapter.destroy();
+  });
+
+  it.each([
+    { scenario: "normal reply", inputId: "main" },
+    { scenario: "fast reply", inputId: "main" },
+    { scenario: "same-text steer", inputId: "main" },
+    { scenario: "same-text same-timestamp steer" },
+    { scenario: "an identical inactive sibling", inputId: "main" },
+    { scenario: "ambiguous native entries" },
+    { scenario: "ambiguous user events" },
+    { scenario: "only an earlier matching entry" },
+    { scenario: "native branch changed onto an old descendant" },
+    { scenario: "only a matching sibling entry" },
+    { scenario: "broken ancestry" },
+    { scenario: "no user event" },
+  ])("attributes a history anchor only with exact native evidence: $scenario", async ({ scenario, inputId }) => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "omp-history-attribution-"));
+    dirs.push(dir);
+    const text = "Synthetic input";
+    const user = { role: "user", timestamp: 1000, content: text };
+    const assistant = { role: "assistant", content: "Done" };
+    const entries: Array<{ id: string; parentId: string | null; type: string; message: { role: string; content: string; timestamp?: number } }> = [
+      { id: "earlier", parentId: null, type: "message", message: user },
+      { id: "previous", parentId: "earlier", type: "message", message: assistant },
+    ];
+    if (scenario === "native branch changed onto an old descendant") {
+      entries.push({ id: "old_descendant", parentId: "previous", type: "message", message: assistant });
+    }
+    let leafId = "previous";
+    let finish!: () => void;
+    const prompted = new Promise<void>(resolve => { finish = resolve; });
+
+    const adapter = new OmpRpcAdapter({
+      launch: { command: "omp", args: [] }, workspacePath: dir, stateDir: dir, childEnv: {},
+      spawnFn: () => {
+        const process = new FakeOmpProcess((cmd, rpc) => {
+          const reply = (data?: unknown) => rpc.send({ id: cmd.id, type: "response", command: cmd.type, success: true, data });
+          const append = (id: string, message: { role: string; content: string; timestamp?: number }) => {
+            entries.push({ id, parentId: leafId, type: "message", message });
+            leafId = id;
+          };
+          if (cmd.type === "get_state") reply(defaultState());
+          else if (cmd.type === "get_entries") reply({ entries, leafId });
+          else if (cmd.type === "steer") {
+            reply();
+            const steer = scenario === "same-text same-timestamp steer" ? user : { ...user, timestamp: user.timestamp + 1 };
+            append("steer", steer);
+            rpc.send({ type: "message_start", messageId: "stream_steer", message: steer });
+          } else if (cmd.type === "prompt") {
+            reply();
+            rpc.send({ type: "agent_start" });
+            if (scenario === "only a matching sibling entry" || scenario === "an identical inactive sibling") {
+              entries.push({ id: "sibling", parentId: leafId, type: "message", message: user });
+            }
+            if (scenario === "native branch changed onto an old descendant") leafId = "old_descendant";
+            if (scenario === "only an earlier matching entry") {
+              leafId = "earlier";
+            } else if (scenario !== "only a matching sibling entry") {
+              append("main", user);
+            }
+            if (scenario !== "no user event") {
+              rpc.send({ type: "message_start", messageId: "stream_main", message: user });
+            }
+            if (scenario === "fast reply") append("early_assistant", assistant);
+            if (scenario === "ambiguous native entries") append("duplicate", user);
+            if (scenario === "ambiguous user events") {
+              rpc.send({ type: "message_start", messageId: "stream_duplicate", message: user });
+            }
+            if (scenario === "broken ancestry") leafId = "missing";
+            finish();
+            setImmediate(() => {
+              append("answer", assistant);
+              rpc.send({ type: "message_end", messageId: "stream_answer", message: assistant });
+              rpc.send({ type: "prompt_result", id: cmd.id, agentInvoked: true, status: "completed", sessionSettled: true });
+            });
+          } else reply({});
+        });
+        queueMicrotask(() => process.send({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1, 2] }));
+        return process as never;
+      },
+    });
+
+    const events: EngineStreamEvent[] = [];
+    try {
+      const result = adapter.sendUserMessage("history-fixture", { text, files: [], onEngineEvent: event => { events.push(event); } });
+      await prompted;
+      if (scenario === "same-text steer" || scenario === "same-text same-timestamp steer") {
+        expect(await adapter.steerActiveTurn("history-fixture", { text })).toBe(true);
+      }
+      expect((await result).text).toBe("Done");
+      const anchors = events.filter(event => event.type === "history_anchor");
+      if (inputId) {
+        expect(anchors).toEqual([{ type: "history_anchor", anchor: {
+          sessionId: "history-fixture", inputId, fork: true, rewind: true, forkBoundary: "after-turn", data: { forkLeafId: "answer" },
+        } }]);
+      } else {
+        expect(anchors).toEqual([]);
+      }
+    } finally { await adapter.destroy(); }
   });
 
   it("Bug #1: enforces approvalMode normal (fail-closed without bridge, real gating via bridge) vs bypass", async () => {
@@ -989,6 +1151,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           if (cmd.type === "prompt") {
             promptMessages.push({ message: String(cmd.message), images: cmd.images as unknown[] | undefined });
             p.send({ id, type: "response", command: "prompt", success: true });
+            p.send({ type: "agent_start" });
             // Test Bug #16 command_output fallback + Bug #8 cancel & positional selections with comma
             if (String(cmd.message).includes("CMD_OUT_ONLY")) {
               p.send({ type: "command_output", text: "Native command output" });
@@ -1510,6 +1673,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
 
     type SwitchMode = "reject" | "cancel" | "mismatch" | "ok";
     let switchMode: SwitchMode = "reject";
+    let forkReplyLost = false;
     let spawnCount = 0;
     const spawnedProcs: FakeOmpProcess[] = [];
     const switchedTargets: string[] = [];
@@ -1569,7 +1733,9 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           if (cmd.type === "fork") {
             void writeFile(forkFile, `${JSON.stringify({ type: "session", id: "fork", cwd: dir })}\n`).then(() => {
               activeFile = forkFile;
-              p.send({ id, type: "response", command: "fork", success: true, data: { cancelled: false } });
+              p.send(forkReplyLost
+                ? { id, type: "response", command: "fork", success: false, error: "fork reply lost", code: "timeout" }
+                : { id, type: "response", command: "fork", success: true, data: { cancelled: false } });
             });
             return;
           }
@@ -1629,6 +1795,15 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
       detail: expect.stringMatching(/remained on the forked session/i),
     });
     expect(spawnedProcs[2]!.killed).toBe(true);
+
+    // A lost fork response can leave the worker on the fork even without a success receipt.
+    switchMode = "ok";
+    await adapter.sendUserMessage("conv-fork-fail", { text: "turn 4", files: [] });
+    forkReplyLost = true;
+    expect(await adapter.forkHistory("conv-fork-fail")).toMatchObject({ outcome: "unknown" });
+    expect(spawnedProcs[3]!.killed).toBe(true);
+    const afterLostReply = await adapter.sendUserMessage("conv-fork-fail", { text: "turn 5", files: [] });
+    expect(afterLostReply.text).toBe("active:main.jsonl");
 
     await adapter.destroy();
   });

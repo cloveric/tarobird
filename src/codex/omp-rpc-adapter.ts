@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   EngineSteeringRejectedError, withFailedTurnUsage,
   type AdapterUsage, type AppPlatformTools, type CodexAdapter, type CodexAdapterResponse,
@@ -85,6 +86,13 @@ interface PendingSteer {
   settled: boolean;
 }
 
+interface OmpHistoryInput {
+  promptText: string;
+  previousLeaf: string | null;
+  previousIds: ReadonlySet<string>;
+  userEvent?: { id: string; message: NonNullable<OmpSessionEntry["message"]> } | null;
+}
+
 interface ActiveOmpTurn {
   promptId?: string;
   input: CodexUserMessageInput;
@@ -105,7 +113,8 @@ interface ActiveOmpTurn {
   inactivityTimer?: ReturnType<typeof setTimeout>;
   cancelTimer?: ReturnType<typeof setTimeout>;
   abortScope: AbortController;
-  preTurnEntryIds?: Set<string>;
+  sessionPublication?: Promise<void>;
+  historyInput?: OmpHistoryInput;
   resolve: (response: CodexAdapterResponse) => void;
   reject: (error: Error) => void;
 }
@@ -313,13 +322,15 @@ function activeEntryBranch(entries: OmpSessionEntry[], leafId: string | null): O
   if (!leafId || entries.length === 0) return [];
   const byId = new Map<string, OmpSessionEntry>();
   for (const entry of entries) byId.set(entry.id, entry);
+  if (byId.size !== entries.length) return [];
   const pathEntries: OmpSessionEntry[] = [];
   const seen = new Set<string>();
   let cur: string | null | undefined = leafId;
-  while (cur && !seen.has(cur)) {
+  while (cur) {
+    if (seen.has(cur)) return [];
     seen.add(cur);
     const entry = byId.get(cur);
-    if (!entry) break;
+    if (!entry) return [];
     pathEntries.push(entry);
     cur = entry.parentId ?? null;
   }
@@ -329,6 +340,20 @@ function activeEntryBranch(entries: OmpSessionEntry[], leafId: string | null): O
 
 function isUserMessageEntry(entry: OmpSessionEntry): boolean {
   return entry.type === "message" && entry.message?.role === "user";
+}
+
+function matchHistoryInput(history: OmpHistoryInput | undefined, branch: OmpSessionEntry[]): string | undefined {
+  if (!history?.userEvent) return undefined;
+  const { previousLeaf, previousIds, userEvent } = history;
+  const start = branch.findIndex(entry => entry.id === previousLeaf);
+  if (previousLeaf !== null && start < 0) return undefined;
+  const appended = branch.slice(start + 1);
+  if (appended.some(entry => previousIds.has(entry.id))) return undefined;
+  const [main, ...laterUsers] = appended.filter(isUserMessageEntry);
+  // Confirm the first new user input and rule out a second entry that the
+  // same native event could describe.
+  if (!main || !isDeepStrictEqual(main.message, userEvent.message)) return undefined;
+  return laterUsers.some(entry => isDeepStrictEqual(entry.message, userEvent.message)) ? undefined : main.id;
 }
 
 function resolveAfterTurnLeafId(branch: OmpSessionEntry[], userAnchorIndex: number): string {
@@ -439,6 +464,7 @@ function formatSubagentProgress(payload: OmpSubagentProgressFrame["payload"]): s
  */
 export class OmpRpcAdapter implements CodexAdapter {
   readonly inFlightSendBehavior = "steer" as const;
+  readonly acceptsHostSessionKeyForSide = true;
   readonly turnRuntimeLimitMs: number | null = null;
   private readonly store: OmpSessionStore;
   private readonly workers = new Map<string, OmpWorker>();
@@ -475,7 +501,9 @@ export class OmpRpcAdapter implements CodexAdapter {
 
   supportsSessionSteering(sessionId: string): boolean {
     const worker = this.workers.get(sessionId);
-    return !!worker && !worker.closed && worker.client.alive && !!worker.activeTurn && !worker.activeTurn.settled && !worker.activeTurn.finalizing && !worker.activeTurn.aborting;
+    const turn = worker?.activeTurn;
+    return !!worker && !worker.closed && worker.client.alive && !!turn?.sessionPublication
+      && !turn.settled && !turn.finalizing && !turn.aborting;
   }
 
   hasPendingNativeWork(): boolean {
@@ -711,31 +739,18 @@ export class OmpRpcAdapter implements CodexAdapter {
         await untilAborted(client.setAskDialog(true).catch(() => undefined), startSignal);
         assertRunning();
 
-        // Bind persistent session file (if forked/resumed/persisted) or conversation directory.
+        // Keep the worker on the requested file or the conversation's own directory.
         const boundPath = await untilAborted(this.store.resolvePersistedSessionFile(sessionKey), startSignal);
         assertRunning();
-        if (boundPath) {
-          const switched = await untilAborted(client.switchSession(boundPath).then(() => true, () => false), startSignal);
-          assertRunning();
-          if (!switched) {
-            const opened = await untilAborted(client.openSession(sessionDir).catch(() => undefined), startSignal);
-            assertRunning();
-            if (opened?.sessionFile) {
-              await untilAborted(this.store.setRecord(sessionKey, { sessionFile: opened.sessionFile, cwd }).catch(() => undefined), startSignal);
-              assertRunning();
-            }
-          }
-        } else {
-          const opened = await untilAborted(client.openSession(sessionDir).catch(() => undefined), startSignal);
-          assertRunning();
-          if (opened?.sessionFile) {
-            await untilAborted(this.store.setRecord(sessionKey, { sessionFile: opened.sessionFile, cwd }).catch(() => undefined), startSignal);
-            assertRunning();
-          }
-        }
-
-        worker.state = await untilAborted(client.getState().catch(() => worker.state), startSignal);
+        const binding = await untilAborted(boundPath ? client.switchSession(boundPath) : client.openSession(sessionDir), startSignal);
         assertRunning();
+        if (binding.cancelled) throw new Error("omp cancelled opening the conversation session");
+
+        worker.state = await untilAborted(client.getState(), startSignal);
+        assertRunning();
+        if (boundPath && (!worker.state.sessionFile || path.resolve(worker.state.sessionFile) !== path.resolve(boundPath))) {
+          throw new Error("omp did not open the requested conversation session");
+        }
         if (worker.state.sessionFile) {
           await untilAborted(this.store.setRecord(sessionKey, { sessionFile: worker.state.sessionFile, cwd }).catch(() => undefined), startSignal);
           assertRunning();
@@ -1207,6 +1222,16 @@ export class OmpRpcAdapter implements CodexAdapter {
       }
     }
 
+    // Take the history boundary before sending the prompt. OMP can append
+    // assistant entries before a read issued from message_start is answered.
+    let historyInput: OmpHistoryInput | undefined;
+    if (input.onEngineEvent && !isAuthorizedOmpSlash) {
+      const before = await worker.client.command<{ entries: OmpSessionEntry[]; leafId: string | null }>({ type: "get_entries" }, 1500)
+        .then(r => r.data).catch(() => undefined);
+      if (Array.isArray(before?.entries) && (before.leafId === null || activeEntryBranch(before.entries, before.leafId).length > 0)) {
+        historyInput = { promptText, previousLeaf: before.leafId, previousIds: new Set(before.entries.map(entry => entry.id)) };
+      }
+    }
     if (this.destroyed || worker.closed) throw destroyedError();
     throwIfAborted(input.abortSignal);
     if (worker.activeTurn) {
@@ -1219,6 +1244,7 @@ export class OmpRpcAdapter implements CodexAdapter {
       const turn: ActiveOmpTurn = {
         promptId,
         input,
+        historyInput,
         textChunks: [],
         thinkingChunks: [],
         commandOutputs: [],
@@ -1342,9 +1368,14 @@ export class OmpRpcAdapter implements CodexAdapter {
     if (!worker || worker.closed || !worker.client.alive || !turn || turn.settled || turn.finalizing || turn.aborting) {
       return reject("stale");
     }
+    if (!turn.sessionPublication) return reject("not_ready");
     const text = input.text.trim();
     if (!text) return reject("not_ready");
 
+    const history = turn.historyInput;
+    if (history && history.userEvent === undefined && history.promptText.trim() === text) {
+      history.userEvent = null;
+    }
     const entry: PendingSteer = { text: input.text, onOutcome: input.onOutcome, confirmed: false, settled: false };
     // Register before awaiting steer() so a synchronous message_start arriving in the same stdout chunk is never missed.
     turn.pendingSteers.push(entry);
@@ -1389,10 +1420,11 @@ export class OmpRpcAdapter implements CodexAdapter {
   }
 
   /** Queue 3: Ask an ephemeral side question (`aside` via OMP's native `/btw` command). */
-  async askAside(sessionId: string, question: string, options: { recordId?: string; onDelta?: (delta: string) => void; signal?: AbortSignal } = {}): Promise<OmpBtwRecord> {
+  async askAside(sessionId: string, question: string, options: { recordId?: string; onDelta?: (delta: string) => void; signal?: AbortSignal; workspaceOverride?: string } = {}): Promise<OmpBtwRecord> {
     throwIfAborted(options.signal, "Side question aborted");
-    const worker = await this.getOrStartWorker(sessionId, undefined, options.signal);
+    const worker = await this.ensureWorkerForExistingSession(sessionId, options.workspaceOverride, options.signal);
     throwIfAborted(options.signal, "Side question aborted");
+    if (!worker) throw new Error("no_main_session");
 
     const { record } = await worker.client.btw(question, options.recordId);
     worker.lastUsedAt = Date.now();
@@ -1461,6 +1493,9 @@ export class OmpRpcAdapter implements CodexAdapter {
     abortSignal?: AbortSignal;
   }): Promise<EngineSideSession> {
     const sessionKey = input.sourceSessionId;
+    if (!await this.ensureWorkerForExistingSession(sessionKey, input.workspaceOverride, input.abortSignal)) {
+      throw new Error("no_main_session");
+    }
     let recordId: string | undefined;
     const nativeId = `omp_btw_${randomUUID()}`;
     return {
@@ -1468,6 +1503,7 @@ export class OmpRpcAdapter implements CodexAdapter {
       send: async (req) => {
         const record = await this.askAside(sessionKey, req.text, {
           recordId,
+          workspaceOverride: input.workspaceOverride,
           signal: req.abortSignal,
           onDelta: (delta) => { void req.onEngineEvent({ type: "assistant_text", text: delta, delta: true }); },
         });
@@ -1548,13 +1584,17 @@ export class OmpRpcAdapter implements CodexAdapter {
       let boundary: Extract<NativeHistoryResult, { outcome: "applied" }>["boundary"] = "whole";
       if (anchor) {
         const branch = activeEntryBranch(entriesRes.entries, entriesRes.leafId);
-        const anchorIndex = branch.findIndex(entry => entry.id === anchor.inputId);
+        const anchorIndex = branch.findIndex(entry => entry.id === anchor.inputId && isUserMessageEntry(entry));
         if (anchorIndex < 0) {
           return rejected("anchor_unavailable", "Anchor is not on the active branch");
         }
         boundary = anchor.forkBoundary ?? "after-turn";
         if (boundary === "after-turn") {
-          forkEntryId = resolveAfterTurnLeafId(branch, anchorIndex);
+          const end = anchor.data?.forkLeafId;
+          if (typeof end === "string" && branch.findIndex(entry => entry.id === end) <= anchorIndex) {
+            return rejected("anchor_unavailable", "Anchor's turn end is not on the active branch");
+          }
+          forkEntryId = typeof end === "string" ? end : resolveAfterTurnLeafId(branch, anchorIndex);
         } else {
           forkEntryId = anchor.inputId;
         }
@@ -1562,65 +1602,36 @@ export class OmpRpcAdapter implements CodexAdapter {
       if (input.signal?.aborted) return rejected("cancelled");
 
       const originalSessionFile = stateBefore.sessionFile;
-      let forkCompleted = false;
+      if (!originalSessionFile) return rejected("source_missing", "omp did not identify the source session file");
+      let forkAcknowledged = false;
       let forkedSessionFile: string | undefined;
       let candidateSessionId: string | undefined;
       try {
         const forkResult = await worker.client.fork(forkEntryId);
         if (forkResult.cancelled) return rejected("cancelled", "omp cancelled the fork");
-        forkCompleted = true;
+        forkAcknowledged = true;
 
         const forkedState = await worker.client.getState();
-        const forkedEntries = await worker.client.getEntries();
+        if (!forkedState.sessionFile || path.resolve(forkedState.sessionFile) === path.resolve(originalSessionFile)) {
+          throw new Error("omp did not confirm a distinct fork session file");
+        }
+        forkedSessionFile = forkedState.sessionFile;
         const newSessionId = `omp_${randomUUID()}`;
         candidateSessionId = newSessionId;
-        forkedSessionFile = forkedState.sessionFile;
+        const forkedEntries = await worker.client.getEntries();
 
-        // Restore the source worker to its original session file BEFORE relocating the fork file!
-        const needsSwitchBack = Boolean(
-          originalSessionFile
-          && forkedSessionFile
-          && path.resolve(originalSessionFile) !== path.resolve(forkedSessionFile),
-        );
-        if (needsSwitchBack && originalSessionFile) {
-          let restoreError: string | undefined;
-          try {
-            const switched = await worker.client.switchSession(originalSessionFile);
-            if (switched.cancelled) {
-              restoreError = "omp cancelled switching back to the source session after fork";
-            } else {
-              const restoredState = await worker.client.getState();
-              if (restoredState.sessionFile && path.resolve(restoredState.sessionFile) !== path.resolve(originalSessionFile)) {
-                restoreError = "omp remained on the forked session instead of restoring the source session";
-              } else {
-                worker.state = restoredState;
-              }
-            }
-          } catch (error) {
-            restoreError = `Failed to restore source omp session after fork: ${error instanceof Error ? error.message : String(error)}`;
-          }
-          if (restoreError) {
-            // Never leave the source worker attached to the forked session file:
-            // pin the source record, evict/close the worker, and relocate the fork file out of the source dir.
-            await this.store.setRecord(sessionId, { sessionFile: originalSessionFile, cwd: worker.cwd }).catch(() => undefined);
-            await this.closeWorker(worker);
-            if (forkedSessionFile) {
-              const relocated = await this.store.relocateForkedFile(forkedSessionFile, worker.sessionDir, newSessionId).catch(() => forkedSessionFile!);
-              await this.store.setRecord(newSessionId, { sessionFile: relocated, cwd: worker.cwd }).catch(() => undefined);
-            }
-            return {
-              outcome: "unknown",
-              detail: restoreError,
-              candidateSessionId: newSessionId,
-            };
-          }
-          await this.store.setRecord(sessionId, { sessionFile: originalSessionFile, cwd: worker.cwd }).catch(() => undefined);
+        // Restore the source worker before relocating the fork file.
+        const switched = await worker.client.switchSession(originalSessionFile);
+        if (switched.cancelled) throw new Error("omp cancelled switching back to the source session after fork");
+        const restoredState = await worker.client.getState();
+        if (!restoredState.sessionFile || path.resolve(restoredState.sessionFile) !== path.resolve(originalSessionFile)) {
+          throw new Error("omp remained on the forked session instead of restoring the source session");
         }
+        worker.state = restoredState;
+        await this.store.setRecord(sessionId, { sessionFile: originalSessionFile, cwd: worker.cwd });
 
-        if (forkedSessionFile) {
-          const relocated = await this.store.relocateForkedFile(forkedSessionFile, worker.sessionDir, newSessionId);
-          await this.store.setRecord(newSessionId, { sessionFile: relocated, cwd: worker.cwd }).catch(() => undefined);
-        }
+        const relocated = await this.store.relocateForkedFile(forkedSessionFile, worker.sessionDir, newSessionId);
+        await this.store.setRecord(newSessionId, { sessionFile: relocated, cwd: worker.cwd });
         worker.lastUsedAt = Date.now();
 
         return {
@@ -1630,22 +1641,20 @@ export class OmpRpcAdapter implements CodexAdapter {
           boundary,
         };
       } catch (error) {
-        if (forkCompleted) {
-          if (originalSessionFile) {
-            await this.store.setRecord(sessionId, { sessionFile: originalSessionFile, cwd: worker.cwd }).catch(() => undefined);
-          }
-          await this.closeWorker(worker);
-          if (forkedSessionFile && candidateSessionId) {
-            const relocated = await this.store.relocateForkedFile(forkedSessionFile, worker.sessionDir, candidateSessionId).catch(() => forkedSessionFile!);
-            await this.store.setRecord(candidateSessionId, { sessionFile: relocated, cwd: worker.cwd }).catch(() => undefined);
-          }
-          return {
-            outcome: "unknown",
-            detail: error instanceof Error ? error.message : String(error),
-            ...(candidateSessionId ? { candidateSessionId } : {}),
-          };
+        const code = (error as { code?: string })?.code;
+        if (!forkAcknowledged && (code === "session_busy" || code === "entry_not_found")) throw error;
+        // The fork may have switched files even if its response was lost.
+        await this.store.setRecord(sessionId, { sessionFile: originalSessionFile, cwd: worker.cwd }).catch(() => undefined);
+        await this.closeWorker(worker);
+        if (forkedSessionFile && candidateSessionId) {
+          const relocated = await this.store.relocateForkedFile(forkedSessionFile, worker.sessionDir, candidateSessionId).catch(() => forkedSessionFile!);
+          await this.store.setRecord(candidateSessionId, { sessionFile: relocated, cwd: worker.cwd }).catch(() => undefined);
         }
-        throw error;
+        return {
+          outcome: "unknown",
+          detail: error instanceof Error ? error.message : String(error),
+          ...(candidateSessionId ? { candidateSessionId } : {}),
+        };
       }
     } catch (error) {
       const code = (error as { code?: string })?.code;
@@ -1670,20 +1679,25 @@ export class OmpRpcAdapter implements CodexAdapter {
     if (!worker || !worker.client.alive) return rejected("source_missing", "No omp session found to rewind");
     if (worker.activeTurn && !worker.activeTurn.settled) return rejected("busy");
 
+    let rewindRequested = false;
     try {
       const [stateBefore, entriesBefore] = await Promise.all([worker.client.getState(), worker.client.getEntries()]);
       if (isOmpStateBusy(stateBefore) || worker.pendingUi.size > 0) return rejected("busy");
       const currentHead = entriesBefore.leafId ?? OMP_EMPTY_HISTORY_HEAD;
       if (input.expectedHead !== undefined && input.expectedHead !== currentHead) return rejected("source_changed");
       const branch = activeEntryBranch(entriesBefore.entries, entriesBefore.leafId);
-      const anchorIndex = branch.findIndex(entry => entry.id === input.anchor.inputId);
+      const anchorIndex = branch.findIndex(entry => entry.id === input.anchor.inputId && isUserMessageEntry(entry));
       if (anchorIndex < 0) return rejected("anchor_unavailable", "Anchor is not on the active branch");
       if (input.signal?.aborted) return rejected("cancelled");
 
+      rewindRequested = true;
       const nav = await worker.client.navigateTree(input.anchor.inputId);
-      if (nav.cancelled) return rejected("cancelled", "omp cancelled navigate_tree");
+      if (nav.cancelled || nav.aborted) return rejected("cancelled", "omp cancelled navigate_tree");
 
-      const entriesAfter = await worker.client.getEntries();
+      const entriesAfter = await worker.client.getEntries().catch(() => undefined);
+      if (!entriesAfter || entriesAfter.leafId !== (branch[anchorIndex]!.parentId ?? null)) {
+        return { outcome: "unknown", detail: "omp did not confirm the history position after rewind" };
+      }
       worker.lastUsedAt = Date.now();
       const excludedInputIds = branch.slice(anchorIndex).filter(isUserMessageEntry).map(entry => entry.id);
       return {
@@ -1697,6 +1711,7 @@ export class OmpRpcAdapter implements CodexAdapter {
       const code = (error as { code?: string })?.code;
       if (code === "session_busy") return rejected("busy");
       if (code === "entry_not_found") return rejected("anchor_unavailable");
+      if (rewindRequested) return { outcome: "unknown", detail: error instanceof Error ? error.message : String(error) };
       return rejected("not_ready", error instanceof Error ? error.message : String(error));
     }
   }
@@ -2015,11 +2030,30 @@ export class OmpRpcAdapter implements CodexAdapter {
     if (turn) this.noteActivity(worker, turn);
     const emit = this.currentEventEmitter(worker);
 
-    // Detect real adoption of queued steers when omp delivers the steered user message into the turn.
+    if (event.type === "agent_start" && turn?.promptId && !turn.aborting && !turn.finalizing && !turn.sessionPublication) {
+      // The worker is bound to this conversation and has started the prompt.
+      // Publish its stable Host key before the first reply finishes.
+      turn.sessionPublication = Promise.resolve().then(() => emit?.({ type: "session", sessionId: worker.sessionKey })).catch(() => undefined);
+    }
+
     if (event.type === "message_start" && turn && event.message && (event.message as { role?: unknown }).role === "user") {
-      const delivered = extractMessageText(event.message).trim();
-      if (delivered) {
-        const match = turn.pendingSteers.find(s => !s.settled && s.text.trim() === delivered);
+      const delivered = extractMessageText(event.message);
+      const history = turn.historyInput;
+      if (history) {
+        const message = event.message as NonNullable<OmpSessionEntry["message"]>;
+        if (history.userEvent === undefined) {
+          // The stream ID establishes event identity, but it is not a durable
+          // history ID. The completed native branch must confirm the payload.
+          const id = event.messageId;
+          history.userEvent = turn.sessionPublication && delivered === history.promptText && typeof id === "string" && id
+            && typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? { id, message } : null;
+        } else if (history.userEvent && (event.messageId === history.userEvent.id || isDeepStrictEqual(message, history.userEvent.message))) {
+          history.userEvent = null;
+        }
+      }
+      // Detect real adoption of queued steers when omp delivers them into the turn.
+      if (delivered.trim()) {
+        const match = turn.pendingSteers.find(s => !s.settled && s.text.trim() === delivered.trim());
         if (match) {
           match.settled = true;
           match.onOutcome?.({ status: "applied", via: "fold" });
@@ -2194,6 +2228,7 @@ export class OmpRpcAdapter implements CodexAdapter {
     // Keep worker.activeTurn occupied until metadata refresh and resolution finish so no concurrent turn interleaves!
     const finalizeAsync = async () => {
       try {
+        await turn.sessionPublication;
         if (worker.client.alive) {
           const [state, entriesRes] = await Promise.all([
             worker.client.command<OmpSessionState>({ type: "get_state" }, 1500).then(r => r.data).catch(() => worker.state),
@@ -2213,23 +2248,23 @@ export class OmpRpcAdapter implements CodexAdapter {
               steer.settled = true;
               steer.onOutcome?.(adopted ? { status: "applied", via: "fold" } : { status: "dropped", reason: "not_started" });
             }
-            if (turn.input.onEngineEvent) {
-              const lastUserIdx = [...branch].map(isUserMessageEntry).lastIndexOf(true);
-              if (lastUserIdx >= 0) {
-                const lastUser = branch[lastUserIdx]!;
-                const forkLeafId = resolveAfterTurnLeafId(branch, lastUserIdx);
-                await turn.input.onEngineEvent({
-                  type: "history_anchor",
-                  anchor: {
-                    sessionId: worker.sessionKey,
-                    inputId: lastUser.id,
-                    rewind: true,
-                    fork: true,
+            const inputId = matchHistoryInput(turn.historyInput, branch);
+            const inputIndex = branch.findIndex(entry => entry.id === inputId && isUserMessageEntry(entry));
+            if (inputId && inputIndex >= 0) {
+              const fork = inputIndex < branch.length - 1;
+              await turn.input.onEngineEvent?.({
+                type: "history_anchor",
+                anchor: {
+                  sessionId: worker.sessionKey,
+                  inputId,
+                  rewind: true,
+                  fork,
+                  ...(fork ? {
                     forkBoundary: "after-turn",
-                    data: { forkLeafId },
-                  },
-                });
-              }
+                    data: { forkLeafId: entriesRes.leafId },
+                  } : {}),
+                },
+              });
             }
           }
         }

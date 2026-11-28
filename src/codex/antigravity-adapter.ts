@@ -26,6 +26,7 @@ import { appStopKillOptions } from "../runtime/turn-cancellation.js";
 import { renderPrivateTurnInstructions } from "./turn-instructions.js";
 import { DEFAULT_APPROVAL_MODE, normalizeApprovalMode, type ApprovalMode } from "../state/approval-mode.js";
 import { ANTIGRAVITY_EFFORT_LEVELS, resolveEngineOverride } from "../state/instance-config.js";
+import { discoverAntigravityModels } from "./antigravity-models.js";
 
 type SpawnOptions = {
   stdio: ["pipe", "pipe", "pipe"];
@@ -477,6 +478,8 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       captureScope,
       preferredPids,
       localProbe: this.localQuotaProbe ?? (this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity)),
+      // Real spawner only, like the local probe: injected fakes stay hermetic.
+      modelCatalog: this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity) ? () => discoverAntigravityModels(this.childEnv) : undefined,
     });
   }
 

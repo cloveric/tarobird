@@ -3,6 +3,7 @@ import { ENGINE_QUOTA_REFRESH_MS, type QuotaReason } from "../client-protocol/en
 import {
   isAntigravityQuotaSupportedVersion,
   parseAntigravityQuota,
+  withAntigravityModelIds,
   QuotaReadError,
   unavailableQuota,
 } from "./account-quota.js";
@@ -220,6 +221,24 @@ async function runBoundedQuotaCommand(input: {
   return { code: exitCode, stdout, stderr, overflow, loginRequired, didClose, didStop, errorCode };
 }
 
+/** The model catalog, if it answers within 3 s. A slow or failed `agy models` only means no ids are added. */
+async function catalogFor(read: (() => Promise<readonly { id: string; label?: string }[]>) | undefined, signal: AbortSignal): Promise<readonly { id: string; label?: string }[]> {
+  if (!read || signal.aborted) return [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    const deadline = new Promise<[]>(resolve => {
+      onAbort = () => resolve([]);
+      timer = setTimeout(onAbort, 3000);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    return await Promise.race([Promise.resolve().then(read).catch(() => []), deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 /** Dedicated reader: queries a running `agy acp` / local Antigravity language server
  * over loopback first (no new `agy` process), falling back to `agy --version` (>= 1.1.11)
  * + `agy -p /usage --output-format json` when no local server answers. */
@@ -234,6 +253,8 @@ export async function readOwnedAntigravityQuota(input: {
   captureScope: () => AdapterQuotaScope;
   preferredPids?: readonly number[];
   localProbe?: boolean | Partial<AntigravityLocalProbeDeps>;
+  /** `agy models` (cached by the caller). Used only to add model ids to each group; never required. */
+  modelCatalog?: () => Promise<readonly { id: string; label?: string }[]>;
   now?: () => number;
 }): Promise<EngineQuotaReadResult> {
   if (owned.get(input.cache)?.size) return input.cache.failure(input.scope, "timeout");
@@ -260,6 +281,14 @@ export async function readOwnedAntigravityQuota(input: {
     return input.cache.store(after, { snapshot: unavailableQuota("antigravity", reason, now(), after.authMode) });
   };
 
+  const publish = async (snapshot: ReturnType<typeof parseAntigravityQuota>) => {
+    const catalog = await catalogFor(input.modelCatalog, abort.signal);
+    if (abort.signal.aborted) return fail(timedOut ? "timeout" : "cancelled");
+    const after = input.captureScope();
+    if (after.revision !== input.scope.revision) return input.cache.failure(after, "auth_changed");
+    return input.cache.store(after, { snapshot: withAntigravityModelIds(snapshot, catalog) });
+  };
+
   try {
     if (input.localProbe && input.preferredPids?.length) {
       const localDeps = typeof input.localProbe === "object" ? input.localProbe : undefined;
@@ -273,7 +302,7 @@ export async function readOwnedAntigravityQuota(input: {
       const afterLocal = input.captureScope();
       if (afterLocal.revision !== input.scope.revision) return input.cache.failure(afterLocal, "auth_changed");
       if (localSnapshot) {
-        return input.cache.store(afterLocal, { snapshot: localSnapshot });
+        return await publish(localSnapshot);
       }
     }
 
@@ -328,8 +357,7 @@ export async function readOwnedAntigravityQuota(input: {
       return fail("invalid_response");
     }
     try {
-      const snapshot = parseAntigravityQuota(parsed, now());
-      return input.cache.store(after, { snapshot });
+      return await publish(parseAntigravityQuota(parsed, now()));
     } catch (error) {
       const reason = error instanceof QuotaReadError ? error.reason : "invalid_response";
       return fail(reason);

@@ -150,3 +150,22 @@ test("swarm view omits false individual-stop claim, restricts Message @worker to
   await expect(composer).toHaveValue("@auth-fix ");
   await expect(composer).toBeFocused();
 });
+
+test("ended swarm keeps member outcomes and localized fallback in the App", async ({ page }) => {
+  await page.goto(server.resolvedUrls!.local[0] + "e2e/fixtures/engine-tasks.html?shape=swarm&ended=1&openTab=tasks");
+  const dialog = page.getByRole("dialog");
+  const worker = (name: string) => dialog.getByRole("article", { name, exact: true });
+  await expect(worker("auth-fix")).toContainText("Swarm 已结束，成员结果未确认");
+  await expect(worker("lint-pass")).toContainText("已完成");
+  await expect(worker("old-worker")).toContainText("已终止");
+  await expect(worker("monitor")).toContainText("失败");
+  await expect(dialog.getByRole("button", { name: "停止 Swarm", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /发消息/ })).toHaveCount(0);
+
+  await page.evaluate(() => (window as any).taskFixture.setLocale("en"));
+  await expect(worker("auth-fix")).toContainText("Swarm ended, member outcome unconfirmed");
+  await expect(worker("monitor")).toContainText("Failed");
+  await dialog.getByRole("tab", { name: /Swarm Board/ }).click();
+  await expect(dialog).toContainText("Checking token signature");
+  await expect(dialog).toContainText("Stopped early");
+});

@@ -250,7 +250,8 @@ function parseIsoReset(value: unknown): string | undefined {
     const iso = new Date(ms).toISOString();
     return Number.isFinite(Date.parse(iso)) ? iso : undefined;
   }
-  if (typeof value === "string" && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value))) {
+  // The Unix epoch means "no reset scheduled" (see account-quota.ts isoTime).
+  if (typeof value === "string" && /^\d{4}-\d\d-\d\dT/.test(value) && Number.isFinite(Date.parse(value)) && Date.parse(value) > 0) {
     return new Date(value).toISOString();
   }
   return undefined;

@@ -1130,7 +1130,9 @@ export class Bridge {
     if ((await this.checkAccess(input)).kind !== "allow") throw new Error("unsupported");
     const scope = this.conversationScope(input);
     const session = await this.sessionManager.getExistingSession(scope);
-    if (!session || /^(tarobot|telegram)-/.test(session.sessionId)) throw new Error("no_main_session");
+    if (!session || (!this.adapter.acceptsHostSessionKeyForSide && /^(tarobot|telegram)-/.test(session.sessionId))) {
+      throw new Error("no_main_session");
+    }
     input.abortSignal?.throwIfAborted();
     if (this.waitingForRestart(session.sessionId)) throw new Error("engine_restart_pending");
     if (this.historyMutations.has(session.sessionId)) throw new Error("history_outcome_pending");
