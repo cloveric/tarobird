@@ -660,3 +660,30 @@ test(`cross-host sticky feedback does not expose clipped text below its notice a
     }
   } finally { await remote.peer.close(); await f.close(); }
 });
+
+test("Bot 通信 tab: one click lets every local Bot message every other local Bot, keeping existing grants", async ({ page }) => {
+  const f = await fixture(page, false, false, false);
+  try {
+    await f.hub.store.createConversation("owner", ["alpha"], "互通验收", "conv_mesh", { type: "direct" });
+    await page.reload(); await waitForClientOnline(page);
+    await showDisconnectedBots(page);
+    await page.locator(".host-workspace:not([hidden]) .conversation-row").filter({ hasText: "互通验收" }).first().click();
+    await page.getByRole("button", { name: "会话工作区", exact: true }).click();
+    const rail = page.locator("aside.conversation-workspace-rail");
+    await rail.getByRole("tab", { name: /^Bot 通信/ }).click();
+    const mesh = rail.locator(".workspace-mesh");
+    // alpha → beta already exists: 1 of 3×2 directed grants.
+    await expect(mesh).toContainText("本机所有 Bot 相互通信");
+    await expect(mesh).toContainText("已开通 1/6 条授权");
+    await mesh.getByRole("button", { name: "一键开通", exact: true }).click();
+    await expect(mesh).toContainText("本机所有 Bot 已相互通信");
+    await expect(mesh.getByRole("status")).toContainText("本机 3 个 Bot 可以相互发消息");
+    await expect(mesh.getByRole("button", { name: "一键开通", exact: true })).toHaveCount(0);
+    const view = await f.hub.botMessages.readGrants("owner", guard);
+    const pairs = new Set(view.grants.map(grant => `${grant.sourceBot}>${grant.targetBot}`));
+    for (const source of ["alpha", "beta", "gamma"]) for (const target of ["alpha", "beta", "gamma"]) {
+      if (source !== target) expect(pairs.has(`${source}>${target}`)).toBe(true);
+      else expect(pairs.has(`${source}>${target}`)).toBe(false);
+    }
+  } finally { await f.close(); }
+});

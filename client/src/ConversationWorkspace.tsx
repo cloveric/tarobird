@@ -72,6 +72,7 @@ import {
 import { localeIntlTag, t, useLocale } from "./i18n.js";
 import { formatFileLimit } from "./files.js";
 import "./conversation-workspace.css";
+import { AllLocalBotsMessaging } from "./AllLocalBotsMessaging.js";
 
 export type WorkspaceTab = "overview" | "comms" | "files";
 type HelpSectionId = "waiting" | "who" | "doing" | "comms" | "made";
@@ -1314,6 +1315,7 @@ export function ConversationWorkspace({
 
         {tab === "comms" && (
           <section className="workspace-section" aria-label={t("Bot 之间在聊什么")}>
+            {connState.user?.role === "owner" && online && !connection.isReadOnly && <AllLocalBotsMessaging connection={connection} active={tab === "comms"} />}
             <div className="workspace-filter-bar">
               <button type="button" className="workspace-filter-pill" aria-pressed={commFilter === "all"} onClick={() => setCommFilter("all")}>
                 {t("全部")} ({commItems.length})
