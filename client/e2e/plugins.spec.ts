@@ -182,7 +182,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await expect(copyOnce).toHaveCount(0);
 
       // Clicking Workspace button while plugin side panel is open must switch to Workspace and restore on close
-      const wsButton = page.locator(".workspace-rail-trigger");
+      const wsButton = page.getByRole("button", { name: "会话工作区", exact: true });
       await wsButton.click();
       await expect(wsButton).toHaveAttribute("aria-expanded", "true");
       await expect(sidePanel).toHaveCount(0);
@@ -654,7 +654,7 @@ test("desktop header: one 插件 menu lists installed plugins, pins persist acro
     // Nothing installed: no plugin menu in the header.
     await expect(menuButton).toHaveCount(0);
 
-    await page.locator(".sidebar-plugins-entry").click();
+    await openWorkspacePage(page, "插件市场");
     const modal = page.locator("dialog.plugins-modal-dialog[open]");
     const scratchCard = modal.locator('[data-plugin-id="tarobird.quick-scratchpad"]').first();
     await scratchCard.getByRole("button", { name: "安装" }).click();

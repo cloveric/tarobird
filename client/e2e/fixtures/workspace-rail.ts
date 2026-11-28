@@ -165,7 +165,7 @@ export async function measure(page: Page) {
       header: r(".host-workspace:not([hidden]) .conversation-header"),
       title: r(".host-workspace:not([hidden]) .conversation-header .chat-identity>span[title]"),
       h1: r(".host-workspace:not([hidden]) .conversation-header h1"),
-      trigger: r(".host-workspace:not([hidden]) .workspace-rail-trigger"),
+      trigger: r(".host-workspace:not([hidden]) .workspace-rail-trigger:not(.files-trigger)"),
       composer: r(".host-workspace:not([hidden]) .composer"),
       composerBox: r(".host-workspace:not([hidden]) .composer textarea"),
     };
