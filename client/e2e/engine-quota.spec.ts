@@ -158,6 +158,19 @@ for (const width of [1360, 390, 320]) for (const english of [false, true]) test(
     await expect(research.locator(".quota-help")).toHaveText(f.text("官方查看：在 Kimi Code CLI 交互界面输入 /usage 查看套餐额度；ACP 会话里的 /usage 只显示本会话 token。"));
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await panel.locator(".quota-card").evaluateAll(cards => cards.every(card => card.scrollWidth <= card.clientWidth + 1))).toBe(true);
+    if (width <= 760) {
+      // Phone (mockup 26 B): name · time to reset · percent on one line, then a full-width bar; the exact date is not shown.
+      const row = coder.locator(".quota-window").filter({ has: page.getByRole("meter") }).first();
+      const box = async (selector: string) => (await row.locator(selector).first().boundingBox())!;
+      const name = await box(".quota-window-name"), countdown = await box(".quota-reset-countdown"), percent = await box(".quota-window-primary"), meter = await box(".quota-meter");
+      const middle = (b: { y: number; height: number }) => b.y + b.height / 2;
+      expect(Math.abs(middle(name) - middle(percent))).toBeLessThan(4);
+      expect(Math.abs(middle(name) - middle(countdown))).toBeLessThan(4);
+      expect(name.x + name.width).toBeLessThanOrEqual(countdown.x + 1);
+      expect(meter.y).toBeGreaterThanOrEqual(name.y + name.height);
+      expect(meter.width).toBeGreaterThan((await row.boundingBox())!.width * 0.8);
+      await expect(row.locator(".quota-reset-exact")).toBeHidden();
+    }
     await coder.scrollIntoViewIfNeeded(); await page.screenshot({ path: info.outputPath("quota-values.png") });
     await reviewer.scrollIntoViewIfNeeded(); await page.screenshot({ path: info.outputPath("quota-restrictions.png") });
     await research.scrollIntoViewIfNeeded(); await page.screenshot({ path: info.outputPath("quota-guidance.png") });

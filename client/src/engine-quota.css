@@ -85,4 +85,17 @@
   .quota-overview-bot{grid-area:bot}.quota-overview-window{grid-area:window}.quota-overview-row .quota-meter{grid-area:bar}.quota-overview-pct{grid-area:pct}.quota-overview-reset{display:none}
   .engine-quota button{min-height:44px}
   .quota-card{padding:14px}
+  /* Phone (owner-picked mockup 26 B): pool name and model count share a line; each window is two lines,
+     name · time to reset · percent, then a full-width bar. The exact reset date stays in the countdown's title. */
+  .quota-pool{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px}
+  .quota-pool>h5{margin:0 0 8px;font-size:13px;color:var(--text)}
+  .quota-pool>.quota-pool-models{margin:0 0 8px}
+  .quota-pool>:not(h5):not(.quota-pool-models){flex-basis:100%}
+  .quota-window{grid-template-columns:minmax(0,max-content) minmax(0,1fr) auto;grid-template-areas:"name meta value" "meter meter meter";gap:8px 10px;padding:12px 14px}
+  .quota-window-name{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+  .quota-window-primary{font-size:15px}
+  .quota-window .quota-meter{height:5px}
+  .quota-window-meta{flex-wrap:nowrap;overflow:hidden}
+  .quota-window-meta>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .quota-window-meta>.quota-reset-exact{display:none}
 }
