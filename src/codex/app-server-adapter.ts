@@ -875,7 +875,7 @@ function decodeProcessChunk(
 
 export class CodexAppServerAdapter implements CodexAdapter {
   private readonly quotaCache: AdapterQuotaCache;
-  private quotaCredentialAtSpawn?: string;
+  private quotaIdentityAtSpawn?: string;
   private quotaAccountGeneration = 0;
   get turnRuntimeLimitMs(): number { return this.turnTimeoutMs; }
   readonly bridgeInstructionMode = "output-directory" as const;
@@ -1021,7 +1021,9 @@ export class CodexAppServerAdapter implements CodexAdapter {
     const cached = this.quotaCache.response(scope, options);
     if (cached) return cached;
     if (!this.child) return readOwnedCodexQuota({ executable: this.codexExecutable, cwd: this.cwd, env: this.childEnv, spawn: this.spawnCodex, cache: this.quotaCache, scope, options, captureScope: () => this.quotaScope() });
-    if (this.quotaCredentialAtSpawn !== scope.credentialRevision) { this.quotaCache.invalidate(); return this.quotaCache.failure(scope, "auth_changed"); }
+    // Compare the account, not the credential bytes: a token refresh or an unrelated config.toml rewrite after
+    // the worker started must not disown it until it restarts (#204). A real account switch still does.
+    if (this.quotaIdentityAtSpawn !== scope.accountIdentity) { this.quotaCache.invalidate(); return this.quotaCache.failure(scope, "auth_changed"); }
     const initial = this.initializePromise;
     const result = await readCodexAccountQuota({
       request: async (method, params, requestOptions) => {
@@ -1895,7 +1897,7 @@ export class CodexAppServerAdapter implements CodexAdapter {
 
   private async startChildAndInitialize(appServerArgs: string[]): Promise<void> {
     this.quotaAccountGeneration = 0;
-    this.quotaCredentialAtSpawn = this.quotaScope().credentialRevision;
+    this.quotaIdentityAtSpawn = this.quotaScope().accountIdentity;
     const invocation = buildCommandInvocation(this.codexExecutable, appServerArgs);
     let searchPlan: NativeSearchMcpPlan | null = null;
     try { searchPlan = this.nativeSearchMcp?.() ?? null; } catch { searchPlan = null; }
