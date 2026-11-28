@@ -1061,12 +1061,12 @@ export function ConversationWorkspace({
             )}
 
             {/* 1. Who is helping you (Environment & Context) */}
-            <section className="workspace-section" aria-label={t("谁在帮你")}>
+            <section className="workspace-section" aria-label={t("环境与上下文")}>
               <div className="workspace-section-header">
                 <span className="workspace-section-title">
-                  <span>{t("谁在帮你")}</span>
+                  <span>{t("环境与上下文")}</span>
                   <SectionHelpButton
-                    title={t("谁在帮你")}
+                    title={t("环境与上下文")}
                     description={t("显示现在是谁在陪你聊天、它连在哪台电脑上，以及网络顺不顺畅、对话记忆还剩多少。")}
                     art={<HostComputerArt online={online} />}
                     open={openHelp === "who"}
@@ -1141,12 +1141,12 @@ export function ConversationWorkspace({
             </section>
 
             {/* 2. Doing now (deduplicated replying vs waiting queue + helper count) */}
-            <section className="workspace-section" aria-label={t("现在在做")}>
+            <section className="workspace-section" aria-label={t("任务")}>
               <div className="workspace-section-header">
                 <span className="workspace-section-title">
-                  <span>{t("现在在做")}</span>
+                  <span>{t("任务")}</span>
                   <SectionHelpButton
-                    title={t("现在在做")}
+                    title={t("任务")}
                     description={t("看 Bot 这会儿正在忙什么、有没有请小帮手分担，以及后面还有几条话在排队等着处理。")}
                     art={<HelperCountArt />}
                     open={openHelp === "doing"}
@@ -1157,7 +1157,7 @@ export function ConversationWorkspace({
                 <span className="workspace-section-right">
                   {waitingItems.length > 0 && (
                     <span className="workspace-queue-pill">
-                      {t("接下来还有 {0} 件", waitingItems.length)}
+                      {t("排队 {0}", waitingItems.length)}
                     </span>
                   )}
                   {onOpenSwarmBoard && swarmSnapshot && (
@@ -1234,7 +1234,7 @@ export function ConversationWorkspace({
                   ))}
                   {(otherActiveTasks.length > 2 || waitingItems.length > 2) && (
                     <div className="workspace-more-hint">
-                      {[otherActiveTasks.length > 2 ? t("还有 {0} 个后台任务", otherActiveTasks.length - 2) : "", waitingItems.length > 2 ? t("还有 {0} 条排队消息", waitingItems.length - 2) : ""].filter(Boolean).join(" · ")}
+                      {[otherActiveTasks.length > 2 ? t("还有 {0} 个后台任务", otherActiveTasks.length - 2) : "", waitingItems.length > 2 ? t("另有 {0} 条排队消息", waitingItems.length - 2) : ""].filter(Boolean).join(" · ")}
                     </div>
                   )}
                 </div>
@@ -1248,12 +1248,12 @@ export function ConversationWorkspace({
 
             {/* 3. Bot-to-Bot Comms (the ONE place with Bot avatars; auto-hidden in Overview when 0 items) */}
             {commItems.length > 0 && (
-              <section className="workspace-section" aria-label={t("Bot 之间在聊什么")}>
+              <section className="workspace-section" aria-label={t("Bot 间通信")}>
                 <div className="workspace-section-header">
                   <span className="workspace-section-title">
-                    <span>{t("Bot 之间在聊什么")}</span>
+                    <span>{t("Bot 间通信")}</span>
                     <SectionHelpButton
-                      title={t("Bot 之间在聊什么")}
+                      title={t("Bot 间通信")}
                       description={t("当你的 Bot 请别的 Bot 帮忙（甚至在另一台电脑上），它们谁找谁、进展到哪一步、回说了什么，都会用头像连线展示在这里。")}
                       art={<EmptyStateArt kind="comms" />}
                       open={openHelp === "comms"}
@@ -1274,12 +1274,12 @@ export function ConversationWorkspace({
             )}
 
             {/* 4. What was made (code changes summary + bar + cute file-type art & thumbnails) */}
-            <section className="workspace-section" aria-label={t("做出来的东西")}>
+            <section className="workspace-section" aria-label={t("产物与改动")}>
               <div className="workspace-section-header">
                 <span className="workspace-section-title">
-                  <span>{t("做出来的东西")}</span>
+                  <span>{t("产物与改动")}</span>
                   <SectionHelpButton
-                    title={t("做出来的东西")}
+                    title={t("产物与改动")}
                     description={t("汇总这轮聊天里新做的文档、图片、表格，还有改过的代码行数，点一下就能打开或看详细改动。")}
                     art={<EmptyStateArt kind="files" />}
                     open={openHelp === "made"}
@@ -1313,7 +1313,7 @@ export function ConversationWorkspace({
         )}
 
         {tab === "comms" && (
-          <section className="workspace-section" aria-label={t("Bot 之间在聊什么")}>
+          <section className="workspace-section" aria-label={t("Bot 间通信")}>
             <div className="workspace-filter-bar">
               <button type="button" className="workspace-filter-pill" aria-pressed={commFilter === "all"} onClick={() => setCommFilter("all")}>
                 {t("全部")} ({commItems.length})
@@ -1361,7 +1361,7 @@ export function ConversationWorkspace({
         )}
 
         {tab === "files" && (
-          <section className="workspace-section" aria-label={t("做出来的东西")}>
+          <section className="workspace-section" aria-label={t("产物与改动")}>
             <div className="workspace-filter-bar">
               <button type="button" className="workspace-filter-pill" aria-pressed={fileFilter === "all"} onClick={() => setFileFilter("all")}>
                 {t("全部")} ({artifactsCount})

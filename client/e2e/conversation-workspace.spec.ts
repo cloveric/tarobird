@@ -311,7 +311,7 @@ for (const locale of ["zh", "en"] as const) for (const phone of [false, true]) {
       await expect(container.locator(".workspace-env-card .profile-avatar")).toHaveCount(0);
       await expect(container.locator(".workspace-comm-card").first().locator(".workspace-comm-route .profile-avatar")).toHaveCount(2);
       // First-use "?" help popover opens and closes cleanly.
-      const whoHelp = container.getByRole("button", { name: L("说明：{0}").replace("{0}", L("谁在帮你")) });
+      const whoHelp = container.getByRole("button", { name: L("说明：{0}").replace("{0}", L("环境与上下文")) });
       await whoHelp.click();
       await expect(container.locator(".ws-help-popover")).toBeVisible();
       await container.getByRole("button", { name: L("关闭说明") }).click();
