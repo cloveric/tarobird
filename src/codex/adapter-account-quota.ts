@@ -170,29 +170,34 @@ function codexTokenSubject(token: unknown): [string, string] | undefined {
 /** Codex config keys that choose which account or credential source a process signs in with. */
 const CODEX_CREDENTIAL_CONFIG = /^\s*["']?(?:cli_auth_credentials_store|auth_command|credential_helper|include|model_provider|model_providers|chatgpt_base_url|forced_login_method|forced_chatgpt_workspace_id|preferred_auth_method|base_url|env_key|experimental_bearer_token|requires_openai_auth)["']?\s*=/;
 
-function codexCredentialConfig(text: string): unknown {
+const CODEX_PROVIDER_CREDENTIAL_FIELDS = new Set([
+  "auth", "aws", "credential_file", "env_http_headers", "gateway_oauth", "http_headers", "query_params", "project_id", "location",
+]);
+
+function codexCredentialConfig(text: string): { entries: unknown; opaque: boolean } {
   // Keep the path of each key in the fingerprint: provider tables can be
   // reordered, renamed, or written as dotted keys or inline TOML tables.
   const entries: Array<[string[], unknown]> = [];
+  let opaque = false;
   const visit = (table: Record<string, unknown>, scope: string[]) => {
     for (const key of Object.keys(table).sort()) {
       const value = table[key];
       const keyPath = [...scope, key];
-      if (key === "model_providers" && value && typeof value === "object") {
+      if ((key === "cli_auth_credentials_store" && value !== "file")
+        || key === "include" || key === "credential_helper" || key === "auth_command") opaque = true;
+      const providerField = keyPath[0] === "model_providers" && CODEX_PROVIDER_CREDENTIAL_FIELDS.has(keyPath[2] ?? "");
+      if (value && typeof value === "object" && !Array.isArray(value)) {
         visit(value as Record<string, unknown>, keyPath);
-      } else if (CODEX_CREDENTIAL_CONFIG.test(`${key}=`)) {
+      } else if (providerField || CODEX_CREDENTIAL_CONFIG.test(`${key}=`) || key === "openai_base_url") {
         entries.push([keyPath, value]);
-      } else if (value && typeof value === "object" && !Array.isArray(value)) {
-        visit(value as Record<string, unknown>, keyPath);
       }
     }
   };
   try {
     visit(parseToml(text), []);
-    return entries;
+    return { entries, opaque };
   } catch {
-    // An unreadable config is only equivalent to the same exact input.
-    return text;
+    return { entries: text, opaque: true };
   }
 }
 
@@ -226,7 +231,10 @@ export class AdapterQuotaCache {
         const openAiKey = readPlatformEnv(this.env, "OPENAI_API_KEY", this.platform);
         authMode = typeof tokens.access_token === "string" && tokens.access_token ? "subscription" : openAiKey || account.OPENAI_API_KEY ? "api_key" : "unknown";
         // Keyring/auto, includes and external auth helpers are not proven by an auth.json file next to them.
-        const opaque = /cli_auth_credentials_store\s*=\s*["'](?:keyring|auto)["']|(?:auth_command|credential_helper|include)\s*=/.test(`${configured}\n${config}\n${project}`);
+        const homeConfig = codexCredentialConfig(config);
+        const projectConfig = codexCredentialConfig(project);
+        const opaque = homeConfig.opaque || projectConfig.opaque
+          || /cli_auth_credentials_store\s*=\s*["'](?:keyring|auto)["']|(?:auth_command|credential_helper|include)\s*=/.test(configured);
         verifiable = !opaque && authMode !== "unknown";
         material = [this.executable, engineHome, configured, config, project, authText, env];
         // The account, not the bytes: Codex rewrites auth.json on every token refresh, and other tools rewrite
@@ -235,7 +243,7 @@ export class AdapterQuotaCache {
         const credentialLines = (text: string) => text.split(/\r?\n/).filter(line => CODEX_CREDENTIAL_CONFIG.test(line)).map(line => line.trim());
         const subject = codexTokenSubject(tokens.id_token);
         identity = verifiable && authMode === "subscription" && accountId && subject
-          ? [this.executable, engineHome, authMode, accountId, subject, credentialLines(configured), codexCredentialConfig(config), codexCredentialConfig(project), env]
+          ? [this.executable, engineHome, authMode, accountId, subject, credentialLines(configured), homeConfig.entries, projectConfig.entries, env]
           : material;
       } else if (this.engine === "claude") {
         const authText = readBounded(path.join(engineHome, ".credentials.json"));

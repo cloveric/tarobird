@@ -1243,3 +1243,22 @@ it("disowns a live quota worker when the selected model provider endpoint change
   expect(result.snapshot.reason).toBe("auth_changed");
   expect(child.methods).not.toContain("account/read");
 });
+
+it("detects a change to an inline provider's credential command arguments", async () => {
+  const f = await fixture();
+  const config = path.join(f.codexHome, "config.toml");
+  const settings = (profile: string) => `model_provider = "selected"
+model_providers = { selected = { name = "Example", auth = { command = "fixture-helper", args = ["${profile}"] } } }`;
+  const cache = new AdapterQuotaCache("codex", "codex", f.env, f.root);
+  await writeFile(config, settings("first"));
+  const before = cache.capture("live");
+  await writeFile(config, settings("second"));
+  expect(cache.capture("live").accountIdentity).not.toBe(before.accountIdentity);
+});
+
+it("treats a quoted keyring store setting the same as a bare TOML key", async () => {
+  const f = await fixture();
+  await writeFile(path.join(f.codexHome, "config.toml"), '"cli_auth_credentials_store" = "keyring"\n');
+  const cache = new AdapterQuotaCache("codex", "codex", f.env, f.root);
+  expect(cache.capture("live").verifiable).toBe(false);
+});
