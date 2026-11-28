@@ -48,9 +48,12 @@
 .wf-git-badge.is-modified,.wf-git-badge.is-type_changed{background:color-mix(in srgb,var(--orange) 16%,transparent);color:var(--orange)}
 .wf-git-badge.is-deleted,.wf-git-badge.is-conflicted{background:color-mix(in srgb,var(--red) 14%,transparent);color:var(--red)}
 .wf-git-dot{width:6px;height:6px;border-radius:50%;background:var(--orange);flex:none;margin-inline-end:4px}
-.wf-mention-btn{opacity:0;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
-.wf-row:hover .wf-mention-btn,.wf-row:focus-within .wf-mention-btn,.workspace-files-phone .wf-mention-btn{opacity:1}
-.wf-mention-btn:hover{background:color-mix(in srgb,var(--accent,var(--blue)) 12%,transparent);color:var(--text)}
+.wf-mention-btn,.wf-preview-btn{opacity:0;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex:none}
+.wf-row:hover :is(.wf-mention-btn,.wf-preview-btn),.wf-row:focus-within :is(.wf-mention-btn,.wf-preview-btn),.workspace-files-phone .wf-mention-btn{opacity:1}
+.wf-mention-btn:hover,.wf-preview-btn:hover{background:color-mix(in srgb,var(--accent,var(--blue)) 12%,transparent);color:var(--text)}
+/* Row actions replace the old hint block: a drag grip on hover (desktop), then 预览 and @. */
+.wf-caret.is-leaf>.wf-drag-grip{opacity:0;color:var(--muted);cursor:grab;transition:opacity .12s}
+.wf-row:hover .wf-caret.is-leaf>.wf-drag-grip{opacity:.7}
 .wf-state-box{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:36px 20px;text-align:center;color:var(--muted);font-size:13px}
 .wf-state-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;margin:16px 12px;padding:22px 16px;border:1px dashed var(--border);border-radius:10px;background:color-mix(in srgb,var(--surface) 45%,var(--bg));text-align:center;color:var(--muted)}
 .wf-state-card.is-sensitive{border-style:solid;border-color:color-mix(in srgb,var(--orange) 38%,var(--border));background:color-mix(in srgb,var(--orange) 6%,var(--bg))}
@@ -115,9 +118,6 @@
 .wf-run-change-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
 .wf-run-change-counts { flex: none; }
 .wf-run-change-more { margin: 0; padding: 6px 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11.5px; }
-.wf-hint { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 12px 10px 10px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 55%, var(--bg)); color: var(--muted); font-size: 11.5px; }
-.wf-hint dt { margin: 0; color: var(--text); font-weight: 600; display: inline-flex; align-items: center; }
-.wf-hint dd { margin: 0; }
 /* With the Files panel open the header is as tight as with the workspace rail: labels give way to icon + count. */
 @media (min-width: 1101px) and (max-width: 1359px) {
   .app-shell:has(.workspace-files-panel:not([hidden])) .workspace-rail-trigger { padding: 0 8px; }

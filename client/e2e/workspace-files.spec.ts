@@ -347,9 +347,24 @@ test("Files panel says where the Bot works and what this turn changed; 文件 is
     await expect(panel.locator(".wf-row", { hasText: "Makefile" })).toHaveCount(0);
     await only.click(); await expect(changes).toBeVisible();
 
-    // The hint lists what works, and dragging a file into the composer references it.
-    await expect(panel.locator(".wf-hint")).toContainText("单击");
-    await expect(panel.locator(".wf-hint")).toContainText("拖到输入框");
+    // No hint block: hovering a file shows a drag grip, 预览 and @ (whose tooltip mentions dragging).
+    await expect(panel.locator(".wf-hint")).toHaveCount(0);
+    const makefile = panel.locator(".wf-row", { hasText: "Makefile" });
+    const previewBtn = makefile.getByRole("button", { name: "预览文件：Makefile", exact: true });
+    await expect(previewBtn).toHaveCSS("opacity", "0");
+    await makefile.hover();
+    await expect(previewBtn).toHaveCSS("opacity", "1");
+    // The icons keep their size (the global button padding used to squeeze @ down to a dot).
+    expect(Math.round((await previewBtn.locator("svg").boundingBox())!.width)).toBe(13);
+    expect(Math.round((await makefile.locator(".wf-mention-btn svg").boundingBox())!.width)).toBe(13);
+    await expect(makefile.locator(".wf-drag-grip")).not.toHaveCSS("opacity", "0");
+    await expect(makefile.getByRole("button", { name: "引用文件：Makefile", exact: true })).toHaveAttribute("title", "引用给 Bot（也可直接拖到输入框）");
+    await expect(panel.locator(".wf-row", { hasText: "subA" }).getByRole("button", { name: /^预览文件/ })).toHaveCount(0);
+    await previewBtn.click();
+    await expect(panel.locator(".wf-preview")).toContainText("echo hi");
+    await panel.getByRole("button", { name: "返回目录", exact: true }).click();
+    await expect(makefile).toBeVisible();
+    // Dragging a file into the composer still references it.
     const composer = page.getByRole("textbox", { name: "消息", exact: true }).filter({ visible: true });
     await panel.locator(".wf-row", { hasText: "Makefile" }).dragTo(composer);
     await expect(composer).toHaveValue(/`@Makefile`/);
