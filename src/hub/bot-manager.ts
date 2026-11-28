@@ -12,7 +12,7 @@ import { isRunActive, runSummarySchema } from "../client-protocol/run.js";
 import { antigravityEffortChoices, preferredAntigravityModel, type AntigravityModel } from "../codex/antigravity-models.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { fork, type ChildProcess } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rmdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { RedactedLogTail } from "../runtime/redacted-log-tail.js";
@@ -20,6 +20,7 @@ import { idSchema } from "../client-protocol/index.js";
 import { createBotSchema, type CreateBotInput, type BotCatalog } from "../client-protocol/bots.js";
 import { defaultDispatcherSettings } from "../client-protocol/dispatch.js";
 import { saveDispatcherSettingsInTransaction } from "./dispatch.js";
+import type { RemoteTicketWorkspace } from "./dispatch-remote.js";
 import { CODEX_MODEL_CHOICES } from "../codex/model-capabilities.js";
 import { deepseekCatalogHome, fallbackModelCatalog, type ModelCatalogRead } from "../runtime/model-catalog.js";
 import { ModelCatalogCache, type ModelCatalogRequest } from "./model-catalog-cache.js";
@@ -340,10 +341,23 @@ export class BotManager {
     });
     return requireManual(bot);
   }
-  async remoteTicketWorkspace(sourceHostId: string, remoteTicketId: string): Promise<string> {
+  async remoteTicketWorkspace(sourceHostId: string, remoteTicketId: string): Promise<RemoteTicketWorkspace> {
     const directory = path.join(this.directory, "remote-dispatch", idSchema.parse(sourceHostId), "tickets", idSchema.parse(remoteTicketId));
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    return directory;
+    await mkdir(path.dirname(directory), { recursive: true, mode: 0o700 });
+    try {
+      await mkdir(directory, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !(await lstat(directory)).isDirectory()) throw error;
+      return { path: directory };
+    }
+    const created = await lstat(directory, { bigint: true });
+    return {
+      path: directory,
+      removeIfEmpty: async () => {
+        const current = await lstat(directory, { bigint: true });
+        if (current.isDirectory() && current.dev === created.dev && current.ino === created.ino) await rmdir(directory);
+      },
+    };
   }
   private async prepare(row: Managed): Promise<string> {
     const spec = createBotSchema.parse(JSON.parse(row.specification_json));

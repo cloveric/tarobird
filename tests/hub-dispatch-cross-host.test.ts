@@ -162,7 +162,7 @@ beforeEach(async () => {
     dispatchWorker: async (_dispatcher: string, engine: DispatchEngine) => (engine === "claude" ? "w_remote_claude" : "w_remote_codex"),
     ticketWorkspace: async (_dispatcher: string, ticketId: string) => path.join(bDir, "tickets", ticketId),
     remoteDispatchWorker: async (_sourceHostId: string, engine: DispatchEngine) => (engine === "claude" ? "w_remote_claude" : "w_remote_codex"),
-    remoteTicketWorkspace: async (_sourceHostId: string, remoteTicketId: string) => path.join(bDir, "remote-tickets", remoteTicketId),
+    remoteTicketWorkspace: async (_sourceHostId: string, remoteTicketId: string) => ({ path: path.join(bDir, "remote-tickets", remoteTicketId) }),
   };
 });
 
@@ -666,7 +666,7 @@ it("creates only the accepted remote workspace when equivalent requests arrive c
   const workspace = vi.fn(async (_sourceHostId: string, ticketId: string) => {
     const selected = path.join(directory, ticketId);
     await mkdir(selected);
-    return selected;
+    return { path: selected };
   });
   const conversationCreated = vi.fn();
   const context: RemoteDispatchContext = {
@@ -704,6 +704,55 @@ it("creates only the accepted remote workspace when equivalent requests arrive c
   context.workerCapable = () => false;
   await expect(run({ ...payload, remoteRequestId: "unsupported_worker" })).rejects.toThrow("bot_message_worker_update_required");
   expect(workspace).toHaveBeenCalledTimes(1);
+});
+
+it("cleans up an exclusively created remote workspace if its ticket transaction rolls back", async () => {
+  await authorizeStudioFromMac();
+  const manager = new BotManager(b.store, bDir, { entrypoint: path.resolve("tests/fixtures/managed-bot-worker.mjs") }, () => b.instanceUrl, async () => {});
+  const workspace = vi.spyOn(manager, "remoteTicketWorkspace");
+  const directory = path.join(bDir, "remote-dispatch", macId, "tickets");
+  await mkdir(path.join(directory, "retained"), { recursive: true });
+  await writeFile(path.join(directory, "retained", "existing.txt"), "Existing work");
+  const originalExec = b.store.db.exec.bind(b.store.db);
+  let failCommit = true;
+  const exec = vi.spyOn(b.store.db, "exec").mockImplementation(async sql => {
+    if (sql === "COMMIT" && failCommit && workspace.mock.calls.length > 0) {
+      failCommit = false;
+      throw new Error("Synthetic transaction failure");
+    }
+    return originalExec(sql);
+  });
+  const created = vi.fn();
+  const run = () => handleRemoteDispatchRequest(
+    {
+      store: b.store, auth: b.auth, network: b.network, attachments: b.attachments, conversationCreated: created,
+      stop: async () => undefined,
+      workers: {
+        catalog: b.dispatch.workers!.catalog,
+        remoteDispatchWorker: async () => "w_remote_codex",
+        remoteTicketWorkspace: manager.remoteTicketWorkspace.bind(manager),
+      },
+    },
+    a.auth.publicKey, { hostId: macId, hostName: "Source", botId: "d", botName: "Dispatcher", requestId: "rollback_call", hops: 1 },
+    REMOTE_DISPATCH_TARGET_BOT, "/api/bot-messages/dispatch/run",
+    { remoteRequestId: "rollback_retry", title: "Fixture work", request: "Complete the fixture task", engine: "codex", model: "", effort: "" },
+  );
+  try {
+    await expect(run()).rejects.toThrow("Synthetic transaction failure");
+    expect(workspace).toHaveBeenCalledTimes(1);
+    expect(await b.store.db.all("SELECT id FROM remote_dispatch_tickets")).toEqual([]);
+    expect(await readdir(directory)).toEqual(["retained"]);
+    expect(created).not.toHaveBeenCalled();
+
+    const accepted = await run() as { remoteTicketId: string };
+    expect(await b.store.db.all("SELECT id FROM remote_dispatch_tickets")).toEqual([{ id: accepted.remoteTicketId }]);
+    expect(await readdir(directory)).toEqual(["retained", accepted.remoteTicketId].sort());
+    expect(created).toHaveBeenCalledTimes(1);
+  } finally {
+    exec.mockRestore();
+    workspace.mockRestore();
+    await manager.close();
+  }
 });
 
 it("blocks ordinary Bot chat grants from escalating to remote dispatch, enforces isBotControl, model regex, effort checks, and rate limits", async () => {
