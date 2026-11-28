@@ -1,3 +1,4 @@
+import { groupRecipientKeysSchema } from "../client-protocol/group-recipients.js";
 import { hostT } from "../locales/index.js";
 import { workbenchContextSchema, type WorkbenchContext } from "../client-protocol/workbench.js";
 import { reserveWorkbenchHistory, workbenchContextDigest, type WorkbenchContextReceipt } from "./workbench-history.js";
@@ -59,7 +60,7 @@ type ActiveRemoteGroupMember = {
   member_key: string; host_id: string; host_name: string; host_public_key: string | null;
   bot_id: string; session_id: string; name_snapshot: string;
 };
-export type SendMessageInput = { workbench?: WorkbenchContext; groupReplyGuard?: import("../client-protocol/index.js").GroupReplyGuard; parallelCapable?: boolean; designatedCapable?: boolean; groupDiscussion?: Message["groupDiscussion"]; botSource?: Message["botSource"]; conversationId: string; clientMsgId: string; text: string; attachments: string[]; replyTo?: string; mentions?: string[]; previewUrl?: string | null; previewStyle?: LinkPreviewStyle };
+export type SendMessageInput = { workbench?: WorkbenchContext; groupReplyGuard?: import("../client-protocol/index.js").GroupReplyGuard; parallelCapable?: boolean; designatedCapable?: boolean; groupDiscussion?: Message["groupDiscussion"]; botSource?: Message["botSource"]; conversationId: string; clientMsgId: string; text: string; attachments: string[]; replyTo?: string; retryOf?: string; mentions?: string[]; previewUrl?: string | null; previewStyle?: LinkPreviewStyle };
 export type RemoteGroupDispatch = { userId: string; groupId: string; conversationId: string; message: Message; questionIds: string[] };
 /** Downgraded settings revision returned to pre-1.7 (1.6.0) clients that do not
  * understand `mode: "designated"` and parse discussion modes with a closed enum. */
@@ -554,6 +555,37 @@ export class HubStore {
     if (result.remoteDispatch) this.emitRemoteDispatch(result.remoteDispatch);
     return { message: result.message, duplicate: result.duplicate, ...(result.workbenchContextOmitted ? { workbenchContextOmitted: result.workbenchContextOmitted } : {}) };
   }
+  private async groupRetryRecipientsInTransaction(userId: string, conversationId: string, sourceId: string, selection: string[] | undefined): Promise<string[]> {
+    const row = await this.db.get<MessageRow>(`SELECT * FROM messages WHERE id=? AND conversation_id=?
+      AND author_type='user' AND status IN ('complete','error')
+      AND NOT EXISTS(SELECT 1 FROM message_deletions d WHERE d.message_id=messages.id AND d.user_id=?)`, [sourceId, conversationId, userId]);
+    if (!row) throw new HubError("message_not_found", 404);
+    const source = this.decodeMessage(row);
+    if (source.botSource || source.groupDiscussion || source.forwardedFrom || source.clientMsgId?.startsWith("gdnote_") || source.blocks.some(block => block.type === "steering")) {
+      throw new HubError("group_retry_recipients_unknown", 409);
+    }
+    let keys = source.groupRecipientKeys;
+    if (!keys) {
+      // Legacy history stores bare IDs. Only the original delivery records
+      // identify which Host owned each recipient, even after membership changes.
+      const local = await this.db.all<{ bot_id: string }>("SELECT bot_id FROM deliveries WHERE message_id=? ORDER BY bot_id", [sourceId]);
+      const remote = await this.db.all<{ bot_id: string; member_key: string }>(
+        "SELECT bot_id, member_key FROM group_remote_questions WHERE conversation_id=? AND source_message_id=? ORDER BY member_key", [conversationId, sourceId],
+      );
+      const recordedIds = new Set([...local, ...remote].map(delivery => delivery.bot_id));
+      const recorded = groupRecipientKeysSchema.safeParse([...new Set([...local.map(delivery => `local:${delivery.bot_id}`), ...remote.map(delivery => delivery.member_key)])]);
+      if (!recorded.success || !recorded.data.length || (!selection?.length && source.mentions?.some(id => !recordedIds.has(id)))) {
+        throw new HubError("group_retry_recipients_unknown", 409);
+      }
+      keys = recorded.data;
+    }
+    // A retry from a failed local reply selects that Bot only.
+    if (selection?.length) {
+      if (selection.some(key => !keys.includes(key))) throw new HubError("mention_forbidden", 403);
+      return selection;
+    }
+    return keys;
+  }
   /** Caller holds db.transaction and passes the returned event to emitCommitted after commit. */
   async sendMessageInTransaction(userId: string, input: SendMessageInput): Promise<{ message: Message; duplicate: boolean; event?: HubEvent; remoteDispatch?: RemoteGroupDispatch; workbenchContextOmitted?: "history_limit" }> {
     await this.requireMember(userId, input.conversationId);
@@ -574,6 +606,11 @@ export class HubStore {
     const conv = await this.conversationRow(input.conversationId);
     if (conv.archived || conv.parentId && (await this.conversationRow(conv.parentId)).archived) throw new HubError("conversation_archived", 409);
     const rootGroup = conv.type === "group" ? (conv.parentId ? await this.conversationRow(conv.parentId) : conv) : undefined;
+    const ordinaryHumanGroup = conv.type === "group" && !input.botSource && !input.groupDiscussion && !input.clientMsgId.startsWith("gdnote_");
+    if (input.retryOf && (!ordinaryHumanGroup || context)) throw new HubError("group_retry_recipients_unknown", 409);
+    const requestedMentions = input.retryOf
+      ? await this.groupRetryRecipientsInTransaction(userId, conv.id, input.retryOf, input.mentions)
+      : input.mentions;
     if (input.groupReplyGuard) {
       if (conv.type !== "group" || input.botSource || input.groupDiscussion) throw new HubError("group_reply_mode_changed", 409);
       const settings = await this.groupSettingsInTransaction(rootGroup!.id);
@@ -585,49 +622,45 @@ export class HubStore {
         && input.groupReplyGuard.mode === "mentions"
         && input.groupReplyGuard.revision === groupSettingsCompatRevision(settings.revision);
       if (designatedCompatGuard) {
-        if (!input.mentions?.length) throw new HubError("group_designated_client_update_required", 409);
+        if (!requestedMentions?.length) throw new HubError("group_designated_client_update_required", 409);
       } else if (settings.revision !== input.groupReplyGuard.revision || settings.policy.mode !== input.groupReplyGuard.mode) {
         throw new HubError("group_reply_mode_changed", 409);
       }
     }
-    if (!input.botSource && !input.groupDiscussion) await this.requireDiscussionAddressing(conv, input.mentions ?? [], input.groupReplyGuard?.mode);
+    if (!input.botSource && !input.groupDiscussion) await this.requireDiscussionAddressing(conv, requestedMentions ?? [], input.groupReplyGuard?.mode);
     // A delegated cross-Bot input obeys the same boundary as a human mention:
     // while a discussion runs here, only the Hub chooses who speaks and what
     // they see (a reply to it would escape first-round sealing). Replays of
     // already accepted requests returned above; rejection rolls back the caller.
     if (input.botSource && conv.type === "group" && await this.db.get("SELECT 1 FROM group_discussions WHERE conversation_id=? AND status IN ('running','pausing','paused','ending')", [conv.id])) throw new HubError("group_discussion_active", 409);
-    if (input.groupReplyGuard && automaticGroupDiscussion(input.groupReplyGuard.mode) && new Set(input.mentions ?? []).size !== 1) throw new HubError("group_discussion_start_required", 409);
+    if (input.groupReplyGuard && automaticGroupDiscussion(input.groupReplyGuard.mode) && new Set(requestedMentions ?? []).size !== 1) throw new HubError("group_discussion_start_required", 409);
     const loadActiveRemoteMembers = () => this.loadActiveRemoteMembersInTransaction(conv.id, rootGroup!.id);
-    const ordinaryHumanGroup = conv.type === "group" && !input.botSource && !input.groupDiscussion && !input.clientMsgId.startsWith("gdnote_");
     const activeDiscussion = ordinaryHumanGroup && !!(await this.db.get("SELECT 1 FROM group_discussions WHERE conversation_id=? AND status IN ('running','pausing','paused','ending')", [conv.id]));
     const policy = rootGroup ? await this.groupPolicyInTransaction(rootGroup) : undefined;
     // Only ordinary human input may fan out or route via designated responder.
     // Explicit recipients always win; delegated Bot tasks and scheduler inputs never become broadcasts.
     let targets: string[] = [];
     let remoteTargets: ActiveRemoteGroupMember[] = [];
-    let mentions: string[] | undefined = input.mentions;
+    let mentions: string[] | undefined;
     const scopedAddressing = ordinaryHumanGroup && !activeDiscussion && policy !== undefined && !automaticGroupDiscussion(policy.mode);
-    if (input.mentions?.length) {
-      const requested = [...new Set(input.mentions)];
+    if (requestedMentions?.length) {
+      const requested = [...new Set(requestedMentions)];
       const remotes = ordinaryHumanGroup && !activeDiscussion ? await loadActiveRemoteMembers() : [];
       for (const recipient of requested) {
+        const localKey = recipient.startsWith("local:");
         const scoped = recipient.includes(":");
-        if (scoped && !scopedAddressing) throw new HubError("mention_forbidden", 403);
-        const botId = recipient.startsWith("local:") ? recipient.slice("local:".length) : recipient;
-        const local = conv.botIds.includes(botId);
-        const matchingRemotes = scoped
-          ? remotes.filter(remote => remote.member_key === recipient)
-          : remotes.filter(remote => remote.bot_id === recipient);
-        // Older topic clients send bare local IDs. Preserve their precedence
-        // while resolving a scoped recipient against the topic's own roster.
-        if (local && (!scopedAddressing || conv.parentId || !matchingRemotes.length)) {
+        if (scoped && !scopedAddressing && !(input.retryOf && localKey && !activeDiscussion)) throw new HubError("mention_forbidden", 403);
+        const botId = localKey ? recipient.slice("local:".length) : recipient;
+        // Bare Bot IDs retain their legacy local-first meaning. A scoped key
+        // never falls back to a different Host or to a Bot with the same ID.
+        if (conv.botIds.includes(botId)) {
           await this.requireBot(botId, conv.id);
           targets.push(botId);
-        } else if (!local && matchingRemotes.length === 1) {
-          remoteTargets.push(matchingRemotes[0]!);
-        } else {
-          throw new HubError("mention_forbidden", 403);
+          continue;
         }
+        const matchingRemotes = remotes.filter(remote => scoped ? remote.member_key === recipient : remote.bot_id === recipient);
+        if (matchingRemotes.length !== 1) throw new HubError("mention_forbidden", 403);
+        remoteTargets.push(matchingRemotes[0]!);
       }
       targets = [...new Set(targets)];
       remoteTargets = [...new Map(remoteTargets.map(remote => [remote.member_key, remote])).values()];
@@ -635,13 +668,13 @@ export class HubStore {
     } else if (conv.type === "direct") {
       targets = [...conv.botIds];
       for (const bot of targets) await this.requireBot(bot, conv.id);
-    } else if (ordinaryHumanGroup && !activeDiscussion && policy?.mode === "parallel") {
+    } else if (!input.retryOf && ordinaryHumanGroup && !activeDiscussion && policy?.mode === "parallel") {
       if (input.parallelCapable === false) throw new HubError("group_parallel_client_update_required", 409);
       targets = [...conv.botIds];
       for (const bot of targets) await this.requireBot(bot, conv.id);
       remoteTargets = await loadActiveRemoteMembers();
       mentions = [...new Set([...targets, ...remoteTargets.map(r => r.bot_id)])];
-    } else if (ordinaryHumanGroup && !activeDiscussion && policy?.mode === "designated" && rootGroup) {
+    } else if (!input.retryOf && ordinaryHumanGroup && !activeDiscussion && policy?.mode === "designated" && rootGroup) {
       if (input.designatedCapable === false) throw new HubError("group_designated_client_update_required", 409);
       const designated = await this.db.get<{ member_key: string }>("SELECT member_key FROM group_designated_member WHERE group_id=?", [rootGroup.id]);
       if (designated?.member_key.startsWith("local:")) {
@@ -659,7 +692,7 @@ export class HubStore {
         }
       }
     }
-    const groupRecipientKeys = scopedAddressing && (remoteTargets.length || input.mentions?.some(id => id.includes(":")))
+    const groupRecipientKeys = ordinaryHumanGroup
       ? [...targets.map(botId => `local:${botId}`), ...remoteTargets.map(remote => remote.member_key)]
       : undefined;
     const previewStyle = linkPreviewStyleSchema.optional().parse(input.previewStyle);
@@ -1118,7 +1151,7 @@ export class HubStore {
       const author = original.authorType === "bot" ? await this.db.get<{ name: string }>("SELECT name FROM bots WHERE id=?", [original.authorId]) : await this.db.get<{ name: string }>("SELECT name FROM users WHERE id=?", [original.authorId]);
       const originalAuthor = original.botSource ? `${original.botSource.botName} · ${original.botSource.hostName}` : author?.name ?? original.authorId;
       const title = source.parentId ? `${(await this.conversationRow(source.parentId)).title} / ${source.title}` : source.title;
-      const message: Message = { id: newId("msg"), conversationId: conv.id, authorId: userId, authorType: "user", blocks: forwardedBlocks(original.blocks, remapped), status: "complete", version: 1, clientMsgId: input.clientMsgId, ...(mentions.length ? { mentions } : {}), createdAt: Date.now(), forwardedFrom: { messageId: original.id, conversationId: source.id, conversationTitle: title, authorName: originalAuthor.slice(0, 256), createdAt: original.createdAt } };
+      const message: Message = { id: newId("msg"), conversationId: conv.id, authorId: userId, authorType: "user", blocks: forwardedBlocks(original.blocks, remapped), status: "complete", version: 1, clientMsgId: input.clientMsgId, ...(mentions.length ? { mentions } : {}), ...(conv.type === "group" ? { groupRecipientKeys: mentions.map(botId => `local:${botId}`) } : {}), createdAt: Date.now(), forwardedFrom: { messageId: original.id, conversationId: source.id, conversationTitle: title, authorName: originalAuthor.slice(0, 256), createdAt: original.createdAt } };
       if (original.previewUrl !== undefined) message.previewUrl = original.previewUrl;
       if (original.previewStyle) message.previewStyle = original.previewStyle;
       if (original.linkPreview) message.linkPreview = { ...original.linkPreview, ...(original.linkPreview.imageAttachmentId ? { imageAttachmentId: remapped.get(original.linkPreview.imageAttachmentId)! } : {}) };

@@ -5,7 +5,7 @@ import { beforeEach, afterEach, it, expect } from "vitest";
 import { HubServer } from "../src/hub/server.js";
 import { clientFrameSchema, type Conversation, type GroupReplyGuard } from "../src/client-protocol/index.js";
 import type { GroupDiscussionPolicy } from "../src/client-protocol/group-discussion.js";
-import { groupReplyWireFrame, LEGACY_GROUP_REPLY_REVISION } from "../client/src/group-reply-guard.js";
+import { groupMessageRetryAddress, groupReplyWireFrame, LEGACY_GROUP_REPLY_REVISION } from "../client/src/group-reply-guard.js";
 
 let root: string, hub: HubServer, chat: Conversation;
 beforeEach(async () => {
@@ -70,4 +70,29 @@ it("retains a scoped send in the outbox if the connected Host lacks recipient-ke
   const send = { ...frame, mentions: [...frame.mentions], attachments: [] };
   expect(groupReplyWireFrame(send, { groupRecipientKeysAvailable: true })).toEqual(send);
   expect(() => groupReplyWireFrame(send, { groupDiscussionAvailable: true, groupReplyGuardAvailable: true })).toThrow("不支持此回复选择");
+});
+
+
+it("pins a replay to its source and never lets an older Host drop the retry source", async () => {
+  const original = await hub.store.sendMessage("owner", { conversationId: chat.id, clientMsgId: "legacy", text: "Example", attachments: [], mentions: ["a"] });
+  const { groupRecipientKeys: _missingReceipt, ...historical } = original.message;
+  const current = { groupRecipientKeysAvailable: true, groupRecipientRetryAvailable: true };
+  const previous = { groupRecipientKeysAvailable: true, groupRecipientRetryAvailable: false };
+  expect(groupMessageRetryAddress(historical, undefined, current)).toEqual({ retryOf: original.message.id });
+  expect(groupMessageRetryAddress(historical, "a", current)).toEqual({ retryOf: original.message.id, mentions: ["local:a"] });
+  expect(() => groupMessageRetryAddress(historical, undefined, previous)).toThrow("不支持此回复选择");
+  expect(groupMessageRetryAddress(original.message, undefined, previous)).toEqual({ mentions: ["local:a"] });
+  expect(groupMessageRetryAddress(historical, "a", { groupRecipientRetryAvailable: false, crossHostGroupsAvailable: false })).toEqual({ mentions: ["a"] });
+  const frame = clientFrameSchema.parse({ v: 1, type: "message.send", conversationId: chat.id, clientMsgId: "retry", text: "Example", attachments: [], ...groupMessageRetryAddress(historical, undefined, {}) });
+  expect(groupReplyWireFrame(frame, current)).toEqual(frame);
+  expect(() => groupReplyWireFrame(frame, previous)).toThrow("不支持此回复选择");
+});
+
+it("keeps a recorded transcript-only retry from acquiring a newer default recipient", async () => {
+  const first = await hub.store.sendMessage("owner", { conversationId: chat.id, clientMsgId: "transcript", text: "Example", attachments: [] });
+  expect(first.message.groupRecipientKeys).toEqual([]);
+  await change("parallel");
+  const replay = await hub.store.sendMessage("owner", { conversationId: chat.id, clientMsgId: "replay", text: "Example", attachments: [], retryOf: first.message.id });
+  expect(await recipients(replay.message.id)).toEqual([]);
+  expect(replay.message.groupRecipientKeys).toEqual([]);
 });

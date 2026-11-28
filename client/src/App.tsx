@@ -119,7 +119,7 @@ import { editGroupComposerIntent, type GroupComposerIntent } from "./group-compo
 import { DiscussionParticipants, useDiscussionParticipants } from "./DiscussionParticipants.js";
 import { controlComposerDiscussion } from "./group-discussion-control.js";
 import { useGroupReplyMode } from "./group-reply-mode-cache.js";
-import { unknownGroupReplyMode } from "./group-reply-guard.js";
+import { groupMessageRetryAddress, unknownGroupReplyMode } from "./group-reply-guard.js";
 import { automaticComposer, groupReplyModeFromView, sendGroupComposerMessage, type GroupReplyMode } from "./group-composer-send.js";
 import { DesktopMenu, DesktopMenuPortalContext } from "./DesktopMenu.js";
 import { NewBot } from "./NewBot.js";
@@ -1726,8 +1726,6 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     // complete mention list would repeat other Bots' successful side effects.
     const botRetry = message.authorType === "bot";
     if (botRetry && !conversation?.botIds.includes(message.authorId)) { setError(t("此 Bot 已不可用，请选择其他 Bot")); return; }
-    const localMemberKey = `local:${message.authorId}`;
-    const mentions = botRetry ? [source.groupRecipientKeys?.includes(localMemberKey) ? localMemberKey : message.authorId] : source.groupRecipientKeys ?? source.mentions;
     if (source.blocks.some((block) => block.type === "steering")) { changeDraft(blocksText(source.blocks)); setError(t("已放回输入框。请确认原任务的结果，再选择引导或普通发送。")); return; }
     if (source.forwardedFrom && botRetry) {
       const clientMsgId = newId("client");
@@ -1736,12 +1734,15 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
         ? `${conversations.find((parent) => parent.id === sourceConversation.parentId)?.title ?? ""} / ${sourceConversation.title}`
         : sourceConversation?.title;
       rememberForwardedMessage(connection, clientMsgId, source, sourceTitle, forwardedAuthorName(source, connection.state, botDirectory));
-      await connection.send({ v: 1, type: "message.forward", conversationId: source.conversationId, sourceMessageId: source.id, clientMsgId, mentions });
+      await connection.send({ v: 1, type: "message.forward", conversationId: source.conversationId, sourceMessageId: source.id, clientMsgId, mentions: [message.authorId] });
       return;
     }
     if (source.forwardedFrom) { forwardTrigger.current = composer.current; setForwarding(source); return; }
+    if (!conversation) throw new Error(t("原消息已删除或当前不可访问"));
+    const address = conversation.type === "group" ? groupMessageRetryAddress(source, botRetry ? message.authorId : undefined, state)
+      : { mentions: botRetry ? [message.authorId] : source.mentions };
     rememberMessageAttachments(connection, source.blocks);
-    await connection.send({ v: 1, type: "message.send", conversationId: source.conversationId, clientMsgId: newId("client"), previewUrl: source.previewUrl, previewStyle: source.previewStyle, text: source.blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n"), attachments: source.blocks.flatMap((b) => "attachmentId" in b ? [b.attachmentId] : []), ...(source.replyTo ? { replyTo: source.replyTo } : {}), ...(mentions ? { mentions } : {}) });
+    await connection.send({ v: 1, type: "message.send", conversationId: source.conversationId, clientMsgId: newId("client"), previewUrl: source.previewUrl, previewStyle: source.previewStyle, text: source.blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n"), attachments: source.blocks.flatMap((b) => "attachmentId" in b ? [b.attachmentId] : []), ...(source.replyTo ? { replyTo: source.replyTo } : {}), ...address });
   };
   const searchParams = useMemo(() => {
     const params = new URLSearchParams({ q: query });

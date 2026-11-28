@@ -438,6 +438,10 @@ without membership rows uses the root group's roster and sessions. The Hub
 validates scoped recipients in the send transaction and delivers through the
 signed remote-question route. The outbox retains scoped sends when the Host
 cannot validate recipient keys.
+A group resend can reference its original input. The Hub recovers exact
+recipients from its saved member keys or original delivery rows, then checks
+current membership in the same transaction. Older clients retain local-first
+routing for bare Bot IDs. Forwarding keeps its explicit local recipients.
 Regressions: `hub-group-parallel`, `hub-group-discussion`, `hub-group-discussion-recovery`,
 `gateway-group-discussion`, client `group-discussion` and `group-discussion-contract`,
 `host-cli-group-discussion`, existing queue/recovery/group/Agent Bus suites;
