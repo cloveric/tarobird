@@ -10,6 +10,7 @@ import { handleCoreSimpleCommand, isCoreGoalControlCommand, tryHandleCoreGoalCon
 import { applyCoreConfigCardAction, renderCoreConfigCard } from "../src/core/config-card.js";
 import { handleLocalSessionCoreCommand } from "../src/core/shared/session-commands.js";
 import { gatewayCommands } from "../src/gateway/commands.js";
+import { runHostCli } from "../src/host-cli/cli.js";
 import { HostCliError } from "../src/host-cli/client.js";
 import { buildHostEnvironment } from "../src/host-cli/environment.js";
 import { explainPiModelRejection, piLevelArgumentError } from "../src/host-cli/pi-rejections.js";
@@ -220,6 +221,14 @@ describe("PR #134 parity & hardening: errors, Core/Feishu commands, discovery, c
     await expect(assertManagedServiceRuntimeCompatible(stateDir, { entrypoint: newEntry })).resolves.toBeUndefined();
   });
 
+  it("lists omp in top-level CLI help", async () => {
+    const output = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await runHostCli(["--help"]);
+      expect(output.mock.calls.flat().join("\n")).toMatch(/引擎：[^\n]*、omp[；。]/);
+    } finally { output.mockRestore(); }
+  });
+
   it("Bugs #7, #9, #10: Core/Feishu commands, config card, session resume/detach, goal controls, and gatewayCommands support omp", async () => {
     const stateDir = await tmpDir("omp-core-");
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine: "omp", locale: "en", approvalMode: "normal", budgetUsd: 5 }));
@@ -321,11 +330,12 @@ describe("PR #134 parity & hardening: errors, Core/Feishu commands, discovery, c
     vi.stubEnv("OMP_EXECUTABLE", path.join(stateDir, "no-such-omp-binary"));
     try {
       const effortOff = await runCmd("/effort off");
-      expect(effortOff).toContain("Effort set to off");
+      expect(effortOff).toMatch(/off.*all of this Bot.s conversations/i);
+      expect(await runCmd("/effort")).toMatch(/off.*all of this Bot.s conversations/i);
       expect((await loadInstanceConfig(stateDir)).effort).toBe("off");
       const effortUltra = await runCmd("/effort ultra");
       expect(effortUltra).toMatch(/omp thinking level supports only/i);
-      await runCmd("/effort default");
+      expect(await runCmd("/effort default")).toMatch(/default.*all of this Bot.s conversations/i);
       expect((await loadInstanceConfig(stateDir)).effort).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
