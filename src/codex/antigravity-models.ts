@@ -43,9 +43,14 @@ export const ANTIGRAVITY_MODELS_TIMEOUT_MS = 15_000;
 const cache = new Map<string, { expires: number; settled: boolean; result: Promise<AntigravityModel[]> }>();
 /** Bounded read-only discovery; never runs a model turn or exposes stderr.
  * `reread` skips a settled answer but still joins a read in progress. */
-export function discoverAntigravityModels(env: NodeJS.ProcessEnv = process.env, reread = false, timeoutMs = ANTIGRAVITY_MODELS_TIMEOUT_MS): Promise<AntigravityModel[]> {
-  const executable = (env.ANTIGRAVITY_EXECUTABLE || "agy").trim().replace(/^"(.*)"$/, "$1");
-  const key = createHash("sha256").update(JSON.stringify([executable, env])).digest("hex");
+export function discoverAntigravityModels(
+  env: NodeJS.ProcessEnv = process.env,
+  reread = false,
+  timeoutMs = ANTIGRAVITY_MODELS_TIMEOUT_MS,
+  quotaScope?: { executable: string; credentialRevision: string },
+): Promise<AntigravityModel[]> {
+  const executable = quotaScope?.executable ?? (env.ANTIGRAVITY_EXECUTABLE || "agy").trim().replace(/^"(.*)"$/, "$1");
+  const key = createHash("sha256").update(JSON.stringify([executable, env, quotaScope?.credentialRevision])).digest("hex");
   const current = cache.get(key); if (current && (reread ? !current.settled : current.expires > Date.now())) return current.result;
   let command = executable, args = ["models"];
   if (/\.(cmd|bat)$/i.test(command)) { args = ["/d", "/s", "/c", command, ...args]; command = env.ComSpec || "cmd.exe"; }

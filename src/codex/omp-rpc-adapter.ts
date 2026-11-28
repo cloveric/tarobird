@@ -90,7 +90,7 @@ interface OmpHistoryInput {
   promptText: string;
   previousLeaf: string | null;
   previousIds: ReadonlySet<string>;
-  userEvent?: { id: string; message: NonNullable<OmpSessionEntry["message"]> } | null;
+  userEvent?: { id?: string; message: NonNullable<OmpSessionEntry["message"]> } | null;
 }
 
 interface ActiveOmpTurn {
@@ -2041,13 +2041,14 @@ export class OmpRpcAdapter implements CodexAdapter {
       const history = turn.historyInput;
       if (history) {
         const message = event.message as NonNullable<OmpSessionEntry["message"]>;
+        const eventId = typeof event.messageId === "string" && event.messageId ? event.messageId : undefined;
         if (history.userEvent === undefined) {
-          // The stream ID establishes event identity, but it is not a durable
-          // history ID. The completed native branch must confirm the payload.
-          const id = event.messageId;
-          history.userEvent = turn.sessionPublication && delivered === history.promptText && typeof id === "string" && id
-            && typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? { id, message } : null;
-        } else if (history.userEvent && (event.messageId === history.userEvent.id || isDeepStrictEqual(message, history.userEvent.message))) {
+          // The optional stream ID can detect a duplicate event. The durable
+          // history ID still comes from the exact payload on the active branch.
+          history.userEvent = turn.sessionPublication && delivered === history.promptText
+            && typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? { id: eventId, message } : null;
+        } else if (history.userEvent && ((eventId !== undefined && eventId === history.userEvent.id)
+          || isDeepStrictEqual(message, history.userEvent.message))) {
           history.userEvent = null;
         }
       }

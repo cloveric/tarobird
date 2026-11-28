@@ -479,7 +479,7 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       preferredPids,
       localProbe: this.localQuotaProbe ?? (this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity)),
       // Real spawner only, like the local probe: injected fakes stay hermetic.
-      modelCatalog: this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity) ? () => discoverAntigravityModels(this.childEnv) : undefined,
+      modelCatalog: this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity) ? () => discoverAntigravityModels(this.childEnv, false, undefined, { executable: this.antigravityExecutable, credentialRevision: scope.credentialRevision }) : undefined,
     });
   }
 

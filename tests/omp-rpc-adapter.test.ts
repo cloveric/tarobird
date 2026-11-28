@@ -698,6 +698,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
 
   it.each([
     { scenario: "normal reply", inputId: "main" },
+    { scenario: "no optional native message id", inputId: "main" },
     { scenario: "fast reply", inputId: "main" },
     { scenario: "same-text steer", inputId: "main" },
     { scenario: "same-text same-timestamp steer" },
@@ -755,7 +756,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
               append("main", user);
             }
             if (scenario !== "no user event") {
-              rpc.send({ type: "message_start", messageId: "stream_main", message: user });
+              rpc.send({ type: "message_start", ...(scenario === "no optional native message id" ? {} : { messageId: "stream_main" }), message: user });
             }
             if (scenario === "fast reply") append("early_assistant", assistant);
             if (scenario === "ambiguous native entries") append("duplicate", user);

@@ -1220,3 +1220,26 @@ describe("Windows Host Claude quota home resolution, invocation, and framing", (
     }
   });
 });
+
+it("disowns a live quota worker when the selected model provider endpoint changes tables", async () => {
+  const f = await fixture(), child = new Child(), adapter = new CodexAppServerAdapter("codex", f.root, f.env, () => child);
+  disposals.push(() => adapter.destroy());
+  const config = path.join(f.codexHome, "config.toml");
+  const providers = (first: string, second: string) => [
+    'model_provider = "selected"',
+    '[model_providers.' + first + ']',
+    'name = "Proxy A"',
+    'base_url = "https://proxy-a.invalid/v1"',
+    'requires_openai_auth = true',
+    '[model_providers.' + second + ']',
+    'name = "Proxy B"',
+    'base_url = "https://proxy-b.invalid/v1"',
+    'requires_openai_auth = true',
+  ].join("\n");
+  await writeFile(config, providers("selected", "unused"));
+  await (adapter as any).startChildAndInitialize(["app-server"]);
+  await writeFile(config, providers("unused", "selected"));
+  const result = await adapter.getAccountQuota({ refresh: true });
+  expect(result.snapshot.reason).toBe("auth_changed");
+  expect(child.methods).not.toContain("account/read");
+});
