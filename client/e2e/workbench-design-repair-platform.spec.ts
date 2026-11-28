@@ -17,11 +17,10 @@ for (const scope of [
   const editor = page.frameLocator(".workbench-design-frame");
   const notice = editor.getByText(/This slide's file has errors, so it's read-only here/i);
   await expect(notice).toBeVisible({ timeout: 30000 });
-  const repair = editor.getByRole("button", { name: format === "canvas" ? "Ask the agent to fix" : "Ask Bot to fix", exact: true });
+  const repair = editor.getByRole("button", { name: "Ask Bot to fix", exact: true });
   if (scope.platform === "ios") {
     await expect(repair).toHaveCount(0);
-    } else {
-      await expect(editor.getByRole("textbox", { name: /^Ask Bot/i })).toHaveCount(0);
+    await expect(editor.getByRole("textbox", { name: /^Ask Bot/i })).toHaveCount(0);
     await expect(editor.locator("body")).not.toContainText(/can ask the agent|Ask the agent to fix|Ask Bot to fix/);
     const refusal = await editor.locator("body").evaluate(async () => {
       try { await (window as any).__tarobotDesignSuggest("Repair fixture"); return "accepted"; }
