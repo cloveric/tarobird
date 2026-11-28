@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   AtSign,
@@ -33,6 +33,7 @@ import type { Message } from "../../src/client-protocol/index.js";
 import type { HubConnection } from "./connection.js";
 import { DiffCounts } from "./DiffCounts.js";
 import { DiffViewerTrigger } from "./DiffViewerTrigger.js";
+import { SidePanelResize } from "./SidePanelResize.js";
 import { useRunChangeFiles } from "./use-run-change-files.js";
 import { MarkdownText } from "./MarkdownText.js";
 import { CodeBlock } from "./CodeBlock.js";
@@ -218,6 +219,20 @@ export function WorkspaceFilesPanel({
 }) {
   useLocale();
   const panelRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!visible || phone || !panel) return;
+    const header = panel.parentElement?.querySelector<HTMLElement>(":scope > .conversation-main > .conversation-header");
+    if (!header) return;
+    const syncHeight = () => panel.style.setProperty("--files-header-height", `${header.getBoundingClientRect().height}px`);
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(header, { box: "border-box" });
+    return () => {
+      observer.disconnect();
+      panel.style.removeProperty("--files-header-height");
+    };
+  }, [visible, phone]);
   const [workspaceName, setWorkspaceName] = useState("workspace");
   const [displayPath, setDisplayPath] = useState<string>();
   const runFiles = useRunChangeFiles(connection, changesMessage, visible);
@@ -863,6 +878,7 @@ export function WorkspaceFilesPanel({
     inert={!visible || undefined}
     aria-label={t("工作区文件")}
   >
+    {!phone && <SidePanelResize panel={panelRef} visible={visible} controls={id} label={t("调整文件面板宽度")}/>}
     <header className="wf-header">
       <div className="wf-header-title">
         <Folder size={16} aria-hidden="true"/>
