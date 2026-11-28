@@ -139,7 +139,7 @@ import { getPluginRegistry, resolvePluginScopeId, type PluginStoreState } from "
 import { PluginsModal, PluginGlyph } from "./PluginsPanel.js";
 import { PluginSandboxFrame } from "./PluginSandboxFrame.js";
 import { MobilePluginSheet } from "./MobilePluginSheet.js";
-import { MAX_PINNED_PLUGINS, pinnedPluginKeys, pluginEntryKey, togglePinnedPlugin } from "./plugin-pins.js";
+import { MAX_PINNED_PLUGINS, pinnedPluginKeys, pluginEntryKey, savedPluginPins, storePluginPins, togglePinnedPlugin } from "./plugin-pins.js";
 import { SidePanelResize } from "./SidePanelResize.js";
 import { BrandName } from "./BrandScenes.js";
 import { DirectEmpty, WelcomeHome } from "./ChatEmpty.js";
@@ -2130,7 +2130,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   // Header plugin entry: pinned side-panel plugins as their own icons, every installed plugin in one 「插件」 menu.
   const pluginLabel = (contribution: { title: string; titleZh?: string }) => locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title;
   const workbenchItemPlugins = activePluginRegistry && !phone ? activePluginRegistry.enabledContributions("desktop", "workbench-item") : [];
-  const pinnedPlugins = pinnedPluginKeys(sidePanelPlugins.map(({ plugin, contribution }) => ({ key: pluginEntryKey(plugin.manifest.id, contribution.id), installedAt: plugin.installedAt })), preferences.pinnedPlugins);
+  const pinnedPlugins = pinnedPluginKeys(sidePanelPlugins.map(({ plugin, contribution }) => ({ key: pluginEntryKey(plugin.manifest.id, contribution.id), installedAt: plugin.installedAt })), savedPluginPins(preferences, pluginScope));
   const toggleSidePanelPlugin = (pluginId: string, contributionId: string, label: string) => {
     const isOpen = pluginSideVisible && activePluginPanel?.pluginId === pluginId && activePluginPanel?.contributionId === contributionId;
     if (isOpen) { setRightMode("side"); setActivePluginPanel(undefined); }
@@ -2146,7 +2146,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   });
   const pinPlugin = (key: string) => {
     const next = togglePinnedPlugin(pinnedPlugins, key);
-    if (next) setPreferences({ ...preferences, pinnedPlugins: next });
+    if (next && pluginScope) setPreferences(storePluginPins(preferences, pluginScope, next));
   };
   const pluginMenu = !pane && !phone && (sidePanelPlugins.length > 0 || workbenchItemPlugins.length > 0) && <span className="plugin-menu-anchor">
     <button ref={pluginMenuTrigger} type="button" className={`icon-button plugin-menu-trigger${menu === "plugins" ? " is-open" : ""}`} aria-label={t("插件")} title={t("插件")} aria-haspopup="menu"

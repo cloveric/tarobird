@@ -1,5 +1,5 @@
 import type { PluginManifest } from "../../src/client-protocol/plugins.js";
-import type { InstalledPluginRecord } from "./plugin-registry.js";
+import type { InstalledPluginRecord, PluginCatalogEntry } from "./plugin-registry.js";
 import { t } from "./i18n.js";
 
 export type MarketplaceTab = "discover" | "installed" | "developer";
@@ -86,4 +86,17 @@ export function selectLocalEntryFile<T extends LocalFolderFileLike>(
     entryPath,
     file: entryPath.includes("/") ? undefined : files.find((file) => file.name === entryPath),
   };
+}
+
+export function installedMarketplaceManifest(installed: InstalledPluginRecord, catalog: PluginCatalogEntry): PluginManifest {
+  const manifest = installed.manifest;
+  const trusted = catalog.manifest;
+  // Only an official inline artifact can vouch for its exact bytes here.
+  // Update the display copy, leaving the installed manifest and grants intact.
+  if (installed.sourceKind !== "official" || !manifest.official || !trusted.official || !catalog.bundleHtml
+    || manifest.id !== trusted.id || manifest.version !== trusted.version
+    || manifest.artifact.sizeBytes !== trusted.artifact.sizeBytes
+    || manifest.artifact.sha256.toLowerCase() !== trusted.artifact.sha256.toLowerCase()
+    || installed.bundleHtml !== catalog.bundleHtml) return manifest;
+  return { ...manifest, source: trusted.source };
 }

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { MAX_PINNED_PLUGINS, pinnedPluginKeys, pluginEntryKey, togglePinnedPlugin } from "./plugin-pins.js";
+import { MAX_PINNED_PLUGINS, pinnedPluginKeys, pluginEntryKey, savedPluginPins, storePluginPins, togglePinnedPlugin } from "./plugin-pins.js";
 
 const entries = [
   { key: pluginEntryKey("c", "panel"), installedAt: 30 },
@@ -26,4 +26,17 @@ it("toggles a pin and refuses a fourth", () => {
   expect(togglePinnedPlugin(["a:panel", "b:panel"], "a:panel")).toEqual(["b:panel"]);
   expect(togglePinnedPlugin(["a:panel", "b:panel", "c:panel"], "d:panel")).toBeUndefined();
   expect(togglePinnedPlugin(["a:panel", "b:panel", "c:panel"], "c:panel")).toEqual(["a:panel", "b:panel"]);
+});
+
+it("preserves an explicit pin when the user changes a different Host's pins", () => {
+  const first = entries.slice(1, 3);
+  const second = entries.filter(entry => entry.key === "c:panel");
+  const legacy = { pinnedPlugins: ["a:panel"] };
+  const afterSecond = storePluginPins(legacy, "host-b", togglePinnedPlugin(pinnedPluginKeys(second, savedPluginPins(legacy, "host-b")), "c:panel")!);
+  expect(pinnedPluginKeys(first, savedPluginPins(afterSecond, "host-a"))).toEqual(["a:panel"]);
+  expect(pinnedPluginKeys(second, savedPluginPins(afterSecond, "host-b"))).toEqual(["c:panel"]);
+
+  const afterFirst = storePluginPins(afterSecond, "host-a", []);
+  expect(pinnedPluginKeys(first, savedPluginPins(afterFirst, "host-a"))).toEqual([]);
+  expect(pinnedPluginKeys(second, savedPluginPins(afterFirst, "host-b"))).toEqual(["c:panel"]);
 });
