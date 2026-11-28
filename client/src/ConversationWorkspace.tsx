@@ -51,7 +51,6 @@ import {
   approvalPlainSummary,
   EmptyStateArt,
   fileKindInfo,
-  FileTypeArt,
   findApprovalAllowAction,
   formatElapsedBrief,
   formatModelDisplayName,
@@ -65,9 +64,7 @@ import {
   WaitingHandArt,
   WorkingMotionArt,
   WorkspaceBotAvatar,
-  WorkspaceFileThumbnail,
   type PendingCardResolution,
-  type WorkspaceFileKind,
 } from "./workspace-visuals.js";
 import { localeIntlTag, t, useLocale } from "./i18n.js";
 import { formatFileLimit } from "./files.js";
@@ -83,6 +80,18 @@ const FILES_PAGE_SIZE = 6;
 const COMMS_PAGE_MIN = 4, COMMS_CARD_PITCH = 114, COMMS_PAGE_CHROME = 150;
 export function commsPageSize(bodyHeight: number): number {
   return Math.max(COMMS_PAGE_MIN, Math.floor((bodyHeight - COMMS_PAGE_CHROME) / COMMS_CARD_PITCH));
+}
+
+/** Small coloured type badge for a file row (MD, PDF, IMG, TSX, JSON…); the row's meta line names the type in words. */
+function fileBadge(name: string, mime?: string): { label: string; tone: string } {
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+  if (ext === "md" || ext === "markdown" || mime === "text/markdown") return { label: "MD", tone: "is-md" };
+  if (ext === "pdf" || mime === "application/pdf") return { label: "PDF", tone: "is-pdf" };
+  if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext) || mime?.startsWith("image/")) return { label: "IMG", tone: "is-img" };
+  if (["json", "ts", "tsx", "js", "jsx", "py", "go", "rs", "css", "html", "yml", "yaml", "sh", "sql"].includes(ext)) {
+    return { label: ext.slice(0, 4).toUpperCase(), tone: "is-code" };
+  }
+  return { label: (ext || "FILE").slice(0, 4).toUpperCase(), tone: "" };
 }
 
 function formatRelativeTime(timestamp: number, locale: string): string {
@@ -712,19 +721,19 @@ export function ConversationWorkspace({
       kind: "workbench" as const,
       key: `wb:${entry.kind}:${entry.id}`,
       name: entry.title || workbenchKindLabel(entry.kind),
-      artKind: "workbench" as WorkspaceFileKind,
-      ext: entry.kind === "whiteboard" ? "WB" : entry.kind === "markdown" ? "DOC" : "DES",
+      badgeLabel: entry.kind === "whiteboard" ? "WB" : entry.kind === "markdown" ? "DOC" : "DES",
+      badgeTone: "is-wb",
       meta: t("工作台 · {0}", workbenchKindLabel(entry.kind)),
       entry,
     })),
     ...files.map(file => {
-      const info = fileKindInfo(file.name, file.mime);
+      const info = fileKindInfo(file.name, file.mime), badge = fileBadge(file.name, file.mime);
       return {
         kind: "file" as const,
         key: `file:${file.attachmentId}:${file.messageId}`,
         name: file.name,
-        artKind: info.kind,
-        ext: info.ext,
+        badgeLabel: badge.label,
+        badgeTone: badge.tone,
         meta: `${info.label} · ${formatFileLimit(file.size)} · ${formatRelativeTime(file.createdAt, locale)}`,
         file,
       };
@@ -896,9 +905,7 @@ export function ConversationWorkspace({
       title={artifact.name}
       onClick={() => openArtifact(artifact)}
     >
-      {artifact.kind === "file" && artifact.artKind === "image"
-        ? <WorkspaceFileThumbnail connection={connection} attachmentId={artifact.file.attachmentId} name={artifact.name} />
-        : <FileTypeArt kind={artifact.artKind} ext={artifact.ext} />}
+      <span className={`workspace-file-badge ${artifact.badgeTone}${artifact.badgeLabel.length > 3 ? " is-long" : ""}`} aria-hidden="true">{artifact.badgeLabel}</span>
       <span className="workspace-file-tile-text">
         <span className="workspace-file-tile-name">{artifact.name}</span>
         <span className="workspace-file-tile-meta">{artifact.meta}</span>
