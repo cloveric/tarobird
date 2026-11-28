@@ -36,8 +36,40 @@ test("the conversation title keeps its room just above 1100px while the rail is 
     expect((await title.boundingBox())!.width).toBeGreaterThan(100);
     await expect(trigger.locator(".workspace-rail-trigger-label")).toBeHidden();
     await page.setViewportSize({ width: 1400, height: 900 });
-    await expect(trigger.locator(".workspace-rail-trigger-label")).toBeVisible();
+    // Icon-only in the panel slider at every width (mockup 25c); the name stays in aria-label and title.
+    await expect(trigger.locator(".workspace-rail-trigger-label")).toBeHidden();
     expect(await title.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  } finally { await done(); }
+});
+
+test("desktop header: 工作台 · 文件 · 工作区 share one icon-only slider, then plugins, then tools, evenly spaced", async ({ browser }) => {
+  const { page, trigger, open, done } = await ready(browser, "zh", 1440);
+  try {
+    const actions = page.locator(".host-workspace:not([hidden]) .conversation-header > .header-actions");
+    const slider = actions.locator("> .header-panel-slider");
+    await expect(slider).toHaveAttribute("role", "group");
+    await expect(slider.locator("> .workbench-trigger")).toHaveCount(1);
+    await expect(slider.locator("> .workspace-rail-trigger:not(.files-trigger)")).toHaveCount(1);
+    await expect(actions.locator("> .header-action-group .conversation-search-trigger")).toHaveCount(1);
+    await expect(actions.locator("> .header-action-group .connection-pill")).toHaveCount(1);
+    await expect(actions.locator("> .header-divider").first()).toBeVisible();
+    await open();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    // The open panel is the raised cell; the others stay flat on the grey track.
+    const headerBg = await page.evaluate(() => getComputedStyle(document.querySelector(".conversation-header")!).backgroundColor);
+    await expect.poll(() => slider.evaluate((node, bg) => node.querySelectorAll(':scope > [aria-expanded="true"]').length === 1
+      && [...node.children].every(b => getComputedStyle(b).backgroundColor === (b.getAttribute("aria-expanded") === "true" ? bg : "rgba(0, 0, 0, 0)")), headerBg)).toBe(true);
+    // 18px glyphs, 18px between glyphs, 14px either side of each divider (from the slider's edge on its side).
+    const gaps = await actions.evaluate(node => {
+      const edge = node.querySelector(".header-panel-slider")!.getBoundingClientRect().right;
+      const marks: { l: number; r: number; divider: boolean; w: number }[] = [];
+      for (const b of node.querySelectorAll("button")) { const g = [...b.querySelectorAll("svg")].find(v => getComputedStyle(v).display !== "none"); if (g && b.getBoundingClientRect().width) { const r = g.getBoundingClientRect(); marks.push({ l: r.left, r: r.right, divider: false, w: r.width }); } }
+      for (const d of node.querySelectorAll(".header-divider")) { const r = d.getBoundingClientRect(); marks.push({ l: r.left, r: r.right, divider: true, w: 0 }); }
+      marks.sort((a, b) => a.l - b.l);
+      return { sizes: marks.filter(m => !m.divider).map(m => Math.round(m.w)), gaps: marks.slice(1).map((b, i) => { const a = marks[i]!; const left = !a.divider && b.divider && a.r < edge && edge <= b.l ? edge : a.r; return { divider: a.divider || b.divider, gap: Math.round(b.l - left) }; }) };
+    });
+    expect(new Set(gaps.sizes)).toEqual(new Set([18]));
+    for (const { divider, gap } of gaps.gaps) expect(gap).toBe(divider ? 14 : 18);
   } finally { await done(); }
 });
 
@@ -236,13 +268,13 @@ test("keyboard: opening moves into the rail, arrows change tab, Escape closes an
   } finally { await done(); }
 });
 
-test("the entry rests without a frame, like the header buttons beside it, and shows its edge only while the rail is open", async ({ browser }) => {
+test("the entry rests flat on the panel slider, like the cells beside it, and is raised only while the rail is open", async ({ browser }) => {
   const { trigger, open, done } = await ready(browser, "zh", 1400);
   try {
-    const edge = () => trigger.evaluate(node => getComputedStyle(node).borderTopColor);
-    expect(await edge()).toBe("rgba(0, 0, 0, 0)");
+    const frame = () => trigger.evaluate(node => `${getComputedStyle(node).borderTopWidth} ${getComputedStyle(node).boxShadow}`);
+    expect(await frame()).toBe("0px none");
     await open();
-    await expect.poll(edge).not.toBe("rgba(0, 0, 0, 0)");
+    await expect.poll(frame).not.toBe("0px none");
   } finally { await done(); }
 });
 

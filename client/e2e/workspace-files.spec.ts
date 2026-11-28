@@ -10,7 +10,7 @@ import { RunJournal } from "../../src/hub/run-journal.js";
 import { hashSecret } from "../../src/hub/auth.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
 import { clickAppAction } from "./fixtures/desktop-actions.js";
-import { enterMobileChat, mobileHome, selectConversation, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
+import { enterMobileChat, mobileHome, openWorkspacePage, selectConversation, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -105,6 +105,62 @@ async function createFixture(page: Page, options: { phone?: boolean; addFrom?: s
     },
   };
 }
+
+test("narrow desktop header keeps tools and the plugin menu reachable with Files open", async ({ page }) => {
+  const f = await createFixture(page);
+  try {
+    await selectConversation(page, f.convA.title);
+    await openWorkspacePage(page, "插件市场");
+    const modal = page.locator("dialog.plugins-modal-dialog[open]");
+    const scratchCard = modal.locator('[data-plugin-id="tarobird.quick-scratchpad"]').first();
+    await scratchCard.getByRole("button", { name: "安装", exact: true }).click();
+    await modal.getByRole("button", { name: "确认并安装", exact: true }).click();
+    await expect(scratchCard.getByRole("button", { name: "打开", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(modal).toBeHidden();
+
+    const header = page.locator(".host-workspace:not([hidden]) .conversation-header");
+    const actions = header.locator(".header-actions");
+    const pinned = header.getByRole("button", { name: "速记面板", exact: true });
+    await expect(pinned).toBeVisible();
+    await page.setViewportSize({ width: 860, height: 900 });
+    await expect(header).toHaveCSS("height", "64px");
+    await page.setViewportSize({ width: 761, height: 900 });
+    await actions.getByRole("button", { name: "文件", exact: true }).click();
+    await expect(page.locator("aside.workspace-files-panel")).toBeVisible();
+
+    const allActionsFit = () => actions.evaluate(node => {
+      const headerBounds = node.parentElement!.getBoundingClientRect();
+      const buttons = [...node.querySelectorAll("button")].filter(button => button.getClientRects().length > 0);
+      return buttons.every(button => {
+        const { left, right, top, bottom } = button.getBoundingClientRect();
+        return left >= headerBounds.left && right <= headerBounds.right && top >= headerBounds.top && bottom <= headerBounds.bottom;
+      });
+    });
+    await expect.poll(allActionsFit).toBe(true);
+    await expect(pinned).toBeHidden();
+    await actions.getByRole("button", { name: "搜索当前对话", exact: true }).click({ trial: true });
+    await actions.getByRole("button", { name: "更多聊天操作", exact: true }).click({ trial: true });
+    const pluginMenu = actions.getByRole("button", { name: "插件", exact: true });
+    await pluginMenu.focus();
+    await page.keyboard.press("Enter");
+    await expect(actions.getByRole("button", { name: "速记面板", exact: true })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(pluginMenu).toBeFocused();
+
+    await page.context().setOffline(true);
+    for (const client of (f.hub as unknown as { clients: Set<{ ws: { terminate(): void } }> }).clients) client.ws.terminate();
+    const status = actions.getByRole("button", { name: "打开连接设置", exact: true });
+    await expect(status).toHaveText(/连接中|离线/);
+    await expect(status.locator("svg")).toHaveCSS("width", "18px");
+    await expect(status.locator("span")).toBeInViewport();
+    await expect.poll(allActionsFit).toBe(true);
+    await status.click({ trial: true });
+  } finally {
+    await page.context().setOffline(false);
+    await f.close();
+  }
+});
 
 async function publishChanges(hub: HubServer, conversationId: string, id: string, files: number) {
   const at = Date.now();
