@@ -51,14 +51,14 @@ export function WorkspaceRunChanges({ connection, message }: { connection: HubCo
   if (!summary) return null;
   const named = files?.slice(0, NAMED), more = named ? Math.max(summary.files, files!.length) - named.length : 0;
   const note = [more > 0 ? t("还有 {0} 个文件", more) : "", partial ? t("部分记录") : ""].filter(Boolean).join(" · ");
-  const plainSummary = summary.files === 1
-    ? t("改了 1 个代码文件 · 新增 {0} 行，删掉 {1} 行", summary.additions ?? "—", summary.deletions ?? "—")
-    : t("改了 {0} 个代码文件 · 新增 {1} 行，删掉 {2} 行", summary.files, summary.additions ?? "—", summary.deletions ?? "—");
+  // "2 个文件已更改 +14 -3": the totals use the same green/red counts as the file rows below.
+  const plainSummary = summary.files === 1 ? t("1 个文件已更改") : t("{0} 个文件已更改", summary.files);
   return <div className="workspace-diff-row"><DiffViewerTrigger connection={connection} message={message}>
     <span className="workspace-diff-files">
       <span className="workspace-diff-summary">
         <FileDiff size={14} aria-hidden="true"/>
         <span className="workspace-diff-summary-text">{plainSummary}</span>
+        <DiffCounts additions={summary.additions} deletions={summary.deletions} className="workspace-diff-summary-counts"/>
         <ChevronRight size={13} className="workspace-diff-chevron" aria-hidden="true"/>
       </span>
       <RatioBar additions={summary.additions} deletions={summary.deletions} />
