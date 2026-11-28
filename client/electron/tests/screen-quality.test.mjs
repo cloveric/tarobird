@@ -59,6 +59,7 @@ test('core: each quality sets the real capture constraints, encoder size/rate an
   // The stream declares the size's own level (what viewers have always been sent: 4.0, or 5.1 above 1080p-class);
   // the encoder is given the level the size needs AT THAT RATE (4.2, 5.1 and 5.2 here).
   const expected = { smooth: [1280, 800, 32, 42, 'avc1.640028', 'avc1.64002A', 120], balanced: [1818, 1136, 28, 40, 'avc1.640028', 'avc1.640033', 120],
+    qhd: [2428, 1516, 28, 40, 'avc1.640033', 'avc1.640033', 60],
     sharp: [2880, 1800, 28, 40, 'avc1.640033', 'avc1.640034', 60], legacy: [1818, 1136, 28, 40, 'avc1.640028', 'avc1.640028', 15] };
   for (const [quality, [width, height, qpBase, qpMax, codecString, level, fps]] of Object.entries(expected)) {
     const b = browser(); await b.core.handle(startMessage(quality === 'legacy' ? undefined : quality)); await tick();
@@ -67,7 +68,7 @@ test('core: each quality sets the real capture constraints, encoder size/rate an
     const stream = b.sent.find(m => m.type === 'stream').stream;
     assert.deepEqual([stream.width, stream.height, stream.codecString, b.encoders[0].config.codec], [width, height, codecString, level]);
     assert.doesNotThrow(() => screenStreamSchema.parse(stream), `${quality}: stream fits the shared schema`);
-    if (quality !== 'sharp') assert.ok(width <= 1920 && height <= 1920 && width * height <= 1920 * 1080, `${quality}: inside the pre-quality (old-viewer) contract`);
+    if (quality !== 'sharp' && quality !== 'qhd') assert.ok(width <= 1920 && height <= 1920 && width * height <= 1920 * 1080, `${quality}: inside the pre-quality (old-viewer) contract`);
     b.push(b.frame(width, height)); await tick();
     assert.deepEqual(b.encoders[0].encodes[0], { keyFrame: true, avc: { quantizer: qpBase } }, `${quality}: resting quantizer`);
     // Congestion raises the quantizer only up to this profile's ceiling, and calm lowers it only to its base.
@@ -547,10 +548,17 @@ test('service: the hello carries features only when the Host advertised quality;
   assert.equal('features' in unrelated.hello, false);
   const quality = await target(t, { capabilities: ['target-stop', 'screen-service-ticket', 'screen-quality-v1'] });
   assert.deepEqual(quality.hello.features, ['screen.quality.v1'], 'a Host that only negotiates quality gets the hello it always got');
-  const current = await target(t, { capabilities: ['target-stop', 'screen-service-ticket', 'screen-quality-v1', 'screen-rate-v1'] });
-  assert.deepEqual(current.hello.features, ['screen.quality.v1', 'screen.pace.v1', 'screen.flight.v1']);
+  const current = await target(t, { capabilities: ['target-stop', 'screen-service-ticket', 'screen-quality-v1', 'screen-qhd-v1', 'screen-rate-v1'] });
+  assert.deepEqual(current.hello.features, ['screen.quality.v1', 'screen.qhd.v1', 'screen.pace.v1', 'screen.flight.v1']);
   assert.throws(() => legacyHello.parse(current.hello), 'proves why it must be gated');
   assert.doesNotThrow(() => screenServiceHelloSchema.parse(current.hello));
+});
+
+test('QHD encodes at 2560×1440 or 1440×2560 on large 16:9 displays', () => {
+  const qhd = SCREEN_QUALITY_PROFILES.qhd;
+  assert.deepEqual(encodeSize({ width: 3840, height: 2160, scale: 1 }, qhd), { width: 2560, height: 1440 });
+  assert.deepEqual(encodeSize({ width: 2160, height: 3840, scale: 1 }, qhd), { width: 1440, height: 2560 });
+  assert.deepEqual(encodeSize({ width: 1920, height: 1080, scale: 1 }, qhd), { width: 1920, height: 1080 });
 });
 
 test('service: the start quality selects the real capture profile; omitted = legacy balanced', async t => {

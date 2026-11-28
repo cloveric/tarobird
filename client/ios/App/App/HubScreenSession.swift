@@ -68,7 +68,7 @@ final class HubScreenSession: @unchecked Sendable {
               let media = join["mediaTicket"] as? String, Self.ticket(media),
               let expires = Self.integer(join["expiresAt"]), let serverTime = Self.integer(join["serverTime"]),
               expires > serverTime, expires - serverTime <= 30000, control != media,
-              ["smooth", "balanced", "sharp"].contains(join["quality"] as? String ?? "balanced"),
+              ["smooth", "balanced", "qhd", "sharp"].contains(join["quality"] as? String ?? "balanced"),
               join["quality"] == nil || join["quality"] is String,
               JSONSerialization.isValidJSONObject(join), (try JSONSerialization.data(withJSONObject: join)).count <= 16384 else {
             throw HubNetworkError("screen_join_invalid")
@@ -218,11 +218,16 @@ final class HubScreenSession: @unchecked Sendable {
         if !canControl { inputFocused = false }
     }
     private func validateSize(_ width: Int, _ height: Int, _ codec: String) throws {
-        let edge = quality == "sharp" ? 3072 : quality == "smooth" ? 1280 : 1920
-        let area = quality == "sharp" ? 5898240 : quality == "smooth" ? 1024000 : 2073600
+        let edge: Int, area: Int, h264Only: Bool
+        switch quality {
+        case "sharp": (edge, area, h264Only) = (3072, 3072 * 1920, true)
+        case "qhd": (edge, area, h264Only) = (2560, 2560 * 1440, true)
+        case "smooth": (edge, area, h264Only) = (1280, 1280 * 800, false)
+        default: (edge, area, h264Only) = (1920, 1920 * 1080, false)
+        }
         guard width > 0, height > 0, max(width, height) <= edge, width * height <= area,
-              quality != "sharp" || codec == "h264",
-              ((width + 15) / 16) * ((height + 15) / 16) <= (quality == "sharp" ? 36864 : 8192) else { throw HubNetworkError("screen_quality_invalid") }
+              !h264Only || codec == "h264",
+              ((width + 15) / 16) * ((height + 15) / 16) <= (h264Only ? 36864 : 8192) else { throw HubNetworkError("screen_quality_invalid") }
     }
     private func validateStream(_ value: [String: Any]) throws {
         guard Self.revision(value["streamGeneration"]), Self.revision(value["geometryRevision"]),

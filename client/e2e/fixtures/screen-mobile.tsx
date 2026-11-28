@@ -66,7 +66,7 @@ function frame(id:string){const group=groups.get(id);if(!group||fixture.pauseFra
 function stream(id:string){const group=groups.get(id);if(group){event(id,{type:"stream",streamGeneration:group.generation,geometryRevision:1,codec:"h264",codecString:"avc1.42001f",width:remoteWidth,height:remoteHeight,contentRect:{x:0,y:0,width:remoteWidth,height:remoteHeight}});frame(id);}}
 function status(id:string,control=false){const group=groups.get(id);if(group)event(id,{type:"state",session:{...group.join.session,state:control?"controlling":"viewing"},streamGeneration:group.generation,serverTime:Date.now(),...(control?{lease:{id:"l".repeat(43),expiresAt:Date.now()+6000,challenge:fixture.renewals?String(++challenge).padStart(43,"c"):"c".repeat(43),challengeExpiresAt:Date.now()+3000}}:{})});}
 const display={id:"display",nativeId:"1",name:"Fixture display",revision:1,x:0,y:0,width:displayWidth,height:displayHeight,scale:1,rotation:0};
-const connection={state:{screenAvailable:true,screenQualityAvailable:true},identity:{hubPublicKey:"fixture-key"},screenStatus:async()=>{
+const connection={state:{screenAvailable:true,screenQualityAvailable:true,screenQhdAvailable:!new URLSearchParams(location.search).has("old-host")},identity:{hubPublicKey:"fixture-key"},screenStatus:async()=>{
   // The two client-side failures seen when the Host drops: the bounded request's abort and the offline guard.
   if(fixture.statusFailure==="abort")throw new DOMException("The request was aborted.","AbortError");
   if(fixture.statusFailure==="offline")throw new Error("连接恢复后即可操作");

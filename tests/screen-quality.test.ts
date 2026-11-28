@@ -16,7 +16,7 @@ import { hashSecret } from "../src/hub/auth.js";
 import { deviceActionProofText } from "../src/client-protocol/device-actions.js";
 import { CAPABILITIES, SERVER_CAPABILITIES } from "../src/client-protocol/index.js";
 import {
-  REMOTE_SCREEN_FLIGHT_CAPABILITY, REMOTE_SCREEN_QUALITY_CAPABILITY, SCREEN_CONTROL_QUALITY_CAPABILITY, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_CONTROL_RATE_CAPABILITY, SCREEN_MEDIA_BYTES_PER_MS, SCREEN_MEDIA_DIRECT_BYTES_PER_MS, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE,
+  REMOTE_SCREEN_FLIGHT_CAPABILITY, REMOTE_SCREEN_QHD_CAPABILITY, REMOTE_SCREEN_QUALITY_CAPABILITY, SCREEN_CONTROL_QHD_CAPABILITY, SCREEN_CONTROL_QUALITY_CAPABILITY, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_CONTROL_RATE_CAPABILITY, SCREEN_MEDIA_BYTES_PER_MS, SCREEN_MEDIA_DIRECT_BYTES_PER_MS, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QHD_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE,
   screenConfigureText, screenJoinSchema, screenOpenSchema, screenServiceCommandSchema, screenServiceHelloSchema, screenViewerCommandSchema,
   type ScreenConfigure, type ScreenDesktop, type ScreenJoin,
 } from "../src/client-protocol/remote-screen.js";
@@ -80,9 +80,20 @@ describe("Hub authority", () => {
     expect(join.quality).toBeUndefined();
   });
 
+  it("negotiates QHD separately from the original quality choices", async () => {
+    expect(SERVER_CAPABILITIES).toContain(REMOTE_SCREEN_QHD_CAPABILITY);
+    expect(CAPABILITIES).not.toContain(REMOTE_SCREEN_QHD_CAPABILITY);
+    const { sink } = register([SCREEN_SERVICE_QUALITY_FEATURE]);
+    await expect(open({ quality: "qhd" })).rejects.toMatchObject({ code: "screen_quality_qhd_unsupported", status: 409 });
+    expect((await screen.status(local.session)).sessions).toEqual([]);
+    expect(sink.messages).toEqual([]);
+    expect((screen as Any).tickets.size).toBe(0);
+    expect((await open({ quality: "sharp" })).quality).toBe("sharp");
+  });
+
   it("an advertised target gets the quality on start, and join.quality confirms it", async () => {
-    const { sink } = register([SCREEN_SERVICE_QUALITY_FEATURE, "future.feature"]);
-    for (const quality of ["smooth", "balanced", "sharp"] as const) {
+    const { sink } = register([SCREEN_SERVICE_QUALITY_FEATURE, SCREEN_SERVICE_QHD_FEATURE, "future.feature"]);
+    for (const quality of ["smooth", "balanced", "qhd", "sharp"] as const) {
       const join = await open({ quality });
       expect(screenJoinSchema.parse(join).quality).toBe(quality);
       const viewer = await attach(join);
@@ -180,14 +191,17 @@ describe("Hub authority", () => {
     await expect(open({ quality: "sharp" })).rejects.toMatchObject({ code: "screen_quality_unsupported" });
   });
 
-  it("sharp needs an H.264 viewer; each session's stream is bounded by its own quality caps", async () => {
-    const { epoch } = register([SCREEN_SERVICE_QUALITY_FEATURE]);
+  it("QHD and sharp need an H.264 viewer; each session's stream is bounded by its own quality caps", async () => {
+    const { epoch } = register([SCREEN_SERVICE_QUALITY_FEATURE, SCREEN_SERVICE_QHD_FEATURE]);
+    await expect(open({ quality: "qhd", codecs: ["vp8"] })).rejects.toMatchObject({ code: "screen_quality_unsupported" });
     await expect(open({ quality: "sharp", codecs: ["vp8"] })).rejects.toMatchObject({ code: "screen_quality_unsupported" });
     const stream = (width: number, height: number, codec = "h264") => ({ type: "stream", streamGeneration: 1, geometryRevision: 1, codec, codecString: codec === "vp8" ? "vp8" : width * height > 8192 * 256 ? "avc1.640033" : "avc1.640028", width, height, contentRect: { x: 0, y: 0, width, height } });
     const cases: [Record<string, unknown>, ReturnType<typeof stream>, boolean][] = [
       [{}, stream(1920, 1080), true], [{}, stream(2560, 1440), false],                       // legacy: pre-quality contract, nothing larger
       [{ quality: "balanced" }, stream(1920, 1080), true], [{ quality: "balanced" }, stream(3072, 1728), false],
       [{ quality: "smooth" }, stream(1280, 720), true], [{ quality: "smooth" }, stream(1920, 1080), false], // a target cannot exceed what was asked
+      [{ quality: "qhd" }, stream(2560, 1440), true], [{ quality: "qhd" }, stream(3072, 1728), false],
+      [{ quality: "qhd" }, stream(2560, 1472), false], [{ quality: "qhd" }, stream(1920, 1080, "vp8"), false],
       [{ quality: "sharp" }, stream(3072, 1728), true], [{ quality: "sharp" }, stream(1920, 1080, "vp8"), false],
       [{ quality: "sharp", codecs: ["h264", "vp8"] }, stream(1280, 720, "vp8"), false],     // never VP8 for sharp
     ];
@@ -267,7 +281,7 @@ async function fixture({ oldHost = false, direct = false } = {}) {
   const capture: Any = { starts: [] as Any[], stops: [] as Any[] };
   const service = new ScreenService({ electron, addon, stateDir: path.join(dir, "app"), platform: "darwin",
     // An older Host's control reply has neither the quality nor the rate capability.
-    hostControl: { ticket: async (id: string) => { const ticket = await screenServiceTicket(dir, id); if (oldHost) ticket.capabilities = ticket.capabilities.filter((c: string) => c !== SCREEN_CONTROL_QUALITY_CAPABILITY && c !== SCREEN_CONTROL_RATE_CAPABILITY); return ticket; } },
+    hostControl: { ticket: async (id: string) => { const ticket = await screenServiceTicket(dir, id); if (oldHost) ticket.capabilities = ticket.capabilities.filter((c: string) => c !== SCREEN_CONTROL_QUALITY_CAPABILITY && c !== SCREEN_CONTROL_QHD_CAPABILITY && c !== SCREEN_CONTROL_RATE_CAPABILITY); return ticket; } },
     captureHost: (hooks: Any) => Object.assign(capture, { hooks,
       start: async (s: Any) => { capture.starts.push(s); hooks.onMessage({ type: "started", sessionId: s.sessionId, cursor: "always" }); },
       reset: () => true, pause: () => true, keyframe() {}, credit() {}, stop: (id: string) => capture.stops.push(id), close() {} }) });
@@ -292,6 +306,7 @@ it("control socket advertises the quality capability next to the ticket", async 
   const status = await inspectHubService(f.dir, "status") as Any;
   expect(status.controlCapabilities).toContain(SCREEN_CONTROL_QUALITY_CAPABILITY);
   expect(status.controlCapabilities).toContain(SCREEN_CONTROL_RATE_CAPABILITY);
+  expect(status.controlCapabilities).toContain(SCREEN_CONTROL_QHD_CAPABILITY);
 });
 
 it("end to end: the requested quality reaches the real capture profile and is confirmed; switching leaves nothing behind", async () => {
@@ -302,10 +317,15 @@ it("end to end: the requested quality reaches the real capture profile and is co
   // Switching = disconnect, then a new open: new session, generation and stream.
   sharp.control.send({ type: "disconnect", sessionId: sharp.join.session.id, generation: sharp.join.session.generation });
   await wait(() => f.capture.stops.includes(sharp.join.session.id) && f.service.status().sessions.length === 0);
+  const qhd = await f.view("qhd");
+  expect(qhd.join.quality).toBe("qhd");
+  expect(f.capture.starts[1]).toMatchObject({ sessionId: qhd.join.session.id, encode: { width: 2428, height: 1516 }, fps: 60, profile: { bitrate: 3_000_000, h264Only: true } });
+  qhd.control.send({ type: "disconnect", sessionId: qhd.join.session.id, generation: qhd.join.session.generation });
+  await wait(() => f.capture.stops.includes(qhd.join.session.id) && f.service.status().sessions.length === 0);
   const smooth = await f.view("smooth");
   expect(smooth.join.session.id).not.toBe(sharp.join.session.id);
   expect(smooth.join.session.generation).not.toBe(sharp.join.session.generation);
-  expect(f.capture.starts[1]).toMatchObject({ sessionId: smooth.join.session.id, encode: { width: 1280, height: 800 }, profile: { qpBase: 32, qpMax: 42 } });
+  expect(f.capture.starts[2]).toMatchObject({ sessionId: smooth.join.session.id, encode: { width: 1280, height: 800 }, profile: { qpBase: 32, qpMax: 42 } });
   expect((await f.hub.remoteScreen.status(f.local.session)).sessions.map(s => s.id)).toEqual([smooth.join.session.id]);
   expect(f.service.status().sessions.map((s: Any) => s.id)).toEqual([smooth.join.session.id]);
   // A target frame for the retired session reaches nothing.

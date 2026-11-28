@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  SCREEN_FRAME_FRESH_MS, SCREEN_LEASE_MS, SCREEN_MAX_VIEWERS, SCREEN_MEDIA_BYTES_PER_MS, SCREEN_MEDIA_DIRECT_BYTES_PER_MS, SCREEN_TICKET_MS, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE,
+  SCREEN_FRAME_FRESH_MS, SCREEN_LEASE_MS, SCREEN_MAX_VIEWERS, SCREEN_MEDIA_BYTES_PER_MS, SCREEN_MEDIA_DIRECT_BYTES_PER_MS, SCREEN_TICKET_MS, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QHD_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE,
   screenConfigureSchema, screenConfigureText, screenDesktopSchema, screenOpenSchema, screenPolicySchema, screenViewerCommandSchema, screenStreamSchema,
   type ScreenStream, type ScreenConfigure, type ScreenDesktop, type ScreenJoin, type ScreenPolicy, type ScreenServiceCommand, type ScreenSession, type ScreenStatus,
 } from "../client-protocol/remote-screen.js";
@@ -210,6 +210,7 @@ export class HubRemoteScreen {
     // An explicit quality the target cannot honour is refused, never ignored:
     // the viewer would otherwise label a default-quality picture as requested.
     // A size only H.264 can carry needs a viewer that decodes H.264.
+    if (input.quality === "qhd" && !this.serviceFeatures.has(SCREEN_SERVICE_QHD_FEATURE)) throw new HubError("screen_quality_qhd_unsupported", 409);
     if (input.quality !== undefined && (!this.serviceFeatures.has(SCREEN_SERVICE_QUALITY_FEATURE) || screenQualityProfile(input.quality).h264Only && !input.codecs.includes("h264"))) throw new HubError("screen_quality_unsupported", 409);
     if (this.sessions.size >= SCREEN_MAX_VIEWERS) throw new HubError("screen_viewers_full", 409);
     const value: ScreenSession = { id: id("screen"), desktopId: input.desktopId, generation: id("generation"), display: structuredClone(display),
@@ -241,6 +242,7 @@ export class HubRemoteScreen {
     if (live.control && live.media && live.visible && !live.started) {
       live.started = true;
       // A session opened with a quality is bound to a target that advertised it.
+      if (live.quality === "qhd" && !this.serviceFeatures.has(SCREEN_SERVICE_QHD_FEATURE)) { this.closeSession(live.value.id, "screen_quality_qhd_unsupported"); throw new HubError("screen_quality_qhd_unsupported", 409); }
       if (live.quality !== undefined && !this.serviceFeatures.has(SCREEN_SERVICE_QUALITY_FEATURE)) { this.closeSession(live.value.id, "screen_quality_unsupported"); throw new HubError("screen_quality_unsupported", 409); }
       const mediaTicket = this.issueTicket("target-media", live.value.id, this.serviceEpoch).ticket;
       // A viewer served straight to the local network gets the larger byte budget, when the target can be told.

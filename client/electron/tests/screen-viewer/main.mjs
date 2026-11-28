@@ -7,9 +7,9 @@ import { ScreenViewers } from '../../screen-viewer.mjs';
 import { readScreenFrame } from '../../../../src/client-protocol/screen-wire.ts';
 async function run() {
 const root = process.argv.at(-1); app.setPath('userData', path.join(root, 'profile'));
-const quality=process.env.TAROBOT_SCREEN_SMOKE_QUALITY==='sharp'?'sharp':'balanced';
+const quality = process.env.TAROBOT_SCREEN_SMOKE_QUALITY ?? 'balanced';
 const display = { id:'d',nativeId:'1',name:'Synthetic',revision:1,x:0,y:0,width:640,height:360,scale:1,rotation:0 };
-const join = {...(quality==='sharp'?{quality}:{}),session:{id:'synthetic_viewer',desktopId:'synthetic_desktop',deviceId:'isolated',deviceName:'Smoke',generation:'synthetic_generation',display,controlAllowed:false,state:'viewing',createdAt:Date.now()},controlTicket:'c'.repeat(43),mediaTicket:'m'.repeat(43),expiresAt:Date.now()+30000,serverTime:Date.now()};
+const join = {...(quality==='balanced'?{}:{quality}),session:{id:'synthetic_viewer',desktopId:'synthetic_desktop',deviceId:'isolated',deviceName:'Smoke',generation:'synthetic_generation',display,controlAllowed:false,state:'viewing',createdAt:Date.now()},controlTicket:'c'.repeat(43),mediaTicket:'m'.repeat(43),expiresAt:Date.now()+30000,serverTime:Date.now()};
 let control, media, source, viewers, sourcePackets=0, started=false, captureProbeRequests=0, captureProbeGesture, ticks=0, maxGap=0, last=performance.now();
 const records=new Map();
 const heartbeat=setInterval(()=>{const n=performance.now();maxGap=Math.max(maxGap,n-last);last=n;ticks++;},20);

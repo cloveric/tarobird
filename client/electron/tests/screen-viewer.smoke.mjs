@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { isolatedRoot } from '../isolation.mjs';
 const [binary, output, quality = "balanced"] = process.argv.slice(2);
-if (!["balanced", "sharp"].includes(quality)) throw new Error("invalid_smoke_quality");
+if (!["balanced", "qhd", "sharp"].includes(quality)) throw new Error("invalid_smoke_quality");
 if (!binary || !output) throw new Error('explicit isolated Electron binary and output required');
 if (!(await realpath(binary)).split(path.sep).some(p => p.endsWith('.noindex'))) throw new Error('physical_noindex_binary_required');
 const root = await isolatedRoot(output), source = path.join(path.dirname(fileURLToPath(import.meta.url)), 'screen-viewer');

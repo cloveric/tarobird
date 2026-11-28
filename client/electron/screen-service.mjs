@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { WebSocket } from 'ws';
 import { z } from 'zod';
-import { SCREEN_CONTROL_QUALITY_CAPABILITY, SCREEN_CONTROL_RATE_CAPABILITY, SCREEN_CONTROL_WINDOWS_CAPABILITY, SCREEN_MAX_CONTROL_BYTES, SCREEN_MAX_VIEWERS, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE, screenDesktopSchema, screenServiceCommandSchema, screenServiceEventSchema } from '../../src/client-protocol/remote-screen.ts';
+import { SCREEN_CONTROL_QHD_CAPABILITY, SCREEN_CONTROL_QUALITY_CAPABILITY, SCREEN_CONTROL_RATE_CAPABILITY, SCREEN_CONTROL_WINDOWS_CAPABILITY, SCREEN_MAX_CONTROL_BYTES, SCREEN_MAX_VIEWERS, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QHD_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE, screenDesktopSchema, screenServiceCommandSchema, screenServiceEventSchema } from '../../src/client-protocol/remote-screen.ts';
 import { SCREEN_LEGACY_FPS, screenQualityProfile } from '../../src/client-protocol/screen-quality.ts';
 import { ScreenGeometry, encodeSize } from './screen-geometry.mjs';
 import { HeldJournal, readHeldJournal } from './screen-held-journal.mjs';
@@ -239,7 +239,7 @@ export class ScreenService {
       const capabilities = Array.isArray(ticket.capabilities) ? ticket.capabilities : [];
       // Above the legacy frame rate, and a named byte budget, only with a Host that says it handles both.
       this.#hostRate = capabilities.includes(SCREEN_CONTROL_RATE_CAPABILITY);
-      const features = capabilities.includes(SCREEN_CONTROL_QUALITY_CAPABILITY) ? [SCREEN_SERVICE_QUALITY_FEATURE, ...(this.#hostRate ? [SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_FLIGHT_FEATURE] : [])] : undefined;
+      const features = capabilities.includes(SCREEN_CONTROL_QUALITY_CAPABILITY) ? [SCREEN_SERVICE_QUALITY_FEATURE, ...(capabilities.includes(SCREEN_CONTROL_QHD_CAPABILITY) ? [SCREEN_SERVICE_QHD_FEATURE] : []), ...(this.#hostRate ? [SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_FLIGHT_FEATURE] : [])] : undefined;
       try { this.#send(ws, { type: 'hello', ticket: ticket.ticket, desktop: this.#desktop(), ...(features ? { features } : {}) }); }
       catch { this.#wsFailure ??= 'screen_desktop_invalid'; ws.terminate(); }
     });
