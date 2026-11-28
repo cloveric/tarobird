@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { openSync, readSync, readdirSync, fstatSync, statSync, closeSync, constants, type BigIntStats } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { parse as parseToml } from "smol-toml";
 import type { QuotaAuthMode, QuotaEngine, QuotaSnapshot } from "../client-protocol/engine-quota.js";
 import type { QuotaAccountProof } from "../runtime/engine-quota-scope.js";
 import { QUOTA_TTL_MS, unavailableQuota } from "./account-quota.js";
@@ -169,6 +170,32 @@ function codexTokenSubject(token: unknown): [string, string] | undefined {
 /** Codex config keys that choose which account or credential source a process signs in with. */
 const CODEX_CREDENTIAL_CONFIG = /^\s*["']?(?:cli_auth_credentials_store|auth_command|credential_helper|include|model_provider|model_providers|chatgpt_base_url|forced_login_method|forced_chatgpt_workspace_id|preferred_auth_method|base_url|env_key|experimental_bearer_token|requires_openai_auth)["']?\s*=/;
 
+function codexCredentialConfig(text: string): unknown {
+  // Keep the path of each key in the fingerprint: provider tables can be
+  // reordered, renamed, or written as dotted keys or inline TOML tables.
+  const entries: Array<[string[], unknown]> = [];
+  const visit = (table: Record<string, unknown>, scope: string[]) => {
+    for (const key of Object.keys(table).sort()) {
+      const value = table[key];
+      const keyPath = [...scope, key];
+      if (key === "model_providers" && value && typeof value === "object") {
+        visit(value as Record<string, unknown>, keyPath);
+      } else if (CODEX_CREDENTIAL_CONFIG.test(`${key}=`)) {
+        entries.push([keyPath, value]);
+      } else if (value && typeof value === "object" && !Array.isArray(value)) {
+        visit(value as Record<string, unknown>, keyPath);
+      }
+    }
+  };
+  try {
+    visit(parseToml(text), []);
+    return entries;
+  } catch {
+    // An unreadable config is only equivalent to the same exact input.
+    return text;
+  }
+}
+
 /** Private in-memory scope guard. No credential values, hashes or file paths are emitted to logs/public DTOs. */
 export class AdapterQuotaCache {
   readonly proofKey = randomBytes(32);
@@ -208,7 +235,7 @@ export class AdapterQuotaCache {
         const credentialLines = (text: string) => text.split(/\r?\n/).filter(line => CODEX_CREDENTIAL_CONFIG.test(line)).map(line => line.trim());
         const subject = codexTokenSubject(tokens.id_token);
         identity = verifiable && authMode === "subscription" && accountId && subject
-          ? [this.executable, engineHome, authMode, accountId, subject, credentialLines(configured), credentialLines(config), credentialLines(project), env]
+          ? [this.executable, engineHome, authMode, accountId, subject, credentialLines(configured), codexCredentialConfig(config), codexCredentialConfig(project), env]
           : material;
       } else if (this.engine === "claude") {
         const authText = readBounded(path.join(engineHome, ".credentials.json"));

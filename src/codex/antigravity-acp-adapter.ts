@@ -734,7 +734,7 @@ export class AntigravityAcpAdapter implements CodexAdapter {
       preferredPids,
       localProbe,
       // Real spawners only, like the local probe: injected fakes stay hermetic.
-      modelCatalog: !this.options.quotaSpawnFn && !this.options.spawnFn ? () => discoverAntigravityModels(this.childEnv) : undefined,
+      modelCatalog: !this.options.quotaSpawnFn && !this.options.spawnFn ? () => discoverAntigravityModels(this.childEnv, false, undefined, { executable: this.executable, credentialRevision: scope.credentialRevision }) : undefined,
     });
   }
 
