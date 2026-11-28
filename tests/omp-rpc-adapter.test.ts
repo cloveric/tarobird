@@ -225,6 +225,107 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
     await adapter.destroy();
   });
 
+  it.each(["silent inactivity", "inactivity after start", "stop with abort acknowledgement", "stop with compact reply"] as const)(
+    "retires interrupted manual compaction and reopens the same session (%s)",
+    async (cause) => {
+      const dir = await mkdtemp(path.join(os.tmpdir(), "omp-compact-stop-"));
+      dirs.push(dir);
+      const sessionFile = path.join(dir, "native-session.jsonl");
+      await writeFile(sessionFile, JSON.stringify({ type: "session", id: "omp-sess-1", cwd: dir }) + "\n");
+      const isStop = cause.startsWith("stop");
+      const processes: FakeOmpProcess[] = [];
+      let compactId: unknown;
+      let notifyCompactStarted!: () => void;
+      const compactStarted = new Promise<void>(resolve => { notifyCompactStarted = resolve; });
+      const controller = new AbortController();
+      const adapter = new OmpRpcAdapter({
+        launch: { command: "omp", args: [] },
+        workspacePath: dir,
+        stateDir: dir,
+        childEnv: {},
+        inactivityTimeoutMs: 35,
+        cancelGraceMs: 20,
+        killProcessTreeFn: () => { processes[0]?.kill(); },
+        spawnFn: () => {
+          const proc = new FakeOmpProcess((cmd, p) => {
+            const reply = (data?: unknown) => p.send({ id: cmd.id, type: "response", command: cmd.type, success: true, data });
+            switch (cmd.type) {
+              case "get_state":
+                reply({ ...defaultState(), sessionFile });
+                return;
+              case "get_entries":
+                reply({ entries: [], leafId: null });
+                return;
+              case "compact":
+                compactId = cmd.id;
+                if (cause !== "silent inactivity") p.send({ type: "manual_compaction_start" });
+                notifyCompactStarted();
+                return;
+              case "abort_and_restore_queue":
+                if (isStop) reply({ steering: [], followUp: [] });
+                if (cause === "stop with compact reply") {
+                  p.send({ type: "command_output", text: "Output after Stop" });
+                  p.send({ type: "response", id: compactId, command: "compact", success: true });
+                }
+                return;
+              case "prompt":
+                reply();
+                // The retired process's unscoped frames arrive during the new turn.
+                processes[0].send({ type: "response", id: compactId, command: "compact", success: true });
+                processes[0].send({ type: "manual_compaction_end", aborted: false });
+                processes[0].send({ type: "command_output", text: "Output from retired compaction" });
+                p.send({ type: "command_output", text: "Fresh turn output" });
+                p.send({ type: "prompt_result", id: cmd.id, agentInvoked: true, status: "completed", sessionSettled: true });
+                return;
+              default:
+                reply({});
+            }
+          });
+          processes.push(proc);
+          queueMicrotask(() => proc.send({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1, 2] }));
+          return proc as never;
+        },
+      });
+
+      const compactEvents: EngineStreamEvent[] = [];
+      const nextEvents: EngineStreamEvent[] = [];
+      try {
+        let outcome: unknown;
+        void adapter.sendUserMessage("conv-compact-stop", {
+          text: "/compact", authoredText: "/compact", files: [], abortSignal: controller.signal,
+          disableRuntimeTimeout: isStop,
+          onEngineEvent: (event) => { compactEvents.push(event); },
+        }).then(result => { outcome = result; }, error => { outcome = error; });
+        await compactStarted;
+        if (isStop) controller.abort();
+
+        await vi.waitFor(() => expect(outcome).toBeInstanceOf(Error), { timeout: 750, interval: 10 });
+        expect((outcome as Error).message).toMatch(isStop ? /aborted/i : /inactive/);
+        if (isStop) expect((outcome as Error).name).toBe("AbortError");
+        expect(processes[0].received.map(cmd => cmd.type)).toContain("abort_and_restore_queue");
+        if (cause === "silent inactivity") {
+          expect(compactEvents).toEqual([]);
+        } else {
+          const started = compactEvents.find(event => event.type === "context_compaction" && event.status === "started");
+          if (started?.type !== "context_compaction") throw new Error("Missing compaction start");
+          expect(compactEvents).toEqual([started, expect.objectContaining({ type: "context_compaction", status: "failed", id: started.id })]);
+        }
+
+        await expect(adapter.sendUserMessage("conv-compact-stop", {
+          text: "Continue", files: [],
+          onEngineEvent: (event) => { nextEvents.push(event); },
+        })).resolves.toMatchObject({ sessionId: "conv-compact-stop", text: "Fresh turn output" });
+        expect(processes).toHaveLength(2);
+        expect(processes[0].killed).toBe(true);
+        expect(processes[1].received).toContainEqual(expect.objectContaining({ type: "switch_session", sessionPath: sessionFile }));
+        expect(nextEvents).toEqual([expect.objectContaining({ type: "assistant_text", text: "Fresh turn output" })]);
+        expect(compactEvents).toHaveLength(cause === "silent inactivity" ? 0 : 2);
+      } finally {
+        await adapter.destroy();
+      }
+    },
+  );
+
   it("supports omp's three queues: steer, follow_up, and aside (btw)", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "omp-queues-"));
     dirs.push(dir);

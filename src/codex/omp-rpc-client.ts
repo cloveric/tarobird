@@ -477,6 +477,7 @@ export class OmpRpcClient {
   }
 
   private dispatchFrame(frame: OmpOutboundFrame): void {
+    if (!this.alive) return;
     if (frame.type === "ready") {
       this.readyResolve?.(frame as OmpReadyFrame);
       this.readyResolve = undefined;
