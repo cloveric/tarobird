@@ -351,6 +351,7 @@ export function PluginsView({
   };
 
   const performInstall = async (target: PendingInstallReview) => {
+    if (!sandboxSupported) return;
     if (!activeRegistry) {
       const msg = t("正在同步当前账号信息，请稍后再安装插件。");
       setConsentError(msg);
@@ -452,7 +453,7 @@ export function PluginsView({
 
   const openContribution = (manifest: PluginManifest, contribution: PluginContribution) => {
     if (!sandboxSupported || !manifest.official) {
-      setFeedback({ text: !sandboxSupported ? t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。") : t("此版本暂不运行未经审核的 HTML 插件。"), error: true });
+      setFeedback({ text: !sandboxSupported ? t("此设备暂不支持插件运行。") : t("此版本暂不运行未经审核的 HTML 插件。"), error: true });
       return;
     }
     onOpenContribution?.(
@@ -492,6 +493,7 @@ export function PluginsView({
           <button
             type="button"
             className="primary"
+            disabled={!sandboxSupported || !manifest.official}
             onClick={() => openContribution(manifest, primaryContribution)}
           >
             {t("打开")}
@@ -515,6 +517,7 @@ export function PluginsView({
           <button
             type="button"
             className="primary"
+            disabled={!sandboxSupported || !manifest.official}
             onClick={() => openContribution(manifest, primaryContribution)}
           >
             {t("打开")}
@@ -531,7 +534,7 @@ export function PluginsView({
           <button
             type="button"
             className="secondary"
-            disabled={isBusy}
+            disabled={isBusy || !sandboxSupported || !updateEntry.manifest.official}
             onClick={() => openReview(updateEntry)}
           >
             <RefreshCw size={14}/>{t("更新到 v{0}", updateEntry.manifest.version)}
@@ -800,7 +803,7 @@ export function PluginsView({
 
     return (
       <div className="plugins-view" data-platform={platform}>
-      {!sandboxSupported && <p className="plugins-off-banner" role="status">{t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。")}</p>}
+      {!sandboxSupported && <p className="plugins-off-banner" role="status">{t("此设备暂不支持插件运行。")}</p>}
         {feedback && (
           <div className={`plugins-feedback${feedback.error ? " is-error" : ""}`} role={feedback.error ? "alert" : "status"}>
             {feedback.error ? <AlertTriangle size={15}/> : <CheckCircle2 size={15}/>}
@@ -970,7 +973,7 @@ export function PluginsView({
 
   return (
     <div className="plugins-view" data-platform={platform}>
-      {!sandboxSupported && <p className="plugins-off-banner" role="status">{t("当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。")}</p>}
+      {!sandboxSupported && <p className="plugins-off-banner" role="status">{t("此设备暂不支持插件运行。")}</p>}
       <div className="plugins-marketplace-toolbar">
         <div className="plugins-tabs" role="tablist" aria-label={t("插件市场导航")}>
           <button

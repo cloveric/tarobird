@@ -190,7 +190,15 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await expect(wsButton).toHaveAttribute("aria-expanded", "false");
       await expect(sidePanel).toBeVisible();
 
-      await trigger.click();
+      // The side panel narrows the conversation header and hides the pin.
+      // The plugin stays reachable in the menu, and the sidebar has its own close action.
+      await expect(trigger).toBeHidden();
+      const pluginsMenu = page.locator(".conversation-header .plugin-menu-trigger");
+      await expect(pluginsMenu).toBeVisible();
+      await pluginsMenu.click();
+      await expect(page.getByRole("group", { name: "插件", exact: true }).getByRole("button", { name: "速记面板", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await sidePanel.getByRole("button", { name: "关闭侧边面板", exact: true }).click();
       await expect(sidePanel).toHaveCount(0);
       await switchPluginTestLocale(page, "ja");
       await trigger.click();
@@ -219,7 +227,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     }
   });
 
-  test("phone: safe-area insets, Android native Back, and opening side-panel plugin in MobilePluginSheet", async ({ browser }) => {
+  test("supported narrow browser: safe-area insets, simulated Back, and opening a side-panel plugin in MobilePluginSheet", async ({ browser }) => {
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       isMobile: true,
@@ -299,6 +307,59 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       // MobileHome Me tab now offers a direct launch entry for the installed side-panel plugin
       await mobileHome(page).getByRole("button", { name: /速记面板/ }).click();
       await expect(sheet).toBeVisible();
+    } finally {
+      await context.close();
+      await hub.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("unsupported native phone keeps existing Scratchpad records visible and removable without offering to launch", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: "block" });
+    const page = await context.newPage();
+    const root = await mkdtemp(path.join(os.tmpdir(), "plugins-native-entry-"));
+    const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist") });
+    try {
+      await page.goto(hub.url);
+      await preparePairing(page, hub);
+      await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+      await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+      await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+
+      const home = mobileHome(page);
+      await home.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "我的", exact: true }).click();
+      const market = home.getByRole("button", { name: /插件市场/ });
+      const shortcut = home.getByRole("button", { name: /^速记面板/ });
+      const modal = page.locator("dialog.plugins-modal-dialog[open]");
+      const scratchCard = modal.locator('[data-plugin-id="tarobird.quick-scratchpad"]').first();
+      await market.click();
+      await scratchCard.getByRole("button", { name: "安装", exact: true }).click();
+      await modal.locator(".plugin-consent-box").getByRole("button", { name: "确认并安装", exact: true }).click();
+      await expect(scratchCard.getByRole("button", { name: "打开", exact: true })).toBeEnabled();
+      await modal.getByRole("button", { name: "关闭插件页", exact: true }).click();
+      await expect(shortcut).toBeVisible();
+
+      // A native WebView can still have the saved install record. Simulate
+      // only capability detection while leaving the plugin sandbox untouched.
+      await page.evaluate(() => {
+        const { Capacitor } = window as unknown as { Capacitor: { isNativePlatform: () => boolean } };
+        Capacitor.isNativePlatform = () => true;
+      });
+      await market.click();
+      await expect(modal.getByText("此设备暂不支持插件运行。", { exact: true })).toBeVisible();
+      await expect(scratchCard.getByRole("button", { name: "打开", exact: true })).toBeDisabled();
+      await expect(page.locator(".plugin-sandbox-frame")).toHaveCount(0);
+      await modal.getByRole("button", { name: "关闭插件页", exact: true }).click();
+      await expect(shortcut).toHaveCount(0);
+
+      await market.click();
+      await modal.getByRole("button", { name: /查看插件详情：速记面板/ }).first().click();
+      const actions = modal.locator(".plugin-detail-actions");
+      await expect(actions.getByRole("button", { name: "打开", exact: true })).toBeDisabled();
+      await actions.getByRole("button", { name: "卸载", exact: true }).click();
+      await modal.getByRole("button", { name: "仅卸载，保留数据", exact: true }).click();
+      await expect(actions.getByRole("button", { name: "安装", exact: true })).toBeDisabled();
+      await expect(page.locator("dialog.plugin-mobile-sheet[open], .plugin-sandbox-frame")).toHaveCount(0);
     } finally {
       await context.close();
       await hub.close();
