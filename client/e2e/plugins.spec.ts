@@ -138,14 +138,14 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       await page.keyboard.press("Escape");
       await expect(modal).toHaveCount(0);
 
+      // The first installed side-panel plugin is pinned by default: an icon-only header button named after it.
       const trigger = page.locator(".conversation-header .plugin-panel-trigger").first();
       await expect(trigger).toBeVisible();
+      await expect(trigger).toHaveAttribute("aria-label", "速记面板");
+      await expect(trigger.locator("span")).toHaveCount(0);
       const triggerBox = await trigger.boundingBox();
-      const labelBox = await trigger.locator("span").boundingBox();
-      expect(triggerBox!.width).toBeGreaterThan(60);
+      expect(triggerBox!.width).toBeLessThanOrEqual(36);
       expect(triggerBox!.height).toBeLessThanOrEqual(36);
-      expect(labelBox!.height).toBeLessThan(30);
-      expect(labelBox!.y).toBeGreaterThanOrEqual(0);
 
       // Open Quick Scratchpad side panel
       await trigger.click();
@@ -613,4 +613,82 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
     }
   });
 
+});
+
+/** The device's saved pins, read from the host registry like other "save, then reload" journeys do. */
+async function savedPluginPins(page: Page): Promise<string[] | null> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("tarocub-hosts-v1"); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    try {
+      return await new Promise<string[] | null>((resolve, reject) => { const request = db.transaction("meta").objectStore("meta").get("preferences"); request.onsuccess = () => resolve(request.result ? JSON.parse(request.result).pinnedPlugins ?? null : null); request.onerror = () => reject(request.error); });
+    } finally { db.close(); }
+  });
+}
+
+test("desktop header: one 插件 menu lists installed plugins, pins persist across reload, and opens the market", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const root = await mkdtemp(path.join(os.tmpdir(), "plugins-menu-"));
+  const hub = await HubServer.start({ stateDir: root, clientDir: path.resolve("dist"), pluginArtifactsDir: path.resolve("../dist/plugins") });
+  try {
+    await hub.profile.update({ name: "插件菜单主机", revision: 0 });
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('alpha','助手','fixture')");
+    await hub.store.createConversation("owner", ["alpha"], "插件菜单对话", "plugins-menu-chat");
+    await page.goto(hub.url);
+    await preparePairing(page, hub);
+    await page.getByRole("button", { name: "配对此设备", exact: true }).click();
+    await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
+    await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
+    await expect(page.getByRole("heading", { name: "插件菜单对话", level: 1 })).toBeVisible();
+    const header = page.locator(".conversation-header");
+    const menuButton = header.getByRole("button", { name: "插件", exact: true });
+    // Nothing installed: no plugin menu in the header.
+    await expect(menuButton).toHaveCount(0);
+
+    await page.locator(".sidebar-plugins-entry").click();
+    const modal = page.locator("dialog.plugins-modal-dialog[open]");
+    const scratchCard = modal.locator('[data-plugin-id="tarobird.quick-scratchpad"]').first();
+    await scratchCard.getByRole("button", { name: "安装" }).click();
+    await modal.locator(".plugin-consent-box").getByRole("button", { name: "确认并安装" }).click();
+    await expect(scratchCard.getByRole("button", { name: "打开" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(modal).toHaveCount(0);
+
+    const pinned = header.locator(".plugin-panel-trigger.is-pinned");
+    await expect(pinned).toHaveCount(1);
+    await expect(menuButton).toBeVisible();
+    await menuButton.click();
+    const menu = page.getByRole("menu", { name: "插件" }).or(page.locator(".desktop-menu.plugin-menu"));
+    await expect(menu).toContainText("已装插件");
+    await expect(menu).toContainText("速记面板");
+    const pin = menu.getByRole("button", { name: "取消固定「速记面板」", exact: true });
+    await expect(pin).toHaveAttribute("aria-pressed", "true");
+    await expect(pin).toHaveText("已固定");
+    await pin.click();
+    await expect(pinned).toHaveCount(0);
+    await expect.poll(() => savedPluginPins(page)).toEqual([]);
+
+    // The unpinned choice survives a reload; the plugin is still one click away in the menu.
+    await page.reload(); await expect(page.locator(".connection-pill.online")).toHaveCount(1);
+    await expect(pinned).toHaveCount(0);
+    await menuButton.click();
+    await menu.getByRole("button", { name: "速记面板", exact: true }).click();
+    const sidePanel = page.locator("aside.conversation-side-panel.plugin-side-panel");
+    await expect(sidePanel).toBeVisible();
+    await menuButton.click();
+    await menu.getByRole("button", { name: "固定「速记面板」到顶栏", exact: true }).click();
+    await expect(pinned).toHaveCount(1);
+    await expect.poll(() => savedPluginPins(page)).toEqual(["tarobird.quick-scratchpad:scratchpad"]);
+    await page.keyboard.press("Escape");
+    await page.reload(); await expect(page.locator(".connection-pill.online")).toHaveCount(1);
+    await expect(pinned).toHaveCount(1);
+
+    // The market is the last item.
+    await menuButton.click();
+    await menu.getByRole("button", { name: "插件市场…", exact: true }).click();
+    await expect(page.locator("dialog.plugins-modal-dialog[open]")).toBeVisible();
+  } finally {
+    await page.close();
+    await hub.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });

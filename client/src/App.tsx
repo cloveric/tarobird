@@ -130,12 +130,13 @@ import { lazy, Suspense, useCallback, useContext, useEffect, useId, useLayoutEff
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { createReadingScroll } from "./reading-scroll.js";
 import { useConnectionSelection } from "./connection-selection.js";
-import { CalendarClock, Activity, Archive, ArrowLeft, AtSign, Folder, FolderInput, FolderOpen, ArrowUp, CornerDownLeft, Compass, Bot as BotIcon, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, Copy, Forward, Hash, LoaderCircle, MoreHorizontal, MessageSquare, MessageSquarePlus, Monitor, MonitorPlay, PanelRight, Pencil, Plug, Plus, Puzzle, RotateCcw, Search, Settings, ShieldCheck, Trash2, Users, Wifi, WifiOff, X, MonitorCog } from "lucide-react";
+import { CalendarClock, Activity, Archive, ArrowLeft, AtSign, Folder, FolderInput, FolderOpen, ArrowUp, CornerDownLeft, Compass, Bot as BotIcon, Check, ChevronDown, ChevronLeft, ChevronRight, CircleStop, Copy, Forward, Hash, LoaderCircle, MoreHorizontal, MessageSquare, MessageSquarePlus, Monitor, MonitorPlay, PanelRight, Pencil, Pin, Plug, Plus, Puzzle, Store, RotateCcw, Search, Settings, ShieldCheck, Trash2, Users, Wifi, WifiOff, X, MonitorCog } from "lucide-react";
 import { workspaceDisplayName } from "../../src/client-protocol/saved-workspaces.js";
 import { getPluginRegistry, resolvePluginScopeId, type PluginStoreState } from "./plugin-registry.js";
-import { PluginsModal } from "./PluginsPanel.js";
+import { PluginsModal, PluginGlyph } from "./PluginsPanel.js";
 import { PluginSandboxFrame } from "./PluginSandboxFrame.js";
 import { MobilePluginSheet } from "./MobilePluginSheet.js";
+import { MAX_PINNED_PLUGINS, pinnedPluginKeys, pluginEntryKey, togglePinnedPlugin } from "./plugin-pins.js";
 import { SidePanelResize } from "./SidePanelResize.js";
 import { BrandName } from "./BrandScenes.js";
 import { DirectEmpty, WelcomeHome } from "./ChatEmpty.js";
@@ -318,13 +319,14 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const updateMobileInbox = shell?.updateMobileInbox ?? setLocalMobileInbox;
   const mobileScroll = shell?.mobileScrollPositions ?? localMobileScroll;
   const chatMoreTrigger = useRef<HTMLButtonElement>(null);
+  const pluginMenuTrigger = useRef<HTMLButtonElement>(null);
   const [settingsFromMenu, setSettingsFromMenu] = useState(false);
   const [chatActions, setChatActions] = useState(false), [archives, setArchives] = useState(false);
   const [movingConversation, setMovingConversation] = useState<string>();
   const chatActionNote = useId();
   // Desktop popovers (create, workspace tools, chat details, group recipients).
   // At most one is open; each is closed when its chat, host or layout changes.
-  const [menu, setMenu] = useState<"create" | "workspace" | "chat" | "recipients">();
+  const [menu, setMenu] = useState<"create" | "workspace" | "chat" | "recipients" | "plugins">();
   const closeMenu = () => setMenu(undefined), toggleMenu = (kind: NonNullable<typeof menu>) => setMenu((open) => open === kind ? undefined : kind);
   const menuId = useId(), createTrigger = useRef<HTMLButtonElement>(null), workspaceTrigger = useRef<HTMLButtonElement>(null), recipientTrigger = useRef<HTMLButtonElement>(null);
   const chatVisible = visible && (!phone || !sidebar); const [scheduledTasks, setScheduledTasks] = useState<"create" | "list">(); const [newBot, setNewBot] = useState(false); const [newChat, setNewChat] = useState<ConversationCreation>();
@@ -2091,14 +2093,57 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
       setDetails(false); closeSearch(); setActivePluginPanel({ pluginId, contributionId, title }); setRightMode("plugin");
     }
   };
-  const pluginPanelButtons = !pane && !phone && sidePanelPlugins.map(({ plugin, contribution }) => {
-    const label = locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title;
+  // Header plugin entry: pinned side-panel plugins as their own icons, every installed plugin in one 「插件」 menu.
+  const pluginLabel = (contribution: { title: string; titleZh?: string }) => locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title;
+  const workbenchItemPlugins = activePluginRegistry && !phone ? activePluginRegistry.enabledContributions("desktop", "workbench-item") : [];
+  const pinnedPlugins = pinnedPluginKeys(sidePanelPlugins.map(({ plugin, contribution }) => ({ key: pluginEntryKey(plugin.manifest.id, contribution.id), installedAt: plugin.installedAt })), preferences.pinnedPlugins);
+  const toggleSidePanelPlugin = (pluginId: string, contributionId: string, label: string) => {
+    const isOpen = pluginSideVisible && activePluginPanel?.pluginId === pluginId && activePluginPanel?.contributionId === contributionId;
+    if (isOpen) { setRightMode("side"); setActivePluginPanel(undefined); }
+    else { setDetails(false); closeSearch(); setActivePluginPanel({ pluginId, contributionId, title: label }); setRightMode("plugin"); }
+  };
+  const pinnedPluginButtons = !pane && !phone && pinnedPlugins.flatMap(key => {
+    const entry = sidePanelPlugins.find(({ plugin, contribution }) => pluginEntryKey(plugin.manifest.id, contribution.id) === key);
+    if (!entry) return [];
+    const { plugin, contribution } = entry, label = pluginLabel(contribution);
     const isOpen = pluginSideVisible && activePluginPanel?.pluginId === plugin.manifest.id && activePluginPanel?.contributionId === contribution.id;
-    return <button key={`${plugin.manifest.id}:${contribution.id}`} type="button" className={`plugin-panel-trigger${isOpen ? " is-active" : ""}`} aria-label={label} title={label} aria-expanded={isOpen} onClick={() => {
-      if (isOpen) { setRightMode("side"); setActivePluginPanel(undefined); }
-      else { setDetails(false); closeSearch(); setActivePluginPanel({ pluginId: plugin.manifest.id, contributionId: contribution.id, title: label }); setRightMode("plugin"); }
-    }}><Puzzle size={16} aria-hidden="true"/><span className="plugin-panel-trigger-label">{label}</span></button>;
+    return [<button key={key} type="button" className={`plugin-panel-trigger is-pinned${isOpen ? " is-active" : ""}`} aria-label={label} title={label} aria-expanded={isOpen}
+      onClick={() => toggleSidePanelPlugin(plugin.manifest.id, contribution.id, label)}><PluginGlyph icon={contribution.icon ?? plugin.manifest.icon} size={16}/></button>];
   });
+  const pinPlugin = (key: string) => {
+    const next = togglePinnedPlugin(pinnedPlugins, key);
+    if (next) setPreferences({ ...preferences, pinnedPlugins: next });
+  };
+  const pluginMenu = !pane && !phone && (sidePanelPlugins.length > 0 || workbenchItemPlugins.length > 0) && <span className="plugin-menu-anchor">
+    <button ref={pluginMenuTrigger} type="button" className={`icon-button plugin-menu-trigger${menu === "plugins" ? " is-open" : ""}`} aria-label={t("插件")} title={t("插件")} aria-haspopup="menu"
+      aria-expanded={menu === "plugins"} aria-controls={menu === "plugins" ? `${menuId}-plugins` : undefined} onClick={() => toggleMenu("plugins")}>
+      <Puzzle size={16} aria-hidden="true"/><ChevronDown size={11} aria-hidden="true" className="plugin-menu-caret"/>
+    </button>
+    <DesktopMenu id={`${menuId}-plugins`} label={t("插件")} open={menu === "plugins"} close={closeMenu} trigger={pluginMenuTrigger} placement="down-end" className="plugin-menu">
+      <p className="desktop-menu-heading"><span>{t("已装插件")}</span></p>
+      {sidePanelPlugins.map(({ plugin, contribution }) => {
+        const key = pluginEntryKey(plugin.manifest.id, contribution.id), label = pluginLabel(contribution), pinned = pinnedPlugins.includes(key);
+        const full = !pinned && pinnedPlugins.length >= MAX_PINNED_PLUGINS;
+        return <div className="plugin-menu-row" key={key}>
+          <button type="button" className="plugin-menu-open" onClick={() => { closeMenu(); toggleSidePanelPlugin(plugin.manifest.id, contribution.id, label); }}>
+            <PluginGlyph icon={contribution.icon ?? plugin.manifest.icon} size={16}/><span className="desktop-menu-label">{label}</span>
+          </button>
+          <button type="button" className={`plugin-menu-pin${pinned ? " is-pinned" : ""}`} aria-pressed={pinned} disabled={full}
+            aria-label={pinned ? t("取消固定「{0}」", label) : t("固定「{0}」到顶栏", label)} title={full ? t("最多固定 {0} 个", MAX_PINNED_PLUGINS) : undefined}
+            onClick={() => pinPlugin(key)}><Pin size={12} aria-hidden="true"/>{pinned ? t("已固定") : t("固定")}</button>
+        </div>;
+      })}
+      {workbenchItemPlugins.map(({ plugin, contribution }) => {
+        const label = pluginLabel(contribution);
+        return <button type="button" key={pluginEntryKey(plugin.manifest.id, contribution.id)} disabled={!workbenchEligible}
+          onClick={() => { closeMenu(); openPluginContribution(plugin.manifest.id, contribution.id, "workbench-item", label); }}>
+          <PluginGlyph icon={contribution.icon ?? plugin.manifest.icon} size={16}/><span className="desktop-menu-label">{label}</span><span className="desktop-menu-value">{t("在工作台打开")}</span>
+        </button>;
+      })}
+      <hr/>
+      <button type="button" onClick={() => { closeMenu(); setPluginsOpen(true); }}><Store size={16} aria-hidden="true"/><span className="desktop-menu-label">{t("插件市场…")}</span></button>
+    </DesktopMenu>
+  </span>;
   const openFiles = () => {
     designOpener.revoke();
     setSettings(false);
@@ -2264,7 +2309,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
       {current && <ReplyActivity group={!!group} names={streamingBots} offline={live && !!directBotId && state.bots.some(bot => bot.id === directBotId && !bot.online)}/>}
     </div>
   </div>{shell?.multiHost && phoneQuota ? <button type="button" className="header-host-source header-host-usage" aria-label={`${t("运行于 {0}", shell.host.name)}${t("，")}${quotaMarkLabel(phoneQuota.left, phoneQuota.stale, phoneQuota.observedAt, locale)}`} onClick={openQuotaDetails}><HostSourceBadge name={shell.host.name} header/><QuotaBattery left={phoneQuota.left} stale={phoneQuota.stale} height={11}/></button>
-    : shell?.multiHost ? <HostSourceBadge name={shell.host.name} header/> : phoneQuota ? <QuotaMark left={phoneQuota.left} stale={phoneQuota.stale} observedAt={phoneQuota.observedAt} onOpen={openQuotaDetails}/> : null}{!phone && visible && searchResults === undefined && group && current && <TopicSwitcher compact={!!pane} connection={connection} key={`topic:${current.id}`} group={group} current={current} conversations={conversations} activity={activity} select={selectChat} create={() => setNewChat({ kind: "topic", group })}/>}{sideButton}{rightPanelSwitcher}{terminalButton}{pluginPanelButtons}{screenButton}{workspaceButton}{!phone && current && <button ref={conversationSearchTrigger} className="icon-button conversation-search-trigger" aria-label={t("搜索当前对话")} title={t("搜索当前对话") + " (⌘F / Ctrl+F)"} aria-keyshortcuts="Meta+F Control+F" onClick={searchCurrentConversation}><Search size={18}/></button>}<button className={`connection-pill ${state.status}`} title={state.route?.url} aria-label={t("打开连接设置")} onClick={(event) => { event.currentTarget.focus(); setSettingsFromMenu(false); setSettingsSection("connection"); setSettings(true); }}>{state.status === "online" ? <Wifi size={14}/> : <WifiOff size={14}/>}<span>{connectionSummary}</span></button>{(phone || current) && <button ref={chatMoreTrigger} className="icon-button mobile-chat-more" aria-label={t("更多聊天操作")} aria-expanded={phone ? undefined : menu === "chat"} aria-controls={!phone && menu === "chat" ? `${menuId}-chat` : undefined} onClick={(event) => { event.currentTarget.focus(); history.refresh(); if (phone) setChatActions(true); else toggleMenu("chat"); }}><MoreHorizontal size={phone ? 24 : 18}/></button>}
+    : shell?.multiHost ? <HostSourceBadge name={shell.host.name} header/> : phoneQuota ? <QuotaMark left={phoneQuota.left} stale={phoneQuota.stale} observedAt={phoneQuota.observedAt} onOpen={openQuotaDetails}/> : null}{!phone && visible && searchResults === undefined && group && current && <TopicSwitcher compact={!!pane} connection={connection} key={`topic:${current.id}`} group={group} current={current} conversations={conversations} activity={activity} select={selectChat} create={() => setNewChat({ kind: "topic", group })}/>}{sideButton}{rightPanelSwitcher}{terminalButton}{pinnedPluginButtons}{pluginMenu}{screenButton}{workspaceButton}{!phone && current && <button ref={conversationSearchTrigger} className="icon-button conversation-search-trigger" aria-label={t("搜索当前对话")} title={t("搜索当前对话") + " (⌘F / Ctrl+F)"} aria-keyshortcuts="Meta+F Control+F" onClick={searchCurrentConversation}><Search size={18}/></button>}<button className={`connection-pill ${state.status}`} title={state.route?.url} aria-label={t("打开连接设置")} onClick={(event) => { event.currentTarget.focus(); setSettingsFromMenu(false); setSettingsSection("connection"); setSettings(true); }}>{state.status === "online" ? <Wifi size={14}/> : <WifiOff size={14}/>}<span>{connectionSummary}</span></button>{(phone || current) && <button ref={chatMoreTrigger} className="icon-button mobile-chat-more" aria-label={t("更多聊天操作")} aria-expanded={phone ? undefined : menu === "chat"} aria-controls={!phone && menu === "chat" ? `${menuId}-chat` : undefined} onClick={(event) => { event.currentTarget.focus(); history.refresh(); if (phone) setChatActions(true); else toggleMenu("chat"); }}><MoreHorizontal size={phone ? 24 : 18}/></button>}
       {pane?.headerTrailing}{!phone && current && <DesktopMenu id={`${menuId}-chat`} label={t("聊天操作")} open={menu === "chat"} close={closeMenu} trigger={chatMoreTrigger} placement="down-end" className="chat-menu">
         {!pane&&isMobileScreenApp()&&<button className="screen-mobile-entry" onClick={()=>{closeMenu();openScreen();}}><MonitorPlay size={16}/><span className="desktop-menu-label">{t("查看屏幕")}</span></button>}
         {!pane&&isMobileScreenApp()&&<button className="screen-mobile-entry" onClick={()=>{closeMenu();setSettingsFromMenu(true);setSettingsSection("screen");setSettings(true);}}><MonitorCog size={16}/><span className="desktop-menu-label">{t("屏幕控制设置")}</span></button>}
