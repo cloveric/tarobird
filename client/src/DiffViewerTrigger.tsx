@@ -8,6 +8,7 @@ import type { HubConnection } from "./connection.js";
 import { PageLoadBoundary } from "./PageLoadBoundary.js";
 import { RuntimeHostActiveContext } from "./RuntimeHost.js";
 import { useMessageOverlay } from "./message-overlay.js";
+import { RunChangesEntryContext } from "./run-changes-entry.js";
 import { t } from "./i18n.js";
 
 type Viewer = typeof import("./RunDiffViewer.js").default;
@@ -34,6 +35,8 @@ export function recordedRunChanges(message: Message) {
 /** On a reply the entry reads "本轮改动" and nothing else. The workspace rail passes its own content, which names the files. */
 export function DiffViewerTrigger({ connection, message, children }: { connection: HubConnection; message: Message; children?: ReactNode }) {
   const active = useContext(RuntimeHostActiveContext);
+  // On a reply (no children) the App may route 「本轮改动」 to the Files panel; the rail and the panel keep the viewer.
+  const openInFiles = useContext(RunChangesEntryContext);
   const [open, setOpen] = useState(false), [opening, setOpening] = useState(false), request = useRef(0);
   const { run } = recordedRunChanges(message);
   const scope = JSON.stringify([connection.identity.hubPublicKey, connection.identity.deviceId, message.conversationId, message.authorId, message.id, run?.id]);
@@ -47,7 +50,7 @@ export function DiffViewerTrigger({ connection, message, children }: { connectio
     void loadViewer().catch(() => undefined).finally(() => { if (token !== request.current) return; setOpening(false); setOpen(true); });
   };
   const Loaded = loadedViewer;
-  return <><button type="button" title={t("查看本轮保存的修改。多次编辑按记录累计，不等于最终净变化。")} aria-busy={opening || undefined} onPointerDown={() => { void loadViewer().catch(() => undefined); }} onFocus={() => { void loadViewer().catch(() => undefined); }} onClick={() => { if (!opening) show(); }}>{children ?? <><FileDiff size={14}/><span>{t("本轮改动")}</span></>}</button>
+  return <><button type="button" title={t("查看本轮保存的修改。多次编辑按记录累计，不等于最终净变化。")} aria-busy={opening || undefined} onPointerDown={() => { void loadViewer().catch(() => undefined); }} onFocus={() => { void loadViewer().catch(() => undefined); }} onClick={() => { if (!children && openInFiles?.(message)) return; if (!opening) show(); }}>{children ?? <><FileDiff size={14}/><span>{t("本轮改动")}</span></>}</button>
     {open && active && createPortal(<PageLoadBoundary close={() => setOpen(false)}>{Loaded ? <Loaded key={scope} connection={connection} conversationId={message.conversationId} botId={message.authorId} messageId={message.id} runId={run.id} snapshotKey={isRunActive(run.phase) ? "active" : `${run.revision}:${run.phase}:${!!run.detailsUnavailable}`} close={() => setOpen(false)}/> : <Suspense fallback={null}><DiffViewer key={scope} connection={connection} conversationId={message.conversationId} botId={message.authorId} messageId={message.id} runId={run.id} snapshotKey={isRunActive(run.phase) ? "active" : `${run.revision}:${run.phase}:${!!run.detailsUnavailable}`} close={() => setOpen(false)}/></Suspense>}</PageLoadBoundary>, document.body)}
   </>;
 }

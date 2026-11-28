@@ -29,7 +29,11 @@ import {
   type WorkspacePreviewResponse,
   type WorkspaceTreeResponse,
 } from "../../src/client-protocol/workspace-files.js";
+import type { Message } from "../../src/client-protocol/index.js";
 import type { HubConnection } from "./connection.js";
+import { DiffCounts } from "./DiffCounts.js";
+import { DiffViewerTrigger } from "./DiffViewerTrigger.js";
+import { useRunChangeFiles } from "./use-run-change-files.js";
 import { MarkdownText } from "./MarkdownText.js";
 import { CodeBlock } from "./CodeBlock.js";
 import { t, useLocale } from "./i18n.js";
@@ -169,6 +173,12 @@ function WorkspaceFileStateArt({ kind }: { kind: "changed" | "search" | "empty" 
   );
 }
 
+/** "~/a/b/c/d" → "~/…/c/d": the start says whose tree it is, the end which project; the full path is in the title. */
+export function shortDisplayPath(value: string): string {
+  const parts = value.split("/");
+  return parts.length > 4 ? [parts[0], "…", ...parts.slice(-2)].join("/") : value;
+}
+
 function decodeBase64Blob(base64: string, mime: string): Blob {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -186,6 +196,8 @@ export function WorkspaceFilesPanel({
   turnVersion,
   onMentionFile,
   onClose,
+  changesMessage,
+  focusChanges,
 }: {
   id: string;
   connection: HubConnection;
@@ -197,10 +209,17 @@ export function WorkspaceFilesPanel({
   turnVersion: number;
   onMentionFile: (relativePath: string) => void;
   onClose: () => void;
+  /** The reply whose recorded run is shown as 「这轮改动」: the latest one, or the one whose 「本轮改动」 opened the panel. */
+  changesMessage?: Message;
+  /** Changes when a reply's 「本轮改动」 opens the panel: the panel shows the tree and scrolls to 「这轮改动」. */
+  focusChanges?: number;
 }) {
   useLocale();
   const panelRef = useRef<HTMLElement>(null);
   const [workspaceName, setWorkspaceName] = useState("workspace");
+  const [displayPath, setDisplayPath] = useState<string>();
+  const runFiles = useRunChangeFiles(connection, changesMessage, visible);
+  const changesSection = useRef<HTMLElement>(null);
   const [nodes, setNodes] = useState<ReadonlyMap<string, WorkspaceFileEntry[]>>(() => new Map());
   const [truncatedDirs, setTruncatedDirs] = useState<ReadonlySet<string>>(() => new Set());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set([""]));
@@ -304,12 +323,14 @@ export function WorkspaceFilesPanel({
         botId,
         path: dirPath,
         ...(dirPath !== "" ? { changes: "0" } : {}),
+        ...(dirPath === "" && connection.state.workspaceFilesDisplayPathAvailable ? { display: "1" } : {}),
       });
       const raw = await connection.http<unknown>(`/api/conversations/${conversationId}/workspace-files/tree?${qs}`, { signal });
       if (scopeGenRef.current !== gen || signal.aborted) return undefined;
       const parsed = workspaceTreeResponseSchema.parse(raw);
       if (scopeGenRef.current !== gen || signal.aborted) return undefined;
       const unchangedFingerprint = fingerprints.current.get(dirPath) === parsed.fingerprint && nodesRef.current.has(dirPath);
+      if (dirPath === "") setDisplayPath(parsed.displayPath);
       if (dirPath === "") {
         setRootError("");
         setRootErrorHint("");
@@ -452,6 +473,8 @@ export function WorkspaceFilesPanel({
     virtualDirsRef.current.clear();
     fingerprints.current.clear();
 
+    setWorkspaceName("workspace");
+    setDisplayPath(undefined);
     setNodes(emptyNodes);
     setTruncatedDirs(new Set());
     setExpanded(initialExpanded);
@@ -781,6 +804,18 @@ export function WorkspaceFilesPanel({
     </>;
   };
 
+  // A reply's 「本轮改动」 opened the panel: clear the tree filters and bring the recorded changes into view.
+  useEffect(() => {
+    if (focusChanges === undefined) return;
+    setSelectedPath(undefined); setPreview(undefined); setChangedOnly(false); setFilter("");
+  }, [focusChanges]);
+
+  useEffect(() => {
+    if (focusChanges === undefined || !visible || !changesSection.current) return;
+    const frame = requestAnimationFrame(() => changesSection.current?.scrollIntoView({ block: "start" }));
+    return () => cancelAnimationFrame(frame);
+  }, [focusChanges, visible, selectedPath, changedOnly, filter]);
+
   const showingPreview = Boolean(selectedPath);
 
   return <aside
@@ -820,9 +855,10 @@ export function WorkspaceFilesPanel({
     </header>
 
     <nav className="wf-breadcrumbs" aria-label={t("文件路径")}>
-      <button type="button" className={`wf-crumb${!selectedPath ? " is-current" : ""}`} onClick={() => openPathFromBreadcrumb("")}>
-        {workspaceName}
+      <button type="button" className={`wf-crumb wf-crumb-root${!selectedPath ? " is-current" : ""}${displayPath ? " is-path" : ""}`} title={displayPath ? `${t("Bot 的工作目录")}：${displayPath}` : t("Bot 的工作目录")} onClick={() => openPathFromBreadcrumb("")}>
+        {displayPath ? shortDisplayPath(displayPath) : workspaceName}
       </button>
+      {!selectedPath && <span className="wf-root-note">{t("Bot 的工作目录")}</span>}
       {breadcrumbs.map((crumb) => <span key={crumb.path} className="wf-crumb-sep-wrap">
         <ChevronRight size={12} aria-hidden="true"/>
         <button
@@ -855,13 +891,39 @@ export function WorkspaceFilesPanel({
         title={t("仅显示有改动的文件")}
       >
         <GitBranch size={12} aria-hidden="true"/>
-        <span>{changedFiles.length ? t("改动 {0}", changedFiles.length) : t("改动")}</span>
+        <span>{changedFiles.length ? t("只看改动的 · {0}", changedFiles.length) : t("只看改动的")}</span>
       </button>
     </div>}
 
     <div className="wf-body">
       {!showingPreview ? (
-        rootError ? (
+        <>
+          {!changedOnly && !normalizedFilter && changesMessage && runFiles.summary && runFiles.summary.files > 0 && <section className="wf-run-changes" ref={changesSection} aria-label={t("这轮改动")}>
+            <h3 className="wf-section-title">
+              <span>{t("这轮改动 · {0} 个文件", runFiles.summary.files)}</span>
+              <DiffViewerTrigger connection={connection} message={changesMessage}><span className="wf-section-link">{t("看全部变更")}<ChevronRight size={12} aria-hidden="true"/></span></DiffViewerTrigger>
+            </h3>
+            <div className="wf-run-changes-list">
+              {runFiles.files
+                ? runFiles.files.slice(0, 8).map(file => <DiffViewerTrigger key={file.key} connection={connection} message={changesMessage}>
+                  <span className="wf-run-change" title={file.path}>
+                    <File size={13} aria-hidden="true"/>
+                    <span className="wf-run-change-name">{file.path.split(/[\\/]/).filter(Boolean).pop() ?? file.path}</span>
+                    <span className="wf-run-change-dir">{file.path.split(/[\\/]/).filter(Boolean).slice(-3, -1).join("/")}</span>
+                    <DiffCounts additions={file.additions} deletions={file.deletions} className="wf-run-change-counts"/>
+                  </span>
+                </DiffViewerTrigger>)
+                : <DiffViewerTrigger connection={connection} message={changesMessage}>
+                  <span className="wf-run-change">
+                    <File size={13} aria-hidden="true"/>
+                    <span className="wf-run-change-name">{t("改动 {0} 个文件", runFiles.summary.files)}</span>
+                    <DiffCounts additions={runFiles.summary.additions} deletions={runFiles.summary.deletions} className="wf-run-change-counts"/>
+                  </span>
+                </DiffViewerTrigger>}
+              {runFiles.files && runFiles.files.length > 8 && <p className="wf-run-change-more">{t("还有 {0} 个文件", runFiles.files.length - 8)}</p>}
+            </div>
+          </section>}
+        {rootError ? (
           <div className="wf-state-card is-error" role="alert">
             <WorkspaceFileStateArt kind="error"/>
             <p className="wf-state-title">{rootError}</p>
@@ -874,7 +936,16 @@ export function WorkspaceFilesPanel({
             <LoaderCircle size={18} className="spin" aria-hidden="true"/>
             <span>{t("正在加载工作区文件…")}</span>
           </div>
-        ) : renderDir("", 0)
+        ) : <>
+          {!changedOnly && !normalizedFilter && changesMessage && runFiles.summary && runFiles.summary.files > 0 && <h3 className="wf-section-title"><span>{t("全部文件")}</span></h3>}
+          {renderDir("", 0)}
+          <dl className="wf-hint">
+            <dt>{t("单击")}</dt><dd>{t("预览文件")}</dd>
+            {!phone && <><dt>{t("拖到输入框")}</dt><dd>{t("把文件引用给 Bot")}</dd></>}
+            <dt><AtSign size={12} aria-label="@"/></dt><dd>{t("同样引用给 Bot")}</dd>
+          </dl>
+        </>}
+        </>
       ) : (
         <div className="wf-preview">
           <div className="wf-preview-bar">
