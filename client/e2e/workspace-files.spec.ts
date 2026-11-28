@@ -100,6 +100,23 @@ async function createFixture(page: Page, options: { phone?: boolean } = {}) {
   };
 }
 
+test.describe("wide touch displays", () => {
+  test.use({ hasTouch: true });
+  test("file mentions are visible without hovering", async ({ page }) => {
+    const f = await createFixture(page);
+    try {
+      await selectConversation(page, f.convA.title);
+      await page.getByRole("button", { name: "文件", exact: true }).tap();
+      const row = page.locator(".wf-row", { hasText: "Makefile" });
+      const mention = row.locator(".wf-mention-btn");
+      await expect(mention).toHaveCSS("opacity", "1");
+      await expect(row.locator(".wf-preview-btn")).toBeHidden();
+      await mention.tap();
+      await expect(page.getByRole("textbox", { name: "消息", exact: true }).filter({ visible: true })).toHaveValue(/`@Makefile`/);
+    } finally { await f.close(); }
+  });
+});
+
 test("desktop Files panel hides cleanly when closed, coexists with Workspace rail, guards preview/switch races, and mentions safely in groups", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

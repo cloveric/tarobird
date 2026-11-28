@@ -94,6 +94,10 @@
 @media (max-width:760px){
   .conversation-header>.workbench-trigger+.files-trigger{display:none}
 }
+@media(hover:none) and (pointer:coarse){
+ .wf-mention-btn{opacity:1}
+ .wf-preview-btn,.wf-drag-grip{display:none}
+}
 @media(max-width:760px),(hover:none) and (pointer:coarse){
  .wf-row{min-height:42px}
  .wf-mention-btn{width:36px;height:36px}
