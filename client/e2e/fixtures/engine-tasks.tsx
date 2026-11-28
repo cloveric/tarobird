@@ -68,7 +68,8 @@ if (swarm && fixtureQuery.has("ended")) {
   tasks[0]!.status = "unknown";
   tasks[0]!.swarmState = swarm.members[0]!.state = "unknown";
   tasks[3]!.status = "error";
-  tasks[3]!.swarmState = swarm.members[3]!.state = "failed";
+  delete tasks[3]!.swarmState;
+  swarm.members[3]!.state = "unknown";
 }
 const count = ["kimi", "swarm"].includes(fixtureQuery.get("shape") ?? "") ? tasks.length : Math.min(30, Number(fixtureQuery.get("count")) || 3);
 for (let i = tasks.length; i < count; i++) tasks.push({ ...tasks[0]!, id: `extra-${i + 1}`, label: `Kimi film 场景 ${i + 1} · 检查画面与字幕`, startedAt: Date.now() + i, progress: "检查画面、字幕与音频同步。" });

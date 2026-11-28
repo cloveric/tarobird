@@ -4,8 +4,8 @@ import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { EngineTask, SwarmMember, SwarmMemberState, SwarmPost, SwarmSnapshot } from "../client-protocol/engine-tasks.js";
-import { isTerminalSwarmMemberState, swarmMemberStatusCopy } from "../client-protocol/swarm-member-status.js";
+import type { EngineTask, SwarmMember, SwarmPost, SwarmSnapshot } from "../client-protocol/engine-tasks.js";
+import { isTerminalSwarmMemberState, swarmMemberStatusCopy, type SwarmMemberOutcome } from "../client-protocol/swarm-member-status.js";
 
 const MAX_MEMBERS_FILE_BYTES = 1024 * 1024;
 const MAX_BOARD_READ_BYTES = 2 * 1024 * 1024;
@@ -26,7 +26,10 @@ export type SwarmBoardFileCache = {
   parsed: ParsedSwarmFiles;
 };
 
-export type AcpSwarmMember = SwarmMember & {
+type SwarmBoardMember = Omit<SwarmMember, "state"> & { state: SwarmMemberOutcome };
+type SwarmBoard = Omit<SwarmSnapshot, "members"> & { members: SwarmBoardMember[] };
+
+export type AcpSwarmMember = SwarmBoardMember & {
   startedAt?: number;
   conversationId?: string;
   /** True when a tool call suggests activity without recording a member state. */
@@ -105,7 +108,7 @@ export function isSwarmHelperRole(role?: string, name?: string): boolean {
     || normalizedName === "monitor" || normalizedName === "narrator";
 }
 
-export function normalizeSwarmMemberState(raw: unknown): SwarmMemberState {
+export function normalizeSwarmMemberState(raw: unknown): SwarmMemberOutcome {
   if (typeof raw !== "string") return "unknown";
   const value = raw.trim().toLowerCase();
   if (!value) return "unknown";
@@ -118,7 +121,7 @@ export function normalizeSwarmMemberState(raw: unknown): SwarmMemberState {
   return "unknown";
 }
 
-export function swarmStateToEngineStatus(state: SwarmMemberState): EngineTask["status"] {
+export function swarmStateToEngineStatus(state: SwarmMemberOutcome): EngineTask["status"] {
   switch (state) {
     case "working":
     case "waiting":
@@ -135,13 +138,13 @@ export function swarmStateToEngineStatus(state: SwarmMemberState): EngineTask["s
   }
 }
 
-export function isSwarmMemberActive(state: SwarmMemberState): boolean {
+export function isSwarmMemberActive(state: SwarmMemberOutcome): boolean {
   return state === "working" || state === "waiting" || state === "paused";
 }
 
 /** True only when swarm work is genuinely executing (`working` primary workers, or freshly launched empty roster).
  * Permanently `paused` (quota-exhausted) or all-`waiting` idle swarms are NOT actively executing. */
-export function hasActiveSwarmExecution(snapshot: SwarmSnapshot | undefined): boolean {
+export function hasActiveSwarmExecution(snapshot: SwarmBoard | undefined): boolean {
   if (!snapshot?.active) return false;
   if (snapshot.members.length === 0) return true;
   const primary = snapshot.members.filter((m) => !m.helper);
@@ -281,7 +284,7 @@ function normalizeMemberName(raw: string): string {
   return raw.trim().replace(/^@+/, "").slice(0, 128);
 }
 
-function recordedMemberState(record: Record<string, unknown>, role?: string): SwarmMemberState {
+function recordedMemberState(record: Record<string, unknown>, role?: string): SwarmMemberOutcome {
   if (record.killed === true) return "killed";
   const phase = normalizeSwarmMemberState(record.phase);
   if (isTerminalSwarmMemberState(phase)) return phase;
@@ -579,7 +582,7 @@ export function mergeSwarmSnapshots(
   acpSwarm: AcpSwarmState | undefined,
   fileSwarm: ParsedSwarmFiles,
   options: { sessionId?: string } = {},
-): SwarmSnapshot | undefined {
+): SwarmBoard | undefined {
   if (!acpSwarm && !fileSwarm.found) return undefined;
 
   const terminated = Boolean(acpSwarm?.stoppedByUser || acpSwarm?.timedOut);
@@ -626,7 +629,7 @@ export function mergeSwarmSnapshots(
   const hasLiveMember = roster.some((m) => isSwarmMemberActive(m.state));
   const ended = terminated || fileSwarm.explicitlyStopped || acpSwarm?.explicitlyEnded;
   const active = !ended && Boolean(hasLiveMember || fileSwarm.active || (acpSwarm?.active && roster.length === 0));
-  const members = roster.map((m): SwarmMember => {
+  const members = roster.map((m): SwarmBoardMember => {
     let state = m.state;
     if (!active) {
       if (m.inferredState) state = "unknown";
@@ -677,7 +680,16 @@ export function mergeSwarmSnapshots(
   };
 }
 
-export function swarmMembersToEngineTasks(sessionId: string, snapshot: SwarmSnapshot | undefined, fallbackStartedAt?: number): EngineTask[] {
+/** Swarm v1 has no failed member state. Its matching task row carries
+ * status "error" and omits swarmState so older task views show the failure. */
+export function toSwarmV1Snapshot(board: SwarmBoard): SwarmSnapshot {
+  return {
+    ...board,
+    members: board.members.map(member => ({ ...member, state: member.state === "failed" ? "unknown" : member.state })),
+  };
+}
+
+export function swarmMembersToEngineTasks(sessionId: string, snapshot: SwarmBoard | undefined, fallbackStartedAt?: number): EngineTask[] {
   if (!snapshot) return [];
   return snapshot.members
     .filter((m) => m.name.toLowerCase() !== "system")
@@ -693,7 +705,7 @@ export function swarmMembersToEngineTasks(sessionId: string, snapshot: SwarmSnap
       ...(m.latestActivity ? { progress: m.latestActivity } : {}),
       owner: "bound",
       ...(m.role ? { role: m.role } : {}),
-      swarmState: m.state,
+      ...(m.state !== "failed" ? { swarmState: m.state } : {}),
       ...(m.model ? { model: m.model } : {}),
       ...(m.helper ? { helper: true } : {}),
     }));
@@ -839,7 +851,7 @@ export function applySwarmAcpUpdate(
     const model = nonEmptyString(meta?.model, 160) ?? nonEmptyString(rawInput?.model, 160) ?? existing?.model;
     const role = nonEmptyString(meta?.role, 64) ?? nonEmptyString(rawInput?.role, 64) ?? existing?.role;
     const explicitState = meta?.state ?? rawOutput?.state;
-    let state: SwarmMemberState;
+    let state: SwarmMemberOutcome;
     let inferredState: boolean;
     const normalizedState = normalizeSwarmMemberState(explicitState);
     if (normalizedState !== "unknown") {
@@ -873,7 +885,7 @@ export function applySwarmAcpUpdate(
   }
 }
 
-export function renderSwarmBoardSummary(snapshot: SwarmSnapshot | undefined, locale: "en" | "zh"): string {
+export function renderSwarmBoardSummary(snapshot: SwarmBoard | undefined, locale: "en" | "zh"): string {
   if (!snapshot) {
     return locale === "en"
       ? "No swarm is active or recorded in this conversation yet. Start one with `/swarm <task>`."

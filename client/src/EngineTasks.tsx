@@ -24,7 +24,7 @@ export function engineTaskStatus(task: EngineTask, swarmActive?: boolean) {
 }
 
 function swarmStateTone(state?: SwarmMemberState, fallbackStatus?: EngineTask["status"]): string {
-  if (state) return `is-${state === "working" ? "running" : state === "killed" ? "stopped" : state === "failed" ? "error" : state}`;
+  if (state) return `is-${state === "working" ? "running" : state === "killed" ? "stopped" : state}`;
   return `is-${fallbackStatus ?? "unknown"}`;
 }
 
