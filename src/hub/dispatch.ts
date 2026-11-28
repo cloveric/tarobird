@@ -70,13 +70,35 @@ type PendingNotice = {
   conversationId: string;
   ticketId: string;
   text: string;
-  from?: { botId: string; botName: string };
+  from?: NoticeSender;
   createdAt: number;
 };
 
 type TicketRow = { id: string; dispatcher_bot_id: string; conversation_id: string; request_id: string; title: string; request: string; status: string; paused: number; attempts_json: string; result: string | null; note: string | null; batch_id: string | null; batch_index: number | null; batch_total: number | null; host_id: string | null; host_name: string | null; artifacts_json: string | null; plan_json?: string | null; created_at: number; updated_at: number };
 type BotRow = { id: string; name: string; engine: string; model: string; effort: string; online: number; role: string };
 type Source = { hostId: string; hostName: string };
+type NoticeSender = { botId: string; botName: string; host?: Source };
+
+function remoteNoticeSender(attempt: TicketAttempt | undefined): NoticeSender | undefined {
+  if (!attempt?.remoteTicketId || !attempt.hostId) return undefined;
+  return {
+    host: { hostId: attempt.hostId, hostName: attempt.hostName ?? attempt.hostId },
+    botId: attempt.botId,
+    botName: attempt.remoteBotName ?? attempt.botId,
+  };
+}
+
+function noticeBotSource(source: Source, dispatcher: BotRow, ticketId: string, from?: NoticeSender): NonNullable<Message["botSource"]> {
+  const host = from?.host ?? source;
+  return {
+    hostId: host.hostId,
+    hostName: host.hostName.slice(0, 256),
+    botId: from?.botId ?? dispatcher.id,
+    botName: (from?.botName ?? dispatcher.name).slice(0, 256),
+    requestId: ticketId.slice(0, 128),
+    hops: 1,
+  };
+}
 /** Committed together with a ledger change: a new hidden conversation and queued inputs/notices. */
 type Created = { ownerId: string; conversation?: Conversation; events: HubEvent[] };
 export type DispatchActor = ({ kind: "owner"; userId: string } | { kind: "bot"; botId: string; contextMessage?: string }) & { validate?: TransactionGuard };
@@ -1304,7 +1326,7 @@ export class HubDispatch {
     return this.db.transaction(async () => { await validate?.(); await this.store.requireOwner(userId); await this.markEngine(engine); return this.health(); });
   }
 
-  private async noticeInTransaction(source: Source, dispatcherBotId: string, key: string, ticketId: string, text: string, from?: { botId: string; botName: string }): Promise<HubEvent | undefined> {
+  private async noticeInTransaction(source: Source, dispatcherBotId: string, key: string, ticketId: string, text: string, from?: NoticeSender): Promise<HubEvent | undefined> {
     const ticket = await this.requireTicket(ticketId, dispatcherBotId);
     return this.tryNoticeInTransaction(source, dispatcherBotId, key, ticketId, text, from, ticket.conversation_id);
   }
@@ -1318,7 +1340,7 @@ export class HubDispatch {
   /** Within a settlement transaction: deliver immediately when the ticket's
    * originating conversation can accept notices; otherwise persist a deferred
    * notice so settlement commits and releases its concurrency slot cleanly. */
-  private async tryNoticeInTransaction(source: Source, dispatcherBotId: string, key: string, ticketId: string, text: string, from: { botId: string; botName: string } | undefined, conversationId: string): Promise<HubEvent | undefined> {
+  private async tryNoticeInTransaction(source: Source, dispatcherBotId: string, key: string, ticketId: string, text: string, from: NoticeSender | undefined, conversationId: string): Promise<HubEvent | undefined> {
     const dispatcher = await this.db.get<BotRow>("SELECT id,name,engine,model,effort,online,role FROM bots WHERE id=? AND deleted_at IS NULL AND role='dispatcher'", [dispatcherBotId]);
     if (!dispatcher) return undefined;
     const pending: PendingNotice = { key, dispatcherBotId, conversationId, ticketId, text, ...(from ? { from } : {}), createdAt: Date.now() };
@@ -1330,7 +1352,7 @@ export class HubDispatch {
     try {
       const clientMsgId = `tn_${createHash("sha256").update(key).digest("hex").slice(0, 40)}`;
       return (await this.store.sendMessageInTransaction(target.ownerId, { conversationId: target.id, clientMsgId, text, attachments: [], mentions: [dispatcher.id], previewUrl: null,
-        botSource: { hostId: source.hostId, hostName: source.hostName.slice(0, 256), botId: from?.botId ?? dispatcher.id, botName: (from?.botName ?? dispatcher.name).slice(0, 256), requestId: ticketId.slice(0, 128), hops: 1 } })).event;
+        botSource: noticeBotSource(source, dispatcher, ticketId, from) })).event;
     } catch (error) {
       if (error instanceof HubError && RECOVERABLE_NOTICE_ERRORS.has(error.code)) {
         await this.deferNoticeInTransaction(pending);
@@ -1366,10 +1388,17 @@ export class HubDispatch {
         }
         const target = await this.conversationOf(notice.dispatcherBotId, notice.conversationId);
         if (!target || await this.conversationNoticeBlocked(target.id)) return;
+        let from = notice.from;
+        if (!from?.host && notice.key.startsWith("remote_settle_")) {
+          // Old rows stored only the worker. Recover its host from the exact
+          // settled attempt, or deliver under the coordinator if it was pruned.
+          const attempt = this.ticket(ticketRow).attempts.find(item => item.endedAt !== undefined && notice.key === `remote_settle_${item.id}`);
+          from = remoteNoticeSender(attempt);
+        }
         try {
           const clientMsgId = `tn_${createHash("sha256").update(notice.key).digest("hex").slice(0, 40)}`;
           const sent = await this.store.sendMessageInTransaction(target.ownerId, { conversationId: target.id, clientMsgId, text: notice.text, attachments: [], mentions: [dispatcher.id], previewUrl: null,
-            botSource: { hostId: source.hostId, hostName: source.hostName.slice(0, 256), botId: notice.from?.botId ?? dispatcher.id, botName: (notice.from?.botName ?? dispatcher.name).slice(0, 256), requestId: notice.ticketId.slice(0, 128), hops: 1 } });
+            botSource: noticeBotSource(source, dispatcher, notice.ticketId, from) });
           if (sent.event) events.push(sent.event);
           await this.db.run("DELETE FROM meta WHERE key=?", [row.key]);
         } catch (error) {
@@ -1593,7 +1622,7 @@ export class HubDispatch {
           : switchTool
             ? `【需要改派】「${next.title}」（${next.id}）在节点 ${nodeLabel} 上没能执行：${failureLabel(failure!)}。请改派给其他可用目标。`
             : `【工单卡住】「${next.title}」（${next.id}）在节点 ${nodeLabel} 上失败了。\n\n${textBody || failure?.message || "（没有错误详情）"}`;
-      const ev = await this.noticeInTransaction(source, next.dispatcherBotId, `remote_settle_${attempt.id}`, next.id, notice, { botId: attempt.botId, botName: attempt.remoteBotName ?? attempt.botId });
+      const ev = await this.noticeInTransaction(source, next.dispatcherBotId, `remote_settle_${attempt.id}`, next.id, notice, remoteNoticeSender(last));
       if (ev) events.push(ev);
       return next;
     });
