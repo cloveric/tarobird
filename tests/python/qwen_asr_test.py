@@ -88,6 +88,9 @@ class QwenTest(unittest.TestCase):
             self.assertEqual(check.call_count,8)
             check.assert_called_with('after request')
 
+    def test_listener_has_room_for_admitted_requests_and_health(self):
+        self.assertGreaterEqual(self.server.request_queue_size, 9)
+
     @unittest.skipIf(fcntl is None, 'service registration is POSIX only')
     def test_repair_lock_fences_new_requests_and_respects_busy_work(self):
         with tempfile.TemporaryDirectory() as d,patch.dict(os.environ,{'ASR_CONTROL_LOCK':d+'/control.lock'}):

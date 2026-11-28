@@ -353,6 +353,7 @@ def create_server(model, port=PORT):
     Local processes on this account are trusted; do not expose this port on LAN.
     """
     from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+    max_inflight_requests = 8
     infer_lock, state_lock = threading.Lock(), threading.Lock()
     state = {"inflight": 0, "exiting": False, "failures": 0}
 
@@ -406,7 +407,7 @@ def create_server(model, port=PORT):
             except OSError:
                 return self.respond(503, "service busy; retry")
             with state_lock:
-                if state["exiting"] or state["inflight"] >= 8:
+                if state["exiting"] or state["inflight"] >= max_inflight_requests:
                     if guard is not None: os.close(guard)
                     return self.respond(503, "service busy; retry")
                 state["inflight"] += 1
@@ -437,6 +438,9 @@ def create_server(model, port=PORT):
                 watchdog.check("after request")
 
     class AsrServer(ThreadingHTTPServer):
+        # Leave room for bursts, health checks, and requests that must receive
+        # the explicit busy response while inference is fully occupied.
+        request_queue_size = 4 * max_inflight_requests
         daemon_threads = True
         def server_close(self):
             watchdog.close()
