@@ -246,7 +246,8 @@ test("a turn's changes are listed by file name with baseline-aligned green and r
   try {
     await open();
     const row = rail(page).locator(".workspace-diff-row");
-    await expect(row).toContainText("改了 2 个代码文件 · 新增 14 行，删掉 3 行");
+    await expect(row.locator(".workspace-diff-summary-text")).toHaveText("2 个文件已更改");
+    await expect(row.locator(".workspace-diff-summary-counts")).toHaveText("+14-3");
     await expect(row.locator(".workspace-diff-bar .is-add")).toBeVisible();
     await expect(row.locator(".workspace-diff-bar .is-del")).toBeVisible();
     // The names are the Hub's record of that run (two edits in the fixture's journal), not the totals on the card.
