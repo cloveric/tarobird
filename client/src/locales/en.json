@@ -7240,5 +7240,6 @@
   "请先选择一个活跃对话后再使用工作台。": "Select an active conversation first to use the workbench.",
   "工作台暂时不可用，请先选择一个活跃对话后重试。": "Workbench is unavailable right now. Select an active conversation and try again.",
   "完整无限画布工作台（画布编排、生图/生视频、提示词库、素材库、内置官方节点插件与对话 Bot Agent 联动）。": "Full Infinite Canvas workbench with visual workflows, image and video generation, prompt and asset libraries, bundled nodes and the conversation Bot Agent.",
-  "轻量级沙箱速记侧边栏，支持本机隔离存储与一键复制。": "A lightweight sandboxed scratchpad with device-local storage and one-click copy."
+  "轻量级沙箱速记侧边栏，支持本机隔离存储与一键复制。": "A lightweight sandboxed scratchpad with device-local storage and one-click copy.",
+  "资源管理 · TaroBird 占用 CPU {0}，内存 {1}": "Resource Manager · TaroBird uses CPU {0}, memory {1}"
 }

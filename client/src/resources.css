@@ -34,6 +34,34 @@
   color: var(--text);
 }
 
+/* TaroBird's CPU and memory beside the icon; the whole row is the button. */
+.workspace-rail-footer .resources-footer-button.has-metrics {
+  width: auto;
+  gap: 8px;
+  padding: 0 4px 0 8px;
+}
+
+.resources-footer-metrics {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.resources-footer-metrics b {
+  font-weight: 500;
+  color: var(--grey);
+}
+
+.resources-footer-metrics i {
+  width: 1px;
+  height: 10px;
+  background: var(--border);
+}
+
 /* Centered desktop modal dialog matching PreferencesPanel / OperationsPanel */
 .resources-dialog {
   width: min(740px, calc(100vw - 48px));
