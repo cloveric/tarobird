@@ -1363,7 +1363,7 @@ export class HubCrossHostGroups {
     // Phase 3: Re-validate & commit atomically.
     const memberKey = makeGroupMemberKey("remote", peer.hostId, remoteBot.botId);
     const hostNameSnapshot = dirData.hostName || peer.hostName;
-    const saved = await this.store.db.transaction(async () => {
+    const committed = await this.store.db.transaction(async () => {
       await validate?.();
       const { group, isOwner } = await this.requireMutableGroupOwnerInTransaction(userId, groupId);
       if (!isOwner) throw new HubError("owner_required", 403);
@@ -1409,9 +1409,10 @@ export class HubCrossHostGroups {
         "SELECT * FROM group_session_members WHERE conversation_id=? AND member_key=? AND session_id=?",
         [groupId, memberKey, chosen!.sessionId],
       );
-      return this.mapMemberRow(row!);
+      return { member: this.mapMemberRow(row!), group: await this.store.conversationInTransaction(groupId) };
     });
-    return saved;
+    this.onConversationsChanged?.(userId, [committed.group]);
+    return committed.member;
   }
 
   async switchMemberSession(
@@ -1620,6 +1621,8 @@ export class HubCrossHostGroups {
           updatedConvs.push(await this.store.conversationInTransaction(row.id));
         }
         settingsEvent = await this.store.groupSettingsEventInTransaction(groupId);
+      } else {
+        updatedConvs.push(await this.store.conversationInTransaction(groupId));
       }
 
       return {

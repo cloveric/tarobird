@@ -20,7 +20,7 @@ import { PAIRING_INVITES_CAPABILITY } from "./pairing-invites.js";
 import { ATTACHMENT_ADMIN_CAPABILITY } from "./attachment-admin.js";
 import { HOST_RESOURCES_CAPABILITY } from "./host-resources.js";
 import { SWARM_TASKS_CAPABILITY } from "./engine-tasks.js";
-import { CROSS_HOST_GROUPS_CAPABILITY } from "./group-members.js";
+import { CROSS_HOST_GROUPS_CAPABILITY, GROUP_AVATAR_LIMIT, remoteGroupAvatarMemberSchema } from "./group-members.js";
 import { SAVED_WORKSPACES_CAPABILITY } from "./saved-workspaces.js";
 import { WORKSPACE_FILES_CAPABILITY } from "./workspace-files.js";
 import { HOST_BALANCE_RESOURCES_CAPABILITY } from "./host-balance-resources.js";
@@ -96,6 +96,8 @@ export const groupDiscussionMessageSchema = z.object({
 export const messageSchema = z.object({ historyContext: historyContextSchema.optional(), groupDiscussion: groupDiscussionMessageSchema.optional(), botSource: botSourceSchema.optional(), id: idSchema, conversationId: idSchema, authorId: idSchema, authorType: z.enum(["user", "bot", "system"]), mentions: z.array(idSchema).max(64).optional(), blocks: z.array(blockSchema), status: z.enum(["pending", "streaming", "complete", "error", "deleted"]), version: z.number().int().nonnegative(), clientMsgId: idSchema.optional(), replyTo: idSchema.optional(), forwardedFrom: forwardingSchema.optional(), previewUrl: linkUrlSchema.nullable().optional(), previewStyle: linkPreviewStyleSchema.optional(), linkPreview: linkPreviewSchema.optional(), createdAt: z.number().int() });
 export type Message = z.infer<typeof messageSchema>;
 export const conversationSchema = z.object({ historyOrigin: historyOriginSchema.optional(), id: idSchema, type: z.enum(["direct", "group"]), title: z.string().max(256), ownerId: idSchema, parentId: idSchema.optional(), botIds: z.array(idSchema), archived: z.boolean(), sessionId: z.string().optional(), bindingId: idSchema.optional(), workspacePath: z.string().max(4096).optional(), createdAt: z.number().int(),
+  /** Display-only snapshots for the remaining slots in a root group's portrait. */
+  remoteAvatarMembers: z.array(remoteGroupAvatarMemberSchema).max(GROUP_AVATAR_LIMIT).optional(),
   /** dispatch.v1: a dispatcher ticket's worker conversation, kept out of lists. */
   hidden: z.literal(true).optional(), ticket: conversationTicketSchema.optional() });
 export type Conversation = z.infer<typeof conversationSchema>;
