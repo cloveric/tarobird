@@ -7247,6 +7247,7 @@
   "剩余": "Left",
   "重置": "Resets",
   "{0}：{1}，剩余 {2}%": "{0}: {1}, {2}% left",
+  "{0} 没有百分比窗口": "{0} has no percentage window",
   "{0} 还没读到": "{0} not read yet",
   "{0} 不支持": "{0} not supported",
   "读取": "Read",

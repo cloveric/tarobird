@@ -572,6 +572,9 @@ test("upgraded App negotiates currency balances for DeepSeek and displays Pi pro
     await expect(dsh).toContainText("42.00 CNY");
     await expect(dsh).toContainText("赠送余额");
     await expect(dsh).toContainText("5.25 CNY");
+    const overview = panel.getByRole("region", { name: "全部 Bot 的额度" });
+    await expect(overview).toContainText("DeepSeek Bot 没有百分比窗口");
+    await expect(overview.getByRole("button", { name: "读取", exact: true })).toHaveCount(0);
 
     const pi = panel.getByRole("region", { name: "Pi Bot · Pi", exact: true });
     await expect(pi).toContainText("当前供应商不提供可读取的账号额度（Pi 仅统计本会话 token 与费用）。");
@@ -638,6 +641,9 @@ test("verified same-account Bots merge on a real Hub, preserve timeout/cooldown 
     await expect(merged.locator(".quota-account-badge")).toHaveText("2 个 Bot 共用同一账号");
     await expect(merged.locator(".quota-bot-chip")).toHaveText(["Coding Bot", "Review Bot"]);
     await expect(merged.locator(".quota-separate-note")).toHaveCount(0);
+    const overview = panel.getByRole("region", { name: "全部 Bot 的额度" });
+    await expect(overview.getByRole("button", { name: /^Coding Bot：/ })).toHaveCount(1);
+    await expect(overview.getByRole("button", { name: /^Review Bot：/ })).toHaveCount(1);
     // Selects fresher peer (Review Bot: 20% used -> 80% remaining)
     await expect(merged).toContainText("剩余 80%");
 

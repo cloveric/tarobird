@@ -136,7 +136,7 @@ function WindowQuota({
 type OverviewRow = { key: string; name: string; engine: QuotaEngine; scope: QuotaScope; left: number; window: string; resetsAt?: string };
 /** One row per Bot with its tightest percent window, least left first; Bots without one are only named. */
 function overviewRows(scopes: readonly QuotaScope[], labels: ReadonlyMap<string, string>) {
-  const rows: OverviewRow[] = [], unread: { scope: QuotaScope; names: string[] }[] = [], login: string[] = [], unsupported: string[] = [];
+  const rows: OverviewRow[] = [], unread: { scope: QuotaScope; names: string[] }[] = [], login: string[] = [], unsupported: string[] = [], nonPercent: string[] = [];
   for (const scope of scopes) {
     let best: { left: number; window: string; resetsAt?: string } | undefined;
     for (const pool of scope.pools) for (const window of pool.windows) {
@@ -146,14 +146,16 @@ function overviewRows(scopes: readonly QuotaScope[], labels: ReadonlyMap<string,
       const pooled = shouldShowQuotaPoolHeading(scope.engine, pool.label, scope.pools.length) ? `${pool.label} · ` : "";
       best = { left, window: pooled + formatQuotaWindowLabel(window, pool.windows), resetsAt: window.resetsAt };
     }
-    const names = (scope.botIds.length ? scope.botIds : [scope.id]).map(id => labels.get(id) ?? scope.label);
-    if (best) names.forEach((name, index) => rows.push({ key: `${scope.id}:${index}`, name, engine: scope.engine, scope, ...best! }));
-    else if (scope.state === "login_required") login.push(...names);
-    else if (scope.state === "unsupported" || scope.capability.mode === "unsupported") unsupported.push(...names);
-    else unread.push({ scope, names });
+    // The Host sends one scope per Bot. botIds also contains every verified account peer.
+    const name = labels.get(scope.id) ?? scope.label;
+    if (best) rows.push({ key: scope.id, name, engine: scope.engine, scope, ...best });
+    else if (scope.state === "login_required") login.push(name);
+    else if (scope.state === "unsupported" || scope.capability.mode === "unsupported") unsupported.push(name);
+    else if (scope.state === "ready" || scope.state === "stale") nonPercent.push(name);
+    else unread.push({ scope, names: [name] });
   }
   rows.sort((a, b) => a.left - b.left || a.name.localeCompare(b.name));
-  return { rows, unread, login, unsupported };
+  return { rows, unread, login, unsupported, nonPercent };
 }
 
 export function EngineQuota({ connection, active }: { connection: HubConnection; active: boolean }) {
@@ -201,7 +203,7 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
       {quota.notice === "changed" && <p className="quota-notice" role="status">{t("Bot 或授权配置已变化，已重新读取列表。请核对后再刷新。")}</p>}
       {quota.directory?.truncated && <p className="quota-notice" role="status">{t("主机只返回了部分 Bot 的额度状态。")}</p>}
       {quota.directory && !cards.length && <p role="status">{t("当前主机还没有可展示额度的 Bot。")}</p>}
-      {overview && (overview.rows.length > 0 || overview.unread.length + overview.login.length + overview.unsupported.length > 0) && <section className="quota-overview" aria-label={t("全部 Bot 的额度")}>
+      {overview && (overview.rows.length > 0 || overview.unread.length + overview.login.length + overview.unsupported.length + overview.nonPercent.length > 0) && <section className="quota-overview" aria-label={t("全部 Bot 的额度")}>
         <div className="quota-overview-cols" aria-hidden="true"><span>Bot</span><span>{t("最紧的窗口")}</span><span/><span>{t("剩余")}</span><span>{t("重置")}</span></div>
         {overview.rows.map(row => {
           const old = rowStale(row.scope), tone = old ? undefined : usageTone(row.left);
@@ -214,8 +216,9 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
             <span className="quota-overview-reset">{row.resetsAt ? formatResetCountdown(row.resetsAt, now).text : ""}</span>
           </button>;
         })}
-        {overview.unread.length + overview.login.length + overview.unsupported.length > 0 && <div className="quota-overview-row is-other">
+        {overview.unread.length + overview.login.length + overview.unsupported.length + overview.nonPercent.length > 0 && <div className="quota-overview-row is-other">
           <span>{[
+            overview.nonPercent.length ? t("{0} 没有百分比窗口", overview.nonPercent.join("、")) : "",
             overview.unread.length ? t("{0} 还没读到", overview.unread.flatMap(item => item.names).join("、")) : "",
             overview.login.length ? t("{0} 需要登录", overview.login.join("、")) : "",
             overview.unsupported.length ? t("{0} 不支持", overview.unsupported.join("、")) : "",
