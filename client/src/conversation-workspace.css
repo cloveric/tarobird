@@ -1403,3 +1403,71 @@
   background: color-mix(in srgb, var(--orange) 8%, var(--bg));
 }
 .workspace-waiting-section .workspace-list > .workspace-waiting-card { background: transparent; }
+/* Bot 通信: one click lets every local Bot message every other local Bot. */
+.workspace-mesh {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.workspace-mesh-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 45%, var(--bg));
+  min-width: 0;
+}
+.workspace-mesh-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--grey);
+}
+.workspace-mesh-row.is-done .workspace-mesh-icon {
+  color: var(--green);
+}
+.workspace-mesh-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.workspace-mesh-text strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.workspace-mesh-text small {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.workspace-mesh-btn {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+.workspace-mesh-btn:hover:not(:disabled) {
+  background: var(--surface);
+}
+.workspace-mesh-btn:disabled {
+  opacity: 0.6;
+}
+.workspace-mesh-feedback {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.workspace-mesh-feedback.is-error {
+  color: var(--red);
+}

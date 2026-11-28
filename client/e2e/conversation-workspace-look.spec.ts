@@ -100,7 +100,8 @@ test("Bot messages: both ends of a long route, whole cards to a page, plain stat
     await setTheme(page, "dark");
     // White on the dark theme's light orange was about 2:1.
     expect(await contrast(page, "aside.conversation-workspace-rail .workspace-jump-btn.is-alert")).toBeGreaterThan(4.5);
-    expect(await contrast(page, ".host-workspace:not([hidden]) .workspace-rail-trigger-badge")).toBeGreaterThan(4.5);
+    // The Workspace entry's approval count; the Files entry has its own (non-alert) count.
+    expect(await contrast(page, ".host-workspace:not([hidden]) .workspace-rail-trigger:not(.files-trigger) .workspace-rail-trigger-badge")).toBeGreaterThan(4.5);
     if (process.env.WORKSPACE_RAIL_UI_SHOTS) await rail(page).screenshot({ path: `${process.env.WORKSPACE_RAIL_UI_SHOTS}/comms-fixed-dark.png` });
   } finally { await done(); }
 });

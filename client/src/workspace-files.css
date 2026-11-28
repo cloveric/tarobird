@@ -96,3 +96,30 @@
  .wf-mention-btn{width:36px;height:36px}
  .wf-back-btn,.wf-mini-btn,.wf-retry-btn,.wf-secondary-btn{min-height:36px}
 }
+
+/* Purpose and entry (owner-approved mockup 18). */
+.wf-crumb.is-path { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; font-weight: 600; }
+.wf-root-note { margin-left: auto; padding-left: 8px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.wf-section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 12px 6px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.wf-section-title button { display: inline-flex; align-items: center; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 500; cursor: pointer; }
+.wf-section-title button:hover { color: var(--text); }
+.wf-section-link { display: inline-flex; align-items: center; gap: 2px; }
+.wf-run-changes { margin: 0 10px 10px; scroll-margin-top: 8px; }
+.wf-run-changes-list { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.wf-run-changes-list > button { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.wf-run-changes-list > button + button { border-top: 1px solid var(--border); }
+.wf-run-changes-list > button:hover { background: var(--hover); }
+.wf-run-change { display: flex; align-items: center; gap: 7px; padding: 7px 10px; min-width: 0; font-size: 12.5px; }
+.wf-run-change > svg { flex: none; color: var(--muted); }
+.wf-run-change-name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-run-change-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
+.wf-run-change-counts { flex: none; }
+.wf-run-change-more { margin: 0; padding: 6px 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11.5px; }
+.wf-hint { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 12px 10px 10px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 55%, var(--bg)); color: var(--muted); font-size: 11.5px; }
+.wf-hint dt { margin: 0; color: var(--text); font-weight: 600; display: inline-flex; align-items: center; }
+.wf-hint dd { margin: 0; }
+/* With the Files panel open the header is as tight as with the workspace rail: labels give way to icon + count. */
+@media (min-width: 1101px) and (max-width: 1359px) {
+  .app-shell:has(.workspace-files-panel:not([hidden])) .workspace-rail-trigger { padding: 0 8px; }
+  .app-shell:has(.workspace-files-panel:not([hidden])) .workspace-rail-trigger > .workspace-rail-trigger-label { display: none; }
+}
