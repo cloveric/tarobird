@@ -63,3 +63,11 @@ it("preserves guards in protocol parsing, sends only to capable Hosts and never 
   expect(() => groupReplyWireFrame(legacy, {})).toThrow("已变化");
   expect(() => clientFrameSchema.parse({ ...frame, groupReplyGuard: { mode: "roundtable", revision: "bad" } })).toThrow();
 });
+
+
+it("retains a scoped send in the outbox if the connected Host lacks recipient-key support", () => {
+  const frame = { v: 1, type: "message.send", conversationId: "example_group", clientMsgId: "example_msg", text: "Example", attachments: [], mentions: ["remote:example_peer:example_bot"] } as const;
+  const send = { ...frame, mentions: [...frame.mentions], attachments: [] };
+  expect(groupReplyWireFrame(send, { groupRecipientKeysAvailable: true })).toEqual(send);
+  expect(() => groupReplyWireFrame(send, { groupDiscussionAvailable: true, groupReplyGuardAvailable: true })).toThrow("不支持此回复选择");
+});

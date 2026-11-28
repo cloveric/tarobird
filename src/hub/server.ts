@@ -2935,6 +2935,11 @@ export class HubServer {
       const groupMembersRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/members(?:\/([A-Za-z0-9_.:%-]+)(?:\/(session))?)?$/);
       if (groupMembersRoute) {
         const groupId = groupMembersRoute[1]!;
+        // The mutation already committed. A refresh notification must not
+        // turn a successful join or removal into a failed mutation receipt.
+        const notifyRosterChange = () => this.store.publishGroupSettingsChange(groupId)
+          .catch(() => this.options.onWarning?.("group_roster_invalidation_failed"));
+
         let memberKeyParam: string | undefined;
         if (groupMembersRoute[2]) {
           try { memberKeyParam = decodeURIComponent(groupMembersRoute[2]); }
@@ -2942,9 +2947,17 @@ export class HubServer {
         }
         const sub = groupMembersRoute[3];
         if (!memberKeyParam && req.method === "GET") { await reply(200, await this.crossHostGroups.getState(userId, groupId, url.searchParams.get("directory") !== "0", validateInQueue)); return; }
-        if (!memberKeyParam && req.method === "POST") { await reply(200, await this.crossHostGroups.addMember(userId, groupId, await this.jsonBody(req), validateInQueue)); return; }
+        if (!memberKeyParam && req.method === "POST") {
+          const member = await this.crossHostGroups.addMember(userId, groupId, await this.jsonBody(req), validateInQueue);
+          if (member.kind === "remote") await notifyRosterChange();
+          await reply(200, member); return;
+        }
         if (memberKeyParam && sub === "session" && req.method === "PATCH") { await reply(200, await this.crossHostGroups.switchMemberSession(userId, groupId, memberKeyParam, await this.jsonBody(req), validateInQueue)); return; }
-        if (memberKeyParam && !sub && req.method === "DELETE") { await reply(200, await this.crossHostGroups.removeMember(userId, groupId, memberKeyParam, validateInQueue)); return; }
+        if (memberKeyParam && !sub && req.method === "DELETE") {
+          const result = await this.crossHostGroups.removeMember(userId, groupId, memberKeyParam, validateInQueue);
+          if (result.removed.memberKey.startsWith("remote:")) await notifyRosterChange();
+          await reply(200, result); return;
+        }
       }
       const groupDesignatedRoute = route.match(/^\/api\/groups\/([A-Za-z0-9_-]+)\/designated$/);
       if (groupDesignatedRoute && req.method === "PUT") { await reply(200, await this.crossHostGroups.setDesignatedMember(userId, groupDesignatedRoute[1]!, await this.jsonBody(req), validateInQueue)); return; }

@@ -40,7 +40,7 @@ export type Device = { id: string; user_id: string; name: string; platform: stri
 export type DeviceSummary = Omit<Device, "public_key"> & { nameSource?: "host" };
 export type Bot = { id: string; name: string; engine: string; model: string; effort: string; online: number; managed?: number; deletedAt?: number; defaultAvatar?: string; role?: BotRole; workspacePath?: string };
 type ConversationRow = { history_origin_json?: string | null; id: string; type: "direct" | "group"; title: string; owner_id: string; parent_id: string | null; session_id: string | null; binding_id: string | null; workspace_path?: string | null; archived: number; created_at: number; hidden: number; ticket_json: string | null };
-type MessageRow = { history_json?: string | null; workbench_receipt_json?: string | null; discussion_json?: string | null; bot_source_json?: string | null; preview_style: string | null; preview_url: string | null; link_preview_json: string | null; forwarded_json: string | null; mentions_json: string; id: string; conversation_id: string; author_id: string; author_type: "user" | "bot" | "system"; blocks_json: string; status: Message["status"]; version: number; client_msg_id: string | null; reply_to: string | null; created_at: number };
+type MessageRow = { group_recipient_keys_json?: string | null; history_json?: string | null; workbench_receipt_json?: string | null; discussion_json?: string | null; bot_source_json?: string | null; preview_style: string | null; preview_url: string | null; link_preview_json: string | null; forwarded_json: string | null; mentions_json: string; id: string; conversation_id: string; author_id: string; author_type: "user" | "bot" | "system"; blocks_json: string; status: Message["status"]; version: number; client_msg_id: string | null; reply_to: string | null; created_at: number };
 type MessageHeader = Pick<MessageRow, "id" | "conversation_id" | "author_id" | "author_type" | "created_at" | "version" | "client_msg_id">;
 function deletedMessageRow(row: MessageHeader): Message {
   return deletedMessage({ id: row.id, conversationId: row.conversation_id, authorId: row.author_id, authorType: row.author_type,
@@ -495,7 +495,7 @@ export class HubStore {
     // Store the complete logical message. Socket framing handles the physical
     // byte limit, including historical replay and full conversation snapshots.
     // The discussion marker is written once, at creation; updates never change it.
-    await this.db.run("INSERT INTO messages(id,conversation_id,author_id,author_type,blocks_json,status,version,client_msg_id,reply_to,created_at,mentions_json,forwarded_json,preview_url,link_preview_json,preview_style,bot_source_json,discussion_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET blocks_json=excluded.blocks_json,status=excluded.status,version=excluded.version,link_preview_json=excluded.link_preview_json", [m.id, m.conversationId, m.authorId, m.authorType, JSON.stringify(m.blocks), m.status, m.version, m.clientMsgId ?? null, m.replyTo ?? null, m.createdAt, JSON.stringify(m.mentions ?? []), m.forwardedFrom ? JSON.stringify(m.forwardedFrom) : null, m.previewUrl === null ? "" : m.previewUrl ?? null, m.linkPreview ? JSON.stringify(m.linkPreview) : null, m.previewStyle ?? null, m.botSource ? JSON.stringify(m.botSource) : null, m.groupDiscussion ? JSON.stringify(m.groupDiscussion) : null]);
+    await this.db.run("INSERT INTO messages(id,conversation_id,author_id,author_type,blocks_json,status,version,client_msg_id,reply_to,created_at,mentions_json,forwarded_json,preview_url,link_preview_json,preview_style,bot_source_json,discussion_json,group_recipient_keys_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET blocks_json=excluded.blocks_json,status=excluded.status,version=excluded.version,link_preview_json=excluded.link_preview_json", [m.id, m.conversationId, m.authorId, m.authorType, JSON.stringify(m.blocks), m.status, m.version, m.clientMsgId ?? null, m.replyTo ?? null, m.createdAt, JSON.stringify(m.mentions ?? []), m.forwardedFrom ? JSON.stringify(m.forwardedFrom) : null, m.previewUrl === null ? "" : m.previewUrl ?? null, m.linkPreview ? JSON.stringify(m.linkPreview) : null, m.previewStyle ?? null, m.botSource ? JSON.stringify(m.botSource) : null, m.groupDiscussion ? JSON.stringify(m.groupDiscussion) : null, m.groupRecipientKeys ? JSON.stringify(m.groupRecipientKeys) : null]);
     if (m.status === "deleted") {
       await this.db.run("DELETE FROM run_journal WHERE message_id=?", [m.id]);
       await this.db.run("DELETE FROM run_journal_scoped WHERE message_id=?", [m.id]);
@@ -524,7 +524,7 @@ export class HubStore {
     for (const { attachment_id: id } of recalled) await this.db.run("INSERT OR IGNORE INTO retired_attachments SELECT ? WHERE NOT EXISTS(SELECT 1 FROM message_attachments WHERE attachment_id=?)", [id, id]);
   }
   private decodeMessage(row: MessageRow): Message {
-    return messageSchema.parse({ ...(row.history_json ? { historyContext: JSON.parse(row.history_json) } : {}), ...(row.discussion_json ? { groupDiscussion: JSON.parse(row.discussion_json) } : {}), ...(row.bot_source_json ? { botSource: JSON.parse(row.bot_source_json) } : {}), ...(row.preview_style != null ? { previewStyle: row.preview_style } : {}), ...(row.preview_url !== null && row.preview_url !== undefined ? { previewUrl: row.preview_url || null } : {}), ...(row.link_preview_json ? { linkPreview: JSON.parse(row.link_preview_json) } : {}), id: row.id, conversationId: row.conversation_id, authorId: row.author_id, authorType: row.author_type, blocks: JSON.parse(row.blocks_json), status: row.status, version: row.version, ...(row.client_msg_id ? { clientMsgId: row.client_msg_id } : {}), ...(row.reply_to ? { replyTo: row.reply_to } : {}), createdAt: row.created_at, ...(row.forwarded_json ? { forwardedFrom: JSON.parse(row.forwarded_json) } : {}), ...(JSON.parse(row.mentions_json ?? "[]").length ? { mentions: JSON.parse(row.mentions_json) } : {}) });
+    return messageSchema.parse({ ...(row.group_recipient_keys_json ? { groupRecipientKeys: JSON.parse(row.group_recipient_keys_json) } : {}), ...(row.history_json ? { historyContext: JSON.parse(row.history_json) } : {}), ...(row.discussion_json ? { groupDiscussion: JSON.parse(row.discussion_json) } : {}), ...(row.bot_source_json ? { botSource: JSON.parse(row.bot_source_json) } : {}), ...(row.preview_style != null ? { previewStyle: row.preview_style } : {}), ...(row.preview_url !== null && row.preview_url !== undefined ? { previewUrl: row.preview_url || null } : {}), ...(row.link_preview_json ? { linkPreview: JSON.parse(row.link_preview_json) } : {}), id: row.id, conversationId: row.conversation_id, authorId: row.author_id, authorType: row.author_type, blocks: JSON.parse(row.blocks_json), status: row.status, version: row.version, ...(row.client_msg_id ? { clientMsgId: row.client_msg_id } : {}), ...(row.reply_to ? { replyTo: row.reply_to } : {}), createdAt: row.created_at, ...(row.forwarded_json ? { forwardedFrom: JSON.parse(row.forwarded_json) } : {}), ...(JSON.parse(row.mentions_json ?? "[]").length ? { mentions: JSON.parse(row.mentions_json) } : {}) });
   }
   async sendMessage(userId: string, input: SendMessageInput, validate?: TransactionGuard): Promise<{ message: Message; duplicate: boolean; workbenchContextOmitted?: "history_limit" }> {
     const result = await this.db.transaction(async () => {
@@ -598,19 +598,31 @@ export class HubStore {
     let targets: string[] = [];
     let remoteTargets: ActiveRemoteRow[] = [];
     let mentions: string[] | undefined = input.mentions;
+    const scopedAddressing = ordinaryHumanGroup && !conv.parentId && !activeDiscussion && policy !== undefined && !automaticGroupDiscussion(policy.mode);
     if (input.mentions?.length) {
       const requested = [...new Set(input.mentions)];
       const remotes = ordinaryHumanGroup && !activeDiscussion ? await loadActiveRemoteMembers() : [];
-      for (const bot of requested) {
-        if (conv.botIds.includes(bot)) {
-          await this.requireBot(bot, conv.id);
-          targets.push(bot);
+      for (const recipient of requested) {
+        const scoped = recipient.includes(":");
+        if (scoped && !scopedAddressing) throw new HubError("mention_forbidden", 403);
+        const botId = recipient.startsWith("local:") ? recipient.slice("local:".length) : recipient;
+        const local = conv.botIds.includes(botId);
+        const matchingRemotes = scoped
+          ? remotes.filter(remote => remote.member_key === recipient)
+          : remotes.filter(remote => remote.bot_id === recipient);
+        // Legacy local IDs retain their historical interpretation outside
+        // ordinary root groups. An unscoped ID can never fan out across hosts.
+        if (local && (!scopedAddressing || !matchingRemotes.length)) {
+          await this.requireBot(botId, conv.id);
+          targets.push(botId);
+        } else if (!local && matchingRemotes.length === 1) {
+          remoteTargets.push(matchingRemotes[0]!);
         } else {
-          const matchingRemotes = remotes.filter(r => r.bot_id === bot || r.member_key === bot);
-          if (!matchingRemotes.length) throw new HubError("mention_forbidden", 403);
-          remoteTargets.push(...matchingRemotes);
+          throw new HubError("mention_forbidden", 403);
         }
       }
+      targets = [...new Set(targets)];
+      remoteTargets = [...new Map(remoteTargets.map(remote => [remote.member_key, remote])).values()];
       mentions = [...new Set([...targets, ...remoteTargets.map(r => r.bot_id)])];
     } else if (conv.type === "direct") {
       targets = [...conv.botIds];
@@ -639,6 +651,9 @@ export class HubStore {
         }
       }
     }
+    const groupRecipientKeys = scopedAddressing && (remoteTargets.length || input.mentions?.some(id => id.includes(":")))
+      ? [...targets.map(botId => `local:${botId}`), ...remoteTargets.map(remote => remote.member_key)]
+      : undefined;
     const previewStyle = linkPreviewStyleSchema.optional().parse(input.previewStyle);
     const links = extractLinks(input.text);
     const previewUrl = input.previewUrl === null ? null : input.previewUrl === undefined ? links[0] : normalizedLink(input.previewUrl);
@@ -660,7 +675,7 @@ export class HubStore {
     if (input.replyTo && !await this.db.get("SELECT 1 FROM messages WHERE id=? AND conversation_id=? AND status!='deleted' AND NOT EXISTS(SELECT 1 FROM message_deletions d WHERE d.message_id=messages.id AND d.user_id=?)", [input.replyTo, conv.id, userId])) throw new HubError("reply_not_found", 404);
     // Freeze the addressed recipients in the existing message contract. This
     // also makes default @-only workers and explicit retries use the same set.
-    const message: Message = { ...(input.groupDiscussion ? { groupDiscussion: input.groupDiscussion } : {}), ...(input.botSource ? { botSource: input.botSource } : {}), id: newId("msg"), conversationId: conv.id, authorId: userId, authorType: "user", blocks, ...(previewUrl !== undefined ? { previewUrl } : {}), ...(previewUrl && previewStyle ? { previewStyle } : {}), status: "complete", version: 1, clientMsgId: input.clientMsgId, ...(mentions?.length ? { mentions } : {}), ...(input.replyTo ? { replyTo: input.replyTo } : {}), createdAt: Date.now() };
+    const message: Message = { ...(input.groupDiscussion ? { groupDiscussion: input.groupDiscussion } : {}), ...(input.botSource ? { botSource: input.botSource } : {}), id: newId("msg"), conversationId: conv.id, authorId: userId, authorType: "user", blocks, ...(previewUrl !== undefined ? { previewUrl } : {}), ...(previewUrl && previewStyle ? { previewStyle } : {}), status: "complete", version: 1, clientMsgId: input.clientMsgId, ...(mentions?.length ? { mentions } : {}), ...(groupRecipientKeys ? { groupRecipientKeys } : {}), ...(input.replyTo ? { replyTo: input.replyTo } : {}), createdAt: Date.now() };
     await this.saveMessage(message);
     let workbenchContextOmitted: "history_limit" | undefined;
     if (context) {
@@ -1176,6 +1191,9 @@ export class HubStore {
   async groupSettingsEventInTransaction(groupId: string): Promise<HubEvent> {
     const settings = await this.groupSettingsInTransaction(groupId);
     return this.append(groupId, "turn.state", { groupSettings: { groupId, revision: settings.revision } }, false);
+  }
+  async publishGroupSettingsChange(groupId: string): Promise<void> {
+    this.emit(await this.db.transaction(() => this.groupSettingsEventInTransaction(groupId)));
   }
   messageForBot(botId: string, id: string): Promise<Message> { return this.db.serial(async () => { const row = await this.db.get<MessageRow>("SELECT * FROM messages WHERE id=?", [id]); if (!row) throw new HubError("message_not_found", 404); await this.requireBot(botId, row.conversation_id); await this.requireUnsealedInTransaction(botId, [id]); return this.decodeMessage(row); }); }
   /** Independent first round: until the Hub reveals it, no other Bot (member

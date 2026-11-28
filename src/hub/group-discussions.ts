@@ -6,6 +6,7 @@ import {
   groupDiscussionControlSchema, groupDiscussionDispatchSchema, groupDiscussionReportSchema, groupDiscussionStartSchema, groupDiscussionNoteSchema, groupStanceSchema, hasVisibleGroupText,
   type GroupDiscussionAction, type GroupDiscussionDispatch, type GroupDiscussionRun, type GroupDiscussionStep, type GroupDiscussionStepResult, type GroupDiscussionView, type GroupStance,
 } from "../client-protocol/group-discussion.js";
+import { remoteGroupRosterSchema } from "../client-protocol/group-recipients.js";
 import { anyRun, isRunActive, nativeRun } from "../client-protocol/run.js";
 import { activeAnswerFollowup, answerFollowup } from "../client-protocol/answer-followup.js";
 import { queueNotice } from "../client-protocol/queue-notice.js";
@@ -104,9 +105,15 @@ export class HubGroupDiscussions {
         JOIN message_deletions d ON d.message_id=m.id AND d.user_id=?
         WHERE m.conversation_id=? AND m.created_at>=? AND m.created_at<=?`,
       [userId, row.conversation_id, row.created_at, row.finished_at ?? Number.MAX_SAFE_INTEGER]))!.n : 0;
-      const viewRevision = `${row ? `${row.id}.r${row.revision}` : "none"}.${settings.revision}${hidden ? `.d${hidden}` : ""}`;
+      const remoteMembers = conversation.parentId ? undefined : remoteGroupRosterSchema.parse(await this.db.all(
+        `SELECT member_key AS memberKey, name_snapshot AS name, host_name AS hostName
+         FROM group_session_members WHERE conversation_id=? AND kind='remote' AND active=1
+         ORDER BY joined_at, member_key`, [conversationId],
+      ));
+      const rosterRevision = remoteMembers?.length ? `.m${digest(remoteMembers).slice(0, 32)}` : "";
+      const viewRevision = `${row ? `${row.id}.r${row.revision}` : "none"}.${settings.revision}${hidden ? `.d${hidden}` : ""}${rosterRevision}`;
       if (options.known !== undefined && options.known === viewRevision) return { unchanged: true as const };
-      return { settings, run: row ? await this.runView(row, userId, options.brief) : null, viewRevision };
+      return { settings, run: row ? await this.runView(row, userId, options.brief) : null, viewRevision, ...(remoteMembers ? { remoteMembers } : {}) };
     });
   }
   /** One step with its complete text, for a reader of the run's conversation. */

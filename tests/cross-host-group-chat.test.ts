@@ -1498,4 +1498,92 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
       workspaceOverride: wsGroup,
     });
   }, 20_000);
+  it("routes scoped mentions to exactly one host and session despite identical Bot IDs and names", async () => {
+    const a = await startHub("example-a");
+    const b = await startHub("example-b");
+    const c = await startHub("example-c");
+    for (const { hub } of [a, b, c]) {
+      await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,online) VALUES('shared_bot','Example Bot','fixture',1)");
+    }
+    await a.hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('other_bot','Other Bot','fixture')");
+    await b.hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('ungranted','Private Bot','fixture')");
+    for (const [hostId, peer] of [["example_b", b], ["example_c", c]] as const) {
+      a.hub.crossHostGroups.registerPeer({ hostId, hostName: hostId, publicKey: peer.hub.auth.publicKey, url: peer.hub.url });
+      peer.hub.crossHostGroups.registerPeer({ hostId: "example_a", hostName: "example-a", publicKey: a.hub.auth.publicKey, url: a.hub.url });
+      await peer.hub.crossHostGroups.grantPeerBot(a.hub.auth.publicKey, "shared_bot");
+    }
+    const group = await a.hub.store.createConversation("owner", ["shared_bot", "other_bot"], "Example group", "example_group", { type: "group" });
+    const other = await a.hub.store.createConversation("owner", ["other_bot"], "Another group", "example_other_group", { type: "group" });
+    const topic = await a.hub.store.createConversation("owner", [], "Example topic", "example_topic", { parentId: group.id });
+    const memberB = await a.hub.crossHostGroups.addMember("owner", group.id, { hostId: "example_b", botId: "shared_bot" });
+    const memberC = await a.hub.crossHostGroups.addMember("owner", group.id, { hostId: "example_c", botId: "shared_bot" });
+    const owner = await openOwnerSession(a.hub, "dev_roster");
+    sockets.push(owner.ws);
+    const send = (id: string, mentions: string[], conversationId = group.id) => owner.ws.send(JSON.stringify({
+      v: 1, type: "message.send", clientMsgId: id, conversationId, text: "Example question", attachments: [], mentions,
+    }));
+    const ack = (id: string) => waitFor(() => owner.frames.find(f => f.clientMsgId === id || f.type === "error" && (f.requestId === id || !f.requestId)), Boolean);
+    const rejected = (id: string) => waitFor(() => owner.frames.find(f => f.requestId === id && f.type === "error"), Boolean);
+
+    send("example_route_b", [memberB.memberKey]);
+    const accepted = await ack("example_route_b");
+    expect(accepted?.type).toBe("message.ack");
+    const inbox = (hub: HubServer) => hub.store.db.all("SELECT bot_id, session_id FROM group_mail_inbox");
+    await waitFor(() => inbox(b.hub), rows => rows.length > 0);
+    expect(await inbox(b.hub)).toEqual([{ bot_id: "shared_bot", session_id: memberB.sessionId }]);
+    expect(await inbox(c.hub)).toEqual([]);
+    expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [accepted!.messageId])).toEqual([]);
+
+    const headers = { Authorization: `Bearer ${owner.token}` };
+    const rosterResponse = await fetch(`${a.hub.url}/api/conversations/${group.id}/discussion?brief=1`, { headers });
+    expect(rosterResponse.status).toBe(200);
+    const view = await rosterResponse.json();
+    const snapshot = await a.hub.store.snapshot("owner", group.id);
+    expect(snapshot.messages.find(message => message.id === accepted!.messageId)?.groupRecipientKeys).toEqual([memberB.memberKey]);
+    expect(view.remoteMembers).toEqual([
+      { memberKey: memberB.memberKey, name: "Example Bot", hostName: "example-b" },
+      { memberKey: memberC.memberKey, name: "Example Bot", hostName: "example-c" },
+    ]);
+    const readMemberView = (conversationId: string) => a.hub.groupDiscussions.view("owner", conversationId);
+    await expect(a.hub.groupDiscussions.view("non_member", group.id)).rejects.toThrow("conversation_forbidden");
+    expect(await readMemberView(topic.id)).not.toHaveProperty("remoteMembers");
+
+    send("example_other_group_route", [memberB.memberKey], other.id);
+    expect((await rejected("example_other_group_route"))?.code).toBe("mention_forbidden");
+    send("example_topic_route", [memberB.memberKey], topic.id);
+    expect((await rejected("example_topic_route"))?.code).toBe("mention_forbidden");
+    send("example_ungranted_route", ["remote:example_b:ungranted"]);
+    expect((await rejected("example_ungranted_route"))?.code).toBe("mention_forbidden");
+
+    send("example_ambiguous_id", ["shared_bot"]);
+    expect((await rejected("example_ambiguous_id"))?.code).toBe("mention_forbidden");
+    send("example_local_id", ["local:shared_bot"]);
+    const local = await ack("example_local_id");
+    expect(local?.type).toBe("message.ack");
+    expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [local!.messageId])).toEqual([{ bot_id: "shared_bot" }]);
+
+    send("example_route_c", [memberC.memberKey, memberC.memberKey]);
+    expect((await ack("example_route_c"))?.type).toBe("message.ack");
+    await waitFor(() => inbox(c.hub), rows => rows.length > 0);
+    expect(await inbox(c.hub)).toEqual([{ bot_id: "shared_bot", session_id: memberC.sessionId }]);
+    expect(await inbox(b.hub)).toHaveLength(1);
+
+    const removed = await fetch(`${a.hub.url}/api/groups/${group.id}/members/${encodeURIComponent(memberB.memberKey)}`, { method: "DELETE", headers });
+    expect(removed.status).toBe(200);
+    const after = await a.hub.groupDiscussions.read("owner", group.id, undefined, { known: view.viewRevision });
+    expect(after).toHaveProperty("remoteMembers", [{ memberKey: memberC.memberKey, name: "Example Bot", hostName: "example-c" }]);
+    send("example_removed_route", [memberB.memberKey]);
+    expect((await rejected("example_removed_route"))?.code).toBe("mention_forbidden");
+
+    const settings = await a.hub.store.groupSettings("owner", group.id);
+    await a.hub.store.updateGroup("owner", group.id, {
+      title: group.title, expectedTitle: group.title, botIds: group.botIds, expectedBotIds: group.botIds,
+      policy: { ...settings.policy, mode: "sequential" }, expectedRevision: settings.revision,
+    });
+    send("example_discussion_route", [memberC.memberKey]);
+    expect((await rejected("example_discussion_route"))?.code).toBe("mention_forbidden");
+
+    expect(await inbox(b.hub)).toHaveLength(1);
+    expect(await inbox(c.hub)).toHaveLength(1);
+  }, 20_000);
 });

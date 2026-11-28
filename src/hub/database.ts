@@ -110,6 +110,7 @@ export class HubDatabase {
         if (!messageColumns.some(c => c.name === "history_json")) await result.exec("ALTER TABLE messages ADD COLUMN history_json TEXT");
         if (!messageColumns.some(c => c.name === "bot_source_json")) await result.exec("ALTER TABLE messages ADD COLUMN bot_source_json TEXT");
         if (!messageColumns.some(c => c.name === "discussion_json")) await result.exec("ALTER TABLE messages ADD COLUMN discussion_json TEXT");
+        if (!messageColumns.some(c => c.name === "group_recipient_keys_json")) await result.exec("ALTER TABLE messages ADD COLUMN group_recipient_keys_json TEXT");
         // Additive receipt survives context retirement and old writers, which
         // name their columns. It contains a digest/omission reason, never content.
         if (!messageColumns.some(c => c.name === "workbench_receipt_json")) await result.exec("ALTER TABLE messages ADD COLUMN workbench_receipt_json TEXT");

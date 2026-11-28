@@ -9,8 +9,12 @@ export const unavailableGroupReplyGuard = () => t("当前主机无法校验这�
 export const unknownGroupReplyMode = (online: boolean) => online ? t("正在读取群聊方式，请稍后发送。") : t("离线时无法确认此群的回复方式，内容已保留为草稿。请连接后发送。");
 
 /** Outbox replay must never let a pre-guard Host silently discard the guard. */
-export function groupReplyWireFrame(frame: ClientFrame, capabilities: { groupDiscussionAvailable?: boolean; groupReplyGuardAvailable?: boolean }): ClientFrame {
-  if (frame.type !== "message.send" || !frame.groupReplyGuard) return frame;
+export function groupReplyWireFrame(frame: ClientFrame, capabilities: { groupDiscussionAvailable?: boolean; groupReplyGuardAvailable?: boolean; groupRecipientKeysAvailable?: boolean }): ClientFrame {
+  if (frame.type !== "message.send") return frame;
+  if (!capabilities.groupRecipientKeysAvailable && frame.mentions?.some(id => id.includes(":"))) {
+    throw new Error(t("当前主机不支持此回复选择。消息已保留，请更新主机后重试。"));
+  }
+  if (!frame.groupReplyGuard) return frame;
   if (frame.groupReplyGuard.revision === LEGACY_GROUP_REPLY_REVISION) {
     if (capabilities.groupDiscussionAvailable !== false) throw new Error(changedGroupReply());
     const { groupReplyGuard: _localOnly, ...legacy } = frame;

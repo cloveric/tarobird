@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { groupMentions } from "../src/group-mentions.js";
+import { groupRecipientOptions } from "../src/group-recipient-options.js";
 import { formatWorkspaceFileMention } from "../src/workspace-files-meta.js";
 const members = [{ id: "alpha", names: ["研究助手", "Research Bot"] }, { id: "beta", names: ["研究助手二", "Beta"] }];
 it("accepts names, IDs, spaced aliases and punctuation with longest exact matching", () => {
@@ -83,4 +84,19 @@ it("does not treat formatted workspace file mentions as unresolved or colliding 
   ];
   expect(groupMentions(tokens.join(" "), bots)).toEqual({ ids: [], unresolved: [] });
   expect(groupMentions(`@Beta 请检查 ${tokens.join(" ")}`, bots)).toEqual({ ids: ["beta"], unresolved: [] });
+});
+
+it("distinguishes visible choices that share the same Bot ID, Bot name, and host label", () => {
+  const ids = ["shared_bot", "remote:example_a:shared_bot", "remote:example_b:shared_bot"];
+  const options = groupRecipientOptions(
+    [ids[0]!], [], new Map([[ids[0]!, "Example Bot"]]), "Example Host",
+    ids.slice(1).map(memberKey => ({ memberKey, name: "Example Bot", hostName: "Example Host" })),
+  );
+  expect(options.map(option => option.id)).toEqual(ids);
+  expect(new Set(options.map(option => option.label)).size).toBe(3);
+  const aliases = options.map(option => ({ id: option.id, names: [option.name, option.botId] }));
+  expect(groupMentions("@Example Bot @shared_bot", aliases)).toEqual({
+    ids: [], unresolved: ["Example Bot", "shared_bot"], ambiguous: ["Example Bot", "shared_bot"],
+  });
+  expect(groupMentions(`@${ids[2]} review`, aliases)).toEqual({ ids: [ids[2]], unresolved: [] });
 });
