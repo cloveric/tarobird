@@ -151,8 +151,23 @@ function fingerprintKimiDir(dir: string, depth = 0): { meta: string; entries: un
   return { meta, entries, fileCount };
 }
 
+/** A workspace account ID can be shared by multiple signed-in users. Use the
+ * local ID-token subject only as a change detector, never as authentication. */
+function codexTokenSubject(token: unknown): [string, string] | undefined {
+  if (typeof token !== "string") return undefined;
+  const parts = token.split(".");
+  if (parts.length !== 3 || !/^[A-Za-z0-9_-]+$/.test(parts[1]!)) return undefined;
+  try {
+    const claims = jsonRecord(Buffer.from(parts[1]!, "base64url").toString("utf8"));
+    if (typeof claims.iss === "string" && claims.iss && typeof claims.sub === "string" && claims.sub) {
+      return [claims.iss, claims.sub];
+    }
+  } catch { /* Unrecognized token formats retain the full credential fence. */ }
+  return undefined;
+}
+
 /** Codex config keys that choose which account or credential source a process signs in with. */
-const CODEX_CREDENTIAL_CONFIG = /^\s*(?:cli_auth_credentials_store|auth_command|credential_helper|include|model_provider|chatgpt_base_url|forced_login_method|forced_chatgpt_workspace_id|preferred_auth_method)\s*=/;
+const CODEX_CREDENTIAL_CONFIG = /^\s*["']?(?:cli_auth_credentials_store|auth_command|credential_helper|include|model_provider|model_providers|chatgpt_base_url|forced_login_method|forced_chatgpt_workspace_id|preferred_auth_method|base_url|env_key|experimental_bearer_token|requires_openai_auth)["']?\s*=/;
 
 /** Private in-memory scope guard. No credential values, hashes or file paths are emitted to logs/public DTOs. */
 export class AdapterQuotaCache {
@@ -184,15 +199,16 @@ export class AdapterQuotaCache {
         const openAiKey = readPlatformEnv(this.env, "OPENAI_API_KEY", this.platform);
         authMode = typeof tokens.access_token === "string" && tokens.access_token ? "subscription" : openAiKey || account.OPENAI_API_KEY ? "api_key" : "unknown";
         // Keyring/auto, includes and external auth helpers are not proven by an auth.json file next to them.
-        const opaque = /cli_auth_credentials_store\s*=\s*["'](?:keyring|auto)["']|(?:auth_command|credential_helper|include)\s*=/.test(`${config}\n${project}`);
+        const opaque = /cli_auth_credentials_store\s*=\s*["'](?:keyring|auto)["']|(?:auth_command|credential_helper|include)\s*=/.test(`${configured}\n${config}\n${project}`);
         verifiable = !opaque && authMode !== "unknown";
         material = [this.executable, engineHome, configured, config, project, authText, env];
         // The account, not the bytes: Codex rewrites auth.json on every token refresh, and other tools rewrite
-        // config.toml. Without an account_id the whole material stays the identity (strict, as before).
+        // config.toml. Keep the full credential fence when a login or its source cannot be identified.
         const accountId = typeof tokens.account_id === "string" && tokens.account_id ? tokens.account_id : undefined;
         const credentialLines = (text: string) => text.split(/\r?\n/).filter(line => CODEX_CREDENTIAL_CONFIG.test(line)).map(line => line.trim());
-        identity = accountId
-          ? [this.executable, engineHome, authMode, accountId, credentialLines(configured), credentialLines(config), credentialLines(project), env]
+        const subject = codexTokenSubject(tokens.id_token);
+        identity = verifiable && authMode === "subscription" && accountId && subject
+          ? [this.executable, engineHome, authMode, accountId, subject, credentialLines(configured), credentialLines(config), credentialLines(project), env]
           : material;
       } else if (this.engine === "claude") {
         const authText = readBounded(path.join(engineHome, ".credentials.json"));

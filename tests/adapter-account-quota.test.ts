@@ -39,11 +39,14 @@ class Child extends EventEmitter {
   event(value: unknown) { this.stdout.emit("data", JSON.stringify(value) + "\n"); }
   kill() { this.killCount++; if (!this.closed) setTimeout(() => { if (this.closed) return; this.closed = true; this.emit("close", 0); }, this.closeDelayMs); }
 }
+function codexIdToken(subject: string) {
+  return `fixture.${Buffer.from(JSON.stringify({ iss: "https://fixture.invalid", sub: subject })).toString("base64url")}.fixture`;
+}
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "quota-scope-")); roots.push(root);
   const home = path.join(root, "home"), codexHome = path.join(home, ".codex");
   await mkdir(codexHome, { recursive: true });
-  await writeFile(path.join(codexHome, "auth.json"), JSON.stringify({ tokens: { access_token: "synthetic-fixture", account_id: "fixture-account" } }));
+  await writeFile(path.join(codexHome, "auth.json"), JSON.stringify({ tokens: { access_token: "synthetic-fixture", account_id: "fixture-account", id_token: codexIdToken("first-user") } }));
   return { root, home, codexHome, env: { HOME: home, CODEX_HOME: codexHome, PATH: process.env.PATH } };
 }
 it("cached quota reads never spawn; active Process reads close the owned child before resolving", async () => {
@@ -92,13 +95,25 @@ it("a token refresh or an unrelated config.toml rewrite keeps the live worker's 
   disposals.push(() => adapter.destroy());
   await (adapter as any).startChildAndInitialize(["app-server"]);
   // Same account: Codex rotated the access token, and another tool rewrote an unrelated config key.
-  await writeFile(path.join(f.codexHome, "auth.json"), JSON.stringify({ tokens: { access_token: "rotated-fixture", account_id: "fixture-account" } }));
+  await writeFile(path.join(f.codexHome, "auth.json"), JSON.stringify({ tokens: { access_token: "rotated-fixture", account_id: "fixture-account", id_token: codexIdToken("first-user") } }));
   await writeFile(path.join(f.codexHome, "config.toml"), 'model = "fixture-model"\n[tui]\nnotifications = true\n');
   const result = await adapter.getAccountQuota({ refresh: true });
   expect(result.snapshot.reason).toBeUndefined();
   expect(result.snapshot.pools[0].windows[0]).toMatchObject({ usedPercent: 25 });
   expect(child.methods).toContain("account/rateLimits/read"); expect(child.killCount).toBe(0);
 });
+it("a new user in the same ChatGPT workspace disowns the old quota worker", async () => {
+  const f = await fixture(), child = new Child(), adapter = new CodexAppServerAdapter("codex", f.root, f.env, () => child);
+  disposals.push(() => adapter.destroy());
+  await (adapter as any).startChildAndInitialize(["app-server"]);
+  await writeFile(path.join(f.codexHome, "auth.json"), JSON.stringify({
+    tokens: { access_token: "changed", account_id: "fixture-account", id_token: codexIdToken("another-user") },
+  }));
+  const result = await adapter.getAccountQuota({ refresh: true });
+  expect(result.snapshot).toMatchObject({ reason: "auth_changed", pools: [] });
+  expect(child.methods).not.toContain("account/read");
+});
+
 it("a credential-source change in config.toml still disowns the live worker", async () => {
   const f = await fixture(), child = new Child(), adapter = new CodexAppServerAdapter("codex", f.root, f.env, () => child);
   disposals.push(() => adapter.destroy());
