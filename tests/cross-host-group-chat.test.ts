@@ -5,8 +5,8 @@ import path from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { conversationSchema, idSchema } from "../src/client-protocol/index.js";
-import { groupDiscussionRunSchema } from "../src/client-protocol/group-discussion.js";
+import { conversationSchema, idSchema, type GroupReplyGuard } from "../src/client-protocol/index.js";
+import { groupDiscussionRunSchema, groupDiscussionViewSchema } from "../src/client-protocol/group-discussion.js";
 import { CROSS_HOST_GROUPS_CAPABILITY, groupMembersStateSchema } from "../src/client-protocol/group-members.js";
 import { createCoreServiceRuntime } from "../src/core/runtime.js";
 import { buildCoreConversationKey } from "../src/core/message-normalizer.js";
@@ -19,6 +19,8 @@ import { groupMailSignaturePayload, HubCrossHostGroups } from "../src/hub/group-
 import { HubServer } from "../src/hub/server.js";
 import { HubStore } from "../src/hub/store.js";
 import { bootstrapTrusted } from "./helpers/pairing-invite.js";
+import { groupMentions } from "../client/src/group-mentions.js";
+import { groupRecipientOptions, insertScopedGroupMention } from "../client/src/group-recipient-options.js";
 
 async function waitFor<T>(fn: () => Promise<T> | T, predicate: (value: T) => boolean, timeoutMs = 8000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -1498,4 +1500,267 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
       workspaceOverride: wsGroup,
     });
   }, 20_000);
+  it("routes scoped mentions to exactly one host and session despite identical Bot IDs and names", async () => {
+    const a = await startHub("example-a");
+    const b = await startHub("example-b");
+    const c = await startHub("example-c");
+    for (const { hub } of [a, b, c]) {
+      await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,online) VALUES('shared_bot','Example Bot','fixture',1)");
+    }
+    await a.hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('other_bot','Other Bot','fixture')");
+    await b.hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('ungranted','Private Bot','fixture')");
+    for (const [hostId, peer] of [["example_b", b], ["example_c", c]] as const) {
+      a.hub.crossHostGroups.registerPeer({ hostId, hostName: hostId, publicKey: peer.hub.auth.publicKey, url: peer.hub.url });
+      peer.hub.crossHostGroups.registerPeer({ hostId: "example_a", hostName: "example-a", publicKey: a.hub.auth.publicKey, url: a.hub.url });
+      await peer.hub.crossHostGroups.grantPeerBot(a.hub.auth.publicKey, "shared_bot");
+    }
+    const group = await a.hub.store.createConversation("owner", ["shared_bot", "other_bot"], "Example group", "example_group", { type: "group" });
+    const other = await a.hub.store.createConversation("owner", ["other_bot"], "Another group", "example_other_group", { type: "group" });
+    const topic = await a.hub.store.createConversation("owner", [], "Example topic", "example_topic", { parentId: group.id });
+    const { room: emptyRoom } = await a.hub.crossHostGroups.createRoom("owner", group.id, { title: "Local-only room" });
+    const memberB = await a.hub.crossHostGroups.addMember("owner", group.id, { hostId: "example_b", botId: "shared_bot" });
+    const { room, memberSessions } = await a.hub.crossHostGroups.createRoom("owner", group.id, { title: "Cross-host room" });
+    const roomSession = memberSessions.find(member => member.memberKey === memberB.memberKey)!.sessionId;
+    expect(roomSession).not.toBe(memberB.sessionId);
+    const memberC = await a.hub.crossHostGroups.addMember("owner", group.id, { hostId: "example_c", botId: "shared_bot" });
+    const owner = await openOwnerSession(a.hub, "dev_roster");
+    sockets.push(owner.ws);
+    const send = (id: string, mentions: string[], conversationId = group.id, groupReplyGuard?: GroupReplyGuard, text = "Example question") =>
+      owner.ws.send(JSON.stringify({ v: 1, type: "message.send", clientMsgId: id, conversationId, text, attachments: [], mentions, groupReplyGuard }));
+    const ack = (id: string) => waitFor(() => owner.frames.find(f => f.clientMsgId === id || f.type === "error" && (f.requestId === id || !f.requestId)), Boolean);
+    const rejected = (id: string) => waitFor(() => owner.frames.find(f => f.requestId === id && f.type === "error"), Boolean);
+
+    send("example_route_b", [memberB.memberKey]);
+    const accepted = await ack("example_route_b");
+    expect(accepted?.type).toBe("message.ack");
+    const inbox = (hub: HubServer) => hub.store.db.all("SELECT bot_id, session_id FROM group_mail_inbox");
+    await waitFor(() => inbox(b.hub), rows => rows.length > 0);
+    expect(await inbox(b.hub)).toEqual([{ bot_id: "shared_bot", session_id: memberB.sessionId }]);
+    expect(await inbox(c.hub)).toEqual([]);
+    expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [accepted!.messageId])).toEqual([]);
+
+    const headers = { Authorization: `Bearer ${owner.token}` };
+    const rosterResponse = await fetch(`${a.hub.url}/api/conversations/${group.id}/discussion?brief=1`, { headers });
+    expect(rosterResponse.status).toBe(200);
+    const view = groupDiscussionViewSchema.parse(await rosterResponse.json());
+    const snapshot = await a.hub.store.snapshot("owner", group.id);
+    expect(snapshot.messages.find(message => message.id === accepted!.messageId)?.groupRecipientKeys).toEqual([memberB.memberKey]);
+    expect(view.remoteMembers).toEqual([
+      { memberKey: memberB.memberKey, name: "Example Bot", hostName: "example-b" },
+      { memberKey: memberC.memberKey, name: "Example Bot", hostName: "example-c" },
+    ]);
+    const readMemberView = (conversationId: string) => a.hub.groupDiscussions.view("owner", conversationId);
+    for (const conversation of [group, room, topic, emptyRoom]) {
+      await expect(a.hub.groupDiscussions.view("non_member", conversation.id)).rejects.toThrow("conversation_forbidden");
+    }
+    expect((await readMemberView(other.id)).remoteMembers).toEqual([]);
+    const roomView = await readMemberView(room.id);
+    const topicView = await readMemberView(topic.id);
+    const emptyView = await readMemberView(emptyRoom.id);
+    expect.soft(roomView.remoteMembers).toEqual([view.remoteMembers![0]]);
+    expect.soft(topicView.remoteMembers).toEqual(view.remoteMembers);
+    expect.soft(emptyView.remoteMembers).toEqual([]);
+    const guard = { mode: "mentions", revision: roomView.settings.revision } as const;
+
+    const roomOptions = groupRecipientOptions(room.botIds, [], new Map([["shared_bot", "Example Bot"]]), "example-a", roomView.remoteMembers);
+    const selected = roomOptions.find(option => option.id === memberB.memberKey)!;
+    const draft = insertScopedGroupMention("@Example", selected) + "Room question";
+    const addressed = groupMentions(draft, roomOptions.map(option => ({ id: option.id, names: [option.name, option.botId] })));
+    expect(addressed).toEqual({ ids: [memberB.memberKey], unresolved: [] });
+    send("example_room_route", addressed.ids, room.id, guard, draft);
+    const roomAck = await ack("example_room_route");
+    expect(roomAck?.type).toBe("message.ack");
+    send("example_topic_route", [memberB.memberKey], topic.id, guard);
+    const topicAck = await ack("example_topic_route");
+    expect(topicAck?.type).toBe("message.ack");
+    const roomMessage = (await a.hub.store.snapshot("owner", room.id)).messages.find(message => message.id === roomAck!.messageId);
+    const topicMessage = (await a.hub.store.snapshot("owner", topic.id)).messages.find(message => message.id === topicAck!.messageId);
+    expect(roomMessage?.blocks).toEqual([{ type: "text", text: `@${memberB.memberKey} Room question` }]);
+    expect((await a.hub.store.snapshot("owner", group.id)).messages.map(message => message.id)).toEqual([accepted!.messageId]);
+    for (const message of [roomMessage, topicMessage]) {
+      expect(message?.groupRecipientKeys).toEqual([memberB.memberKey]);
+      expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [message!.id])).toEqual([]);
+    }
+    const routedInbox = (hub: HubServer) => hub.store.db.all(
+      "SELECT conversation_id, session_id FROM group_mail_inbox ORDER BY conversation_id",
+    );
+    expect(await waitFor(() => routedInbox(b.hub), rows => rows.length === 3)).toEqual(expect.arrayContaining([
+      { conversation_id: group.id, session_id: memberB.sessionId },
+      { conversation_id: room.id, session_id: roomSession },
+      { conversation_id: topic.id, session_id: memberB.sessionId },
+    ]));
+    expect(await routedInbox(c.hub)).toEqual([]);
+
+    send("example_other_group_route", [memberB.memberKey], other.id);
+    expect((await rejected("example_other_group_route"))?.code).toBe("mention_forbidden");
+    send("example_room_root_only", [memberC.memberKey], room.id, guard);
+    expect((await rejected("example_room_root_only"))?.code).toBe("mention_forbidden");
+    send("example_empty_room_route", [memberB.memberKey], emptyRoom.id, guard);
+    expect((await rejected("example_empty_room_route"))?.code).toBe("mention_forbidden");
+    send("example_room_ungranted", ["remote:example_b:ungranted"], room.id, guard);
+    expect((await rejected("example_room_ungranted"))?.code).toBe("mention_forbidden");
+    expect((await a.hub.store.snapshot("owner", emptyRoom.id)).messages).toEqual([]);
+    send("example_ungranted_route", ["remote:example_b:ungranted"]);
+    expect((await rejected("example_ungranted_route"))?.code).toBe("mention_forbidden");
+
+    send("example_legacy_bare_id", ["shared_bot"]);
+    const legacyLocal = await ack("example_legacy_bare_id");
+    expect(legacyLocal?.type).toBe("message.ack");
+    expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [legacyLocal!.messageId])).toEqual([{ bot_id: "shared_bot" }]);
+    for (const hostId of ["example_b", "example_c"]) {
+      await a.hub.crossHostGroups.addMember("owner", other.id, { hostId, botId: "shared_bot" });
+    }
+    send("example_ambiguous_remote_id", ["shared_bot"], other.id);
+    expect((await rejected("example_ambiguous_remote_id"))?.code).toBe("mention_forbidden");
+    send("example_local_id", ["local:shared_bot"]);
+    const local = await ack("example_local_id");
+    expect(local?.type).toBe("message.ack");
+    expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [local!.messageId])).toEqual([{ bot_id: "shared_bot" }]);
+
+    send("example_route_c", [memberC.memberKey, memberC.memberKey]);
+    expect((await ack("example_route_c"))?.type).toBe("message.ack");
+    await waitFor(() => inbox(c.hub), rows => rows.length > 0);
+    expect(await inbox(c.hub)).toEqual([{ bot_id: "shared_bot", session_id: memberC.sessionId }]);
+    expect(await inbox(b.hub)).toHaveLength(3);
+
+    send("example_legacy_local_route", ["shared_bot"], topic.id, guard);
+    const localTopic = await ack("example_legacy_local_route");
+    expect(localTopic?.type).toBe("message.ack");
+    expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [localTopic!.messageId])).toEqual([{ bot_id: "shared_bot" }]);
+
+    const question = (await a.hub.crossHostGroups.getState("owner", group.id, false)).questions.find(q => q.sourceMessageId === roomAck!.messageId)!;
+    const peer = { hostId: "example_b", hostName: "example-b", publicKey: b.hub.auth.publicKey, url: b.hub.url };
+    const reply = {
+      requestId: question.requestId, groupId: group.id, conversationId: room.id,
+      botId: memberB.botId, sessionId: roomSession, text: "Room answer",
+    };
+    await expect(a.hub.crossHostGroups.handlePeerReply(peer, { ...reply, conversationId: topic.id }))
+      .rejects.toThrow("group_question_identity_mismatch");
+    await expect(a.hub.crossHostGroups.handlePeerReply(peer, { ...reply, sessionId: memberB.sessionId }))
+      .rejects.toThrow("group_question_identity_mismatch");
+    const roomReply = await a.hub.crossHostGroups.handlePeerReply(peer, reply);
+    for (const outside of [group, topic, emptyRoom, other]) {
+      expect((await a.hub.store.snapshot("owner", outside.id)).messages.some(message => message.id === roomReply.messageId)).toBe(false);
+    }
+
+    const removed = await fetch(`${a.hub.url}/api/groups/${group.id}/members/${encodeURIComponent(memberB.memberKey)}`, { method: "DELETE", headers });
+    expect(removed.status).toBe(200);
+    const after = await a.hub.groupDiscussions.read("owner", group.id, undefined, { known: view.viewRevision });
+    expect(after).toHaveProperty("remoteMembers", [{ memberKey: memberC.memberKey, name: "Example Bot", hostName: "example-c" }]);
+    await waitFor(() => owner.frames.some(frame => frame.type === "event" && frame.kind === "turn.state"
+      && frame.conversationId === group.id && (frame.payload as { groupSettings?: object })?.groupSettings), Boolean);
+    const refresh = (conversationId: string, known: string | undefined) => a.hub.groupDiscussions.read("owner", conversationId, undefined, { known });
+    expect(await refresh(room.id, roomView.viewRevision)).toHaveProperty("remoteMembers", []);
+    expect(await refresh(topic.id, topicView.viewRevision)).toHaveProperty("remoteMembers", [view.remoteMembers![1]]);
+    expect(await refresh(emptyRoom.id, emptyView.viewRevision)).toEqual({ unchanged: true });
+    send("example_room_removed", [memberB.memberKey], room.id, guard);
+    expect((await rejected("example_room_removed"))?.code).toBe("mention_forbidden");
+    expect((await a.hub.store.snapshot("owner", room.id)).messages.map(message => message.id)).toEqual([roomAck!.messageId, roomReply.messageId]);
+    send("example_removed_route", [memberB.memberKey]);
+    expect((await rejected("example_removed_route"))?.code).toBe("mention_forbidden");
+
+    const settings = await a.hub.store.groupSettings("owner", group.id);
+    await a.hub.store.updateGroup("owner", group.id, {
+      title: group.title, expectedTitle: group.title, botIds: group.botIds, expectedBotIds: group.botIds,
+      policy: { ...settings.policy, mode: "sequential" }, expectedRevision: settings.revision,
+    });
+    send("example_discussion_route", [memberC.memberKey]);
+    expect((await rejected("example_discussion_route"))?.code).toBe("mention_forbidden");
+    send("example_stale_room_guard", [memberB.memberKey], room.id, guard);
+    expect((await rejected("example_stale_room_guard"))?.code).toBe("group_reply_mode_changed");
+
+    expect(await inbox(b.hub)).toHaveLength(3);
+    expect(await inbox(c.hub)).toHaveLength(1);
+  }, 20_000);
+  it("resends the recorded local or remote group recipient without reinterpreting its Bot ID", async () => {
+    const local = await startHub("example-owner");
+    const remote = await startHub("example-peer");
+    for (const { hub } of [local, remote]) {
+      await hub.store.db.run("INSERT INTO bots(id,name,secret_hash,online) VALUES('shared_bot','Example Bot','fixture',1)");
+    }
+    local.hub.crossHostGroups.registerPeer({ hostId: "example_peer", hostName: "Example peer", publicKey: remote.hub.auth.publicKey, url: remote.hub.url });
+    remote.hub.crossHostGroups.registerPeer({ hostId: "example_owner", hostName: "Example owner", publicKey: local.hub.auth.publicKey, url: local.hub.url });
+    await remote.hub.crossHostGroups.grantPeerBot(local.hub.auth.publicKey, "shared_bot");
+    const group = await local.hub.store.createConversation("owner", ["shared_bot"], "Retry example", "retry_group", { type: "group" });
+    const member = await local.hub.crossHostGroups.addMember("owner", group.id, { hostId: "example_peer", botId: "shared_bot" });
+    const store = local.hub.store;
+    const settings = await store.groupSettings("owner", group.id);
+    await store.updateGroup("owner", group.id, {
+      title: group.title, expectedTitle: group.title, botIds: group.botIds, expectedBotIds: group.botIds,
+      policy: { ...settings.policy, mode: "designated" }, expectedRevision: settings.revision,
+    });
+    await local.hub.crossHostGroups.setDesignatedMember("owner", group.id, { memberKey: "local:shared_bot" });
+    const owner = await openOwnerSession(local.hub, "dev_retry");
+    sockets.push(owner.ws);
+    const request = (clientMsgId: string, extra: object = {}) => ({
+      v: 1, type: "message.send", clientMsgId, conversationId: group.id, text: "Example question", attachments: [], ...extra,
+    });
+    const send = async (id: string, extra?: object) => {
+      owner.ws.send(JSON.stringify(request(id, extra)));
+      return waitFor(() => owner.frames.find(frame => frame.clientMsgId === id || frame.requestId === id), Boolean);
+    };
+    const localTargets = (id: unknown) => store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [id]);
+    const remoteTargets = (id: unknown) => store.db.all("SELECT member_key FROM group_remote_questions WHERE conversation_id=? AND source_message_id=?", [group.id, id]);
+    const initial = await send("designated_original");
+    expect(initial?.type).toBe("message.ack");
+    expect(await localTargets(initial!.messageId)).toEqual([{ bot_id: "shared_bot" }]);
+    expect.soft((await store.messageForUser("owner", String(initial!.messageId))).groupRecipientKeys).toEqual(["local:shared_bot"]);
+
+    const legacy = await openOwnerSession(local.hub, "dev_legacy_retry", []);
+    sockets.push(legacy.ws);
+    legacy.ws.send(JSON.stringify(request("legacy_original", { mentions: ["shared_bot"] })));
+    const bare = await waitFor(() => legacy.frames.find(frame => frame.clientMsgId === "legacy_original" || frame.requestId === "legacy_original"), Boolean);
+    expect.soft(bare?.type).toBe("message.ack");
+    if (bare?.type === "message.ack") {
+      expect(await localTargets(bare.messageId)).toEqual([{ bot_id: "shared_bot" }]);
+      expect(await remoteTargets(bare.messageId)).toEqual([]);
+    }
+    const originalRemote = await send("remote_original", { mentions: [member.memberKey] });
+    expect(originalRemote?.type).toBe("message.ack");
+    await store.db.run("UPDATE messages SET group_recipient_keys_json=NULL WHERE id IN (?,?)", [initial!.messageId, originalRemote!.messageId]);
+    await local.hub.crossHostGroups.setDesignatedMember("owner", group.id, { memberKey: member.memberKey });
+
+    const localRetry = await send("retry_local", { retryOf: initial!.messageId });
+    expect.soft(localRetry?.type).toBe("message.ack");
+    expect.soft(await localTargets(localRetry?.messageId ?? "")).toEqual([{ bot_id: "shared_bot" }]);
+    expect.soft(await remoteTargets(localRetry?.messageId ?? "")).toEqual([]);
+
+    const remoteRetry = await send("retry_remote", { retryOf: originalRemote!.messageId });
+    expect(remoteRetry?.type).toBe("message.ack");
+    expect(await localTargets(remoteRetry!.messageId)).toEqual([]);
+    expect(await remoteTargets(remoteRetry!.messageId)).toEqual([{ member_key: member.memberKey }]);
+    const inbound = () => remote.hub.store.db.all("SELECT session_id FROM group_mail_inbox");
+    expect(await waitFor(inbound, rows => rows.length >= 2)).toEqual([{ session_id: member.sessionId }, { session_id: member.sessionId }]);
+
+    const forward = (id: string, sourceMessageId: unknown, mentions?: string[]) =>
+      send(id, { type: "message.forward", sourceMessageId, mentions });
+    const forwarded = await forward("forward_original", initial!.messageId, ["shared_bot"]);
+    expect(forwarded?.type).toBe("message.ack");
+    const forwardedAgain = await forward("forward_retry", forwarded!.messageId, ["shared_bot"]);
+    expect(forwardedAgain?.type).toBe("message.ack");
+    for (const frame of [forwarded!, forwardedAgain!]) {
+      expect((await store.messageForUser("owner", String(frame.messageId))).groupRecipientKeys).toEqual(["local:shared_bot"]);
+      expect(await localTargets(frame.messageId)).toEqual([{ bot_id: "shared_bot" }]);
+      expect(await remoteTargets(frame.messageId)).toEqual([]);
+    }
+    const saved = await forward("forward_record_only", initial!.messageId);
+    expect(saved?.type).toBe("message.ack");
+    expect(await localTargets(saved!.messageId)).toEqual([]);
+    expect(await remoteTargets(saved!.messageId)).toEqual([]);
+
+    const narrowed = await send("retry_specific_local", { retryOf: initial!.messageId, mentions: ["local:shared_bot"] });
+    expect(narrowed?.type).toBe("message.ack");
+    expect(await localTargets(narrowed!.messageId)).toEqual([{ bot_id: "shared_bot" }]);
+    expect(await send("retry_different_recipient", { retryOf: initial!.messageId, mentions: [member.memberKey] }))
+      .toMatchObject({ type: "error", code: "mention_forbidden" });
+
+    await local.hub.crossHostGroups.removeMember("owner", group.id, member.memberKey);
+    await local.hub.crossHostGroups.setDesignatedMember("owner", group.id, { memberKey: "local:shared_bot" });
+    expect.soft(await send("retry_removed", { retryOf: originalRemote!.messageId })).toMatchObject({ type: "error", code: "mention_forbidden" });
+
+    await store.db.run("DELETE FROM deliveries WHERE message_id=?", [initial!.messageId]);
+    expect.soft(await send("retry_unknown", { retryOf: initial!.messageId })).toMatchObject({ type: "error", code: "group_retry_recipients_unknown" });
+    expect(await inbound()).toHaveLength(2);
+  }, 20_000);
+
 });

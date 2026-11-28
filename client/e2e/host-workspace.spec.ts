@@ -103,6 +103,7 @@ test("normal App pairs two hosts, isolates same IDs and drafts, retains uploads 
     await page.screenshot({ path: info.outputPath("hosts-desktop.png"), fullPage: true });
     await clickAppAction(page, "新建群组", visible(page).getByRole("button", { name: "新建群组", exact: true }));
     await expect(page.getByRole("dialog", { name: "选择运行主机", exact: true })).toContainText("Mac mini");
+    await expect(page.getByRole("dialog", { name: "选择运行主机", exact: true })).toContainText("所选主机保存这个群组。创建后，可在群组设置中加入其他主机上已授权的 Bot。");
     await page.getByRole("dialog", { name: "选择运行主机", exact: true }).getByRole("button", { name: /笔记本/ }).click();
     await expect(page.getByRole("dialog", { name: "新建群组", exact: true })).toContainText("运行于 笔记本"); await page.keyboard.press("Escape");
     await visible(page).getByRole("textbox", { name: "消息", exact: true }).fill("B 重启后保留");

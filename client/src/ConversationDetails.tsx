@@ -2,6 +2,7 @@ import { useId, useRef, useState, useSyncExternalStore, type RefObject } from "r
 import { Activity, Camera, Folder, Monitor, Users, ChevronDown, ChevronRight, FolderOpen, MessageSquare, MessageSquarePlus, Plug, Settings, Wifi } from "lucide-react";
 import type { Conversation } from "../../src/client-protocol/index.js";
 import { workspaceDisplayName } from "../../src/client-protocol/saved-workspaces.js";
+import type { GroupRecipientOption } from "./group-recipient-options.js";
 import type { Bot, HubConnection } from "./connection.js";
 import { ClearHistoryControl } from "./ClearHistoryControl.js";
 import { GroupSettings } from "./GroupSettings.js";
@@ -15,8 +16,8 @@ import { ConversationHistoryOrigin } from "./ConversationHistoryDialog.js";
 
 type Destination = "manage" | "conversation-files" | "files" | "capabilities" | "operations" | "connection";
 /** Keep conversation, shared Bot settings and host tools in distinct scopes. */
-export function ConversationDetails({ connection, conversation, group, bots, phone, hostName, connectionSummary, close, open, newChat, browseBot, returnFocus, suspended = false, historySource, openHistorySource }: {
-  connection: HubConnection; conversation: Conversation; group?: Conversation; bots: Bot[]; phone: boolean;
+export function ConversationDetails({ connection, conversation, group, groupMembers, bots, phone, hostName, connectionSummary, close, open, newChat, browseBot, returnFocus, suspended = false, historySource, openHistorySource }: {
+  connection: HubConnection; conversation: Conversation; group?: Conversation; groupMembers?: GroupRecipientOption[]; bots: Bot[]; phone: boolean;
   hostName: string; connectionSummary: string; close: () => void; open: (destination: Destination, botId?: string) => void;
   newChat: (botId: string) => void; returnFocus: RefObject<HTMLElement | null>; suspended?: boolean;
   browseBot?: (botId: string) => void;
@@ -42,7 +43,7 @@ export function ConversationDetails({ connection, conversation, group, bots, pho
   return <ConversationDetailsFrame phone={phone} returnFocus={returnFocus} busy={false} close={close} suspended={suspended} resumeTarget={resumeTarget}>
     <div className="details-identity">
       <ConversationAvatar conversation={conversation} size={44}/>
-      <div><h3 title={conversation.title}>{conversation.title}</h3><p>{conversation.parentId ? (group ? t("{0} · 独立话题", group.title) : t("独立话题")) : group ? t("{0} 个 Bot", conversation.botIds.length) : t("{0} · 独立对话", labels.get(conversation.botIds[0]!) ?? bot?.name ?? "Bot")}</p></div>
+      <div><h3 title={conversation.title}>{conversation.title}</h3><p>{conversation.parentId ? (group ? t("{0} · 独立话题", group.title) : t("独立话题")) : group ? t("{0} 个 Bot", groupMembers?.length ?? conversation.botIds.length) : t("{0} · 独立对话", labels.get(conversation.botIds[0]!) ?? bot?.name ?? "Bot")}</p></div>
     </div>
     {conversation.historyOrigin && <ConversationHistoryOrigin details conversation={conversation} source={historySource} open={id => openHistorySource?.(id)}/>}
     <section className="details-section" aria-label={t("当前对话")}>
@@ -54,6 +55,12 @@ export function ConversationDetails({ connection, conversation, group, bots, pho
       {group && <button ref={groupTrigger} className="details-link" aria-label={t("群组设置")} onClick={() => setGroupSettings(true)}><Users size={20}/><span><strong>{t("群组设置")}</strong><small>{conversation.parentId ? t("所属群：{0}", group.title) : t("群头像、名称与群组 Bot")}</small></span><ChevronRight size={16}/></button>}
       <ClearHistoryControl connection={connection} conversationId={conversation.id} disabled={suspended} variant="details"/>
     </section>
+    {!!groupMembers?.length && <section className="details-section">
+      <h4>{t("群组成员")}</h4>
+      <ul className="details-group-members" aria-label={t("群组成员")}>{groupMembers.map(member => <li key={member.id}>
+        <span>{member.name}</span>{member.source && <small>{member.source}</small>}
+      </li>)}</ul>
+    </section>}
     <section className="details-section" aria-label={t("Bot 配置")}>
       <div className="details-section-heading"><h4>Bot</h4>{members.length > 1 && <select aria-label={t("查看 Bot")} value={bot?.id ?? ""} onChange={event => setSelection(event.target.value)}>{members.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select>}</div>
       <button ref={botTrigger} className="details-link" aria-label={t("Bot 设置")} aria-describedby={`${scopeId}-bot`} disabled={!bot} onClick={() => setBotSettings(true)}><Settings size={20}/><span><strong>{t("Bot 设置")}</strong><small id={`${scopeId}-bot`}>{t("模型、人设与权限 · 所有对话共用")}</small></span><ChevronRight size={16}/></button>

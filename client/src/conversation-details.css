@@ -11,6 +11,9 @@
 .details-identity p{font-size:12px;line-height:1.5;margin:0;color:var(--muted);overflow-wrap:anywhere}
 .details-section{padding:12px 0;border-top:1px solid var(--border)}
 .details-section h4{margin:0;padding:4px 8px 6px;font-size:11px;font-weight:500;color:var(--muted)}
+.details-group-members{margin:0;padding:0 8px;list-style:none}
+.details-group-members li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:5px 0;font-size:13px;overflow-wrap:anywhere}
+.details-group-members small{color:var(--muted);font-size:11px}
 .details-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:28px}
 .details-section-heading select{max-width:65%;min-height:44px;margin-bottom:4px;font-size:13px}
 .details-host{border-top:1px solid var(--border);padding:12px 0}

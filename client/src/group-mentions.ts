@@ -1,7 +1,7 @@
 /** Resolve visible member names and IDs without interpreting code or emails as
  * recipients. Ambiguous/unknown mentions stay explicit so parallel mode cannot
  * silently turn a directed request into a broadcast. */
-export function groupMentions(text: string, members: { id: string; names: string[] }[]): { ids: string[]; unresolved: string[]; ambiguous?: string[] } {
+export function groupMentions(text: string, members: { id: string; names: string[] }[]): { ids: string[]; unresolved: string[]; ambiguous?: string[]; scopedLocalIds?: string[] } {
   // A pasted/open fence remains code through EOF. A shorter fence inside a
   // longer one is content, and a closing fence cannot carry an info string.
   // Keep this scan linear: recipient discovery runs while the user types.
@@ -23,7 +23,8 @@ export function groupMentions(text: string, members: { id: string; names: string
     if (key) aliases.set(key, new Set([...(aliases.get(key) ?? []), member.id]));
   }
   const names = [...aliases.keys()].sort((a, b) => b.length - a.length), lower = prose.toLowerCase();
-  const ids = new Set<string>(), unresolved = new Set<string>(), ambiguous = new Set<string>();
+  const memberIds = new Set(members.map(member => member.id));
+  const ids = new Set<string>(), unresolved = new Set<string>(), ambiguous = new Set<string>(), scopedLocalIds = new Set<string>();
   // Chinese and Japanese prose put no space around a mention ("请@GG1看一下").
   // A mention therefore also starts right after CJK text, but never after a
   // Latin letter, digit, "/" or "." (emails, URLs, package scopes). A name
@@ -37,11 +38,25 @@ export function groupMentions(text: string, members: { id: string; names: string
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(prose))) {
     const start = match.index + match[0].length;
+    const suffix = prose.slice(start);
+    // A picker-inserted key names an exact member even if display names collide.
+    // A stale key must not be read as a shorter alias such as @remote.
+    const scoped = /^(local|remote):([a-z0-9_:/.-]*)/i.exec(suffix);
+    if (scoped) {
+      const key = `${scoped[1]}:${scoped[2]!.replace(/[.:]+$/, "")}`;
+      const local = key.startsWith("local:");
+      const id = local ? key.slice("local:".length) : key;
+      if (memberIds.has(id) && (!local || !id.includes(":")) && strict(prose[start + scoped[0].length])) {
+        ids.add(id);
+        if (local) scopedLocalIds.add(id);
+      } else unresolved.add(key);
+      pattern.lastIndex = start + scoped[0].length;
+      continue;
+    }
     const name = names.find(name => lower.startsWith(name, start) && boundary(name, prose[start + name.length]));
     // Full member aliases win, including model/version names with dots or
     // slashes. A literal that only shares a member prefix is ambiguous: never
     // silently turn @A/B or @A.example into an all-member broadcast.
-    const suffix = prose.slice(start);
     const literal = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*/i.exec(suffix)?.[0]
       ?? /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+/i.exec(suffix)?.[0];
     if (literal && (!name || name.length < literal.length)) {
@@ -57,5 +72,9 @@ export function groupMentions(text: string, members: { id: string; names: string
       if (token) unresolved.add(token);
     }
   }
-  return { ids: [...ids], unresolved: [...unresolved], ...(ambiguous.size ? { ambiguous: [...ambiguous] } : {}) };
+  return {
+    ids: [...ids], unresolved: [...unresolved],
+    ...(ambiguous.size ? { ambiguous: [...ambiguous] } : {}),
+    ...(scopedLocalIds.size ? { scopedLocalIds: [...scopedLocalIds] } : {}),
+  };
 }

@@ -431,6 +431,17 @@ readers see the original sharing message and its own deletion state.
 Ordinary-group offline delivery caches authenticated mode metadata separately
 from drafts and carries an optional revision guard through the outbox to the
 same Host send transaction. See [offline delivery and compatibility](client/group-offline-delivery-2026-10-23.md).
+The authenticated discussion read carries the active remote roster for the
+selected group or topic. The ordinary composer and details use that roster.
+Room membership rows bind messages to the room's sessions. A legacy topic
+without membership rows uses the root group's roster and sessions. The Hub
+validates scoped recipients in the send transaction and delivers through the
+signed remote-question route. The outbox retains scoped sends when the Host
+cannot validate recipient keys.
+A group resend can reference its original input. The Hub recovers exact
+recipients from its saved member keys or original delivery rows, then checks
+current membership in the same transaction. Older clients retain local-first
+routing for bare Bot IDs. Forwarding keeps its explicit local recipients.
 Regressions: `hub-group-parallel`, `hub-group-discussion`, `hub-group-discussion-recovery`,
 `gateway-group-discussion`, client `group-discussion` and `group-discussion-contract`,
 `host-cli-group-discussion`, existing queue/recovery/group/Agent Bus suites;

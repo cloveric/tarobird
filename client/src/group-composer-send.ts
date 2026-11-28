@@ -1,3 +1,4 @@
+import type { RemoteGroupRoster } from "../../src/client-protocol/group-recipients.js";
 import { z } from "zod";
 import { automaticGroupDiscussion, groupDiscussionStartSchema, groupDiscussionNoteSchema, groupDiscussionViewSchema, GROUP_DISCUSSION_TEXT_LIMIT, hasVisibleGroupText, type GroupDiscussionView } from "../../src/client-protocol/group-discussion.js";
 import type { ClientFrame } from "../../src/client-protocol/index.js";
@@ -14,12 +15,13 @@ export type GroupReplyMode = {
   conversationId: string; mode: GroupDiscussionView["settings"]["policy"]["mode"]; revision: string;
   botOrder?: string[];
   designatedName?: string;
+  remoteMembers?: RemoteGroupRoster;
   activeRun?: Pick<NonNullable<GroupDiscussionView["run"]>, "id" | "conversationId"> & Partial<Pick<NonNullable<GroupDiscussionView["run"]>, "revision" | "status" | "topic" | "pauseReason" | "actions" | "participants">>;
   delivery?: "guarded" | "legacy" | "unguarded";
 };
 export const automaticComposer = (value?: GroupReplyMode): boolean => !!value && (automaticGroupDiscussion(value.mode) || !!value.activeRun);
 export const groupReplyModeFromView = (conversationId: string, view: GroupDiscussionView): GroupReplyMode => ({
-  conversationId, mode: view.settings.policy.mode, revision: view.settings.revision, botOrder: view.settings.policy.botOrder,
+  conversationId, mode: view.settings.policy.mode, revision: view.settings.revision, botOrder: view.settings.policy.botOrder, remoteMembers: view.remoteMembers,
   ...(view.run && ["running", "pausing", "paused", "ending"].includes(view.run.status) ? { activeRun: { id: view.run.id, conversationId: view.run.conversationId, revision: view.run.revision, status: view.run.status, topic: view.run.topic.slice(0, 500), pauseReason: view.run.pauseReason, actions: view.run.actions, participants: view.run.participants } } : {}),
 });
 type MessageSend = Extract<ClientFrame, { type: "message.send" }>;

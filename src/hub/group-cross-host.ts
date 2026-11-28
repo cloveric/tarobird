@@ -1664,10 +1664,7 @@ export class HubCrossHostGroups {
     await this.init();
     return this.store.db.serial(async () => {
       const memberKey = makeGroupMemberKey("local", "local", botId);
-      const hasRoomRows = conversation.parentId
-        ? !!(await this.store.db.get("SELECT 1 FROM group_session_members WHERE conversation_id=? LIMIT 1", [conversation.id]))
-        : true;
-      const scopeConvId = hasRoomRows ? conversation.id : conversation.parentId!;
+      const scopeConvId = await this.store.groupMemberScopeInTransaction(conversation.id, conversation.parentId ?? conversation.id);
       const row = await this.store.db.get<Record<string, unknown>>(
         "SELECT * FROM group_session_members WHERE conversation_id=? AND member_key=? AND active=1",
         [scopeConvId, memberKey],
@@ -2000,10 +1997,7 @@ export class HubCrossHostGroups {
       } catch {
         return undefined;
       }
-      const hasRoomRows = question.conversationId !== question.groupId
-        ? !!(await this.store.db.get("SELECT 1 FROM group_session_members WHERE conversation_id=? LIMIT 1", [question.conversationId]))
-        : true;
-      const scopeConvId = hasRoomRows ? question.conversationId : question.groupId;
+      const scopeConvId = await this.store.groupMemberScopeInTransaction(question.conversationId, question.groupId);
       const memberRow = await this.store.db.get<Record<string, unknown>>(
         "SELECT * FROM group_session_members WHERE conversation_id=? AND member_key=? AND session_id=? AND active=1",
         [scopeConvId, question.memberKey, question.sessionId],
@@ -2191,10 +2185,7 @@ export class HubCrossHostGroups {
     await this.init();
     const questionIds = await this.store.db.transaction(async () => {
       await this.store.requireMember(userId, groupId);
-      const hasRoomRows = conversationId !== groupId
-        ? !!(await this.store.db.get("SELECT 1 FROM group_session_members WHERE conversation_id=? LIMIT 1", [conversationId]))
-        : true;
-      const scopeConvId = hasRoomRows ? conversationId : groupId;
+      const scopeConvId = await this.store.groupMemberScopeInTransaction(conversationId, groupId);
       const memberRows = await this.store.db.all<Record<string, unknown>>(
         "SELECT * FROM group_session_members WHERE conversation_id=? AND kind='remote' AND active=1 ORDER BY joined_at ASC",
         [scopeConvId],
@@ -2263,10 +2254,7 @@ export class HubCrossHostGroups {
       if (!row) throw new HubError("group_question_not_found", 404);
       const q = this.mapQuestionRow(row);
 
-      const hasRoomRows = q.conversationId !== q.groupId
-        ? !!(await this.store.db.get("SELECT 1 FROM group_session_members WHERE conversation_id=? LIMIT 1", [q.conversationId]))
-        : true;
-      const scopeConvId = hasRoomRows ? q.conversationId : q.groupId;
+      const scopeConvId = await this.store.groupMemberScopeInTransaction(q.conversationId, q.groupId);
       const memberRow = await this.store.db.get<Record<string, unknown>>(
         "SELECT * FROM group_session_members WHERE conversation_id=? AND member_key=? AND session_id=? AND active=1",
         [scopeConvId, q.memberKey, q.sessionId],

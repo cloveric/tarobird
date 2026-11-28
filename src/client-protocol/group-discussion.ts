@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { conversationSchema, idSchema } from "./index.js";
+import { remoteGroupRosterSchema } from "./group-recipients.js";
 
 export const GROUP_DISCUSSION_CAPABILITY = "groups.discussion.v1";
 export const GROUP_DISCUSSION_COMPOSER_CAPABILITY = "groups.discussion.composer.v1";
@@ -130,6 +131,7 @@ export const groupDiscussionRunSchema = z.object({
 });
 export type GroupDiscussionRun = z.infer<typeof groupDiscussionRunSchema>;
 export const groupDiscussionViewSchema = z.object({
+  remoteMembers: remoteGroupRosterSchema.optional(),
   settings: groupSettingsSnapshotSchema, run: groupDiscussionRunSchema.nullable(),
   /** Opaque reader-specific cache token; older Hosts/clients omit or ignore it. */
   viewRevision: z.string().min(1).max(260).optional(),

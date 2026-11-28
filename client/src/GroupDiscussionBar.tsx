@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { addGlobalListener } from "./global-event-hub.js";
 import { Check, ChevronRight, ListOrdered, LoaderCircle, MessageSquare, MessagesSquare, Paperclip, Pause, Play, Settings2, Square, UserCheck } from "lucide-react";
 import { groupDiscussionActive, groupDiscussionViewSchema, groupDiscussionStepSchema, GROUP_DISCUSSION_TEXT_LIMIT, hasVisibleGroupText, type GroupDiscussionAction, type GroupDiscussionRun, type GroupDiscussionStep, type GroupDiscussionView } from "../../src/client-protocol/group-discussion.js";
-import { groupMembersStateSchema } from "../../src/client-protocol/group-members.js";
+import { groupMembersStateSchema, type GroupMemberSession } from "../../src/client-protocol/group-members.js";
 import type { Conversation } from "../../src/client-protocol/index.js";
 import type { HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
@@ -52,7 +52,7 @@ export function GroupDiscussionBar({ connection, conversation, group, active, se
   useLocale();
   const state = useSyncExternalStore(notify => connection.subscribe(notify), () => connection.state);
   const [view, setView] = useState<GroupDiscussionView>(), [error, setError] = useState("");
-  const [designatedName, setDesignatedName] = useState<string>();
+  const [designated, setDesignated] = useState<GroupMemberSession>();
   const [readError, setReadError] = useState(false);
   const [dialog, setDialog] = useState<"start" | "details" | "settings">(), [confirmEnd, setConfirmEnd] = useState(false);
   const [text, setText] = useState(""), [draftReady, setDraftReady] = useState(false), [draftError, setDraftError] = useState(false);
@@ -81,9 +81,16 @@ export function GroupDiscussionBar({ connection, conversation, group, active, se
   const participantProblem = !participants.ready || participants.error ? t("参与者选择尚未读取或保存，请重新选择后发送。")
     : selectedOrder.length < 2 ? t("发起讨论至少需要两位 Bot；只点名一位时，请从输入框发送。")
     : !state.groupDiscussionRecoveryAvailable && selectedOrder.length !== view?.settings.policy.botOrder.length ? t("更新主机后可选择本次讨论的参与者，内容已保留。") : "";
+  const designatedMode = view?.settings.policy.mode === "designated";
+  const designatedName = designatedMode && designated
+    ? designated.kind === "remote"
+      ? view.remoteMembers?.find(member => member.memberKey === designated.memberKey)?.name
+        ?? (!conversation.parentId && !view.remoteMembers ? designated.nameSnapshot : undefined)
+      : conversation.botIds.includes(designated.botId) ? designated.nameSnapshot : undefined
+    : undefined;
   useEffect(() => {
-    if (!view || view.settings.policy.mode !== "designated" || !state.crossHostGroupsAvailable || !online) {
-      setDesignatedName(undefined);
+    if (!designatedMode || !state.crossHostGroupsAvailable || !online) {
+      setDesignated(undefined);
       return;
     }
     let cancelled = false;
@@ -91,12 +98,11 @@ export function GroupDiscussionBar({ connection, conversation, group, active, se
       .then(raw => {
         if (cancelled) return;
         const parsed = groupMembersStateSchema.parse(raw);
-        const target = parsed.designatedMemberKey ? parsed.members.find(m => m.memberKey === parsed.designatedMemberKey) : undefined;
-        setDesignatedName(target ? target.nameSnapshot : undefined);
+        setDesignated(parsed.members.find(member => member.memberKey === parsed.designatedMemberKey));
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [connection, group.id, online, state.crossHostGroupsAvailable, view?.settings.policy.mode, view?.settings.revision, dialog]);
+  }, [connection, group.id, online, state.crossHostGroupsAvailable, designatedMode, view, dialog]);
   useEffect(() => {
     if (view) modeChanged?.({ ...groupReplyModeFromView(conversation.id, view), ...(designatedName ? { designatedName } : {}) });
   }, [conversation.id, view, designatedName, modeChanged]);

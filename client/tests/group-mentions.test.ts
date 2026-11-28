@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { groupMentions } from "../src/group-mentions.js";
+import { groupRecipientOptions, insertScopedGroupMention } from "../src/group-recipient-options.js";
 import { formatWorkspaceFileMention } from "../src/workspace-files-meta.js";
 const members = [{ id: "alpha", names: ["研究助手", "Research Bot"] }, { id: "beta", names: ["研究助手二", "Beta"] }];
 it("accepts names, IDs, spaced aliases and punctuation with longest exact matching", () => {
@@ -83,4 +84,38 @@ it("does not treat formatted workspace file mentions as unresolved or colliding 
   ];
   expect(groupMentions(tokens.join(" "), bots)).toEqual({ ids: [], unresolved: [] });
   expect(groupMentions(`@Beta 请检查 ${tokens.join(" ")}`, bots)).toEqual({ ids: ["beta"], unresolved: [] });
+});
+
+it("distinguishes visible choices that share the same Bot ID, Bot name, and host label", () => {
+  const ids = ["shared_bot", "remote:example_a:shared_bot", "remote:example_b:shared_bot"];
+  const options = groupRecipientOptions(
+    [ids[0]!], [], new Map([[ids[0]!, "Example Bot"]]), "Example Host",
+    ids.slice(1).map(memberKey => ({ memberKey, name: "Example Bot", hostName: "Example Host" })),
+  );
+  expect(options.map(option => option.id)).toEqual(ids);
+  expect(new Set(options.map(option => option.label)).size).toBe(3);
+  const aliases = options.map(option => ({ id: option.id, names: [option.name, option.botId] }));
+  expect(groupMentions("@Example Bot @shared_bot", aliases)).toEqual({
+    ids: [], unresolved: ["Example Bot", "shared_bot"], ambiguous: ["Example Bot", "shared_bot"],
+  });
+  const draft = insertScopedGroupMention("Please ask @Example", options[2]!) + "review";
+  expect(draft).toBe(`Please ask @${ids[2]} review`);
+  expect(groupMentions(draft, aliases)).toEqual({ ids: [ids[2]], unresolved: [] });
+});
+
+it("keeps a scoped mention out of other rooms and does not resolve it as a local name prefix", () => {
+  const roomMembers = [
+    { id: "shared_bot", names: ["Same Bot"] },
+    { id: "local_remote", names: ["remote"] },
+    { id: "remote:example_a:shared_bot", names: ["Same Bot", "shared_bot"] },
+  ];
+  expect(groupMentions("@remote:example_b:shared_bot review", roomMembers)).toEqual({
+    ids: [], unresolved: ["remote:example_b:shared_bot"],
+  });
+  expect(groupMentions("@local:remote:example_a:shared_bot review @remote:", roomMembers)).toEqual({
+    ids: [], unresolved: ["local:remote:example_a:shared_bot", "remote:"],
+  });
+  expect(groupMentions("@local:shared_bot review", roomMembers)).toEqual({
+    ids: ["shared_bot"], unresolved: [], scopedLocalIds: ["shared_bot"],
+  });
 });

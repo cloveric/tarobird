@@ -206,7 +206,7 @@ export function partitionOutboxItems<T extends OutboxViewItem>(
         status: "pending",
         version: 1,
         clientMsgId: frame.clientMsgId,
-        ...(frame.mentions?.length ? { mentions: frame.mentions } : {}),
+        ...(frame.mentions?.length ? { mentions: frame.mentions.filter(id => !id.includes(":")) } : {}),
         ...(frame.replyTo ? { replyTo: frame.replyTo } : {}),
         ...(frame.previewUrl !== undefined ? { previewUrl: frame.previewUrl } : {}),
         ...(frame.previewUrl && frame.previewStyle ? { previewStyle: frame.previewStyle } : {}),
