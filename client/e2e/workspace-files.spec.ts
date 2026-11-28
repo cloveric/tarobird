@@ -332,6 +332,16 @@ test("Files panel says where the Bot works and what this turn changed; 文件 is
       await expect.poll(async () => (await ruleY("aside.workspace-files-panel .wf-header")) - (await ruleY(".host-workspace:not([hidden]) .conversation-header"))).toBe(0);
     }
 
+    // The left edge resizes the panel like the other side panels.
+    const handle = panel.getByRole("separator", { name: "调整文件面板宽度", exact: true });
+    await expect(handle).toBeVisible();
+    const before = (await panel.boundingBox())!.width, grip = (await handle.boundingBox())!;
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2); await page.mouse.down();
+    await page.mouse.move(grip.x + grip.width / 2 - 60, grip.y + grip.height / 2, { steps: 4 }); await page.mouse.up();
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBeGreaterThan(Math.round(before) + 40);
+    await handle.dblclick();
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.width)).toBe(Math.round(before));
+
     // Where the Bot works: the real directory, not only its name.
     const root = panel.locator(".wf-crumb-root");
     await expect(root).toHaveClass(/is-path/);
