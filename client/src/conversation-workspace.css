@@ -1492,7 +1492,7 @@
 .header-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: var(--radius); }
 .header-actions button > svg { flex: none; }
 .header-actions .connection-pill { margin: 0; }
-.header-actions .connection-pill.online > svg { width: 18px; height: 18px; }
+.header-actions .connection-pill > svg { width: 18px; height: 18px; }
 .header-divider { flex: none; width: 1px; height: 18px; margin: 0 7px; background: var(--border); }
 .header-panel-slider + .header-divider { margin-left: 14px; }
 .header-panel-slider { padding: 3px; border-radius: 10px; background: var(--surface); }
@@ -1509,3 +1509,22 @@
 .header-panel-slider .workspace-rail-trigger-label { display: none; }
 .header-panel-slider .workspace-rail-trigger-badge { position: absolute; top: 0; right: -1px; min-width: 14px; height: 14px; padding: 0 3px; font-size: 9.5px; }
 .header-plugin-group .plugin-panel-trigger > svg, .header-plugin-group .plugin-menu-trigger > svg { width: 18px; height: 18px; }
+
+.conversation-main:has(> .conversation-header > .header-actions) { container: conversation-header-main / inline-size; }
+.app-shell.has-side-panel > .conversation-main:has(> .conversation-header > .header-actions) { container-name: side-main conversation-header-main; }
+
+@container conversation-header-main (max-width: 620px) {
+  .conversation-header:has(> .header-actions) {
+    height: auto;
+    min-height: max(64px, calc(var(--header-content-height, 64px) + var(--app-safe-top, 0px)));
+    padding-block: calc(var(--app-safe-top, 0px) + 6px) 6px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .conversation-header:has(> .header-actions) > .header-title { min-width: min(100px, 100%); }
+  .header-actions { max-width: 100%; margin-inline-start: auto; flex-wrap: wrap; justify-content: flex-end; gap: 4px 10px; }
+  .header-action-group { max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+  /* Installed plugins stay reachable through the menu when the pins won't fit. */
+  .header-divider, .header-plugin-group > .plugin-panel-trigger { display: none; }
+}
