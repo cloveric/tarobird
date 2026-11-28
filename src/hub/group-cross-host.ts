@@ -6,7 +6,7 @@ import { isIP } from "node:net";
 import { z } from "zod";
 import type { Block, Conversation, HubEvent, Message } from "../client-protocol/index.js";
 import type { BotSource } from "../client-protocol/bot-messages.js";
-import { blocksText } from "../client-protocol/index.js";
+import { MAX_FRAME_BYTES, MAX_TEXT_BYTES, blocksText } from "../client-protocol/index.js";
 import { anyRun, isRunActive } from "../client-protocol/run.js";
 import { activeAnswerFollowup, answerFollowup } from "../client-protocol/answer-followup.js";
 import { queueNotice } from "../client-protocol/queue-notice.js";
@@ -70,9 +70,55 @@ type GrantRecord = { sourceKey: string; sourceBot: string; targetBot: string; re
 const PEER_CLOCK_SKEW_MS = 60_000;
 const PEER_TIMEOUT_MS = 10_000;
 const SENDING_SWEEP_GRACE_MS = 1_000;
+export const MAX_GROUP_MAIL_REQUEST_BYTES = 2 * MAX_FRAME_BYTES;
 const MAX_GROUP_MAIL_RESPONSE_BYTES = 4 * 1024 * 1024;
 const MAX_NONCE_ROWS = 16_384;
 const NONCE_RE = /^[A-Za-z0-9_-]{16,128}$/;
+
+function groupMailOrigin(input: GroupMailDeliver): string {
+  return `[From ${input.sourceHostName} · Group "${input.groupTitle}"]\n`;
+}
+
+function groupMailHistoryHeader(input: GroupMailDeliver): string {
+  return `[Group "${input.groupTitle}" recent context]\n`;
+}
+
+function groupMailHistoryLine(entry: GroupMailDeliver["contextMessages"][number]): string {
+  return `${entry.authorName}: ${entry.text}\n`;
+}
+
+function fitGroupMailHistory(input: GroupMailDeliver): GroupMailDeliver {
+  if (input.contextMessages.length === 0) return input;
+  let wireBytes = Buffer.byteLength(JSON.stringify({ ...input, contextMessages: [] }));
+  let textBytes = Buffer.byteLength(groupMailHistoryHeader(input) + "\n" + groupMailOrigin(input) + input.text);
+  let first = input.contextMessages.length;
+  while (first > 0) {
+    const entry = input.contextMessages[first - 1];
+    wireBytes += Buffer.byteLength(JSON.stringify(entry)) + (first < input.contextMessages.length ? 1 : 0);
+    textBytes += Buffer.byteLength(groupMailHistoryLine(entry));
+    if (wireBytes > MAX_GROUP_MAIL_REQUEST_BYTES || textBytes > MAX_TEXT_BYTES) break;
+    first--;
+  }
+  return { ...input, contextMessages: input.contextMessages.slice(first) };
+}
+
+function composeGroupMailText(input: GroupMailDeliver): string {
+  const { contextMessages } = fitGroupMailHistory(input);
+  const prompt = groupMailOrigin(input) + input.text;
+  if (contextMessages.length) {
+    return groupMailHistoryHeader(input) + contextMessages.map(groupMailHistoryLine).join("") + "\n" + prompt;
+  }
+  return Buffer.byteLength(prompt) <= MAX_TEXT_BYTES ? prompt : input.text;
+}
+
+function groupMailConnectionFailure(error: unknown, hostName: string): { status: "failed" | "uncertain"; error: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const causeCode = String((error as { cause?: { code?: string } } | null)?.cause?.code ?? "");
+  if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|peer_host_offline/i.test(`${message} ${causeCode}`)) {
+    return { status: "failed", error: `${hostName} is offline; message kept without loss` };
+  }
+  return { status: "uncertain", error: `uncertain_delivery: ${message}` };
+}
 
 function botGrantKey(sourceKey: string, sourceBot: string, targetBot: string): string {
   return `bot-messages:grant:${hashSecret(JSON.stringify([sourceKey, sourceBot, targetBot]))}`;
@@ -669,10 +715,7 @@ export class HubCrossHostGroups {
       );
       if (!validSession) throw new HubError("remote_session_mismatch", 409);
 
-      const contextPrefix = input.contextMessages.length
-        ? `[Group "${input.groupTitle}" recent context]\n${input.contextMessages.map((m) => `${m.authorName}: ${m.text}`).join("\n")}\n\n`
-        : "";
-      const composedText = `${contextPrefix}[From ${input.sourceHostName} · Group "${input.groupTitle}"]\n${input.text}`;
+      const composedText = composeGroupMailText(input);
       const botSource: BotSource = {
         hostId: input.sourceHostId,
         hostName: input.sourceHostName,
@@ -925,11 +968,12 @@ export class HubCrossHostGroups {
   }
 
   /** Receives a remote Bot's reply (verifying peer identity strictly against the question's host/key) and publishes via HubStore so WS/FTS/push stay live. */
-  async handlePeerReply(peer: GroupPeerEndpoint, raw: unknown): Promise<{ accepted: true; messageId: string }> {
+  async handlePeerReply(peer: GroupPeerEndpoint, raw: unknown, validate?: TransactionGuard): Promise<{ accepted: true; messageId: string }> {
     await this.init();
     const input = groupMailReplySchema.parse(raw);
 
     const committed = await this.store.db.transaction(async () => {
+      await validate?.();
       const question = await this.store.db.get<{
         id: string;
         group_id: string;
@@ -1976,6 +2020,130 @@ export class HubCrossHostGroups {
     return task;
   }
 
+  private async recordQuestionOutcome(
+    question: RemoteGroupQuestion,
+    status: RemoteGroupQuestionStatus,
+    error: string | null,
+    options?: { backfillScope?: string; replyPending?: boolean; validate?: TransactionGuard },
+  ): Promise<RemoteGroupQuestion> {
+    return this.store.db.transaction(async () => {
+      await options?.validate?.();
+      await this.store.db.run(
+        `UPDATE group_remote_questions SET status=?, error=?, updated_at=?
+         WHERE id=? AND answer_message_id IS NULL AND
+           (?=1 OR (status!='delivered' AND COALESCE(error, '')!='group_reply_pending'))`,
+        [status, error, Date.now(), question.id, options?.replyPending ? 1 : 0],
+      );
+      if (options?.backfillScope) {
+        await this.store.db.run(
+          "UPDATE group_session_members SET history_backfilled=1 WHERE conversation_id=? AND member_key=? AND session_id=?",
+          [options.backfillScope, question.memberKey, question.sessionId],
+        );
+      }
+      const row = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [question.id]);
+      return this.mapQuestionRow(row!);
+    });
+  }
+
+  /** An absent result is affirmative evidence that the peer has no receipt. */
+  private async reconcilePeerQuestion(
+    peer: GroupPeerEndpoint,
+    question: RemoteGroupQuestion,
+    backfillScope?: string,
+    validate?: TransactionGuard,
+  ): Promise<RemoteGroupQuestion | undefined> {
+    let response: PeerFetchResult;
+    try {
+      response = await this.callPeer(peer, "GET", `/api/group-mail/status/${encodeURIComponent(question.requestId)}`);
+    } catch (error) {
+      const failure = groupMailConnectionFailure(error, question.hostName);
+      const status = question.status === "uncertain" ? "uncertain" : failure.status;
+      return this.recordQuestionOutcome(question, status, failure.error, { validate });
+    }
+    const info = response.status === 200 && response.json && typeof response.json === "object"
+      ? response.json as { found?: boolean; status?: string; replyText?: string }
+      : undefined;
+    if (info?.found === false) return undefined;
+    if (info?.found !== true || (info.status !== "delivered" && info.status !== "answered")) {
+      return this.recordQuestionOutcome(question, "uncertain", `group_status_unconfirmed: http_${response.status}`, { validate });
+    }
+    if (info.status === "answered") {
+      try {
+        await this.handlePeerReply(peer, {
+          requestId: question.requestId,
+          groupId: question.groupId,
+          conversationId: question.conversationId,
+          botId: question.botId,
+          sessionId: question.sessionId,
+          text: info.replyText,
+        }, validate);
+      } catch {
+        // The peer has an answer. Keep its receipt retryable without sending
+        // the question again. A concurrent callback may already have saved it.
+        return this.recordQuestionOutcome(question, "uncertain", "group_reply_pending", { backfillScope, replyPending: true, validate });
+      }
+    }
+    return this.recordQuestionOutcome(question, "delivered", null, { backfillScope, validate });
+  }
+
+  private async postPeerQuestion(
+    peer: GroupPeerEndpoint,
+    question: RemoteGroupQuestion,
+    payload: GroupMailDeliver,
+    backfillScope: string | undefined,
+    options?: { manual?: boolean; validate?: TransactionGuard },
+  ): Promise<RemoteGroupQuestion> {
+    const boundedPayload = fitGroupMailHistory(payload);
+    const delivery = await this.store.db.serial(async () => {
+      await options?.validate?.();
+      const read = async () => this.mapQuestionRow((await this.store.db.get<Record<string, unknown>>(
+        "SELECT * FROM group_remote_questions WHERE id=?", [question.id],
+      ))!);
+      const current = await read();
+      if (current.answerMessageId || current.status === "delivered" || current.error === "group_reply_pending") return { current };
+      if (!options?.manual && current.stoppedUnanswered) {
+        if (current.status !== "sending") return { current };
+        await this.store.db.run(
+          "UPDATE group_remote_questions SET status='failed', error='group_question_stopped', updated_at=? WHERE id=?",
+          [Date.now(), question.id],
+        );
+        return { current: await read() };
+      }
+      const scopeConvId = await this.store.groupMemberScopeInTransaction(current.conversationId, current.groupId);
+      const member = await this.store.db.get(
+        "SELECT 1 FROM group_session_members WHERE conversation_id=? AND member_key=? AND session_id=? AND active=1",
+        [scopeConvId, current.memberKey, current.sessionId],
+      );
+      if (!member) {
+        if (options?.manual) throw new HubError("group_session_revoked", 409);
+        await this.store.db.run(
+          "UPDATE group_remote_questions SET status='failed', error='group_session_revoked', updated_at=? WHERE id=?",
+          [Date.now(), question.id],
+        );
+        return { current: await read() };
+      }
+      // Start the request before releasing the DB queue so Stop cannot commit
+      // between the stop check and dispatch. The network wait is outside it.
+      const request = this.callPeer(peer, "POST", "/api/group-mail/deliver", boundedPayload).then(
+        response => ({ response }), error => ({ failure: groupMailConnectionFailure(error, question.hostName) }),
+      );
+      return { request };
+    });
+    if (delivery.current) return delivery.current;
+    const result = await delivery.request;
+    const { validate } = options ?? {};
+    if ("failure" in result) {
+      return this.recordQuestionOutcome(question, result.failure.status, result.failure.error, { validate });
+    }
+    const { response } = result;
+    if (response.status === 200) {
+      return this.recordQuestionOutcome(question, "delivered", null, { backfillScope, validate });
+    }
+    const status = response.status >= 400 && response.status < 500 ? "failed" : "uncertain";
+    const error = (response.json as { error?: string } | undefined)?.error ?? `http_${response.status}`;
+    return this.recordQuestionOutcome(question, status, error, { validate });
+  }
+
   private async deliverQuestionByIdInner(
     userId: string | undefined,
     questionId: string,
@@ -2032,17 +2200,7 @@ export class HubCrossHostGroups {
 
     if (!prepared) return undefined;
     if ("done" in prepared && prepared.done) return prepared.done;
-    if ("revoked" in prepared && prepared.revoked) {
-      const updated = await this.store.db.serial(async () => {
-        await this.store.db.run(
-          "UPDATE group_remote_questions SET status='failed', error='group_session_revoked', updated_at=? WHERE id=? AND answer_message_id IS NULL",
-          [Date.now(), questionId],
-        );
-        const row = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [questionId]);
-        return row ? this.mapQuestionRow(row) : undefined;
-      });
-      return updated;
-    }
+    if ("revoked" in prepared && prepared.revoked) return this.recordQuestionOutcome(prepared.revoked, "failed", "group_session_revoked");
 
     const { question, groupTitle, scopeConvId, member, text, contextMessages, shouldMarkBackfilled } = prepared;
     const hostId = member?.hostId ?? question.hostId;
@@ -2050,80 +2208,19 @@ export class HubCrossHostGroups {
     const peer = await this.findPeer(hostId);
     if (!peer) {
       const errorText = member ? `${hostName} is offline; message kept without loss` : "group_session_revoked";
-      return this.store.db.serial(async () => {
-        await this.store.db.run(
-          "UPDATE group_remote_questions SET status='failed', error=?, updated_at=? WHERE id=? AND answer_message_id IS NULL",
-          [errorText, Date.now(), question.id],
-        );
-        const row = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [question.id]);
-        return this.mapQuestionRow(row!);
-      });
+      return this.recordQuestionOutcome(question, "failed", errorText);
     }
 
+    const backfillScope = shouldMarkBackfilled ? scopeConvId : undefined;
     if (reconcileFirst) {
-      try {
-        const statusRes = await this.callPeer(peer, "GET", `/api/group-mail/status/${encodeURIComponent(question.requestId)}`);
-        if (statusRes.status === 200 && statusRes.json && typeof statusRes.json === "object") {
-          const info = statusRes.json as { found?: boolean; status?: string; replyText?: string };
-          if (info.found) {
-            await this.store.db.transaction(async () => {
-              await this.store.db.run(
-                "UPDATE group_remote_questions SET status='delivered', error=NULL, updated_at=? WHERE id=? AND answer_message_id IS NULL",
-                [Date.now(), question.id],
-              );
-              if (shouldMarkBackfilled && member) {
-                await this.store.db.run(
-                  "UPDATE group_session_members SET history_backfilled=1 WHERE conversation_id=? AND member_key=? AND session_id=?",
-                  [scopeConvId, member.memberKey, member.sessionId],
-                );
-              }
-            });
-            if (info.status === "answered" && typeof info.replyText === "string" && !question.answerMessageId) {
-              await this.handlePeerReply(peer, {
-                requestId: question.requestId,
-                groupId: question.groupId,
-                conversationId: question.conversationId,
-                botId: question.botId,
-                sessionId: question.sessionId,
-                text: info.replyText,
-              }).catch(() => undefined);
-            }
-            return this.store.db.serial(async () => {
-              const row = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [question.id]);
-              return row ? this.mapQuestionRow(row) : undefined;
-            });
-          }
-        }
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        const causeCode = String((error as { cause?: { code?: string } } | null)?.cause?.code ?? "");
-        const isDefiniteRefused = /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|peer_host_offline/i.test(`${msg} ${causeCode}`);
-        const nextStatus: RemoteGroupQuestionStatus = isDefiniteRefused ? "failed" : "uncertain";
-        const errorText = isDefiniteRefused ? `${hostName} is offline; message kept without loss` : `uncertain_delivery: ${msg}`;
-        return this.store.db.serial(async () => {
-          await this.store.db.run(
-            "UPDATE group_remote_questions SET status=?, error=?, updated_at=? WHERE id=? AND answer_message_id IS NULL",
-            [nextStatus, errorText, Date.now(), question.id],
-          );
-          const row = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [question.id]);
-          return row ? this.mapQuestionRow(row) : undefined;
-        });
-      }
+      const reconciled = await this.reconcilePeerQuestion(peer, question, backfillScope);
+      if (reconciled) return reconciled;
     }
 
-    if (!member) {
-      return this.store.db.serial(async () => {
-        await this.store.db.run(
-          "UPDATE group_remote_questions SET status='failed', error='group_session_revoked', updated_at=? WHERE id=? AND answer_message_id IS NULL",
-          [Date.now(), question.id],
-        );
-        const row = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [question.id]);
-        return row ? this.mapQuestionRow(row) : undefined;
-      });
-    }
+    if (!member) return this.recordQuestionOutcome(question, "failed", "group_session_revoked");
 
     const callbackUrl = this.safeLocalUrl();
-    const payload: GroupMailDeliver = {
+    return this.postPeerQuestion(peer, question, {
       requestId: question.requestId,
       groupId: question.groupId,
       groupTitle,
@@ -2136,44 +2233,7 @@ export class HubCrossHostGroups {
       text,
       contextMessages,
       ...(callbackUrl ? { callbackUrl } : {}),
-    };
-
-    let nextStatus: RemoteGroupQuestionStatus = "delivered";
-    let errorText: string | null = null;
-    try {
-      const res = await this.callPeer(peer, "POST", "/api/group-mail/deliver", payload);
-      if (res.status === 200) {
-        nextStatus = "delivered";
-        errorText = null;
-      } else if (res.status >= 400 && res.status < 500) {
-        nextStatus = "failed";
-        errorText = (res.json as { error?: string } | undefined)?.error ?? `http_${res.status}`;
-      } else {
-        nextStatus = "uncertain";
-        errorText = `http_${res.status}`;
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      const causeCode = String((error as { cause?: { code?: string } } | null)?.cause?.code ?? "");
-      const isDefiniteRefused = /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|peer_host_offline/i.test(`${msg} ${causeCode}`);
-      nextStatus = isDefiniteRefused ? "failed" : "uncertain";
-      errorText = isDefiniteRefused ? `${member.hostName} is offline; message kept without loss` : `uncertain_delivery: ${msg}`;
-    }
-
-    return this.store.db.transaction(async () => {
-      await this.store.db.run(
-        "UPDATE group_remote_questions SET status=?, error=?, updated_at=? WHERE id=? AND answer_message_id IS NULL",
-        [nextStatus, errorText, Date.now(), question.id],
-      );
-      if (nextStatus === "delivered" && shouldMarkBackfilled) {
-        await this.store.db.run(
-          "UPDATE group_session_members SET history_backfilled=1 WHERE conversation_id=? AND member_key=? AND session_id=?",
-          [scopeConvId, member.memberKey, member.sessionId],
-        );
-      }
-      const finalRow = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [question.id]);
-      return this.mapQuestionRow(finalRow!);
-    });
+    }, backfillScope);
   }
 
   /** Sends a group question to one or all active remote members with explicit 4-state tracking
@@ -2283,51 +2343,17 @@ export class HubCrossHostGroups {
     });
 
     const { group, q, scopeConvId, member, text, contextMessages, shouldMarkBackfilled } = preflight;
+    if (q.answerMessageId) return q;
     const peer = await this.findPeer(q.hostId);
     if (!peer) throw new HubError("peer_host_offline", 503);
 
-    // 1. Check remote status by idempotent requestId first (recovery without double-sending!).
-    const statusRes = await this.callPeer(peer, "GET", `/api/group-mail/status/${encodeURIComponent(q.requestId)}`);
-    if (statusRes.status === 200 && statusRes.json && typeof statusRes.json === "object") {
-      const info = statusRes.json as { found?: boolean; status?: string; replyText?: string };
-      if (info.found) {
-        await this.store.db.transaction(async () => {
-          await validate?.();
-          await this.store.db.run(
-            "UPDATE group_remote_questions SET status='delivered', error=NULL, updated_at=? WHERE id=?",
-            [Date.now(), q.id],
-          );
-          if (shouldMarkBackfilled && member) {
-            await this.store.db.run(
-              "UPDATE group_session_members SET history_backfilled=1 WHERE conversation_id=? AND member_key=? AND session_id=?",
-              [scopeConvId, member.memberKey, member.sessionId],
-            );
-          }
-        });
-        if (info.status === "answered" && typeof info.replyText === "string" && !q.answerMessageId) {
-          await this.handlePeerReply(peer, {
-            requestId: q.requestId,
-            groupId: q.groupId,
-            conversationId: q.conversationId,
-            botId: q.botId,
-            sessionId: q.sessionId,
-            text: info.replyText,
-          });
-        }
-        return this.store.db.serial(async () => {
-          const updated = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [q.id]);
-          return this.mapQuestionRow(updated!);
-        });
-      }
-    }
-
-    // 2. Not found on remote -> verify session still has active access before re-delivering!
-    if (!member) {
-      throw new HubError("group_session_revoked", 409);
-    }
+    const backfillScope = shouldMarkBackfilled ? scopeConvId : undefined;
+    const reconciled = await this.reconcilePeerQuestion(peer, q, backfillScope, validate);
+    if (reconciled) return reconciled;
+    if (!member) throw new HubError("group_session_revoked", 409);
 
     const callbackUrl = this.safeLocalUrl();
-    const res = await this.callPeer(peer, "POST", "/api/group-mail/deliver", {
+    return this.postPeerQuestion(peer, q, {
       requestId: q.requestId,
       groupId: q.groupId,
       groupTitle: group.title,
@@ -2340,31 +2366,7 @@ export class HubCrossHostGroups {
       text,
       contextMessages,
       ...(callbackUrl ? { callbackUrl } : {}),
-    } satisfies GroupMailDeliver);
-
-    return this.store.db.transaction(async () => {
-      await validate?.();
-      if (res.status === 200) {
-        await this.store.db.run(
-          "UPDATE group_remote_questions SET status='delivered', error=NULL, updated_at=? WHERE id=?",
-          [Date.now(), q.id],
-        );
-        if (shouldMarkBackfilled) {
-          await this.store.db.run(
-            "UPDATE group_session_members SET history_backfilled=1 WHERE conversation_id=? AND member_key=? AND session_id=?",
-            [scopeConvId, member.memberKey, member.sessionId],
-          );
-        }
-      } else {
-        const reason = (res.json as { error?: string } | undefined)?.error ?? `http_${res.status}`;
-        await this.store.db.run(
-          "UPDATE group_remote_questions SET status='failed', error=?, updated_at=? WHERE id=?",
-          [reason, Date.now(), q.id],
-        );
-      }
-      const updated = await this.store.db.get<Record<string, unknown>>("SELECT * FROM group_remote_questions WHERE id=?", [q.id]);
-      return this.mapQuestionRow(updated!);
-    });
+    }, backfillScope, { manual: true, validate });
   }
 
   /** Stops the whole group: cancels active discussions, halts active local work, and marks ONLY currently unanswered remote questions (`stoppedUnanswered: true`), while still letting late remote answers land. */

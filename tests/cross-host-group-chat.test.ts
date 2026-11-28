@@ -3,9 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { WebSocket } from "ws";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { conversationSchema, idSchema, type GroupReplyGuard } from "../src/client-protocol/index.js";
+import { MAX_FRAME_BYTES, MAX_TEXT_BYTES, blocksText, conversationSchema, idSchema, messageSchema, type GroupReplyGuard } from "../src/client-protocol/index.js";
 import { groupDiscussionRunSchema, groupDiscussionViewSchema } from "../src/client-protocol/group-discussion.js";
 import { CROSS_HOST_GROUPS_CAPABILITY, groupMembersStateSchema } from "../src/client-protocol/group-members.js";
 import { createCoreServiceRuntime } from "../src/core/runtime.js";
@@ -112,6 +112,24 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
       (v) => v === 1,
     );
     return channel;
+  }
+
+  async function deliveryFixture() {
+    const a = await startHub("mail-sender");
+    const b = await startHub("mail-receiver");
+    a.hub.crossHostGroups.registerPeer({ hostId: "peer_b", hostName: "Receiver", publicKey: b.hub.auth.publicKey, url: b.hub.url });
+    b.hub.crossHostGroups.registerPeer({ hostId: "peer_a", hostName: "Sender", publicKey: a.hub.auth.publicKey, url: a.hub.url });
+    await a.hub.store.db.run("INSERT INTO bots(id,name,engine,secret_hash,online) VALUES('bot_local','Local','codex','h',1)");
+    await b.hub.store.db.run("INSERT INTO bots(id,name,engine,secret_hash,online) VALUES('bot_remote','Remote','codex','h',1)");
+    await b.hub.crossHostGroups.grantPeerBot(a.hub.auth.publicKey, "bot_remote");
+    const group = await a.hub.store.createConversation("owner", ["bot_local"], "Delivery fixture", "delivery_group", { type: "group" });
+    const post = (clientMsgId: string, text: string) => a.hub.store.sendMessage("owner", {
+      conversationId: group.id, clientMsgId, text, attachments: [], mentions: ["bot_local"],
+    });
+    const addRemote = (history: "all" | "none" = "none") => a.hub.crossHostGroups.addMember("owner", group.id, {
+      hostId: "peer_b", botId: "bot_remote", historyVisibility: { kind: history },
+    });
+    return { a, b, group, post, addRemote };
   }
 
   afterEach(async () => {
@@ -1105,6 +1123,171 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
       (f) => !!f,
     );
     expect(await hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [modernAck!.messageId as string])).toEqual([{ bot_id: "beta" }]);
+  });
+
+  it.each(["initial", "manual retry"] as const)("bounds group history on %s by wire bytes and preserves the full question", async mode => {
+    const { a, b, group, post, addRemote } = await deliveryFixture();
+    for (let i = 0; i < 186; i++) {
+      await post(`old_${i}`, `old history ${i} ${"历史".repeat(1990)}`);
+    }
+    const recent = '最近的可见消息 "quoted"\nnext line';
+    await post("last_visible", recent);
+    const deleted = await post("last_deleted", "Deleted fixture");
+    await a.hub.store.deleteMessages("owner", group.id, { messageIds: [deleted.message.id] });
+    const remote = await addRemote("all");
+    await post("after_join", "Post-join fixture");
+    const prompt = "完整提问 " + '"\\\n汉'.repeat(14_000);
+    const source = await post("current_question", prompt);
+
+    const transport = a.hub.crossHostGroups["transport"];
+    const payloads: string[] = [];
+    a.hub.crossHostGroups.setTransport(async (peer, method, route, headers, body) => {
+      if (route === "/api/group-mail/deliver" && body) {
+        payloads.push(body);
+        if (mode === "manual retry" && payloads.length === 1) throw new Error("ECONNREFUSED");
+      }
+      return transport(peer, method, route, headers, body);
+    });
+    const [initial] = await a.hub.crossHostGroups.sendToRemoteMembers("owner", group.id, group.id, source.message);
+    const result = mode === "manual retry"
+      ? await a.hub.crossHostGroups.reconcileOrRetryQuestion("owner", group.id, initial.id)
+      : initial;
+
+    expect(result.status).toBe("delivered");
+    expect(payloads).toHaveLength(mode === "manual retry" ? 2 : 1);
+    expect(Buffer.byteLength(payloads.at(-1)!)).toBeLessThanOrEqual(2 * MAX_FRAME_BYTES);
+    const delivered = JSON.parse(payloads.at(-1)!) as { text: string; contextMessages: Array<{ text: string }> };
+    expect(delivered.text).toBe(prompt);
+    expect(delivered.contextMessages.at(-1)?.text).toBe(recent);
+    const savedHistory = delivered.contextMessages.map(entry => entry.text);
+    expect(savedHistory).not.toContain("Deleted fixture");
+    expect(savedHistory).not.toContain("Post-join fixture");
+    expect(savedHistory).not.toContain(prompt);
+    expect(savedHistory.some(text => text.startsWith("old history 0 "))).toBe(false);
+    const inbox = await b.hub.store.db.get<{ delivered_message_id: string }>("SELECT delivered_message_id FROM group_mail_inbox WHERE request_id=?", [result.requestId]);
+    const row = await b.hub.store.db.get<{ blocks_json: string }>("SELECT blocks_json FROM messages WHERE id=? AND conversation_id=?", [inbox?.delivered_message_id, remote.sessionId]);
+    const parsed = messageSchema.shape.blocks.parse(JSON.parse(row!.blocks_json));
+    expect(blocksText(parsed)).toContain(recent);
+    expect(blocksText(parsed).endsWith(prompt)).toBe(true);
+    expect(Buffer.byteLength(blocksText(parsed))).toBeLessThanOrEqual(MAX_TEXT_BYTES);
+  });
+
+  it.each(["initial listener", "restart recovery", "stop during status check"] as const)(
+    "does not auto-deliver stopped group questions (%s)",
+    async mode => {
+      const { a, b, group, addRemote } = await deliveryFixture();
+      const remote = await addRemote();
+      const queued = await a.hub.store.db.transaction(() => a.hub.store.sendMessageInTransaction("owner", {
+        conversationId: group.id, clientMsgId: "pending_group_question", text: "Pending group question", attachments: [], mentions: [remote.memberKey],
+      }));
+      expect(queued.remoteDispatch?.questionIds).toHaveLength(1);
+      const [id] = queued.remoteDispatch!.questionIds;
+      let checkedStatus!: () => void;
+      const statusStarted = new Promise<void>(resolve => { checkedStatus = resolve; });
+      let resumeStatus!: () => void;
+      const statusWait = new Promise<void>(resolve => { resumeStatus = resolve; });
+      const transport = a.hub.crossHostGroups["transport"];
+      const posts: string[] = [];
+      const intercepted: typeof transport = async (peer, method, route, headers, body) => {
+        if (route === "/api/group-mail/deliver") posts.push(body!);
+        if (mode === "stop during status check" && method === "GET" && route.startsWith("/api/group-mail/status/")) {
+          checkedStatus();
+          await statusWait;
+        }
+        return transport(peer, method, route, headers, body);
+      };
+      a.hub.crossHostGroups.setTransport(intercepted);
+      const sweeping = mode === "stop during status check" ? a.hub.crossHostGroups.recoverPendingQuestions({ includeRecent: true }) : undefined;
+      if (sweeping) await statusStarted;
+      try {
+        const stop = await a.hub.crossHostGroups.stopGroup("owner", group.id);
+        expect(stop.questions.find(q => q.id === id)?.stoppedUnanswered).toBe(true);
+      } finally {
+        resumeStatus();
+      }
+      let store = a.hub.store;
+      let groups = a.hub.crossHostGroups;
+      if (mode === "restart recovery") {
+        await a.hub.close();
+        hubs.splice(hubs.indexOf(a.hub), 1);
+        store = await HubStore.open(a.stateDir);
+      }
+
+      try {
+        if (sweeping) {
+          await sweeping;
+        } else if (mode === "initial listener") {
+          await groups.deliverQueuedQuestions(queued.remoteDispatch!);
+        } else {
+          const auth = await HubAuth.open(store, a.stateDir);
+          groups = new HubCrossHostGroups(store, auth, { transport: intercepted });
+          groups.registerPeer({ hostId: "peer_b", hostName: "Receiver", publicKey: b.hub.auth.publicKey, url: b.hub.url });
+          await groups.recoverPendingQuestions({ includeRecent: true });
+        }
+        expect(posts).toHaveLength(0);
+        expect(await store.db.get("SELECT status, stopped_unanswered FROM group_remote_questions WHERE id=?", [id]))
+          .toMatchObject({ status: "failed", stopped_unanswered: 1 });
+
+        const retried = await groups.reconcileOrRetryQuestion("owner", group.id, id);
+        expect(retried).toMatchObject({ status: "delivered" });
+        expect(posts).toHaveLength(1);
+      } finally {
+        if (store !== a.hub.store) await store.db.close();
+      }
+    },
+  );
+
+  it("keeps group reconciliation retryable after status and reply failures without losing a late answer", async () => {
+    const { a, b, group, addRemote, post } = await deliveryFixture();
+    await addRemote();
+    const source = await post("pending_answer", "Question already accepted by peer");
+    const transport = a.hub.crossHostGroups["transport"];
+    let posts = 0;
+    let statusMode: "disconnect" | "unavailable" | "missing" | "stale delivered" | "normal" = "disconnect";
+    a.hub.crossHostGroups.setTransport(async (peer, method, route, headers, body) => {
+      if (route === "/api/group-mail/deliver") {
+        posts++;
+        await transport(peer, method, route, headers, body);
+        throw new Error("ECONNRESET");
+      }
+      if (route.startsWith("/api/group-mail/status/")) {
+        if (statusMode === "disconnect") throw new Error("ECONNREFUSED");
+        if (statusMode === "unavailable") return { status: 502, json: {} };
+        if (statusMode === "missing") return { status: 200, json: { found: false } };
+        if (statusMode === "stale delivered") return { status: 200, json: { found: true, status: "delivered" } };
+      }
+      return transport(peer, method, route, headers, body);
+    });
+    const [question] = await a.hub.crossHostGroups.sendToRemoteMembers("owner", group.id, group.id, source.message);
+    expect(question.status).toBe("uncertain");
+    await a.hub.crossHostGroups.stopGroup("owner", group.id);
+    const reconcile = () => a.hub.crossHostGroups.reconcileOrRetryQuestion("owner", group.id, question.id);
+    await expect(reconcile()).resolves.toMatchObject({ status: "uncertain", stoppedUnanswered: true });
+    statusMode = "unavailable";
+    await expect(reconcile()).resolves.toMatchObject({ status: "uncertain" });
+
+    // The target durably answers while the origin callback and the first
+    // local reply publication are unavailable.
+    b.hub.crossHostGroups.setTransport(async () => { throw new Error("ECONNREFUSED"); });
+    await b.hub.crossHostGroups.recordRemoteBotReply(question.requestId, "fixture_reply", "Late answer");
+    statusMode = "normal";
+    const publish = vi.spyOn(a.hub.store, "publishRemoteBotMessageInTransaction")
+      .mockRejectedValueOnce(new Error("Synthetic reply storage failure"));
+    try {
+      await expect(reconcile()).resolves.toMatchObject({ status: "uncertain", stoppedUnanswered: true, error: "group_reply_pending" });
+      statusMode = "stale delivered";
+      await expect(reconcile()).resolves.toMatchObject({ status: "uncertain", error: "group_reply_pending" });
+      statusMode = "missing";
+      await expect(reconcile()).resolves.toMatchObject({ status: "uncertain", error: "group_reply_pending" });
+      statusMode = "normal";
+      const answered = await reconcile();
+      expect(answered).toMatchObject({ status: "delivered", stoppedUnanswered: true, answerMessageId: expect.any(String) });
+      await expect(reconcile()).resolves.toMatchObject({ answerMessageId: answered.answerMessageId });
+      expect(publish).toHaveBeenCalledTimes(2);
+      expect(posts).toBe(1);
+    } finally {
+      publish.mockRestore();
+    }
   });
 
   it("recovers interrupted 'sending' cross-host group questions on startup init() and periodic sweep idempotently without duplicates", async () => {
