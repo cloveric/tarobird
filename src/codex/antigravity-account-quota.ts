@@ -3,6 +3,7 @@ import { ENGINE_QUOTA_REFRESH_MS, type QuotaReason } from "../client-protocol/en
 import {
   isAntigravityQuotaSupportedVersion,
   parseAntigravityQuota,
+  withAntigravityModelIds,
   QuotaReadError,
   unavailableQuota,
 } from "./account-quota.js";
@@ -223,6 +224,18 @@ async function runBoundedQuotaCommand(input: {
 /** Dedicated reader: queries a running `agy acp` / local Antigravity language server
  * over loopback first (no new `agy` process), falling back to `agy --version` (>= 1.1.11)
  * + `agy -p /usage --output-format json` when no local server answers. */
+/** The model catalog, if it answers within 3 s. A slow or failed `agy models` only means no ids are added. */
+async function catalogFor(read: (() => Promise<readonly { id: string; label?: string }[]>) | undefined, signal: AbortSignal): Promise<readonly { id: string; label?: string }[]> {
+  if (!read || signal.aborted) return [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      read().catch(() => []),
+      new Promise<[]>(resolve => { timer = setTimeout(() => resolve([]), 3000); signal.addEventListener("abort", () => resolve([]), { once: true }); }),
+    ]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
 export async function readOwnedAntigravityQuota(input: {
   executable: string;
   cwd: string;
@@ -234,6 +247,8 @@ export async function readOwnedAntigravityQuota(input: {
   captureScope: () => AdapterQuotaScope;
   preferredPids?: readonly number[];
   localProbe?: boolean | Partial<AntigravityLocalProbeDeps>;
+  /** `agy models` (cached by the caller). Used only to add model ids to each group; never required. */
+  modelCatalog?: () => Promise<readonly { id: string; label?: string }[]>;
   now?: () => number;
 }): Promise<EngineQuotaReadResult> {
   if (owned.get(input.cache)?.size) return input.cache.failure(input.scope, "timeout");
@@ -273,7 +288,7 @@ export async function readOwnedAntigravityQuota(input: {
       const afterLocal = input.captureScope();
       if (afterLocal.revision !== input.scope.revision) return input.cache.failure(afterLocal, "auth_changed");
       if (localSnapshot) {
-        return input.cache.store(afterLocal, { snapshot: localSnapshot });
+        return input.cache.store(afterLocal, { snapshot: withAntigravityModelIds(localSnapshot, await catalogFor(input.modelCatalog, abort.signal)) });
       }
     }
 
@@ -328,7 +343,7 @@ export async function readOwnedAntigravityQuota(input: {
       return fail("invalid_response");
     }
     try {
-      const snapshot = parseAntigravityQuota(parsed, now());
+      const snapshot = withAntigravityModelIds(parseAntigravityQuota(parsed, now()), await catalogFor(input.modelCatalog, abort.signal));
       return input.cache.store(after, { snapshot });
     } catch (error) {
       const reason = error instanceof QuotaReadError ? error.reason : "invalid_response";
