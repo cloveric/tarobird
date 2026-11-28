@@ -572,6 +572,7 @@ export class Bridge {
         signal: input.abortSignal,
         waitNotifyAfterMs: input.turnLockWaitNotifyAfterMs,
         onWait: input.onTurnLockWait,
+        interruptHistorySnapshot: true,
       },
     );
   }
@@ -789,7 +790,7 @@ export class Bridge {
             throw new EngineRecoveryUnconfirmedError(error, "unfinished-work");
           }
         },
-      }), lockWait), lockWait);
+      }), lockWait), { ...lockWait, interruptHistorySnapshot: true });
 
       await this.recordTurnTelemetry(response, turnStartedAt, {
         outcome: "success",

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { Json } from "../client-protocol/index.js";
 import { historyNativeAnchorSchema, historyNativeResultSchema, type HistoryAction, type HistoryCapabilities, type HistoryInternalSnapshot, type HistoryNativeResult, type HistoryReason } from "../client-protocol/conversation-history.js";
 import type { SessionHistoryBinding, SessionHistoryFinalization } from "../state/session-store.js";
-import { bridgeConversationLockId, withBridgeTurnLock } from "./turn-lock.js";
+import { bridgeConversationLockId, withBridgeHistorySnapshotLock, withBridgeTurnLock } from "./turn-lock.js";
 import { z } from "zod";
 import type { CodexAdapter, NativeHistoryAnchor, NativeHistoryState } from "../codex/adapter.js";
 
@@ -26,7 +26,7 @@ export function nativeHistoryAnchor(event: unknown): NativeHistoryAnchor | undef
   const result = z.object({ type: z.literal("history_anchor"), anchor: historyNativeAnchorSchema }).safeParse(event);
   return result.success ? result.data.anchor : undefined;
 }
-export type NativeConversationHistoryAdapter = Pick<CodexAdapter, "getHistoryState" | "forkHistory" | "rewindHistory">;
+export type NativeConversationHistoryAdapter = Pick<CodexAdapter, "canInterruptHistorySnapshot" | "getHistoryState" | "forkHistory" | "rewindHistory">;
 export interface HistorySessionManager {
   getLockNamespace?(): Promise<string>;
   getHistoryBinding?(scope: ConversationHistoryScope): Promise<SessionHistoryBinding | null>;
@@ -63,15 +63,17 @@ export class ConversationHistoryController {
 
   /** `turnPending`: a turn for this conversation is queued or running. Answer
    * as when busy, from the binding and the capabilities last read, without the
-   * turn lock or a native read, so a slow read cannot delay that turn. Before
-   * anything is known in this process, read once as usual. */
+   * turn lock or a native read. Interruptible readers also skip the first read
+   * while a turn is pending. */
   async get(input: ConversationHistoryScope, options: { turnPending?: boolean } = {}): Promise<ConversationHistoryRead> {
     if (!this.supported()) return { supported: false };
-    if (options.turnPending && this.known.has(input.conversationKey)) {
+    const interruptible = this.adapter.canInterruptHistorySnapshot === true;
+    if (options.turnPending && (interruptible || this.known.has(input.conversationKey))) {
       return { ...await this.busySnapshot(input), cachedWhilePending: true };
     }
     try {
-      const snapshot = await this.idleLock(input, () => this.inspect(input));
+      const controller = interruptible ? new AbortController() : undefined;
+      const snapshot = await this.idleLock(input, () => this.inspect(input, controller), controller);
       this.known.delete(input.conversationKey);
       if (snapshot.supported && snapshot.capabilities) {
         this.known.set(input.conversationKey, snapshot.capabilities);
@@ -93,7 +95,7 @@ export class ConversationHistoryController {
       ...(binding?.record.historyGeneration ? { sourceSessionId: binding.record.codexSessionId, bindingGeneration: binding.record.historyGeneration } : {}) };
   }
 
-  private async inspect(input: ConversationHistoryScope): Promise<HistoryInternalSnapshot> {
+  private async inspect(input: ConversationHistoryScope, controller?: AbortController): Promise<HistoryInternalSnapshot> {
     if (input.isCurrentSession && !await input.isCurrentSession()) return { supported: false };
     const binding = await this.sessions.getHistoryBinding!(input);
     if (!binding) return { supported: false };
@@ -102,7 +104,8 @@ export class ConversationHistoryController {
     // Some native reads load/replay a session. They must not race an owned
     // prompt even though they do not change its conversation history.
     const native = await this.idleLock(binding.record.codexSessionId,
-      () => this.adapter.getHistoryState!(binding.record.codexSessionId, { workspaceOverride }));
+      () => this.adapter.getHistoryState!(binding.record.codexSessionId, { workspaceOverride, ...(controller ? { signal: controller.signal } : {}) }),
+      controller);
     if (!native) return { supported: false };
     if (native.head === null) return { supported: true, capabilities: capabilities(native), blocked: native.blocked ?? "not_ready" };
     const current = await this.sessions.getHistoryBinding!(input);
@@ -221,8 +224,9 @@ export class ConversationHistoryController {
     });
   }
 
-  private async idleLock<T>(scope: ConversationHistoryScope | string, task: () => Promise<T>): Promise<T> {
+  private async idleLock<T>(scope: ConversationHistoryScope | string, task: () => Promise<T>, snapshot?: AbortController): Promise<T> {
     const id = typeof scope === "string" ? scope : bridgeConversationLockId(scope, await this.sessions.getLockNamespace?.());
+    if (snapshot) return withBridgeHistorySnapshotLock(id, snapshot, task);
     const controller = new AbortController();
     const busy = new Error("history_busy");
     return withBridgeTurnLock(id, task, { signal: controller.signal, waitNotifyAfterMs: 0, onWait: () => controller.abort(busy) });

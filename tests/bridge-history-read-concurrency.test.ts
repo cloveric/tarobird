@@ -1,4 +1,5 @@
 import { generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -7,6 +8,8 @@ import { PassThrough, Writable } from "node:stream";
 import { WebSocket } from "ws";
 import { afterEach, expect, it, vi } from "vitest";
 import { KimiAcpAdapter, type KimiChildProcess } from "../src/codex/kimi-acp-adapter.js";
+import { spawnClaudeHistoryHelper } from "../src/codex/claude-history.js";
+import { ClaudeStreamAdapter } from "../src/codex/claude-stream-adapter.js";
 import { createCoreServiceRuntime } from "../src/core/runtime.js";
 import { buildCoreConversationKey, stableCoreNumericId } from "../src/core/message-normalizer.js";
 import { attachGateway } from "../src/gateway/service.js";
@@ -95,6 +98,53 @@ async function bridgeFixture(timeoutMs?: number) {
   await turn("warm source");
   return { ...f, scope, bridge, turn };
 }
+
+it("preempts a Claude history snapshot and lets the next turn through only after the helper closes", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "bridge-claude-history-"));
+  const sessionId = randomUUID(), scope = { chatId: 84, conversationKey: "fixture:claude-history" };
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(),
+    kill: vi.fn(() => true),
+  });
+  let readerClosed = false;
+  const closeReader = () => { readerClosed = true; child.emit("close", null, "SIGKILL"); };
+  const spawnReader = vi.fn(() => {
+    queueMicrotask(() => child.emit("spawn"));
+    return child as unknown as ChildProcess;
+  });
+  const adapter = new ClaudeStreamAdapter("fixture", {
+    workspacePath: directory, childEnv: { HOME: directory }, idleWorkerTtlMs: 0,
+    historyHelper: spawnClaudeHistoryHelper("fixture", { spawnFn: spawnReader }),
+  });
+  const turn = vi.spyOn(adapter, "sendUserMessage").mockImplementation(async id => {
+    expect(readerClosed).toBe(true);
+    return { sessionId: id, text: "Normal turn reached Claude" };
+  });
+  const store = new SessionStore(path.join(directory, "session.json"));
+  await store.upsert({ telegramChatId: scope.chatId, conversationKey: scope.conversationKey, codexSessionId: sessionId, status: "idle", updatedAt: new Date().toISOString() });
+  const bridge = new Bridge(access, new SessionManager(store, adapter), adapter);
+  let pending: Promise<unknown> | undefined;
+  const snapshot = bridge.getConversationHistory(scope);
+  try {
+    await until(() => spawnReader.mock.calls.length === 1);
+    pending = bridge.handleAuthorizedMessage({ ...scope, userId: 42, chatType: "private", text: "Continue", files: [] });
+    await vi.waitFor(() => expect(child.kill).toHaveBeenCalledExactlyOnceWith("SIGKILL"), { timeout: 750, interval: 5 });
+    expect(turn).not.toHaveBeenCalled();
+
+    closeReader();
+    await expect(snapshot).resolves.toMatchObject({ supported: true, blocked: "busy", sourceSessionId: sessionId });
+    await expect(pending).resolves.toMatchObject({ sessionId, text: "Normal turn reached Claude" });
+    expect(turn).toHaveBeenCalledTimes(1);
+    const pendingOnFirstRead = await bridge.getConversationHistory(scope, { turnPending: true });
+    expect(pendingOnFirstRead).toMatchObject({ blocked: "busy", cachedWhilePending: true });
+    expect(spawnReader).toHaveBeenCalledTimes(1);
+  } finally {
+    if (!readerClosed) closeReader();
+    await Promise.allSettled([snapshot, pending]);
+    await bridge.destroy();
+    await removeTempRoot(directory);
+  }
+});
 
 it("queues a normal Bridge turn behind a held Kimi history replay and sends it once after release", async () => {
   const f = await bridgeFixture(); f.hold();

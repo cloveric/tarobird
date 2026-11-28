@@ -634,6 +634,8 @@ export interface CodexAdapter {
    * None of them starts a turn, a model call or a replacement session, and the
    * source session's binding and live process are left as they were.
    */
+  /** Only for reads that honor cancellation and wait for native cleanup. */
+  readonly canInterruptHistorySnapshot?: true;
   getHistoryState?(sessionId: string, input?: { workspaceOverride?: string; signal?: AbortSignal }): Promise<NativeHistoryState>;
   /** Without an anchor the whole history is forked. */
   forkHistory?(sessionId: string, input?: {

@@ -1140,6 +1140,7 @@ function renderClaudeStreamExitError(code: number | null, stderrTail: string): s
 }
 
 export class ClaudeStreamAdapter implements CodexAdapter {
+  readonly canInterruptHistorySnapshot = true;
   /** Observer work may still be persisting a public result after its native
    * task closes (or its worker exits). Drain must include that delivery. */
   private pendingEventDeliveries = 0;
