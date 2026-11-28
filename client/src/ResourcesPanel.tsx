@@ -120,7 +120,10 @@ function useHostResources(connection: HubConnection | undefined, active: boolean
   const available = Boolean(connState?.hostResourcesAvailable);
   const ready = Boolean(connection && status === "online" && available);
 
-  const [snapshot, setSnapshot] = useState<HostResourcesSnapshot>();
+  const userId = connState?.user?.id;
+  const userRole = connState?.user?.role;
+  const [sample, setSample] = useState<{ connection: HubConnection; userId: typeof userId; userRole: typeof userRole; data: HostResourcesSnapshot }>();
+  const snapshot = sample && sample.connection === connection && sample.userId === userId && sample.userRole === userRole ? sample.data : undefined;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -154,7 +157,7 @@ function useHostResources(connection: HubConnection | undefined, active: boolean
     try {
       const data = await connection.hostResources({ force, signal: controller.signal });
       if (!mountedRef.current || requestSeqRef.current !== seq || activeConnectionRef.current !== connection) return;
-      setSnapshot(data);
+      setSample({ connection, userId, userRole, data });
       setError("");
     } catch (cause) {
       if (!mountedRef.current || requestSeqRef.current !== seq || activeConnectionRef.current !== connection) return;
@@ -166,16 +169,16 @@ function useHostResources(connection: HubConnection | undefined, active: boolean
         setLoading(false);
       }
     }
-  }, [connection]);
+  }, [connection, userId, userRole]);
 
   useEffect(() => {
     requestSeqRef.current += 1;
     inflightRef.current?.controller.abort();
     inflightRef.current = null;
-    setSnapshot(undefined);
+    setSample(undefined);
     setError("");
     setLoading(false);
-  }, [connection]);
+  }, [connection, userId, userRole]);
 
   useEffect(() => {
     if (!active || !connection || !ready) {
@@ -957,10 +960,17 @@ export const ResourcesTriggerButton = forwardRef<HTMLButtonElement, {
   connection?: HubConnection;
 }>(function ResourcesTriggerButton({ open, controlsId, onOpen, connection }, ref) {
   useLocale();
-  const { snapshot, ready } = useHostResources(connection, !!connection && !open, FOOTER_POLL_MS);
+  const descriptionId = useId();
+  const { snapshot, ready, error } = useHostResources(connection, !!connection && !open, FOOTER_POLL_MS);
   const summary = ready ? snapshot?.summary : undefined;
   const cpu = summary ? formatCpuPercent(summary.totalCpuPercent) : "";
   const memory = summary ? formatMemoryBytes(summary.totalMemoryBytes) : "";
+  const limited = connection?.state.user?.role !== "owner";
+  const description = summary && (limited
+    ? t("资源管理 · 可见进程占用 CPU {0}，内存 {1}", cpu, memory)
+    : t("资源管理 · TaroBird 占用 CPU {0}，内存 {1}", cpu, memory));
+  const stale = !!summary && !!error;
+  const label = stale && description ? t("上次读数：{0}", description) : description;
 
   return (
     <button
@@ -971,11 +981,15 @@ export const ResourcesTriggerButton = forwardRef<HTMLButtonElement, {
       aria-expanded={open}
       aria-controls={open ? controlsId : undefined}
       aria-label={t("资源")}
-      title={summary ? t("资源管理 · TaroBird 占用 CPU {0}，内存 {1}", cpu, memory) : t("资源管理")}
+      aria-describedby={label ? descriptionId : undefined}
+      title={label || t("资源管理")}
       onClick={onOpen}
     >
+      {label && <span id={descriptionId} hidden>{label}</span>}
       {summary && (
         <span className="resources-footer-metrics" aria-hidden="true">
+          {limited && <span>{t("可见进程")}</span>}
+          {stale && <span>{t("旧读数")}</span>}
           <span>CPU <b>{cpu}</b></span>
           <i />
           <span>{t("内存")} <b>{memory}</b></span>

@@ -12,20 +12,34 @@ const route = "/api/bot-messages/grants";
  * It uses the existing per-source `local-message-grants` command with the Host's current revision, adds only the
  * missing grants (existing ones and self-grants are untouched), and confirms the result with a fresh read.
  * Revoking stays in Settings → Bot 消息授权. Owner-only; the caller decides when to show it. */
-export function AllLocalBotsMessaging({ connection, active }: { connection: HubConnection; active: boolean }) {
+export function AllLocalBotsMessaging({ connection, active, refreshKey }: { connection: HubConnection; active: boolean; refreshKey: number }) {
   const [view, setView] = useState<BotMessageGrantsSnapshot>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(""), [notice, setNotice] = useState("");
   const mounted = useRef(true);
   const running = useRef(false);
+  const lastRefresh = useRef(refreshKey);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const read = useCallback(async (signal?: AbortSignal) => botMessageGrantsSnapshotSchema.parse(await connection.http(route, { signal })), [connection]);
   useEffect(() => {
     if (!active || busy) return;
     const controller = new AbortController();
-    read(controller.signal).then(fresh => { if (!controller.signal.aborted && mounted.current && !running.current) setView(fresh); }).catch(() => undefined);
+    void read(controller.signal).then(fresh => {
+      if (controller.signal.aborted || !mounted.current || running.current) return;
+      setView(fresh);
+      if (lastRefresh.current !== refreshKey) {
+        lastRefresh.current = refreshKey;
+        setNotice("");
+        setError("");
+      }
+    }).catch(failure => {
+      if (controller.signal.aborted || !mounted.current || running.current || lastRefresh.current === refreshKey) return;
+      lastRefresh.current = refreshKey;
+      setNotice("");
+      setError(errorText(failure));
+    });
     return () => controller.abort();
-  }, [active, busy, read]);
+  }, [active, busy, read, refreshKey]);
   if (!view || view.bots.length < 2) return null;
   const counts = localMeshCounts(view), done = counts.allowed === counts.total;
 

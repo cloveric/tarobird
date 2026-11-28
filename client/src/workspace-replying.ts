@@ -140,6 +140,7 @@ export interface WorkspaceQueueReader {
 export interface WorkspaceQueueReaderOptions<T> {
   fetch: (signal: AbortSignal) => Promise<T>;
   onSnapshot: (snapshot: T) => void;
+  onError?: () => void;
   timeoutMs?: number;
   pollMs?: number;
   maxPollMs?: number;
@@ -151,6 +152,7 @@ export interface WorkspaceQueueReaderOptions<T> {
 export function createWorkspaceQueueReader<T>({
   fetch,
   onSnapshot,
+  onError,
   timeoutMs = WORKSPACE_QUEUE_TIMEOUT_MS,
   pollMs = WORKSPACE_QUEUE_POLL_MS,
   maxPollMs = WORKSPACE_QUEUE_POLL_MAX_MS,
@@ -199,6 +201,7 @@ export function createWorkspaceQueueReader<T>({
           }
         } catch {
           ok = false;
+          if (!disposed && !lifetime.signal.aborted && seq === version) onError?.();
         } finally {
           req.dispose();
         }

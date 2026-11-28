@@ -1227,7 +1227,8 @@
   border-color: color-mix(in srgb, #3370ff 28%, var(--border));
 }
 
-.workspace-file-badge.is-code {
+.workspace-file-badge.is-code,
+.workspace-file-badge.is-sheet {
   background: color-mix(in srgb, #7c3aed 12%, var(--bg));
   color: #7c3aed;
   border-color: color-mix(in srgb, #7c3aed 28%, var(--border));
@@ -1381,6 +1382,7 @@
   overflow: hidden;
 }
 .workspace-list > .workspace-file-grid { gap: 0; }
+.workspace-list .workspace-file-tile:focus-visible { outline-offset: -3px; }
 .workspace-list > :is(.workspace-item-row, .workspace-comm-card, .workspace-waiting-card, .workspace-diff-row, .workspace-file-grid),
 .workspace-list > .workspace-file-grid > .workspace-file-tile {
   border: 0;
