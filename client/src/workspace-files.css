@@ -2,6 +2,8 @@
 .workspace-files-panel[hidden]{display:none!important}
 .workspace-files-phone{position:fixed;inset:var(--shell-top,0px) 0 0 0;z-index:30;height:var(--shell-height,100dvh);box-sizing:border-box;padding-top:var(--app-safe-top,0px);padding-bottom:var(--app-safe-bottom,0px);padding-left:var(--app-safe-left,0px);padding-right:var(--app-safe-right,0px)}
 .wf-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px 10px 14px;border-bottom:1px solid var(--border);flex:none}
+/* Desktop: same 64px band as the conversation header (and the side chat heading), so the two bottom rules meet. */
+.workspace-files-panel.conversation-side-panel>.wf-header{height:64px;flex:0 0 64px;padding-block:0}
 .wf-header-title{display:flex;align-items:center;gap:7px;min-width:0}
 .wf-header-title>svg{color:var(--accent,var(--blue));flex:none}
 .wf-header-title h2{margin:0;font-size:14px;font-weight:600;white-space:nowrap}
