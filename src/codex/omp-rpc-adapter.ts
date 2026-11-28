@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import {
   EngineSteeringRejectedError, withFailedTurnUsage,
   type AdapterUsage, type AppPlatformTools, type CodexAdapter, type CodexAdapterResponse,
@@ -85,6 +86,13 @@ interface PendingSteer {
   settled: boolean;
 }
 
+interface OmpHistoryInput {
+  promptText: string;
+  previousLeaf: string | null;
+  previousIds: ReadonlySet<string>;
+  userEvent?: { id: string; message: NonNullable<OmpSessionEntry["message"]> } | null;
+}
+
 interface ActiveOmpTurn {
   promptId?: string;
   input: CodexUserMessageInput;
@@ -106,8 +114,7 @@ interface ActiveOmpTurn {
   cancelTimer?: ReturnType<typeof setTimeout>;
   abortScope: AbortController;
   sessionPublication?: Promise<void>;
-  promptText?: string;
-  promptInputId?: Promise<string | undefined>;
+  historyInput?: OmpHistoryInput;
   resolve: (response: CodexAdapterResponse) => void;
   reject: (error: Error) => void;
 }
@@ -315,13 +322,15 @@ function activeEntryBranch(entries: OmpSessionEntry[], leafId: string | null): O
   if (!leafId || entries.length === 0) return [];
   const byId = new Map<string, OmpSessionEntry>();
   for (const entry of entries) byId.set(entry.id, entry);
+  if (byId.size !== entries.length) return [];
   const pathEntries: OmpSessionEntry[] = [];
   const seen = new Set<string>();
   let cur: string | null | undefined = leafId;
-  while (cur && !seen.has(cur)) {
+  while (cur) {
+    if (seen.has(cur)) return [];
     seen.add(cur);
     const entry = byId.get(cur);
-    if (!entry) break;
+    if (!entry) return [];
     pathEntries.push(entry);
     cur = entry.parentId ?? null;
   }
@@ -331,6 +340,20 @@ function activeEntryBranch(entries: OmpSessionEntry[], leafId: string | null): O
 
 function isUserMessageEntry(entry: OmpSessionEntry): boolean {
   return entry.type === "message" && entry.message?.role === "user";
+}
+
+function matchHistoryInput(history: OmpHistoryInput | undefined, branch: OmpSessionEntry[]): string | undefined {
+  if (!history?.userEvent) return undefined;
+  const { previousLeaf, previousIds, userEvent } = history;
+  const start = branch.findIndex(entry => entry.id === previousLeaf);
+  if (previousLeaf !== null && start < 0) return undefined;
+  const appended = branch.slice(start + 1);
+  if (appended.some(entry => previousIds.has(entry.id))) return undefined;
+  const [main, ...laterUsers] = appended.filter(isUserMessageEntry);
+  // Confirm the first new user input and rule out a second entry that the
+  // same native event could describe.
+  if (!main || !isDeepStrictEqual(main.message, userEvent.message)) return undefined;
+  return laterUsers.some(entry => isDeepStrictEqual(entry.message, userEvent.message)) ? undefined : main.id;
 }
 
 function resolveAfterTurnLeafId(branch: OmpSessionEntry[], userAnchorIndex: number): string {
@@ -1199,6 +1222,16 @@ export class OmpRpcAdapter implements CodexAdapter {
       }
     }
 
+    // Take the history boundary before sending the prompt. OMP can append
+    // assistant entries before a read issued from message_start is answered.
+    let historyInput: OmpHistoryInput | undefined;
+    if (input.onEngineEvent && !isAuthorizedOmpSlash) {
+      const before = await worker.client.command<{ entries: OmpSessionEntry[]; leafId: string | null }>({ type: "get_entries" }, 1500)
+        .then(r => r.data).catch(() => undefined);
+      if (Array.isArray(before?.entries) && (before.leafId === null || activeEntryBranch(before.entries, before.leafId).length > 0)) {
+        historyInput = { promptText, previousLeaf: before.leafId, previousIds: new Set(before.entries.map(entry => entry.id)) };
+      }
+    }
     if (this.destroyed || worker.closed) throw destroyedError();
     throwIfAborted(input.abortSignal);
     if (worker.activeTurn) {
@@ -1211,7 +1244,7 @@ export class OmpRpcAdapter implements CodexAdapter {
       const turn: ActiveOmpTurn = {
         promptId,
         input,
-        promptText: isAuthorizedOmpSlash ? undefined : promptText,
+        historyInput,
         textChunks: [],
         thinkingChunks: [],
         commandOutputs: [],
@@ -1339,6 +1372,10 @@ export class OmpRpcAdapter implements CodexAdapter {
     const text = input.text.trim();
     if (!text) return reject("not_ready");
 
+    const history = turn.historyInput;
+    if (history && history.userEvent === undefined && history.promptText.trim() === text) {
+      history.userEvent = null;
+    }
     const entry: PendingSteer = { text: input.text, onOutcome: input.onOutcome, confirmed: false, settled: false };
     // Register before awaiting steer() so a synchronous message_start arriving in the same stdout chunk is never missed.
     turn.pendingSteers.push(entry);
@@ -1999,21 +2036,17 @@ export class OmpRpcAdapter implements CodexAdapter {
 
     if (event.type === "message_start" && turn && event.message && (event.message as { role?: unknown }).role === "user") {
       const delivered = extractMessageText(event.message);
-      const promptText = turn.promptText;
-      turn.promptText = undefined;
-      if (turn.input.onEngineEvent && promptText !== undefined && delivered === promptText) {
-        // RPC messageId is stream-local. Read the native leaf while the prompt's
-        // user message is being admitted and confirm it against that exact event.
-        // A later leaf (including a steer) is never used as the input anchor.
-        const message = event.message as OmpSessionEntry["message"];
-        const timestamp = message?.timestamp;
-        if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
-          turn.promptInputId = worker.client.command<{ entries: OmpSessionEntry[]; leafId: string | null }>({ type: "get_entries" }, 1500)
-            .then(({ data }) => {
-              const leaf = data?.entries.find(entry => entry.id === data.leafId);
-              return leaf && isUserMessageEntry(leaf) && leaf.message?.timestamp === timestamp
-                && extractMessageText(leaf.message) === promptText ? leaf.id : undefined;
-            }).catch(() => undefined);
+      const history = turn.historyInput;
+      if (history) {
+        const message = event.message as NonNullable<OmpSessionEntry["message"]>;
+        if (history.userEvent === undefined) {
+          // The stream ID establishes event identity, but it is not a durable
+          // history ID. The completed native branch must confirm the payload.
+          const id = event.messageId;
+          history.userEvent = turn.sessionPublication && delivered === history.promptText && typeof id === "string" && id
+            && typeof message.timestamp === "number" && Number.isFinite(message.timestamp) ? { id, message } : null;
+        } else if (history.userEvent && (event.messageId === history.userEvent.id || isDeepStrictEqual(message, history.userEvent.message))) {
+          history.userEvent = null;
         }
       }
       // Detect real adoption of queued steers when omp delivers them into the turn.
@@ -2213,7 +2246,7 @@ export class OmpRpcAdapter implements CodexAdapter {
               steer.settled = true;
               steer.onOutcome?.(adopted ? { status: "applied", via: "fold" } : { status: "dropped", reason: "not_started" });
             }
-            const inputId = await turn.promptInputId;
+            const inputId = matchHistoryInput(turn.historyInput, branch);
             const inputIndex = branch.findIndex(entry => entry.id === inputId && isUserMessageEntry(entry));
             if (inputId && inputIndex >= 0) {
               const fork = inputIndex < branch.length - 1;

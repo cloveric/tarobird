@@ -192,6 +192,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           }
           if (cmd.type === "get_state") { p.send({ id, type: "response", command: "get_state", success: true, data: defaultState() }); return; }
           if (cmd.type === "open_session") { p.send({ id, type: "response", command: "open_session", success: true, data: { cancelled: false, resumed: false, sessionId: "omp-sess-stop" } }); return; }
+          if (cmd.type === "get_entries") { p.send({ id, type: "response", command: "get_entries", success: true, data: { entries: [], leafId: null } }); return; }
           if (cmd.type === "prompt") {
             activePromptId = id;
             p.send({ id, type: "response", command: "prompt", success: true });
@@ -243,6 +244,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           }
           if (cmd.type === "get_state") { p.send({ id, type: "response", command: "get_state", success: true, data: defaultState() }); return; }
           if (cmd.type === "open_session") { p.send({ id, type: "response", command: "open_session", success: true, data: { cancelled: false, resumed: false, sessionId: "omp-sess-q" } }); return; }
+          if (cmd.type === "get_entries") { p.send({ id, type: "response", command: "get_entries", success: true, data: { entries: [], leafId: null } }); return; }
           if (cmd.type === "prompt") {
             activePromptId = id;
             p.send({ id, type: "response", command: "prompt", success: true });
@@ -318,6 +320,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           }
           if (cmd.type === "get_state") { p.send({ id, type: "response", command: "get_state", success: true, data: defaultState() }); return; }
           if (cmd.type === "open_session") { p.send({ id, type: "response", command: "open_session", success: true, data: { cancelled: false, resumed: false, sessionId: "omp-sess-sub" } }); return; }
+          if (cmd.type === "get_entries") { p.send({ id, type: "response", command: "get_entries", success: true, data: { entries: [], leafId: null } }); return; }
           if (cmd.type === "cancel_subagent") {
             cancelledId = cmd.subagentId as string;
             p.send({ id, type: "response", command: "cancel_subagent", success: true, data: { cancelled: true } });
@@ -691,6 +694,105 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
     expect(cleared.cleared).toBe(true);
 
     await adapter.destroy();
+  });
+
+  it.each([
+    { scenario: "normal reply", inputId: "main" },
+    { scenario: "fast reply", inputId: "main" },
+    { scenario: "same-text steer", inputId: "main" },
+    { scenario: "same-text same-timestamp steer" },
+    { scenario: "an identical inactive sibling", inputId: "main" },
+    { scenario: "ambiguous native entries" },
+    { scenario: "ambiguous user events" },
+    { scenario: "only an earlier matching entry" },
+    { scenario: "native branch changed onto an old descendant" },
+    { scenario: "only a matching sibling entry" },
+    { scenario: "broken ancestry" },
+    { scenario: "no user event" },
+  ])("attributes a history anchor only with exact native evidence: $scenario", async ({ scenario, inputId }) => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "omp-history-attribution-"));
+    dirs.push(dir);
+    const text = "Synthetic input";
+    const user = { role: "user", timestamp: 1000, content: text };
+    const assistant = { role: "assistant", content: "Done" };
+    const entries: Array<{ id: string; parentId: string | null; type: string; message: { role: string; content: string; timestamp?: number } }> = [
+      { id: "earlier", parentId: null, type: "message", message: user },
+      { id: "previous", parentId: "earlier", type: "message", message: assistant },
+    ];
+    if (scenario === "native branch changed onto an old descendant") {
+      entries.push({ id: "old_descendant", parentId: "previous", type: "message", message: assistant });
+    }
+    let leafId = "previous";
+    let finish!: () => void;
+    const prompted = new Promise<void>(resolve => { finish = resolve; });
+
+    const adapter = new OmpRpcAdapter({
+      launch: { command: "omp", args: [] }, workspacePath: dir, stateDir: dir, childEnv: {},
+      spawnFn: () => {
+        const process = new FakeOmpProcess((cmd, rpc) => {
+          const reply = (data?: unknown) => rpc.send({ id: cmd.id, type: "response", command: cmd.type, success: true, data });
+          const append = (id: string, message: { role: string; content: string; timestamp?: number }) => {
+            entries.push({ id, parentId: leafId, type: "message", message });
+            leafId = id;
+          };
+          if (cmd.type === "get_state") reply(defaultState());
+          else if (cmd.type === "get_entries") reply({ entries, leafId });
+          else if (cmd.type === "steer") {
+            reply();
+            const steer = scenario === "same-text same-timestamp steer" ? user : { ...user, timestamp: user.timestamp + 1 };
+            append("steer", steer);
+            rpc.send({ type: "message_start", messageId: "stream_steer", message: steer });
+          } else if (cmd.type === "prompt") {
+            reply();
+            rpc.send({ type: "agent_start" });
+            if (scenario === "only a matching sibling entry" || scenario === "an identical inactive sibling") {
+              entries.push({ id: "sibling", parentId: leafId, type: "message", message: user });
+            }
+            if (scenario === "native branch changed onto an old descendant") leafId = "old_descendant";
+            if (scenario === "only an earlier matching entry") {
+              leafId = "earlier";
+            } else if (scenario !== "only a matching sibling entry") {
+              append("main", user);
+            }
+            if (scenario !== "no user event") {
+              rpc.send({ type: "message_start", messageId: "stream_main", message: user });
+            }
+            if (scenario === "fast reply") append("early_assistant", assistant);
+            if (scenario === "ambiguous native entries") append("duplicate", user);
+            if (scenario === "ambiguous user events") {
+              rpc.send({ type: "message_start", messageId: "stream_duplicate", message: user });
+            }
+            if (scenario === "broken ancestry") leafId = "missing";
+            finish();
+            setImmediate(() => {
+              append("answer", assistant);
+              rpc.send({ type: "message_end", messageId: "stream_answer", message: assistant });
+              rpc.send({ type: "prompt_result", id: cmd.id, agentInvoked: true, status: "completed", sessionSettled: true });
+            });
+          } else reply({});
+        });
+        queueMicrotask(() => process.send({ type: "ready", protocolVersion: 1, supportedProtocolVersions: [1, 2] }));
+        return process as never;
+      },
+    });
+
+    const events: EngineStreamEvent[] = [];
+    try {
+      const result = adapter.sendUserMessage("history-fixture", { text, files: [], onEngineEvent: event => { events.push(event); } });
+      await prompted;
+      if (scenario === "same-text steer" || scenario === "same-text same-timestamp steer") {
+        expect(await adapter.steerActiveTurn("history-fixture", { text })).toBe(true);
+      }
+      expect((await result).text).toBe("Done");
+      const anchors = events.filter(event => event.type === "history_anchor");
+      if (inputId) {
+        expect(anchors).toEqual([{ type: "history_anchor", anchor: {
+          sessionId: "history-fixture", inputId, fork: true, rewind: true, forkBoundary: "after-turn", data: { forkLeafId: "answer" },
+        } }]);
+      } else {
+        expect(anchors).toEqual([]);
+      }
+    } finally { await adapter.destroy(); }
   });
 
   it("Bug #1: enforces approvalMode normal (fail-closed without bridge, real gating via bridge) vs bypass", async () => {
