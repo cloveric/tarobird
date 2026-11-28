@@ -47,10 +47,12 @@
 .sidebar-filter-chip:focus-visible{outline:none}
 :root:not([data-focus-intent=pointer]) .sidebar-filter-chip:focus-visible{color:var(--text);text-decoration:underline;text-decoration-color:var(--focus);text-decoration-thickness:1px;text-underline-offset:4px}
 :root:not([data-focus-intent=pointer]) .sidebar-filter-chip[aria-pressed=false]:focus-visible{background:var(--canvas-hover)}
-.sidebar-unread-total{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 5px;border-radius:999px;background:#d13e42;color:#fff;font-size:10.5px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+.sidebar-unread-total,.sidebar-pending-total{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 5px;border-radius:999px;background:#d13e42;color:#fff;font-size:10.5px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+/* Same amber as the Workspace's 「等你确认」, so "waiting for you" reads alike everywhere. */
+.sidebar-pending-total{background:var(--orange);color:var(--bg)}
 @media(forced-colors:active){
   .sidebar-filter-chip[aria-pressed=true]{outline:1px solid Highlight;outline-offset:-1px}
-  .sidebar-unread-total{background:CanvasText;color:Canvas;forced-color-adjust:none}
+  .sidebar-unread-total,.sidebar-pending-total{background:CanvasText;color:Canvas;forced-color-adjust:none}
 }
 
 .sidebar-host-grouping{display:flex;flex:none;align-items:center;gap:6px;min-height:28px;margin:0 8px 2px;color:var(--muted);font-size:11px;cursor:pointer}

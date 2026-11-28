@@ -2,7 +2,7 @@ import { GlobalPinSection } from "./GlobalPinSection.js";
 import { Fragment, type ReactNode } from "react";
 import { SidebarListHeading } from "./SidebarListOptions.js";
 import { buildBotRows, buildConversationRows, isTicketConversation, navigationItems, folderSectionHosts, type InboxHost } from "./conversation-inbox.js";
-import { filterUnreadHostItems, type UnreadHostMatch } from "./conversation-unread.js";
+import { filterUnreadHostItems, type InboxFilter, type UnreadHostMatch } from "./conversation-unread.js";
 import { resolveCrossHostFolderOrder, visibleCrossHostFolders } from "./cross-host-folder-order.js";
 import { buildCrossHostFolderSources, buildHostFolderRowCounts, useCrossHostFolderOrder, useHostFolderUpdates } from "./use-cross-host-folder-order.js";
 import type { SidebarSlice } from "./ConversationList.js";
@@ -11,12 +11,12 @@ import { t } from "./i18n.js";
 
 /** Only presentation is combined. Every rendered item keeps its host's
  * connection, avatars and action handlers, including when IDs coincide. */
-export function CombinedSidebar({ hosts, layout, showDisconnectedBots = false, filtered = false, unreadOnly = false, retainedOpen, leadingSection, retained, render }: {
+export function CombinedSidebar({ hosts, layout, showDisconnectedBots = false, filtered = false, inboxFilter, retainedOpen, leadingSection, retained, render }: {
   hosts: InboxHost[];
   layout: SidebarLayout;
   showDisconnectedBots?: boolean;
   filtered?: boolean;
-  unreadOnly?: boolean;
+  inboxFilter?: InboxFilter;
   retainedOpen?: { hostId: string; conversationId: string };
   leadingSection?: ReactNode;
   retained?: (hostId: string) => ReadonlySet<string>;
@@ -24,11 +24,12 @@ export function CombinedSidebar({ hosts, layout, showDisconnectedBots = false, f
 }) {
   useHostFolderUpdates(hosts);
   const crossHostOrder = useCrossHostFolderOrder();
-  const effectiveFiltered = filtered || unreadOnly;
+  const filterActive = !!inboxFilter;
+  const effectiveFiltered = filtered || filterActive;
   const matchByHost = new Map<string, UnreadHostMatch>();
   const listed = hosts.map(host => {
-    const match = unreadOnly
-      ? filterUnreadHostItems(host.conversations, host.activity, host.globalPins, retainedOpen?.hostId === host.id ? retainedOpen.conversationId : undefined)
+    const match = inboxFilter
+      ? filterUnreadHostItems(host.conversations, host.activity, host.globalPins, retainedOpen?.hostId === host.id ? retainedOpen.conversationId : undefined, inboxFilter)
       : undefined;
     if (match) matchByHost.set(host.id, match);
     const hostRetained = retained?.(host.id);
@@ -38,7 +39,7 @@ export function CombinedSidebar({ hosts, layout, showDisconnectedBots = false, f
   const visibleHosts = hosts.map((host, i) => ({ ...host, conversations: listed[i]!.conversations }));
   const hiddenBots = listed.some((host, i) => host.bots.length < hosts[i]!.bots.length);
   const rawRows = buildConversationRows(visibleHosts);
-  const allRows = unreadOnly
+  const allRows = filterActive
     ? rawRows.filter(row => {
       const match = matchByHost.get(row.hostId)!;
       return match.matchingIds.has(row.conversation.id) || match.groupIds.has(row.conversation.id);
@@ -48,7 +49,7 @@ export function CombinedSidebar({ hosts, layout, showDisconnectedBots = false, f
   const globals = allRows.filter(row => row.globallyPinned);
   const globalSection = globals.length > 0 && <GlobalPinSection>{globals.map(row => <Fragment key={row.key}>{render(row.hostId, { kind: "conversation", id: row.conversation.id, ...(layout === "conversations" ? { inbox: row } : {}) }, true)}</Fragment>)}</GlobalPinSection>;
   const hiddenItems = layout === "conversations" ? allRows.length < buildConversationRows(hosts).length : hiddenBots;
-  const emptyText = unreadOnly ? t("没有未读会话") : hiddenItems ? t("未连接的 Bot 已隐藏，勾选「显示未连接 Bot」即可查看。") : t("选择 Bot 开始新对话，或点击新建群组。");
+  const emptyText = inboxFilter === "pending" ? t("没有等你回答的问题") : filterActive ? t("没有未读会话") : hiddenItems ? t("未连接的 Bot 已隐藏，勾选「显示未连接 Bot」即可查看。") : t("选择 Bot 开始新对话，或点击新建群组。");
   if (layout === "conversations") {
     const folderHosts = folderSectionHosts(hosts, rows);
     const folderHostIds = new Set(folderHosts.map(host => host.id));
@@ -66,10 +67,10 @@ export function CombinedSidebar({ hosts, layout, showDisconnectedBots = false, f
           order across hosts; identify each folder once and omit child badges. */}
       {visibleFolders.map(item => <Fragment key={item.key}>{render(item.hostId, { kind: "folder", folderId: item.folderId, crossHost: { sources: allSources, visibleKeys, itemKey: item.key, hasAnyPinned } }, false)}</Fragment>)}
       {rows.filter(row => !folderHostIds.has(row.hostId)).map(row => <Fragment key={row.key}>{render(row.hostId, { kind: "conversation", id: row.conversation.id, inbox: row }, true)}</Fragment>)}
-      {!allRows.length && (unreadOnly || !folderHosts.length || hiddenItems) && <p className="empty-sidebar">{emptyText}</p>}
+      {!allRows.length && (filterActive || !folderHosts.length || hiddenItems) && <p className="empty-sidebar">{emptyText}</p>}
     </nav>;
   }
-  const bots = buildBotRows(listed).filter(bot => !unreadOnly || matchByHost.get(bot.hostId)!.botIds.has(bot.id));
+  const bots = buildBotRows(listed).filter(bot => !filterActive || matchByHost.get(bot.hostId)!.botIds.has(bot.id));
   const unassigned = rows.filter(row => row.conversation.type === "direct" && (!row.conversation.botIds.length || isTicketConversation(row.conversation)));
   const groups = rows.filter(row => row.conversation.type === "group");
   return <nav className="conversation-list combined-sidebar">

@@ -3,7 +3,7 @@ import { WorkbenchLibraryContext, type WorkbenchFileRequest, type WorkbenchFileT
 import { workbenchScope } from "./workbench-model.js";
 import { GlobalPinSection } from "./GlobalPinSection.js";
 import { buildConversationRows, navigationItems } from "./conversation-inbox.js";
-import { conversationUnreadTotal, filterUnreadHostItems, isUnreadSelectionTarget } from './conversation-unread.js';
+import { conversationPendingQuestionTotal, conversationUnreadTotal, filterUnreadHostItems, isUnreadSelectionTarget, type InboxFilter } from './conversation-unread.js';
 import { flushWidgetStateWithin } from "./widget-state-lifecycle.js";
 import { ConversationBulkProvider, ConversationBulkToolbar } from './ConversationBulkSelection.js';
 import { localControllerMessage, localHostStartFailureMessage } from "./local-controller-message.js";
@@ -80,8 +80,10 @@ export type ManagedWorkspace = {
   lifecycleChanged: (registration: string, busy: boolean, dirty: boolean, saving: boolean) => void;
   controls: ReactNode; navigation: (current: HostDirectory & { selected: string }) => ReactNode;
   unreadCount: number;
-  unreadOnly: boolean;
-  changeUnreadOnly: (value: boolean) => void;
+  /** Questions waiting for the owner's answer, for the 待处理 filter. */
+  pendingCount: number;
+  inboxFilter?: InboxFilter;
+  changeInboxFilter: (value: InboxFilter | undefined) => void;
   /** This host's coalesced DirectoryObserver result, once its first read completed. */
   directory?: HostDirectory;
   mobileHosts: (current: HostDirectory) => MobileHost[];
@@ -284,7 +286,7 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
   const [chooseCreation, setChooseCreation] = useState<"bot" | "group" | "direct" | "schedule">();
   const [recentBalancedHosts, setRecentBalancedHosts] = useState<string[]>([]);
   const [commands, setCommands] = useState<Record<string, HostCommand>>({}), [selected, setSelected] = useState<Record<string, string>>({});
-  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>();
   const [retainedOpen, setRetainedOpen] = useState<{ hostId: string; conversationId: string }>();
   const [directories, setDirectories] = useState<Record<string, HostDirectory & { registration: string }>>({});
   const directoriesRef = useRef(directories); directoriesRef.current = directories;
@@ -342,14 +344,14 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
     const dir = directoriesRef.current[id];
     return entry && dir?.registration === entry.host.registrationId ? dir : undefined;
   };
-  const changeUnreadOnly = (next: boolean) => {
+  const changeInboxFilter = (next: InboxFilter | undefined) => {
     if (next && filter) setFilter("");
-    if (next === unreadOnly) return;
-    setUnreadOnly(next);
+    if (next === inboxFilter) return;
+    setInboxFilter(next);
     if (!next) { setRetainedOpen(undefined); return; }
     const convId = activeRef.current ? selected[activeRef.current] ?? "" : "";
     const data = activeRef.current ? unreadDirectoryFor(activeRef.current) : undefined;
-    if (activeRef.current && convId && data && isUnreadSelectionTarget(data.conversations, data.activity, data.globalPins, convId, preferences.sidebarLayout)) {
+    if (activeRef.current && convId && data && isUnreadSelectionTarget(data.conversations, data.activity, data.globalPins, convId, preferences.sidebarLayout, next)) {
       setRetainedOpen({ hostId: activeRef.current, conversationId: convId });
     } else {
       setRetainedOpen(undefined);
@@ -357,12 +359,12 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
   };
   const command = (id: string, value: Omit<HostCommand, "serial">) => {
     selectHost(id);
-    if (unreadOnly && value.kind === "select" && value.conversationId !== undefined) {
+    if (inboxFilter && value.kind === "select" && value.conversationId !== undefined) {
       const conversationId = value.conversationId;
       const data = unreadDirectoryFor(id);
       setRetainedOpen(previous => {
         if (previous?.hostId === id && previous.conversationId === conversationId) return previous;
-        return data && isUnreadSelectionTarget(data.conversations, data.activity, data.globalPins, conversationId, preferences.sidebarLayout)
+        return data && isUnreadSelectionTarget(data.conversations, data.activity, data.globalPins, conversationId, preferences.sidebarLayout, inboxFilter)
           ? { hostId: id, conversationId }
           : undefined;
       });
@@ -526,21 +528,25 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
       const value = directories[entry.host.id];
       return sum + (value?.registration === entry.host.registrationId ? conversationUnreadTotal(value.conversations, value.activity) : 0);
     }, 0);
+  const pendingCount = state.hosts.filter(entry => !networkHostBlocked(entry, localHostKey)).reduce((sum, entry) => {
+      const value = directories[entry.host.id];
+      return sum + (value?.registration === entry.host.registrationId ? conversationPendingQuestionTotal(value.conversations, value.activity) : 0);
+    }, 0);
   const activeConversationId = activeId ? selected[activeId] ?? "" : "";
   const pendingSelectId = activeId && commands[activeId]?.kind === "select" ? commands[activeId]?.conversationId : undefined;
   useEffect(() => {
-    if (!unreadOnly) return;
+    if (!inboxFilter) return;
     if (pendingSelectId !== undefined && pendingSelectId !== activeConversationId) return;
     if (!activeId || !activeConversationId) { setRetainedOpen(undefined); return; }
     setRetainedOpen(previous => {
       if (previous && previous.hostId === activeId && previous.conversationId === activeConversationId) return previous;
       const data = unreadDirectoryFor(activeId);
-      if (data && isUnreadSelectionTarget(data.conversations, data.activity, data.globalPins, activeConversationId, preferences.sidebarLayout)) {
+      if (data && isUnreadSelectionTarget(data.conversations, data.activity, data.globalPins, activeConversationId, preferences.sidebarLayout, inboxFilter)) {
         return { hostId: activeId, conversationId: activeConversationId };
       }
       return undefined;
     });
-  }, [unreadOnly, activeId, activeConversationId, pendingSelectId, directories, state.hosts, preferences.sidebarLayout]);
+  }, [inboxFilter, activeId, activeConversationId, pendingSelectId, directories, state.hosts, preferences.sidebarLayout]);
   const badgeRequest = useRef<{ count: number; pending: boolean; applied: boolean } | undefined>(undefined);
   useEffect(() => {
     document.title = unreadCount ? `(${unreadCount}) TaroBird` : "TaroBird";
@@ -629,7 +635,8 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
       const parents = new Set(data.conversations.filter(c => matches.has(c.id)).map(c => c.parentId));
       return { ...data, conversations: data.conversations.filter(c => matches.has(c.id) || !!c.parentId && matches.has(c.parentId) || parents.has(c.id)) };
     };
-    const unreadFilterActive = unreadOnly && !board;
+    const activeInboxFilter = board ? undefined : inboxFilter;
+    const unreadFilterActive = !!activeInboxFilter;
     const toolbarHost = entries.find(entry => entry.host.id === activeId && entry.connection && dataFor(entry.host.id)) ?? entries.find(entry => entry.connection && dataFor(entry.host.id));
     const grouping = <>{multiHost && <HostGroupingSwitch menu checked={preferences.sidebarGroupByHost} change={sidebarGroupByHost => setPreferences({ ...preferences, sidebarGroupByHost })}/>}<DisconnectedBotsSwitch menu checked={preferences.showDisconnectedBots} change={showDisconnectedBots => setPreferences({ ...preferences, showDisconnectedBots })}/></>;
     const leadingSection = desktopBoard ? board ? board.renderGroups(entries) : unreadFilterActive ? undefined : <AgentBusList hosts={entries.map(host => ({ ...host, blocked: networkHostBlocked(host, localHostKey) }))} visible={!adhd && !pairingVisible && currentId === activeId} open={(host, id) => openAgentBus(host.host.id, host.host.registrationId, id)}/> : undefined;
@@ -637,7 +644,7 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
       const entry = entries.find(entry => entry.host.id === id)!;
       const data = dataFor(id);
       if (!entry.connection || !data) return null;
-      return <div data-host-id={entry.host.id}><AvatarProvider connection={entry.connection} conversations={data.conversations} directory={data.bots}><BotReferences bots={data.bots}><Suspense fallback={null}><ConversationList showDisconnectedBots={preferences.showDisconnectedBots || viewingHistory(entry)} layout={layout} slice={slice} selection={board?.selection(entry.host.id, entry.host.registrationId)} filtered={!!board?.query} unreadOnly={unreadFilterActive} retainedConversationId={unreadFilterActive && retainedOpen?.hostId === entry.host.id ? retainedOpen.conversationId : undefined} openBot={(botId, destination) => { if (!board) command(entry.host.id, { kind: destination === "capabilities" ? "bot-capabilities" : "bot-operations", botId }); }} connection={entry.connection} hostId={entry.host.id} hostName={entry.host.name} showHostBadge={showHostBadge} visible={board ? board.visible : !pairingVisible && currentId === activeId} conversations={data.conversations} bots={data.bots} pins={data.pins} globalPins={data.globalPins} showGlobalPins={false} activity={data.activity} selected={board ? board.focused?.hostId === entry.host.id && board.focused.registrationId === entry.host.registrationId ? board.focused.conversationId : "" : entry.host.id === activeId ? currentId === entry.host.id ? current.selected : selected[entry.host.id] ?? "" : ""} select={(id) => { if (board) { if (id && entry.host.state === "ready") board.select({ hostId: entry.host.id, registrationId: entry.host.registrationId, conversationId: id }); } else command(entry.host.id, { kind: "select", conversationId: id }); }} newChat={(botId) => { if (!board) command(entry.host.id, { kind: "direct", botId }); }}/></Suspense></BotReferences></AvatarProvider></div>;
+      return <div data-host-id={entry.host.id}><AvatarProvider connection={entry.connection} conversations={data.conversations} directory={data.bots}><BotReferences bots={data.bots}><Suspense fallback={null}><ConversationList showDisconnectedBots={preferences.showDisconnectedBots || viewingHistory(entry)} layout={layout} slice={slice} selection={board?.selection(entry.host.id, entry.host.registrationId)} filtered={!!board?.query} inboxFilter={activeInboxFilter} retainedConversationId={unreadFilterActive && retainedOpen?.hostId === entry.host.id ? retainedOpen.conversationId : undefined} openBot={(botId, destination) => { if (!board) command(entry.host.id, { kind: destination === "capabilities" ? "bot-capabilities" : "bot-operations", botId }); }} connection={entry.connection} hostId={entry.host.id} hostName={entry.host.name} showHostBadge={showHostBadge} visible={board ? board.visible : !pairingVisible && currentId === activeId} conversations={data.conversations} bots={data.bots} pins={data.pins} globalPins={data.globalPins} showGlobalPins={false} activity={data.activity} selected={board ? board.focused?.hostId === entry.host.id && board.focused.registrationId === entry.host.registrationId ? board.focused.conversationId : "" : entry.host.id === activeId ? currentId === entry.host.id ? current.selected : selected[entry.host.id] ?? "" : ""} select={(id) => { if (board) { if (id && entry.host.state === "ready") board.select({ hostId: entry.host.id, registrationId: entry.host.registrationId, conversationId: id }); } else command(entry.host.id, { kind: "select", conversationId: id }); }} newChat={(botId) => { if (!board) command(entry.host.id, { kind: "direct", botId }); }}/></Suspense></BotReferences></AvatarProvider></div>;
     };
     const bulkHosts = entries.flatMap(entry => {
       const data = entry.host.id === currentId && !board ? current : directories[entry.host.id];
@@ -652,12 +659,12 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
         const data = dataFor(entry.host.id);
         return entry.connection && data ? [{ id: entry.host.id, name: entry.host.name, connection: entry.connection, ...data, viewingHistory: viewingHistory(entry) }] : [];
       });
-      return bulkScope(<div className="host-directory-content"><Suspense fallback={null}><CombinedSidebar showDisconnectedBots={preferences.showDisconnectedBots} filtered={!!board?.query} unreadOnly={unreadFilterActive} retainedOpen={unreadFilterActive ? retainedOpen : undefined} leadingSection={leadingSection} hosts={ready} layout={layout} retained={board ? id => board.selection(id, entries.find(entry => entry.host.id === id)!.host.registrationId).selected : undefined} render={render}/></Suspense>{entries.filter(entry => !entry.connection || !dataFor(entry.host.id)).map(entry => <div key={entry.host.id}>{unavailable(entry)}</div>)}</div>);
+      return bulkScope(<div className="host-directory-content"><Suspense fallback={null}><CombinedSidebar showDisconnectedBots={preferences.showDisconnectedBots} filtered={!!board?.query} inboxFilter={activeInboxFilter} retainedOpen={unreadFilterActive ? retainedOpen : undefined} leadingSection={leadingSection} hosts={ready} layout={layout} retained={board ? id => board.selection(id, entries.find(entry => entry.host.id === id)!.host.registrationId).selected : undefined} render={render}/></Suspense>{entries.filter(entry => !entry.connection || !dataFor(entry.host.id)).map(entry => <div key={entry.host.id}>{unavailable(entry)}</div>)}</div>);
     }
     const unreadMatchesByHost = new Map(entries.flatMap(entry => {
       const data = dataFor(entry.host.id);
       if (!unreadFilterActive || !data) return [];
-      return [[entry.host.id, filterUnreadHostItems(data.conversations, data.activity, data.globalPins, retainedOpen?.hostId === entry.host.id ? retainedOpen.conversationId : undefined)] as const];
+      return [[entry.host.id, filterUnreadHostItems(data.conversations, data.activity, data.globalPins, retainedOpen?.hostId === entry.host.id ? retainedOpen.conversationId : undefined, activeInboxFilter)] as const];
     }));
     const globalRows = buildConversationRows(entries.flatMap(entry => {
       const data = dataFor(entry.host.id); if (!entry.connection || !data) return [];
@@ -683,7 +690,7 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
         );
       })
       : entries;
-    return bulkScope(<div className="host-directory-content">{globalRows.length > 0 && <GlobalPinSection>{globalRows.map(row => <div key={row.key}>{render(row.hostId, { kind: "conversation", id: row.conversation.id, ...(layout === "conversations" ? { inbox: row } : {}) }, entries.length > 1)}</div>)}</GlobalPinSection>}<div className="sidebar-directory-groups">{leadingSection}</div>{visibleEntries.map(entry => <section key={entry.host.id} data-host-id={entry.host.id} className="host-directory-section" aria-label={t("主机：{0}", entry.host.name)}>{entries.length > 1 && <div className="host-heading-row"><button className="host-heading" aria-label={t("{0}，{1}", entry.host.name, entry.connection?.state.status === "online" ? t("已连接") : t("离线"))} onClick={() => selectHost(entry.host.id)}><Monitor size={13}/><strong>{entry.host.name}</strong><i className={`status-dot ${entry.connection?.state.status === "online" ? "online" : ""}`}/></button></div>}{entry.connection && dataFor(entry.host.id) ? render(entry.host.id) : unavailable(entry)}</section>)}{unreadFilterActive && !visibleEntries.length && !globalRows.length && <p className="empty-sidebar">{t("没有未读会话")}</p>}</div>);
+    return bulkScope(<div className="host-directory-content">{globalRows.length > 0 && <GlobalPinSection>{globalRows.map(row => <div key={row.key}>{render(row.hostId, { kind: "conversation", id: row.conversation.id, ...(layout === "conversations" ? { inbox: row } : {}) }, entries.length > 1)}</div>)}</GlobalPinSection>}<div className="sidebar-directory-groups">{leadingSection}</div>{visibleEntries.map(entry => <section key={entry.host.id} data-host-id={entry.host.id} className="host-directory-section" aria-label={t("主机：{0}", entry.host.name)}>{entries.length > 1 && <div className="host-heading-row"><button className="host-heading" aria-label={t("{0}，{1}", entry.host.name, entry.connection?.state.status === "online" ? t("已连接") : t("离线"))} onClick={() => selectHost(entry.host.id)}><Monitor size={13}/><strong>{entry.host.name}</strong><i className={`status-dot ${entry.connection?.state.status === "online" ? "online" : ""}`}/></button></div>}{entry.connection && dataFor(entry.host.id) ? render(entry.host.id) : unavailable(entry)}</section>)}{unreadFilterActive && !visibleEntries.length && !globalRows.length && <p className="empty-sidebar">{activeInboxFilter === "pending" ? t("没有等你回答的问题") : t("没有未读会话")}</p>}</div>);
   };
   const savePairing = async (identity: Identity, name: string) => {
     localControllerEpoch.current++;
@@ -780,7 +787,7 @@ function HostAppSession({ Workspace, Pairing }: HostAppProps) {
     {adhd && !pairingVisible && <Suspense fallback={<div className="loading-screen">{t("正在读取面板…")}</div>}><AdhdBoard navigationRejected={serial => setWorkbenchFileRequest(old => old?.serial === serial ? undefined : old)} busNavigation={busNavigation} compact={!adhdBoard} agentBus={desktopBoard} activeHostId={activeId} navigation={boardNavigation} registry={registry} preferences={preferences} updatePreferences={setPreferences} Workspace={Workspace} sidebarControls={controls} tools={{ manageHosts: openNetwork, manageConnections: openConnections, addHost: () => { setAdhd(false); setPairing(true); }, createBot: hostId => { setAdhd(false); command(hostId, { kind: "bot" }); } }} renderConversations={options => navigation(activeId, { ...(directories[activeId] ?? { conversations: [], bots: [], pins: [], activity: {} }), selected: selected[activeId] ?? "" }, options)}
       hosts={allHosts.map(entry => ({ ...entry, directory: directories[entry.host.id]?.registration === entry.host.registrationId ? directories[entry.host.id] : undefined, blocked: networkHostBlocked(entry, localHostKey), local: isDesktop() && entry.host.publicKey === localHostKey }))}
       exit={exitBoard} open={(hostId, conversationId) => { setAdhd(false); command(hostId, { kind: "select", conversationId }); }}/></Suspense>}
-    {!adhd && allHosts.filter((entry) => entry.connection && visited.includes(entry.host.id)).map((entry) => <section key={entry.host.registrationId} hidden={pairingVisible || activeId !== entry.host.id} style={pairingVisible || activeId !== entry.host.id ? { display: "none" } : undefined} className="host-workspace" data-active-host={entry.host.id}><Workspace connection={entry.connection!} forget={async () => { setManaging(true); }} shell={{ host: entry.host, lifecycleChanged, openAgentBus: desktopBoard && !networkHostBlocked(entry, localHostKey) ? () => openAgentBus(entry.host.id, entry.host.registrationId) : undefined, adhdBlocked: workspaceLocked, openAdhd: adhdBoard && !networkHostBlocked(entry, localHostKey) ? enterBoard : undefined, localHost: isDesktop() && !!localHostKey && entry.host.publicKey === localHostKey, active: !pairingVisible && activeId === entry.host.id, command: commands[entry.host.id], directory: directories[entry.host.id]?.registration === entry.host.registrationId ? directories[entry.host.id] : undefined, networkNotice: networkHostBlocked(entry, localHostKey) ? <div className="network-change-notice" role="status"><span>{t("这是已停用连接的本机历史。历史和草稿保留。")}</span><button onClick={() => setConnections(true)}>{t("此设备的连接")}</button></div> : networkNotice, controls, navigation: (current) => navigation(entry.host.id, current), unreadCount, unreadOnly, changeUnreadOnly, mobileHosts: (current) => (historyHostId === entry.host.id ? allHosts.filter(other => other.host.id === entry.host.id || !networkHostBlocked(other, localHostKey)) : hosts).flatMap((other) => {
+    {!adhd && allHosts.filter((entry) => entry.connection && visited.includes(entry.host.id)).map((entry) => <section key={entry.host.registrationId} hidden={pairingVisible || activeId !== entry.host.id} style={pairingVisible || activeId !== entry.host.id ? { display: "none" } : undefined} className="host-workspace" data-active-host={entry.host.id}><Workspace connection={entry.connection!} forget={async () => { setManaging(true); }} shell={{ host: entry.host, lifecycleChanged, openAgentBus: desktopBoard && !networkHostBlocked(entry, localHostKey) ? () => openAgentBus(entry.host.id, entry.host.registrationId) : undefined, adhdBlocked: workspaceLocked, openAdhd: adhdBoard && !networkHostBlocked(entry, localHostKey) ? enterBoard : undefined, localHost: isDesktop() && !!localHostKey && entry.host.publicKey === localHostKey, active: !pairingVisible && activeId === entry.host.id, command: commands[entry.host.id], directory: directories[entry.host.id]?.registration === entry.host.registrationId ? directories[entry.host.id] : undefined, networkNotice: networkHostBlocked(entry, localHostKey) ? <div className="network-change-notice" role="status"><span>{t("这是已停用连接的本机历史。历史和草稿保留。")}</span><button onClick={() => setConnections(true)}>{t("此设备的连接")}</button></div> : networkNotice, controls, navigation: (current) => navigation(entry.host.id, current), unreadCount, pendingCount, inboxFilter, changeInboxFilter, mobileHosts: (current) => (historyHostId === entry.host.id ? allHosts.filter(other => other.host.id === entry.host.id || !networkHostBlocked(other, localHostKey)) : hosts).flatMap((other) => {
         const data = other.host.id === entry.host.id ? current : directories[other.host.id];
         return other.connection && data ? [{ id: other.host.id, name: other.host.name, connection: other.connection, ...data, viewingHistory: viewingHistory(other) }] : [];
       }), mobileInbox, mobileScrollPositions, updateMobileInbox: setMobileInbox, mobileSelect: command, conversationsArchived, manageHosts: openNetwork, manageConnections: openConnections, addHost: () => setPairing(true), multiHost, registeredHostCount: (historyHostId === entry.host.id ? allHosts.filter(other => other.host.id === entry.host.id || !networkHostBlocked(other, localHostKey)) : hosts).length, preferences, updatePreferences: setPreferences, create, selection: (id) => setSelected((old) => old[entry.host.id] === id ? old : { ...old, [entry.host.id]: id }), consumed: (serial) => setCommands((old) => { if (old[entry.host.id]?.serial !== serial) return old; const next = { ...old }; delete next[entry.host.id]; return next; }), shareHosts: hosts.map((other) => ({ hubKey: other.host.publicKey, deviceId: other.host.deviceId, name: other.host.name, open: (conversationId) => command(other.host.id, { kind: "select", conversationId }) })), resourceHosts: hosts.filter((other) => other.connection).map((other) => ({ id: other.host.id, name: other.host.name, connection: other.connection! })) }}/></section>)}

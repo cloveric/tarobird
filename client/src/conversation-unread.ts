@@ -13,6 +13,18 @@ export type UnreadHostMatch = {
   groupIds: Set<string>;
 };
 
+/** The desktop sidebar's filters beside 全部: unread messages, or questions a Bot is waiting on the owner to answer. */
+export type InboxFilter = 'unread' | 'pending';
+
+/** Questions (AskUserQuestion forms) waiting for the owner's answer in one conversation. Command approvals are not counted. */
+export function pendingQuestionsFor(activity: ConversationActivity | undefined): number {
+  return Object.values(activity?.attention ?? {}).filter(item => item.kind === 'question').length;
+}
+
+function filterCount(filter: InboxFilter, activity: ConversationActivity | undefined): number {
+  return filter === 'pending' ? pendingQuestionsFor(activity) : Object.keys(activity?.unread ?? {}).length;
+}
+
 function liveUnreadConversations(all: readonly Conversation[], activity: Readonly<Record<string, ConversationActivity>>): Conversation[] {
   const conversations = listedConversations(all, activity);
   const roots = new Set(conversations.filter(chat => !chat.archived && !chat.parentId).map(chat => chat.id));
@@ -32,8 +44,16 @@ export function conversationUnreadTotal(all: readonly Conversation[], activity: 
   return count;
 }
 
+/** The 待处理 badge: questions waiting for the owner across live conversations,
+ * with the same live/archived and topic rules as `conversationUnreadTotal`. */
+export function conversationPendingQuestionTotal(all: readonly Conversation[], activity: Readonly<Record<string, ConversationActivity>>): number {
+  let count = 0;
+  for (const chat of liveUnreadConversations(all, activity)) count += pendingQuestionsFor(activity[chat.id]);
+  return count;
+}
+
 /** Determine which conversations, Bots, and groups remain visible under the
- * desktop Unread filter, using the exact same live/archived rules as
+ * desktop Unread (or Pending) filter, using the exact same live/archived rules as
  * `conversationUnreadTotal`. Keeps `retainedId` visible while it is being read
  * so the row does not vanish mid-read until the user navigates away. */
 export function filterUnreadHostItems(
@@ -41,13 +61,13 @@ export function filterUnreadHostItems(
   activity: Readonly<Record<string, ConversationActivity>>,
   globalPins: readonly string[] = [],
   retainedId?: string,
+  filter: InboxFilter = 'unread',
 ): UnreadHostMatch {
   const live = liveUnreadConversations(all, activity);
   const globals = new Set(globalPins);
   const matchingIds = new Set<string>();
   for (const chat of live) {
-    const unread = Object.keys(activity[chat.id]?.unread ?? {}).length;
-    if (unread > 0 || retainedId !== undefined && chat.id === retainedId) {
+    if (filterCount(filter, activity[chat.id]) > 0 || retainedId !== undefined && chat.id === retainedId) {
       matchingIds.add(chat.id);
     }
   }
@@ -73,17 +93,18 @@ export function filterUnreadHostItems(
   return { matchingIds, conversations, botIds, groupIds };
 }
 
-/** Whether opening `conversationId` targets an unread item in the current layout
- * (so it should stay retained in the Unread list while being read). */
+/** Whether opening `conversationId` targets an unread (or pending) item in the current layout
+ * (so it should stay retained in the filtered list while being read). */
 export function isUnreadSelectionTarget(
   all: readonly Conversation[],
   activity: Readonly<Record<string, ConversationActivity>>,
   globalPins: readonly string[] = [],
   conversationId: string,
   layout: SidebarLayout,
+  filter: InboxFilter = 'unread',
 ): boolean {
   if (!conversationId) return false;
-  const match = filterUnreadHostItems(all, activity, globalPins);
+  const match = filterUnreadHostItems(all, activity, globalPins, undefined, filter);
   if (match.matchingIds.has(conversationId)) return true;
   return layout === 'conversations' && match.groupIds.has(conversationId);
 }
