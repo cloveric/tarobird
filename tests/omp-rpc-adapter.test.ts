@@ -1673,6 +1673,7 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
 
     type SwitchMode = "reject" | "cancel" | "mismatch" | "ok";
     let switchMode: SwitchMode = "reject";
+    let forkReplyLost = false;
     let spawnCount = 0;
     const spawnedProcs: FakeOmpProcess[] = [];
     const switchedTargets: string[] = [];
@@ -1732,7 +1733,9 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
           if (cmd.type === "fork") {
             void writeFile(forkFile, `${JSON.stringify({ type: "session", id: "fork", cwd: dir })}\n`).then(() => {
               activeFile = forkFile;
-              p.send({ id, type: "response", command: "fork", success: true, data: { cancelled: false } });
+              p.send(forkReplyLost
+                ? { id, type: "response", command: "fork", success: false, error: "fork reply lost", code: "timeout" }
+                : { id, type: "response", command: "fork", success: true, data: { cancelled: false } });
             });
             return;
           }
@@ -1792,6 +1795,15 @@ describe("Issue #83: oh-my-pi (omp) RPC engine integration", () => {
       detail: expect.stringMatching(/remained on the forked session/i),
     });
     expect(spawnedProcs[2]!.killed).toBe(true);
+
+    // A lost fork response can leave the worker on the fork even without a success receipt.
+    switchMode = "ok";
+    await adapter.sendUserMessage("conv-fork-fail", { text: "turn 4", files: [] });
+    forkReplyLost = true;
+    expect(await adapter.forkHistory("conv-fork-fail")).toMatchObject({ outcome: "unknown" });
+    expect(spawnedProcs[3]!.killed).toBe(true);
+    const afterLostReply = await adapter.sendUserMessage("conv-fork-fail", { text: "turn 5", files: [] });
+    expect(afterLostReply.text).toBe("active:main.jsonl");
 
     await adapter.destroy();
   });

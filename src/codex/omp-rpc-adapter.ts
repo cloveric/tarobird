@@ -1603,13 +1603,13 @@ export class OmpRpcAdapter implements CodexAdapter {
 
       const originalSessionFile = stateBefore.sessionFile;
       if (!originalSessionFile) return rejected("source_missing", "omp did not identify the source session file");
-      let forkCompleted = false;
+      let forkAcknowledged = false;
       let forkedSessionFile: string | undefined;
       let candidateSessionId: string | undefined;
       try {
         const forkResult = await worker.client.fork(forkEntryId);
         if (forkResult.cancelled) return rejected("cancelled", "omp cancelled the fork");
-        forkCompleted = true;
+        forkAcknowledged = true;
 
         const forkedState = await worker.client.getState();
         if (!forkedState.sessionFile || path.resolve(forkedState.sessionFile) === path.resolve(originalSessionFile)) {
@@ -1641,21 +1641,20 @@ export class OmpRpcAdapter implements CodexAdapter {
           boundary,
         };
       } catch (error) {
-        if (forkCompleted) {
-          // Preserve the source mapping and evict a worker whose binding may have changed.
-          await this.store.setRecord(sessionId, { sessionFile: originalSessionFile, cwd: worker.cwd }).catch(() => undefined);
-          await this.closeWorker(worker);
-          if (forkedSessionFile && candidateSessionId) {
-            const relocated = await this.store.relocateForkedFile(forkedSessionFile, worker.sessionDir, candidateSessionId).catch(() => forkedSessionFile!);
-            await this.store.setRecord(candidateSessionId, { sessionFile: relocated, cwd: worker.cwd }).catch(() => undefined);
-          }
-          return {
-            outcome: "unknown",
-            detail: error instanceof Error ? error.message : String(error),
-            ...(candidateSessionId ? { candidateSessionId } : {}),
-          };
+        const code = (error as { code?: string })?.code;
+        if (!forkAcknowledged && (code === "session_busy" || code === "entry_not_found")) throw error;
+        // The fork may have switched files even if its response was lost.
+        await this.store.setRecord(sessionId, { sessionFile: originalSessionFile, cwd: worker.cwd }).catch(() => undefined);
+        await this.closeWorker(worker);
+        if (forkedSessionFile && candidateSessionId) {
+          const relocated = await this.store.relocateForkedFile(forkedSessionFile, worker.sessionDir, candidateSessionId).catch(() => forkedSessionFile!);
+          await this.store.setRecord(candidateSessionId, { sessionFile: relocated, cwd: worker.cwd }).catch(() => undefined);
         }
-        throw error;
+        return {
+          outcome: "unknown",
+          detail: error instanceof Error ? error.message : String(error),
+          ...(candidateSessionId ? { candidateSessionId } : {}),
+        };
       }
     } catch (error) {
       const code = (error as { code?: string })?.code;
@@ -1680,6 +1679,7 @@ export class OmpRpcAdapter implements CodexAdapter {
     if (!worker || !worker.client.alive) return rejected("source_missing", "No omp session found to rewind");
     if (worker.activeTurn && !worker.activeTurn.settled) return rejected("busy");
 
+    let rewindRequested = false;
     try {
       const [stateBefore, entriesBefore] = await Promise.all([worker.client.getState(), worker.client.getEntries()]);
       if (isOmpStateBusy(stateBefore) || worker.pendingUi.size > 0) return rejected("busy");
@@ -1690,6 +1690,7 @@ export class OmpRpcAdapter implements CodexAdapter {
       if (anchorIndex < 0) return rejected("anchor_unavailable", "Anchor is not on the active branch");
       if (input.signal?.aborted) return rejected("cancelled");
 
+      rewindRequested = true;
       const nav = await worker.client.navigateTree(input.anchor.inputId);
       if (nav.cancelled || nav.aborted) return rejected("cancelled", "omp cancelled navigate_tree");
 
@@ -1710,6 +1711,7 @@ export class OmpRpcAdapter implements CodexAdapter {
       const code = (error as { code?: string })?.code;
       if (code === "session_busy") return rejected("busy");
       if (code === "entry_not_found") return rejected("anchor_unavailable");
+      if (rewindRequested) return { outcome: "unknown", detail: error instanceof Error ? error.message : String(error) };
       return rejected("not_ready", error instanceof Error ? error.message : String(error));
     }
   }
