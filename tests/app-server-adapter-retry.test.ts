@@ -590,7 +590,6 @@ describe("Codex refused input (structured codexErrorInfo only)", () => {
     ["provider 400 text without a code", { message: "unexpected status 400 Bad Request: INVALID_ARGUMENT invalid_request_error" }],
     ["client HTTP status", { message: "unexpected status 400 Bad Request", codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 400 } } }],
     ["context window", { message: "Codex ran out of room in the model's context window.", codexErrorInfo: "contextWindowExceeded" }],
-    ["missing model", { message: "The model does not exist.", codexErrorInfo: "modelNotFound" }],
     ["invalid prompt", { message: "Invalid prompt.", codexErrorInfo: "invalidPrompt" }],
   ])("leaves %s as it was", async (_label, error) => {
     const { adapter, child, send } = boot();
@@ -599,6 +598,26 @@ describe("Codex refused input (structured codexErrorInfo only)", () => {
     expect(result.error).toBeInstanceOf(Error);
     expect(result.error).not.toBeInstanceOf(EngineIncompleteResponseError);
     adapter.destroy();
+  });
+
+  it.each([
+    { message: "The model does not exist.", codexErrorInfo: "modelNotFound" },
+    { message: '{"error":{"code":"model_not_found","message":"Fixture model unavailable"}}', codexErrorInfo: "other" },
+  ])("reports an unavailable model from a terminal $codexErrorInfo receipt without replay", async (error) => {
+    const { adapter, child, send } = boot();
+    try {
+      child.starts.push({ turn: failTurn(error) });
+      const result = await send("thread-model");
+      const reply = renderCoreUserFacingError(result.error, "engine", "en");
+      expect(reply).toContain("The selected Codex model is unavailable");
+      expect(reply).toContain("Bot settings");
+      expect(reply).not.toContain(error.message);
+      expect(result.error).not.toBeInstanceOf(EngineRetryableError);
+      expect(child.frames.filter(frame => frame.method === "turn/start")).toHaveLength(1);
+      expect(child.frames.some(frame => frame.method === "thread/start")).toBe(false);
+    } finally {
+      adapter.destroy();
+    }
   });
 
   it("ignores a badRequest that Codex was still retrying, and one on a turn that did not fail", async () => {

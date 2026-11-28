@@ -2477,6 +2477,57 @@ describe("CodexAppServerAdapter", () => {
     }
   });
 
+  it.each([
+    { label: "both settings", model: "gpt-5.6-sol", effort: "low" },
+    { label: "default effort", model: "gpt-5.6-sol", effort: undefined },
+    { label: "default model", model: undefined, effort: "low" },
+    { label: "no Bot overrides", model: undefined, effort: undefined },
+  ])("resumes the selected native thread with $label after a config save", async ({ model, effort }) => {
+    const original = createSpawnHarness(), replacement = createSpawnHarness();
+    const spawnFn = vi.fn()
+      .mockImplementationOnce(original.spawnFn)
+      .mockImplementationOnce(replacement.spawnFn);
+    const root = await mkdtemp(path.join(os.tmpdir(), "codex-resume-model-"));
+    const configPath = path.join(root, "config.json");
+    const adapter = new CodexAppServerAdapter("codex", root, undefined, spawnFn, undefined, undefined, configPath);
+    const requests = (child: FakeChildProcess, method: string) => child.stdin.lines.map(line => JSON.parse(line)).filter(frame => frame.method === method);
+    const respond = async (child: FakeChildProcess, method: string, result: unknown) => {
+      await waitFor(() => requests(child, method).length > 0);
+      const frame = requests(child, method).at(-1);
+      child.stdout.emitData(JSON.stringify({ id: frame.id, result }) + "\n");
+      return frame.params;
+    };
+    try {
+      await writeFile(configPath, JSON.stringify({ model: "gpt-6.1-sol", effort: "xhigh" }));
+      // Explicitly attach to a stored native thread before changing Bot settings.
+      const attached = adapter.validateExternalSession("stored-thread");
+      await respond(original.child, "initialize", {});
+      await respond(original.child, "thread/resume", { thread: { id: "stored-thread" } });
+      await attached;
+      expect(requests(original.child, "turn/start")).toHaveLength(0);
+
+      await writeFile(configPath, JSON.stringify({ model, effort }));
+      const turn = adapter.sendUserMessage("stored-thread", { text: "Next synthetic input", files: [] });
+      void turn.catch(() => undefined);
+      await respond(replacement.child, "initialize", {});
+      const settings = await respond(replacement.child, "thread/resume", { thread: { id: "stored-thread" } });
+      expect(settings.threadId).toBe("stored-thread");
+      expect(settings.model).toBe(model);
+      expect(settings.config).toEqual(effort ? { model_reasoning_effort: effort } : undefined);
+      const start = await respond(replacement.child, "turn/start", { turn: { id: "new-turn" } });
+      expect(start).toMatchObject({ threadId: "stored-thread", input: [{ type: "text", text: "Next synthetic input" }] });
+      replacement.child.stdout.emitData(JSON.stringify({ method: "turn/completed", params: {
+        threadId: "stored-thread", turn: { id: "new-turn", status: "completed", items: [{ type: "agentMessage", text: "OK" }] },
+      } }) + "\n");
+      await expect(turn).resolves.toMatchObject({ text: "OK", sessionId: undefined });
+      expect(requests(replacement.child, "thread/start")).toHaveLength(0);
+      expect(requests(replacement.child, "turn/start")).toHaveLength(1);
+    } finally {
+      await adapter.destroy();
+      await removeTempRoot(root);
+    }
+  });
+
   it("sends a ticket model/effort on turn/start without restarting the shared app-server", async () => {
     const { child, calls, spawnFn } = createSpawnHarness();
     const root = await mkdtemp(path.join(os.tmpdir(), "tarobot-app-server-override-"));
