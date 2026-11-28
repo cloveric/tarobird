@@ -249,6 +249,46 @@ it("splits N-item tasks cleanly and honors #88 preferences, quota health, and ma
   expect(summary).toContain("scripts.tar.gz");
 });
 
+it.each([
+  { label: "total one without per-node", fields: { totalItems: 1 }, counts: [1], total: 1 },
+  { label: "total one with per-node one", fields: { totalItems: 1, perNode: 1 }, counts: [1], total: 1 },
+  { label: "total one below per-node capacity", fields: { totalItems: 1, perNode: 3 }, counts: [1], total: 1 },
+  { label: "per-node without a total", fields: { perNode: 2 }, counts: [2, 2], total: 4 },
+  { label: "explicit items", fields: { totalItems: 1, perNode: 2, items: ["Alpha", "Beta", "Gamma"] }, counts: [2, 1], total: 3 },
+  { label: "larger total", fields: { totalItems: 5, perNode: 2 }, counts: [2, 2, 1], total: 5 },
+])("agrees on preview and persisted tickets for $label", async ({ fields, counts, total }) => {
+  await authorizeStudioFromMac();
+  const { settings, revision } = await a.dispatch.settings("owner", "d");
+  await a.dispatch.updateSettings("owner", "d", { settings: { ...settings, mode: "ask" }, expectedRevision: revision });
+  const nodes = await a.dispatch.nodes(owner, "d");
+  expect(nodes.nodes.filter(node => node.eligible).map(node => node.hostId)).toEqual([macId, studioId]);
+
+  const input = { requestId: "count-plan", request: "Prepare example output", engine: "codex", ...fields };
+  const preview = await a.dispatch.plan(owner, "d", input);
+  expect(preview.tickets).toBeUndefined();
+  expect(await a.store.db.get("SELECT 1 FROM dispatch_tickets WHERE batch_id=?", [preview.batchId])).toBeUndefined();
+  expect(await a.store.db.get("SELECT 1 FROM dispatch_requests WHERE request_id=?", [`plan_${preview.batchId}`])).toBeUndefined();
+
+  const created = await a.dispatch.plan(owner, "d", { ...input, create: true });
+  const persisted = await a.store.db.all<{ id: string; host_id: string }>(
+    "SELECT id,host_id FROM dispatch_tickets WHERE batch_id=? ORDER BY batch_index", [preview.batchId],
+  );
+  for (const plan of [preview, created]) {
+    expect.soft(plan.totalItems).toBe(total);
+    expect.soft(plan.batches.map(batch => batch.itemCount)).toEqual(counts);
+    expect.soft(plan.batches.map(batch => batch.itemStart)).toEqual(counts.map((_, i) => 1 + counts.slice(0, i).reduce((sum, count) => sum + count, 0)));
+    expect.soft(plan.batches.at(-1)?.itemEnd).toBe(total);
+  }
+  expect.soft(created.tickets).toHaveLength(counts.length);
+  expect.soft(persisted).toHaveLength(counts.length);
+  expect(persisted).toEqual(created.tickets?.map(ticket => ({ id: ticket.id, host_id: ticket.hostId })));
+  expect(created.tickets?.every(ticket => ticket.status === "queued" && ticket.attempts.length === 0)).toBe(true);
+  if (fields.items) {
+    expect(created.tickets?.[0]?.request).toContain("1. Alpha\n2. Beta");
+    expect(created.tickets?.[1]?.request).toContain("3. Gamma");
+  }
+});
+
 it("enforces remote authorization, dispatches across 2 real TLS Hubs in parallel, collects artifacts, and publishes one consolidated summary", async () => {
   // 1. Before authorization: studio-b is online but unauthorized.
   const preNodes = dispatchNodesResponseSchema.parse(await a.dispatch.nodes(owner, "d"));
