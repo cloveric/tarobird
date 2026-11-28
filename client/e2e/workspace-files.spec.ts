@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { HubServer } from "../../src/hub/server.js";
+import { RunJournal } from "../../src/hub/run-journal.js";
 import { hashSecret } from "../../src/hub/auth.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
 import { enterMobileChat, mobileHome, selectConversation, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
@@ -295,4 +296,98 @@ test("phone Files panel stays non-blocking when hidden, uses horizontal safe-are
   } finally {
     await f.close();
   }
+});
+
+
+test("Files panel says where the Bot works and what this turn changed; 文件 is a labelled entry with a count and 本轮改动 opens it", async ({ page }) => {
+  const shots = "/Volumes/gdrive/taro-tmp.noindex/ui-batch-20261128/pr18";
+  const f = await createFixture(page, { phone: false });
+  try {
+    // A finished reply in A that recorded edits to two files.
+    const { message: ask } = await f.hub.store.sendMessage("owner", { conversationId: f.convA.id, clientMsgId: "cm_files_turn", text: "改一下说明", attachments: [], mentions: ["bot_a"], previewUrl: null });
+    const runId = "run_files_turn", start = Date.now() - 10_000, end = Date.now() - 1_000;
+    const reply = await f.hub.store.publishBotMessage("bot_a", { conversationId: f.convA.id, replyTo: ask.id, status: "complete", blocks: [{ type: "card", title: "完成", elements: [{ type: "markdown", text: "已改好。" }], extra: {
+      nativeRun: { version: 1, id: runId, revision: 2, phase: "done", startedAt: start, updatedAt: end, endedAt: end, count: 2, completed: 2, failed: 0, truncated: false },
+      runChanges: { v: 1, runId, revision: 2, files: 2, edits: 2, additions: 3, deletions: 1, unavailable: 0, partial: false, childEdits: 0 },
+    } }] as never });
+    await new RunJournal(f.hub.store).write("bot_a", { conversationId: f.convA.id, messageId: reply.id, runId, entries: [
+      { seq: 1, revision: 1, kind: "tool", status: "done", at: start + 1000, endedAt: start + 2000, name: "edit_file", changes: [{ path: "subA/fast.txt", diff: "@@ -1,1 +1,2 @@\n-a\n+b\n+c" }] },
+      { seq: 2, revision: 2, kind: "tool", status: "done", at: start + 3000, endedAt: end, name: "edit_file", changes: [{ path: "README.md", diff: "@@ -1,1 +1,1 @@\n-x\n+y" }] },
+    ] } as never);
+    await selectConversation(page, f.convA.title);
+    const header = page.locator(".host-workspace:not([hidden]) .conversation-header");
+
+    // Option A: a labelled 「文件」 button with this turn's changed-file count, like 「工作区」.
+    const filesBtn = header.getByRole("button", { name: "文件，本轮改动 2 个", exact: true });
+    await expect(filesBtn).toBeVisible();
+    await expect(filesBtn.locator(".workspace-rail-trigger-label")).toHaveText("文件");
+    await expect(filesBtn.locator(".workspace-rail-trigger-badge")).toHaveText("2");
+    await page.mouse.move(5, 5);
+    await header.screenshot({ path: `${shots}/header-with-count.png` });
+    await filesBtn.click();
+    const panel = page.locator("aside.workspace-files-panel");
+    await expect(panel).toBeVisible();
+
+    // Where the Bot works: the real directory, not only its name.
+    const root = panel.locator(".wf-crumb-root");
+    await expect(root).toHaveClass(/is-path/);
+    await expect(root).toContainText("/workspace-a");
+    await expect(panel.locator(".wf-root-note")).toHaveText("Bot 的工作目录");
+
+    // This turn's changes: both files with their counts; the tree marks changed files and their folders.
+    const changes = panel.getByRole("region", { name: "这轮改动", exact: true });
+    await expect(changes).toContainText("这轮改动 · 2 个文件");
+    await expect(changes.locator(".wf-run-change-name")).toHaveText(["fast.txt", "README.md"]);
+    await expect(changes.locator(".wf-run-change-counts")).toHaveCount(2);
+    await expect(panel.locator(".wf-section-title", { hasText: "全部文件" })).toBeVisible();
+    await expect(panel.locator(".wf-row", { hasText: "subA" }).locator(".wf-git-dot")).toBeVisible();
+    await expect(panel.locator(".wf-row", { hasText: "deleted.txt" }).locator(".wf-git-badge")).toBeVisible();
+    await page.mouse.move(5, 5);
+    await panel.screenshot({ path: `${shots}/panel.png` });
+
+    // 「只看改动的」 filters the tree and hides the turn section while on.
+    const only = panel.getByRole("button", { name: /^只看改动的/ });
+    await only.click(); await expect(only).toHaveAttribute("aria-pressed", "true");
+    await expect(changes).toHaveCount(0);
+    await expect(panel.locator(".wf-row", { hasText: "Makefile" })).toHaveCount(0);
+    await only.click(); await expect(changes).toBeVisible();
+
+    // The hint lists what works, and dragging a file into the composer references it.
+    await expect(panel.locator(".wf-hint")).toContainText("单击");
+    await expect(panel.locator(".wf-hint")).toContainText("拖到输入框");
+    const composer = page.getByRole("textbox", { name: "消息", exact: true }).filter({ visible: true });
+    await panel.locator(".wf-row", { hasText: "Makefile" }).dragTo(composer);
+    await expect(composer).toHaveValue(/`@Makefile`/);
+
+    // 「看全部变更」 opens the run's diff viewer.
+    await changes.getByRole("button", { name: /看全部变更/ }).click();
+    const viewer = page.getByRole("dialog", { name: "本轮改动", exact: true });
+    await expect(viewer).toBeVisible();
+    await viewer.getByRole("button", { name: "关闭改动查看器" }).click();
+    await expect(viewer).toBeHidden();
+
+    // Closed panel; the reply's 「本轮改动」 opens it at this turn's changes (not the viewer).
+    await panel.getByRole("button", { name: "关闭文件面板", exact: true }).click();
+    await expect(panel).toBeHidden();
+    await page.locator(".message-body").getByRole("button", { name: "本轮改动", exact: true }).click();
+    await expect(panel).toBeVisible();
+    await expect(changes).toBeInViewport();
+    await expect(viewer).toHaveCount(0);
+
+    // A tighter window with the panel open: the label gives way, the icon and the count stay (as 「工作区」 does).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(filesBtn.locator(".workspace-rail-trigger-label")).toBeHidden();
+    await expect(filesBtn.locator(".workspace-rail-trigger-badge")).toBeVisible();
+    await page.mouse.move(5, 5);
+    await header.screenshot({ path: `${shots}/header-1280-panel-open.png` });
+    await page.setViewportSize({ width: 1360, height: 900 });
+
+    // A conversation without recorded changes: plain 「文件」, no count.
+    await selectConversation(page, f.convB.title);
+    const plain = header.getByRole("button", { name: "文件", exact: true });
+    await expect(plain).toBeVisible();
+    await expect(plain.locator(".workspace-rail-trigger-badge")).toHaveCount(0);
+    await page.mouse.move(5, 5);
+    await header.screenshot({ path: `${shots}/header-without-count.png` });
+  } finally { await f.close(); }
 });

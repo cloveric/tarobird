@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HubWorkspaceFiles } from "../src/hub/workspace-files.js";
+import { HubWorkspaceFiles, homeRelativePath } from "../src/hub/workspace-files.js";
 import { HubWorkspaceDiff } from "../src/hub/workspace-diff.js";
-import { WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_MAX_ENTRIES } from "../src/client-protocol/workspace-files.js";
+import { WORKSPACE_FILES_CAPABILITY, WORKSPACE_FILES_DISPLAY_PATH_CAPABILITY, WORKSPACE_FILES_MAX_ENTRIES } from "../src/client-protocol/workspace-files.js";
 import { SERVER_CAPABILITIES } from "../src/client-protocol/index.js";
 import { HubServer } from "../src/hub/server.js";
 import { HubError } from "../src/hub/store.js";
@@ -368,6 +368,13 @@ describe("Workspace read-only file tree and preview (#99)", () => {
       expect(treeRes.status).toBe(200);
       const tree = await treeRes.json() as { entries: Array<{ name: string; kind: string }> };
       expect(tree.entries).toEqual(expect.arrayContaining([expect.objectContaining({ name: "docs", kind: "dir" })]));
+      // Strict older clients never ask for it, so it is absent unless requested.
+      expect(tree).not.toHaveProperty("displayPath");
+      const shownRes = await fetch(`${hub.url}/api/conversations/${conv.id}/workspace-files/tree?botId=bot1&display=1`, { headers });
+      expect(shownRes.status).toBe(200);
+      const shown = await shownRes.json() as { displayPath?: string };
+      expect(shown.displayPath).toMatch(/\/[^/]+$/);
+      expect(shown.displayPath!.startsWith("~") || shown.displayPath!.startsWith("/") || /^[A-Za-z]:/.test(shown.displayPath!)).toBe(true);
 
       const subRes = await fetch(`${hub.url}/api/conversations/${conv.id}/workspace-files/tree?botId=bot1&path=docs&changes=0`, { headers });
       expect(subRes.status).toBe(200);
@@ -444,5 +451,17 @@ describe("Workspace read-only file tree and preview (#99)", () => {
     }
     expect(groupMentions(`@Reviewer 请看 ${formatWorkspaceFileMention("Makefile")} ${formatWorkspaceFileMention("My Notes.md")} ${formatWorkspaceFileMention("需求文档.md")}`, members))
       .toEqual({ ids: ["bot2"], unresolved: [] });
+  });
+});
+
+
+describe("workspace display path (#mockup 18)", () => {
+  it("is home-relative under the home directory and absolute elsewhere, with forward slashes", () => {
+    expect(SERVER_CAPABILITIES).toContain(WORKSPACE_FILES_DISPLAY_PATH_CAPABILITY);
+    const home = path.resolve("/srv/fixture-home");
+    expect(homeRelativePath(path.join(home, "projects", "app"), home)).toBe("~/projects/app");
+    expect(homeRelativePath(home, home)).toBe("~");
+    expect(homeRelativePath(path.resolve("/opt/app"), home)).toBe(path.resolve("/opt/app").split(path.sep).join("/"));
+    expect(homeRelativePath(path.join(home, "..", "other"), home)).toBe(path.resolve("/srv/other").split(path.sep).join("/"));
   });
 });

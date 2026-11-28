@@ -3,6 +3,8 @@ import { z } from "zod";
 const idSchema = z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/);
 
 export const WORKSPACE_FILES_CAPABILITY = "workspace.files.v1";
+/** The Host can return the workspace root as a home-relative display path ("~/projects/app") when asked with `display=1`. */
+export const WORKSPACE_FILES_DISPLAY_PATH_CAPABILITY = "workspace.files.display-path.v1";
 export const WORKSPACE_FILES_MAX_ENTRIES = 500;
 export const WORKSPACE_FILES_MAX_TEXT_BYTES = 512 * 1024;
 export const WORKSPACE_FILES_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -20,6 +22,8 @@ export const workspaceTreeQuerySchema = z.object({
   botId: idSchema,
   path: workspaceFilePathSchema.default(""),
   changes: z.enum(["0", "1"]).optional(),
+  // Only sent to Hosts that advertise WORKSPACE_FILES_DISPLAY_PATH_CAPABILITY.
+  display: z.enum(["1"]).optional(),
 }).strict();
 
 export const workspacePreviewQuerySchema = z.object({
@@ -54,6 +58,8 @@ export const workspaceTreeResponseSchema = z.object({
     status: workspaceChangeBadgeSchema,
   }).strict()).max(200),
   fingerprint: z.string().min(1).max(128),
+  // Present only when the request asked for it (`display=1`), so strict older clients never see it.
+  displayPath: z.string().min(1).max(4096).optional(),
 }).strict();
 export type WorkspaceTreeResponse = z.infer<typeof workspaceTreeResponseSchema>;
 

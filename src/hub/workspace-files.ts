@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants, type BigIntStats } from "node:fs";
 import { lstat, open, opendir, readFile, realpath } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { isCredentialStylePath } from "../runtime/credential-files.js";
 import {
@@ -520,7 +521,7 @@ export class HubWorkspaceFiles {
     relPath: string,
     signal: AbortSignal,
     authorize: () => Promise<void>,
-    options?: { includeChanges?: boolean },
+    options?: { includeChanges?: boolean; displayPath?: boolean },
   ): Promise<WorkspaceTreeResponse> {
     await authorize();
     const cleanPath = workspaceFilePathSchema.parse(relPath);
@@ -665,6 +666,7 @@ export class HubWorkspaceFiles {
       truncated,
       changedFiles,
       fingerprint,
+      ...(options?.displayPath ? { displayPath: homeRelativePath(root) } : {}),
     });
   }
 
@@ -759,4 +761,13 @@ export class HubWorkspaceFiles {
       truncated,
     });
   }
+}
+
+/** The workspace root as the owner reads it: "~/projects/app" under the home directory, the absolute path otherwise. */
+export function homeRelativePath(root: string, home = os.homedir()): string {
+  const normalizedHome = path.resolve(home), normalizedRoot = path.resolve(root);
+  if (normalizedRoot === normalizedHome) return "~";
+  const relative = path.relative(normalizedHome, normalizedRoot);
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) return `~${path.sep}${relative}`.split(path.sep).join("/");
+  return normalizedRoot.split(path.sep).join("/");
 }

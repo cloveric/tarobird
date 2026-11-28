@@ -2381,7 +2381,7 @@ export class HubServer {
         res.once("close", cancel); if (res.destroyed) cancel();
         try {
           const result = treeQuery
-            ? await this.workspaceFiles.list(scope, treeQuery.path, controller.signal, authorize, { includeChanges: treeQuery.changes !== "0" })
+            ? await this.workspaceFiles.list(scope, treeQuery.path, controller.signal, authorize, { includeChanges: treeQuery.changes !== "0", displayPath: treeQuery.display === "1" })
             : await this.workspaceFiles.preview(scope, previewQuery!.path, previewQuery!.reveal === "1", controller.signal, authorize);
           await authorize(); await reply(200, result);
         } finally { res.off("close", cancel); this.downloads.delete(controller); }
