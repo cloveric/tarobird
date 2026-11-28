@@ -467,9 +467,10 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
         && worker.quotaCredentialAtSpawn === scope.credentialRevision
         && typeof worker.child.pid === "number" && worker.child.pid > 0)
       .map(worker => worker.child.pid as number))];
+    const cwd = this.workspacePath ?? process.cwd();
     return readOwnedAntigravityQuota({
       executable: this.antigravityExecutable,
-      cwd: this.workspacePath ?? process.cwd(),
+      cwd,
       env: this.childEnv,
       spawn: this.spawnAntigravity,
       cache: this.quotaCache,
@@ -479,7 +480,9 @@ export class ProcessAntigravityAdapter implements CodexAdapter {
       preferredPids,
       localProbe: this.localQuotaProbe ?? (this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity)),
       // Real spawner only, like the local probe: injected fakes stay hermetic.
-      modelCatalog: this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity) ? () => discoverAntigravityModels(this.childEnv, false, undefined, { executable: this.antigravityExecutable, credentialRevision: scope.credentialRevision }) : undefined,
+      modelCatalog: this.spawnAntigravity === (spawnEngine as unknown as SpawnAntigravity) ? () => discoverAntigravityModels(this.childEnv, false, undefined, {
+        executable: this.antigravityExecutable, credentialRevision: scope.credentialRevision, cwd,
+      }) : undefined,
     });
   }
 

@@ -727,14 +727,17 @@ export class AntigravityAcpAdapter implements CodexAdapter {
       .map(worker => worker.child.pid as number))];
     // Keep unit tests with injected fake spawners hermetic unless `localQuotaProbe` is explicitly supplied.
     const localProbe = this.options.localQuotaProbe ?? (!this.options.quotaSpawnFn && !this.options.spawnFn);
+    const cwd = this.options.workspacePath;
     return readOwnedAntigravityQuota({
-      executable: this.executable, cwd: this.options.workspacePath, env: this.childEnv,
+      executable: this.executable, cwd, env: this.childEnv,
       spawn: this.options.quotaSpawnFn ?? (spawnEngine as unknown as AntigravityQuotaSpawn),
       cache: this.quotaCache, scope, options, captureScope,
       preferredPids,
       localProbe,
       // Real spawners only, like the local probe: injected fakes stay hermetic.
-      modelCatalog: !this.options.quotaSpawnFn && !this.options.spawnFn ? () => discoverAntigravityModels(this.childEnv, false, undefined, { executable: this.executable, credentialRevision: scope.credentialRevision }) : undefined,
+      modelCatalog: !this.options.quotaSpawnFn && !this.options.spawnFn ? () => discoverAntigravityModels(this.childEnv, false, undefined, {
+        executable: this.executable, credentialRevision: scope.credentialRevision, cwd,
+      }) : undefined,
     });
   }
 

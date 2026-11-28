@@ -75,3 +75,13 @@ it.skipIf(process.platform === "win32").each(Object.entries(adapters))("%s does 
     expect(reading(after.snapshot)).toBeUndefined();
   } finally { await adapter.destroy(); }
 });
+
+it.skipIf(process.platform === "win32").each(Object.entries(adapters))("%s uses the quota working directory for a quoted relative launcher", async (_name, create) => {
+  const { env, root } = await fixture();
+  const adapter = create('"./alternate-agy"', env, root);
+  try {
+    const result = await adapter.getAccountQuota({ refresh: true });
+    expect(result.snapshot.state).toBe("ready");
+    expect(reading(result.snapshot)?.left).toBe(70);
+  } finally { await adapter.destroy(); }
+});

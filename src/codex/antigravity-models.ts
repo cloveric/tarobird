@@ -47,21 +47,22 @@ export function discoverAntigravityModels(
   env: NodeJS.ProcessEnv = process.env,
   reread = false,
   timeoutMs = ANTIGRAVITY_MODELS_TIMEOUT_MS,
-  quotaScope?: { executable: string; credentialRevision: string },
+  quotaScope?: { executable: string; credentialRevision: string; cwd: string },
 ): Promise<AntigravityModel[]> {
-  const executable = quotaScope?.executable ?? (env.ANTIGRAVITY_EXECUTABLE || "agy").trim().replace(/^"(.*)"$/, "$1");
-  const key = createHash("sha256").update(JSON.stringify([executable, env, quotaScope?.credentialRevision])).digest("hex");
+  const executable = (quotaScope?.executable ?? (env.ANTIGRAVITY_EXECUTABLE || "agy")).trim().replace(/^"(.*)"$/, "$1");
+  const cwd = quotaScope?.cwd ?? os.tmpdir();
+  const key = createHash("sha256").update(JSON.stringify([executable, cwd, env, quotaScope?.credentialRevision])).digest("hex");
   const current = cache.get(key); if (current && (reread ? !current.settled : current.expires > Date.now())) return current.result;
   let command = executable, args = ["models"];
   if (/\.(cmd|bat)$/i.test(command)) { args = ["/d", "/s", "/c", command, ...args]; command = env.ComSpec || "cmd.exe"; }
   else if (/\.ps1$/i.test(command)) { args = ["-NoProfile", "-File", command, ...args]; command = "pwsh"; }
   const entry = { expires: Date.now() + 300_000, settled: false, result: Promise.resolve([] as AntigravityModel[]) };
   const result = process.platform === "win32" ? new Promise<{ stdout: string }>((resolve, reject) => {
-    const child = spawnEngine(executable, ["models"], { env, cwd: os.tmpdir(), stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, killSignal: "SIGKILL" });
+    const child = spawnEngine(executable, ["models"], { env, cwd, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, killSignal: "SIGKILL" });
     let output = "", length = 0;
     child.stdout?.on("data", (chunk: Buffer) => { length += chunk.length; if (length > 128 * 1024) { child.kill(); reject(new Error("model_output_limit")); } else output += chunk; });
     child.stderr?.resume(); child.once("error", reject); child.once("close", code => code === 0 ? resolve({ stdout: output }) : reject(new Error("model_list_failed")));
-  }) : run(command, args, { env, cwd: os.tmpdir(), encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 128 * 1024, windowsHide: true });
+  }) : run(command, args, { env, cwd, encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 128 * 1024, windowsHide: true });
   entry.result = result
     .then(({ stdout }) => parseAntigravityModels(stdout), () => []).then((models) => { entry.settled = true; if (!models.length) entry.expires = Date.now() + 3000; return models; });
   if (cache.size >= 16 && !current) cache.delete(cache.keys().next().value!);
