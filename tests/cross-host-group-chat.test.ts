@@ -5,8 +5,8 @@ import path from "node:path";
 import { WebSocket } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { conversationSchema, idSchema } from "../src/client-protocol/index.js";
-import { groupDiscussionRunSchema } from "../src/client-protocol/group-discussion.js";
+import { conversationSchema, idSchema, type GroupReplyGuard } from "../src/client-protocol/index.js";
+import { groupDiscussionRunSchema, groupDiscussionViewSchema } from "../src/client-protocol/group-discussion.js";
 import { CROSS_HOST_GROUPS_CAPABILITY, groupMembersStateSchema } from "../src/client-protocol/group-members.js";
 import { createCoreServiceRuntime } from "../src/core/runtime.js";
 import { buildCoreConversationKey } from "../src/core/message-normalizer.js";
@@ -19,6 +19,8 @@ import { groupMailSignaturePayload, HubCrossHostGroups } from "../src/hub/group-
 import { HubServer } from "../src/hub/server.js";
 import { HubStore } from "../src/hub/store.js";
 import { bootstrapTrusted } from "./helpers/pairing-invite.js";
+import { groupMentions } from "../client/src/group-mentions.js";
+import { groupRecipientOptions, insertScopedGroupMention } from "../client/src/group-recipient-options.js";
 
 async function waitFor<T>(fn: () => Promise<T> | T, predicate: (value: T) => boolean, timeoutMs = 8000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -1515,13 +1517,16 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
     const group = await a.hub.store.createConversation("owner", ["shared_bot", "other_bot"], "Example group", "example_group", { type: "group" });
     const other = await a.hub.store.createConversation("owner", ["other_bot"], "Another group", "example_other_group", { type: "group" });
     const topic = await a.hub.store.createConversation("owner", [], "Example topic", "example_topic", { parentId: group.id });
+    const { room: emptyRoom } = await a.hub.crossHostGroups.createRoom("owner", group.id, { title: "Local-only room" });
     const memberB = await a.hub.crossHostGroups.addMember("owner", group.id, { hostId: "example_b", botId: "shared_bot" });
+    const { room, memberSessions } = await a.hub.crossHostGroups.createRoom("owner", group.id, { title: "Cross-host room" });
+    const roomSession = memberSessions.find(member => member.memberKey === memberB.memberKey)!.sessionId;
+    expect(roomSession).not.toBe(memberB.sessionId);
     const memberC = await a.hub.crossHostGroups.addMember("owner", group.id, { hostId: "example_c", botId: "shared_bot" });
     const owner = await openOwnerSession(a.hub, "dev_roster");
     sockets.push(owner.ws);
-    const send = (id: string, mentions: string[], conversationId = group.id) => owner.ws.send(JSON.stringify({
-      v: 1, type: "message.send", clientMsgId: id, conversationId, text: "Example question", attachments: [], mentions,
-    }));
+    const send = (id: string, mentions: string[], conversationId = group.id, groupReplyGuard?: GroupReplyGuard, text = "Example question") =>
+      owner.ws.send(JSON.stringify({ v: 1, type: "message.send", clientMsgId: id, conversationId, text, attachments: [], mentions, groupReplyGuard }));
     const ack = (id: string) => waitFor(() => owner.frames.find(f => f.clientMsgId === id || f.type === "error" && (f.requestId === id || !f.requestId)), Boolean);
     const rejected = (id: string) => waitFor(() => owner.frames.find(f => f.requestId === id && f.type === "error"), Boolean);
 
@@ -1537,7 +1542,7 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
     const headers = { Authorization: `Bearer ${owner.token}` };
     const rosterResponse = await fetch(`${a.hub.url}/api/conversations/${group.id}/discussion?brief=1`, { headers });
     expect(rosterResponse.status).toBe(200);
-    const view = await rosterResponse.json();
+    const view = groupDiscussionViewSchema.parse(await rosterResponse.json());
     const snapshot = await a.hub.store.snapshot("owner", group.id);
     expect(snapshot.messages.find(message => message.id === accepted!.messageId)?.groupRecipientKeys).toEqual([memberB.memberKey]);
     expect(view.remoteMembers).toEqual([
@@ -1545,13 +1550,56 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
       { memberKey: memberC.memberKey, name: "Example Bot", hostName: "example-c" },
     ]);
     const readMemberView = (conversationId: string) => a.hub.groupDiscussions.view("owner", conversationId);
-    await expect(a.hub.groupDiscussions.view("non_member", group.id)).rejects.toThrow("conversation_forbidden");
-    expect(await readMemberView(topic.id)).not.toHaveProperty("remoteMembers");
+    for (const conversation of [group, room, topic, emptyRoom]) {
+      await expect(a.hub.groupDiscussions.view("non_member", conversation.id)).rejects.toThrow("conversation_forbidden");
+    }
+    expect((await readMemberView(other.id)).remoteMembers).toEqual([]);
+    const roomView = await readMemberView(room.id);
+    const topicView = await readMemberView(topic.id);
+    const emptyView = await readMemberView(emptyRoom.id);
+    expect.soft(roomView.remoteMembers).toEqual([view.remoteMembers![0]]);
+    expect.soft(topicView.remoteMembers).toEqual(view.remoteMembers);
+    expect.soft(emptyView.remoteMembers).toEqual([]);
+    const guard = { mode: "mentions", revision: roomView.settings.revision } as const;
+
+    const roomOptions = groupRecipientOptions(room.botIds, [], new Map([["shared_bot", "Example Bot"]]), "example-a", roomView.remoteMembers);
+    const selected = roomOptions.find(option => option.id === memberB.memberKey)!;
+    const draft = insertScopedGroupMention("@Example", selected) + "Room question";
+    const addressed = groupMentions(draft, roomOptions.map(option => ({ id: option.id, names: [option.name, option.botId] })));
+    expect(addressed).toEqual({ ids: [memberB.memberKey], unresolved: [] });
+    send("example_room_route", addressed.ids, room.id, guard, draft);
+    const roomAck = await ack("example_room_route");
+    expect(roomAck?.type).toBe("message.ack");
+    send("example_topic_route", [memberB.memberKey], topic.id, guard);
+    const topicAck = await ack("example_topic_route");
+    expect(topicAck?.type).toBe("message.ack");
+    const roomMessage = (await a.hub.store.snapshot("owner", room.id)).messages.find(message => message.id === roomAck!.messageId);
+    const topicMessage = (await a.hub.store.snapshot("owner", topic.id)).messages.find(message => message.id === topicAck!.messageId);
+    expect(roomMessage?.blocks).toEqual([{ type: "text", text: `@${memberB.memberKey} Room question` }]);
+    expect((await a.hub.store.snapshot("owner", group.id)).messages.map(message => message.id)).toEqual([accepted!.messageId]);
+    for (const message of [roomMessage, topicMessage]) {
+      expect(message?.groupRecipientKeys).toEqual([memberB.memberKey]);
+      expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [message!.id])).toEqual([]);
+    }
+    const routedInbox = (hub: HubServer) => hub.store.db.all(
+      "SELECT conversation_id, session_id FROM group_mail_inbox ORDER BY conversation_id",
+    );
+    expect(await waitFor(() => routedInbox(b.hub), rows => rows.length === 3)).toEqual(expect.arrayContaining([
+      { conversation_id: group.id, session_id: memberB.sessionId },
+      { conversation_id: room.id, session_id: roomSession },
+      { conversation_id: topic.id, session_id: memberB.sessionId },
+    ]));
+    expect(await routedInbox(c.hub)).toEqual([]);
 
     send("example_other_group_route", [memberB.memberKey], other.id);
     expect((await rejected("example_other_group_route"))?.code).toBe("mention_forbidden");
-    send("example_topic_route", [memberB.memberKey], topic.id);
-    expect((await rejected("example_topic_route"))?.code).toBe("mention_forbidden");
+    send("example_room_root_only", [memberC.memberKey], room.id, guard);
+    expect((await rejected("example_room_root_only"))?.code).toBe("mention_forbidden");
+    send("example_empty_room_route", [memberB.memberKey], emptyRoom.id, guard);
+    expect((await rejected("example_empty_room_route"))?.code).toBe("mention_forbidden");
+    send("example_room_ungranted", ["remote:example_b:ungranted"], room.id, guard);
+    expect((await rejected("example_room_ungranted"))?.code).toBe("mention_forbidden");
+    expect((await a.hub.store.snapshot("owner", emptyRoom.id)).messages).toEqual([]);
     send("example_ungranted_route", ["remote:example_b:ungranted"]);
     expect((await rejected("example_ungranted_route"))?.code).toBe("mention_forbidden");
 
@@ -1566,12 +1614,41 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
     expect((await ack("example_route_c"))?.type).toBe("message.ack");
     await waitFor(() => inbox(c.hub), rows => rows.length > 0);
     expect(await inbox(c.hub)).toEqual([{ bot_id: "shared_bot", session_id: memberC.sessionId }]);
-    expect(await inbox(b.hub)).toHaveLength(1);
+    expect(await inbox(b.hub)).toHaveLength(3);
+
+    send("example_legacy_local_route", ["shared_bot"], topic.id, guard);
+    const localTopic = await ack("example_legacy_local_route");
+    expect(localTopic?.type).toBe("message.ack");
+    expect(await a.hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id=?", [localTopic!.messageId])).toEqual([{ bot_id: "shared_bot" }]);
+
+    const question = (await a.hub.crossHostGroups.getState("owner", group.id, false)).questions.find(q => q.sourceMessageId === roomAck!.messageId)!;
+    const peer = { hostId: "example_b", hostName: "example-b", publicKey: b.hub.auth.publicKey, url: b.hub.url };
+    const reply = {
+      requestId: question.requestId, groupId: group.id, conversationId: room.id,
+      botId: memberB.botId, sessionId: roomSession, text: "Room answer",
+    };
+    await expect(a.hub.crossHostGroups.handlePeerReply(peer, { ...reply, conversationId: topic.id }))
+      .rejects.toThrow("group_question_identity_mismatch");
+    await expect(a.hub.crossHostGroups.handlePeerReply(peer, { ...reply, sessionId: memberB.sessionId }))
+      .rejects.toThrow("group_question_identity_mismatch");
+    const roomReply = await a.hub.crossHostGroups.handlePeerReply(peer, reply);
+    for (const outside of [group, topic, emptyRoom, other]) {
+      expect((await a.hub.store.snapshot("owner", outside.id)).messages.some(message => message.id === roomReply.messageId)).toBe(false);
+    }
 
     const removed = await fetch(`${a.hub.url}/api/groups/${group.id}/members/${encodeURIComponent(memberB.memberKey)}`, { method: "DELETE", headers });
     expect(removed.status).toBe(200);
     const after = await a.hub.groupDiscussions.read("owner", group.id, undefined, { known: view.viewRevision });
     expect(after).toHaveProperty("remoteMembers", [{ memberKey: memberC.memberKey, name: "Example Bot", hostName: "example-c" }]);
+    await waitFor(() => owner.frames.some(frame => frame.type === "event" && frame.kind === "turn.state"
+      && frame.conversationId === group.id && (frame.payload as { groupSettings?: object })?.groupSettings), Boolean);
+    const refresh = (conversationId: string, known: string | undefined) => a.hub.groupDiscussions.read("owner", conversationId, undefined, { known });
+    expect(await refresh(room.id, roomView.viewRevision)).toHaveProperty("remoteMembers", []);
+    expect(await refresh(topic.id, topicView.viewRevision)).toHaveProperty("remoteMembers", [view.remoteMembers![1]]);
+    expect(await refresh(emptyRoom.id, emptyView.viewRevision)).toEqual({ unchanged: true });
+    send("example_room_removed", [memberB.memberKey], room.id, guard);
+    expect((await rejected("example_room_removed"))?.code).toBe("mention_forbidden");
+    expect((await a.hub.store.snapshot("owner", room.id)).messages.map(message => message.id)).toEqual([roomAck!.messageId, roomReply.messageId]);
     send("example_removed_route", [memberB.memberKey]);
     expect((await rejected("example_removed_route"))?.code).toBe("mention_forbidden");
 
@@ -1582,8 +1659,10 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
     });
     send("example_discussion_route", [memberC.memberKey]);
     expect((await rejected("example_discussion_route"))?.code).toBe("mention_forbidden");
+    send("example_stale_room_guard", [memberB.memberKey], room.id, guard);
+    expect((await rejected("example_stale_room_guard"))?.code).toBe("group_reply_mode_changed");
 
-    expect(await inbox(b.hub)).toHaveLength(1);
+    expect(await inbox(b.hub)).toHaveLength(3);
     expect(await inbox(c.hub)).toHaveLength(1);
   }, 20_000);
 });

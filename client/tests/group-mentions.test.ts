@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { groupMentions } from "../src/group-mentions.js";
-import { groupRecipientOptions } from "../src/group-recipient-options.js";
+import { groupRecipientOptions, insertScopedGroupMention } from "../src/group-recipient-options.js";
 import { formatWorkspaceFileMention } from "../src/workspace-files-meta.js";
 const members = [{ id: "alpha", names: ["研究助手", "Research Bot"] }, { id: "beta", names: ["研究助手二", "Beta"] }];
 it("accepts names, IDs, spaced aliases and punctuation with longest exact matching", () => {
@@ -98,5 +98,24 @@ it("distinguishes visible choices that share the same Bot ID, Bot name, and host
   expect(groupMentions("@Example Bot @shared_bot", aliases)).toEqual({
     ids: [], unresolved: ["Example Bot", "shared_bot"], ambiguous: ["Example Bot", "shared_bot"],
   });
-  expect(groupMentions(`@${ids[2]} review`, aliases)).toEqual({ ids: [ids[2]], unresolved: [] });
+  const draft = insertScopedGroupMention("Please ask @Example", options[2]!) + "review";
+  expect(draft).toBe(`Please ask @${ids[2]} review`);
+  expect(groupMentions(draft, aliases)).toEqual({ ids: [ids[2]], unresolved: [] });
+});
+
+it("keeps a scoped mention out of other rooms and does not resolve it as a local name prefix", () => {
+  const roomMembers = [
+    { id: "shared_bot", names: ["Same Bot"] },
+    { id: "local_remote", names: ["remote"] },
+    { id: "remote:example_a:shared_bot", names: ["Same Bot", "shared_bot"] },
+  ];
+  expect(groupMentions("@remote:example_b:shared_bot review", roomMembers)).toEqual({
+    ids: [], unresolved: ["remote:example_b:shared_bot"],
+  });
+  expect(groupMentions("@local:remote:example_a:shared_bot review @remote:", roomMembers)).toEqual({
+    ids: [], unresolved: ["local:remote:example_a:shared_bot", "remote:"],
+  });
+  expect(groupMentions("@local:shared_bot review", roomMembers)).toEqual({
+    ids: ["shared_bot"], unresolved: [], scopedLocalIds: ["shared_bot"],
+  });
 });

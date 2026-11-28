@@ -55,6 +55,10 @@ export type TransactionGuard = () => Promise<unknown>;
 /** Frozen-context digest, plus (on a run source) later inputs that may have reached that run. */
 type SteeringInputReceipt = Partial<WorkbenchContextReceipt> & { inputs?: string[]; inputsTruncated?: true };
 const MAX_RUN_INPUTS = 8;
+type ActiveRemoteGroupMember = {
+  member_key: string; host_id: string; host_name: string; host_public_key: string | null;
+  bot_id: string; session_id: string; name_snapshot: string;
+};
 export type SendMessageInput = { workbench?: WorkbenchContext; groupReplyGuard?: import("../client-protocol/index.js").GroupReplyGuard; parallelCapable?: boolean; designatedCapable?: boolean; groupDiscussion?: Message["groupDiscussion"]; botSource?: Message["botSource"]; conversationId: string; clientMsgId: string; text: string; attachments: string[]; replyTo?: string; mentions?: string[]; previewUrl?: string | null; previewStyle?: LinkPreviewStyle };
 export type RemoteGroupDispatch = { userId: string; groupId: string; conversationId: string; message: Message; questionIds: string[] };
 /** Downgraded settings revision returned to pre-1.7 (1.6.0) clients that do not
@@ -350,6 +354,21 @@ export class HubStore {
       if (changes.sessionId !== undefined) await this.db.run("UPDATE conversations SET binding_id=? WHERE id=?", [changes.sessionId === null ? null : newId("bind"), id]);
       return this.conversationRow(id);
   }
+  /** Any room row, including an inactive one, marks an independent roster.
+   * Only a topic with no membership rows inherits the root group's bindings. */
+  async groupMemberScopeInTransaction(conversationId: string, groupId: string): Promise<string> {
+    if (conversationId === groupId || await this.db.get("SELECT 1 FROM group_session_members WHERE conversation_id=? LIMIT 1", [conversationId])) {
+      return conversationId;
+    }
+    return groupId;
+  }
+  async loadActiveRemoteMembersInTransaction(conversationId: string, groupId: string): Promise<ActiveRemoteGroupMember[]> {
+    const scope = await this.groupMemberScopeInTransaction(conversationId, groupId);
+    return this.db.all<ActiveRemoteGroupMember>(
+      "SELECT member_key, host_id, host_name, host_public_key, bot_id, session_id, name_snapshot FROM group_session_members WHERE conversation_id=? AND kind='remote' AND active=1 ORDER BY joined_at, member_key",
+      [scope],
+    );
+  }
   /** Effective discussion policy of a root group. The saved order follows the
    * current membership: removed Bots drop out and new members are appended. */
   async groupPolicyInTransaction(group: Conversation): Promise<GroupDiscussionPolicy> {
@@ -578,27 +597,16 @@ export class HubStore {
     // already accepted requests returned above; rejection rolls back the caller.
     if (input.botSource && conv.type === "group" && await this.db.get("SELECT 1 FROM group_discussions WHERE conversation_id=? AND status IN ('running','pausing','paused','ending')", [conv.id])) throw new HubError("group_discussion_active", 409);
     if (input.groupReplyGuard && automaticGroupDiscussion(input.groupReplyGuard.mode) && new Set(input.mentions ?? []).size !== 1) throw new HubError("group_discussion_start_required", 409);
-    type ActiveRemoteRow = { member_key: string; host_id: string; host_name: string; host_public_key: string | null; bot_id: string; session_id: string; name_snapshot: string };
-    const loadActiveRemoteMembers = async (): Promise<ActiveRemoteRow[]> => {
-      if (conv.type !== "group" || !rootGroup) return [];
-      const hasRoomRows = conv.parentId
-        ? !!(await this.db.get("SELECT 1 FROM group_session_members WHERE conversation_id=? LIMIT 1", [conv.id]))
-        : true;
-      const scopeConvId = hasRoomRows ? conv.id : rootGroup.id;
-      return this.db.all<ActiveRemoteRow>(
-        "SELECT member_key, host_id, host_name, host_public_key, bot_id, session_id, name_snapshot FROM group_session_members WHERE conversation_id=? AND kind='remote' AND active=1 ORDER BY joined_at ASC",
-        [scopeConvId],
-      );
-    };
+    const loadActiveRemoteMembers = () => this.loadActiveRemoteMembersInTransaction(conv.id, rootGroup!.id);
     const ordinaryHumanGroup = conv.type === "group" && !input.botSource && !input.groupDiscussion && !input.clientMsgId.startsWith("gdnote_");
     const activeDiscussion = ordinaryHumanGroup && !!(await this.db.get("SELECT 1 FROM group_discussions WHERE conversation_id=? AND status IN ('running','pausing','paused','ending')", [conv.id]));
     const policy = rootGroup ? await this.groupPolicyInTransaction(rootGroup) : undefined;
     // Only ordinary human input may fan out or route via designated responder.
     // Explicit recipients always win; delegated Bot tasks and scheduler inputs never become broadcasts.
     let targets: string[] = [];
-    let remoteTargets: ActiveRemoteRow[] = [];
+    let remoteTargets: ActiveRemoteGroupMember[] = [];
     let mentions: string[] | undefined = input.mentions;
-    const scopedAddressing = ordinaryHumanGroup && !conv.parentId && !activeDiscussion && policy !== undefined && !automaticGroupDiscussion(policy.mode);
+    const scopedAddressing = ordinaryHumanGroup && !activeDiscussion && policy !== undefined && !automaticGroupDiscussion(policy.mode);
     if (input.mentions?.length) {
       const requested = [...new Set(input.mentions)];
       const remotes = ordinaryHumanGroup && !activeDiscussion ? await loadActiveRemoteMembers() : [];
@@ -610,9 +618,9 @@ export class HubStore {
         const matchingRemotes = scoped
           ? remotes.filter(remote => remote.member_key === recipient)
           : remotes.filter(remote => remote.bot_id === recipient);
-        // Legacy local IDs retain their historical interpretation outside
-        // ordinary root groups. An unscoped ID can never fan out across hosts.
-        if (local && (!scopedAddressing || !matchingRemotes.length)) {
+        // Older topic clients send bare local IDs. Preserve their precedence
+        // while resolving a scoped recipient against the topic's own roster.
+        if (local && (!scopedAddressing || conv.parentId || !matchingRemotes.length)) {
           await this.requireBot(botId, conv.id);
           targets.push(botId);
         } else if (!local && matchingRemotes.length === 1) {

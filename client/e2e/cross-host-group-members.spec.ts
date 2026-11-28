@@ -44,15 +44,20 @@ for (const phone of [false, true]) {
         expect((await hub.crossHostGroups.getState("owner", group.id, false)).questions).toHaveLength(0);
         await composer.fill("@同名助手");
         await suggestions.getByRole("button", { name: remoteLabel }).click();
-        const send = async (text: string, total: number) => {
-          await composer.fill(text);
+        const send = async (total: number) => {
           await page.getByRole("button", { name: "发送消息", exact: true }).click();
           await expect.poll(async () => (await hub.crossHostGroups.getState("owner", group.id, false)).questions
             .map(question => [question.memberKey, question.sessionId, question.status])).toEqual(
             Array.from({ length: total }, () => [member.memberKey, member.sessionId, "delivered"]),
           );
         };
-        await send("Example via mention", 1);
+        await expect(composer).toHaveValue(`@${member.memberKey} `);
+        await composer.press("End");
+        await page.keyboard.insertText("Example via mention");
+        await send(1);
+        const first = (await hub.store.snapshot("owner", group.id)).messages[0];
+        expect(first?.blocks).toEqual([{ type: "text", text: `@${member.memberKey} Example via mention` }]);
+        expect(first?.groupRecipientKeys).toEqual([member.memberKey]);
 
         await page.getByRole("button", { name: /^让谁回复/ }).click();
         const picker = page.getByRole(phone ? "dialog" : "menu", { name: "回复的 Bot", exact: true });
@@ -61,7 +66,8 @@ for (const phone of [false, true]) {
         if (await remote.getAttribute("aria-checked") === "true") await remote.click();
         await remote.click();
         await (phone ? picker.getByRole("button", { name: "完成", exact: true }).click() : page.keyboard.press("Escape"));
-        await send("Example via reply picker", 2);
+        await composer.fill("Example via reply picker");
+        await send(2);
         expect(await hub.store.db.all("SELECT bot_id FROM deliveries WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)", [group.id])).toEqual([]);
 
         if (phone) {

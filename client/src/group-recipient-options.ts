@@ -27,3 +27,8 @@ export function groupRecipientOptions(botIds: readonly string[], bots: readonly 
     return { id, botId, name, bot, source, label: source ? `${name} · ${source}` : name };
   });
 }
+
+export function insertScopedGroupMention(draft: string, member: GroupRecipientOption): string {
+  const key = member.id.startsWith("remote:") ? member.id : `local:${member.id}`;
+  return draft.replace(/[@＠][^\s@＠]*$/, `@${key} `);
+}

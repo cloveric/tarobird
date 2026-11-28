@@ -105,15 +105,14 @@ export class HubGroupDiscussions {
         JOIN message_deletions d ON d.message_id=m.id AND d.user_id=?
         WHERE m.conversation_id=? AND m.created_at>=? AND m.created_at<=?`,
       [userId, row.conversation_id, row.created_at, row.finished_at ?? Number.MAX_SAFE_INTEGER]))!.n : 0;
-      const remoteMembers = conversation.parentId ? undefined : remoteGroupRosterSchema.parse(await this.db.all(
-        `SELECT member_key AS memberKey, name_snapshot AS name, host_name AS hostName
-         FROM group_session_members WHERE conversation_id=? AND kind='remote' AND active=1
-         ORDER BY joined_at, member_key`, [conversationId],
-      ));
-      const rosterRevision = remoteMembers?.length ? `.m${digest(remoteMembers).slice(0, 32)}` : "";
+      const remoteMembers = remoteGroupRosterSchema.parse(
+        (await this.store.loadActiveRemoteMembersInTransaction(conversationId, groupId))
+          .map(member => ({ memberKey: member.member_key, name: member.name_snapshot, hostName: member.host_name })),
+      );
+      const rosterRevision = remoteMembers.length ? `.m${digest(remoteMembers).slice(0, 32)}` : "";
       const viewRevision = `${row ? `${row.id}.r${row.revision}` : "none"}.${settings.revision}${hidden ? `.d${hidden}` : ""}${rosterRevision}`;
       if (options.known !== undefined && options.known === viewRevision) return { unchanged: true as const };
-      return { settings, run: row ? await this.runView(row, userId, options.brief) : null, viewRevision, ...(remoteMembers ? { remoteMembers } : {}) };
+      return { settings, run: row ? await this.runView(row, userId, options.brief) : null, viewRevision, remoteMembers };
     });
   }
   /** One step with its complete text, for a reader of the run's conversation. */
