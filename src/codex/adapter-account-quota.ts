@@ -9,7 +9,10 @@ import { QUOTA_TTL_MS, unavailableQuota } from "./account-quota.js";
 const ANTIGRAVITY_SIGN_IN_RETRY_MS = 30 * 60_000;
 export type EngineQuotaReadOptions = { refresh: boolean; expectedRevision?: string; signal?: AbortSignal; timeoutMs?: number; accountProofKey?: Uint8Array };
 export type EngineQuotaReadResult = { revision: string; snapshot: QuotaSnapshot; proof?: QuotaAccountProof };
-export type AdapterQuotaScope = { revision: string; credentialRevision: string; verifiable: boolean; authMode: QuotaAuthMode };
+/** `credentialRevision` changes with any byte of the credential material (token refreshes included) and keys the cache.
+ * `accountIdentity` changes only when the signed-in account or its credential source changes; a live worker's
+ * spawn-time guard compares this one, so a token refresh or an unrelated config rewrite does not disown it. */
+export type AdapterQuotaScope = { revision: string; credentialRevision: string; accountIdentity: string; verifiable: boolean; authMode: QuotaAuthMode };
 
 function readBounded(file: string): string {
   let fd: number | undefined;
@@ -148,6 +151,9 @@ function fingerprintKimiDir(dir: string, depth = 0): { meta: string; entries: un
   return { meta, entries, fileCount };
 }
 
+/** Codex config keys that choose which account or credential source a process signs in with. */
+const CODEX_CREDENTIAL_CONFIG = /^\s*(?:cli_auth_credentials_store|auth_command|credential_helper|include|model_provider|chatgpt_base_url|forced_login_method|forced_chatgpt_workspace_id|preferred_auth_method)\s*=/;
+
 /** Private in-memory scope guard. No credential values, hashes or file paths are emitted to logs/public DTOs. */
 export class AdapterQuotaCache {
   readonly proofKey = randomBytes(32);
@@ -165,7 +171,7 @@ export class AdapterQuotaCache {
           ? readPlatformEnv(this.env, "KIMI_CODE_HOME", this.platform) || path.join(home, ".kimi-code")
           : path.join(home, ".gemini", "antigravity-cli");
     let authMode: QuotaAuthMode = "unknown", verifiable = false;
-    let material: unknown;
+    let material: unknown, identity: unknown;
     try {
       const configured = this.configPath ? readBounded(this.configPath) : "";
       if (this.engine === "codex") {
@@ -181,6 +187,13 @@ export class AdapterQuotaCache {
         const opaque = /cli_auth_credentials_store\s*=\s*["'](?:keyring|auto)["']|(?:auth_command|credential_helper|include)\s*=/.test(`${config}\n${project}`);
         verifiable = !opaque && authMode !== "unknown";
         material = [this.executable, engineHome, configured, config, project, authText, env];
+        // The account, not the bytes: Codex rewrites auth.json on every token refresh, and other tools rewrite
+        // config.toml. Without an account_id the whole material stays the identity (strict, as before).
+        const accountId = typeof tokens.account_id === "string" && tokens.account_id ? tokens.account_id : undefined;
+        const credentialLines = (text: string) => text.split(/\r?\n/).filter(line => CODEX_CREDENTIAL_CONFIG.test(line)).map(line => line.trim());
+        identity = accountId
+          ? [this.executable, engineHome, authMode, accountId, credentialLines(configured), credentialLines(config), credentialLines(project), env]
+          : material;
       } else if (this.engine === "claude") {
         const authText = readBounded(path.join(engineHome, ".credentials.json"));
         const settings = readBounded(path.join(engineHome, "settings.json"));
@@ -265,7 +278,7 @@ export class AdapterQuotaCache {
       verifiable = false;
     }
     const credentialRevision = digest(material);
-    return { credentialRevision, revision: digest([credentialRevision, workerGeneration]), verifiable, authMode };
+    return { credentialRevision, accountIdentity: identity === undefined ? credentialRevision : digest(identity), revision: digest([credentialRevision, workerGeneration]), verifiable, authMode };
   }
   response(scope: AdapterQuotaScope, options: EngineQuotaReadOptions): EngineQuotaReadResult | undefined {
     if (options.signal?.aborted) return this.failure(scope, "cancelled");

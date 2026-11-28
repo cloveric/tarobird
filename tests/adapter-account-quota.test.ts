@@ -87,6 +87,26 @@ it("an external login switch cannot attribute a live old worker to new on-disk c
   const result = await adapter.getAccountQuota({ refresh: true });
   expect(result.snapshot.reason).toBe("auth_changed"); expect(child.methods).not.toContain("account/read"); expect(child.killCount).toBe(0);
 });
+it("a token refresh or an unrelated config.toml rewrite keeps the live worker's quota readable (#204)", async () => {
+  const f = await fixture(), child = new Child(), adapter = new CodexAppServerAdapter("codex", f.root, f.env, () => child);
+  disposals.push(() => adapter.destroy());
+  await (adapter as any).startChildAndInitialize(["app-server"]);
+  // Same account: Codex rotated the access token, and another tool rewrote an unrelated config key.
+  await writeFile(path.join(f.codexHome, "auth.json"), JSON.stringify({ tokens: { access_token: "rotated-fixture", account_id: "fixture-account" } }));
+  await writeFile(path.join(f.codexHome, "config.toml"), 'model = "fixture-model"\n[tui]\nnotifications = true\n');
+  const result = await adapter.getAccountQuota({ refresh: true });
+  expect(result.snapshot.reason).toBeUndefined();
+  expect(result.snapshot.pools[0].windows[0]).toMatchObject({ usedPercent: 25 });
+  expect(child.methods).toContain("account/rateLimits/read"); expect(child.killCount).toBe(0);
+});
+it("a credential-source change in config.toml still disowns the live worker", async () => {
+  const f = await fixture(), child = new Child(), adapter = new CodexAppServerAdapter("codex", f.root, f.env, () => child);
+  disposals.push(() => adapter.destroy());
+  await (adapter as any).startChildAndInitialize(["app-server"]);
+  await writeFile(path.join(f.codexHome, "config.toml"), 'forced_chatgpt_workspace_id = "other-workspace"\n');
+  const result = await adapter.getAccountQuota({ refresh: true });
+  expect(result.snapshot.reason).toBe("auth_changed"); expect(child.methods).not.toContain("account/read"); expect(child.killCount).toBe(0);
+});
 it("destroy during a quota helper's initialize cancels it and waits for its actual close", async () => {
   const f = await fixture(), child = new Child(); child.hold.add("initialize"); child.closeDelayMs = 60;
   const adapter = new ProcessCodexAdapter("codex", f.env, () => child, undefined, undefined, undefined, f.root);
