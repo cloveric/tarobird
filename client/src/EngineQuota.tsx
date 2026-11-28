@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState, useSyncExternalStore } from "react";
-import { LoaderCircle, RefreshCw } from "lucide-react";
-import { quotaReadingExpired, type QuotaAuthMode, type QuotaConstraint, type QuotaEngine, type QuotaReason, type QuotaSnapshot, type QuotaWindow } from "../../src/client-protocol/engine-quota.js";
+import { Info, LoaderCircle, RefreshCw } from "lucide-react";
+import { quotaReadingExpired, type QuotaAuthMode, type QuotaConstraint, type QuotaEngine, type QuotaReason, type QuotaScope, type QuotaSnapshot, type QuotaWindow } from "../../src/client-protocol/engine-quota.js";
 import type { HubConnection } from "./connection.js";
 import { RuntimeHostContext } from "./RuntimeHost.js";
 import { SettingsGroupHeading } from "./SettingsParts.js";
@@ -102,16 +102,14 @@ function WindowQuota({
     : percent > 100
       ? t("超出 {0}%", formatNumber(percent - 100))
       : t("剩余 {0}%", formatNumber(100 - percent));
+  // Only the number is shown; the full sentence (with "上次读数" for an old reading) stays for screen readers.
+  const shown = percent === undefined ? value : percent > 100 ? value : `${formatNumber(100 - percent)}%`;
+  const spoken = old && percent !== undefined ? t("上次读数：{0}", value) : value;
   const countdown = window.resetsAt ? formatResetCountdown(window.resetsAt, now) : undefined;
   const exactTime = window.resetsAt ? formatTime(window.resetsAt) : undefined;
 
   return <div className="quota-window" data-stale={old || undefined}>
-    <div className="quota-window-heading">
-      <span className="quota-window-name">{label}</span>
-      <strong className="quota-window-primary" data-tone={old ? undefined : tone}>
-        {old && percent !== undefined ? t("上次读数：{0}", value) : value}
-      </strong>
-    </div>
+    <span className="quota-window-name">{label}</span>
     {percent !== undefined && <div
       className="quota-meter"
       role="meter"
@@ -123,17 +121,39 @@ function WindowQuota({
     >
       <span data-tone={old ? undefined : tone} style={{ width: `${Math.max(0, Math.min(100, remaining ?? 0))}%` }}/>
     </div>}
+    <strong className="quota-window-primary" data-tone={old ? undefined : tone}>
+      {shown === spoken ? shown : <><span aria-hidden="true">{shown}</span><span className="quota-sr-only">{spoken}</span></>}
+    </strong>
     <div className="quota-window-meta">
-      <div className="quota-window-reset">
-        {countdown && window.resetsAt && <time dateTime={window.resetsAt} title={exactTime} className={countdown.expired ? "quota-reset-expired" : "quota-reset-countdown"}>
-          {countdown.text}
-        </time>}
-        {countdown && !countdown.expired && exactTime && <span className="quota-reset-exact">{exactTime}</span>}
-        {old && <span className="quota-expired-tag">{t("已过期，需重新读取")}</span>}
-      </div>
-      {percent !== undefined && <small className="quota-window-used">{t("已用 {0}%", formatNumber(percent))}</small>}
+      {countdown && window.resetsAt && <time dateTime={window.resetsAt} title={exactTime} className="quota-reset-countdown">
+        {countdown.text}
+      </time>}
+      {countdown && !countdown.expired && exactTime && <span className="quota-reset-exact">{exactTime}</span>}
     </div>
   </div>;
+}
+
+type OverviewRow = { key: string; name: string; engine: QuotaEngine; scope: QuotaScope; left: number; window: string; resetsAt?: string };
+/** One row per Bot with its tightest percent window, least left first; Bots without one are only named. */
+function overviewRows(scopes: readonly QuotaScope[], labels: ReadonlyMap<string, string>) {
+  const rows: OverviewRow[] = [], unread: { scope: QuotaScope; names: string[] }[] = [], login: string[] = [], unsupported: string[] = [];
+  for (const scope of scopes) {
+    let best: { left: number; window: string; resetsAt?: string } | undefined;
+    for (const pool of scope.pools) for (const window of pool.windows) {
+      if (window.metric !== "percent" || window.usedPercent === undefined) continue;
+      const left = Math.max(0, Math.min(100, 100 - window.usedPercent));
+      if (best && left >= best.left) continue;
+      const pooled = shouldShowQuotaPoolHeading(scope.engine, pool.label, scope.pools.length) ? `${pool.label} · ` : "";
+      best = { left, window: pooled + formatQuotaWindowLabel(window, pool.windows), resetsAt: window.resetsAt };
+    }
+    const names = (scope.botIds.length ? scope.botIds : [scope.id]).map(id => labels.get(id) ?? scope.label);
+    if (best) names.forEach((name, index) => rows.push({ key: `${scope.id}:${index}`, name, engine: scope.engine, scope, ...best! }));
+    else if (scope.state === "login_required") login.push(...names);
+    else if (scope.state === "unsupported" || scope.capability.mode === "unsupported") unsupported.push(...names);
+    else unread.push({ scope, names });
+  }
+  rows.sort((a, b) => a.left - b.left || a.name.localeCompare(b.name));
+  return { rows, unread, login, unsupported };
 }
 
 export function EngineQuota({ connection, active }: { connection: HubConnection; active: boolean }) {
@@ -151,11 +171,19 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
 
   const now = clock + (state.serverTimeOffset ?? 0);
   const formatTime = (value: string) => new Intl.DateTimeFormat(localeIntlTag(locale), { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-  const formatNumber = (value: number) => new Intl.NumberFormat(localeIntlTag(locale), { maximumFractionDigits: 2 }).format(value);
+  // Whole percents read best; keep one decimal only below 1%.
+  const formatNumber = (value: number) => new Intl.NumberFormat(localeIntlTag(locale), { maximumFractionDigits: value > 0 && value < 1 ? 1 : 0 }).format(value);
   if (!owner) return null;
 
   const botLabels = new Map(state.bots.map(bot => [bot.id, bot.name]));
   const cards = quota.directory ? groupQuotaScopesByAccount(quota.directory.scopes, { now, botLabels }) : [];
+  const overview = quota.directory ? overviewRows(quota.directory.scopes, botLabels) : undefined;
+  const cardOf = new Map(cards.flatMap((card, index) => card.scopes.map(item => [item.id, index] as const)));
+  const jumpTo = (scope: QuotaScope) => { const index = cardOf.get(scope.id); if (index !== undefined) document.getElementById(`quota-card-${index}`)?.scrollIntoView({ block: "start", behavior: "smooth" }); };
+  const rowStale = (scope: QuotaScope) => !online || scope.state === "stale" || quotaReadingExpired(scope, now) || (!!scope.observedAt && now - Date.parse(scope.observedAt) >= QUOTA_SHOWN_FOR_MS);
+  const oldest = overview?.rows.reduce<string | undefined>((value, row) => row.scope.observedAt && (!value || Date.parse(row.scope.observedAt) < Date.parse(value)) ? row.scope.observedAt : value, undefined);
+  const unreadTargets = overview ? overview.unread.filter(item => item.scope.capability.mode === "active").map(item => item.scope) : [];
+  const readUnread = async () => { for (const scope of unreadTargets) await quota.refresh(scope, [scope.id]); };
 
   return <div className="engine-quota">
     <SettingsGroupHeading scope="host" host={host}>{t("原生模型额度")}</SettingsGroupHeading>
@@ -163,17 +191,39 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
     {!online && <p className="quota-notice" role="status">{t("连接已断开，仅保留上次读数。恢复后重新核对。")}</p>}
     {unsupported ? <p role="status">{t("请更新主机以查看模型额度。")}</p> : <>
       <div className="quota-toolbar">
-        <button type="button" className="secondary" disabled={!online || !supported || quota.loading || quota.busy.length > 0} onClick={() => void quota.readDirectory()}>
+        <button type="button" className="secondary" title={t("打开页面自动读取缓存；单卡刷新不会发送模型消息。")} disabled={!online || !supported || quota.loading || quota.busy.length > 0} onClick={() => void quota.readDirectory()}>
           <RefreshCw size={14} aria-hidden="true"/>{t("重新读取列表")}
         </button>
-        <small>{t("打开页面自动读取缓存；单卡刷新不会发送模型消息。")}</small>
+        <small>{oldest ? t("上次读数 · {0}", quotaReadingAgeLabel(oldest, now, locale)) : t("打开页面自动读取缓存；单卡刷新不会发送模型消息。")}</small>
       </div>
       {quota.loading && <p role="status"><LoaderCircle size={14} className="spin" aria-hidden="true"/> {t("正在读取…")}</p>}
       {quota.error && <p className="quota-notice" role="alert">{quota.error === "permission" ? t("额度查看权限已变化，旧数据已清除。请重新连接后核对。") : quota.error === "upgrade" ? t("请更新主机以查看模型额度。") : t("未能读取额度列表，请重新读取。保留的读数不代表当前余额。")}</p>}
       {quota.notice === "changed" && <p className="quota-notice" role="status">{t("Bot 或授权配置已变化，已重新读取列表。请核对后再刷新。")}</p>}
       {quota.directory?.truncated && <p className="quota-notice" role="status">{t("主机只返回了部分 Bot 的额度状态。")}</p>}
       {quota.directory && !cards.length && <p role="status">{t("当前主机还没有可展示额度的 Bot。")}</p>}
-      <div className="quota-list">{cards.map(card => {
+      {overview && (overview.rows.length > 0 || overview.unread.length + overview.login.length + overview.unsupported.length > 0) && <section className="quota-overview" aria-label={t("全部 Bot 的额度")}>
+        <div className="quota-overview-cols" aria-hidden="true"><span>Bot</span><span>{t("最紧的窗口")}</span><span/><span>{t("剩余")}</span><span>{t("重置")}</span></div>
+        {overview.rows.map(row => {
+          const old = rowStale(row.scope), tone = old ? undefined : usageTone(row.left);
+          return <button type="button" key={row.key} className="quota-overview-row" data-stale={old || undefined} onClick={() => jumpTo(row.scope)}
+            aria-label={t("{0}：{1}，剩余 {2}%", row.name, row.window, formatNumber(row.left))}>
+            <span className="quota-overview-bot"><strong>{row.name}</strong><small>{engines[row.engine]}</small></span>
+            <span className="quota-overview-window">{row.window}</span>
+            <span className="quota-meter" aria-hidden="true"><span data-tone={tone} style={{ width: `${row.left}%` }}/></span>
+            <span className="quota-overview-pct" data-tone={tone}>{formatNumber(row.left)}%</span>
+            <span className="quota-overview-reset">{row.resetsAt ? formatResetCountdown(row.resetsAt, now).text : ""}</span>
+          </button>;
+        })}
+        {overview.unread.length + overview.login.length + overview.unsupported.length > 0 && <div className="quota-overview-row is-other">
+          <span>{[
+            overview.unread.length ? t("{0} 还没读到", overview.unread.flatMap(item => item.names).join("、")) : "",
+            overview.login.length ? t("{0} 需要登录", overview.login.join("、")) : "",
+            overview.unsupported.length ? t("{0} 不支持", overview.unsupported.join("、")) : "",
+          ].filter(Boolean).join(" · ")}</span>
+          {unreadTargets.length > 0 && <button type="button" className="secondary" disabled={!online || !supported || quota.loading || quota.busy.length > 0} onClick={() => void readUnread()}>{t("读取")}</button>}
+        </div>}
+      </section>}
+      <div className="quota-list">{cards.map((card, cardIndex) => {
         const scope = card.primary;
         const cardError = card.scopes.some(item => !!quota.errors[item.id]);
         // Gateway/window expiry (60s TTL or resets) marks a reading "待更新"; genuinely old (>= 30m), cached, or offline readings show "旧读数 · <age>".
@@ -210,12 +260,13 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
           ? `${engines[card.engine]} · ${card.bots.map(bot => bot.label).join(", ")}`
           : `${scope.label} · ${engines[scope.engine]}`;
 
-        return <section className="quota-card" key={card.key} aria-label={regionLabel} aria-busy={busy || undefined}>
+        return <section className="quota-card" id={`quota-card-${cardIndex}`} key={card.key} aria-label={regionLabel} aria-busy={busy || undefined}>
           <header className="quota-card-heading">
             <div className="quota-card-identity">
               <div className="quota-card-title-row">
                 <h4>{engines[card.engine]}</h4>
                 {card.merged && <span className="quota-account-badge">{t("{0} 个 Bot 共用同一账号", card.bots.length)}</span>}
+                {card.unconfirmedPeer && <span className="quota-separate-note" title={t("未合并：无法确认此 Bot 与其他 {0} Bot 使用同一账号，已分开展示。", engines[card.engine])}><Info size={12} aria-hidden="true"/>{t("未合并")}</span>}
               </div>
               <div className="quota-bot-chips">
                 {card.bots.map(bot => <span className="quota-bot-chip" key={bot.id}>{bot.label}</span>)}
@@ -226,10 +277,6 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
               {status}
             </span>
           </header>
-
-          {card.unconfirmedPeer && <p className="quota-separate-note">
-            {t("未合并：无法确认此 Bot 与其他 {0} Bot 使用同一账号，已分开展示。", engines[card.engine])}
-          </p>}
 
           {availabilityNotice && <p className="quota-notice">{stale ? t("上次读数：{0}", availabilityNotice) : availabilityNotice}</p>}
           {constraints.length > 0 && <ul className="quota-constraints">{constraints.map((value, index) => {
@@ -243,7 +290,7 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
 
           {scope.pools.map(pool => <div className="quota-pool" key={pool.id}>
             {shouldShowQuotaPoolHeading(scope.engine, pool.label, scope.pools.length) && <h5>{pool.label}</h5>}
-            {pool.models?.length ? <p className="quota-pool-models muted">{pool.models.join(" · ")}</p> : null}
+            {pool.models?.length ? <p className="quota-pool-models muted" title={pool.models.join(" · ")}>{pool.models.length === 1 ? pool.models[0] : t("{0} 个模型", pool.models.length)}</p> : null}
             <div className="quota-windows">
               {pool.windows.map(window => <WindowQuota key={window.id} window={window} siblings={pool.windows} stale={stale} now={now} formatTime={formatTime} formatNumber={formatNumber}/>)}
             </div>
