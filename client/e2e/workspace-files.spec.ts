@@ -382,3 +382,44 @@ test("Files panel says where the Bot works and what this turn changed; 文件 is
     await expect(plain.locator(".workspace-rail-trigger-badge")).toHaveCount(0);
   } finally { await f.close(); }
 });
+
+test("group reply changes open the workspace of the Bot that made them", async ({ page }) => {
+  const f = await createFixture(page);
+  try {
+    const { message: prompt } = await f.hub.store.sendMessage("owner", {
+      conversationId: f.groupConv.id, clientMsgId: "group_workspace", text: "更新文件",
+      attachments: [], mentions: ["bot_b"],
+    });
+    const at = Date.now();
+    const message = await f.hub.store.publishBotMessage("bot_b", {
+      conversationId: f.groupConv.id, replyTo: prompt.id, status: "complete",
+      blocks: [{
+        type: "card", title: "完成", elements: [{ type: "markdown", text: "改好了" }],
+        extra: {
+          nativeRun: { version: 1, id: "example_run", revision: 1, phase: "done", startedAt: at - 1000, updatedAt: at, endedAt: at, count: 1, completed: 1, failed: 0, truncated: false },
+          runChanges: { v: 1, runId: "example_run", revision: 1, files: 1, edits: 1, additions: 1, deletions: 0, unavailable: 0, partial: false, childEdits: 0 },
+        },
+      }],
+    });
+    await new RunJournal(f.hub.store).write("bot_b", {
+      conversationId: f.groupConv.id, messageId: message.id, runId: "example_run",
+      entries: [{ seq: 1, revision: 1, kind: "tool", status: "done", at: at - 300, endedAt: at, name: "edit_file",
+        changes: [{ path: "only-in-b.txt", diff: "@@ -0,0 +1 @@\n+hello" }] }],
+    });
+    await selectConversation(page, f.groupConv.title);
+    await page.locator(".message-body").getByRole("button", { name: "本轮改动", exact: true }).click();
+    const panel = page.locator("aside.workspace-files-panel");
+    await expect(panel.getByRole("region", { name: "这轮改动", exact: true })).toContainText("only-in-b.txt");
+    await expect(panel.locator(".wf-crumb-root")).toContainText("/workspace-b");
+    await expect(panel.locator(".wf-row", { hasText: "only-in-b.txt" })).toBeVisible();
+    await expect(panel.locator(".wf-row", { hasText: "Makefile" })).toHaveCount(0);
+    await panel.getByRole("button", { name: "关闭文件面板", exact: true }).click();
+
+    await page.locator(".conversation-header").getByRole("button", { name: "文件，本轮改动 1 个" }).click();
+    await expect(panel.locator(".wf-crumb-root")).toContainText("/workspace-b");
+    await expect(panel.getByRole("region", { name: "这轮改动", exact: true })).toContainText("only-in-b.txt");
+  } finally {
+    await page.close();
+    await f.close();
+  }
+});
