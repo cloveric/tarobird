@@ -47,10 +47,10 @@
 .quota-overview-cols,.engine-quota .quota-overview-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(60px,140px) 44px minmax(0,104px);align-items:center;gap:12px;padding:0 14px;text-align:left}
 .quota-overview-cols{height:30px;font-size:11px;color:var(--muted);background:color-mix(in srgb,var(--surface) 45%,var(--bg));border-bottom:1px solid var(--border)}
 .quota-overview-cols span:nth-child(n+4){text-align:right}
-.engine-quota .quota-overview-row{width:100%;min-height:42px;border:0;border-radius:0;background:transparent;color:var(--text);font:inherit;cursor:pointer}
+.engine-quota .quota-overview-row{width:100%;min-height:44px;padding-block:5px;border:0;border-radius:0;background:transparent;color:var(--text);font:inherit;cursor:pointer}
 .engine-quota .quota-overview-row:hover{background:var(--hover)}
 .quota-overview-row+.quota-overview-row{border-top:1px solid var(--border)}
-.quota-overview-bot{display:flex;align-items:baseline;gap:6px;min-width:0}
+.quota-overview-bot{display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.25}
 .quota-overview-bot strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .quota-overview-bot small,.quota-overview-window,.quota-overview-reset{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .quota-overview-reset{text-align:right}
