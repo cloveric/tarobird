@@ -21,6 +21,7 @@ import {
   type ScreenConfigure, type ScreenDesktop, type ScreenJoin,
 } from "../src/client-protocol/remote-screen.js";
 import { writeScreenFrame } from "../src/client-protocol/screen-wire.js";
+import { SCREEN_RTC_CONTROL_CAPABILITY, SCREEN_RTC_FEATURE } from "../src/client-protocol/screen-rtc.js";
 import { deviceFields, enrollTrusted, loginFor, testDevice } from "./helpers/pairing-invite.js";
 // @ts-expect-error untyped Electron main module
 import { ScreenService } from "../client/electron/screen-service.mjs";
@@ -30,7 +31,7 @@ type Any = any;
 
 // Shapes an older peer parses strictly: what the new side emits by default
 // must still be accepted by them.
-const legacyJoin = screenJoinSchema.omit({ quality: true }).strict();
+const legacyJoin = screenJoinSchema.omit({ quality: true, rtc: true }).strict();
 const legacyStart = (screenServiceCommandSchema.options.find(o => o.shape.type.value === "start") as Any).omit({ quality: true, mediaBytesPerMs: true, flight: true }).strict();
 const legacyOpen = screenOpenSchema.omit({ quality: true, flight: true }).strict();
 
@@ -53,7 +54,7 @@ describe("Hub authority", () => {
   });
   afterEach(async () => { screen.dispose(); await hub.close(); await rm(root, { recursive: true, force: true }); });
   const register = (features?: string[]) => { const sink = channel(), { ticket } = screen.serviceTicket(desktop.desktopId); return { sink, ...screen.registerService(ticket, desktop, sink, features) }; };
-  const open = (extra: Record<string, unknown> = {}, requestId = randomUUID()) => screen.open(remote.session, { desktopId: desktop.desktopId, displayId: "1", displayRevision: 1, requestId, codecs: ["h264"], ...extra });
+  const open = (extra: Record<string, unknown> = {}, requestId = randomUUID(), rtc = false) => screen.open(remote.session, { desktopId: desktop.desktopId, displayId: "1", displayRevision: 1, requestId, codecs: ["h264"], ...extra }, { rtc });
   const attach = async (join: ScreenJoin) => { const control = channel(), media = channel(); await screen.attachViewer(join.controlTicket, "control", control); await screen.attachViewer(join.mediaTicket, "media", media); return { control, media }; };
 
   it("advertises the capability; legacy opens stay byte-compatible with old viewers and old targets", async () => {
@@ -67,6 +68,42 @@ describe("Hub authority", () => {
     expect("quality" in start).toBe(false);
     expect(() => legacyStart.parse(start)).not.toThrow();
     expect(() => legacyOpen.parse({ desktopId: "d", displayId: "1", displayRevision: 1, requestId: "r", codecs: ["h264"] })).not.toThrow();
+  });
+
+  it("keeps RTC opt-in and negotiates it only for a VP8-capable session", async () => {
+    const codecs = ["h264", "vp8"];
+    const { epoch } = register([SCREEN_SERVICE_QUALITY_FEATURE, SCREEN_SERVICE_QHD_FEATURE, SCREEN_RTC_FEATURE]);
+    const disabled = await open({ codecs }, randomUUID(), true);
+    expect(disabled.rtc).toBeUndefined();
+    const status = await screen.status(local.session, { udpStatus: true, rtc: true });
+    expect(status.udpStatus).toMatchObject({ enabled: false, state: "disabled" });
+    await screen.stop(local.session, disabled.session.id);
+
+    const { revision, enabled, grants } = status.policy!;
+    const update: ScreenConfigure = { operation: "screen.configure", enabled, grants, expectedRevision: revision, udpBoost: true, requestId: randomUUID() };
+    const statement = await hub.auth.prepareDeviceAction({ operation: "screen-grant", target: hashSecret(screenConfigureText(update)) }, local.token, local.session);
+    await screen.configure(local.session, update, { nonce: statement.nonce, signature: sign(null, Buffer.from(deviceActionProofText(statement)), owner.privateKey).toString("base64") });
+    for (const [input, rtc, expected] of [
+      [{ codecs }, false, undefined],
+      [{ codecs: ["h264"] }, true, undefined],
+      [{ quality: "qhd", codecs }, true, undefined],
+      [{ quality: "sharp", codecs }, true, undefined],
+      [{ quality: "balanced", codecs }, true, true],
+    ] as const) {
+      const join = await open(input, randomUUID(), rtc);
+      expect(join.rtc).toBe(expected);
+      if ("quality" in input) expect(join.quality).toBe(input.quality);
+      else expect(legacyJoin.safeParse(join).success).toBe(true);
+      if (!expected) {
+        await attach(join);
+        await expect(screen.rtcRequest(remote.session, { type: "prepare", sessionId: join.session.id, generation: join.session.generation, mode: "lan" }))
+          .rejects.toMatchObject({ code: "screen_rtc_not_authorized", status: 403 });
+      }
+      await screen.stop(local.session, join.session.id);
+    }
+    screen.serviceLost(epoch);
+    register([SCREEN_SERVICE_QUALITY_FEATURE, SCREEN_SERVICE_QHD_FEATURE]);
+    expect((await open({ codecs }, randomUUID(), true)).rtc).toBeUndefined();
   });
 
   it("refuses an explicit quality the registered target never advertised; creates no session or tickets", async () => {
@@ -307,6 +344,7 @@ it("control socket advertises the quality capability next to the ticket", async 
   expect(status.controlCapabilities).toContain(SCREEN_CONTROL_QUALITY_CAPABILITY);
   expect(status.controlCapabilities).toContain(SCREEN_CONTROL_RATE_CAPABILITY);
   expect(status.controlCapabilities).toContain(SCREEN_CONTROL_QHD_CAPABILITY);
+  expect(status.controlCapabilities).toContain(SCREEN_RTC_CONTROL_CAPABILITY);
 });
 
 it("end to end: the requested quality reaches the real capture profile and is confirmed; switching leaves nothing behind", async () => {

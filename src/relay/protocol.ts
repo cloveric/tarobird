@@ -4,9 +4,18 @@ import { sourceAddress } from "./sources.js";
 
 export const CONTROL_ALPN = "tarocub-relay-control-v1";
 export const SOURCE_CONTROL_ALPN = "tarocub-relay-control-v2";
+export const SCREEN_UDP_CONTROL_ALPN = "tarocub-relay-control-v3";
+export const hasRelaySource = (protocol: string | false | null) => protocol === SCREEN_UDP_CONTROL_ALPN || protocol === SOURCE_CONTROL_ALPN;
 export const DATA_ALPN = "tarocub-relay-data-v1";
+export const udpPeerSchema = z.object({ username: z.string().regex(/^[A-Za-z0-9_-]{24}$/), credential: z.string().regex(/^[A-Za-z0-9_-]{32}$/) }).strict();
+const udpId = z.string().uuid();
 export const relayFrameSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }).strict(),
+  z.object({ type: z.literal("screen-udp-ready"), address: z.ipv4(), port: z.number().int().min(1).max(65535) }).strict(),
+  z.object({ type: z.literal("screen-udp-allocate"), id: udpId, sender: udpPeerSchema, viewer: udpPeerSchema }).strict(),
+  z.object({ type: z.literal("screen-udp-reply"), id: udpId, accepted: z.boolean() }).strict(),
+  z.object({ type: z.literal("screen-udp-keep"), id: udpId }).strict(),
+  z.object({ type: z.literal("screen-udp-release"), id: udpId }).strict(),
   z.object({ type: z.literal("ping") }).strict(),
   z.object({ type: z.literal("pong") }).strict(),
   z.object({ type: z.literal("open"), id: z.string().uuid(), token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), source: z.string().max(45).refine((value) => { try { sourceAddress(value); return true; } catch { return false; } }).optional() }).strict(),

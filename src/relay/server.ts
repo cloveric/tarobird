@@ -2,10 +2,12 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { connect as tcpConnect, createServer as createTcpServer, isIP, type Server as TcpServer, type Socket } from "node:net";
 import { createServer as createTlsServer, type Server as TlsServer, type TlsOptions, type TLSSocket } from "node:tls";
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
-import { localTlsRouteSchema, relayHosts, RELAY_MAX_HOSTS } from "./config.js";
+import { localTlsRouteSchema, relayHosts, RELAY_MAX_HOSTS, relayScreenUdpSchema } from "./config.js";
 import { coupleSockets } from "./socket-lifecycle.js";
-import { ClientHelloReader, CONTROL_ALPN, SOURCE_CONTROL_ALPN, DATA_ALPN, dataHelloSchema, readFrames, sendFrame } from "./protocol.js";
+import { ClientHelloReader, CONTROL_ALPN, SOURCE_CONTROL_ALPN, SCREEN_UDP_CONTROL_ALPN, DATA_ALPN, dataHelloSchema, hasRelaySource, readFrames, sendFrame } from "./protocol.js";
 import { sourceAddress } from "./sources.js";
+import { ScreenUdpRelay } from "./screen-udp.js";
+import type { z } from "zod";
 
 /** Handshake quota key: an IPv4 address or an IPv6 /64, which one host controls. */
 function handshakeSource(address: string | undefined): string {
@@ -29,6 +31,7 @@ export interface RelayServerOptions {
   helloTimeoutMs?: number; maxHandshakesPerSource?: number;
   healthPort?: number;
   localTls?: { serverName: string; targetPort: number };
+  screenUdp?: z.infer<typeof relayScreenUdpSchema>;
 }
 /** One computer: where its devices arrive, the certificate its tunnel shows, and that tunnel's control channel.
  * `sockets` are its device connections and the tunnel connections that showed its certificate; the limits
@@ -44,12 +47,14 @@ export class RelayServer {
   private tunnels = new Set<Socket>();
   private timer?: ReturnType<typeof setInterval>;
   private healthServer?: HttpServer;
+  private screenUdp?: ScreenUdpRelay;
   private constructor(readonly options: RelayServerOptions) {
     if (!/^[a-z0-9.-]+$/i.test(options.serverName)) throw new Error("invalid_server_name");
     const hosts = relayHosts(options);
     if (hosts.some(host => !/^(?:[a-f0-9]{2}:){31}[a-f0-9]{2}$/i.test(host.clientFingerprint256))) throw new Error("client_certificate_fingerprint_required");
     if (hosts.length > RELAY_MAX_HOSTS || new Set(hosts.map(host => host.clientFingerprint256.toUpperCase())).size !== hosts.length) throw new Error("invalid_relay_hosts");
     if (options.localTls) { localTlsRouteSchema.parse(options.localTls); if (options.localTls.serverName.toLowerCase() === options.serverName.toLowerCase() || [options.publicPort, options.tunnelPort, options.healthPort].includes(options.localTls.targetPort)) throw new Error("invalid_local_tls_route"); }
+    if (options.screenUdp) relayScreenUdpSchema.parse(options.screenUdp);
     this.hosts = hosts.map(({ publicPort, clientFingerprint256 }, index) => {
       const host: Host = { port: index === 0 ? options.publicPort ?? 443 : publicPort, fingerprint: clientFingerprint256.toUpperCase(), lastPong: 0, sockets: new Set(), handshakes: new Map(), handshaking: 0, server: createTcpServer((socket) => this.acceptPublic(socket, host)) };
       return host;
@@ -57,7 +62,7 @@ export class RelayServer {
     // Bound unauthenticated handshakes at the TLS layer. A timeout on the raw
     // parent socket survives the handshake and kills otherwise healthy idle
     // streams even after their TLSSocket receives its longer data timeout.
-    this.tunnelServer = createTlsServer({ ...options.tls, handshakeTimeout: 15_000, requestCert: true, rejectUnauthorized: true, minVersion: "TLSv1.3", ALPNProtocols: [SOURCE_CONTROL_ALPN, CONTROL_ALPN, DATA_ALPN] }, (socket) => this.acceptTunnel(socket));
+    this.tunnelServer = createTlsServer({ ...options.tls, handshakeTimeout: 15_000, requestCert: true, rejectUnauthorized: true, minVersion: "TLSv1.3", ALPNProtocols: [SCREEN_UDP_CONTROL_ALPN, SOURCE_CONTROL_ALPN, CONTROL_ALPN, DATA_ALPN] }, (socket) => this.acceptTunnel(socket));
     this.tunnelServer.on("connection", (socket) => { if (this.tunnels.size >= (options.maxConnections ?? 256) * 2 * this.hosts.length) { socket.destroy(); return; } this.track(socket, this.tunnels); });
     this.tunnelServer.on("tlsClientError", (_error, socket) => { socket.destroy(); options.onWarning?.("tunnel_authentication_failed"); });
   }
@@ -65,6 +70,12 @@ export class RelayServer {
     const relay = new RelayServer(options);
     try {
       await relay.listen(relay.tunnelServer, options.tunnelPort ?? 7443, options.tunnelHost ?? "0.0.0.0");
+      if (options.screenUdp) {
+        const { port } = relay.tunnelServer.address() as { port: number };
+        try {
+          relay.screenUdp = await ScreenUdpRelay.listen(options.tunnelHost ?? "0.0.0.0", port, options.screenUdp.address, () => options.onWarning?.("screen_udp_socket_failed"));
+        } catch { options.onWarning?.("screen_udp_listen_failed"); }
+      }
       for (const host of relay.hosts) await relay.listen(host.server, host.port, options.publicHost ?? "0.0.0.0");
       if (options.healthPort !== undefined) {
         relay.healthServer = createHttpServer((req, res) => {
@@ -114,7 +125,7 @@ export class RelayServer {
         const timer = setTimeout(() => { this.pending.delete(id); socket.destroy(); }, 10_000); timer.unref();
         this.pending.set(id, { host, socket, token, timer, hello });
         socket.once("close", () => { clearTimeout(timer); this.pending.delete(id); });
-        sendFrame(control, { type: "open", id, token, ...(control.alpnProtocol === SOURCE_CONTROL_ALPN ? { source: sourceAddress(socket.remoteAddress ?? "") } : {}) });
+        sendFrame(control, { type: "open", id, token, ...(hasRelaySource(control.alpnProtocol) ? { source: sourceAddress(socket.remoteAddress ?? "") } : {}) });
       } catch { socket.destroy(); }
     };
     socket.on("data", receive);
@@ -138,12 +149,28 @@ export class RelayServer {
     if (!host || host.sockets.size >= (this.options.maxConnections ?? 256) * 2) { socket.destroy(); return; }
     host.sockets.add(socket); socket.once("close", () => host.sockets.delete(socket));
     socket.setTimeout(0);
-    if (socket.alpnProtocol === CONTROL_ALPN || socket.alpnProtocol === SOURCE_CONTROL_ALPN) {
+    if (socket.alpnProtocol === CONTROL_ALPN || hasRelaySource(socket.alpnProtocol)) {
       if (host.control && !host.control.destroyed) { socket.destroy(); return; }
       host.control = socket; host.lastPong = Date.now();
-      readFrames(socket, (frame) => { if (frame.type === "pong") host.lastPong = Date.now(); else if (frame.type === "ping") sendFrame(socket, { type: "pong" }); else socket.destroy(); });
-      socket.once("close", () => { if (host.control !== socket) return; host.control = undefined; for (const [id, p] of this.pending) if (p.host === host) { clearTimeout(p.timer); p.socket.destroy(); this.pending.delete(id); } });
-      sendFrame(socket, { type: "ready" }); return;
+      const allowed = this.options.screenUdp?.hosts;
+      const udp = socket.alpnProtocol === SCREEN_UDP_CONTROL_ALPN
+        && (!allowed || allowed.some(id => id.toUpperCase() === host.fingerprint)) ? this.screenUdp : undefined;
+      readFrames(socket, frame => {
+        if (frame.type === "pong") host.lastPong = Date.now();
+        else if (frame.type === "ping") sendFrame(socket, { type: "pong" });
+        else if (udp && frame.type === "screen-udp-allocate") {
+          let accepted = false;
+          try { udp.authorize(host.fingerprint, { id: frame.id, sender: frame.sender, viewer: frame.viewer }); accepted = true; }
+          catch { /* Capacity or duplicate. Leave the TCP tunnel open. */ }
+          sendFrame(socket, { type: "screen-udp-reply", id: frame.id, accepted });
+        } else if (udp && frame.type === "screen-udp-keep") udp.keep(host.fingerprint, frame.id);
+        else if (udp && frame.type === "screen-udp-release") udp.revoke(host.fingerprint, frame.id);
+        else socket.destroy();
+      });
+      socket.once("close", () => { if (host.control !== socket) return; host.control = undefined; udp?.disconnect(host.fingerprint); for (const [id, p] of this.pending) if (p.host === host) { clearTimeout(p.timer); p.socket.destroy(); this.pending.delete(id); } });
+      sendFrame(socket, { type: "ready" });
+      if (udp) sendFrame(socket, { type: "screen-udp-ready", address: this.options.screenUdp!.address, port: udp.port });
+      return;
     }
     if (socket.alpnProtocol !== DATA_ALPN || !host.control) { socket.destroy(); return; }
     socket.setTimeout(10_000, () => socket.destroy()); let buffer = Buffer.alloc(0);
@@ -165,10 +192,12 @@ export class RelayServer {
     socket.on("data", receive);
   }
   /** `connected` and `publicPort` describe the first computer, as they always did. `hosts` lists every computer when there is more than one. */
-  get status(): { connected: boolean; pending: number; connections: number; publicPort: number; tunnelPort: number; healthPort?: number; hosts?: { publicPort: number; connected: boolean }[] } {
+  get status(): { connected: boolean; pending: number; connections: number; publicPort: number; tunnelPort: number; healthPort?: number; screenUdp?: { listening: boolean; hosts: { publicPort: number; bytesForwarded: number; droppedPackets: number; pairs: number }[] }; hosts?: { publicPort: number; connected: boolean }[] } {
     const port = (server: TcpServer) => { const addr = server.address(); return addr && typeof addr !== "string" ? addr.port : 0; };
     const hosts = this.hosts.map(host => ({ publicPort: port(host.server), connected: !!host.control && !host.control.destroyed }));
-    return { connected: hosts[0].connected, pending: this.pending.size, connections: this.sockets.size, publicPort: hosts[0].publicPort, tunnelPort: port(this.tunnelServer), ...(this.healthServer ? { healthPort: port(this.healthServer) } : {}), ...(hosts.length > 1 ? { hosts } : {}) };
+    return { connected: hosts[0].connected, pending: this.pending.size, connections: this.sockets.size, publicPort: hosts[0].publicPort, tunnelPort: port(this.tunnelServer), ...(this.options.screenUdp ? { screenUdp: { listening: !!this.screenUdp, hosts: this.hosts.map(host => ({ publicPort: port(host.server),
+      ...(this.screenUdp?.usage(host.fingerprint) ?? { bytesForwarded: 0, droppedPackets: 0, pairs: 0 }) })) } } : {}),
+      ...(this.healthServer ? { healthPort: port(this.healthServer) } : {}), ...(hosts.length > 1 ? { hosts } : {}) };
   }
-  async close(): Promise<void> { if (this.timer) clearInterval(this.timer); for (const p of this.pending.values()) clearTimeout(p.timer); this.pending.clear(); for (const socket of this.sockets) socket.destroy(); for (const host of this.hosts) host.control?.destroy(); this.healthServer?.closeAllConnections(); await Promise.all([...this.hosts.map(host => host.server), this.tunnelServer, this.healthServer].map((server) => new Promise<void>((resolve) => { if (!server?.listening) resolve(); else server.close(() => resolve()); }))); }
+  async close(): Promise<void> { this.screenUdp?.close(); this.screenUdp = undefined; if (this.timer) clearInterval(this.timer); for (const p of this.pending.values()) clearTimeout(p.timer); this.pending.clear(); for (const socket of this.sockets) socket.destroy(); for (const host of this.hosts) host.control?.destroy(); this.healthServer?.closeAllConnections(); await Promise.all([...this.hosts.map(host => host.server), this.tunnelServer, this.healthServer].map((server) => new Promise<void>((resolve) => { if (!server?.listening) resolve(); else server.close(() => resolve()); }))); }
 }

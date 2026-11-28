@@ -10,6 +10,10 @@ export const hasScreenViewer = () => isElectron() || isMobileScreenApp();
 /** The most packets the native layer holds for this page at once. Undefined for
  * a native layer that cannot say (the call is missing or fails): it holds three
  * and accepts only the receipt it always did. Asked once. */
+let mobileRtc: Promise<boolean> | undefined;
+export const screenViewerRtcAvailable = () => isElectron() ? Promise.resolve(true)
+  : isMobileScreenApp() ? mobileRtc ??= nativeInvoke<unknown>("net_screen_rtc").then(value => value === true, () => false)
+  : Promise.resolve(false);
 let nativeWindow: Promise<number | undefined> | undefined;
 const mobileScreenWindow = () => nativeWindow ??= nativeInvoke<unknown>("net_screen_window").then(
   value => typeof value === "number" && Number.isInteger(value) && value >= SCREEN_FLIGHT_MIN ? Math.min(value, SCREEN_FLIGHT_MAX) : undefined, () => undefined);

@@ -12,7 +12,7 @@ import { CANVAS_AGENT_HOST_CAPABILITY, canvasAgentTokenRequestSchema } from "../
 import { HubRemoteScreen } from "./remote-screen.js";
 import { RemoteScreenSockets } from "./remote-screen-sockets.js";
 import { signedScreenConfigureSchema, screenStopSchema, SCREEN_MAX_CONTROL_BYTES } from "../client-protocol/remote-screen.js";
-import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
+import type { ScreenTcpRouteKind } from "../client-protocol/screen-metrics.js";
 import { WorkbenchBroker, type WorkbenchActor, type WorkbenchPeer } from "./workbench.js";
 import { readWorkbenchTurnMetadata, type WorkbenchContextReceipt } from "./workbench-history.js";
 import type { WorkbenchContext } from "../client-protocol/workbench.js";
@@ -183,7 +183,7 @@ function gatewayWorkbenchMetadata<T extends { workbench?: WorkbenchContext }>(me
 type BotConnection = { canvasAgent: boolean; audioRecording: boolean; botSteer: boolean; engineQuota: boolean; engineQuotaAccountMatch: boolean; contextUsage: boolean; history: boolean; designOpen: boolean; nativeInput: boolean; nativeReviewInput: boolean; engineTasks: boolean; piSession: boolean; ws: WebSocket; botId: string; queueCapable: boolean; queuePull: boolean; queueAdvertised: boolean; botMessages: boolean; agentBus: boolean; groupDiscussion: boolean; voicePolicy: boolean; widgetPolicy: boolean; replayQueue: boolean; ready: boolean };
 type Rpc = { resolve: (value: Json) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; ws: WebSocket };
 export interface HubTlsListener { exposure?: ListenerExposure; host: string; port: number; tls: TlsOptions; managed?: boolean }
-export interface HubServerOptions { pluginArtifactsDir?: string; voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; /** Max silence before a foreground client socket stops suppressing pushes. */ foregroundTimeoutMs?: number; relaySources?: RelaySources; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; hostResourcesSampler?: () => Promise<OsProcessSample[]>; hostResourcesBotPids?: () => Map<string, number>; hostResourcesTurnPids?: (botId: string) => ReadonlyMap<string, readonly number[]> | undefined; hostResourcesKillPid?: (pid: number) => Promise<void>; hostResourcesStopBotTurn?: (botId: string, conversationId: string, userId: string) => Promise<boolean>; hostResourcesDesktopAppPid?: number | (() => number | undefined); hostResourcesSampleCacheTtlMs?: number; hostResourcesNow?: () => number; hostTerminalSpawner?: (options: { cwd: string; cols: number; rows: number }) => Promise<TerminalProcessHandle>; hostTerminalDefaultWorkspace?: string; hostTerminalIdleTimeoutMs?: number; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; edgePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
+export interface HubServerOptions { pluginArtifactsDir?: string; voiceSettings?: HubVoiceSettings; asrSetup?: QwenAsrSetup; /** Internal lease duration override for isolated tests. */ drainLeaseMs?: number; /** Max silence before a foreground client socket stops suppressing pushes. */ foregroundTimeoutMs?: number; relaySources?: RelaySources; screenUdpRelay?: ConstructorParameters<typeof HubRemoteScreen>[4]; exposure?: ListenerExposure; maxFileBytes?: number; managedBots?: BotManagerOptions; hostResourcesSampler?: () => Promise<OsProcessSample[]>; hostResourcesBotPids?: () => Map<string, number>; hostResourcesTurnPids?: (botId: string) => ReadonlyMap<string, readonly number[]> | undefined; hostResourcesKillPid?: (pid: number) => Promise<void>; hostResourcesStopBotTurn?: (botId: string, conversationId: string, userId: string) => Promise<boolean>; hostResourcesDesktopAppPid?: number | (() => number | undefined); hostResourcesSampleCacheTtlMs?: number; hostResourcesNow?: () => number; hostTerminalSpawner?: (options: { cwd: string; cols: number; rows: number }) => Promise<TerminalProcessHandle>; hostTerminalDefaultWorkspace?: string; hostTerminalIdleTimeoutMs?: number; stateDir: string; host?: string; port?: number; tls?: TlsOptions; instancePort?: number; edgePort?: number; tlsListeners?: HubTlsListener[]; push?: PushConfig; origins?: string[]; clientDir?: string; googleDocs?: () => Promise<GoogleDocs>; onWarning?: (code: string) => void; networkExchange?: typeof exchangeNetworkPeer }
 export class HubServer {
   private readonly relaySources: RelaySources;
   private readonly fragmentSockets = new WeakSet<WebSocket>();
@@ -383,7 +383,7 @@ export class HubServer {
       changed: async conversation => { await this.broadcastConversation(conversation, client => client.session?.userId === conversation.ownerId, undefined, true); },
       log: line => options.onWarning?.(line),
     });
-    this.remoteScreen = new HubRemoteScreen(store, auth);
+    this.remoteScreen = new HubRemoteScreen(store, auth, undefined, undefined, options.screenUdpRelay);
     this.hostTerminal = new HubHostTerminal({
       store,
       auth,
@@ -696,7 +696,8 @@ export class HubServer {
     });
     server.on("upgrade", (req, socket, head) => {
       if (!this.stopping && this.originAllowed(req) && this.screenSockets.handles(req.url ?? "")) {
-        this.screenSockets.upgrade(req, socket, head, instance && !tls, isLocalNetworkAddress(req.socket.remoteAddress ?? ""), this.screenRouteFromSource(this.relaySources.source(req.socket))); return;
+        const source = this.relaySources.source(req.socket);
+        this.screenSockets.upgrade(req, socket, head, instance && !tls, isLocalNetworkAddress(req.socket.remoteAddress ?? ""), this.screenRouteFromSource(source), /^relay:([^:]+):/.exec(source)?.[1]); return;
       }
       // Instance sockets are strictly fenced to listeners with `instance === true`.
       // Remote TLS listeners and the dedicated `edgeProxy` loopback listener have
@@ -705,7 +706,7 @@ export class HubServer {
       this.sockets.handleUpgrade(req, socket, head, (ws) => req.url === "/instance" ? this.instanceSocket(ws) : this.clientSocket(ws, this.requestSource(req, edgeProxy)));
     });
   }
-  private screenRouteFromSource(source: string): ScreenRouteKind {
+  private screenRouteFromSource(source: string): ScreenTcpRouteKind {
     if (source.startsWith("relay:")) return "tcp_vps_relay";
     if (isTailscaleAddress(source)) return "tcp_tailscale";
     if (isLocalNetworkAddress(source) || isLoopback(source)) return "tcp_lan_direct";
@@ -2305,6 +2306,7 @@ export class HubServer {
       const screenViewer = {
         windows: url.searchParams.get("includeWindows") === "1",
         udpStatus: url.searchParams.get("includeUdpStatus") === "1",
+        rtc: url.searchParams.get("screenRtc") === "1",
         route: this.screenRouteFromSource(source),
       };
       if (route === "/api/screens/status" && req.method === "GET") { await reply(200, await this.remoteScreen.status(session, screenViewer)); return; }
@@ -2313,6 +2315,7 @@ export class HubServer {
         await reply(200, await this.remoteScreen.configure(session, command, proof, screenViewer)); return;
       }
       if (route === "/api/screens/sessions" && req.method === "POST") { await reply(201, await this.remoteScreen.open(session, await this.jsonBody(req, SCREEN_MAX_CONTROL_BYTES), screenViewer)); return; }
+      if (route === "/api/screens/rtc" && req.method === "POST") { await reply(200, await this.remoteScreen.rtcRequest(session, await this.jsonBody(req, SCREEN_MAX_CONTROL_BYTES))); return; }
       if (route === "/api/screens/stop" && req.method === "POST") { const input = screenStopSchema.parse(await this.jsonBody(req, 4096)); await this.remoteScreen.stop(session, input.sessionId); await reply(200, { ok: true }); return; }
       if (route === "/api/integrations/asr" && req.method === "GET") {
         await requireOwner(); await reply(200, await this.asrSetup.status()); return;

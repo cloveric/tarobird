@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { SCREEN_MAX_CONTROL_BYTES, SCREEN_MEDIA_BYTES_PER_MS, screenHelloSchema, screenServiceHelloSchema, screenServiceEventSchema } from "../client-protocol/remote-screen.js";
-import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
+import type { ScreenTcpRouteKind } from "../client-protocol/screen-metrics.js";
 import { readScreenFrame, SCREEN_PACKET_LIMIT } from "../client-protocol/screen-wire.js";
 import { HubRemoteScreen, type ScreenControlSink, type ScreenMediaSink } from "./remote-screen.js";
 import { HubError } from "./store.js";
@@ -25,7 +25,7 @@ export class RemoteScreenSockets {
   constructor(private authority: HubRemoteScreen) {}
   handles(route: string): boolean { return routes.has(route); }
   /** `direct`: the peer's own address is on the local network (not loopback, where a relay arrives). */
-  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, instance: boolean, direct = false, screenRoute?: ScreenRouteKind): void {
+  upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, instance: boolean, direct = false, screenRoute?: ScreenTcpRouteKind, relayId?: string): void {
     const route = req.url!;
     // Instance listener is separate plain loopback; TLS relay peers also arrive
     // on loopback and must never be able to register a target service.
@@ -35,13 +35,13 @@ export class RemoteScreenSockets {
     // require the instance listener and their one-use owner/service tickets.
     if (!routes.has(route) || target && (!instance || this.targetConnections.size >= 4)
       || !target && this.connections.size - this.targetConnections.size >= 16) { socket.destroy(); return; }
-    (route.endsWith("media") ? this.media : this.control).handleUpgrade(req, socket, head, ws => this.accept(ws, route, direct, screenRoute));
+    (route.endsWith("media") ? this.media : this.control).handleUpgrade(req, socket, head, ws => this.accept(ws, route, direct, screenRoute, relayId));
   }
   private closeGroup(sessionId: string, reason: string): void {
     const group = this.sessionSockets.get(sessionId); this.sessionSockets.delete(sessionId);
     for (const ws of group ?? []) { if (ws.readyState === WebSocket.OPEN) ws.close(4000, reason.slice(0,100)); else ws.terminate(); }
   }
-  private accept(ws: WebSocket, route: string, direct: boolean, screenRoute?: ScreenRouteKind): void {
+  private accept(ws: WebSocket, route: string, direct: boolean, screenRoute?: ScreenTcpRouteKind, relayId?: string): void {
     this.connections.add(ws);
     if (route.startsWith("/screen/v1/target")) this.targetConnections.add(ws);
     let ready = false, authenticating = false, epoch = "", sessionId = "", generation = "", localBudget = SCREEN_PACKET_LIMIT, localAt = Date.now();
@@ -71,7 +71,7 @@ export class RemoteScreenSockets {
           } else {
             const hello = screenHelloSchema.parse(data);
             if (route === "/screen/v1/target-media") ({ epoch, sessionId, generation } = this.authority.serviceMedia(hello.ticket));
-            else sessionId = await this.authority.attachViewer(hello.ticket, route.endsWith("media") ? "media" : "control", route.endsWith("media") ? mediaSink : controlSink, { direct, ...(screenRoute ? { route: screenRoute } : {}) });
+            else sessionId = await this.authority.attachViewer(hello.ticket, route.endsWith("media") ? "media" : "control", route.endsWith("media") ? mediaSink : controlSink, { direct, route: screenRoute, relayId });
             const group = this.sessionSockets.get(sessionId) ?? new Set<WebSocket>(); group.add(ws); this.sessionSockets.set(sessionId, group);
             if (ws.readyState !== WebSocket.OPEN) { stop(); return; }
             send({ type: "attached", sessionId });
@@ -102,6 +102,8 @@ export class RemoteScreenSockets {
           else if (event.type === "lease-ready") this.authority.serviceLeaseReady(epoch, event.sessionId, event.leaseId);
           else if (event.type === "lease-denied") this.authority.serviceLeaseDenied(epoch, event.sessionId, event.leaseId, event.reason);
           else if (event.type === "frame-confirmed") this.authority.serviceFrameConfirmed(epoch, event.sessionId, event.frameSequence, event.captureMs, event.streamGeneration);
+          else if (event.type === "rtc-answer" || event.type === "rtc-failed") this.authority.rtcAnswer(epoch, event.sessionId, event.nonce, event.type === "rtc-answer" ? event.sdp : undefined);
+          else if (event.type === "rtc-frame") this.authority.rtcFrame(epoch, event);
           else this.authority.serviceStop(epoch, event.sessionId, event.reason);
         } else if (route === "/screen/v1/control") this.authority.viewerCommand(sessionId, value);
         else throw new HubError("screen_media_direction", 400);

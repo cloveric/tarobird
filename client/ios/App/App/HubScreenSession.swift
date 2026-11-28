@@ -186,6 +186,13 @@ final class HubScreenSession: @unchecked Sendable {
         } else {
             switch type {
             case "state": try applyState(value)
+            case "rtc-frame":
+                try Self.keys(value, "type sessionId generation nonce streamGeneration frameSequence captureMs rtpTimestamp")
+                guard value["sessionId"] as? String == sessionID, value["generation"] as? String == generation,
+                      let nonce = value["nonce"] as? String, Self.ticket(nonce),
+                      Self.revision(value["streamGeneration"]), let sequence = Self.integer(value["frameSequence"]), sequence >= 0x80000000,
+                      sequence <= 0xffffffff, Self.integer(value["captureMs"]) != nil,
+                      let rtpTimestamp = Self.integer(value["rtpTimestamp"]), rtpTimestamp <= 0xffffffff else { throw HubNetworkError("screen_scope_invalid") }
             case "frame-ready":
                 guard value["sessionId"] as? String == sessionID, value["generation"] as? String == generation,
                       Self.revision(value["frameSequence"]), Self.revision(value["streamGeneration"]), Self.integer(value["expiresAt"]) != nil else { throw HubNetworkError("screen_scope_invalid") }

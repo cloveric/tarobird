@@ -4,6 +4,7 @@ import path from 'node:path';
 import { WebSocket } from 'ws';
 import { z } from 'zod';
 import { SCREEN_CONTROL_QHD_CAPABILITY, SCREEN_CONTROL_QUALITY_CAPABILITY, SCREEN_CONTROL_RATE_CAPABILITY, SCREEN_CONTROL_WINDOWS_CAPABILITY, SCREEN_MAX_CONTROL_BYTES, SCREEN_MAX_VIEWERS, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QHD_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE, screenDesktopSchema, screenServiceCommandSchema, screenServiceEventSchema } from '../../src/client-protocol/remote-screen.ts';
+import { SCREEN_RTC_CONTROL_CAPABILITY, SCREEN_RTC_FEATURE, SCREEN_RTC_SEQUENCE_START, screenRtcFrameSchema } from '../../src/client-protocol/screen-rtc.ts';
 import { SCREEN_LEGACY_FPS, screenQualityProfile } from '../../src/client-protocol/screen-quality.ts';
 import { ScreenGeometry, encodeSize } from './screen-geometry.mjs';
 import { HeldJournal, readHeldJournal } from './screen-held-journal.mjs';
@@ -239,7 +240,7 @@ export class ScreenService {
       const capabilities = Array.isArray(ticket.capabilities) ? ticket.capabilities : [];
       // Above the legacy frame rate, and a named byte budget, only with a Host that says it handles both.
       this.#hostRate = capabilities.includes(SCREEN_CONTROL_RATE_CAPABILITY);
-      const features = capabilities.includes(SCREEN_CONTROL_QUALITY_CAPABILITY) ? [SCREEN_SERVICE_QUALITY_FEATURE, ...(capabilities.includes(SCREEN_CONTROL_QHD_CAPABILITY) ? [SCREEN_SERVICE_QHD_FEATURE] : []), ...(this.#hostRate ? [SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_FLIGHT_FEATURE] : [])] : undefined;
+      const features = capabilities.includes(SCREEN_CONTROL_QUALITY_CAPABILITY) ? [SCREEN_SERVICE_QUALITY_FEATURE, ...(capabilities.includes(SCREEN_CONTROL_QHD_CAPABILITY) ? [SCREEN_SERVICE_QHD_FEATURE] : []), ...(this.#hostRate ? [SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_FLIGHT_FEATURE] : []), ...(capabilities.includes(SCREEN_RTC_CONTROL_CAPABILITY) && this.capture.rtc ? [SCREEN_RTC_FEATURE] : [])] : undefined;
       try { this.#send(ws, { type: 'hello', ticket: ticket.ticket, desktop: this.#desktop(), ...(features ? { features } : {}) }); }
       catch { this.#wsFailure ??= 'screen_desktop_invalid'; ws.terminate(); }
     });
@@ -313,6 +314,16 @@ export class ScreenService {
     const record = this.#sessions.get(c.type === 'start' ? c.session.id : c.sessionId);
     switch (c.type) {
       case 'start': return this.#startSession(c);
+      case 'rtc-offer':
+        if (!record || record.paused || !this.capture.rtc?.(c)) this.#emit({ type: 'rtc-failed', sessionId: c.sessionId, nonce: c.nonce });
+        else record.rtcNonce = c.nonce;
+        return;
+      case 'rtc-activate':
+      case 'rtc-close':
+        if (!record || record.rtcNonce !== c.nonce) return;
+        this.capture.rtc?.(c);
+        if (c.type === 'rtc-close') record.rtcNonce = undefined;
+        return;
       case 'stop': if (record) this.#end(record.session.id, c.reason, false); return;
       case 'pause':
         if (!record) return;
@@ -412,6 +423,20 @@ export class ScreenService {
     const record = this.#sessions.get(message.sessionId);
     if (!record) return;
     switch (message.type) {
+      case 'rtc-answer':
+      case 'rtc-failed':
+        if (!record.paused && record.rtcNonce === message.nonce) this.#emit(message);
+        return;
+      case 'rtc-frame': {
+        const parsed = screenRtcFrameSchema.safeParse(message);
+        if (!parsed.success || record.paused || record.rtcNonce !== message.nonce || message.streamGeneration !== record.streamGeneration) return;
+        const captureMono = this.monotonic() - Math.max(0, this.wall() - message.captureMs);
+        record.ledger.set(message.frameSequence, { captureMs: message.captureMs, captureMono, streamGeneration: message.streamGeneration,
+          geometryRevision: record.display.revision, displayId: record.display.id, confirmed: false });
+        while (record.ledger.size > LEDGER) record.ledger.delete(record.ledger.keys().next().value);
+        this.#emit(parsed.data);
+        return;
+      }
       case 'stream':
         if (message.stream?.streamGeneration !== record.streamGeneration) return;
         this.#send(record.media, message.stream, record.fail); return;
@@ -438,7 +463,7 @@ export class ScreenService {
   #ack(record, { frameSequence, streamGeneration, heldMs }) {
     const entry = record.ledger.get(frameSequence);
     if (!entry || entry.confirmed || streamGeneration !== record.streamGeneration || entry.streamGeneration !== streamGeneration) return;
-    this.capture.credit(record.session.id, frameSequence, streamGeneration, heldMs);
+    if (frameSequence < SCREEN_RTC_SEQUENCE_START) this.capture.credit(record.session.id, frameSequence, streamGeneration, heldMs);
     const display = this.geometry.find(record.display.id);
     const fresh = this.wall() <= entry.captureMs + SCREEN_FRAME_FRESH_MS && this.monotonic() <= entry.captureMono + SCREEN_FRAME_FRESH_MS;
     if (!fresh || !display || display.revision !== entry.geometryRevision) return;

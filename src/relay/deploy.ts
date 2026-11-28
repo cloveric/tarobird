@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { RELAY_MAX_HOSTS, relayHosts, relayServerSchema } from "./config.js";
+import { RELAY_MAX_HOSTS, relayHosts, relayScreenUdpSchema, relayServerSchema } from "./config.js";
 import { ntfyDeploymentSchema, peerRelayDeploymentSchema, prepareCompanions } from "./companions.js";
 import { companionStatusSchema } from "./health.js";
 import { relayUpdateConfigSchema } from "./update.js";
@@ -37,9 +37,12 @@ function encodedFile(name: string, content: string | Buffer): string {
   // Names are fixed by this module. Data can never become shell syntax.
   return `base64 --decode > "$stage/${name}" <<'TAROCUB_DATA'\n${Buffer.from(content).toString("base64")}\nTAROCUB_DATA\n`;
 }
-export async function prepareRelayDeployment(configFile: string, bundleFile: string, fetcher: Fetch = globalThis.fetch): Promise<{ script: string; summary: Record<string, unknown> }> {
+export async function prepareRelayDeployment(configFile: string, bundleFile: string, fetcher: Fetch = globalThis.fetch, options?: { screenUdpAddress?: string }): Promise<{ script: string; summary: Record<string, unknown>; udpCheck?: { address: string; port: number } }> {
   const config = relayDeploymentSchema.parse(JSON.parse(await readFile(configFile, "utf8")));
-  const relay = config.relay; const runtime = config.runtime ?? await resolveRelayRuntime(fetcher);
+  const relay = config.relay;
+  if (options?.screenUdpAddress) relay.screenUdp = relayScreenUdpSchema.parse({ ...relay.screenUdp, address: options.screenUdpAddress });
+  const runtime = config.runtime ?? await resolveRelayRuntime(fetcher);
+  if (relay.screenUdp && config.peerRelay?.port === relay.tunnelPort) throw new Error("Screen UDP and the peer relay need separate UDP ports");
   if (relay.publicHost !== "0.0.0.0" || relay.tunnelHost !== "0.0.0.0") throw new Error("Deployment expects IPv4 public listeners on 0.0.0.0");
   const healthPort = relay.healthPort ?? 9877;
   const companions = await prepareCompanions(config, configFile);
@@ -205,6 +208,7 @@ table inet tarocub_relay {
   ip protocol icmp accept
   meta l4proto ipv6-icmp accept
   tcp dport { $ssh_port, ${publicPorts.join(", ")}, ${relay.tunnelPort} } accept
+  ${relay.screenUdp ? `ip protocol udp udp dport ${relay.tunnelPort} accept` : ""}
   ${config.peerRelay ? `udp dport ${config.peerRelay.port} accept` : ""}
  }
 }
@@ -232,7 +236,7 @@ printf '%s\n' 'APT::Periodic::Update-Package-Lists "1";' 'APT::Periodic::Unatten
 printf 'TAROCUB_DEPLOYED revision=%s changed=%s firewallChanged=%s\n' "$revision" "$changed" "$firewall_changed"
 cat "$stage/status.json"
 `;
-  return { script, summary: { service: "tarocub-relay", revision, serverName: relay.serverName, ports: { public: relay.publicPort, ...(publicPorts.length > 1 ? { additionalPublic: publicPorts.slice(1) } : {}), tunnel: relay.tunnelPort, health: `127.0.0.1:${healthPort}`, ssh: "preserve current SSH server port" }, runtime: runtime.version, files: Object.keys(files), firewall: "dedicated VPS: allow established traffic, loopback, Tailscale, ICMP, SSH, public and tunnel ports; drop other inbound traffic", updates: config.updates ? { relay: "daily signed release feed", url: config.updates.url, minRelease: config.updates.minRelease, os: "signed distribution security updates", node: "idempotent redeploy" } : "OS security updates; relay code and Node runtime updated by idempotent redeploy", companions: companions.summary, rollback: "restore previous release, managed unit/config files, service states and firewall on failure", secrets: "only explicit tunnel and optional companion credentials are transferred; no Hub identity or Hub TLS key is read; enrollment keys are removed with the private temporary staging directory" } };
+  return { script, ...(relay.screenUdp ? { udpCheck: { address: relay.screenUdp.address, port: relay.tunnelPort } } : {}), summary: { service: "tarocub-relay", revision, serverName: relay.serverName, ports: { public: relay.publicPort, ...(publicPorts.length > 1 ? { additionalPublic: publicPorts.slice(1) } : {}), tunnel: relay.tunnelPort, ...(relay.screenUdp ? { screenUdp: relay.tunnelPort } : {}), health: `127.0.0.1:${healthPort}`, ssh: "preserve current SSH server port" }, runtime: runtime.version, files: Object.keys(files), firewall: "dedicated VPS: allow established traffic, loopback, Tailscale, ICMP, SSH, public and tunnel ports; drop other inbound traffic", updates: config.updates ? { relay: "daily signed release feed", url: config.updates.url, minRelease: config.updates.minRelease, os: "signed distribution security updates", node: "idempotent redeploy" } : "OS security updates; relay code and Node runtime updated by idempotent redeploy", companions: companions.summary, rollback: "restore previous release, managed unit/config files, service states and firewall on failure", secrets: "only explicit tunnel and optional companion credentials are transferred; no Hub identity or Hub TLS key is read; enrollment keys are removed with the private temporary staging directory" } };
 }
 export type SshRunner = (host: string, command: string, input?: string) => Promise<string>;
 export const runRelaySsh: SshRunner = (host, command, input) => new Promise((resolve, reject) => {
@@ -253,7 +257,9 @@ export async function deployRelay(host: string, plan: Awaited<ReturnType<typeof 
   return output;
 }
 const relayHealthSchema = z.object({ service: z.literal("tarocub-relay"), connected: z.boolean(), pending: z.number().int().min(0), connections: z.number().int().min(0), publicPort: z.number().int().min(1).max(65535), tunnelPort: z.number().int().min(1).max(65535),
-  hosts: z.array(z.object({ publicPort: z.number().int().min(1).max(65535), connected: z.boolean() })).max(RELAY_MAX_HOSTS).optional() });
+  hosts: z.array(z.object({ publicPort: z.number().int().min(1).max(65535), connected: z.boolean() })).max(RELAY_MAX_HOSTS).optional(),
+  screenUdp: z.object({ listening: z.boolean(), hosts: z.array(z.object({ publicPort: z.number().int().positive(), bytesForwarded: z.number().nonnegative(), droppedPackets: z.number().nonnegative(), pairs: z.number().int().nonnegative() })).max(RELAY_MAX_HOSTS) }).optional(),
+});
 export async function inspectRemoteRelay(host: string, runner: SshRunner = runRelaySsh): Promise<unknown> {
   validateSshHost(host);
   const command = `if test "$(id -u)" = 0; then cat ${root}/current/relay.json; else sudo -n cat ${root}/current/relay.json; fi`;

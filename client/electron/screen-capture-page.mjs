@@ -1,5 +1,5 @@
 // Isolated capture renderer (tarobot-screen://capture). No App bridge, no
-// network, no Node. Main hands over one MessagePort; everything arrives and
+// fetch/WebSocket access, no Node. RTC media is authorized over the main-owned port. Main hands over one MessagePort; everything arrives and
 // leaves through it. Main chooses the display; getDisplayMedia here never
 // shows a picker because main answers the request with that bound source.
 import { writeScreenFrame } from '../../src/client-protocol/screen-wire.ts';
@@ -10,7 +10,7 @@ addEventListener('message', event => {
   if (port || event.source !== window || event.data?.type !== 'tarobot-screen-port' || event.ports.length !== 1) return;
   port = event.ports[0];
   const core = createCaptureCore({ send: message => port.postMessage(message), getDisplayMedia: constraints => navigator.mediaDevices.getDisplayMedia(constraints),
-    VideoEncoder, VideoFrame, OffscreenCanvas, MediaStreamTrackProcessor, writeScreenFrame });
+    VideoEncoder, VideoFrame, OffscreenCanvas, MediaStreamTrackProcessor, writeScreenFrame, rtcEnv: globalThis });
   port.onmessage = ({ data }) => { void core.handle(data); };
   port.postMessage({ type: 'ready' });
 });

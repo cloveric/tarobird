@@ -190,7 +190,7 @@ export function RemoteScreenSettings({ connection, local, open, openBlocked, bus
                   ? t("中继服务器的 UDP 端口未开放，请在云安全组放行已配置的 UDP 中继端口。未连通期间自动保持 TCP 传输，不会黑屏或断线。")
                   : status.udpStatus?.reasonCode === "peer_unsupported"
                     ? t("当前查看端或对端暂不支持 UDP 媒体通道，已自动回退 TCP 传输（不会黑屏或断线）。请更新两端应用后重试。")
-                    : t("当前主机或中继尚未启用 UDP 媒体通道，已自动回退 TCP 传输（不会黑屏或断线）。开启查看器性能数据覆盖层可对比链路指标。")}
+                    : t("当前没有收到 UDP 画面，查看器使用 TCP。通过 VPS 中继观看时，请检查云安全组是否放行原隧道端口的 UDP，并运行中继自检。")}
         </p>
         {udpDetail && <p className="screen-udp-detail">{udpDetail}</p>}
       </div>

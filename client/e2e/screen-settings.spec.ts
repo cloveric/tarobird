@@ -364,5 +364,5 @@ test("UDP boost settings accurately render disabled, connected, and all fallback
 
  // Fallback: udp_transport_unavailable.
  await page.evaluate(()=>{const f=(window as any).screenSettingsFixture;f.state.status.udpStatus={enabled:true,state:"fallback_tcp",route:"tcp_tailscale",reasonCode:"udp_transport_unavailable"};window.dispatchEvent(new Event("focus"));});
- await expect(card).toContainText("当前主机或中继尚未启用 UDP 媒体通道");
+ await expect(card).toContainText("当前没有收到 UDP 画面");
 });
