@@ -204,23 +204,11 @@ export function RunPresentation({ run, block, message, connection, backgroundSou
   </section>;
 }
 
-/** The newest lines of the public thinking summary. A caret marks the live end only while thinking. */
+/** The newest lines of the public thinking summary, in a thought bubble under the run status. */
 function ThinkingPreview({ text, live }: { text: string; live: boolean }) {
-  const tail = useRef<HTMLSpanElement>(null);
-  const [multiline, setMultiline] = useState(false);
-  useLayoutEffect(() => {
-    const node = tail.current;
-    if (!node) return;
-    const measure = () => setMultiline(node.offsetHeight > parseFloat(getComputedStyle(node).lineHeight) * 1.5);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [text, live]);
   return <div className="run-thinking-preview" data-live={live || undefined}>
     <div className="run-thinking-label"><span>{live ? t("思考中") : t("公开思考摘要")}</span>{live && <i className="run-thinking-dots" aria-hidden="true"><b/><b/><b/></i>}</div>
-    <p data-multiline={multiline || undefined}><span ref={tail}>{text}</span></p>
+    <p><span>{text}</span></p>
   </div>;
 }
 
