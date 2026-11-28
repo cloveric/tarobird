@@ -1327,3 +1327,41 @@
   font-size: 11px;
   color: var(--grey);
 }
+
+/* Grouped sections (owner-approved mockup 13, option B): each section's items sit in one rounded container,
+ * separated by hairlines, instead of one bordered card per item; sections get more room between them. */
+.workspace-body > .workspace-section + .workspace-section { margin-top: 4px; }
+.workspace-list {
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.workspace-list > .workspace-file-grid { gap: 0; }
+.workspace-list > :is(.workspace-item-row, .workspace-comm-card, .workspace-waiting-card, .workspace-diff-row, .workspace-file-grid),
+.workspace-list > .workspace-file-grid > .workspace-file-tile {
+  border: 0;
+  border-radius: 0;
+}
+/* :is(…, *) lifts this above the border reset just before it, so the hairline survives. */
+.workspace-list > * + :is(.workspace-item-row, .workspace-comm-card, .workspace-waiting-card, .workspace-diff-row, .workspace-file-grid, *),
+.workspace-list > .workspace-file-grid > .workspace-file-tile + .workspace-file-tile {
+  border-top: 1px solid var(--border);
+}
+.workspace-list > .workspace-file-grid > .workspace-file-tile:hover:not(:disabled) { border-color: var(--border); }
+.workspace-list > .workspace-diff-row {
+  background: color-mix(in srgb, var(--surface) 55%, var(--bg));
+  padding: 8px 10px;
+}
+.workspace-list > .workspace-more-hint {
+  padding: 7px 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 40%, var(--bg));
+}
+.workspace-waiting-section .workspace-list {
+  border-color: color-mix(in srgb, var(--orange) 52%, var(--border));
+  background: color-mix(in srgb, var(--orange) 8%, var(--bg));
+}
+.workspace-waiting-section .workspace-list > .workspace-waiting-card { background: transparent; }

@@ -150,6 +150,15 @@ test("overview: a message being handled is not in line, subagents show helper co
     await expect(live.locator(".workspace-helper-row")).toContainText("请了 2 个小帮手");
     await expect(live.locator(".workspace-helper-row .profile-avatar")).toHaveCount(0);
     await expect(live.locator(".workspace-more-hint")).toHaveText("还有 1 个后台任务");
+    // Grouped sections: one rounded container per list, rows split by hairlines, no card border per row.
+    const grouped = await live.locator(".workspace-list").first().evaluate(list => {
+      const style = getComputedStyle(list), rows = [...list.children].map(node => getComputedStyle(node));
+      return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, gap: style.rowGap,
+        firstTop: rows[0]!.borderTopWidth, nextTops: rows.slice(1).map(row => row.borderTopWidth), sides: rows.map(row => row.borderLeftWidth) };
+    });
+    expect(grouped).toMatchObject({ border: "1px", radius: "10px", gap: "0px", firstTop: "0px" });
+    expect(grouped.nextTops.every(width => width === "1px")).toBe(true);
+    expect(grouped.sides.every(width => width === "0px")).toBe(true);
     const chatSize = await page.locator(".file-card-meta small").first().innerText();
     expect(chatSize).toBe("17.99 KiB");
     await expect(rail(page).getByRole("region", { name: "做出来的东西", exact: true })).toContainText(chatSize);
