@@ -1,6 +1,6 @@
 import type { DesignBotDraft } from "./workbench-design-comments.js";
 import { workbenchErrorText } from "./workbench-error.js";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { ArrowLeft, ChevronDown, Columns2, Download, FileText, FolderOpen, Globe, LayoutGrid, Presentation, List, Maximize2, Minimize2, MoreHorizontal, Plus, Puzzle, RotateCw, Square, SquarePen, Trash2, Users, X } from "lucide-react";
 import { getPluginRegistry, resolvePluginScopeId, unavailablePluginRegistry, type PluginRegistry } from "./plugin-registry.js";
 import { PluginSandboxFrame } from "./PluginSandboxFrame.js";
@@ -218,12 +218,51 @@ export function Workbench({ id = "conversation-workbench", compact = false, cont
     {tab.kind === "markdown" && <button className="danger" onClick={() => { setMenu(undefined); setDeleting(tab.id); }}>{t("删除这篇笔记")}</button>}
     {tab.kind === "whiteboard" && <button className="danger" onClick={() => { setMenu(undefined); setDeleting(tab.id); }}>{t("删除这张白板")}</button>}
   </>;
+  // Each content kind keeps one muted hue: the start page tiles, the recent list and the tab icons.
+  const tabKind = (tab: WorkbenchTab) => tab.kind === "design" ? (tab.designFormat === "slides" ? "slides" : "design") : tab.kind === "whiteboard" ? "board" : tab.kind === "markdown" ? "note" : tab.kind === "browser" ? "web" : tab.kind;
+  const kindLabel = (tab: WorkbenchTab) => tab.kind === "design" ? (tab.designFormat === "slides" ? t("演示文稿") : t("设计")) : tab.kind === "whiteboard" ? t("白板") : tab.kind === "markdown" ? t("笔记") : tab.kind === "browser" ? t("网页") : tab.kind === "chart" ? t("图表") : t("插件");
+  // Recent: open tabs not on screen first, then closed items, newest first (the same items as the tab list).
+  const recent = [...layout.tabs.filter(tab => !shown.includes(tab.id)), ...layout.closed.slice().reverse()].slice(0, 5);
+  const marketEntry = !!onOpenPlugins && !phone;
+  const startCard = (kind: string, icon: ReactNode, name: string, detail: string, run: () => Promise<unknown>) =>
+    <button className="workbench-start-card" data-kind={kind} aria-label={name} onClick={() => action(run)}><span className="workbench-kind-icon" aria-hidden="true">{icon}</span><b>{name}</b><small aria-hidden="true">{detail}</small></button>;
+  const startPage = <div className="workbench-start">
+    <section aria-label={t("新建")}>
+      <h3>{t("新建")}</h3>
+      <div className="workbench-start-grid">
+        {!phone && startCard("slides", <Presentation size={16}/>, t("演示文稿"), t("和 Bot 一起做 PPT"), () => controller.createDesign(t("演示文稿"), undefined, undefined, undefined, "slides"))}
+        {startCard("board", <SquarePen size={16}/>, t("白板"), t("流程图、草图"), () => controller.createBoard(t("白板")))}
+        {startCard("note", <FileText size={16}/>, t("笔记"), t("Markdown 文档"), () => controller.createMarkdown(t("笔记.md")))}
+        {state.browser && startCard("web", <Globe size={16}/>, t("网页"), t("内置浏览器"), () => controller.openBrowser())}
+      </div>
+      <div className="workbench-start-links">
+        <button onClick={() => { setMenu(undefined); markdownImporter.current?.click(); }}><Download size={14}/>{t("导入 Markdown / 文本")}</button>
+        {!phone && <button onClick={() => { setMenu(undefined); pptxImporter.current?.click(); }}><Download size={14}/>{t("导入 PPT")}</button>}
+      </div>
+    </section>
+    {recent.length > 0 && <section aria-label={t("最近")}>
+      <h3>{t("最近")}<button onClick={() => { if (allTabsButton.current) toggleMenu("all", allTabsButton.current); }}>{t("全部 ›")}</button></h3>
+      <div className="workbench-start-list">{recent.map(tab => {
+        const open = layout.tabs.some(value => value.id === tab.id);
+        return <button key={tab.id} className="workbench-start-row" data-kind={tabKind(tab)} onClick={() => action(() => open ? controller.change({ type: "select", id: tab.id }) : controller.reopen(tab.id))}>
+          <span className="workbench-kind-icon" aria-hidden="true">{tabIcon(tab)}</span><span className="name">{tab.title}</span><small>{kindLabel(tab)}</small>
+        </button>;
+      })}</div>
+    </section>}
+    {(workbenchPlugins.length > 0 || uninstalledWorkbenchPlugins.length > 0 || marketEntry) && <section aria-label={t("插件")}>
+      <h3>{t("插件")}{marketEntry && <button className="workbench-browse-plugins" onClick={onOpenPlugins}>{t("插件市场 ›")}</button>}</h3>
+      {(workbenchPlugins.length > 0 || uninstalledWorkbenchPlugins.length > 0) && <div className="workbench-start-list">
+        {workbenchPlugins.map(({ plugin, contribution }) => { const label = locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title; return <button key={`${plugin.manifest.id}:${contribution.id}`} className="workbench-start-row" data-kind="plugin" data-workbench-plugin={plugin.manifest.id} disabled={!pluginRuntimeAvailable} title={pluginUnavailableMessage} onClick={() => action(() => controller.openPlugin(plugin.manifest.id, contribution.id, label))}><span className="workbench-kind-icon" aria-hidden="true"><Puzzle size={14}/></span><span className="name">{label}</span></button>; })}
+        {uninstalledWorkbenchPlugins.map(entry => { const name = locale === "zh" ? entry.manifest.nameZh ?? entry.manifest.name : entry.manifest.name; return <div key={`start-download:${entry.manifest.id}`} className="workbench-start-row is-static" data-kind="plugin"><span className="workbench-kind-icon" aria-hidden="true"><Puzzle size={14}/></span><span className="name">{name}</span><small>{t("未安装")}</small><button className="workbench-start-install" data-workbench-plugin-download={entry.manifest.id} aria-label={t("安装 {0}", name)} disabled={!pluginRuntimeAvailable} title={pluginUnavailableMessage} onClick={() => onRequestInstallPlugin?.(entry.manifest.id)}>{t("安装")}</button></div>; })}
+      </div>}
+    </section>}
+  </div>;
   return <aside id={id} ref={panel} className={`workbench${phone ? " workbench-phone" : expanded ? " workbench-wide" : " conversation-side-panel"}`} style={expandedBounds} hidden={!visible} onAnimationEnd={event => { if (event.target === event.currentTarget) scheduleBrowserLayout(); }} aria-label={t("工作台")}>
     <SidePanelResize panel={panel} visible={visible && !phone && !expanded} controls={id} label={t("调整工作台宽度")}/>
     <div className="workbench-tabrow">
       <div className="workbench-tab-strip">
       <div className="workbench-tabs" role="tablist" aria-label={t("工作台标签")} ref={tabbar}>
-        {layout.tabs.map(tab => <button key={tab.id} role="tab" aria-selected={layout.active === tab.id} aria-controls={`${id}-pane-${tab.id}`} tabIndex={layout.active === tab.id ? 0 : -1}
+        {layout.tabs.map(tab => <button key={tab.id} role="tab" data-kind={tabKind(tab)} aria-selected={layout.active === tab.id} aria-controls={`${id}-pane-${tab.id}`} tabIndex={layout.active === tab.id ? 0 : -1}
           onClick={() => action(() => controller.change({ type: "select", id: tab.id }))}
           onContextMenu={event => { event.preventDefault(); event.stopPropagation(); openTabMenu(tab, event.currentTarget, event.clientX || event.clientY ? { x: event.clientX, y: event.clientY } : undefined); }}
           onKeyDown={event => {
@@ -244,7 +283,7 @@ export function Workbench({ id = "conversation-workbench", compact = false, cont
       </div>
       <div className="workbench-tab-actions" data-workbench-menu>
         <button ref={allTabsButton} aria-label={t("全部标签和已关闭内容")} title={t("标签列表与管理")} aria-expanded={menu === "all" || !!menu && listTabOptions} onClick={event => toggleMenu("all", event.currentTarget)}><List size={17}/></button>
-        {!phone && <button className="workbench-split-toggle" aria-label={splitLabel} title={splitHint} aria-pressed={hasSplit ? !maximized : undefined} aria-haspopup={!hasSplit ? "dialog" : undefined} aria-expanded={!hasSplit ? menu === "split" : undefined} aria-controls={!hasSplit ? `${id}-split-picker` : undefined} aria-disabled={splitBusy || undefined} aria-busy={splitBusy || undefined} disabled={!state.ready || !!fullscreenBrowser || !maximized && !hasSplit && layout.tabs.length < 2} onClick={event => { if (splitBusy) return; if (hasSplit || maximized) void changeSplit(); else toggleMenu("split", event.currentTarget); }}>{hasSplit && !maximized ? <Square size={15}/> : <LayoutGrid size={15}/>}<span>{t(maximized ? "还原" : hasSplit ? "合并" : "分屏")}</span></button>}
+        {!phone && (hasSplit || !!maximized || layout.tabs.length >= 2) && <button className="workbench-split-toggle" aria-label={splitLabel} title={splitHint} aria-pressed={hasSplit ? !maximized : undefined} aria-haspopup={!hasSplit ? "dialog" : undefined} aria-expanded={!hasSplit ? menu === "split" : undefined} aria-controls={!hasSplit ? `${id}-split-picker` : undefined} aria-disabled={splitBusy || undefined} aria-busy={splitBusy || undefined} disabled={!state.ready || !!fullscreenBrowser || !maximized && !hasSplit && layout.tabs.length < 2} onClick={event => { if (splitBusy) return; if (hasSplit || maximized) void changeSplit(); else toggleMenu("split", event.currentTarget); }}>{hasSplit && !maximized ? <Square size={15}/> : <LayoutGrid size={15}/>}<span>{t(maximized ? "还原" : hasSplit ? "合并" : "分屏")}</span></button>}
         {!phone && hasSplit && <button className="workbench-split-adjust" aria-label={t("调整分屏")} title={t("调整分屏标签")} aria-haspopup="dialog" aria-expanded={menu === "split"} aria-controls={`${id}-split-picker`} disabled={!!fullscreenBrowser} aria-disabled={splitBusy || undefined} onClick={event => { if (!splitBusy) toggleMenu("split", event.currentTarget); }}><ChevronDown size={15}/></button>}
         {menu === "split" && !phone && !fullscreenBrowser && <WorkbenchSplitPicker id={`${id}-split-picker`} tabs={layout.tabs} visible={layout.visible} busy={splitBusy} trigger={menuTrigger.current} icon={tabIcon} onApply={ids => void changeSplit(ids)} onClose={() => setMenu(undefined)}/>}
         {!phone && !compact && <button disabled={!!fullscreenBrowser} aria-label={t(expanded ? "返回右侧" : "展开到主区")} title={t(expanded ? "返回右侧" : "展开到主区")} onClick={() => action(() => controller.change({ type: "expanded", value: !layout.expanded }))}>{expanded ? <Minimize2 size={17}/> : <Maximize2 size={17}/>}</button>}
@@ -265,7 +304,7 @@ export function Workbench({ id = "conversation-workbench", compact = false, cont
     <input ref={pptxImporter} type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) action(() => controller.importPptx(file)); }}/>
     <input ref={markdownImporter} type="file" accept=".md,.markdown,.txt,text/plain,text/markdown" multiple hidden onChange={event => { const files = [...(event.currentTarget.files ?? [])]; event.currentTarget.value = ""; action(async () => { for (const file of files) await controller.importMarkdown(file); }); }}/>
     {state.error && <div className="workbench-error" role="alert"><span>{workbenchErrorText(state.error, locale)}</span><button aria-label={t("关闭提示")} onClick={() => controller.setError()}><X size={15}/></button></div>}
-    {!state.ready ? <div className="workbench-empty" role="status">{t("正在打开工作台…")}</div> : !shown.length ? <div className="workbench-empty"><SquarePen size={25} aria-hidden="true"/><h2>{t("工作台")}</h2><p>{t("写笔记、画图、做演示文稿或浏览网页，也可让 Bot 帮你继续。")}</p><div>{!phone && <button onClick={() => action(() => controller.createDesign(t("演示文稿"), undefined, undefined, undefined, "slides"))}><Presentation size={15}/>{t("演示文稿")}</button>}<button onClick={() => action(() => controller.createBoard(t("白板")))}><Plus size={15}/>{t("白板")}</button><button onClick={() => action(() => controller.createMarkdown(t("笔记.md")))}><FileText size={15}/>{t("笔记")}</button>{state.browser && <button onClick={() => action(() => controller.openBrowser())}><Globe size={15}/>{t("网页")}</button>}{workbenchPlugins.map(({ plugin, contribution }) => { const label = locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title; return <button key={`${plugin.manifest.id}:${contribution.id}`} data-workbench-plugin={plugin.manifest.id} disabled={!pluginRuntimeAvailable} title={pluginUnavailableMessage} onClick={() => action(() => controller.openPlugin(plugin.manifest.id, contribution.id, label))}><Puzzle size={15}/>{label}</button>; })}{uninstalledWorkbenchPlugins.map(entry => { const name = locale === "zh" ? entry.manifest.nameZh ?? entry.manifest.name : entry.manifest.name; return <button key={`empty-download:${entry.manifest.id}`} data-workbench-plugin-download={entry.manifest.id} disabled={!pluginRuntimeAvailable} title={pluginUnavailableMessage} onClick={() => onRequestInstallPlugin?.(entry.manifest.id)}><Puzzle size={15}/>{t("{0}（未安装，点击下载）", name)}</button>; })}{onOpenPlugins && !phone && <button className="workbench-browse-plugins" onClick={onOpenPlugins}><Puzzle size={15}/>{t("浏览插件市场…")}</button>}</div></div> : null}
+    {!state.ready ? <div className="workbench-empty" role="status">{t("正在打开工作台…")}</div> : !shown.length ? startPage : null}
     <div ref={grid} className="workbench-panes" data-count={shown.length} style={{ "--workbench-column": `${(ratio?.column ?? layout.column) * 100}%`, "--workbench-row": `${(ratio?.row ?? layout.row) * 100}%` } as CSSProperties}>
       {layout.tabs.map(tab => {
         const index = shown.indexOf(tab.id), active = visible && index >= 0;

@@ -489,7 +489,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
 
       if (shotDirectory) {
         await page.getByRole("button", { name: "工作台", exact: true }).click();
-        const toInstall = page.locator('.workbench-empty [data-workbench-plugin-download="tarobird.infinite-canvas"]');
+        const toInstall = page.locator('.workbench-start [data-workbench-plugin-download="tarobird.infinite-canvas"]');
         await expect(toInstall).toBeVisible();
         await shot("01-workbench-entry-uninstalled.png");
         await toInstall.click();
@@ -507,7 +507,7 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
       if (shotDirectory) {
         await page.keyboard.press("Escape");
         await expect(marketplace).toHaveCount(0);
-        const installedEntry = page.locator('.workbench-empty [data-workbench-plugin="tarobird.infinite-canvas"]');
+        const installedEntry = page.locator('.workbench-start [data-workbench-plugin="tarobird.infinite-canvas"]');
         await expect(installedEntry).toBeVisible();
         await shot("02-workbench-entry-installed.png");
         await installedEntry.click();

@@ -89,3 +89,29 @@
 .workbench-removed-canvas{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:15px;font-size:12px;line-height:1.7;color:var(--muted,#77716b)}
 .workbench-removed-canvas p{margin:0}
 .workbench-removed-canvas button{flex:0 0 auto;white-space:nowrap;padding:5px 12px;border-color:var(--border,#dedbd6);background:var(--surface,#fff);color:var(--text,#242321)}
+/* Start page (no tab on screen): 新建 / 最近 / 插件, top- and left-aligned. Each content kind keeps one muted hue. */
+.workbench [data-kind]{--kind:var(--grey,#77716b)}
+.workbench [data-kind=slides]{--kind:#c4825a}.workbench [data-kind=board]{--kind:#6f8aa6}.workbench [data-kind=note]{--kind:#7d9a78}.workbench [data-kind=web]{--kind:#9585b0}.workbench [data-kind=plugin]{--kind:#b88a5a}
+.workbench-tabs [role=tab][data-kind]>svg{color:var(--kind)}
+.workbench-start{flex:1;min-width:0;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:20px;padding:16px 16px 24px;color:var(--text,#242321)}
+.workbench-start h3{margin:0 0 8px;display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:11.5px;font-weight:600;color:var(--muted,#77716b)}
+.workbench .workbench-start h3 button{min-height:0;padding:0;border:0;font-size:12px;font-weight:500;color:var(--grey,#6c6660)}
+.workbench .workbench-start h3 button:hover{background:transparent;color:var(--text,#242321)}
+.workbench-start-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.workbench .workbench-start-card{flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:8px;min-width:0;padding:12px;border:1px solid var(--border,#dedbd6);border-radius:10px;background:var(--bg,#fff);text-align:left}
+.workbench .workbench-start-card:hover{background:var(--hover,rgba(110,104,96,.09))}
+.workbench-start-card b{font-size:13px;font-weight:600;line-height:1.3}
+.workbench-start-card small{margin-top:-5px;font-size:11.5px;line-height:1.35;color:var(--muted,#77716b)}
+.workbench-kind-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:30px;height:30px;border-radius:8px;background:color-mix(in srgb,var(--kind) 16%,var(--bg,#fff));color:var(--kind)}
+.workbench-start-links{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:10px}
+.workbench .workbench-start-links button{min-height:24px;padding:0;border:0;font-size:12px;color:var(--grey,#6c6660)}
+.workbench .workbench-start-links button:hover{background:transparent;color:var(--text,#242321)}
+.workbench-start-list{border:1px solid var(--border,#dedbd6);border-radius:10px;overflow:hidden;background:var(--bg,#fff)}
+.workbench .workbench-start-row{display:flex;justify-content:flex-start;align-items:center;gap:10px;width:100%;min-width:0;min-height:40px;padding:7px 12px;border:0;border-radius:0;background:transparent;font-size:12.5px;text-align:left}
+.workbench .workbench-start-row+.workbench-start-row{border-top:1px solid var(--border,#dedbd6)}
+.workbench .workbench-start-row.is-static:hover{background:transparent}
+.workbench-start-row .workbench-kind-icon{width:24px;height:24px;border-radius:6px}
+.workbench-start-row .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.workbench-start-row small{flex:none;font-size:11.5px;color:var(--muted,#77716b);white-space:nowrap}
+.workbench .workbench-start-install{flex:none;min-height:26px;padding:0 10px;border:1px solid var(--border,#dedbd6);border-radius:7px;background:var(--bg,#fff);font-size:12px}
+:root[data-palette=cli] .workbench-start-card,:root[data-palette=cli] .workbench-start-list,:root[data-palette=cli] .workbench-kind-icon,:root[data-palette=cli] .workbench .workbench-start-install{border-radius:0}

@@ -7240,5 +7240,15 @@
   "请先选择一个活跃对话后再使用工作台。": "Select an active conversation first to use the workbench.",
   "工作台暂时不可用，请先选择一个活跃对话后重试。": "Workbench is unavailable right now. Select an active conversation and try again.",
   "完整无限画布工作台（画布编排、生图/生视频、提示词库、素材库、内置官方节点插件与对话 Bot Agent 联动）。": "Full Infinite Canvas workbench with visual workflows, image and video generation, prompt and asset libraries, bundled nodes and the conversation Bot Agent.",
-  "轻量级沙箱速记侧边栏，支持本机隔离存储与一键复制。": "A lightweight sandboxed scratchpad with device-local storage and one-click copy."
+  "轻量级沙箱速记侧边栏，支持本机隔离存储与一键复制。": "A lightweight sandboxed scratchpad with device-local storage and one-click copy.",
+  "和 Bot 一起做 PPT": "Build slides with a Bot",
+  "流程图、草图": "Flowcharts and sketches",
+  "Markdown 文档": "Markdown document",
+  "内置浏览器": "Built-in browser",
+  "导入 PPT": "Import PPT",
+  "最近": "Recent",
+  "全部 ›": "All ›",
+  "图表": "Chart",
+  "插件市场 ›": "Plugin market ›",
+  "安装 {0}": "Install {0}"
 }
