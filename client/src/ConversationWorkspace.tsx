@@ -85,17 +85,7 @@ export function commsPageSize(bodyHeight: number): number {
   return Math.max(COMMS_PAGE_MIN, Math.floor((bodyHeight - COMMS_PAGE_CHROME) / COMMS_CARD_PITCH));
 }
 
-/** Small coloured type badge for a file row (MD, PDF, IMG, TSX, JSON…); the row's meta line names the type in words. */
-function fileBadge(name: string, mime?: string): { label: string; tone: string } {
-  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
-  if (ext === "md" || ext === "markdown" || mime === "text/markdown") return { label: "MD", tone: "is-md" };
-  if (ext === "pdf" || mime === "application/pdf") return { label: "PDF", tone: "is-pdf" };
-  if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext) || mime?.startsWith("image/")) return { label: "IMG", tone: "is-img" };
-  if (["json", "ts", "tsx", "js", "jsx", "py", "go", "rs", "css", "html", "yml", "yaml", "sh", "sql"].includes(ext)) {
-    return { label: ext.slice(0, 4).toUpperCase(), tone: "is-code" };
-  }
-  return { label: (ext || "FILE").slice(0, 4).toUpperCase(), tone: "" };
-}
+type WorkspaceReadState = "loading" | "ready" | "unavailable";
 
 function formatRelativeTime(timestamp: number, locale: string): string {
   const diffSec = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
@@ -309,6 +299,10 @@ export function ConversationWorkspace({
   const [permissions, setPermissions] = useState<PermissionSettings | undefined>(undefined);
   const [files, setFiles] = useState<ConversationFile[]>([]);
   const [filesHasMore, setFilesHasMore] = useState(false);
+  const [filesRead, setFilesRead] = useState<WorkspaceReadState>("loading");
+  const [workbenchRead, setWorkbenchRead] = useState<WorkspaceReadState>("loading");
+  const [tasksRead, setTasksRead] = useState<WorkspaceReadState>("loading");
+  const [queueReadFailed, setQueueReadFailed] = useState(false);
   const [workbenchItems, setWorkbenchItems] = useState<WorkbenchLibraryEntry[]>([]);
   const [refreshTick, setRefreshTick] = useState(0);
   const [approvalLookups, setApprovalLookups] = useState<Record<string, PendingCardResolution>>({});
@@ -350,6 +344,10 @@ export function ConversationWorkspace({
     setQuotaDetailsOpen(false);
     setFiles([]);
     setFilesHasMore(false);
+    setFilesRead("loading");
+    setWorkbenchRead("loading");
+    setTasksRead("loading");
+    setQueueReadFailed(false);
     setWorkbenchItems([]);
     setApprovalLookups({});
     setApprovingId(undefined);
@@ -372,12 +370,15 @@ export function ConversationWorkspace({
     const abort = new AbortController();
     const convId = conversation.id;
 
+    setWorkbenchRead("loading");
+    setFilesRead(online ? "loading" : "unavailable");
     void listWorkbenchLibrary(connection, { maxScopes: 200, maxEntries: 500 })
       .then(listing => {
         if (abort.signal.aborted) return;
         setWorkbenchItems(listing.entries.filter(entry => entry.conversationId === convId && entry.state !== "missing").slice(0, 12));
+        setWorkbenchRead("ready");
       })
-      .catch(() => undefined);
+      .catch(() => { if (!abort.signal.aborted) setWorkbenchRead("unavailable"); });
 
     if (!online) return () => abort.abort();
 
@@ -388,11 +389,13 @@ export function ConversationWorkspace({
         const page = conversationFilesPageSchema.parse(raw);
         setFiles(page.items.slice(0, 24));
         setFilesHasMore(!!page.nextCursor || page.items.length > 24);
+        setFilesRead("ready");
       })
-      .catch(() => undefined);
+      .catch(() => { if (!abort.signal.aborted) setFilesRead("unavailable"); });
 
     if (directBot) {
       if (connState.engineTasksAvailable && directBot.online) {
+        setTasksRead("loading");
         // `swarmTasks=1`: opt into post-1.6.0 Swarm task metadata and board snapshots; older Hosts ignore it.
         void connection.http(`/api/conversations/${encodeURIComponent(convId)}/tasks?botId=${encodeURIComponent(directBot.id)}&swarmTasks=1`, { signal: abort.signal })
           .then(raw => {
@@ -400,8 +403,9 @@ export function ConversationWorkspace({
             const snap = engineTaskSnapshotSchema.parse(raw);
             setTasks(snap.tasks);
             setSwarmSnapshot(snap.swarm);
+            setTasksRead("ready");
           })
-          .catch(() => undefined);
+          .catch(() => { if (!abort.signal.aborted) setTasksRead("unavailable"); });
       }
     }
 
@@ -466,7 +470,9 @@ export function ConversationWorkspace({
       },
       onSnapshot: snapshot => {
         setQueueState({ scope, snapshot });
+        setQueueReadFailed(false);
       },
+      onError: () => setQueueReadFailed(true),
     });
     queueReaderRef.current = reader;
     const onVisibility = () => reader.onVisibilityChange();
@@ -750,13 +756,13 @@ export function ConversationWorkspace({
       entry,
     })),
     ...files.map(file => {
-      const info = fileKindInfo(file.name, file.mime), badge = fileBadge(file.name, file.mime);
+      const info = fileKindInfo(file.name, file.mime);
       return {
         kind: "file" as const,
         key: `file:${file.attachmentId}:${file.messageId}`,
         name: file.name,
-        badgeLabel: badge.label,
-        badgeTone: badge.tone,
+        badgeLabel: info.kind === "image" ? "IMG" : info.ext,
+        badgeTone: info.tone,
         meta: `${info.label} · ${formatFileLimit(file.size)} · ${formatRelativeTime(file.createdAt, locale)}`,
         file,
       };
@@ -769,6 +775,15 @@ export function ConversationWorkspace({
   const pagedFileArtifacts = fileArtifacts.slice(shownFilePage * FILES_PAGE_SIZE, (shownFilePage + 1) * FILES_PAGE_SIZE);
 
   const artifactsCount = diffMessages.length + fileArtifacts.length;
+  const artifactsPending = filesRead === "loading" || workbenchRead === "loading";
+  const artifactsUnavailable = !online || filesRead === "unavailable" || workbenchRead === "unavailable";
+  const artifactsStatus = artifactsUnavailable ? t("暂时无法读取产物，请刷新。")
+    : artifactsPending ? t("正在读取产物…") : t("暂无本轮改动、工作台内容或对话文件。");
+  const mayReadTasks = !!directBot?.online && !!connState.engineTasksAvailable;
+  const tasksUnavailable = !online || (mayReadTasks && tasksRead === "unavailable") || (queueAvailable && queueReadFailed);
+  const tasksPending = (mayReadTasks && tasksRead === "loading") || (queueAvailable && !scopedQueue);
+  const tasksStatus = tasksUnavailable ? t("暂时无法读取任务状态，请刷新。")
+    : tasksPending ? t("正在读取任务状态…") : t("当前空闲，无运行中或排队任务。");
   const permissionLabel = useMemo(() => {
     if (!permissions) return undefined;
     return permissions.choices.find(c => c.id === permissions.choice)?.label ?? permissions.choice;
@@ -1297,7 +1312,7 @@ export function ConversationWorkspace({
                 </div>
               ) : (
                 <div className="workspace-idle-strip">
-                  <span>{t("当前空闲，无运行中或排队任务。")}</span>
+                  <span role="status">{tasksStatus}</span>
                 </div>
               )}
             </section>
@@ -1351,7 +1366,7 @@ export function ConversationWorkspace({
               </div>
               {diffMessages.length === 0 && fileArtifacts.length === 0 ? (
                 <div className="workspace-idle-strip">
-                  <span>{t("暂无本轮改动、工作台内容或对话文件。")}</span>
+                  <span role="status">{artifactsStatus}</span>
                 </div>
               ) : (
                 <div className="workspace-list">
@@ -1369,7 +1384,7 @@ export function ConversationWorkspace({
 
         {tab === "comms" && (
           <section ref={commSection} className="workspace-section workspace-comms-section" aria-label={t("Bot 间通信")}>
-            {connState.user?.role === "owner" && online && !connection.isReadOnly && <AllLocalBotsMessaging connection={connection} active={tab === "comms"} />}
+            {connState.user?.role === "owner" && online && !connection.isReadOnly && <AllLocalBotsMessaging connection={connection} active={tab === "comms"} refreshKey={refreshTick} />}
             <div className="workspace-filter-bar">
               <button type="button" className="workspace-filter-pill" aria-pressed={commFilter === "all"} onClick={() => setCommFilter("all")}>
                 {t("全部")} ({commItems.length})
@@ -1435,7 +1450,7 @@ export function ConversationWorkspace({
             {artifactsCount === 0 ? (
               <div className="workspace-empty">
                 <EmptyStateArt kind="files" />
-                <p>{t("暂无本轮改动、工作台内容或对话文件。")}</p>
+                <p role="status">{artifactsStatus}</p>
               </div>
             ) : (
               <div className="workspace-list">

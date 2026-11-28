@@ -7291,5 +7291,11 @@
   "拖到输入框": "Drag to the input",
   "把文件引用给 Bot": "Reference the file for the Bot",
   "同样引用给 Bot": "Also references it for the Bot",
-  "文件，本轮改动 {0} 个": "Files, {0} changed this turn"
+  "文件，本轮改动 {0} 个": "Files, {0} changed this turn",
+  "正在读取产物…": "Loading outputs…",
+  "暂时无法读取产物，请刷新。": "Outputs could not be read. Refresh to try again.",
+  "正在读取任务状态…": "Loading task status…",
+  "暂时无法读取任务状态，请刷新。": "Task status could not be read. Refresh to try again.",
+  "上次采样于 {0}（{1}）": "Last sampled at {0} ({1})",
+  "旧读数": "Previous reading"
 }

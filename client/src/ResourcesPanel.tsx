@@ -16,7 +16,7 @@ import { useBackAction } from "./back-navigation.js";
 import type { ConnectionState, HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
 import { useDialogDrag } from "./dialog-drag.js";
-import { t, useLocale } from "./i18n.js";
+import { localeIntlTag, t, useLocale } from "./i18n.js";
 import "./resources.css";
 
 export type ResourceHostEntry = {
@@ -945,6 +945,13 @@ export function MobileResourcesDialog({
 
 /** How often the Workspace Rail footer refreshes its two numbers while it is shown. */
 const FOOTER_POLL_MS = 15_000;
+const FOOTER_STALE_MS = 2 * FOOTER_POLL_MS;
+
+function resourceSampleAge(ageMs: number, locale: string): string {
+  const units = [["day", 86_400_000], ["hour", 3_600_000], ["minute", 60_000], ["second", 1_000]] as const;
+  const [unit, unitMs] = units.find(([, size]) => ageMs >= size) ?? units[3];
+  return new Intl.RelativeTimeFormat(locale).format(-Math.floor(ageMs / unitMs), unit);
+}
 
 /** Workspace Rail footer button that opens the shared Resource Manager dialog.
  * With a `connection`, it also shows TaroBird's total CPU and memory (Host service plus engine processes),
@@ -956,26 +963,64 @@ export const ResourcesTriggerButton = forwardRef<HTMLButtonElement, {
   onOpen: () => void;
   connection?: HubConnection;
 }>(function ResourcesTriggerButton({ open, controlsId, onOpen, connection }, ref) {
-  useLocale();
-  const { snapshot, ready } = useHostResources(connection, !!connection && !open, FOOTER_POLL_MS);
-  const summary = ready ? snapshot?.summary : undefined;
-  const cpu = summary ? formatCpuPercent(summary.totalCpuPercent) : "";
-  const memory = summary ? formatMemoryBytes(summary.totalMemoryBytes) : "";
+  const locale = localeIntlTag(useLocale());
+  const descriptionId = useId();
+  const { snapshot, ready, error } = useHostResources(connection, !!connection && !open, FOOTER_POLL_MS);
+  const reading = ready ? snapshot : undefined;
+  const sampledAt = reading?.sampledAt;
+  const serverOffset = connection?.state.serverTimeOffset ?? 0;
+  const [now, setNow] = useState(Date.now);
+
+  useEffect(() => {
+    if (sampledAt === undefined) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      clearTimeout(timer);
+      const clock = Date.now();
+      setNow(clock);
+      if (document.hidden) return;
+      const ageMs = Math.max(0, clock + serverOffset - sampledAt);
+      const ageTickMs = ageMs < 60_000 ? 1_000 : 60_000;
+      const nextTick = !error && ageMs < FOOTER_STALE_MS ? FOOTER_STALE_MS - ageMs : ageTickMs;
+      timer = setTimeout(tick, nextTick);
+    };
+    tick();
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [sampledAt, serverOffset, error]);
+
+  const cpu = reading ? formatCpuPercent(reading.summary.totalCpuPercent) : "";
+  const memory = reading ? formatMemoryBytes(reading.summary.totalMemoryBytes) : "";
+  const ageMs = sampledAt === undefined ? 0 : Math.max(0, now + serverOffset - sampledAt);
+  const stale = sampledAt !== undefined && (!!error || ageMs >= FOOTER_STALE_MS);
+  const description = reading && t("资源管理 · TaroBird 占用 CPU {0}，内存 {1}", cpu, memory);
+  const label = stale
+    ? `${description} · ${t("上次采样于 {0}（{1}）",
+      new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "medium" }).format(sampledAt),
+      resourceSampleAge(ageMs, locale))}`
+    : description;
 
   return (
     <button
       ref={ref}
       type="button"
-      className={`icon-button resources-footer-button${open ? " is-open" : ""}${summary ? " has-metrics" : ""}`}
+      className={`icon-button resources-footer-button${open ? " is-open" : ""}${reading ? " has-metrics" : ""}`}
+      data-stale={stale || undefined}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-controls={open ? controlsId : undefined}
       aria-label={t("资源")}
-      title={summary ? t("资源管理 · TaroBird 占用 CPU {0}，内存 {1}", cpu, memory) : t("资源管理")}
+      aria-describedby={label ? descriptionId : undefined}
+      title={label || t("资源管理")}
       onClick={onOpen}
     >
-      {summary && (
+      {label && <span id={descriptionId} hidden>{label}</span>}
+      {reading && (
         <span className="resources-footer-metrics" aria-hidden="true">
+          {stale && <span>{t("旧读数")}</span>}
           <span>CPU <b>{cpu}</b></span>
           <i />
           <span>{t("内存")} <b>{memory}</b></span>
