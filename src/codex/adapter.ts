@@ -651,8 +651,9 @@ export interface CodexAdapter {
   }): Promise<NativeHistoryResult>;
   /** Optional native side conversations; absent means unsupported. */
   sideCapability?(input?: { workspaceOverride?: string; tools?: "inherited" }): SideCapability;
-  /** sourceSessionId must be the parent's real native ID (never a logical
-   * `tarobot-` ID). The parent session, binding and active turn are untouched. */
+  /** A durable Host key can resolve to an existing native session for this adapter. */
+  readonly acceptsHostSessionKeyForSide?: true;
+  /** Borrows an existing native session. The parent binding and active turn are untouched. */
   openSideSession?(input: {
     sourceSessionId: string;
     tools?: "inherited";

@@ -1734,6 +1734,9 @@ async function handleCoreEffortCommand(
     if (cfg.engine === "pi") {
       return hostT(locale, "Bot 默认思考强度：{0}。它作用于整个 Bot：改动后，这个 Bot 的所有对话从下一轮起都改用新档位。查看或调整当前对话请用 /thinking。", cfg.effort ?? "default");
     }
+    if (cfg.engine === "omp") {
+      return hostT(locale, "Bot 默认思考强度：{0}。此设置作用于此 Bot 的所有对话。", cfg.effort ?? "default");
+    }
     return hostT(locale, "当前 effort: {0}", cfg.effort ?? "default");
   }
   if (cfg.engine === "deepseek") {
@@ -1752,6 +1755,9 @@ async function handleCoreEffortCommand(
     if (cfg.engine === "pi") {
       return hostT(locale, "已清除 Bot 默认思考强度，作用于整个 Bot：仍在用 Bot 所设档位的对话恢复到之前的档位；用 /thinking 自己选的保持不变。只改当前对话请用 /thinking。");
     }
+    if (cfg.engine === "omp") {
+      return hostT(locale, "已恢复默认思考强度。此设置作用于此 Bot 的所有对话。");
+    }
     return hostT(locale, "Effort 已恢复默认。");
   }
   if (cfg.engine === "pi") {
@@ -1765,22 +1771,18 @@ async function handleCoreEffortCommand(
   }
   if (cfg.engine === "omp") {
     if (!PI_THINKING_LEVELS.includes(level as typeof PI_THINKING_LEVELS[number])) {
-      return !isChineseLocale(locale)
-        ? `omp thinking level supports only ${PI_THINKING_LEVELS.join(", ")}, or default.`
-        : `omp 思考强度仅支持 ${PI_THINKING_LEVELS.join("、")} 或 default。`;
+      return hostT(locale, "omp 思考强度仅支持 {0} 或 default。", PI_THINKING_LEVELS.join(isChineseLocale(locale) ? "、" : ", "));
     }
     const catalog = await readModelCatalog("omp", process.env, cfg.workspacePath ?? cfg.resume?.workspacePath ?? path.join(stateDir, "workspace"));
     if (catalog.status === "ready") {
       const levels = modelEffortChoices("omp", cfg.model ?? "", catalog.choices);
       const modelKnown = !cfg.model || catalog.choices.some(choice => choice.id === cfg.model);
       if (modelKnown && !levels.includes(level as EffortLevel)) {
-        return !isChineseLocale(locale)
-          ? "omp has not confirmed this thinking level for the selected model. Refresh the model list or use /effort default."
-          : "omp 尚未确认当前模型支持这个思考档位。请重新读取模型列表，或使用 /effort default。";
+        return hostT(locale, "omp 尚未确认当前模型支持这个思考档位。请重新读取模型列表，或使用 /effort default。");
       }
     }
     await updateInstanceConfig(stateDir, config => { config.effort = level; });
-    return !isChineseLocale(locale) ? `Effort set to ${level}.` : `Effort 已设为 ${level}。`;
+    return hostT(locale, "已将 Bot 默认思考强度设为 {0}。此设置作用于此 Bot 的所有对话，并从各对话的下一轮起应用。", level);
   }
   if (cfg.engine === "claude" && level === "ultra") {
     return hostT(locale, "Claude 不支持 ultra；最高可用 max。");

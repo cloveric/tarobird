@@ -298,7 +298,7 @@ export const HOST_CLI_HELP = `TaroBird — 同一台主机，桌面与命令行�
 Google 文档工具：tarobot gdocs --help（导入 OAuth 配置、授权、查看状态及创建/更新文档）
 通用选项：--state-dir PATH（显式选择独立主机） --json --help
 默认与桌面版共用数据目录；不会自动合并旧 ~/.cctb/hub。
-引擎：codex、claude、antigravity、kimi、deepseek、pi；须在此主机同一用户下安装并登录。
+引擎：codex、claude、antigravity、kimi、deepseek、pi、omp；须在此主机同一用户下安装并登录。
 跨网络使用现有 VPS 中转或 Tailscale；pair --routes 只分享已配置线路，不部署中转。
 手机配对不等于主机加入组网；network 命令保留签名审批与独立手机归属。
 多网卡配对需用 --address 选择地址；Tailscale 双栈默认使用唯一 IPv4，可显式选择 IPv6。
