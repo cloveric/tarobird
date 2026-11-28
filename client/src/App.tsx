@@ -138,7 +138,7 @@ import { CalendarClock, Activity, Archive, ArrowLeft, AtSign, Folder, FolderInpu
 import { workspaceDisplayName } from "../../src/client-protocol/saved-workspaces.js";
 import { getPluginRegistry, resolvePluginScopeId, type PluginStoreState } from "./plugin-registry.js";
 import { PluginsModal, PluginGlyph } from "./PluginsPanel.js";
-import { PluginSandboxFrame } from "./PluginSandboxFrame.js";
+import { PluginSandboxFrame, isPluginSandboxSupported } from "./PluginSandboxFrame.js";
 import { MobilePluginSheet } from "./MobilePluginSheet.js";
 import { MAX_PINNED_PLUGINS, pinnedPluginKeys, pluginEntryKey, savedPluginPins, storePluginPins, togglePinnedPlugin } from "./plugin-pins.js";
 import { SidePanelResize } from "./SidePanelResize.js";
@@ -513,10 +513,11 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     activePluginRegistry ? activePluginRegistry.subscribe : noopPluginSubscribe,
     activePluginRegistry ? activePluginRegistry.getSnapshot : emptyPluginSnapshot,
   );
-  const sidePanelPlugins = activePluginRegistry ? activePluginRegistry.enabledContributions(phone ? "phone" : "desktop", "side-panel") : [];
+  const pluginRuntimeAvailable = isPluginSandboxSupported();
+  const sidePanelPlugins = pluginRuntimeAvailable && activePluginRegistry ? activePluginRegistry.enabledContributions(phone ? "phone" : "desktop", "side-panel") : [];
   const activePluginRecord = activePluginPanel ? pluginStore.installed[activePluginPanel.pluginId] : undefined;
   const mobilePluginRecord = mobilePluginPanel ? pluginStore.installed[mobilePluginPanel.pluginId] : undefined;
-  const pluginSideVisible = !pane && !phone && rightMode === "plugin" && !!activePluginRecord?.enabled && visible && !details && searchResults === undefined;
+  const pluginSideVisible = pluginRuntimeAvailable && !pane && !phone && rightMode === "plugin" && !!activePluginRecord?.enabled && visible && !details && searchResults === undefined;
   const desktopDevice = !["ios", "android"].includes(nativePlatform())
     && !/Android|iPhone|iPad|iPod/.test(navigator.userAgent)
     && !(navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -2124,6 +2125,10 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     { windowFallback: !pane, label: current?.title, disabledMessage: dropDisabledMessage });
   const workbenchButton = !pane && workbenchEligible && <button ref={workbenchTrigger} className="icon-button workbench-trigger" aria-label={t("工作台")} title={t("工作台")} aria-expanded={workbenchVisible} aria-controls={workbenchId} onClick={() => { if (workbenchVisible) { designOpener.revoke(); setRightMode("side"); } else void openWorkbench().catch(reportWorkbenchOpenError); }}><Monitor size={18}/></button>;
   const openPluginContribution = (pluginId: string, contributionId: string, kind: "workbench-item" | "side-panel", title: string) => {
+    if (!pluginRuntimeAvailable) {
+      setError(t("此设备暂不支持插件运行。"));
+      return;
+    }
     if (kind === "workbench-item") {
       if (!workbenchEligible) {
         setError(
@@ -2144,7 +2149,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   };
   // Header plugin entry: pinned side-panel plugins as their own icons, every installed plugin in one 「插件」 menu.
   const pluginLabel = (contribution: { title: string; titleZh?: string }) => locale === "zh" ? contribution.titleZh ?? contribution.title : contribution.title;
-  const workbenchItemPlugins = activePluginRegistry && !phone ? activePluginRegistry.enabledContributions("desktop", "workbench-item") : [];
+  const workbenchItemPlugins = pluginRuntimeAvailable && activePluginRegistry && !phone ? activePluginRegistry.enabledContributions("desktop", "workbench-item") : [];
   const pinnedPlugins = pinnedPluginKeys(sidePanelPlugins.map(({ plugin, contribution }) => ({ key: pluginEntryKey(plugin.manifest.id, contribution.id), installedAt: plugin.installedAt })), savedPluginPins(preferences, pluginScope));
   const toggleSidePanelPlugin = (pluginId: string, contributionId: string, label: string) => {
     const isOpen = pluginSideVisible && activePluginPanel?.pluginId === pluginId && activePluginPanel?.contributionId === contributionId;
@@ -2361,7 +2366,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     create={(kind) => { if (shell) shell.create(kind); else if (kind === "bot") setNewBot(true); else if (kind === "schedule") setScheduledTasks("create"); else setNewChat({ kind }); }}
     selectHost={(hostId) => shell?.mobileSelect(hostId, { kind: "home" })}
     open={(kind) => { if (kind === "plugins") setPluginsOpen(true); else if (kind === "settings" || kind === "notifications" || kind === "devices" || kind === "connection" || kind === "screen") { setSettingsFromMenu(false); setSettingsSection(kind === "notifications" ? "notifications" : kind === "devices" ? "devices" : kind === "connection" ? "connection" : kind === "screen" ? "screen" : "general"); setSettings(true); } else if (kind === "files") setFileCenter(true); else if (kind === "capabilities") { setDetailBot(undefined); setCapabilities(true); } else if (kind === "schedules") setScheduledTasks("list"); else if (kind === "operations") setOperations(true); else if (kind === "resources") setResourcesOpen(true); else if (kind === "archives") setArchives(true); else if (kind === "hosts") shell?.manageHosts(); }}
-    openPluginContribution={openPluginContribution}
+    openPluginContribution={pluginRuntimeAvailable ? openPluginContribution : undefined}
     searchHistory={(text) => { setSearchConversation(undefined); setQuery(text); setSearchBot(""); setSearchFrom(""); setSearchTo(""); setSearchFiles(false); setSidebar(false); setFocusTarget(undefined); historySearch.start(new URLSearchParams({ q: text }).toString(), ""); }}/></Suspense>}
   <main ref={attachmentDrop.ref} className={`conversation-main${attachmentDrop.hover ? " is-file-drop-target" : ""}`} {...attachmentDrop.events}>{searching ? <header className="conversation-header history-search-header">
     {phone ? <button className="icon-button" aria-label={t("打开会话列表")} onClick={exitHistorySearch}><ChevronLeft size={24}/></button> : <Search className="history-search-symbol" size={20} aria-hidden="true"/>}
@@ -2533,7 +2538,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   {workbench.controller ? <Suspense fallback={workbenchLoading}><Workbench id={workbenchId} compact={!!pane && paneWorkbenchCompact} controller={workbench.controller} pluginRegistry={activePluginRegistry ?? undefined} visible={workbenchVisible && (phone || sideWindowLayout !== "pending")} phone={phone} onManageFiles={() => { setSettingsFromMenu(false); setSettingsSection("workbench"); setSettings(true); }} onOpenPlugins={() => setPluginsOpen(true)} onAnnotate={annotateWorkbench} onDesignCompose={composeDesign} onCompose={dispatchWidgetCompose} onRequestInstallPlugin={(pluginId) => { setPluginInstallId(pluginId); setPluginsOpen(true); }} onClose={() => { designOpener.revoke(); setRightMode("side"); workbenchTrigger.current?.focus({preventScroll:true}); }}/></Suspense> : !phone && !pane ? workbenchLoading : null}
   {filesEligible && selected && filesBotId && <WorkspaceFilesPanel id={filesId} connection={connection} conversationId={selected} botId={filesBotId} visible={filesVisible && (phone || sideWindowLayout !== "pending")} phone={phone} turnVersion={messages.length + connection.conversationRevision(selected)} onMentionFile={mentionWorkspaceFile} changesMessage={filesChangesMessage} focusChanges={focusedRunChanges ? filesFocus?.token : undefined} onChangesSeen={onFilesChangesSeen} onClose={() => { setFilesFocus(undefined); setRightMode("side"); filesTrigger.current?.focus({ preventScroll: true }); }}/>}
   {activePluginRegistry && pluginSideVisible && activePluginRecord && activePluginPanel && <aside id={pluginSidePanelId} ref={pluginSidePanelRef} className="conversation-side-panel plugin-side-panel" hidden={sideWindowLayout === "pending"} aria-label={activePluginPanel.title}><SidePanelResize panel={pluginSidePanelRef} visible={pluginSideVisible && sideWindowLayout !== "pending"} controls={pluginSidePanelId} label={t("调整插件面板宽度")}/><header className="plugin-side-panel-header"><span className="plugin-side-panel-title"><Puzzle size={16}/><strong>{activePluginPanel.title}</strong></span><button type="button" className="icon-button" aria-label={t("关闭侧边面板")} onClick={() => { setRightMode("side"); setActivePluginPanel(undefined); }}><X size={16}/></button></header><div className="plugin-side-panel-body"><PluginSandboxFrame plugin={activePluginRecord} title={activePluginPanel.title} registry={activePluginRegistry} connection={connection} conversationId={selected}/></div></aside>}
-  {activePluginRegistry && phone && !pane && visible && mobilePluginPanel && mobilePluginRecord?.enabled && <MobilePluginSheet plugin={mobilePluginRecord} title={mobilePluginPanel.title} registry={activePluginRegistry} connection={connection} conversationId={selected} close={() => setMobilePluginPanel(undefined)}/>}
+  {pluginRuntimeAvailable && activePluginRegistry && phone && !pane && visible && mobilePluginPanel && mobilePluginRecord?.enabled && <MobilePluginSheet plugin={mobilePluginRecord} title={mobilePluginPanel.title} registry={activePluginRegistry} connection={connection} conversationId={selected} close={() => setMobilePluginPanel(undefined)}/>}
   {pluginsOpen && <PluginsModal platform={phone ? "phone" : "desktop"} registry={activePluginRegistry} connection={connection} initialInstallId={pluginInstallId} close={() => { setPluginsOpen(false); setPluginInstallId(undefined); }} onOpenContribution={openPluginContribution}/>}
   {side.shown && sideEligible && <SideConversation key={side.scope} side={side} appearance={`${preferences.palette}:${preferences.fontSize}`} mainRecording={recording} recordingChanged={setSideRecording} online={state.status === "online" && !!activeBot?.online} visible={sideVisible && sideWindowLayout !== "pending"} trigger={sideTrigger} close={() => { void side.close(); }} returnToComposer={() => composer.current?.focus({ preventScroll: true })} insert={text => { changeDraft(`${draft}${draft ? "\n\n" : ""}${text.split("\n").map(line => `> ${line}`).join("\n")}`); composer.current?.focus({ preventScroll: true }); }}/>}
   {workspaceVisible && current && <ConversationWorkspace id={workspaceId} connection={connection} conversation={current} group={group} bots={state.bots} botLabels={labels} hostName={hostName} connectionSummary={connectionSummary} contextUsage={current.type === "direct" && current.botIds.length === 1 ? usage.context : undefined} quotaUsage={current.type === "direct" && current.botIds.length === 1 ? usage.quota : undefined} streamingBots={streamingBots} messages={messages} comms={workspaceComms.data} commsLoading={workspaceComms.loading} commsError={workspaceComms.error} onRefreshComms={() => { void workspaceComms.refresh(); }} returnFocus={workspaceRailTrigger} takeFocus={workspaceTakesFocus} onClose={closeWorkspace} onJumpConversation={(conversationId, messageId) => {

@@ -7145,6 +7145,7 @@
   "调整插件面板宽度": "Resize plugin panel",
   "调整文件面板宽度": "Resize files panel",
   "当前版本缺少插件隔离运行支持，请更新 App 或系统后重试。": "Isolated plugin runtime is unavailable on this version. Update the App or OS and try again.",
+  "此设备暂不支持插件运行。": "This device does not currently support running plugins.",
   "对话已归档，恢复后才能在工作台打开插件。": "This conversation is archived. Restore it before opening a workbench plugin.",
   "当前为只读模式，无法在工作台打开插件。": "Read-only mode cannot open workbench plugins.",
   "请先选择一个活跃对话，再打开工作台插件。": "Select an active conversation first to open a workbench plugin.",
