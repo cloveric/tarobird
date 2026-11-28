@@ -92,6 +92,28 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
     await expect(preview).toContainText("Turn 1: Check milestone 1");
     await expect(preview).toContainText("Reply 1: Verified step 1.");
 
+    // The rail hugs the LEFT edge of the conversation, clear of the sidebar handle and the message padding;
+    // its preview opens to the right, inside the conversation. The current turn's dash is grey, not ink or accent.
+    const placement = await page.evaluate(() => {
+      const main = document.querySelector(".conversation-main")!.getBoundingClientRect();
+      const nav = document.querySelector(".message-rail")!.getBoundingClientRect();
+      const tip = document.querySelector(".message-rail-preview")!.getBoundingClientRect();
+      const scroller = document.querySelector(".message-scroll")!;
+      const contentLeft = scroller.getBoundingClientRect().left + parseFloat(getComputedStyle(scroller).paddingLeft);
+      const active = document.querySelector(".message-rail-tick.is-active .message-rail-bar")!;
+      const probe = document.body.appendChild(document.createElement("span"));
+      probe.style.color = "var(--grey, var(--muted))";
+      const grey = getComputedStyle(probe).color;
+      probe.remove();
+      return { navLeft: nav.left - main.left, navRight: nav.right, contentLeft, tipLeft: tip.left, navEnd: nav.right, tipRight: tip.right, mainRight: main.right, activeColor: getComputedStyle(active).backgroundColor, grey };
+    });
+    expect(placement.navLeft).toBeGreaterThanOrEqual(4);
+    expect(placement.navLeft).toBeLessThanOrEqual(16);
+    expect(placement.navRight).toBeLessThanOrEqual(placement.contentLeft);
+    expect(placement.tipLeft).toBeGreaterThanOrEqual(placement.navEnd);
+    expect(placement.tipRight).toBeLessThanOrEqual(placement.mainRight);
+    expect(placement.activeColor).toBe(placement.grey);
+
     // Clicking the first tick jumps straight to the previously unrendered message and lands it in the viewport.
     await firstTick.click();
     const firstMessage = page.locator(`[data-message-id="${userMessageIds[0]}"]`);
