@@ -71,7 +71,8 @@ test("Bot messages: both ends of a long route, whole cards to a page, plain stat
     await expect.poll(() => cards.count()).toBeGreaterThanOrEqual(8);
     await expect.poll(fits).toEqual({ cut: false, pager: true, scrolls: false });
     await page.setViewportSize({ width: 1440, height: 640 });
-    await expect(cards).toHaveCount(4);
+    await expect.poll(() => cards.count()).toBeLessThanOrEqual(4);
+    await expect.poll(fits).toEqual({ cut: false, pager: true, scrolls: false });
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(cards).toHaveCount(5);
     await expect.poll(fits).toEqual({ cut: false, pager: true, scrolls: false });
@@ -880,4 +881,28 @@ test("Workspace rail fixes cross-host avatar isolation, queue dedup race, long B
     const firstText = await groupMeta.innerText();
     await expect.poll(async () => await groupMeta.innerText(), { timeout: 4000 }).not.toBe(firstText);
   } finally { await done(); }
+});
+
+test("the Bot communication pager still fits after a delayed local grants card arrives", async ({ browser }) => {
+  let release!: () => void;
+  const grantsReady = new Promise<void>(resolve => { release = resolve; });
+  const { page, open, done } = await ready(browser, "zh", 1440, async (page, f) => {
+    await mockComms(page, f.ids.main, comms(f.ids.main, Array.from({ length: 20 }, (_, i) => item(i + 1, { status: "running" }))));
+    await page.route("**/api/bot-messages/grants", async route => { await grantsReady; await route.continue(); });
+  });
+  try {
+    await open();
+    const panel = rail(page);
+    await panel.getByRole("tab", { name: /^Bot 通信/ }).click();
+    const pager = panel.locator(".workspace-pager");
+    await expect(pager).toBeVisible();
+    const room = () => pager.evaluate(node => node.closest(".workspace-body")!.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom);
+    // Put the last row just above the bottom padding, so an async header needs another row's space.
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ ...viewport, height: Math.round(viewport.height - await room() + 22) });
+    await expect(pager).toBeInViewport();
+    release();
+    await expect(panel.locator(".workspace-mesh")).toBeVisible();
+    await expect.poll(room).toBeGreaterThanOrEqual(0);
+  } finally { release(); await done(); }
 });

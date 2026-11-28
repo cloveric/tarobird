@@ -159,7 +159,7 @@
 .workspace-search input:focus {
   outline: none;
 }
-.workspace-list {
+.workspace-picker-list {
   display: flex;
   flex-direction: column;
   gap: 6px;

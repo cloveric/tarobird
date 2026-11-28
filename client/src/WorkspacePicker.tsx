@@ -300,7 +300,7 @@ export function SavedWorkspaceList({
           )}
         </div>
       )}
-      <div className="workspace-list" role="list">
+      <div className="workspace-picker-list" role="list">
         {visible.map(item => {
           const active = selectedPath === item.path;
           const missing = item.exists === false;

@@ -701,6 +701,7 @@ export function ConversationWorkspace({
   }, [commItems, commFilter]);
 
   const body = useRef<HTMLDivElement>(null);
+  const commSection = useRef<HTMLElement>(null);
   const [commPageSize, setCommPageSize] = useState(COMMS_PAGE_MIN);
   useLayoutEffect(() => {
     const node = body.current;
@@ -713,9 +714,18 @@ export function ConversationWorkspace({
   }, []);
   useLayoutEffect(() => {
     const node = body.current;
-    if (!node || tab !== "comms" || expandedComms.size > 0 || commPageSize <= COMMS_PAGE_MIN) return;
-    if (node.scrollHeight > node.clientHeight + 1) setCommPageSize(size => Math.max(COMMS_PAGE_MIN, size - 1));
-  });
+    const section = commSection.current;
+    if (!node || !section || tab !== "comms" || expandedComms.size > 0) return;
+    // Permissions and receipts load inside this section, independently of a viewport resize.
+    const fitContent = () => {
+      if (node.clientHeight > 0 && node.scrollHeight > node.clientHeight + 1) {
+        setCommPageSize(size => Math.max(1, size - 1));
+      }
+    };
+    const observer = new ResizeObserver(fitContent);
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, [tab, expandedComms.size]);
   const commTotalPages = Math.max(1, Math.ceil(filteredComms.length / commPageSize));
   useEffect(() => { if (commPage > commTotalPages - 1) setCommPage(commTotalPages - 1); }, [commPage, commTotalPages]);
   const shownCommPage = Math.min(commPage, commTotalPages - 1);
@@ -1341,7 +1351,7 @@ export function ConversationWorkspace({
         )}
 
         {tab === "comms" && (
-          <section className="workspace-section" aria-label={t("Bot 间通信")}>
+          <section ref={commSection} className="workspace-section workspace-comms-section" aria-label={t("Bot 间通信")}>
             {connState.user?.role === "owner" && online && !connection.isReadOnly && <AllLocalBotsMessaging connection={connection} active={tab === "comms"} />}
             <div className="workspace-filter-bar">
               <button type="button" className="workspace-filter-pill" aria-pressed={commFilter === "all"} onClick={() => setCommFilter("all")}>

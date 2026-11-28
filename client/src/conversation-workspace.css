@@ -240,6 +240,10 @@
   min-width: 0;
 }
 
+/* Pagination measures the full comms section, including asynchronously loaded grants. */
+.workspace-comms-section,
+.workspace-comms-section > .workspace-list { flex-shrink: 0; }
+
 .workspace-section-header {
   position: relative;
   display: flex;
