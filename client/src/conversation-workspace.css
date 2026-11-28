@@ -1482,3 +1482,30 @@
 .workspace-mesh-feedback.is-error {
   color: var(--red);
 }
+
+/* Desktop conversation header (owner-approved mockups 25a-c, option C3): 工作台 · 文件 · 工作区 share one icon-only
+   slider, the open panel is the raised white cell, and counts sit as corner badges. Plugins and tools follow in their
+   own groups. Every glyph is 18px with 18px between glyphs; dividers are 14px from the glyphs on both sides (from the
+   slider's grey edge on its side). Names stay in aria-label and title. */
+.header-actions { display: flex; align-items: center; flex: none; gap: 0; }
+.header-action-group, .header-panel-slider { display: inline-flex; align-items: center; gap: 4px; }
+.header-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: var(--radius); }
+.header-actions button > svg { flex: none; }
+.header-actions .connection-pill { margin: 0; }
+.header-actions .connection-pill.online > svg { width: 18px; height: 18px; }
+.header-divider { flex: none; width: 1px; height: 18px; margin: 0 7px; background: var(--border); }
+.header-panel-slider + .header-divider { margin-left: 14px; }
+.header-panel-slider { padding: 3px; border-radius: 10px; background: var(--surface); }
+.header-actions .header-panel-slider > button {
+  position: relative; flex: none; width: 32px; min-width: 32px; height: 28px; padding: 0; justify-content: center;
+  border: 0; border-radius: 7px; background: transparent; box-shadow: none; color: var(--muted);
+}
+.header-actions .header-panel-slider > button > svg { width: 18px; height: 18px; flex: none; }
+.header-actions .header-panel-slider > button:hover:not(:disabled) { background: color-mix(in srgb, var(--bg) 55%, transparent); color: var(--text); }
+.header-actions .header-panel-slider > button[aria-expanded="true"],
+.header-actions .header-panel-slider > button[aria-expanded="true"]:hover:not(:disabled) {
+  background: var(--bg); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / 8%), 0 0 0 1px var(--border);
+}
+.header-panel-slider .workspace-rail-trigger-label { display: none; }
+.header-panel-slider .workspace-rail-trigger-badge { position: absolute; top: 0; right: -1px; min-width: 14px; height: 14px; padding: 0 3px; font-size: 9.5px; }
+.header-plugin-group .plugin-panel-trigger > svg, .header-plugin-group .plugin-menu-trigger > svg { width: 18px; height: 18px; }

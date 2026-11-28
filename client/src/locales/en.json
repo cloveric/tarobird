@@ -7297,5 +7297,6 @@
   "正在读取任务状态…": "Loading task status…",
   "暂时无法读取任务状态，请刷新。": "Task status could not be read. Refresh to try again.",
   "上次采样于 {0}（{1}）": "Last sampled at {0} ({1})",
-  "旧读数": "Previous reading"
+  "旧读数": "Previous reading",
+  "右侧面板": "Side panels"
 }

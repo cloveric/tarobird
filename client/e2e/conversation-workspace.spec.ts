@@ -396,7 +396,7 @@ for (const locale of ["zh", "en"] as const) for (const phone of [false, true]) {
         const narrow = await page.evaluate(() => ({ main: document.querySelector("main")!.getBoundingClientRect().width, title: document.querySelector(".conversation-header .chat-identity>span[title]")!.getBoundingClientRect().width, overflow: document.documentElement.scrollWidth - innerWidth }));
         expect(narrow.main).toBeGreaterThanOrEqual(480); expect(narrow.title).toBeGreaterThanOrEqual(60); expect(narrow.overflow).toBeLessThanOrEqual(0);
         await page.setViewportSize({ width: 1360, height: 900 });
-        await expect(page.locator(".app-shell > .sidebar")).toBeVisible(); await expect(trigger.locator(".workspace-rail-trigger-label")).toBeVisible();
+        await expect(page.locator(".app-shell > .sidebar")).toBeVisible(); await expect(trigger.locator(".workspace-rail-trigger-label")).toBeHidden(); // icon-only slider (mockup 25c)
         // The rail has no Stop control of its own; stopping stays with the tasks dialog.
         await expect(container.locator(".workspace-stop-btn")).toHaveCount(0);
       }
