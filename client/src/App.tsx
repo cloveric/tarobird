@@ -40,10 +40,11 @@ import { groupRecipientOptions, insertScopedGroupMention } from "./group-recipie
 import { blocksModalHistory } from "./modal-history.js";
 import { isAgentBusRecord } from "./agent-bus-record.js";
 import { isActiveTranscriptionMessage, isTranscriptionMessage } from "../../src/client-protocol/voice-presentation.js";
-import { FolderTree, Hourglass, Layers, ListOrdered, Network as AgentBusIcon } from "lucide-react";
+import { Hourglass, Layers, ListOrdered, Network as AgentBusIcon } from "lucide-react";
 import { WorkspaceFilesPanel, WORKSPACE_FILE_DRAG_MIME, formatWorkspaceFileMention } from "./WorkspaceFilesPanel.js";
 import { recordedRunChanges } from "./DiffViewerTrigger.js";
 import { RunChangesEntryContext } from "./run-changes-entry.js";
+import { useFilesChangesSeen } from "./use-files-changes-seen.js";
 import { TurnStopContext, useTurnStop } from "./use-turn-stop.js";
 import { timeoutSignal } from "./abort-signals.js";
 import { DisconnectedBotsSwitch, SidebarLayoutSwitch, SidebarUnreadFilter } from "./SidebarLayoutSwitch.js";
@@ -586,7 +587,16 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const filesBotId = filesChangesMessage?.authorId ?? current?.botIds[0];
   const filesEligible = !pane && !!selected && !!filesBotId && !!state.user && state.user.role === "owner" && !connection.isReadOnly && !current?.archived && !!state.workspaceFilesAvailable;
   const filesVisible = filesEligible && rightMode === "files" && visible && !details && searchResults === undefined && !sidebar;
-  const latestChangedFiles = latestRunChanges ? recordedRunChanges(latestRunChanges).summary?.files ?? 0 : 0;
+  const latestFilesSummary = latestRunChanges && recordedRunChanges(latestRunChanges).summary;
+  const latestChangedFiles = latestFilesSummary?.files ?? 0;
+  const latestFilesRunId = latestFilesSummary?.runId;
+  const latestFilesMark = useMemo(() => filesEligible && latestRunChanges && latestFilesRunId && latestChangedFiles > 0
+    ? { id: latestRunChanges.id, createdAt: latestRunChanges.createdAt, version: latestRunChanges.version, runId: latestFilesRunId, files: latestChangedFiles }
+    : undefined, [filesEligible, latestRunChanges, latestFilesRunId, latestChangedFiles]);
+  const filesSeenScope = latestFilesMark ? JSON.stringify([connection.identity.hubPublicKey, connection.identity.deviceId, state.user?.id, selected]) : undefined;
+  const { seen: latestFilesSeen, markSeen: markLatestFilesSeen } = useFilesChangesSeen(filesSeenScope, selected, latestFilesMark);
+  const unseenChangedFiles = latestFilesSeen ? 0 : latestChangedFiles;
+  const onFilesChangesSeen = latestFilesMark && filesChangesMessage?.id === latestRunChanges?.id ? markLatestFilesSeen : undefined;
   const workbench = useWorkbench(connection, selected, state.user?.id, workbenchVisible);
   const workbenchLibrary = useContext(WorkbenchLibraryContext);
   const [localLibraryRequest, setLocalLibraryRequest] = useState<WorkbenchFileRequest>();
@@ -2199,8 +2209,8 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     return true;
   } : undefined;
   // Option A (owner, 2026-11-28): a labelled 「文件」 button like 「工作区」, with this turn's changed-file count after it.
-  const filesLabel = latestChangedFiles > 0 ? t("文件，本轮改动 {0} 个", latestChangedFiles) : t("文件");
-  const filesButton = filesEligible && <button ref={filesTrigger} className="workspace-rail-trigger files-trigger" aria-label={filesLabel} title={latestChangedFiles > 0 ? filesLabel : t("工作区文件")} aria-expanded={filesVisible} aria-controls={filesId} onClick={() => { if (filesVisible) setRightMode("side"); else { setFilesFocus(undefined); openFiles(); } }}><FolderTree size={16}/><span className="workspace-rail-trigger-label">{t("文件")}</span>{latestChangedFiles > 0 && <span className="workspace-rail-trigger-badge" aria-hidden="true">{latestChangedFiles}</span>}</button>;
+  const filesLabel = unseenChangedFiles > 0 ? t("文件，本轮改动 {0} 个", unseenChangedFiles) : t("文件");
+  const filesButton = filesEligible && <button ref={filesTrigger} className="workspace-rail-trigger files-trigger" aria-label={filesLabel} title={unseenChangedFiles > 0 ? filesLabel : t("工作区文件")} aria-expanded={filesVisible} aria-controls={filesId} onClick={() => { if (filesVisible) setRightMode("side"); else { setFilesFocus(undefined); openFiles(); } }}><Folder size={16}/><span className="workspace-rail-trigger-label">{t("文件")}</span>{unseenChangedFiles > 0 && <span className="workspace-rail-trigger-badge" aria-hidden="true">{unseenChangedFiles}</span>}</button>;
   // Two ordinary header icons, spaced like the others: no shared frame around them.
   const rightPanelSwitcher = <>{workbenchButton}{filesButton}</>;
   const mentionWorkspaceFile = useCallback((relativePath: string) => {
@@ -2521,7 +2531,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   {terminalEligible && <TerminalPanel connection={connection} conversationId={selected} hostName={hostName} visible={terminalVisible && sideWindowLayout !== "pending"} close={() => setRightMode("side")} onUnauthorized={() => setTerminalAccess({ connection, allowed: false })}/>}
   {screenOpened && <RemoteScreenPanel connection={connection} hostName={hostName} visible={screenVisible && (!!pane || sideWindowLayout !== "pending")} close={closeScreen} openSettings={() => { setSettingsFromMenu(false); setSettingsSection("screen"); setSettings(true); }}/> }
   {workbench.controller ? <Suspense fallback={workbenchLoading}><Workbench id={workbenchId} compact={!!pane && paneWorkbenchCompact} controller={workbench.controller} pluginRegistry={activePluginRegistry ?? undefined} visible={workbenchVisible && (phone || sideWindowLayout !== "pending")} phone={phone} onManageFiles={() => { setSettingsFromMenu(false); setSettingsSection("workbench"); setSettings(true); }} onOpenPlugins={() => setPluginsOpen(true)} onAnnotate={annotateWorkbench} onDesignCompose={composeDesign} onCompose={dispatchWidgetCompose} onRequestInstallPlugin={(pluginId) => { setPluginInstallId(pluginId); setPluginsOpen(true); }} onClose={() => { designOpener.revoke(); setRightMode("side"); workbenchTrigger.current?.focus({preventScroll:true}); }}/></Suspense> : !phone && !pane ? workbenchLoading : null}
-  {filesEligible && selected && filesBotId && <WorkspaceFilesPanel id={filesId} connection={connection} conversationId={selected} botId={filesBotId} visible={filesVisible && (phone || sideWindowLayout !== "pending")} phone={phone} turnVersion={messages.length + connection.conversationRevision(selected)} onMentionFile={mentionWorkspaceFile} changesMessage={filesChangesMessage} focusChanges={focusedRunChanges ? filesFocus?.token : undefined} onClose={() => { setFilesFocus(undefined); setRightMode("side"); filesTrigger.current?.focus({ preventScroll: true }); }}/>}
+  {filesEligible && selected && filesBotId && <WorkspaceFilesPanel id={filesId} connection={connection} conversationId={selected} botId={filesBotId} visible={filesVisible && (phone || sideWindowLayout !== "pending")} phone={phone} turnVersion={messages.length + connection.conversationRevision(selected)} onMentionFile={mentionWorkspaceFile} changesMessage={filesChangesMessage} focusChanges={focusedRunChanges ? filesFocus?.token : undefined} onChangesSeen={onFilesChangesSeen} onClose={() => { setFilesFocus(undefined); setRightMode("side"); filesTrigger.current?.focus({ preventScroll: true }); }}/>}
   {activePluginRegistry && pluginSideVisible && activePluginRecord && activePluginPanel && <aside id={pluginSidePanelId} ref={pluginSidePanelRef} className="conversation-side-panel plugin-side-panel" hidden={sideWindowLayout === "pending"} aria-label={activePluginPanel.title}><SidePanelResize panel={pluginSidePanelRef} visible={pluginSideVisible && sideWindowLayout !== "pending"} controls={pluginSidePanelId} label={t("调整插件面板宽度")}/><header className="plugin-side-panel-header"><span className="plugin-side-panel-title"><Puzzle size={16}/><strong>{activePluginPanel.title}</strong></span><button type="button" className="icon-button" aria-label={t("关闭侧边面板")} onClick={() => { setRightMode("side"); setActivePluginPanel(undefined); }}><X size={16}/></button></header><div className="plugin-side-panel-body"><PluginSandboxFrame plugin={activePluginRecord} title={activePluginPanel.title} registry={activePluginRegistry} connection={connection} conversationId={selected}/></div></aside>}
   {activePluginRegistry && phone && !pane && visible && mobilePluginPanel && mobilePluginRecord?.enabled && <MobilePluginSheet plugin={mobilePluginRecord} title={mobilePluginPanel.title} registry={activePluginRegistry} connection={connection} conversationId={selected} close={() => setMobilePluginPanel(undefined)}/>}
   {pluginsOpen && <PluginsModal platform={phone ? "phone" : "desktop"} registry={activePluginRegistry} connection={connection} initialInstallId={pluginInstallId} close={() => { setPluginsOpen(false); setPluginInstallId(undefined); }} onOpenContribution={openPluginContribution}/>}
@@ -2603,7 +2613,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
       <button onClick={() => { setChatActions(false); setNewChat({ kind: "direct", ...(activeBot ? { botId: activeBot.id } : {}) }); }}><Plus size={20}/>{t("新对话")}</button>
     </div>
     <div className="mobile-chat-action-list">
-      {filesEligible && <button onClick={() => { setChatActions(false); openFiles(); }}><FolderTree size={20}/><span className="action-label">{t("工作区文件")}</span><ChevronRight className="action-chevron" size={18}/></button>}
+      {filesEligible && <button onClick={() => { setChatActions(false); openFiles(); }}><Folder size={20}/><span className="action-label">{t("工作区文件")}</span><ChevronRight className="action-chevron" size={18}/></button>}
       {!pane&&isMobileScreenApp()&&<button onClick={()=>{setChatActions(false);openScreen();}}><MonitorPlay size={20}/><span className="action-label">{t("查看屏幕")}</span><ChevronRight className="action-chevron" size={18}/></button>}
       {!pane&&isMobileScreenApp()&&<button onClick={()=>{setChatActions(false);setSettingsFromMenu(true);setSettingsSection("screen");setSettings(true);}}><MonitorCog size={20}/><span className="action-label">{t("屏幕控制设置")}</span><ChevronRight className="action-chevron" size={18}/></button>}
       {phone && usage.quota && <button aria-label={t("额度")} aria-describedby={`${chatActionNote}-quota`} onClick={openQuotaDetails}><QuotaBattery left={usage.quota.left} stale={usage.quota.stale}/><span className="action-label">{t("额度")}</span><span id={`${chatActionNote}-quota`} className="action-value" data-tone={usage.quota.stale ? undefined : usageTone(usage.quota.left)} data-stale={usage.quota.stale ? "true" : undefined}>{usage.quota.left}%</span><ChevronRight className="action-chevron" size={18}/></button>}
