@@ -1,7 +1,40 @@
+import { constants } from "node:fs";
+import { access, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { SessionStore } from "../state/session-store.js";
 import { updateInstanceConfig, type InstanceConfig, type ResumeState } from "../state/instance-config.js";
+
+export class ResumeWorkspaceUnavailableError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Claude resume fallback workspace is unavailable", options);
+  }
+}
+
+/** Resolve the cwd for this turn without changing the saved resume binding.
+ * The caller picks the configured fallback before validation, so a pinned
+ * folder can never silently fall through to the Bot default.
+ */
+export async function resolveClaudeResumeWorkspace(savedPath: string, fallbackPath: string): Promise<string> {
+  const saved = await stat(savedPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
+    throw error;
+  });
+  if (saved?.isDirectory()) {
+    await access(savedPath, constants.X_OK);
+    return savedPath;
+  }
+
+  try {
+    if ((await stat(fallbackPath)).isDirectory()) {
+      await access(fallbackPath, constants.X_OK);
+      return fallbackPath;
+    }
+  } catch (cause) {
+    throw new ResumeWorkspaceUnavailableError({ cause });
+  }
+  throw new ResumeWorkspaceUnavailableError();
+}
 
 export interface ConversationResumeRecord {
   codexSessionId: string;

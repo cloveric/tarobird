@@ -27,6 +27,7 @@ import { FileWorkflowStore } from "../state/file-workflow-store.js";
 import {
   hasConversationResume,
   migrateLegacyConversationResume,
+  resolveClaudeResumeWorkspace,
   resolveConversationResume,
 } from "../runtime/conversation-resume.js";
 import { SessionStore } from "../state/session-store.js";
@@ -1727,7 +1728,7 @@ async function runNormalizedCoreMessage(
     });
   }
   cfg.resume = conversationResume;
-  const workspaceOverride = input.workspaceOverride ?? conversationResume?.workspacePath ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg);
+  const commandWorkspace = input.workspaceOverride ?? conversationResume?.workspacePath ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg);
 
   for (let pause; (pause = input.runtime.chatQueue.pausedUntil(normalized.conversationKey));) await pause;
   const commandText = extractCoreMessageBody(normalized.text);
@@ -1767,7 +1768,7 @@ async function runNormalizedCoreMessage(
     if (!normalized.botSource && !normalized.groupDiscussion && await handleCoreSimpleCommand({
       ...input,
       conversationResume: conversationResume ?? null,
-      workspaceOverride,
+      workspaceOverride: commandWorkspace,
       requestApproval: requestCoreApproval,
       abortSignal: simpleCommandController?.signal,
       createRunCard: createCoreRunCardController,
@@ -2180,6 +2181,10 @@ async function runNormalizedCoreMessage(
       if (activeHandle?.abortController === runController) {
         activeHandle.hasRunCard = Boolean(runCard);
       }
+      const workspaceOverride = cfg.engine === "claude" && input.workspaceOverride === undefined && conversationResume?.workspacePath
+        ? await resolveClaudeResumeWorkspace(conversationResume.workspacePath,
+          normalized.workspaceOverride ?? cfg.workspacePath ?? path.join(input.stateDir, "workspace"))
+        : commandWorkspace;
       const scopedRuns = createScopedRunPresentation({ channel: input.channel, chatId: normalized.chatId,
         conversationKey: normalized.conversationKey, replyTo: normalized.messageId,
         replyInThread: Boolean(normalized.threadId), locale });
