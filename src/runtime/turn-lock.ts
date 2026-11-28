@@ -8,6 +8,8 @@ import { getConversationKey } from "./conversation-key.js";
 
 const TURN_LOCK_STALE_MS = 12 * 60 * 60 * 1000;
 export const TURN_LOCK_WAIT_NOTIFY_AFTER_MS = 10_000;
+const ordinaryTurns = new Map<string, number>();
+const historyReaders = new Map<string, AbortController>();
 
 export function resolveBridgeTurnLockPath(sessionId: string): string {
   const digest = createHash("sha256").update(sessionId).digest("hex");
@@ -37,16 +39,47 @@ export async function withBridgeTurnLock<T>(
     signal?: AbortSignal;
     waitNotifyAfterMs?: number;
     onWait?: (event: BridgeTurnLockWaitEvent) => void | Promise<void>;
+    interruptHistorySnapshot?: boolean;
   } = {},
 ): Promise<T> {
-  return await withFileMutex(resolveBridgeTurnLockPath(sessionId), task, {
-    staleLockMs: TURN_LOCK_STALE_MS,
-    signal: options.signal,
-    waitNotifyAfterMs: options.waitNotifyAfterMs ?? TURN_LOCK_WAIT_NOTIFY_AFTER_MS,
-    onWait: options.onWait
-      ? async (event) => await options.onWait?.(toBridgeTurnLockWaitEvent(sessionId, event))
-      : undefined,
-  });
+  if (options.interruptHistorySnapshot) {
+    options.signal?.throwIfAborted();
+    ordinaryTurns.set(sessionId, (ordinaryTurns.get(sessionId) ?? 0) + 1);
+    historyReaders.get(sessionId)?.abort(new Error("history_busy"));
+  }
+  try {
+    return await withFileMutex(resolveBridgeTurnLockPath(sessionId), task, {
+      staleLockMs: TURN_LOCK_STALE_MS,
+      signal: options.signal,
+      waitNotifyAfterMs: options.waitNotifyAfterMs ?? TURN_LOCK_WAIT_NOTIFY_AFTER_MS,
+      onWait: options.onWait
+        ? async (event) => await options.onWait?.(toBridgeTurnLockWaitEvent(sessionId, event))
+        : undefined,
+    });
+  } finally {
+    if (options.interruptHistorySnapshot) {
+      const remaining = ordinaryTurns.get(sessionId)! - 1;
+      if (remaining) ordinaryTurns.set(sessionId, remaining);
+      else ordinaryTurns.delete(sessionId);
+    }
+  }
+}
+
+export async function withBridgeHistorySnapshotLock<T>(sessionId: string, controller: AbortController, task: () => Promise<T>): Promise<T> {
+  const busy = new Error("history_busy");
+  if (ordinaryTurns.has(sessionId)) throw busy;
+  return withBridgeTurnLock(sessionId, async () => {
+    if (ordinaryTurns.has(sessionId)) throw busy;
+    historyReaders.set(sessionId, controller);
+    try {
+      // Wait for the adapter to finish cleanup before releasing either lock.
+      const snapshot = await task();
+      controller.signal.throwIfAborted();
+      return snapshot;
+    } finally {
+      historyReaders.delete(sessionId);
+    }
+  }, { signal: controller.signal, waitNotifyAfterMs: 0, onWait: () => controller.abort(busy) });
 }
 
 export interface BridgeTurnLockWaitEvent {
