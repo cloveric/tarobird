@@ -3397,7 +3397,44 @@ describe("KimiAcpAdapter", () => {
     }
   });
 
-  it("delivers a review that starts after fallback without leaking it into a foreground turn", async () => {
+  it("does not attribute an unknown task notification to a foreground request that was active on receipt", async () => {
+    const harness = createHarness();
+    const events: EngineStreamEvent[] = [];
+    const output = Promise.withResolvers<undefined>();
+    const adapter = new KimiAcpAdapter("kimi", {
+      ...adapterOptions(harness),
+      hookRelayEnabled: true,
+      backgroundContinuationGraceMs: 25,
+      readBackgroundTaskOutputFn: () => output.promise,
+    });
+    try {
+      const turn = adapter.sendUserMessage("kimi-session-1", {
+        text: "an unrelated foreground request",
+        files: [],
+        onEngineEvent: event => { events.push(event); },
+      });
+      await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+      await postKimiHook(harness, {
+        hook_event_name: "Notification",
+        notification_type: "task.completed",
+        source_kind: "background_task",
+        source_id: "bash-untracked",
+        body: "Old task completed.",
+      });
+      harness.children[0].server.respondPrompt();
+      await turn;
+      output.resolve(undefined);
+      await waitFor(() => events.some(event => event.type === "task_notification"));
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "task_notification", taskId: "bash-untracked", origin: "unattributed",
+      }));
+    } finally {
+      output.resolve(undefined);
+      await adapter.destroy();
+    }
+  });
+
+  it.each(["bound", "unattributed"] as const)("delivers a review that starts after fallback without leaking it into a foreground turn (%s)", async (origin) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "kimi-acp-late-review-routing-test-"));
     const wirePath = path.join(
       root,
@@ -3429,13 +3466,15 @@ describe("KimiAcpAdapter", () => {
       });
       await waitFor(() => harness.children[0]?.server.prompts.length === 1);
       const server = harness.children[0].server;
-      await postKimiHook(harness, {
-        hook_event_name: "TaskStarted",
-        task_id: "bash-late-review",
-        kind: "process",
-        description: "Validate output",
-        detached: true,
-      });
+      if (origin === "bound") {
+        await postKimiHook(harness, {
+          hook_event_name: "TaskStarted",
+          task_id: "bash-late-review",
+          kind: "process",
+          description: "Validate output",
+          detached: true,
+        });
+      }
       server.respondPrompt();
       await expect(firstTurn).resolves.toMatchObject({ text: "Kimi completed the request." });
 
@@ -3495,7 +3534,9 @@ describe("KimiAcpAdapter", () => {
         event.type === "task_notification" && !event.suppressUserDelivery
       ));
       expect(visibleTaskNotifications).toHaveLength(2);
+      expect(visibleTaskNotifications[0]).toMatchObject({ origin });
       expect(visibleTaskNotifications[1]).toMatchObject({
+        origin,
         taskId: "bash-late-review",
         status: "completed",
         text: "Final validation passed.",
