@@ -12,7 +12,6 @@ import {
   FileText,
   Folder,
   FolderOpen,
-  FolderTree,
   GitBranch,
   LoaderCircle,
   Lock,
@@ -828,7 +827,7 @@ export function WorkspaceFilesPanel({
   >
     <header className="wf-header">
       <div className="wf-header-title">
-        <FolderTree size={16} aria-hidden="true"/>
+        <Folder size={16} aria-hidden="true"/>
         <h2>{t("文件")}</h2>
         <span className="wf-readonly-badge">{t("只读")}</span>
       </div>
