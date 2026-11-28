@@ -1240,8 +1240,7 @@ export function ConversationWorkspace({
                 </div>
               ) : (
                 <div className="workspace-idle-strip">
-                  <EmptyStateArt kind="idle" />
-                  <span>{t("现在闲着呢，随时可以聊新事情。")}</span>
+                  <span>{t("当前空闲，无运行中或排队任务。")}</span>
                 </div>
               )}
             </section>
@@ -1295,8 +1294,7 @@ export function ConversationWorkspace({
               </div>
               {diffMessages.length === 0 && fileArtifacts.length === 0 ? (
                 <div className="workspace-idle-strip">
-                  <EmptyStateArt kind="files" />
-                  <span>{t("做好的文件、画板和代码改动，都会收在这里。")}</span>
+                  <span>{t("暂无本轮改动、工作台内容或对话文件。")}</span>
                 </div>
               ) : (
                 <div className="workspace-list">
@@ -1379,7 +1377,7 @@ export function ConversationWorkspace({
             {artifactsCount === 0 ? (
               <div className="workspace-empty">
                 <EmptyStateArt kind="files" />
-                <p>{t("做好的文件、画板和代码改动，都会收在这里。")}</p>
+                <p>{t("暂无本轮改动、工作台内容或对话文件。")}</p>
               </div>
             ) : (
               <div className="workspace-list">

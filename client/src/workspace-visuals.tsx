@@ -375,7 +375,7 @@ export function WorkspaceFileThumbnail({ connection, attachmentId, name: _name }
 }
 
 /** Friendly spot illustrations for empty and error states. */
-export function EmptyStateArt({ kind }: { kind: "idle" | "comms" | "files" | "error" }) {
+export function EmptyStateArt({ kind }: { kind: "comms" | "files" | "error" }) {
   if (kind === "comms") {
     return (
       <svg className="ws-empty-art" viewBox="0 0 64 48" width="56" height="42" fill="none" aria-hidden="true">
@@ -396,20 +396,11 @@ export function EmptyStateArt({ kind }: { kind: "idle" | "comms" | "files" | "er
       </svg>
     );
   }
-  if (kind === "error") {
-    return (
-      <svg className="ws-empty-art is-error" viewBox="0 0 64 48" width="56" height="42" fill="none" aria-hidden="true">
-        <circle cx="32" cy="24" r="16" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M32 16v10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-        <circle cx="32" cy="31.5" r="1.6" fill="currentColor" />
-      </svg>
-    );
-  }
   return (
-    <svg className="ws-empty-art" viewBox="0 0 48 36" width="38" height="28" fill="none" aria-hidden="true">
-      <circle cx="24" cy="18" r="13" fill="currentColor" fillOpacity="0.09" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M19 16.5c.8-1 2.2-1 3 0M26 16.5c.8-1 2.2-1 3 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M19.5 22c2.5 2 6.5 2 9 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <svg className="ws-empty-art is-error" viewBox="0 0 64 48" width="56" height="42" fill="none" aria-hidden="true">
+      <circle cx="32" cy="24" r="16" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M32 16v10" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="32" cy="31.5" r="1.6" fill="currentColor" />
     </svg>
   );
 }
