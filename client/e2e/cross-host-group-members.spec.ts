@@ -60,7 +60,7 @@ for (const phone of [false, true]) {
         expect(first?.groupRecipientKeys).toEqual([member.memberKey]);
 
         await page.getByRole("button", { name: /^让谁回复/ }).click();
-        const picker = page.getByRole(phone ? "dialog" : "menu", { name: "回复的 Bot", exact: true });
+        const picker = page.getByRole(phone ? "dialog" : "group", { name: "回复的 Bot", exact: true });
         await expect(picker.getByRole("checkbox")).toHaveCount(11);
         const remote = picker.getByRole("checkbox", { name: remoteLabel });
         if (await remote.getAttribute("aria-checked") === "true") await remote.click();
