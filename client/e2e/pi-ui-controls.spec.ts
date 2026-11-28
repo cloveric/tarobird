@@ -596,7 +596,7 @@ test("Pi Bot default dialogs: a refusal keeps naming what was refused after the 
     await level.selectOption("high");
     await page.getByRole("button", { name: "保存到此 Bot", exact: true }).click();
     // The refused level is not offered back as available.
-    const refusedLevel = "当前模型不支持思考强度 high。可选：low，或跟随默认。";
+    const refusedLevel = "anthropic/claude-sonnet 不支持思考强度 high。可选：low，或跟随默认。";
     await expect(alert).toHaveText(refusedLevel);
     await level.selectOption("low");
     await expect(alert).toHaveText(refusedLevel);
