@@ -567,20 +567,25 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const [paneWorkbenchCompact, setPaneWorkbenchCompact] = useState(true);
   const workbenchEligible = !!selected && !!state.user && !connection.isReadOnly && !current?.archived;
   const workbenchVisible = !!workbenchEligible && rightMode === "workbench" && visible && (!pane || pane.expanded) && !details && searchResults === undefined && (!sidebar || !!pane);
-  const filesBotId = current?.botIds.length === 1 ? current.botIds[0] : activeBot?.id ?? current?.botIds[0];
-  const filesEligible = !pane && !!selected && !!filesBotId && !!state.user && state.user.role === "owner" && !connection.isReadOnly && !current?.archived && !!state.workspaceFilesAvailable;
-  const filesVisible = filesEligible && rightMode === "files" && visible && !details && searchResults === undefined && !sidebar;
   // 「这轮改动」 in the Files panel: the newest reply with recorded run changes, or the one whose 「本轮改动」 opened it.
   const [filesFocus, setFilesFocus] = useState<{ conversationId: string; messageId: string; token: number }>();
   const latestRunChanges = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index]!;
-      if (message.authorType === "bot" && recordedRunChanges(message).summary) return message;
+      if (message.conversationId === selected && message.authorType === "bot" && !message.forwardedFrom
+        && current?.botIds.includes(message.authorId) && recordedRunChanges(message).summary) return message;
     }
     return undefined;
-  }, [messages]);
-  const focusedRunChanges = filesFocus && filesFocus.conversationId === selected ? messages.find(message => message.id === filesFocus.messageId) : undefined;
+  }, [messages, selected, current?.botIds]);
+  const focusedRunChanges = filesFocus && filesFocus.conversationId === selected
+    ? messages.find(message => message.id === filesFocus.messageId && message.authorType === "bot" && !message.forwardedFrom
+      && current?.botIds.includes(message.authorId))
+    : undefined;
   const filesChangesMessage = focusedRunChanges ?? latestRunChanges;
+  // The changes and the tree use the same local roster member in a group.
+  const filesBotId = filesChangesMessage?.authorId ?? current?.botIds[0];
+  const filesEligible = !pane && !!selected && !!filesBotId && !!state.user && state.user.role === "owner" && !connection.isReadOnly && !current?.archived && !!state.workspaceFilesAvailable;
+  const filesVisible = filesEligible && rightMode === "files" && visible && !details && searchResults === undefined && !sidebar;
   const latestChangedFiles = latestRunChanges ? recordedRunChanges(latestRunChanges).summary?.files ?? 0 : 0;
   const workbench = useWorkbench(connection, selected, state.user?.id, workbenchVisible);
   const workbenchLibrary = useContext(WorkbenchLibraryContext);
@@ -2187,7 +2192,8 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     setRightMode("files");
   };
   const openRunChangesInFiles = filesEligible && selected ? (message: Message) => {
-    if (message.conversationId !== selected || !messages.some(entry => entry.id === message.id)) return false;
+    if (message.conversationId !== selected || message.authorType !== "bot" || message.forwardedFrom
+      || !current?.botIds.includes(message.authorId) || !messages.some(entry => entry.id === message.id)) return false;
     setFilesFocus({ conversationId: selected, messageId: message.id, token: Date.now() });
     openFiles();
     return true;
