@@ -27,6 +27,7 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
     const chat = await hub.store.createConversation("owner", ["bot_codex"], "Long History Check", "chat_long");
 
     const turnCount = 55;
+    const firstTurnAt = Date.now() - (turnCount + 1) * 2_000;
     const userMessageIds: string[] = [];
     for (let i = 1; i <= turnCount; i++) {
       const sent = await hub.store.sendMessage("owner", {
@@ -36,7 +37,7 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
         attachments: [],
       });
       userMessageIds.push(sent.message.id);
-      await hub.store.publishBotMessage("bot_codex", {
+      const reply = await hub.store.publishBotMessage("bot_codex", {
         conversationId: chat.id,
         replyTo: sent.message.id,
         status: "complete",
@@ -45,6 +46,11 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
           text: `Reply ${i}: Verified step ${i}.\n\n` + Array.from({ length: 6 }, (_, j) => `- Detail line ${j + 1} for turn ${i} covering implementation and verification.`).join("\n"),
         }],
       });
+      // The test names and indexes turns in this order. Real timestamps can tie
+      // when all 110 messages are inserted before the client connects.
+      const sentAt = firstTurnAt + (i - 1) * 2_000;
+      await hub.store.db.run("UPDATE messages SET created_at = CASE id WHEN ? THEN ? ELSE ? END WHERE id IN (?, ?)",
+        [sent.message.id, sentAt, sentAt + 1_000, sent.message.id, reply.id]);
     }
 
     await pairClient(page, hub);
@@ -63,7 +69,9 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
     await expect(rail.getByRole("button")).toHaveCount(count);
     await expect(rail.getByRole("listitem")).toHaveCount(count);
     await expect(rail.locator(`[data-rail-message-id="${userMessageIds[0]}"]`)).toBeVisible();
-    await expect(rail.locator(`[data-rail-message-id="${userMessageIds[turnCount - 1]}"]`)).toBeVisible();
+    const lastTurn = rail.locator(`[data-rail-message-id="${userMessageIds[turnCount - 1]}"]`);
+    await expect(lastTurn).toHaveAttribute("data-rail-turn", String(turnCount));
+    await expect(lastTurn).toHaveAccessibleName(new RegExp(`Turn ${turnCount}: Check milestone ${turnCount}`));
 
     // Line-mode wheel events over the rail normalize deltaMode instead of moving 3 CSS pixels.
     const wheelDelta = await page.evaluate(() => {
@@ -75,20 +83,13 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
       return before - vp.scrollTop;
     });
     expect(wheelDelta).toBeGreaterThanOrEqual(30);
-    const viewport = page.locator(".message-scroll").filter({ visible: true });
-    const lastTick = rail.locator(`[data-rail-message-id="${userMessageIds[turnCount - 1]}"]`);
-    const scrollToLatest = () => expect.poll(async () => {
-      // Virtual row measurement can extend the list after the initial scroll.
-      // Once at its true end, the last tick must become active without another input.
-      await viewport.evaluate(element => {
-        const end = element.scrollHeight - element.clientHeight;
-        if (element.scrollTop < end - 1) element.scrollTop = end;
-      });
-      return lastTick.getAttribute("class");
-    }).toMatch(/is-active/);
+    await page.evaluate(() => {
+      const vp = document.querySelector<HTMLElement>(".message-scroll");
+      if (vp) vp.scrollTop = vp.scrollHeight;
+    });
 
-    // At the bottom the first turn is no longer mounted.
-    await scrollToLatest();
+    // Initially at bottom -> last turn tick is active, and Turn 1 is NOT mounted in the DOM yet (virtualized).
+    await expect(lastTurn).toHaveClass(/is-active/);
     await expect(page.locator(`[data-message-id="${userMessageIds[0]}"]`)).toHaveCount(0);
 
     // Hovering first tick displays the preview card with both prompt and reply preview.
@@ -135,7 +136,11 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
     expect(inViewport).toBe(true);
 
     // Scrolling back down updates the active tick to follow the scroll position.
-    await scrollToLatest();
+    await page.evaluate(() => {
+      const vp = document.querySelector<HTMLElement>(".message-scroll");
+      if (vp) vp.scrollTop = vp.scrollHeight;
+    });
+    await expect(lastTurn).toHaveClass(/is-active/);
 
     // Narrow dashes (4px, the current turn 7px). Woken by scrolling alone, the rail stays at half strength;
     // pointing at it brings it to full strength.
