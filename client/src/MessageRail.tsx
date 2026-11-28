@@ -43,7 +43,7 @@ function formatRailTime(timestamp: number, locale: string): string {
   }
 }
 
-/** Subtle right-edge message rail for desktop conversations. One tick per user
+/** Subtle left-edge message rail for desktop conversations. One tick per user
  * turn (sampled evenly in very long threads), lights up on scroll/hover, shows
  * a turn + reply preview card on hover/focus, and clicks jump directly there. */
 export function MessageRail({ items, scrollRef, anchorIndex, atBottom, onJump, onWheelDirection }: MessageRailProps) {

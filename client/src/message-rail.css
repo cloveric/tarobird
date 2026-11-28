@@ -1,16 +1,19 @@
+/* A quiet column of short dashes along the LEFT edge of the conversation (the owner's Codex reference),
+   clear of the 28px message padding and of the sidebar's resize handle. Nearly invisible at rest; like
+   Orca's rail it wakes at once on hover, focus or scrolling and fades back slowly after a pause. */
 .message-rail {
   position: absolute;
-  right: 8px;
+  left: 8px;
   top: 72px;
   height: calc(100% - 170px);
-  width: 24px;
+  width: 20px;
   z-index: 6;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   pointer-events: auto;
-  opacity: 0.36;
-  transition: opacity 220ms ease;
+  opacity: 0.2;
+  transition: opacity 500ms ease-out 700ms;
   user-select: none;
 }
 
@@ -19,6 +22,14 @@
 .message-rail:hover,
 .message-rail:focus-within {
   opacity: 1;
+  transition-duration: 150ms;
+  transition-delay: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-rail {
+    transition: none;
+  }
 }
 
 .message-rail-track {
@@ -26,7 +37,7 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: center;
   gap: 5px;
   max-height: calc(100% - 16px);
@@ -40,7 +51,7 @@
   margin: 0;
   padding: 0;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .message-rail.is-dense .message-rail-track {
@@ -52,14 +63,14 @@
   border: 0;
   background: transparent;
   box-shadow: none;
-  padding: 3px 2px 3px 6px;
+  padding: 3px 6px 3px 2px;
   margin: 0;
   min-height: 0;
   min-width: 0;
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   cursor: pointer;
   border-radius: 4px;
 }
@@ -70,6 +81,7 @@
 }
 
 .message-rail-tick:hover,
+.message-rail-tick:hover:not(:disabled),
 .message-rail-tick:focus-visible {
   background: transparent;
 }
@@ -79,34 +91,39 @@
   outline-offset: 1px;
 }
 
+/* Short light-grey dashes; the current turn is a little longer and darker grey, never ink or accent. */
 .message-rail-bar {
   display: block;
-  width: 10px;
-  height: 2px;
+  width: 7px;
+  height: 1.5px;
+  /* Keep each tick a whole number of pixels tall so the thin dashes all land on the same subpixel. */
+  margin-block: 0.25px;
   border-radius: 999px;
   background: var(--muted);
-  opacity: 0.55;
+  opacity: 0.45;
   transition: width 140ms ease, height 140ms ease, background-color 140ms ease, opacity 140ms ease;
 }
 
 .message-rail-tick.is-hovered .message-rail-bar,
 .message-rail-tick:hover .message-rail-bar,
 .message-rail-tick:focus-visible .message-rail-bar {
-  width: 16px;
-  background: var(--text);
+  width: 11px;
+  background: var(--grey, var(--muted));
   opacity: 0.9;
 }
 
 .message-rail-tick.is-active .message-rail-bar {
-  width: 18px;
-  height: 2.5px;
-  background: var(--accent);
-  opacity: 1;
+  width: 12px;
+  height: 2px;
+  margin-block: 0;
+  background: var(--grey, var(--muted));
+  opacity: 0.9;
 }
 
+/* Opens to the right of the rail, over the conversation, never off the left edge. */
 .message-rail-preview {
   position: absolute;
-  right: calc(100% + 10px);
+  left: calc(100% + 8px);
   transform: translateY(-50%);
   width: min(296px, calc(100vw - 140px));
   padding: 10px 12px;
