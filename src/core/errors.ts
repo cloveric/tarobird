@@ -7,7 +7,7 @@ import { CodexThreadMissingError } from "../codex/app-server-adapter.js";
 import { ClaudeTurnWorkspaceUnavailableError } from "../runtime/conversation-resume.js";
 import { archiveReadErrorMessage } from "../runtime/zip-archive.js";
 import { classifyFailure, extractQuotaResetHint, renderEngineSettingsError, renderEngineBusyError, renderMalformedToolInputError, renderDeepSeekOfficeTimeout, renderPiProviderFailure } from "../runtime/error-classification.js";
-import { EngineCancellationUnconfirmedError, EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineStopTooLateError } from "../codex/adapter.js";
+import { AntigravityCommandStreamInterruptedError, EngineCancellationUnconfirmedError, EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineStopTooLateError } from "../codex/adapter.js";
 import { formatCoreFileSize, isCoreAttachmentTooLargeError } from "./files.js";
 import { isChineseLocale, type Locale } from "../runtime/locale.js";
 import { hostT } from "../locales/index.js";
@@ -82,6 +82,7 @@ export function renderCoreUserFacingError(
     return cause + detail;
   }
   if (error instanceof EngineRecoveryExhaustedError) return hostT(locale, "模型服务仍未恢复，本轮自动恢复已结束。原会话和已完成的工作已保留；服务恢复后发送“继续”，即可接着处理未完成的任务。");
+  if (error instanceof AntigravityCommandStreamInterruptedError) return hostT(locale, "Antigravity 在命令仍处于运行状态时停止返回进度，回答可能不完整。原会话已保留。请先核对命令结果，系统未自动重发请求。");
   if (error instanceof EngineIncompleteResponseError && error.reason === "interrupted") {
     // Rewind is offered only when the adapter's native history can drop the
     // refused input; the App still shows the action only where it applies.

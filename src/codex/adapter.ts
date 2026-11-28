@@ -20,6 +20,11 @@ export class EngineIncompleteResponseError extends Error {
   ) { super(message); this.name = "EngineIncompleteResponseError"; }
 }
 
+/** The Antigravity print stream stopped while a command lacked a terminal frame. */
+export class AntigravityCommandStreamInterruptedError extends EngineIncompleteResponseError {
+  constructor(message: string) { super(message, "interrupted"); this.name = "AntigravityCommandStreamInterruptedError"; }
+}
+
 /** Codex reported an unavailable model in a failed native turn. */
 export class CodexModelUnavailableError extends Error {
   constructor(message: string) { super(message); this.name = "CodexModelUnavailableError"; }

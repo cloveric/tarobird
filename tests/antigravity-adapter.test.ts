@@ -1,6 +1,7 @@
 import { nativeRunProbe } from "./helpers/native-run.js";
 import { runEntryTitle, runDiff, runPlan } from "../client/src/run-presentation.js";
 import { summarizeRun } from "../src/core/run-record.js";
+import { renderCoreUserFacingError } from "../src/core/errors.js";
 import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -412,14 +413,24 @@ describe("ProcessAntigravityAdapter", () => {
 
   it("stops a persistent turn when a foreground tool stays silent past the inactivity ceiling", async () => {
     const { spawnAntigravity, child, calls } = createSpawnHarness();
+    const resumedChild = new FakeChildProcess();
+    const spawnForTurn: SpawnAntigravity = (command, args, options) => {
+      if (!calls.length) return spawnAntigravity(command, args, options);
+      calls.push({ command, args, options });
+      return resumedChild;
+    };
     const adapter = new ProcessAntigravityAdapter(
-      "agy", { HOME: "/tmp/home" }, spawnAntigravity, undefined, undefined, undefined,
+      "agy", { HOME: "/tmp/home" }, spawnForTurn, undefined, undefined, undefined,
       5_000, 200,
     );
-    const turn = adapter.sendUserMessage("telegram-12345", { text: "Run a long command", files: [] });
-    const rejected = expect(turn).rejects.toThrow("became inactive after 1 minutes");
+    const events = vi.fn();
+    const turn = adapter.sendUserMessage("telegram-12345", { text: "Run a long command", files: [], onEngineEvent: events });
+    const failed = turn.then(() => undefined, error => error);
     await vi.waitFor(() => expect(calls).toHaveLength(1));
     child.stdout.emitData(jsonLine({ event: "init", conversation_id: CONVERSATION_ID, init: {} }));
+    child.stdout.emitData(jsonLine({ event: "step_update", step_update: {
+      conversation_id: CONVERSATION_ID, step_index: 1, state: "DONE", step_type: "agent_response", text_delta: "Already streamed",
+    } }));
     child.stdout.emitData(jsonLine({
       event: "step_update",
       step_update: {
@@ -427,9 +438,24 @@ describe("ProcessAntigravityAdapter", () => {
         tool_name: "run_command", tool_info: { name: "run_command", parameters: { CommandLine: "sleep 60" } },
       },
     }));
+    child.stderr.emitData("Synthetic private engine detail");
 
-    await rejected;
+    const error = await failed;
+    expect(error).toBeInstanceOf(EngineIncompleteResponseError);
+    const userMessage = renderCoreUserFacingError(error, "engine", "en");
+    expect(userMessage).toContain("Antigravity stopped reporting progress while a command was active");
+    expect(userMessage).toContain("The conversation is preserved");
+    expect(userMessage).not.toContain("Synthetic private engine detail");
+    expect(events).toHaveBeenCalledWith(expect.objectContaining({ type: "assistant_text", text: "Already streamed" }));
     expect(child.stdin.ended).toBe(true);
+    expect(calls).toHaveLength(1);
+    const resumed = adapter.sendUserMessage(CONVERSATION_ID, { text: "Continue", files: [] });
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].args).toEqual(expect.arrayContaining(["--conversation", CONVERSATION_ID]));
+    emitSuccess(resumedChild, "continued");
+    resumedChild.close(0);
+    await expect(resumed).resolves.toMatchObject({ sessionId: CONVERSATION_ID, text: "continued" });
+    await adapter.destroy();
   });
 
   it("stops a native goal when a foreground tool stays silent past the inactivity ceiling", async () => {

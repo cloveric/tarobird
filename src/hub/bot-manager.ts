@@ -363,8 +363,8 @@ export class BotManager {
     // Only initialize a new config. /model and /effort changes survive Hub restarts.
     const fresh = !await stat(path.join(stateDir, "config.json")).then(() => true, () => false);
     // A new ordinary Antigravity Bot runs through `agy acp` when the installed CLI is new enough: steering,
-    // context usage and per-call approval need it. Saved Bots keep the runtime they have; a dispatcher and
-    // its workers stay on the print runtime, which is what they were built and tested with.
+    // context usage and per-call approval need it. The Gateway evaluates legacy
+    // ordinary Bots at startup. Dispatchers and workers keep the print runtime.
     const acp = fresh && spec.engine === "antigravity" && !spec.role && await this.antigravityAcp();
     if (fresh) await updateInstanceConfig(stateDir, (config) => {
       applyEngineSelection(config, spec.engine); config.model = spec.model || undefined; config.effort = spec.effort || undefined; config.workspacePath = workspace; config.locale = "zh";

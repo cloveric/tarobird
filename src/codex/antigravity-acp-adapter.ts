@@ -392,6 +392,50 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
+/** Check the installed transport without opening a session or submitting input. */
+export async function probeAntigravityAcpResume(executable: string, env: NodeJS.ProcessEnv, sandbox: boolean): Promise<boolean> {
+  const invocation = buildCommandInvocation(executable, ["acp", ...(sandbox ? ["--sandbox"] : [])]);
+  const child = spawnEngine(invocation.command, invocation.args, {
+    stdio: ["pipe", "pipe", "pipe"], shell: invocation.shell, env, windowsHide: true,
+  });
+  const exited = observeEngineProcessExit(child);
+  let rejectTransport!: (error: Error) => void;
+  const transportError = new Promise<never>((_resolve, reject) => { rejectTransport = reject; });
+  child.on("error", rejectTransport);
+  child.stdin?.on("error", rejectTransport);
+  child.stderr?.resume();
+  const ended = exited.then(() => { throw new Error("Antigravity ACP probe exited"); });
+  let supported = false;
+  try {
+    if (!child.stdout || !child.stdin) {
+      void ended.catch(() => undefined);
+      void transportError.catch(() => undefined);
+    } else {
+      const connection = acpClient().connect(createAcpStream(child.stdout, child.stdin, () => {}, rejectTransport));
+      const initialize = connection.agent.request(acpMethods.agent.initialize, {
+        protocolVersion: PROTOCOL_VERSION,
+        clientInfo: { name: "tarobird", version: "1" },
+        clientCapabilities: { elicitation: { form: {} } },
+      });
+      const reply = await withTimeout(Promise.race([initialize, transportError, ended]), 3500, "Antigravity ACP probe timed out");
+      supported = reply.protocolVersion === PROTOCOL_VERSION && Boolean(reply.agentCapabilities?.sessionCapabilities?.resume);
+    }
+  } catch {
+    // An older or temporarily unavailable CLI leaves its saved Bot on print.
+  } finally {
+    // Wait for this capability-only process to finish before switching the Bot.
+    child.stdin?.end();
+    try {
+      await withTimeout(exited, 500, "Antigravity ACP probe did not exit");
+    } catch {
+      await killProcessTree(child.pid, { graceMs: 250 });
+      try { await withTimeout(exited, 1000, "Antigravity ACP probe exit unconfirmed"); }
+      catch { supported = false; }
+    }
+  }
+  return supported;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
