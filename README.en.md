@@ -15,3 +15,4 @@ The English overview is now the main [README](README.md). It is kept current the
 - [Product guide](docs/product-guide.md): flows, setting scopes, sync and current limitations
 - [Remote phone access](docs/client/remote-access.en.md): Agent setup, manual VPS relay deployment and phone routes
 - [中文首页](README.zh-CN.md)
+- [Türkçe](README.tr.md)

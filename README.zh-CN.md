@@ -2,7 +2,7 @@
   <img src="assets/tarobot-cover-zh.png" width="100%" alt="TaroBird — 和你的 AI 搭档，随时接着聊。">
 </p>
 
-<h3 align="center">开源 ADE + IM：像聊天一样指挥电脑上的 AI 智能体。<br>开发者顺手，普通人也会用；桌面与手机，延续同一段对话。</h3>
+<h3 align="center">你的 AI 智能体，运行在你自己的电脑上。<br>桌面与手机，延续同一段对话。</h3>
 
 <p align="center">
   Codex · Claude Code · Kimi Code · DeepSeek Harness · Antigravity · Pi · oh-my-pi (omp)
@@ -17,14 +17,15 @@
   <a href="#联机方式">联机方式</a> &nbsp;·&nbsp;
   <a href="docs/details.zh-CN.md">详细说明</a> &nbsp;·&nbsp;
   <a href="docs/README.md">文档</a> &nbsp;·&nbsp;
-  <a href="README.md">English</a>
+  <a href="README.md">English</a> &nbsp;·&nbsp;
+  <a href="README.tr.md">Türkçe</a>
 </p>
 
 https://github.com/user-attachments/assets/6cd6e2a9-92c9-47e5-96f1-8b0a02df69a7
 
 <p align="center"><sub>57 秒产品演示 · <a href="https://www.youtube.com/watch?v=R0WvfGiIFiw">YouTube</a> · <a href="assets/product/demo-zh.gif">原版动图</a></sub></p>
 
-TaroBird 是一款开源、自托管的 ADE（Agentic Development Environment，智能体开发环境），用起来像 IM（聊天软件）：开发者顺手，普通人也会用。它把电脑或服务器上的 Codex、Claude Code 等命令行智能体，接入一个统一的对话界面：在桌面或手机上下达任务、回答提问、跟进执行过程、接收交付文件。Bot、对话与文件始终保存在你自己的主机上。
+TaroBird 是一款自托管的 AI 智能体工作空间。它把电脑或服务器上的 Codex、Claude Code 等命令行智能体，接入一个统一的对话界面：在桌面或手机上下达任务、回答提问、跟进执行过程、接收交付文件。Bot、对话与文件始终保存在你自己的主机上。
 
 <table>
   <tr>
