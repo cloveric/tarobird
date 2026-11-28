@@ -33,7 +33,7 @@ import { FileWorkflowStore } from "../state/file-workflow-store.js";
 import { SessionStore } from "../state/session-store.js";
 import { CORE_APPROVAL_TIMEOUT_MS } from "./shared/approval-timeouts.js";
 import { loadInstanceConfig, resolveInstanceWorkspacePath, updateInstanceConfig, type ResumeState } from "../state/instance-config.js";
-import { applyConversationResumeScope } from "../runtime/conversation-resume.js";
+import { applyConversationResumeScope, resolveConversationTurnWorkspace } from "../runtime/conversation-resume.js";
 import { isChineseLocale, type Locale } from "../runtime/locale.js";
 import { hostT } from "../locales/index.js";
 import { larkAgentInstructions, larkMediaTaskInstruction } from "./agent-instructions.js";
@@ -2582,9 +2582,9 @@ async function runCoreCardChoice(input: {
     // Card-driven turns must see the CONVERSATION's resumed workspace, not the
     // raw instance config — see applyConversationResumeScope.
     await applyConversationResumeScope(input.stateDir, input.conversationKey, cfg);
-    const workspaceOverride = cfg.resume?.workspacePath
-      ?? (await input.channel.conversationWorkspace?.(input.chatId))
-      ?? resolveInstanceWorkspacePath(cfg);
+    const workspaceOverride = await resolveConversationTurnWorkspace(
+      input.stateDir, cfg, () => input.channel.conversationWorkspace?.(input.chatId),
+    );
     // Enforce the spend budget before running the engine (parity with the
     // message-turn and bus entry points).
     const budgetExhausted = await checkBudgetAvailability(input.stateDir, cfg.budgetUsd, locale);
@@ -2858,9 +2858,9 @@ async function runCoreArchiveContinueCardAction(input: {
     // Card-driven turns must see the CONVERSATION's resumed workspace, not the
     // raw instance config — see applyConversationResumeScope.
     await applyConversationResumeScope(input.stateDir, input.conversationKey, cfg);
-    const workspaceOverride = cfg.resume?.workspacePath
-      ?? (await input.channel.conversationWorkspace?.(input.chatId))
-      ?? resolveInstanceWorkspacePath(cfg);
+    const workspaceOverride = await resolveConversationTurnWorkspace(
+      input.stateDir, cfg, () => input.channel.conversationWorkspace?.(input.chatId),
+    );
     // Enforce the spend budget before running the engine (parity with the
     // message-turn and bus entry points).
     const budgetExhausted = await checkBudgetAvailability(input.stateDir, cfg.budgetUsd, locale);

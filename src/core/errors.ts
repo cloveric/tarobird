@@ -4,7 +4,7 @@ import { PiRpcCommandError, PiStartupError } from "../codex/pi-rpc-client.js";
 import { OmpRpcCommandError, OmpStartupError } from "../codex/omp-rpc-client.js";
 import { OmpFrameError, OmpProtocolVersionError } from "../codex/omp-rpc-protocol.js";
 import { CodexThreadMissingError } from "../codex/app-server-adapter.js";
-import { ResumeWorkspaceUnavailableError } from "../runtime/conversation-resume.js";
+import { ClaudeTurnWorkspaceUnavailableError } from "../runtime/conversation-resume.js";
 import { archiveReadErrorMessage } from "../runtime/zip-archive.js";
 import { classifyFailure, extractQuotaResetHint, renderEngineSettingsError, renderEngineBusyError, renderMalformedToolInputError, renderDeepSeekOfficeTimeout, renderPiProviderFailure } from "../runtime/error-classification.js";
 import { EngineCancellationUnconfirmedError, EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineStopTooLateError } from "../codex/adapter.js";
@@ -62,7 +62,7 @@ export function renderCoreUserFacingError(
   phase: "prepare" | "engine" | "tool",
   locale: Locale = "zh",
 ): string {
-  if (error instanceof ResumeWorkspaceUnavailableError) return hostT(locale, "Claude 恢复会话的备用工作区不可用。请恢复原文件夹或修复主机对已配置文件夹的访问权限，然后重试。如需使用其他文件夹，请选择有效的工作区新建对话，再用 /resume 绑定同一个 Claude 会话。");
+  if (error instanceof ClaudeTurnWorkspaceUnavailableError) return hostT(locale, "为恢复 Claude 会话选用的工作区不可用。请恢复原文件夹或修复主机对已配置文件夹的访问权限，然后重试。如需使用其他文件夹，请选择有效的工作区新建对话，再用 /resume 绑定同一个 Claude 会话。");
   if (error instanceof SessionHistoryPendingError) return hostT(locale, "上一次历史操作的结果尚未确认，请先在会话历史操作中核对结果，再继续。对话和文件已保留。");
   if (error instanceof EngineHistoryBusyError) return hostT(locale, "会话历史操作仍在处理中，请等待结果确认后再发送消息。");
   if (error instanceof CodexThreadMissingError) return hostT(locale, "主机上找不到对应的 Codex 原生会话，本次目标操作未执行。App 消息记录仍可查看，请检查主机上的 Codex 历史，恢复原会话或选择其他会话。");

@@ -27,14 +27,13 @@ import { FileWorkflowStore } from "../state/file-workflow-store.js";
 import {
   hasConversationResume,
   migrateLegacyConversationResume,
-  resolveClaudeResumeWorkspace,
+  resolveConversationTurnWorkspace,
   resolveConversationResume,
 } from "../runtime/conversation-resume.js";
 import { SessionStore } from "../state/session-store.js";
 import {
   DEFAULT_STEER_WINDOW_SECONDS,
   loadInstanceConfig,
-  resolveInstanceWorkspacePath,
   updateInstanceConfig,
   type ResumeState,
 } from "../state/instance-config.js";
@@ -1707,7 +1706,8 @@ async function runNormalizedCoreMessage(
     cfg.resume = undefined;
   }
   for (let pause; (pause = input.runtime.chatQueue.pausedUntil(normalized.conversationKey));) await pause;
-  try { await input.channel.prepareConversation?.(normalized.chatId); }
+  let preparedConversation: Awaited<ReturnType<NonNullable<CoreChannelLike["prepareConversation"]>>>;
+  try { preparedConversation = await input.channel.prepareConversation?.(normalized.chatId); }
   catch (error) {
     await appendCoreTimelineEvent(input.stateDir, normalized, { type: "turn.completed", outcome: "error", detail: redactCoreErrorDetail(error), metadata: { phase: "conversation-prepare" } });
     const queued = input.runtime.queueCards.get(normalized.messageId);
@@ -1728,7 +1728,17 @@ async function runNormalizedCoreMessage(
     });
   }
   cfg.resume = conversationResume;
-  const commandWorkspace = input.workspaceOverride ?? conversationResume?.workspacePath ?? normalized.workspaceOverride ?? resolveInstanceWorkspacePath(cfg);
+  const bound = cfg.engine === "claude" ? preparedConversation : undefined;
+  let turnConfig = cfg;
+  if (bound) {
+    const session = await sessionStore.findByConversationKeySafe(buildCoreConversationKey(bound.boundConversationId));
+    turnConfig = { ...cfg, resume: session.warning ? undefined : resolveConversationResume(session.record, undefined) };
+  }
+  const configuredWorkspace = bound ? bound.workspacePath : normalized.workspaceOverride;
+  const commandWorkspace = input.workspaceOverride ?? turnConfig.resume?.workspacePath ?? configuredWorkspace ?? cfg.workspacePath;
+  const resolveEngineWorkspace = () => resolveConversationTurnWorkspace(
+    input.stateDir, turnConfig, () => configuredWorkspace, input.workspaceOverride,
+  );
 
   for (let pause; (pause = input.runtime.chatQueue.pausedUntil(normalized.conversationKey));) await pause;
   const commandText = extractCoreMessageBody(normalized.text);
@@ -1769,6 +1779,7 @@ async function runNormalizedCoreMessage(
       ...input,
       conversationResume: conversationResume ?? null,
       workspaceOverride: commandWorkspace,
+      resolveEngineWorkspace,
       requestApproval: requestCoreApproval,
       abortSignal: simpleCommandController?.signal,
       createRunCard: createCoreRunCardController,
@@ -2181,10 +2192,7 @@ async function runNormalizedCoreMessage(
       if (activeHandle?.abortController === runController) {
         activeHandle.hasRunCard = Boolean(runCard);
       }
-      const workspaceOverride = cfg.engine === "claude" && input.workspaceOverride === undefined && conversationResume?.workspacePath
-        ? await resolveClaudeResumeWorkspace(conversationResume.workspacePath,
-          normalized.workspaceOverride ?? cfg.workspacePath ?? path.join(input.stateDir, "workspace"))
-        : commandWorkspace;
+      const workspaceOverride = await resolveEngineWorkspace();
       const scopedRuns = createScopedRunPresentation({ channel: input.channel, chatId: normalized.chatId,
         conversationKey: normalized.conversationKey, replyTo: normalized.messageId,
         replyInThread: Boolean(normalized.threadId), locale });

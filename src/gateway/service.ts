@@ -236,7 +236,9 @@ export async function attachGateway(options: GatewayServiceOptions): Promise<Gat
       const sessionConversationKey = groupSessionKey ?? input.conversationKey;
       const sessionChatId = groupSessionKey ? stableCoreNumericId(groupSessionKey) : input.chatId;
       let effectiveWorkspace = input.workspaceOverride;
-      if (groupSession && groupSessionKey) {
+      // Core already selected the Claude workspace for the prepared member
+      // session. Keep that same directory for both the engine and delivery.
+      if (groupSession && groupSessionKey && config.engine !== "claude") {
         const boundSession = await new SessionStore(path.join(options.stateDir, "session.json")).findByConversationKeySafe(groupSessionKey);
         const boundResume = boundSession.warning ? undefined : resolveConversationResume(boundSession.record, config.resume);
         effectiveWorkspace = boundResume?.workspacePath
@@ -314,10 +316,15 @@ export async function attachGateway(options: GatewayServiceOptions): Promise<Gat
     return typeof value === "function" ? value.bind(target) : value;
   } });
   channel.prepareConversation = async (conversationId) => {
-    const groupSession = channel.currentGroupSession();
+    const groupSession = channel.currentConversationId() === conversationId && !channel.currentGroupDiscussion()
+      ? channel.currentGroupSession() : undefined;
     const targetId = groupSession?.sessionId ?? conversationId;
     const conversation = conversationSchema.parse(await channel.transport.request("conversation", { conversationId: targetId }));
     await prepareGatewaySessionBinding(options.stateDir, conversation);
+    if (groupSession) return {
+      boundConversationId: targetId,
+      workspacePath: groupSession.workspacePath ?? conversation.ticket?.workspace ?? conversation.workspacePath,
+    };
   };
   channel.canSteerConversation = async (conversationId) => gatewaySessionBindingAllowsSteering(options.stateDir,
     conversationSchema.parse(await channel.transport.request("conversation", { conversationId })));
@@ -332,13 +339,15 @@ export async function attachGateway(options: GatewayServiceOptions): Promise<Gat
     let sessionWorkspaceOverride: string | undefined;
     if (groupSession) {
       const cfg = await loadInstanceConfig(options.stateDir);
-      const boundSession = await new SessionStore(path.join(options.stateDir, "session.json")).findByConversationKeySafe(buildCoreConversationKey(groupSession.sessionId));
-      const boundResume = boundSession.warning ? undefined : resolveConversationResume(boundSession.record, cfg.resume);
-      sessionWorkspaceOverride = boundResume?.workspacePath
-        ?? message.workspaceOverride
-        ?? groupSession.workspacePath
-        ?? await channel.conversationWorkspace(groupSession.sessionId)
-        ?? resolveInstanceWorkspacePath(cfg);
+      if (cfg.engine !== "claude") {
+        const boundSession = await new SessionStore(path.join(options.stateDir, "session.json")).findByConversationKeySafe(buildCoreConversationKey(groupSession.sessionId));
+        const boundResume = boundSession.warning ? undefined : resolveConversationResume(boundSession.record, cfg.resume);
+        sessionWorkspaceOverride = boundResume?.workspacePath
+          ?? message.workspaceOverride
+          ?? groupSession.workspacePath
+          ?? await channel.conversationWorkspace(groupSession.sessionId)
+          ?? resolveInstanceWorkspacePath(cfg);
+      }
     }
     let failure: unknown;
     try { await handleCoreMessage({ channel, bridge: agentBus?.bridge ?? bridge, runtime: agentBus?.runtime ?? messageRuntime, stateDir: options.stateDir, instanceName: options.botId, message, requireMentionInGroup: options.requireMentionInGroup ?? true, ...(sessionWorkspaceOverride ? { workspaceOverride: sessionWorkspaceOverride } : {}) }); }

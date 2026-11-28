@@ -5,35 +5,51 @@ import path from "node:path";
 import { SessionStore } from "../state/session-store.js";
 import { updateInstanceConfig, type InstanceConfig, type ResumeState } from "../state/instance-config.js";
 
-export class ResumeWorkspaceUnavailableError extends Error {
+export class ClaudeTurnWorkspaceUnavailableError extends Error {
   constructor(options?: ErrorOptions) {
-    super("Claude resume fallback workspace is unavailable", options);
+    super("The selected Claude workspace is unavailable. Restore access or choose a valid workspace folder.", options);
+    this.name = "ClaudeTurnWorkspaceUnavailableError";
   }
 }
 
-/** Resolve the cwd for this turn without changing the saved resume binding.
- * The caller picks the configured fallback before validation, so a pinned
- * folder can never silently fall through to the Bot default.
- */
-export async function resolveClaudeResumeWorkspace(savedPath: string, fallbackPath: string): Promise<string> {
-  const saved = await stat(savedPath).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
+async function canEnterWorkspace(workspace: string): Promise<boolean> {
+  if (!(await stat(workspace)).isDirectory()) return false;
+  await access(workspace, constants.X_OK);
+  return true;
+}
+
+async function requireClaudeTurnWorkspace(workspace: string): Promise<string> {
+  try {
+    if (await canEnterWorkspace(workspace)) return workspace;
+  } catch (cause) {
+    throw new ClaudeTurnWorkspaceUnavailableError({ cause });
+  }
+  throw new ClaudeTurnWorkspaceUnavailableError();
+}
+
+/** Select a workspace for one engine turn without changing its saved binding. */
+export async function resolveConversationTurnWorkspace(
+  stateDir: string,
+  config: Pick<InstanceConfig, "engine" | "resume" | "workspacePath">,
+  conversationWorkspace: () => string | undefined | Promise<string | undefined>,
+  workspaceOverride?: string,
+): Promise<string | undefined> {
+  const savedPath = config.resume?.workspacePath;
+  if (config.engine !== "claude" || !savedPath) {
+    return workspaceOverride ?? savedPath ?? await conversationWorkspace() ?? config.workspacePath;
+  }
+  if (workspaceOverride !== undefined) return requireClaudeTurnWorkspace(workspaceOverride);
+
+  const savedAvailable = await canEnterWorkspace(savedPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return false;
     throw error;
   });
-  if (saved?.isDirectory()) {
-    await access(savedPath, constants.X_OK);
-    return savedPath;
-  }
+  if (savedAvailable) return savedPath;
 
-  try {
-    if ((await stat(fallbackPath)).isDirectory()) {
-      await access(fallbackPath, constants.X_OK);
-      return fallbackPath;
-    }
-  } catch (cause) {
-    throw new ResumeWorkspaceUnavailableError({ cause });
-  }
-  throw new ResumeWorkspaceUnavailableError();
+  // Select the configured fallback before validation. An unavailable pin
+  // must never grant access to a different configured or managed folder.
+  const fallback = await conversationWorkspace() ?? config.workspacePath ?? path.join(stateDir, "workspace");
+  return requireClaudeTurnWorkspace(fallback);
 }
 
 export interface ConversationResumeRecord {

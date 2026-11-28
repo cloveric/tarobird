@@ -79,7 +79,7 @@ export class GatewayChannel implements CoreRuntimeChannelLike {
   private readonly updates = new Map<string, Promise<void>>();
   private readonly tasks = new Set<Promise<void>>();
   private receiveMessage!: (message: Message, conversation: Conversation, agentBus?: AgentBusDispatch, groupDiscussion?: GroupDiscussionDispatch, queueSlot?: boolean, workbench?: WorkbenchContext, workbenchContextOmitted?: WorkbenchContextOmitted, ticketNotice?: boolean, groupSession?: GroupLocalSessionDispatch, canvasConnected?: boolean) => Promise<void>;
-  prepareConversation?: (chatId: string) => Promise<void>;
+  prepareConversation?: CoreRuntimeChannelLike["prepareConversation"];
   canSteerConversation?: (chatId: string) => Promise<boolean>;
   /** A replayed Agent Bus input can carry a stop issued while it was running. */
   onAgentBusStopRequested?: (runId: string) => void;

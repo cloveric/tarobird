@@ -8425,10 +8425,12 @@ describe("core service compatibility profile", () => {
 
   it("forwards Claude ultrareview commands from Lark and relays the review result", async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), "cctb-lark-ultrareview-"));
+    const workspace = path.join(stateDir, "work");
+    await mkdir(workspace);
     const sessionStore = new SessionStore(path.join(stateDir, "session.json"));
     await writeFile(path.join(stateDir, "config.json"), JSON.stringify({
       engine: "claude",
-      resume: { sessionId: "claude-session", dirName: "work", workspacePath: "/tmp/work" },
+      resume: { sessionId: "claude-session", dirName: "work", workspacePath: workspace },
     }) + "\n");
     await sessionStore.upsert({
       telegramChatId: stableCoreNumericId("lark:oc_chat"),
@@ -8459,7 +8461,7 @@ describe("core service compatibility profile", () => {
         conversationKey: "lark:oc_chat",
         text: "/ultrareview",
         files: [],
-        workspaceOverride: "/tmp/work",
+        workspaceOverride: workspace,
       }));
       expect(channel.stream).not.toHaveBeenCalled();
       expect(channel.send).toHaveBeenNthCalledWith(
