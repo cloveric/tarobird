@@ -265,6 +265,8 @@ type KimiBackgroundContinuation = {
   taskOriginReviewStarted?: boolean;
   lateAfterFallback?: boolean;
   suppressUserDelivery?: boolean;
+  /** The foreground turn that started the task; the App ties the result back to that request. */
+  ownerTurnId?: number;
 };
 
 type KimiHookTurn = {
@@ -1383,6 +1385,13 @@ async function readKimiBackgroundTaskOutput(
 
 /** What a notice shows of a command's output: the end, where a failing build or test run says why. */
 const BACKGROUND_TASK_NOTICE_OUTPUT_CHARS = 4_000;
+/** Like Claude, Codex and Antigravity: a result whose starting turn is known is "bound" to that request,
+ * otherwise "unattributed". Either way the App shows it as the folded background-task report instead of
+ * the whole output as a plain message. */
+function kimiNotificationOrigin(ownerTurnId: number | undefined): "bound" | "unattributed" {
+  return ownerTurnId !== undefined ? "bound" : "unattributed";
+}
+
 function kimiOutputTail(output: string | undefined): string {
   const text = output?.trim() ?? "";
   if (text.length <= BACKGROUND_TASK_NOTICE_OUTPUT_CHARS) return text;
@@ -5198,6 +5207,7 @@ export class KimiAcpAdapter implements CodexAdapter {
       sessionId: deliverySessionId,
       taskId: continuation.taskId,
       status: finalStatus,
+      origin: kimiNotificationOrigin(continuation.ownerTurnId ?? sourceTask?.ownerTurnId),
       ...(deliverySummary ? { summary: deliverySummary } : {}),
       ...(intermediate || suppressUserDelivery ? { suppressUserDelivery: true } : {}),
     });
@@ -5506,6 +5516,7 @@ export class KimiAcpAdapter implements CodexAdapter {
       assistantText: "",
       assistantBoundaryPending: false,
       suppressUserDelivery: task.suppressUserDelivery,
+      ownerTurnId: task.ownerTurnId,
     };
     this.adoptKimiWorkflow(worker, continuation.workflowId, task.workflowId);
     continuation.workflowId = task.workflowId;
@@ -5518,6 +5529,7 @@ export class KimiAcpAdapter implements CodexAdapter {
     continuation.onEngineEvent ??= task.onEngineEvent ?? worker.onEngineEvent;
     continuation.onApprovalRequest ??= task.onApprovalRequest;
     continuation.suppressUserDelivery ||= task.suppressUserDelivery;
+    continuation.ownerTurnId ??= task.ownerTurnId;
     worker.backgroundContinuations.set(task.taskId, continuation);
     worker.backgroundTasks.set(task.taskId, task);
     this.emitBackgroundTaskStarted(worker, task);
@@ -6347,6 +6359,7 @@ export class KimiAcpAdapter implements CodexAdapter {
         sessionId: continuation.sessionId ?? task?.sessionId ?? worker.currentSessionId ?? undefined,
         taskId: continuation.taskId,
         status: "failed",
+        origin: kimiNotificationOrigin(continuation.ownerTurnId ?? task?.ownerTurnId),
         ...(continuation.summary || task?.description
           ? { summary: continuation.summary ?? task?.description }
           : {}),
@@ -6377,6 +6390,7 @@ export class KimiAcpAdapter implements CodexAdapter {
         sessionId: task.sessionId ?? worker.currentSessionId ?? undefined,
         taskId: task.taskId,
         status: "failed",
+        origin: kimiNotificationOrigin(task.ownerTurnId),
         ...(task.description ? { summary: task.description } : {}),
         ...(task.suppressUserDelivery ? { suppressUserDelivery: true } : {}),
       }));

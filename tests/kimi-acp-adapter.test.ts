@@ -1173,7 +1173,7 @@ describe("KimiAcpAdapter", () => {
       harness.children[0].close(1);
       const notices = () => events.filter((event): event is Extract<EngineStreamEvent, { type: "task_notification" }> => event.type === "task_notification" && event.taskId === "bash-build");
       await waitFor(() => notices().length === 1);
-      expect(notices()[0]).toMatchObject({ status: "failed", reason: "engine_exit", summary: "构建发布包" });
+      expect(notices()[0]).toMatchObject({ status: "failed", reason: "engine_exit", summary: "构建发布包", origin: "bound" });
       expect(backgroundTaskBody(notices()[0]!, "zh")).toBe("构建发布包\n\n引擎进程已退出，未收到此任务的完成结果。");
       expect(backgroundTaskBody(notices()[0]!, "en")).toBe("构建发布包\n\nThe engine process exited before this task completed.");
     } finally { await adapter.destroy(); await rm(root, { recursive: true, force: true }); }
@@ -1295,6 +1295,8 @@ describe("KimiAcpAdapter", () => {
           sessionId: "kimi-session-1",
           status: "completed",
           text: "Build release completed.",
+          // Like Claude: the result names the request that started it, so the App folds it into the background report.
+          origin: "bound",
         }),
       ]));
       const notification = events.find((event) => event.type === "task_notification");
