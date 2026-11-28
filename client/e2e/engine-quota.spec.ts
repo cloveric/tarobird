@@ -704,3 +704,30 @@ test("offline Bot with cached reading keeps Refresh disabled and cached cards ap
     await expect(page.locator(".engine-quota:visible").getByRole("region", { name: "Coding Bot · Codex", exact: true }).locator(".quota-state")).toContainText("旧读数");
   } finally { await f.close(); }
 });
+
+test("overview: every Bot on one table, least left first, numbers only, unreadable Bots named in one row", async ({ page }, info) => {
+  const f = await fixture(page);
+  try {
+    await f.open(); const panel = page.locator(".engine-quota:visible");
+    const overview = panel.getByRole("region", { name: "全部 Bot 的额度", exact: true });
+    await expect(overview).toBeVisible();
+    const rows = overview.locator("button.quota-overview-row");
+    await expect(rows.first()).toBeVisible();
+    // Least left first, whole percents only.
+    const lefts = await rows.locator(".quota-overview-pct").allInnerTexts();
+    expect(lefts.length).toBeGreaterThan(0);
+    for (const text of lefts) expect(text).toMatch(/^\d+%$/);
+    const values = lefts.map(text => Number.parseInt(text, 10));
+    expect([...values].sort((a, b) => a - b)).toEqual(values);
+    await expect(overview.getByRole("button", { name: /^Coding Bot：.*剩余 62%$/ })).toBeVisible();
+    // Bots without a percent reading are named together, not given empty rows.
+    await expect(overview.locator(".quota-overview-row.is-other")).toContainText("Research Bot");
+    // A row jumps to that account's details; the detail shows the number, not a sentence, and no "已用".
+    const coder = panel.getByRole("region", { name: "Coding Bot · Codex", exact: true });
+    await overview.getByRole("button", { name: /^Coding Bot：/ }).click();
+    await expect(coder).toBeInViewport();
+    await expect(coder.locator(".quota-window-primary [aria-hidden=true]").first()).toHaveText("62%");
+    await expect(coder).not.toContainText("已用");
+    await page.screenshot({ path: info.outputPath("quota-overview.png") });
+  } finally { await f.close(); }
+});
