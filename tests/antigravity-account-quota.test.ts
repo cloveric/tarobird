@@ -8,6 +8,8 @@ import { isAntigravityQuotaSupportedVersion, parseAntigravityQuota, withAntigrav
 import { quotaReadingExpired } from "../src/client-protocol/engine-quota.js";
 import { poolCoversModel } from "../client/src/usage-readings.js";
 import { ProcessAntigravityAdapter } from "../src/codex/antigravity-adapter.js";
+import { AdapterQuotaCache } from "../src/codex/adapter-account-quota.js";
+import { readOwnedAntigravityQuota } from "../src/codex/antigravity-account-quota.js";
 import { AntigravityAcpAdapter } from "../src/codex/antigravity-acp-adapter.js";
 import { gatewayEngineQuota } from "../src/gateway/engine-quota.js";
 
@@ -124,6 +126,28 @@ async function agyFixture(options: { withState?: boolean; extraEnv?: Record<stri
   const env: NodeJS.ProcessEnv = { HOME: home, PATH: process.env.PATH, ...options.extraEnv };
   return { root, home, agyHome, cacheDir, env };
 }
+
+it("discards quota when the credential scope changes during model discovery", async () => {
+  const f = await agyFixture();
+  const cache = new AdapterQuotaCache("antigravity", "agy", f.env);
+  let generation = "before";
+  const captureScope = () => cache.capture(generation);
+  const spawn = vi.fn((_executable: string, args: string[]) => {
+    const child = new MockChild();
+    child.finish(0, args[0] === "--version" ? "1.2.0" : JSON.stringify(currentUsagePayload()));
+    return child;
+  });
+  const result = await readOwnedAntigravityQuota({
+    executable: "agy", cwd: f.root, env: f.env, cache, scope: captureScope(),
+    spawn, options: { refresh: true }, captureScope,
+    modelCatalog: async () => {
+      generation = "after";
+      return [];
+    },
+  });
+  expect(result.revision).toBe(captureScope().revision);
+  expect(result.snapshot).toMatchObject({ reason: "auth_changed", pools: [] });
+});
 
 describe("Antigravity quota version check and parser", () => {
   it("accepts CLI versions >= 1.1.11 and rejects older or malformed versions", () => {

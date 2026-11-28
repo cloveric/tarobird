@@ -296,7 +296,8 @@ export function withAntigravityModelIds(snapshot: QuotaSnapshot, catalog: readon
     const names = pool.models.map(plainName).filter(Boolean);
     const ids = catalog.filter(model => {
       const label = model.label ? plainName(model.label) : "";
-      return label !== "" && names.some(name => label === name || ANTIGRAVITY_EFFORT_WORDS.some(word => label === name + word));
+      return /^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,119}$/.test(model.id)
+        && label !== "" && names.some(name => label === name || ANTIGRAVITY_EFFORT_WORDS.some(word => label === name + word));
     }).map(model => model.id);
     const models = [...new Set([...pool.models, ...ids])].slice(0, 32);
     return models.length === pool.models.length ? pool : { ...pool, models };
