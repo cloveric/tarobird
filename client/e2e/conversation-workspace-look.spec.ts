@@ -821,17 +821,19 @@ test("Workspace rail fixes cross-host avatar isolation, queue dedup race, long B
     );
     await page.setViewportSize({ width: 1280, height: Math.max(620, Math.round(madeHeaderBottom + 50)) });
     const help = rail(page).getByRole("button", { name: "说明：产物与改动" });
-    // Place the target fully inside the scrollport, close enough to the bottom
-    // to exercise the flip without Playwright scrolling it into the middle.
-    await expect.poll(() => help.evaluate(button => {
-      const body = button.closest(".workspace-body")!;
+    // Keep keyboard focus on the trigger while arranging the bottom-edge case. A pointer click
+    // may scroll it back to the centre after Chromium settles the resized rail.
+    await help.evaluate(button => button.focus({ preventScroll: true }));
+    await expect.poll(() => help.evaluate(async button => {
+      const body = button.closest<HTMLElement>(".workspace-body")!;
       const header = button.closest(".workspace-section-header")!;
-      const bottom = body.getBoundingClientRect().bottom;
-      body.scrollTop += header.getBoundingClientRect().bottom - (bottom - 40);
-      const gap = bottom - header.getBoundingClientRect().bottom;
+      body.style.overflowAnchor = "none";
+      body.scrollTop += header.getBoundingClientRect().bottom - (body.getBoundingClientRect().bottom - 40);
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const gap = body.getBoundingClientRect().bottom - header.getBoundingClientRect().bottom;
       return gap >= 36 && gap <= 44;
     })).toBe(true);
-    await help.click();
+    await page.keyboard.press("Enter");
     const popover = rail(page).locator(".ws-help-popover");
     await expect(popover).toBeVisible();
     await expect(popover).toHaveClass(/is-up/);

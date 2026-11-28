@@ -209,9 +209,10 @@ it("CLI status and reason text is the App's own wording in both languages", asyn
     QUOTA_KIMI_API_KEY_TEXT,
     QUOTA_KIMI_NOT_CODING_PLAN_TEXT,
     QUOTA_PI_UNSUPPORTED_TEXT,
-    QUOTA_EXPIRED_TEXT,
   ];
   for (const [zh, english] of pairs) { expect(app).toContain(`t("${zh}")`); expect(en[zh]).toBe(english); }
+  // The CLI prints an expiry reason. The App shows expiry once in the card status.
+  expect(en[QUOTA_EXPIRED_TEXT[0]]).toBe(QUOTA_EXPIRED_TEXT[1]);
   expect(Object.keys(QUOTA_REASON_TEXT).sort()).toEqual([...quotaReasonSchema.options].sort());
   expect(Object.keys(QUOTA_STATE_TEXT).sort()).toEqual([...quotaStateSchema.options].sort());
 });
