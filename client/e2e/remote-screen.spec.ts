@@ -598,3 +598,12 @@ test("performance overlay tracks live route failovers, keeps desktop control whe
  });
  expect(fsLayout).toEqual({clearsChrome:true,inside:true});
 });
+
+test("shows viewers where UDP boost is configured before connecting", async ({ page }) => {
+  await page.getByRole("button", { name: "断开", exact: true }).click();
+  await page.getByRole("button", { name: "屏幕更多操作", exact: true }).click();
+  const menu = page.getByRole("region", { name: "屏幕更多操作", exact: true });
+  await expect(menu.getByText("UDP 加速（实验性）", { exact: true })).toBeVisible();
+  await expect(menu.getByText("在被控电脑的「屏幕控制设置」中更改 UDP 加速。")).toBeVisible();
+  await expect(menu.getByRole("checkbox", { name: /UDP/ })).toHaveCount(0);
+});

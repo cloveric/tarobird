@@ -247,7 +247,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   const endedBy=state.reason||(state.state==="closed"&&!blocked?notice:""),statusShown=statusError&&!(endedBy&&!isScreenReasonCode(statusError));
   const stateText=error?screenError(error,errorTarget):statusShown?screenError(statusError,errorTarget):state.reason?screenError(state.reason,errorTarget):state.controlling?mobile?t("正在控制 · 可随时停止控制"):t("正在控制 · Ctrl+Alt+Shift+Esc 退出控制"):state.state==="connecting"?t("正在连接屏幕…"):state.state==="closed"?(blocked?screenError(blocked,errorTarget):notice?screenError(notice,errorTarget):t("尚未连接")):!state.fresh?t("画面暂未更新，控制已停止，请等待新画面。"):state.controlAllowed?t("查看中 · 点击开始控制后操作"):t("查看中 · 仅查看");
   const actualResolution=!error&&!statusError&&state.state!=="closed"&&state.fresh&&state.width&&state.height?`${state.width}×${state.height}`:"";
-  const qualityHint=sharpSupported?t("720p 节省带宽，最高 3K 保留更多文字细节"):t("此设备不支持最高 3K 解码，请改用 1080p 或 720p。");
+  const qualityHint=sharpSupported?t("720p 节省带宽，最高 3K 保留更多文字细节"):t("此设备不支持最高 3K 解码，请选择较低的可用清晰度。");
   const qualityTitle=!connection.state.screenQualityAvailable?t("更新主机后可选择清晰度"):legacyQuality?t("目标电脑的 App 暂不支持画质选择，请更新后重试，或以默认画质连接。"):actualResolution?t("当前 {0} · {1}",actualResolution,qualityHint):qualityHint;
   const qualitySelect=<select aria-label={t("画面清晰度")} title={qualityTitle} value={quality} disabled={!connection.state.screenQualityAvailable||legacyQuality||state.state==="connecting"} onChange={e=>changeQuality(e.target.value as ScreenQuality)}><option value="smooth">720p</option><option value="balanced">1080p</option><option value="qhd" disabled={!connState.screenQhdAvailable||!qhdSupported}>{t("2K（1440p）")}</option><option value="sharp" disabled={!sharpSupported}>{t("最高 3K")}</option></select>;
   // Landscape status label: a calm view fades after a few seconds, anything
@@ -311,6 +311,14 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
     {tools&&<div className="screen-tools-popover" role="region" aria-label={t("屏幕更多操作")}>
     {mobile&&<><label className="screen-display"><span>{t("画面清晰度")}{actualResolution&&<small className="screen-quality-actual">{t("当前 {0}",actualResolution)}</small>}</span>{qualitySelect}</label><button onMouseDown={e=>e.preventDefault()} onClick={()=>{touch.current?.fit();setTools(false);}}>{t("适应窗口")}</button><p className="screen-touch-help">{t("查看时拖动画面、双指缩放。控制时点按左键、长按右键、单指拖动、双指滚动；捏合只缩放画面。")}</p></>}
     {landscape&&<p className="screen-touch-help">{t("仅在开始控制后，点击发送才会提交文本。")}</p>}
+    {status && <div>
+      <div className="screen-display"><strong>{t("UDP 加速（实验性）")}</strong>
+        {status.udpStatus && <span>{!udpRequested ? t("未开启 · 当前使用 TCP") : udpConnected ? t("已连通") : t("未连通 · 已自动回退 TCP")}</span>}
+      </div>
+      {status.canManage && openSettings && state.state === "closed"
+        ? <button onClick={() => { setTools(false); openSettings(); }}>{t("屏幕控制设置")}</button>
+        : <p className="screen-touch-help">{t("在被控电脑的「屏幕控制设置」中更改 UDP 加速。")}</p>}
+    </div>}
     <label className="screen-display screen-metrics-toggle" onMouseDown={e=>e.preventDefault()}><span>{t("性能数据覆盖层")}</span><input type="checkbox" checked={showMetrics} onMouseDown={e=>e.preventDefault()} onChange={e=>setShowMetrics(e.target.checked)}/></label>
     <label className="screen-display">{t("显示器")}<select aria-label={t("显示器")} value={display} onChange={e=>{disconnect();setDisplay(e.target.value);}}>{status?.desktop?.displays.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
     <div className="screen-shortcuts"><details><summary onMouseDown={e=>e.preventDefault()}>{t("发送组合键")}</summary><div>{screenShortcuts(target).map(shortcut=><button key={shortcut.id} disabled={!state.controlling} onMouseDown={e=>e.preventDefault()} onClick={e=>{canvas.current?.focus();for(const code of shortcut.codes)viewer.current?.input({kind:"key",code,down:true});for(const code of [...shortcut.codes].reverse())viewer.current?.input({kind:"key",code,down:false});e.currentTarget.closest("details")?.removeAttribute("open");}}>{shortcut.label[locale] ?? shortcut.label.en}</button>)}</div></details>{remap&&<select aria-label={controller==="windows"?t("Windows 修饰键"):t("Mac 修饰键")} value={modifierMode} onChange={e=>{viewer.current?.release();setModifierMode(e.target.value as ScreenModifierMode);}}>{controller==="windows"?<><option value="command">Ctrl → ⌘ · Win → ⌃</option><option value="physical">Ctrl → ⌃ · Win → ⌘</option></>:<><option value="command">⌘ → Ctrl · ⌃ → Win</option><option value="physical">⌃ → Ctrl · ⌘ → Win</option></>}</select>}</div>

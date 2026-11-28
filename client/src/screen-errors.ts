@@ -53,7 +53,7 @@ export const SCREEN_ERROR_MESSAGES: Readonly<Record<string, string>> = Object.fr
   screen_quality_qhd_unsupported: "目标电脑的 App 暂不支持 2K，请更新后重试，或选择其他清晰度。",
   screen_quality_qhd_host_unsupported: "主机暂不支持 2K，请更新后重试，或选择其他清晰度。",
   screen_quality_qhd_decoder_unavailable: "此设备不支持 2K 解码，请选择其他清晰度。",
-  screen_quality_decoder_unavailable: "此设备不支持最高 3K 解码，请改用 1080p 或 720p。",
+  screen_quality_decoder_unavailable: "此设备不支持最高 3K 解码，请选择较低的可用清晰度。",
   screen_request_timeout: "屏幕连接请求超时，请检查线路后重试。",
   screen_quality_unconfirmed: "主机未确认所选画质，请检查两端版本后重试。",
   screen_display_unavailable: "目标 Mac 没有可用显示器。",
