@@ -90,7 +90,7 @@ test("chart tabs split 1/2/3/4, maximize and dock without losing the main draft"
   try {
     const composer = page.locator(".conversation-main textarea").last(); await composer.fill("尚未发送的主对话草稿");
     await open(page);
-    await expect(panel(page).locator(".workbench-empty").getByRole("heading", { name: "工作台", exact: true })).toBeVisible();
+    await expect(panel(page).locator(".workbench-start").getByRole("heading", { name: "新建", exact: true })).toBeVisible();
     await expect(panel(page).locator(".workbench-tabrow").getByRole("heading")).toHaveCount(0);
     await page.screenshot({ path: info.outputPath("workbench-empty-title.png") });
     for (let index = 0; index < 4; index++) {

@@ -63,10 +63,10 @@ test("the visible split action tiles two notes, merges without closing, and keep
   const f = await fixture(page);
   try {
     const split = panel(page).getByRole("button", { name: "分屏", exact: true });
-    await expect(split).toBeVisible(); await expect(split).toBeDisabled();
-    await expect(split).toHaveAttribute("title", "至少打开两个标签后可分屏");
-    await notes(page, ["A"]); await expect(split).toBeDisabled();
-    await notes(page, ["B"]); await expect(split).toBeEnabled();
+    // Hidden while it cannot be used (fewer than two tabs); it appears once a second tab opens.
+    await expect(split).toHaveCount(0);
+    await notes(page, ["A"]); await expect(split).toHaveCount(0);
+    await notes(page, ["B"]); await expect(split).toBeVisible(); await expect(split).toBeEnabled();
     await expect(panel(page).getByRole("button", { name: "当前标签选项", exact: true })).toHaveCount(0);
     const draft = page.locator(".conversation-main textarea").last(); await draft.fill("保留聊天草稿");
     await page.screenshot({ path: info.outputPath("split-button-desktop.png") });

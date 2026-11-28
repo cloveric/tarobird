@@ -324,10 +324,14 @@ for (const english of [false, true]) for (const native of [true, false]) test(`e
   const f = await fixture(page, native, english);
   const wb = page.getByRole("complementary", { name: english ? "Workbench" : "工作台", exact: true });
   try {
-    const empty = wb.locator(".workbench-empty");
+    const empty = wb.locator(".workbench-start");
     // Desktop: presentation, whiteboard, note, webpage. Phone: whiteboard and note (no canvas since #89;
     // a presentation is created on desktop only since #90; webpages are desktop-only).
-    await expect(empty.getByRole("button")).toHaveCount(native ? 4 : 2);
+    await expect(empty.locator(".workbench-start-card")).toHaveCount(native ? 4 : 2);
+    // Import links: Markdown/text everywhere, PPT only where presentations exist (desktop).
+    await expect(empty.locator(".workbench-start-links button")).toHaveCount(native ? 2 : 1);
+    // Nothing has been opened yet, so there is no Recent section.
+    await expect(empty.getByRole("region", { name: english ? "Recent" : "最近", exact: true })).toHaveCount(0);
     expect.soft(await empty.innerText()).not.toMatch(/baoyu/i);
     await wb.getByRole("button", { name: english ? "New content" : "新建内容", exact: true }).click();
     expect.soft(await wb.getByRole("menu").innerText()).not.toMatch(/baoyu/i);
@@ -336,7 +340,8 @@ for (const english of [false, true]) for (const native of [true, false]) test(`e
       const bounds = buttons[0].closest(".workbench")!.getBoundingClientRect();
       return buttons.map(button => {
         const rect = button.getBoundingClientRect();
-        return { text: button.textContent, inside: rect.left >= bounds.left && rect.right <= bounds.right && rect.top >= bounds.top && rect.bottom <= bounds.bottom, oneLine: rect.height <= 40 };
+        // Cards are two-line tiles; only the text links must stay on one line.
+        return { text: button.textContent, inside: rect.left >= bounds.left && rect.right <= bounds.right && rect.top >= bounds.top && rect.bottom <= bounds.bottom, oneLine: button.classList.contains("workbench-start-card") || rect.height <= 40 };
       });
     });
     if (native) {
@@ -359,5 +364,55 @@ for (const english of [false, true]) for (const native of [true, false]) test(`e
     }
     await expect(empty.getByRole("button", { name: english ? "Canvas" : "画布", exact: true })).toHaveCount(0);
     await expect(empty.getByRole("button", { name: english ? "Presentation" : "演示文稿", exact: true })).toHaveCount(native ? 1 : 0);
+  } finally { await f.close(); }
+});
+
+test("start page: new / recent / plugins sections, reopening from recent, split hidden until two tabs", async ({ page }, info) => {
+  const f = await fixture(page, true);
+  const wb = panel(page), start = wb.locator(".workbench-start");
+  try {
+    // 新建: desktop cards including presentation and webpage (native browser), with tinted kind tiles.
+    await expect(start.getByRole("region", { name: "新建", exact: true })).toBeVisible();
+    for (const name of ["演示文稿", "白板", "笔记", "网页"]) await expect(start.getByRole("button", { name, exact: true })).toBeVisible();
+    expect(await start.locator('.workbench-start-card[data-kind="note"] .workbench-kind-icon').evaluate(node => getComputedStyle(node).color)).toBe("rgb(125, 154, 120)");
+    await expect(start.getByRole("button", { name: "导入 Markdown / 文本", exact: true })).toBeVisible();
+    await expect(start.getByRole("button", { name: "导入 PPT", exact: true })).toBeVisible();
+    // Nothing opened yet: no Recent, and no split button with fewer than two tabs.
+    await expect(start.getByRole("region", { name: "最近", exact: true })).toHaveCount(0);
+    await expect(wb.locator(".workbench-split-toggle")).toHaveCount(0);
+    // 插件: the official canvas plugin is listed as not installed, with an install button; the market link sits in the heading.
+    const plugins = start.getByRole("region", { name: "插件", exact: true });
+    await expect(plugins).toContainText("未安装");
+    await expect(plugins.getByRole("button", { name: "插件市场 ›", exact: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath("start-empty.png") });
+    // Open a note from its card, then close it: it appears under Recent and reopens from there.
+    await start.getByRole("button", { name: "笔记", exact: true }).click();
+    await expect(wb.getByRole("tab", { name: "笔记.md", exact: true })).toBeVisible();
+    await expect(wb.getByRole("tab", { name: "笔记.md", exact: true })).toHaveAttribute("data-kind", "note");
+    await expect(wb.locator(".workbench-split-toggle")).toHaveCount(0);
+    await wb.getByRole("tab", { name: "笔记.md", exact: true }).click({ button: "right" });
+    await page.getByRole("button", { name: "关闭标签", exact: true }).click();
+    const recent = start.getByRole("region", { name: "最近", exact: true });
+    await expect(recent).toBeVisible();
+    await expect(recent.locator(".workbench-start-row")).toHaveCount(1);
+    await expect(recent).toContainText("笔记.md"); await expect(recent).toContainText("笔记");
+    await page.screenshot({ path: info.outputPath("start-recent.png") });
+    await recent.getByRole("button", { name: /笔记\.md/ }).click();
+    await expect(wb.getByRole("tab", { name: "笔记.md", exact: true })).toBeVisible();
+    // A second tab makes the split button appear.
+    await newNote(page);
+    await expect(wb.getByRole("tab")).toHaveCount(2);
+    await expect(wb.locator(".workbench-split-toggle")).toBeVisible();
+    // Last: the plugin row's install button opens the market at that plugin.
+    for (let left = 2; left > 0; left--) {
+      await wb.getByRole("tab").first().click({ button: "right" });
+      await page.getByRole("button", { name: "关闭标签", exact: true }).click();
+      await expect(wb.getByRole("tab")).toHaveCount(left - 1);
+    }
+    await expect(wb.getByRole("tab")).toHaveCount(0);
+    await start.getByRole("region", { name: "插件", exact: true }).locator('[data-workbench-plugin-download="tarobird.infinite-canvas"]').click();
+    const market = page.locator("dialog.plugins-modal-dialog[open]");
+    await expect(market).toBeVisible();
+    await expect(market).toContainText("无限画布");
   } finally { await f.close(); }
 });
