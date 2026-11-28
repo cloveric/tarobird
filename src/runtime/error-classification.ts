@@ -4,7 +4,7 @@ import { OmpRpcCommandError, OmpStartupError } from "../codex/omp-rpc-client.js"
 import { OmpFrameError, OmpProtocolVersionError } from "../codex/omp-rpc-protocol.js";
 import { ENGINE_CONFIG_ERROR_CODE, EngineConfigError } from "../state/engine-config-error.js";
 import { FileWorkflowPreparationError } from "./file-workflow.js";
-import { EngineHistoryBusyError, EngineIncompleteResponseError } from "../codex/adapter.js";
+import { CodexModelUnavailableError, EngineHistoryBusyError, EngineIncompleteResponseError } from "../codex/adapter.js";
 import { hostT } from "../locales/index.js";
 import type { Locale } from "./locale.js";
 
@@ -82,6 +82,9 @@ export function extractModelEffortMismatch(error: unknown): { model: string; eff
   return available.length ? { model: match[1]!, effort: match[2]!, available } : undefined;
 }
 export function renderEngineSettingsError(error: unknown, locale: Locale): string {
+  if (error instanceof CodexModelUnavailableError) {
+    return hostT(locale, "所选 Codex 模型不可用。请检查主机上的 Codex 账号权限，或在 Bot 的模型设置中选择可用模型后重试。原会话已保留。");
+  }
   if (error instanceof PiRpcCommandError && error.kind === "no-model") {
     return hostT(locale, "Pi 尚无可用模型。请在运行 Bot 的主机上执行 `pi auth login` 或配置提供商凭据，然后重新读取模型列表并重试。");
   }
@@ -253,6 +256,7 @@ export function piProviderFailureCategory(error: unknown): "engine-request-rejec
 export function classifyFailure(error: unknown): FailureCategory {
   if (error instanceof SessionHistoryPendingError) return "workflow-state";
   if (error instanceof EngineHistoryBusyError) return "engine-busy";
+  if (error instanceof CodexModelUnavailableError) return "engine-settings";
   if (error instanceof PiRpcCommandError) {
     if (error.kind === "no-model" || error.kind === "model-unavailable") return "engine-settings";
     if (error.kind === "auth") return "auth";

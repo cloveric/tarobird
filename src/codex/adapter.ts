@@ -20,6 +20,11 @@ export class EngineIncompleteResponseError extends Error {
   ) { super(message); this.name = "EngineIncompleteResponseError"; }
 }
 
+/** Codex reported an unavailable model in a failed native turn. */
+export class CodexModelUnavailableError extends Error {
+  constructor(message: string) { super(message); this.name = "CodexModelUnavailableError"; }
+}
+
 /** A local native history mutation excludes ordinary input until it settles. */
 export class EngineHistoryBusyError extends Error {
   constructor() { super("Native conversation history operation is still in progress"); this.name = "EngineHistoryBusyError"; }

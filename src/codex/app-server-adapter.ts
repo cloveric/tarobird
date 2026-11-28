@@ -33,7 +33,7 @@ import type {
   NativeHistoryState,
   SideCapability,
 } from "./adapter.js";
-import { EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineSteeringRejectedError } from "./adapter.js";
+import { CodexModelUnavailableError, EngineContextCompactionPendingError, EngineIncompleteResponseError, EngineSteeringRejectedError } from "./adapter.js";
 import { appendUniqueSendImageTag, extractGeneratedImagePath, sendImageTag } from "./generated-files.js";
 import { killProcessTree } from "./process-tree.js";
 import { normalizeCodexUserInput } from "./codex-user-input.js";
@@ -896,6 +896,7 @@ export class CodexAppServerAdapter implements CodexAdapter {
    * the turn runs with policy "never". Without this gate Codex asked even in yolo.
    */
   private currentApprovalMode: ApprovalMode = DEFAULT_APPROVAL_MODE;
+  private currentModelSettings: { model?: string; effort?: string } = {};
   private child: AppServerChildProcess | null = null;
   private initializePromise: Promise<void> | null = null;
   private initializeKey: string | null = null;
@@ -1827,11 +1828,7 @@ export class CodexAppServerAdapter implements CodexAdapter {
     return parts.join("\n");
   }
 
-  private async ensureInitialized(runtimeOptions: {
-    approvalMode: ApprovalMode;
-    initializeArgs: string[];
-    initializeKey: string;
-  }): Promise<void> {
+  private async ensureInitialized(runtimeOptions: Awaited<ReturnType<CodexAppServerAdapter["loadRuntimeOptions"]>>): Promise<void> {
     let deferredConfigChange = false;
     if (this.initializeKey !== null && this.initializeKey !== runtimeOptions.initializeKey) {
       if (!this.isIdle() && this.initializePromise) {
@@ -1874,6 +1871,7 @@ export class CodexAppServerAdapter implements CodexAdapter {
 
     if (!this.initializePromise) {
       this.currentApprovalMode = runtimeOptions.approvalMode;
+      this.currentModelSettings = { model: runtimeOptions.model, effort: runtimeOptions.effort };
       this.initializeKey = runtimeOptions.initializeKey;
       // A rejected initialize must NOT be sticky. An `initialize` JSON-RPC *error*
       // response (as opposed to a timeout) leaves the child alive, so neither the
@@ -2483,6 +2481,15 @@ export class CodexAppServerAdapter implements CodexAdapter {
         const finalNotification = useNotification && pending.notificationErrorMessage !== undefined
           && pending.notificationWillRetry !== true;
         const errorInfo = useNotification ? pending.notificationErrorInfo : readCodexErrorInfo((completedTurn as { error?: unknown } | undefined)?.error);
+        // Codex 0.145.0 can report a provider's model_not_found as `other`
+        // with the JSON error in the message of the terminal receipt.
+        if ((!useNotification || finalNotification) && (completedTurn as { status?: unknown } | undefined)?.status === "failed"
+          && (errorInfo === "modelNotFound"
+            || ((errorInfo === "other" || errorInfo === undefined) && /"code"\s*:\s*"model_not_found"/.test(failureMessage)))) {
+          pending.reject(new CodexModelUnavailableError(failure.message));
+          this.finishCompletingTurn();
+          return;
+        }
         // Only this thread's history can drop the refused input: a side turn's
         // ephemeral thread or a logical session has none to rewind.
         const rejected = useNotification && !finalNotification ? undefined
@@ -3609,7 +3616,13 @@ export class CodexAppServerAdapter implements CodexAdapter {
     }
 
     const requestGeneration = this.childGeneration;
-    const searchConfig = await this.managedSearchConfig(cwd);
+    // Codex can prefer persisted thread settings to the app-server's startup
+    // config. Supply the running Bot's explicit choices again at resume.
+    const { model, effort } = this.currentModelSettings;
+    const config = {
+      ...await this.managedSearchConfig(cwd),
+      ...(effort ? { model_reasoning_effort: effort } : {}),
+    };
     let result: { thread?: { id?: string } };
     try {
       result = (await this.request(
@@ -3618,7 +3631,8 @@ export class CodexAppServerAdapter implements CodexAdapter {
           threadId,
           // A resumed thread can retain its former full-access sandbox.
           ...(this.configPath ? { sandbox: this.currentApprovalMode === "bypass" ? "danger-full-access" : "workspace-write" } : {}),
-          ...(Object.keys(searchConfig).length > 0 ? { config: searchConfig } : {}),
+          ...(model ? { model } : {}),
+          ...(Object.keys(config).length > 0 ? { config } : {}),
           approvalPolicy: "never",
           excludeTurns: true,
         },

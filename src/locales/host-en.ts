@@ -157,6 +157,7 @@ export const HOST_EN = {
   "DeepSeek Harness 暂未完整返回模型目录（有供应商读取失败），为避免用错模型，本轮未执行。请检查主机上的 DSH 供应商配置与授权后重试；不会自动换成其他模型，无需重启实例。": "DeepSeek Harness did not return a complete model catalog (a provider failed), so this turn did not run to avoid using the wrong model. Check the DSH provider configuration and sign-in on the Host, then retry; no other model is substituted and no restart is needed.",
   "DeepSeek Harness 未确认此 Bot 的模型选择，为避免用错模型，本轮未执行。请重试；若持续出现，请在 Bot 的模型设置中重新选择模型。不会自动换成其他模型。": "DeepSeek Harness did not confirm this Bot's model selection, so this turn did not run to avoid using the wrong model. Retry; if it persists, choose the model again in the Bot's model settings. No other model is substituted.",
   "所选模型在 Pi 中不可用。请检查模型名称和供应商登录状态，或选择可用模型后重试。": "The selected model is not available in Pi. Check the model name and provider sign-in, or select an available model and retry.",
+  "所选 Codex 模型不可用。请检查主机上的 Codex 账号权限，或在 Bot 的模型设置中选择可用模型后重试。原会话已保留。": "The selected Codex model is unavailable. Check the Codex account's access on the host, or choose an available model in Bot settings and retry. The conversation history is preserved.",
   "模型与思考强度不兼容，请调整 Bot 的模型或 effort 后重试。": "The model and effort are incompatible. Change the Bot model or effort and retry.",
   "模型 {0} 不支持 {1}。可用档位：{2}。请在 Bot 的思考强度设置中调整，或选择跟随默认；无需重启。": "Model {0} does not support {1}. Available levels: {2}. Change the Bot effort or follow its default; no restart is needed.",
   "\n提供商说明：{0}": "\nThe provider said: {0}",
