@@ -45,7 +45,7 @@ import { STEER_CALL_TIMEOUT_MS, STEER_RECONCILE_TIMEOUT_MS, STEER_STATUS_TIMEOUT
 import { BOT_MESSAGE_STEER_CAPABILITY, botMessageSteeringCommandSchema } from "../client-protocol/bot-message-delivery.js";
 import { HubAgentBuses } from "./agent-bus.js";
 import { HubGroupDiscussions } from "./group-discussions.js";
-import { HubCrossHostGroups } from "./group-cross-host.js";
+import { HubCrossHostGroups, MAX_GROUP_MAIL_REQUEST_BYTES } from "./group-cross-host.js";
 import { CROSS_HOST_GROUPS_CAPABILITY } from "../client-protocol/group-members.js";
 import { GROUP_DISCUSSION_WORKER_CAPABILITY, GROUP_PARALLEL_CAPABILITY } from "../client-protocol/group-discussion.js";
 import { AGENT_BUS_WORKER_CAPABILITY } from "../client-protocol/agent-bus.js";
@@ -2114,7 +2114,7 @@ export class HubServer {
       this.networkRate(source, "bot-message");
       const method = req.method === "POST" ? "POST" : req.method === "GET" ? "GET" : undefined;
       if (!method) throw new HubError("method_not_allowed", 405);
-      const rawBuf = method === "POST" ? await this.body(req, 2 * MAX_FRAME_BYTES) : Buffer.alloc(0);
+      const rawBuf = method === "POST" ? await this.body(req, MAX_GROUP_MAIL_REQUEST_BYTES) : Buffer.alloc(0);
       const bodyText = rawBuf.toString("utf8");
       const peer = await this.crossHostGroups.verifyPeerRequest(method, route, req.headers, bodyText);
       const parsePeerJson = (): unknown => {
