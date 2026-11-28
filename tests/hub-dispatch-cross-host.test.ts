@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import { BotManager } from "../src/hub/bot-manager.js";
 import { messageHostId } from "../src/hub/bot-messages.js";
 import { desktopTls } from "../src/hub/desktop-tls.js";
 import { buildBatchSummaryText, parseSplitTaskSpec, planSplitBatches } from "../src/hub/dispatch-planner.js";
-import { readLocalHostLoad, updateCrossHostDispatchGrants } from "../src/hub/dispatch-remote.js";
+import { handleRemoteDispatchRequest, readLocalHostLoad, updateCrossHostDispatchGrants, type RemoteDispatchContext } from "../src/hub/dispatch-remote.js";
 import { HubPromptQueue } from "../src/hub/prompt-queue.js";
 import { networkId } from "../src/hub/private-network.js";
 import { HubServer } from "../src/hub/server.js";
@@ -162,7 +162,7 @@ beforeEach(async () => {
     dispatchWorker: async (_dispatcher: string, engine: DispatchEngine) => (engine === "claude" ? "w_remote_claude" : "w_remote_codex"),
     ticketWorkspace: async (_dispatcher: string, ticketId: string) => path.join(bDir, "tickets", ticketId),
     remoteDispatchWorker: async (_sourceHostId: string, engine: DispatchEngine) => (engine === "claude" ? "w_remote_claude" : "w_remote_codex"),
-    remoteTicketWorkspace: async (_sourceHostId: string, remoteTicketId: string) => path.join(bDir, "remote-tickets", remoteTicketId),
+    remoteTicketWorkspace: async (_sourceHostId: string, remoteTicketId: string) => ({ path: path.join(bDir, "remote-tickets", remoteTicketId) }),
   };
 });
 
@@ -652,6 +652,106 @@ it("guards ask-mode split plans, supports remote stop over TLS, and exposes CLI 
     expect(updatedNodeSettings.settings.nodes?.find(n => n.hostId === studioId)).toMatchObject({ enabled: false, allowedEngines: ["claude"], maxConcurrent: 1 });
   } finally {
     await closeA();
+  }
+});
+
+it("creates only the accepted remote workspace when equivalent requests arrive concurrently", async () => {
+  await authorizeStudioFromMac();
+  const directory = path.join(bDir, "remote-ticket-fixture");
+  await mkdir(path.join(directory, "retained"), { recursive: true });
+  await writeFile(path.join(directory, "retained", "existing.txt"), "Existing work");
+  let workersEntered = 0;
+  let releaseWorkers!: () => void;
+  const bothPastLookup = new Promise<void>(resolve => { releaseWorkers = resolve; });
+  const workspace = vi.fn(async (_sourceHostId: string, ticketId: string) => {
+    const selected = path.join(directory, ticketId);
+    await mkdir(selected);
+    return { path: selected };
+  });
+  const conversationCreated = vi.fn();
+  const context: RemoteDispatchContext = {
+    store: b.store, auth: b.auth, network: b.network, attachments: b.attachments, conversationCreated,
+    stop: async () => undefined,
+    workers: {
+      catalog: b.dispatch.workers!.catalog,
+      remoteDispatchWorker: async () => {
+        if (++workersEntered === 2) releaseWorkers();
+        await bothPastLookup;
+        return "w_remote_codex";
+      },
+      remoteTicketWorkspace: workspace,
+    },
+  };
+  const source = { hostId: macId, hostName: "Source", botId: "d", botName: "Dispatcher", requestId: "remote_call", hops: 1 };
+  const payload = { remoteRequestId: "same_remote_request", title: "Fixture work", request: "Complete the fixture task", engine: "codex", model: "", effort: "" };
+  const run = (input = payload) => handleRemoteDispatchRequest(
+    context, a.auth.publicKey, source, REMOTE_DISPATCH_TARGET_BOT, "/api/bot-messages/dispatch/run", input,
+  );
+
+  const [first, second] = await Promise.all([run(), run()]);
+  expect(second).toEqual(first);
+  const accepted = first as { remoteTicketId: string; conversationId: string; messageId: string };
+  expect(workersEntered).toBe(2);
+  expect(workspace).toHaveBeenCalledExactlyOnceWith(macId, accepted.remoteTicketId);
+  expect(await readdir(directory)).toEqual(expect.arrayContaining(["retained", accepted.remoteTicketId]));
+  expect(await readdir(directory)).toHaveLength(2);
+  expect(conversationCreated).toHaveBeenCalledTimes(1);
+  expect(await b.store.db.all("SELECT id, conversation_id, input_message_id FROM remote_dispatch_tickets")).toEqual([
+    { id: accepted.remoteTicketId, conversation_id: accepted.conversationId, input_message_id: accepted.messageId },
+  ]);
+
+  await expect(run({ ...payload, request: "A different task" })).rejects.toThrow("idempotency_conflict");
+  context.workerCapable = () => false;
+  await expect(run({ ...payload, remoteRequestId: "unsupported_worker" })).rejects.toThrow("bot_message_worker_update_required");
+  expect(workspace).toHaveBeenCalledTimes(1);
+});
+
+it("cleans up an exclusively created remote workspace if its ticket transaction rolls back", async () => {
+  await authorizeStudioFromMac();
+  const manager = new BotManager(b.store, bDir, { entrypoint: path.resolve("tests/fixtures/managed-bot-worker.mjs") }, () => b.instanceUrl, async () => {});
+  const workspace = vi.spyOn(manager, "remoteTicketWorkspace");
+  const directory = path.join(bDir, "remote-dispatch", macId, "tickets");
+  await mkdir(path.join(directory, "retained"), { recursive: true });
+  await writeFile(path.join(directory, "retained", "existing.txt"), "Existing work");
+  const originalExec = b.store.db.exec.bind(b.store.db);
+  let failCommit = true;
+  const exec = vi.spyOn(b.store.db, "exec").mockImplementation(async sql => {
+    if (sql === "COMMIT" && failCommit && workspace.mock.calls.length > 0) {
+      failCommit = false;
+      throw new Error("Synthetic transaction failure");
+    }
+    return originalExec(sql);
+  });
+  const created = vi.fn();
+  const run = () => handleRemoteDispatchRequest(
+    {
+      store: b.store, auth: b.auth, network: b.network, attachments: b.attachments, conversationCreated: created,
+      stop: async () => undefined,
+      workers: {
+        catalog: b.dispatch.workers!.catalog,
+        remoteDispatchWorker: async () => "w_remote_codex",
+        remoteTicketWorkspace: manager.remoteTicketWorkspace.bind(manager),
+      },
+    },
+    a.auth.publicKey, { hostId: macId, hostName: "Source", botId: "d", botName: "Dispatcher", requestId: "rollback_call", hops: 1 },
+    REMOTE_DISPATCH_TARGET_BOT, "/api/bot-messages/dispatch/run",
+    { remoteRequestId: "rollback_retry", title: "Fixture work", request: "Complete the fixture task", engine: "codex", model: "", effort: "" },
+  );
+  try {
+    await expect(run()).rejects.toThrow("Synthetic transaction failure");
+    expect(workspace).toHaveBeenCalledTimes(1);
+    expect(await b.store.db.all("SELECT id FROM remote_dispatch_tickets")).toEqual([]);
+    expect(await readdir(directory)).toEqual(["retained"]);
+    expect(created).not.toHaveBeenCalled();
+
+    const accepted = await run() as { remoteTicketId: string };
+    expect(await b.store.db.all("SELECT id FROM remote_dispatch_tickets")).toEqual([{ id: accepted.remoteTicketId }]);
+    expect(await readdir(directory)).toEqual(["retained", accepted.remoteTicketId].sort());
+    expect(created).toHaveBeenCalledTimes(1);
+  } finally {
+    exec.mockRestore();
+    workspace.mockRestore();
+    await manager.close();
   }
 });
 

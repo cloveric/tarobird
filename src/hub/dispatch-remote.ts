@@ -42,11 +42,16 @@ const dispatchGrantKey = (sourceKey: string, sourceBot: string) =>
 const dispatchRateKey = (sourceKey: string, sourceBot: string) =>
   `bot-messages:dispatch-rate:${createHash("sha256").update(JSON.stringify([sourceKey, sourceBot])).digest("hex")}`;
 
+export interface RemoteTicketWorkspace {
+  path: string;
+  removeIfEmpty?: () => Promise<void>;
+}
+
 export interface RemoteDispatchWorkers {
   catalog(): Promise<BotCatalog>;
   engineAvailable?(engine: DispatchEngine): boolean;
   remoteDispatchWorker?(sourceHostId: string, engine: DispatchEngine, validate?: TransactionGuard): Promise<string>;
-  remoteTicketWorkspace?(sourceHostId: string, remoteTicketId: string): Promise<string>;
+  remoteTicketWorkspace?(sourceHostId: string, remoteTicketId: string): Promise<RemoteTicketWorkspace>;
 }
 
 export interface RemoteDispatchContext {
@@ -417,7 +422,6 @@ export async function handleRemoteDispatchRequest(
       });
     }
 
-    const remoteTicketId = newId("rtk");
     if (!ctx.workers?.remoteDispatchWorker) throw new HubError("dispatch_worker_unavailable", 409);
     const validate = async () => {
       if (!await isRemoteDispatchAuthorizedInTransaction(ctx, sourceKey, source.botId, targetBot)) {
@@ -426,12 +430,9 @@ export async function handleRemoteDispatchRequest(
       await localAdmission?.();
     };
     const workerId = await ctx.workers.remoteDispatchWorker(source.hostId, input.engine, validate);
-    const workspace = ctx.workers?.remoteTicketWorkspace
-      ? await ctx.workers.remoteTicketWorkspace(source.hostId, remoteTicketId)
-      : undefined;
-
     const events: HubEvent[] = [];
     let createdConversation: Conversation | undefined;
+    let pendingWorkspace: { ticketId: string; removeIfEmpty: () => Promise<void> } | undefined;
     const response = await ctx.store.db.transaction(async (): Promise<RemoteDispatchRunResponse> => {
       if (!await isRemoteDispatchAuthorizedInTransaction(ctx, sourceKey, source.botId, targetBot)) {
         throw new HubError("bot_message_not_authorized", 403);
@@ -464,14 +465,12 @@ export async function handleRemoteDispatchRequest(
       const rateRow = await ctx.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key=?", [rateKey]);
       const times = (rateRow ? JSON.parse(rateRow.value) as number[] : []).filter(t => t > now - REMOTE_DISPATCH_RATE_WINDOW_MS);
       if (times.length >= REMOTE_DISPATCH_RATE_LIMIT) throw new HubError("bot_message_rate_limit", 429);
+      const remoteTicketId = newId("rtk");
       await ctx.store.db.run(
         "INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         [rateKey, JSON.stringify([...times, now])],
       );
       const conv = await ctx.store.createConversationInTransaction("owner", [bot.id], input.title.slice(0, 256), `rtk_${remoteTicketId}`, { dispatchWorker: true });
-      const marker = { id: remoteTicketId, dispatcherBotId: source.botId, ...(input.model ? { model: input.model } : {}), ...(input.effort ? { effort: input.effort } : {}), ...(workspace ? { workspace } : {}) };
-      await ctx.store.db.run("UPDATE conversations SET hidden=1,ticket_json=? WHERE id=?", [JSON.stringify(marker), conv.id]);
-      createdConversation = await ctx.store.conversationInTransaction(conv.id);
       const sent = await ctx.store.sendMessageInTransaction("owner", {
         conversationId: conv.id,
         clientMsgId: `rtk_${remoteTicketId}`,
@@ -498,6 +497,11 @@ export async function handleRemoteDispatchRequest(
         "INSERT INTO audit_log(at,actor,kind,detail_json) VALUES(?,?,?,?)",
         [now, source.botId, "dispatch.remote_run_started", JSON.stringify({ remoteTicketId, sourceHost: source.hostId, engine: input.engine })],
       );
+      const workspace = await ctx.workers?.remoteTicketWorkspace?.(source.hostId, remoteTicketId);
+      if (workspace?.removeIfEmpty) pendingWorkspace = { ticketId: remoteTicketId, removeIfEmpty: workspace.removeIfEmpty };
+      const marker = { id: remoteTicketId, dispatcherBotId: source.botId, ...(input.model ? { model: input.model } : {}), ...(input.effort ? { effort: input.effort } : {}), ...(workspace ? { workspace: workspace.path } : {}) };
+      await ctx.store.db.run("UPDATE conversations SET hidden=1,ticket_json=? WHERE id=?", [JSON.stringify(marker), conv.id]);
+      createdConversation = await ctx.store.conversationInTransaction(conv.id);
       return remoteDispatchRunResponseSchema.parse({
         remoteTicketId,
         conversationId: conv.id,
@@ -509,6 +513,17 @@ export async function handleRemoteDispatchRequest(
         effort: input.effort,
         status: "working",
       });
+    }).catch(async error => {
+      const allocation = pendingWorkspace;
+      if (allocation) {
+        // An unconfirmed commit or a failed readback is insufficient proof
+        // that the workspace is unowned.
+        const absent = await ctx.store.db.serial(async () =>
+          !await ctx.store.db.get("SELECT 1 FROM remote_dispatch_tickets WHERE id=?", [allocation.ticketId]),
+        ).catch(() => false);
+        if (absent) await allocation.removeIfEmpty().catch(() => undefined);
+      }
+      throw error;
     });
     if (createdConversation) ctx.conversationCreated("owner", createdConversation);
     ctx.store.emitCommitted(events);
