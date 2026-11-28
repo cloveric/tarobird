@@ -1048,25 +1048,21 @@ dialog.plugins-modal-dialog::backdrop {
   word-break: break-all;
 }
 
-/* Plugin panel entry buttons in the desktop header */
+/* Plugin panel entry buttons in the desktop header: icon-only, sized like the other header icons.
+   The plugin's name stays in aria-label and title. */
 .plugin-panel-trigger {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
   flex: 0 0 auto;
-  width: auto;
-  min-width: 32px;
+  width: 32px;
   height: 32px;
-  padding: 0 10px;
-  border-radius: 7px;
+  padding: 0;
+  border-radius: var(--radius);
   border: 1px solid transparent;
   background: transparent;
   color: var(--grey, var(--muted));
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 .plugin-panel-trigger > svg {
@@ -1265,12 +1261,6 @@ dialog.plugin-mobile-sheet::backdrop {
 }
 
 @media (max-width: 960px) {
-  .plugin-panel-trigger-label {
-    display: none;
-  }
-  .plugin-panel-trigger {
-    padding: 0 7px;
-  }
   .plugin-detail-layout {
     grid-template-columns: 1fr;
   }

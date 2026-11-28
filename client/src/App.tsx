@@ -2117,7 +2117,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     return <button key={`${plugin.manifest.id}:${contribution.id}`} type="button" className={`plugin-panel-trigger${isOpen ? " is-active" : ""}`} aria-label={label} title={label} aria-expanded={isOpen} onClick={() => {
       if (isOpen) { setRightMode("side"); setActivePluginPanel(undefined); }
       else { setDetails(false); closeSearch(); setActivePluginPanel({ pluginId: plugin.manifest.id, contributionId: contribution.id, title: label }); setRightMode("plugin"); }
-    }}><Puzzle size={16} aria-hidden="true"/><span className="plugin-panel-trigger-label">{label}</span></button>;
+    }}><Puzzle size={18} aria-hidden="true"/></button>;
   });
   const openFiles = () => {
     designOpener.revoke();
