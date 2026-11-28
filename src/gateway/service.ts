@@ -1,3 +1,4 @@
+import { buildEngineEnvironment } from "../core/engine-factory.js";
 import { gatewayConversationHistory } from "./conversation-history.js";
 import { CONVERSATION_HISTORY_CAPABILITY, historyAnchorEvidenceSchema } from "../client-protocol/conversation-history.js";
 import { gatewayEngineQuota } from "./engine-quota.js";
@@ -69,7 +70,8 @@ export async function attachGateway(options: GatewayServiceOptions): Promise<Gat
   const attachedAt = Date.now();
   let swarmProbe: { executable: string; promise: Promise<boolean>; settled: boolean; result?: boolean; expiresAt?: number } | undefined;
   const startSwarmProbe = () => {
-    const executable = resolveAntigravityExecutable(process.env);
+    const env = buildEngineEnvironment(process.env, "gateway");
+    const executable = resolveAntigravityExecutable(env);
     const now = Date.now();
     if (
       swarmProbe
@@ -83,7 +85,7 @@ export async function attachGateway(options: GatewayServiceOptions): Promise<Gat
       promise: Promise.resolve(false),
       settled: false,
     };
-    entry.promise = antigravitySupportsSwarm(executable, process.env)
+    entry.promise = antigravitySupportsSwarm(executable, env)
       .catch(() => false)
       .then((supported) => {
         entry.settled = true;

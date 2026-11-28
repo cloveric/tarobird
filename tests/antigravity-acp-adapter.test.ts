@@ -427,6 +427,51 @@ describe("AntigravityAcpAdapter core", () => {
     expect(harness.children[0]!.server.prompts).toHaveLength(0);
   });
 
+  it("requires a fresh whole-turn approval on migrated Normal before starting agy or sending prompts", async () => {
+    const harness = createHarness();
+    const adapter = track(await adapterFor(harness, {
+      approvalMode: "normal", antigravityRuntime: "acp", antigravityAcpLegacyTurnApproval: true,
+    }));
+    const message = { text: "continue fixture", files: [] };
+    await expect(adapter.sendUserMessage(SESSION_A, message)).rejects.toThrow(/whole-turn approval/);
+    await expect(adapter.sendUserMessage(SESSION_A, {
+      ...message, onApprovalRequest: async () => ({ behavior: "deny" }),
+    })).rejects.toThrow(/denied/);
+    expect(harness.spawnCalls).toHaveLength(0);
+
+    const approval = vi.fn(async (_request: EngineApprovalRequest) => ({ behavior: "allow" as const, scope: "once" as const }));
+    const reply = adapter.sendUserMessage(SESSION_A, { ...message, onApprovalRequest: approval });
+    await waitFor(() => harness.children[0]?.server.prompts.length === 1);
+    const server = harness.children[0]!.server;
+    expect(approval).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      engine: "antigravity", approvalScopes: { once: "turn" }, toolInput: { prompt: message.text },
+    }));
+    expect(harness.spawnCalls[0]!.args).toEqual(["acp", "--dangerously-skip-permissions", "--sandbox", "--add-dir", "/tmp/agy-workspace"]);
+    expect(server.requests("session/resume")).toHaveLength(1);
+    expect(adapter.supportsSessionSteering(SESSION_A)).toBe(false);
+    await expect(adapter.steerActiveTurn(SESSION_A, { text: "unapproved follow-up" })).resolves.toBe(false);
+    const nativePermission = server.requestPermission("unexpected", { CommandLine: "echo ignored" });
+    await waitFor(() => server.clientResponses.has(nativePermission));
+    expect(server.clientResponses.get(nativePermission)?.result).toEqual({ outcome: { outcome: "selected", optionId: "deny" } });
+    expect(server.prompts).toHaveLength(1);
+    expect(approval).toHaveBeenCalledTimes(1);
+    server.text("approved");
+    server.respondPrompt();
+    await expect(reply).resolves.toMatchObject({ text: "approved", sessionId: SESSION_A });
+
+    const controller = new AbortController();
+    let allow!: (decision: { behavior: "allow" }) => void;
+    const waitForApproval = vi.fn(() => new Promise<{ behavior: "allow" }>(resolve => { allow = resolve; }));
+    const stopped = adapter.sendUserMessage(SESSION_A, {
+      ...message, onApprovalRequest: waitForApproval, abortSignal: controller.signal,
+    });
+    await waitFor(() => waitForApproval.mock.calls.length === 1);
+    controller.abort();
+    await expect(settleWithin(stopped)).rejects.toThrow(/stopp?ed/i);
+    allow({ behavior: "allow" });
+    expect(server.prompts).toHaveLength(1);
+  });
+
   it("bridges session/request_permission to the turn's approval handler with allow_once and reject_once only", async () => {
     const harness = createHarness();
     const adapter = track(await adapterFor(harness, { approvalMode: "normal" }));

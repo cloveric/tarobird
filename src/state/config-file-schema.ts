@@ -47,6 +47,8 @@ export const ConfigFileSchema = z.object({
   codexRuntime: z.enum(["app-server", "process"]).optional(),
   /** Antigravity transport; absent means the print-mode adapter. Applied when the Bot restarts. */
   antigravityRuntime: z.enum(["print", "acp"]).optional(),
+  /** Retains whole-turn approval and the terminal sandbox for migrated Normal Bots. */
+  antigravityAcpLegacyTurnApproval: z.literal(true).optional(),
   locale: LocaleSchema.optional(),
   verbosity: z.union([z.literal(0), z.literal(1), z.literal(2)]).optional(),
   budgetUsd: z.number().positive().optional(),

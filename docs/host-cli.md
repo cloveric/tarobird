@@ -40,19 +40,21 @@ tarobird engines reset --engine codex --revision REV --json
 ### Antigravity ACP 迁移
 
 升级后的主机在普通托管 Bot 的 Gateway 启动时检查旧配置。之前省略运行时字段、
-使用 Bypass 或沙箱自动执行的 Bot，只有在当前 `agy` 至少为 1.5.10 且
-ACP 声明支持恢复会话时才会切换。配置中的工作区、账号、模型、权限和保存的
-会话绑定沿用原值，等候中的消息继续进入原会话。
+当前 `agy` 至少为 1.5.10 且 ACP 声明支持恢复会话的 Bot 会切换。工作区、
+账号、权限和保存的会话绑定沿用原值，等候中的消息继续进入原会话。
+旧模型或思考档位若不在 ACP 的选项中，该轮会在提交前报错。可以用 App 的
+模型选择器重选后手动发送，或固定使用 print 后再继续原会话。
 
 运行中的 Bot 可通过 App 的「空闲后重启」进入这一启动流程。CLI 主机可用
-`tarobird restart` 等待空闲后重启主机。探测失败时，下次空闲重启可重试。
+`tarobird restart` 等待空闲后重启主机。探测失败时，下次空闲重启可重试。Gateway 本地日志中的
+`antigravity_runtime_migration_deferred` 区分版本不支持、探测超时及缺少恢复能力。
 如需回退，主机所有者可在空闲时将该 Bot 的 `config.json` 中
 `antigravityRuntime` 设为 `"print"`，再执行空闲重启。该设置固定使用
 旧运行时并保留原会话数据。
 
-旧版普通审批采用整轮确认和终端沙箱。ACP 的普通审批逐项确认且默认没有该沙箱，
-这类 Bot 保留原运行时。显式固定的运行时、派单 Bot 与其本机和远端 Worker
-也继续走原路径。
+迁移的普通审批 Bot 每轮先请求一次整轮确认，获批后在终端沙箱内执行。
+新建 ACP Bot 的普通审批继续逐项确认。显式固定的运行时、派单 Bot 与其本机
+和远端 Worker 继续走原路径。
 详见[发现机制和验证边界](client/host-engine-paths-2026-11-13.md)。
 
 ## 模型额度

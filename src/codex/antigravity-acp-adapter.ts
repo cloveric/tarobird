@@ -1,3 +1,4 @@
+import { raceAbort } from "../runtime/abort-race.js";
 import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -140,6 +141,7 @@ export type AntigravityAcpAdapterOptions = {
 
 type RuntimeConfig = {
   approvalMode: ApprovalMode;
+  legacyTurnApproval?: boolean;
   model?: string;
   effort?: (typeof ANTIGRAVITY_EFFORT_LEVELS)[number];
 };
@@ -185,6 +187,7 @@ type PromptEntry = {
 };
 
 type Turn = {
+  wholeTurnApproval: boolean;
   worker: Worker;
   prompts: PromptEntry[];
   text: string;
@@ -393,8 +396,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 /** Check the installed transport without opening a session or submitting input. */
-export async function probeAntigravityAcpResume(executable: string, env: NodeJS.ProcessEnv, sandbox: boolean): Promise<boolean> {
-  const invocation = buildCommandInvocation(executable, ["acp", ...(sandbox ? ["--sandbox"] : [])]);
+type AcpResumeProbe = "supported" | "timed_out" | "unavailable" | "resume_unsupported" | "protocol_unsupported" | "exit_unconfirmed";
+
+export async function probeAntigravityAcpResume(executable: string, env: NodeJS.ProcessEnv, mode: ApprovalMode): Promise<AcpResumeProbe> {
+  const invocation = buildCommandInvocation(executable, ["acp", ...permissionFlags(mode)]);
   const child = spawnEngine(invocation.command, invocation.args, {
     stdio: ["pipe", "pipe", "pipe"], shell: invocation.shell, env, windowsHide: true,
   });
@@ -405,7 +410,7 @@ export async function probeAntigravityAcpResume(executable: string, env: NodeJS.
   child.stdin?.on("error", rejectTransport);
   child.stderr?.resume();
   const ended = exited.then(() => { throw new Error("Antigravity ACP probe exited"); });
-  let supported = false;
+  let status: AcpResumeProbe = "unavailable";
   try {
     if (!child.stdout || !child.stdin) {
       void ended.catch(() => undefined);
@@ -418,10 +423,11 @@ export async function probeAntigravityAcpResume(executable: string, env: NodeJS.
         clientCapabilities: { elicitation: { form: {} } },
       });
       const reply = await withTimeout(Promise.race([initialize, transportError, ended]), 3500, "Antigravity ACP probe timed out");
-      supported = reply.protocolVersion === PROTOCOL_VERSION && Boolean(reply.agentCapabilities?.sessionCapabilities?.resume);
+      status = reply.protocolVersion !== PROTOCOL_VERSION ? "protocol_unsupported"
+        : reply.agentCapabilities?.sessionCapabilities?.resume ? "supported" : "resume_unsupported";
     }
-  } catch {
-    // An older or temporarily unavailable CLI leaves its saved Bot on print.
+  } catch (error) {
+    if (error instanceof AcpTimeoutError) status = "timed_out";
   } finally {
     // Wait for this capability-only process to finish before switching the Bot.
     child.stdin?.end();
@@ -430,10 +436,10 @@ export async function probeAntigravityAcpResume(executable: string, env: NodeJS.
     } catch {
       await killProcessTree(child.pid, { graceMs: 250 });
       try { await withTimeout(exited, 1000, "Antigravity ACP probe exit unconfirmed"); }
-      catch { supported = false; }
+      catch { status = "exit_unconfirmed"; }
     }
   }
-  return supported;
+  return status;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -792,7 +798,7 @@ export class AntigravityAcpAdapter implements CodexAdapter {
 
   supportsSessionSteering(sessionId: string): boolean {
     const worker = this.liveWorker(sessionId);
-    return Boolean(worker && !worker.closing && !worker.exited);
+    return Boolean(worker && !worker.closing && !worker.exited && !worker.turn?.wholeTurnApproval);
   }
 
   /**
@@ -810,6 +816,7 @@ export class AntigravityAcpAdapter implements CodexAdapter {
     const worker = this.liveWorker(sessionId);
     const turn = worker?.turn;
     if (!worker || worker.closing || !turn || turn.done || turn.stopRequested) return refuse("stale");
+    if (turn.wholeTurnApproval) return refuse("not_ready");
     const text = input.text.trim();
     if (!text || !turn.prompts.some((entry) => !entry.settled)) return refuse("not_ready");
     if (worker.pendingPermissions > 0) return refuse("not_ready");
@@ -979,7 +986,11 @@ export class AntigravityAcpAdapter implements CodexAdapter {
     const parsed = await readValidatedConfigFile(this.options.configPath, { forExecution: true });
     const model = typeof parsed.model === "string" && parsed.model.trim() ? parsed.model.trim() : undefined;
     const effort = typeof parsed.effort === "string" && ANTIGRAVITY_EFFORTS.has(parsed.effort) ? parsed.effort as RuntimeConfig["effort"] : undefined;
-    return { approvalMode: normalizeApprovalMode(parsed.approvalMode) ?? DEFAULT_APPROVAL_MODE, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+    return {
+      approvalMode: normalizeApprovalMode(parsed.approvalMode) ?? DEFAULT_APPROVAL_MODE,
+      legacyTurnApproval: parsed.antigravityRuntime === "acp" && parsed.antigravityAcpLegacyTurnApproval === true,
+      ...(model ? { model } : {}), ...(effort ? { effort } : {}),
+    };
   }
 
   private async buildPrompt(input: CodexUserMessageInput, unwrapWorkerMention = false): Promise<ContentBlock[]> {
@@ -1022,6 +1033,25 @@ export class AntigravityAcpAdapter implements CodexAdapter {
   async sendUserMessage(sessionId: string, input: CodexUserMessageInput): Promise<CodexAdapterResponse> {
     if (this.destroyed) throw new Error("Adapter destroyed");
     const config = resolveEngineOverride("antigravity", await this.loadRuntimeConfig(), input.engineOverride);
+    const wholeTurnApproval = config.approvalMode === "normal" && config.legacyTurnApproval;
+    const workspace = path.resolve(input.workspaceOverride ?? this.options.workspacePath);
+    if (wholeTurnApproval) {
+      const requestApproval = input.onApprovalRequest;
+      if (!requestApproval) throw new Error("Antigravity normal mode requires a whole-turn approval handler");
+      const request = {
+        engine: "antigravity" as const,
+        toolName: "Antigravity full-auto turn (grants the WHOLE turn, not one command)",
+        approvalScopes: { once: "turn" as const },
+        toolInput: { prompt: input.text },
+        cwd: workspace,
+        abortSignal: input.abortSignal,
+      };
+      const decision = input.abortSignal
+        ? await raceAbort(() => requestApproval(request), input.abortSignal, () => ({ behavior: "deny" }))
+        : await requestApproval(request);
+      if (input.abortSignal?.aborted) throw new Error(STOPPED_BY_USER);
+      if (decision.behavior !== "allow") throw new Error("Antigravity turn was denied by the user");
+    }
     // The Host's compact command carries no approval handler. A native /compact needs none:
     // a permission request that arrives without a handler is declined.
     if (config.approvalMode === "normal" && this.options.configPath && !input.onApprovalRequest && input.text.trim() !== "/compact") {
@@ -1046,9 +1076,9 @@ export class AntigravityAcpAdapter implements CodexAdapter {
         };
       }
     }
-    const workspace = path.resolve(input.workspaceOverride ?? this.options.workspacePath);
-    const launchKey = JSON.stringify({ workspace, flags: permissionFlags(config.approvalMode) });
-    const worker = await this.startedWorker(sessionId, workspace, launchKey, config.approvalMode, input.abortSignal);
+    const launchMode = wholeTurnApproval ? "full-auto" : config.approvalMode;
+    const launchKey = JSON.stringify({ workspace, flags: permissionFlags(launchMode) });
+    const worker = await this.startedWorker(sessionId, workspace, launchKey, launchMode, input.abortSignal);
     if (worker.turn || worker.reserved) throw new Error("Antigravity session already has an in-flight turn");
     worker.reserved = true;
     let prompt: ContentBlock[];
@@ -1078,7 +1108,9 @@ export class AntigravityAcpAdapter implements CodexAdapter {
       worker.reserved = false;
     }
     if (worker.removed) throw worker.failure ?? new Error("Antigravity ACP worker is no longer available");
-    return await this.runTurn(worker, prompt, input);
+    // Legacy Normal has already granted its one approval. Unexpected native
+    // permission requests are declined instead of prompting a second time.
+    return await this.runTurn(worker, prompt, input, wholeTurnApproval);
   }
 
   /** The worker for a message. A stop while agy acp is still starting ends that process and the message. */
@@ -1272,12 +1304,12 @@ export class AntigravityAcpAdapter implements CodexAdapter {
     else worker.configOptions = worker.configOptions.map((option) => option.id === configId ? { ...option, currentValue: value } : option);
   }
 
-  private runTurn(worker: Worker, prompt: ContentBlock[], input: CodexUserMessageInput): Promise<CodexAdapterResponse> {
+  private runTurn(worker: Worker, prompt: ContentBlock[], input: CodexUserMessageInput, wholeTurnApproval = false): Promise<CodexAdapterResponse> {
     return new Promise<CodexAdapterResponse>((resolve, reject) => {
       const turn: Turn = {
-        worker, prompts: [], text: "", usage: undefined, toolSeen: false, permissionTools: new Map(), compact: input.text.trim() === "/compact",
+        worker, wholeTurnApproval, prompts: [], text: "", usage: undefined, toolSeen: false, permissionTools: new Map(), compact: input.text.trim() === "/compact",
         hasAsyncSubagent: false, awaitingReactiveWake: false, locale: input.locale,
-        onProgress: input.onProgress, onEngineEvent: input.onEngineEvent, onApprovalRequest: input.onApprovalRequest,
+        onProgress: input.onProgress, onEngineEvent: input.onEngineEvent, onApprovalRequest: wholeTurnApproval ? undefined : input.onApprovalRequest,
         approvals: new AbortController(), eventChain: Promise.resolve(), stopRequested: false,
         timeoutsDisabled: input.disableRuntimeTimeout === true, done: false, resolve, reject,
       };

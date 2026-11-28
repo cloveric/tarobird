@@ -3879,8 +3879,10 @@ session, Gateway, Bus and scoped App-tool suites listed in the audit.
   continues in the other (checked both ways against agy 1.5.14 on 2026-11-22).
   One process per session; `session/resume`
   (never `session/load`, which replays history); model/effort/mode through session
-  config; Normal approval through `session/request_permission` (allow once / reject
-  once); bypass/full-auto through launch flags. Every path that ends a process sends
+  config; new ACP Bots in Normal request approval per tool. A migrated Normal Bot
+  asks once before each turn, launches with the terminal sandbox after approval,
+  and queues new input for its own approval. Bypass/full-auto use launch flags.
+  Every path that ends a process sends
   `session/close` first: only that stops the session's background commands.
   Steering sends another `session/prompt` into the running turn; the prompt it
   replaces returns `end_turn` early and does not end the turn. A steer while an

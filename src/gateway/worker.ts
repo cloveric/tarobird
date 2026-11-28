@@ -1,6 +1,6 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { createBridgeDependencies } from "../core/engine-factory.js";
+import { buildEngineEnvironment, createBridgeDependencies } from "../core/engine-factory.js";
 import { recoverInterruptedCoreTurns } from "../core/recovery.js";
 import { appAgentInstructions } from "./agent-instructions.js";
 import type { EnvSource } from "../config.js";
@@ -109,7 +109,7 @@ export async function runGatewayWorker(argv: string[]): Promise<void> {
           await new FileWorkflowStore(stateDir).failInterruptedProcessing();
           await recoverInterruptedCoreTurns(stateDir, botId);
           if (stopRequested) break startup;
-          await migrateManagedLegacyAntigravityRuntime(stateDir, workerEnv).catch(() => {
+          await migrateManagedLegacyAntigravityRuntime(stateDir, buildEngineEnvironment(workerEnv, "gateway")).catch(() => {
             console.warn("antigravity_runtime_migration_deferred");
           });
         }

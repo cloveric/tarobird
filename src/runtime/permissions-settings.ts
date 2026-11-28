@@ -15,7 +15,7 @@ async function readConfig(file: string): Promise<ConfigFile> {
 function snapshot(config: ConfigFile, runtimeEngine: InstanceEngine, activeTurns: number): PermissionSettings {
   const engine = config.engine ?? "codex";
   if (engine !== runtimeEngine) throw new Error("permissions_engine_changed");
-  const revision = createHash("sha256").update(JSON.stringify([engine, config.approvalMode ?? null, config.claudePermissionMode ?? null, config.kimiAutoNeverAskAcknowledged ?? null, config.codexRuntime ?? null, config._clientPermissionsRevision ?? null, ...(config.antigravityRuntime ? [config.antigravityRuntime] : [])])).digest("hex");
+  const revision = createHash("sha256").update(JSON.stringify([engine, config.approvalMode ?? null, config.claudePermissionMode ?? null, config.kimiAutoNeverAskAcknowledged ?? null, config.codexRuntime ?? null, config._clientPermissionsRevision ?? null, ...(config.antigravityRuntime ? [config.antigravityRuntime] : []), ...(config.antigravityAcpLegacyTurnApproval ? [true] : [])])).digest("hex");
   return { scope: "bot", revision, engine, choice: currentPermission(engine, config), defaultChoice: defaultPermission(engine), choices: permissionOptions(engine, permissionRuntime(engine, config)), activeTurns };
 }
 /** Same Bot-level config and file mutex as other settings. Never touches session bindings
