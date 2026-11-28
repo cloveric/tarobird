@@ -737,3 +737,47 @@ test("overview: every Bot on one table, least left first, numbers only, unreadab
     await page.screenshot({ path: info.outputPath("quota-overview.png") });
   } finally { await f.close(); }
 });
+
+test("quota overview does not request a refresh during the Bot's cooldown", async ({ page }) => {
+  const f = await fixture(page);
+  try {
+    f.records.writer!.snapshot = {
+      ...f.records.writer!.snapshot, state: "unavailable", reason: "rate_limited",
+      capability: { mode: "active" }, nextRefreshAt: new Date(Date.now() + 300_000).toISOString(),
+    };
+    await f.open();
+    const panel = page.locator(".engine-quota:visible");
+    await expect(panel.getByRole("region", { name: "Writing Bot · Claude Code", exact: true })
+      .getByRole("button", { name: "刷新", exact: true })).toBeDisabled();
+    const read = panel.locator(".quota-overview").getByRole("button", { name: "读取", exact: true });
+    const refreshes: string[] = [];
+    page.on("request", request => {
+      const url = new URL(request.url());
+      if (url.pathname === "/api/engine-quotas/writer" && url.searchParams.get("refresh") === "1") refreshes.push(url.pathname);
+    });
+    if (await read.isVisible()) {
+      await Promise.all([
+        page.waitForRequest(request => new URL(request.url()).searchParams.get("refresh") === "1"),
+        read.click(),
+      ]);
+    }
+    expect(refreshes).toEqual([]);
+    await expect(read).toHaveCount(0);
+  } finally { await f.close(); }
+});
+
+test("quota overview marks the last reading after a refresh failure", async ({ page }) => {
+  const f = await fixture(page);
+  try {
+    await f.open();
+    const coder = page.getByRole("region", { name: "Coding Bot · Codex", exact: true });
+    await expect(coder).toContainText("剩余 62%");
+    const row = page.locator(".quota-overview-row").filter({ hasText: "Coding Bot" });
+    await page.route("**/api/engine-quotas/coder?*", route => route.fulfill({ status: 503, json: { error: "unavailable" } }));
+    await coder.getByRole("button", { name: "刷新", exact: true }).click();
+    await expect(coder).toContainText("上次读数：剩余 62%");
+    await expect(row).toHaveAttribute("data-stale", "true");
+    await expect(row).toHaveAccessibleName(/上次读数/);
+    await expect(row.locator(".quota-overview-pct")).toContainText("62%");
+  } finally { await f.close(); }
+});

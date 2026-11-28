@@ -3,7 +3,7 @@ import { Capacitor } from "@capacitor/core";
 import { ENGINE_QUOTA_HUB_REFRESH_MS, quotaReadingExpired, type QuotaDirectory, type QuotaScope } from "../../src/client-protocol/engine-quota.js";
 import type { HubConnection } from "./connection.js";
 import { HubHttpError } from "./http-error.js";
-import { groupQuotaScopesByAccount } from "./quota-ui.js";
+import { groupQuotaScopesByAccount, quotaRefreshAfter } from "./quota-ui.js";
 import {
   applyHostQuotaScope,
   cachedQuotaDirectory,
@@ -295,11 +295,19 @@ export function useEngineQuota(connection: HubConnection, options: {
       setStoreVersion(count => count + 1);
     });
   }, [connection, canShow]);
-  async function refresh(scope: QuotaScope, groupScopeIds?: readonly string[]) {
+  async function refresh(scope: QuotaScope, groupScopeIds?: readonly string[], respectCooldown = false) {
     const memberIds = groupScopeIds?.length ? [...new Set([scope.id, ...groupScopeIds])] : [scope.id];
     if (!current.current.allowed || directoryRequest.current || memberIds.some(id => scopes.current.has(id)) || scopes.current.size >= MAX_CONCURRENT_QUOTA_REFRESH) return;
     const before = viewRef.current;
     if (before.connection !== connection || before.userId !== userId || before.error === "permission" || !showsScope(connection, before.directory, scope)) return;
+    // A queued bulk read may outlive the overview state that made it eligible.
+    if (respectCooldown && before.directory) {
+      const currentScopes = projectQuotaDirectory(connection, {
+        ...before.directory, scopes: before.directory.scopes.filter(item => memberIds.includes(item.id)),
+      }).directory.scopes;
+      const next = quotaRefreshAfter(currentScopes);
+      if (next && Date.parse(next) > Date.now() + (connection.state.serverTimeOffset ?? 0)) return;
+    }
     for (const id of memberIds) clearLatePoll(id);
     const generation = version.current, operation = request(); scopes.current.set(scope.id, operation);
     setView(previous => {

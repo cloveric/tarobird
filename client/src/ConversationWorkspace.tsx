@@ -46,8 +46,9 @@ import {
 } from "./workspace-replying.js";
 import { listWorkbenchLibrary, type WorkbenchLibraryEntry } from "./workbench-library.js";
 import type { WorkbenchFileTarget } from "./workbench-library-context.js";
-import { usageTone, type ContextView, type QuotaView } from "./usage-readings.js";
+import { quotaReadingAgeLabel, usageTone, type ContextView, type QuotaView } from "./usage-readings.js";
 import { formatQuotaWindowLabel, formatResetCountdown } from "./quota-ui.js";
+import { UsageDetails } from "./UsageIndicators.js";
 import {
   approvalPlainSummary,
   EmptyStateArt,
@@ -314,6 +315,8 @@ export function ConversationWorkspace({
   const [approvingId, setApprovingId] = useState<string | undefined>(undefined);
   const [approvalNotice, setApprovalNotice] = useState<{ id: string; text: string } | undefined>(undefined);
   const [now, setNow] = useState(Date.now);
+  const [quotaDetailsOpen, setQuotaDetailsOpen] = useState(false);
+  const quotaDetailsId = `${id}-quota-details`;
   const approveRefreshTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => () => {
@@ -344,6 +347,7 @@ export function ConversationWorkspace({
     setSwarmSnapshot(undefined);
     setQueueState(undefined);
     setPermissions(undefined);
+    setQuotaDetailsOpen(false);
     setFiles([]);
     setFilesHasMore(false);
     setWorkbenchItems([]);
@@ -546,6 +550,10 @@ export function ConversationWorkspace({
     return () => window.clearInterval(timer);
   }, [hasReplying, online]);
   const observedNow = now + (connState.serverTimeOffset ?? 0);
+  const hasQuota = !!directBot && !!quotaUsage;
+  useEffect(() => { if (!hasQuota) setQuotaDetailsOpen(false); }, [hasQuota]);
+  const quotaNow = Date.now();
+  const quotaAge = quotaUsage?.stale ? quotaReadingAgeLabel(quotaUsage.observedAt, quotaNow, locale) : "";
   const commItems = comms?.items ?? [];
 
   const resolveCommPending = useCallback((comm: BotCommItem): PendingCardResolution | undefined => {
@@ -1164,19 +1172,28 @@ export function ConversationWorkspace({
                     className={`workspace-memory-row workspace-quota-row${quotaUsage.stale ? " is-stale" : ""}`}
                     title={quotaUsage.windows.map(window => {
                       const name = formatQuotaWindowLabel(window, quotaUsage.windows);
-                      const reset = window.resetsAt ? formatResetCountdown(window.resetsAt, Date.now()).text : "";
+                      const reset = window.resetsAt ? formatResetCountdown(window.resetsAt, quotaNow + (connState.serverTimeOffset ?? 0)).text : "";
                       return reset ? t("{0} 剩 {1}%，{2}", name, window.left, reset) : t("{0} 剩 {1}%", name, window.left);
                     }).join("\n")}
                   >
                     <span className="workspace-memory-label">{t("额度")}</span>
-                    <span className="workspace-memory-bar" role="meter" aria-label={t("额度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={quotaUsage.left}>
+                    <span className="workspace-memory-bar" role="meter" aria-label={t("额度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={quotaUsage.left}
+                      aria-valuetext={quotaUsage.stale ? t("额度可用 {0}%（旧读数 · {1}）", quotaUsage.left, quotaAge) : undefined}>
                       <i className={`is-${usageTone(quotaUsage.left)}`} style={{ width: `${quotaUsage.left}%` }} />
                     </span>
                     <span className={`workspace-memory-pct is-${usageTone(quotaUsage.left)}`}>
                       {t("剩 {0}%", quotaUsage.left)}
                     </span>
+                    <button type="button" className="workspace-quota-details-trigger" aria-label={t("额度详情")}
+                      aria-expanded={quotaDetailsOpen} aria-controls={quotaDetailsId} onClick={() => setQuotaDetailsOpen(open => !open)}>
+                      <ChevronDown size={13} aria-hidden="true"/>
+                    </button>
+                    {quotaUsage.stale && <small className="workspace-quota-age">{t("旧读数 · {0}", quotaAge)}</small>}
                   </div>
                 )}
+                {directBot && quotaUsage && <div id={quotaDetailsId} className="workspace-quota-details" hidden={!quotaDetailsOpen}>
+                  {quotaDetailsOpen && <UsageDetails quota={quotaUsage} serverTimeOffset={connState.serverTimeOffset}/>}
+                </div>}
               </div>
             </section>
 
