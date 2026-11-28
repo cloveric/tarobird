@@ -140,7 +140,7 @@ test("overview: a message being handled is not in line, subagents show helper co
   });
   try {
     await open();
-    const live = rail(page).getByRole("region", { name: "现在在做", exact: true });
+    const live = rail(page).getByRole("region", { name: "任务", exact: true });
     // The Host says this message is "dispatched": it belongs in the Replying row, not a queue row.
     await expect(live.locator(".workspace-replying-row .workspace-item-title")).toHaveText(["请协调评审并汇总基准测试结果。"]);
     await expect(live.locator(".workspace-replying-row .workspace-item-meta")).toContainText(["正在回复 · Architect"]);
@@ -152,7 +152,7 @@ test("overview: a message being handled is not in line, subagents show helper co
     await expect(live.locator(".workspace-more-hint")).toHaveText("还有 1 个后台任务");
     const chatSize = await page.locator(".file-card-meta small").first().innerText();
     expect(chatSize).toBe("17.99 KiB");
-    await expect(rail(page).getByRole("region", { name: "做出来的东西", exact: true })).toContainText(chatSize);
+    await expect(rail(page).getByRole("region", { name: "产物与改动", exact: true })).toContainText(chatSize);
     await openConv(page, "发布群");
     await expect(rail(page)).toBeVisible();
     await expect(rail(page).locator(".workspace-env-bot")).toContainText("5 位 Bot");
@@ -306,7 +306,7 @@ test("Replying row names the answered message, avoids duplicate queue rows, adva
     await f.hub.store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=? AND bot_id=?", [m1.id, "bot_arch"]);
     const reply1 = await f.hub.store.publishBotMessage("bot_arch", { conversationId: f.ids.main, replyTo: m1.id, blocks: [{ type: "text", text: "正在分析第一条…" }], status: "streaming" });
     await open();
-    const live = rail(page).getByRole("region", { name: "现在在做", exact: true });
+    const live = rail(page).getByRole("region", { name: "任务", exact: true });
     await expect(live.locator(".workspace-replying-row")).toHaveCount(1);
     await expect(live.locator(".workspace-replying-row .workspace-item-title")).toHaveText(["第一条：正在处理中的长消息内容"]);
     await expect(live.locator(".workspace-replying-row .workspace-item-meta")).toContainText(["正在回复 · Architect"]);
@@ -371,7 +371,7 @@ for (const locale of ["zh", "en"] as const) {
 
       await openConv(page, groupTitle);
       await open();
-      const live = rail(page).getByRole("region", { name: L("现在在做"), exact: true });
+      const live = rail(page).getByRole("region", { name: L("任务"), exact: true });
       await expect(live.locator(".workspace-replying-row")).toHaveCount(1);
       await expect(live.locator(".workspace-replying-row .workspace-item-title")).toHaveText([topicText]);
       await expect(live.locator(".workspace-replying-row .workspace-item-meta")).toContainText([
@@ -404,7 +404,7 @@ test("going offline clears live Replying rows for both dispatched and streaming 
       previewUrl: null,
     });
     await open();
-    const live = rail(page).getByRole("region", { name: "现在在做", exact: true });
+    const live = rail(page).getByRole("region", { name: "任务", exact: true });
     // Initially dispatched (no streaming Bot message yet) + 1 queued item.
     await expect(live.locator(".workspace-replying-row")).toHaveCount(1);
     await expect(live.locator(".workspace-replying-row .workspace-item-title")).toHaveText(["请协调评审并汇总基准测试结果。"]);
@@ -488,7 +488,7 @@ test("deleted replyTo is never misattributed to another dispatched item, and que
     });
 
     await open();
-    const live = rail(page).getByRole("region", { name: "现在在做", exact: true });
+    const live = rail(page).getByRole("region", { name: "任务", exact: true });
     await expect(live.locator(".workspace-replying-row")).toHaveCount(1);
     await expect(live.locator(".workspace-replying-row .workspace-item-title")).toHaveText(["正在回复"]);
     await expect(live.locator(".workspace-replying-row .workspace-item-meta")).toContainText(["Architect"]);
@@ -541,11 +541,11 @@ test("Waiting for you block approves directly and Replying row deduplicates queu
     await f.hub.store.db.run("UPDATE deliveries SET status='accepted' WHERE message_id=? AND bot_id=?", [f.ids.userMsg, "bot_arch"]);
     await f.hub.store.db.run("UPDATE deliveries SET dispatched=1 WHERE message_id=? AND bot_id=?", [m1.id, "bot_arch"]);
     const reply1 = await f.hub.store.publishBotMessage("bot_arch", { conversationId: f.ids.main, replyTo: m1.id, blocks: [{ type: "text", text: "正在分析第一条…" }], status: "streaming" });
-    const live = rail(page).getByRole("region", { name: "现在在做", exact: true });
+    const live = rail(page).getByRole("region", { name: "任务", exact: true });
     await expect(live.locator(".workspace-replying-row")).toHaveCount(1);
     await expect(live.locator(".workspace-replying-row .workspace-item-title")).toHaveText(["第一条：正在处理中的长消息内容"]);
     await expect(live.locator(".workspace-replying-row .workspace-item-meta")).toContainText(["正在回复 · Architect"]);
-    await expect(live).toContainText("接下来还有 2 件");
+    await expect(live.locator(".workspace-queue-pill")).toHaveText("排队 2");
     await expect(live.locator(".workspace-queue-row")).toHaveCount(2);
     await expect(live.locator(".workspace-queue-row .workspace-item-title")).toHaveText(["第二条：排在前面的消息", "第三条：排在后面的消息"]);
     await expect(live.locator(".workspace-queue-row .workspace-item-meta")).toHaveText(["队列第 1 位", "队列第 2 位"]);
@@ -797,19 +797,19 @@ test("Workspace rail fixes cross-host avatar isolation, queue dedup race, long B
   try {
     await open();
 
-    // Bug 5: message being streamed must NOT duplicate in queue rows or "接下来还有" pill.
-    const doing = rail(page).getByRole("region", { name: "现在在做", exact: true });
+    // Bug 5: message being streamed must NOT duplicate in queue rows or the "排队 N" pill.
+    const doing = rail(page).getByRole("region", { name: "任务", exact: true });
     await expect(doing.locator(".workspace-replying-row .workspace-item-title")).toHaveText(["竞争条件测试消息"]);
     await expect(doing.locator(".workspace-queue-row")).toHaveCount(0);
-    await expect(doing).not.toContainText("接下来还有");
+    await expect(doing.locator(".workspace-queue-pill")).toHaveCount(0);
 
     // Bug 7: when bottom section header sits near the bottom of .workspace-body, "?" popover flips upward
     // so nothing is clipped below .workspace-body or faded by the 16px bottom mask.
     const madeHeaderBottom = await rail(page).evaluate(node =>
-      node.querySelector('[aria-label="做出来的东西"] .workspace-section-header')!.getBoundingClientRect().bottom,
+      node.querySelector('[aria-label="产物与改动"] .workspace-section-header')!.getBoundingClientRect().bottom,
     );
     await page.setViewportSize({ width: 1280, height: Math.max(620, Math.round(madeHeaderBottom + 50)) });
-    const help = rail(page).getByRole("button", { name: "说明：做出来的东西" });
+    const help = rail(page).getByRole("button", { name: "说明：产物与改动" });
     // Place the target fully inside the scrollport, close enough to the bottom
     // to exercise the flip without Playwright scrolling it into the middle.
     await expect.poll(() => help.evaluate(button => {
