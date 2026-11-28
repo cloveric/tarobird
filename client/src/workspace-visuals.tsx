@@ -6,7 +6,6 @@ import { Avatar, AvatarProvider, Profiles } from "./Avatar.js";
 import { RoleStarSuppressed } from "./AgentAvatar.js";
 import { messageAttention } from "./attention.js";
 import { BotMessageHostsContext, botMessageHostId } from "./bot-message-hosts.js";
-import { useAttachment } from "./use-attachment.js";
 import { t } from "./i18n.js";
 
 const EMPTY_CONVERSATIONS: readonly Conversation[] = [];
@@ -279,97 +278,6 @@ export function HelperCountArt() {
         <path d="M17.5 6.5v4M15.5 8.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         <circle cx="17.5" cy="16" r="2.3" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.7" />
       </svg>
-    </span>
-  );
-}
-
-/** Cute varied SVG file-type illustrations for What was made. */
-export function FileTypeArt({ kind, ext }: { kind: WorkspaceFileKind; ext?: string }) {
-  if (kind === "image") {
-    return (
-      <span className="ws-file-art is-img" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
-          <rect x="4" y="5" width="24" height="22" rx="4.5" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.5" />
-          <circle cx="11.5" cy="12" r="2.2" fill="currentColor" fillOpacity="0.7" />
-          <path d="M6.5 23l6.2-6.2a1.2 1.2 0 0 1 1.7 0l3.4 3.4 2.3-2.3a1.2 1.2 0 0 1 1.7 0L25.5 23" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-    );
-  }
-  if (kind === "sheet") {
-    return (
-      <span className="ws-file-art is-sheet" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
-          <rect x="4.5" y="4.5" width="23" height="23" rx="4.5" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M5 12h22M5 18.5h22M13 12v15M20 12v15" stroke="currentColor" strokeWidth="1.35" strokeOpacity="0.8" />
-          <rect x="5" y="5" width="22" height="7" rx="3" fill="currentColor" fillOpacity="0.22" />
-        </svg>
-      </span>
-    );
-  }
-  if (kind === "code") {
-    return (
-      <span className="ws-file-art is-code" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
-          <path d="M7 4.5h12l6 6V25a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 5 25V7A2.5 2.5 0 0 1 7.5 4.5Z" fill="currentColor" fillOpacity="0.1" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          <path d="M12 15.5 9.2 18.2 12 21M20 15.5l2.8 2.7L20 21M17.2 14.5l-2.4 7.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-    );
-  }
-  if (kind === "pdf") {
-    return (
-      <span className="ws-file-art is-pdf" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
-          <path d="M7.5 4.5h11.5l6 6V25a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 5 25V7a2.5 2.5 0 0 1 2.5-2.5Z" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          <path d="M19 4.5v5.5h6" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-          <rect x="8.5" y="15.5" width="15" height="7.5" rx="2" fill="currentColor" fillOpacity="0.2" />
-          <text x="16" y="21.2" textAnchor="middle" fill="currentColor" fontSize="6.5" fontWeight="700" fontFamily="sans-serif">PDF</text>
-        </svg>
-      </span>
-    );
-  }
-  if (kind === "workbench") {
-    return (
-      <span className="ws-file-art is-wb" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
-          <rect x="4" y="5.5" width="24" height="18" rx="3.5" fill="currentColor" fillOpacity="0.12" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M9 17.5c2.5-5 5-5 7.5 0s4.5 1 6.5-4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          <path d="M11 27l2.5-3.5M21 27l-2.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </span>
-    );
-  }
-  if (kind === "doc") {
-    return (
-      <span className="ws-file-art is-md" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
-          <path d="M7.5 4.5h11.5l6 6V25a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 5 25V7a2.5 2.5 0 0 1 2.5-2.5Z" fill="currentColor" fillOpacity="0.11" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          <path d="M19 4.5v5.5h6" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-          <path d="M10 14.5h10M10 18.5h12M10 22.5h7.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        </svg>
-      </span>
-    );
-  }
-  return (
-    <span className="ws-file-art is-file" aria-hidden="true">
-      <svg viewBox="0 0 32 32" width="32" height="32" fill="none">
-        <path d="M7.5 4.5h11.5l6 6V25a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 5 25V7a2.5 2.5 0 0 1 2.5-2.5Z" fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        <path d="M19 4.5v5.5h6" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-        {ext && <text x="16" y="21.5" textAnchor="middle" fill="currentColor" fontSize="6.2" fontWeight="700" fontFamily="sans-serif">{ext.slice(0, 4)}</text>}
-      </svg>
-    </span>
-  );
-}
-
-/** Real thumbnail preview for image attachments, falling back cleanly to FileTypeArt while loading, offline, or non-decodable. */
-export function WorkspaceFileThumbnail({ connection, attachmentId, name: _name }: { connection: HubConnection; attachmentId: string; name: string }) {
-  const { url } = useAttachment(connection, attachmentId, true, false);
-  const [failedUrl, setFailedUrl] = useState<string>();
-  if (!url || failedUrl === url) return <FileTypeArt kind="image" ext="IMG" />;
-  return (
-    <span className="ws-file-thumb" aria-hidden="true">
-      <img src={url} alt="" loading="lazy" draggable={false} onError={() => setFailedUrl(url)} />
     </span>
   );
 }

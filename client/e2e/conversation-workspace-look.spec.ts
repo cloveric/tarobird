@@ -711,7 +711,7 @@ test("Waiting-for-you deduplicates incoming Agent Bus approvals, skips history-e
   } finally { await done(); }
 });
 
-test("Workspace rail fixes cross-host avatar isolation, queue dedup race, long Bot truncation, bottom help popover flip, file thumbnails, and group elapsed ticking", async ({ browser }) => {
+test("Workspace rail fixes cross-host avatar isolation, queue dedup race, long Bot truncation, bottom help popover flip, file type badges, and group elapsed ticking", async ({ browser }) => {
   const png1x1 = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
     "base64",
@@ -834,14 +834,14 @@ test("Workspace rail fixes cross-host avatar isolation, queue dedup race, long B
     await rail(page).getByRole("button", { name: "关闭说明" }).click();
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    // Bug 8: helper.tsx (text/plain) classifies as code, and broken.png falls back to FileTypeArt instead of broken <img>.
+    // Bug 8: helper.tsx (text/plain) classifies as code; file rows show a type badge, never an image thumbnail.
     await rail(page).getByRole("tab", { name: /^文件/ }).click();
     const codeTile = rail(page).locator(".workspace-file-tile", { hasText: "helper.tsx" });
-    await expect(codeTile.locator(".ws-file-art.is-code")).toBeVisible();
+    await expect(codeTile.locator(".workspace-file-badge.is-code")).toHaveText("TSX");
     await expect(codeTile).toContainText("代码");
     const brokenTile = rail(page).locator(".workspace-file-tile", { hasText: "broken.png" });
-    await expect(brokenTile.locator(".ws-file-art.is-img")).toBeVisible();
-    await expect(brokenTile.locator(".ws-file-thumb")).toHaveCount(0);
+    await expect(brokenTile.locator(".workspace-file-badge.is-img")).toHaveText("IMG");
+    await expect(rail(page).locator(".workspace-file-tile img")).toHaveCount(0);
 
     // Bug 4: unpaired remote Bot with colliding botId="bot_arch" must not render local bot_arch's uploaded blob avatar.
     await openConv(page, "空白对话");
