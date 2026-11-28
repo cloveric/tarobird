@@ -21,3 +21,16 @@ export function togglePinnedPlugin(current: readonly string[], key: string): str
   if (current.length >= MAX_PINNED_PLUGINS) return undefined;
   return [...current, key];
 }
+
+type SavedPins = { pinnedPlugins?: string[]; pinnedPluginsByScope?: Record<string, string[]> };
+
+export function savedPluginPins(preferences: SavedPins, scope: string | null): string[] | undefined {
+  const pins = scope && preferences.pinnedPluginsByScope?.[scope];
+  // A saved empty list is intentional. The old device-wide list still
+  // applies until the user makes a choice for this installation scope.
+  return Array.isArray(pins) ? pins : preferences.pinnedPlugins;
+}
+
+export function storePluginPins<T extends SavedPins>(preferences: T, scope: string, pins: string[]): T {
+  return { ...preferences, pinnedPluginsByScope: { ...preferences.pinnedPluginsByScope, [scope]: pins } };
+}

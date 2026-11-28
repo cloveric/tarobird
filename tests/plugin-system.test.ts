@@ -35,6 +35,7 @@ import {
 } from "../client/src/plugin-sandbox-runtime.js";
 import {
   matchesPluginMarketplaceQuery,
+  installedMarketplaceManifest,
   pluginMarketplaceCategory,
   pluginPublisherLabel,
   selectLocalEntryFile,
@@ -717,4 +718,27 @@ describe("Plugin Marketplace categorization, filtering and local folder selectio
   });
 
 
+});
+
+it("fixes only the shown source for a verified existing same-version Scratchpad", async () => {
+  const storage = memoryStorage();
+  const entry = OFFICIAL_PLUGIN_CATALOG.find(item => item.manifest.id === "tarobird.quick-scratchpad")!;
+  const previous = { ...entry, manifest: { ...entry.manifest, source: { ...entry.manifest.source, commit: "636ada65833c" } } };
+  const old = new PluginRegistry({ storage, catalog: [previous], scopeId: "example" });
+  await old.install(previous, { grantedCapabilities: ["storage.device"] });
+  old.setEnabled(previous.manifest.id, false);
+
+  const reloaded = new PluginRegistry({ storage, scopeId: "example" });
+  const record = reloaded.getPlugin(entry.manifest.id)!;
+  expect(installedMarketplaceManifest(record, entry)).toEqual({ ...record.manifest, source: entry.manifest.source });
+  expect(record.manifest.source).toEqual(previous.manifest.source);
+  expect(record.enabled).toBe(false);
+  expect(record.grantedCapabilities).toEqual(["storage.device"]);
+  expect(record.grantedDomains).toEqual([]);
+  expect(reloaded.hasUpdate(record.manifest.id)).toBeUndefined();
+
+  expect(installedMarketplaceManifest({ ...record, sourceKind: "local-dev" }, entry)).toBe(record.manifest);
+  expect(installedMarketplaceManifest({ ...record, bundleHtml: record.bundleHtml + " " }, entry)).toBe(record.manifest);
+  const different = { ...record.manifest, artifact: { ...record.manifest.artifact, sha256: "a".repeat(64) } };
+  expect(installedMarketplaceManifest({ ...record, manifest: different }, entry)).toBe(different);
 });

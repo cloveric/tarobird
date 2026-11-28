@@ -41,6 +41,7 @@ import {
 import { sanitizePluginDomain } from "./plugin-sandbox-runtime.js";
 import type { HubConnection } from "./connection.js";
 import {
+  installedMarketplaceManifest,
   matchesPluginMarketplaceQuery,
   pluginMarketplaceCategory,
   pluginPublisherLabel,
@@ -277,7 +278,7 @@ export function PluginsView({
     for (const entry of catalog) {
       const installed = state.installed[entry.manifest.id];
       map.set(entry.manifest.id, {
-        manifest: installed ? installed.manifest : entry.manifest,
+        manifest: installed ? installedMarketplaceManifest(installed, entry) : entry.manifest,
         catalogEntry: entry,
         installed,
       });

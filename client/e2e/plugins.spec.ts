@@ -630,7 +630,11 @@ async function savedPluginPins(page: Page): Promise<string[] | null> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => { const request = indexedDB.open("tarocub-hosts-v1"); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     try {
-      return await new Promise<string[] | null>((resolve, reject) => { const request = db.transaction("meta").objectStore("meta").get("preferences"); request.onsuccess = () => resolve(request.result ? JSON.parse(request.result).pinnedPlugins ?? null : null); request.onerror = () => reject(request.error); });
+      return await new Promise<string[] | null>((resolve, reject) => { const request = db.transaction("meta").objectStore("meta").get("preferences"); request.onsuccess = () => {
+        const preferences = request.result ? JSON.parse(request.result) : {};
+        const [scopePins] = Object.values(preferences.pinnedPluginsByScope ?? {}) as string[][];
+        resolve(scopePins ?? preferences.pinnedPlugins ?? null);
+      }; request.onerror = () => reject(request.error); });
     } finally { db.close(); }
   });
 }
