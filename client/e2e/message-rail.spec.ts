@@ -134,6 +134,20 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
     });
     await expect(rail.locator(`[data-rail-message-id="${userMessageIds[turnCount - 1]}"]`)).toHaveClass(/is-active/);
 
+    // Narrow dashes (4px, the current turn 7px). Woken by scrolling alone, the rail stays at half strength;
+    // pointing at it brings it to full strength.
+    await page.mouse.move(900, 300);
+    await page.evaluate(() => { const vp = document.querySelector<HTMLElement>(".message-scroll")!; vp.scrollTop = vp.scrollHeight / 2; });
+    await expect(rail).toHaveClass(/is-awake/);
+    await expect.poll(() => rail.evaluate(node => getComputedStyle(node).opacity)).toBe("0.5");
+    const widths = await rail.evaluate(node => ({
+      plain: getComputedStyle(node.querySelector(".message-rail-tick:not(.is-active) .message-rail-bar")!).width,
+      active: getComputedStyle(node.querySelector(".message-rail-tick.is-active .message-rail-bar")!).width,
+    }));
+    expect(widths).toEqual({ plain: "4px", active: "7px" });
+    await rail.hover();
+    await expect.poll(() => rail.evaluate(node => getComputedStyle(node).opacity)).toBe("1");
+
     // On a shorter viewport with a multi-line draft, ticks stay inside the rail and
     // hover previews for first and last ticks never bleed into header or composer.
     await page.setViewportSize({ width: 1280, height: 520 });

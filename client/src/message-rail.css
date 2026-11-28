@@ -26,6 +26,12 @@
   transition-delay: 0ms;
 }
 
+/* Woken only by scrolling: half strength, so the rail stays light while reading. Pointing or keyboard focus keeps full
+   strength; a tick that merely kept focus after a click does not. */
+.message-rail.is-awake:not(.is-hovering):not(:hover):not(:has(:focus-visible)) {
+  opacity: 0.5;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .message-rail {
     transition: none;
@@ -91,10 +97,10 @@
   outline-offset: 1px;
 }
 
-/* Short light-grey dashes; the current turn is a little longer and darker grey, never ink or accent. */
+/* Short (4px) light-grey dashes; the current turn is a little longer (7px), thicker and darker grey, never ink or accent. */
 .message-rail-bar {
   display: block;
-  width: 7px;
+  width: 4px;
   height: 1.5px;
   /* Keep each tick a whole number of pixels tall so the thin dashes all land on the same subpixel. */
   margin-block: 0.25px;
@@ -107,13 +113,13 @@
 .message-rail-tick.is-hovered .message-rail-bar,
 .message-rail-tick:hover .message-rail-bar,
 .message-rail-tick:focus-visible .message-rail-bar {
-  width: 11px;
+  width: 7px;
   background: var(--grey, var(--muted));
   opacity: 0.9;
 }
 
 .message-rail-tick.is-active .message-rail-bar {
-  width: 12px;
+  width: 7px;
   height: 2px;
   margin-block: 0;
   background: var(--grey, var(--muted));
