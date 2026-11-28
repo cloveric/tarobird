@@ -10,7 +10,8 @@ import { CrossHostMessageGrants } from "./CrossHostMessageGrants.js";
 
 const route = "/api/bot-messages/grants";
 const allows = (view: BotMessageGrantsSnapshot, source: string, target: string) => view.grants.some(grant => grant.sourceBot === source && grant.targetBot === target);
-function errorText(error: unknown): string {
+/** Shared with the one-click local mesh in the workspace rail. */
+export function errorText(error: unknown): string {
   if (error instanceof HubHttpError) {
     if (error.status === 404) return t("请更新主机后使用 Bot 消息授权。");
     if (error.status === 403 || error.status === 401) return t("只有已认证的主机所有者可以管理消息授权。");
