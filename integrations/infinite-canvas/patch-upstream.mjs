@@ -31,7 +31,9 @@ export async function patchUpstream(sourceDir) {
   ]);
   await patch(`${workbench}/layouts/user-layout.tsx`, [
     ['"url(/logo.svg) center / contain no-repeat"', '`url("${__TAROBIRD_CANVAS_LOGO__}") center / contain no-repeat`'],
-    [' />无限画布', ' />无限画布 · basketikun'],
+    // Name and author on two lines: one long line ran under the sidebar's collapse button in the 220px sidebar.
+    // The author line uses em so the collapsed sidebar's text-[0px] still hides it.
+    [' />无限画布', ' /><span className="flex min-w-0 flex-col leading-tight">无限画布<span className="text-[0.6875em] font-normal text-muted-foreground">basketikun</span></span>'],
   ]);
   await writeFile(path.join(sourceDir, workbench, 'hooks/use-version-check.ts'), `
 import { useState } from "react";
