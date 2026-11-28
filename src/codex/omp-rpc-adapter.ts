@@ -95,6 +95,7 @@ interface OmpHistoryInput {
 
 interface ActiveOmpTurn {
   promptId?: string;
+  manualCompaction?: true;
   input: CodexUserMessageInput;
   textChunks: string[];
   finalText?: string;
@@ -172,6 +173,10 @@ function abortError(message = "omp turn was aborted"): Error {
   const err = new Error(message);
   err.name = "AbortError";
   return err;
+}
+
+function interruptedTurnError(turn: ActiveOmpTurn): Error {
+  return turn.timedOut ? new Error(turn.timedOut) : abortError("Turn aborted");
 }
 
 function destroyedError(): Error {
@@ -541,7 +546,7 @@ export class OmpRpcAdapter implements CodexAdapter {
     );
   }
 
-  private async closeWorker(worker: OmpWorker, closeError?: Error): Promise<void> {
+  private async closeWorker(worker: OmpWorker, closeError?: Error, mode: "close" | "terminate" = "close"): Promise<void> {
     if (worker.closed && !worker.client.alive) {
       worker.endpoint?.dispose();
       return;
@@ -573,6 +578,10 @@ export class OmpRpcAdapter implements CodexAdapter {
     }
     worker.bufferedBtwDeltas.clear();
     worker.endpoint?.dispose();
+    if (mode === "terminate") {
+      worker.client.terminate();
+      return;
+    }
     await worker.client.close().catch(() => { worker.client.terminate(); });
   }
 
@@ -801,7 +810,9 @@ export class OmpRpcAdapter implements CodexAdapter {
             turn.abortScope.abort();
             turn.settled = true;
             worker.activeTurn = undefined;
-            const err = exit.fatalError ?? new Error("omp process exited unexpectedly before turn settled");
+            const err = turn.manualCompaction && turn.aborting
+              ? interruptedTurnError(turn)
+              : exit.fatalError ?? new Error("omp process exited unexpectedly before turn settled");
             turn.reject(withFailedTurnUsage(err, this.turnUsage(turn)));
           }
           if (worker.goalWatcher && !worker.goalWatcher.settled) {
@@ -1105,7 +1116,8 @@ export class OmpRpcAdapter implements CodexAdapter {
     turn.inactivityTimer = setTimeout(() => {
       if (turn.settled || turn.finalizing || turn.aborting) return;
       if (turn.humanWaits > 0) { this.noteActivity(worker, turn); return; }
-      turn.timedOut = `omp turn became inactive after ${minutesLabel(limit)}`;
+      const operation = turn.manualCompaction ? "omp compaction" : "omp turn";
+      turn.timedOut = `${operation} became inactive after ${minutesLabel(limit)}`;
       this.abortActiveTurn(worker, turn);
     }, limit);
     turn.inactivityTimer.unref?.();
@@ -1139,7 +1151,7 @@ export class OmpRpcAdapter implements CodexAdapter {
     }
     this.settlePendingSteers(turn, "dropped", "stopped");
     void worker.client.abortAndRestoreQueue().catch((error) => {
-      if (error instanceof OmpRpcCommandError) {
+      if (error instanceof OmpRpcCommandError && worker.client.alive) {
         return worker.client.abort().catch(() => undefined);
       }
       return undefined;
@@ -1147,10 +1159,14 @@ export class OmpRpcAdapter implements CodexAdapter {
     const grace = this.options.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
     turn.cancelTimer = setTimeout(() => {
       if (!turn.settled) {
+        const err = interruptedTurnError(turn);
+        if (turn.manualCompaction) {
+          void this.closeWorker(worker, err, "terminate");
+          return;
+        }
         turn.settled = true;
         if (worker.activeTurn === turn) worker.activeTurn = undefined;
         worker.client.terminate();
-        const err = turn.timedOut ? new Error(turn.timedOut) : abortError("Turn aborted");
         turn.reject(withFailedTurnUsage(err, this.turnUsage(turn)));
       }
     }, grace);
@@ -1312,8 +1328,14 @@ export class OmpRpcAdapter implements CodexAdapter {
   ): Promise<CodexAdapterResponse> {
     throwIfAborted(input.abortSignal);
     if (worker.activeTurn) throw new Error("omp session already has an in-flight turn");
-    const abortScope = new AbortController();
+    let resolve!: ActiveOmpTurn["resolve"];
+    let reject!: ActiveOmpTurn["reject"];
+    const completion = new Promise<CodexAdapterResponse>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
     const turn: ActiveOmpTurn = {
+      manualCompaction: true,
       input,
       textChunks: [],
       thinkingChunks: [],
@@ -1324,26 +1346,45 @@ export class OmpRpcAdapter implements CodexAdapter {
       aborting: false,
       pendingSteers: [],
       humanWaits: 0,
-      abortScope,
-      resolve: () => {},
-      reject: () => {},
+      abortScope: new AbortController(),
+      resolve,
+      reject,
     };
     worker.activeTurn = turn;
-    const onAbort = () => {
-      turn.aborting = true;
-      abortScope.abort();
-      void worker.client.abortAndRestoreQueue().catch(() => worker.client.abort().catch(() => undefined));
-    };
+    this.noteActivity(worker, turn);
+    const onAbort = () => this.abortActiveTurn(worker, turn);
     input.abortSignal?.addEventListener("abort", onAbort, { once: true });
+
+    const finishRpc = () => {
+      if (turn.settled) return false;
+      if (!turn.aborting) return true;
+      // A cancelled compact may still emit unscoped frames after its RPC reply.
+      // Reopen the persisted session on a new worker before accepting another turn.
+      void this.closeWorker(worker, interruptedTurnError(turn), "terminate");
+      return false;
+    };
     try {
-      const result = await worker.client.compact(customInstructions);
-      throwIfAborted(input.abortSignal);
-      const summary = typeof result === "object" && result && typeof (result as { summary?: unknown }).summary === "string"
-        ? (result as { summary: string }).summary.trim()
-        : "";
-      const fallback = input.locale === "zh" ? "上下文已压缩。" : "Context compacted.";
-      const text = (turn.commandOutputs.join("\n").trim() || summary || fallback);
-      return { sessionId, text };
+      void worker.client.compact(customInstructions).then(result => {
+        if (!finishRpc()) return;
+        const summary = typeof result === "object" && result && typeof (result as { summary?: unknown }).summary === "string"
+          ? (result as { summary: string }).summary.trim()
+          : "";
+        const fallback = input.locale === "zh" ? "上下文已压缩。" : "Context compacted.";
+        const text = turn.commandOutputs.join("\n").trim() || summary || fallback;
+        turn.resolve({ sessionId, text });
+      }, error => {
+        if (finishRpc()) turn.reject(error);
+      });
+      return await completion;
+    } catch (error) {
+      const { compactionId, compactionStartedAt } = turn;
+      if (compactionId) {
+        void Promise.resolve().then(() => input.onEngineEvent?.({
+          type: "context_compaction", id: compactionId, status: "failed", sessionId,
+          ...(compactionStartedAt ? { durationMs: Math.max(0, Date.now() - compactionStartedAt) } : {}),
+        })).catch(() => undefined);
+      }
+      throw error;
     } finally {
       input.abortSignal?.removeEventListener("abort", onAbort);
       this.clearTurnTimers(turn);
@@ -2027,6 +2068,7 @@ export class OmpRpcAdapter implements CodexAdapter {
 
   private handleEvent(worker: OmpWorker, event: OmpSessionEvent): void {
     const turn = worker.activeTurn && !worker.activeTurn.settled ? worker.activeTurn : undefined;
+    if (turn?.manualCompaction && turn.aborting) return;
     if (turn) this.noteActivity(worker, turn);
     const emit = this.currentEventEmitter(worker);
 
@@ -2171,8 +2213,8 @@ export class OmpRpcAdapter implements CodexAdapter {
 
   private handlePromptResult(worker: OmpWorker, frame: OmpPromptResultFrame): void {
     const turn = worker.activeTurn;
-    if (!turn || turn.settled || turn.finalizing) return;
-    if (turn.promptId && frame.id && frame.id !== turn.promptId) return;
+    if (!turn?.promptId || turn.settled || turn.finalizing) return;
+    if (frame.id && frame.id !== turn.promptId) return;
     turn.promptResult = frame;
     this.maybeCompleteTurn(worker, turn);
   }
@@ -2205,7 +2247,7 @@ export class OmpRpcAdapter implements CodexAdapter {
       turn.settled = true;
       if (worker.activeTurn === turn) worker.activeTurn = undefined;
       worker.lastUsedAt = Date.now();
-      const err = turn.timedOut ? new Error(turn.timedOut) : abortError("Turn aborted");
+      const err = interruptedTurnError(turn);
       turn.reject(withFailedTurnUsage(err, usage));
       return;
     }
