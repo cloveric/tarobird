@@ -118,7 +118,7 @@ for (const width of [390, 1360]) for (const en of [false, true]) {
       const applyModel = page.getByRole("button", { name: en ? "Apply model" : "应用模型", exact: true });
       const thinkingSelect = page.getByLabel(en ? "Pi conversation thinking level" : "Pi 对话思考强度", { exact: true });
       const applyThinking = page.getByRole("button", { name: en ? "Apply thinking level" : "应用思考强度", exact: true });
-      const defaultLabel = en ? "Use Bot default" : "跟随 Bot 默认";
+      const defaultLabel = en ? "Bot default" : "跟随 Bot 默认";
 
       // 1. Cross-provider search: while on anthropic, searching "gpt-6.2" must show BOTH openai & azure hits directly.
       await expect(modelSelect).toHaveValue("anthropic/claude-sonnet");
@@ -145,7 +145,7 @@ for (const width of [390, 1360]) for (const en of [false, true]) {
       await expect(providerSelect).toHaveValue("openai");
       await expect(modelSelect).toHaveValue("openai/gpt-6.2-sol");
 
-      // 2. Selecting "Use Bot default" / "跟随 Bot 默认" must NOT render a blank model option.
+      // 2. Selecting "Bot default" / "跟随 Bot 默认" must NOT render a blank model option.
       await providerSelect.selectOption("");
       await expect(modelSelect).toBeDisabled();
       await expect(modelSelect).toHaveValue("");
