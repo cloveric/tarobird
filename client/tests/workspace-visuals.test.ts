@@ -73,15 +73,15 @@ describe("workspace-visuals", () => {
 
   it("maps connection status and latency to plain-language signal strength", () => {
     useTestLocale("zh");
-    expect(signalStrength("online", 20)).toEqual({ bars: 4, tone: "ok", label: "很好 · 20ms" });
-    expect(signalStrength("online", 150)).toEqual({ bars: 3, tone: "ok", label: "不错 · 150ms" });
-    expect(signalStrength("online", 350)).toEqual({ bars: 2, tone: "warn", label: "有点慢 · 350ms" });
-    expect(signalStrength("online", 800)).toEqual({ bars: 1, tone: "bad", label: "较卡顿 · 800ms" });
+    expect(signalStrength("online", 20)).toEqual({ bars: 4, tone: "ok", label: "20ms" });
+    expect(signalStrength("online", 150)).toEqual({ bars: 3, tone: "ok", label: "150ms" });
+    expect(signalStrength("online", 350)).toEqual({ bars: 2, tone: "warn", label: "350ms" });
+    expect(signalStrength("online", 800)).toEqual({ bars: 1, tone: "bad", label: "800ms" });
     expect(signalStrength("connecting")).toEqual({ bars: 1, tone: "warn", label: "正在连接…" });
     expect(signalStrength("offline")).toEqual({ bars: 0, tone: "bad", label: "未连上" });
 
     useTestLocale("en");
-    expect(signalStrength("online", 20)).toEqual({ bars: 4, tone: "ok", label: "Great · 20ms" });
+    expect(signalStrength("online", 20)).toEqual({ bars: 4, tone: "ok", label: "20ms" });
   });
 
   it("turns approval card titles and details into plain everyday summaries", () => {

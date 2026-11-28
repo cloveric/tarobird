@@ -1370,6 +1370,11 @@
 /* A stale quota reading greys out until the next refresh, like the composer battery. */
 .workspace-quota-row.is-stale .workspace-memory-bar i { background: var(--muted); }
 .workspace-quota-row.is-stale .workspace-memory-pct { color: var(--muted); }
+.workspace-quota-row { flex-wrap: wrap; }
+.workspace-quota-details-trigger { width: 24px; height: 24px; padding: 0; color: var(--grey); flex: none; }
+.workspace-quota-details-trigger[aria-expanded=true] svg { rotate: 180deg; }
+.workspace-quota-age { flex: 0 0 100%; color: var(--muted); }
+.workspace-quota-details:not([hidden]) { padding-top: 8px; border-top: 1px solid var(--border); }
 /* Grouped sections (owner-approved mockup 13, option B): each section's items sit in one rounded container,
  * separated by hairlines, instead of one bordered card per item; sections get more room between them. */
 .workspace-body > .workspace-section + .workspace-section { margin-top: 4px; }

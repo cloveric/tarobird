@@ -1,6 +1,19 @@
 import { quotaReadingExpired, type QuotaAuthMode, type QuotaEngine, type QuotaScope } from "../../src/client-protocol/engine-quota.js";
 import { t } from "./i18n.js";
 
+export function quotaScopeCanRead(scope: QuotaScope): boolean {
+  return scope.capability.mode !== "unsupported" && scope.state !== "offline" && scope.reason !== "offline"
+    && (scope.state !== "unsupported" || scope.capability.mode === "active") && scope.reason !== "host_upgrade_required";
+}
+
+export function quotaRefreshAfter(scopes: readonly QuotaScope[]): string | undefined {
+  return scopes.reduce<string | undefined>((latest, scope) => {
+    const next = scope.nextRefreshAt;
+    if (!next || !Number.isFinite(Date.parse(next))) return latest;
+    return !latest || Date.parse(next) > Date.parse(latest) ? next : latest;
+  }, undefined);
+}
+
 const UNVERIFIED_FALLBACK_REVISIONS = new Set([
   "offline",
   "timeout",

@@ -5,7 +5,7 @@ import type { HubConnection } from "./connection.js";
 import { RuntimeHostContext } from "./RuntimeHost.js";
 import { SettingsGroupHeading } from "./SettingsParts.js";
 import { MAX_CONCURRENT_QUOTA_REFRESH, useEngineQuota } from "./use-engine-quota.js";
-import { formatQuotaWindowLabel, formatResetCountdown, groupQuotaScopesByAccount, shouldShowQuotaPoolHeading } from "./quota-ui.js";
+import { formatQuotaWindowLabel, formatResetCountdown, groupQuotaScopesByAccount, quotaRefreshAfter, quotaScopeCanRead, shouldShowQuotaPoolHeading } from "./quota-ui.js";
 import { QUOTA_SHOWN_FOR_MS, quotaReadingAgeLabel, usageTone } from "./usage-readings.js";
 import { localeIntlTag, t, useLocale } from "./i18n.js";
 import "./engine-quota.css";
@@ -182,10 +182,25 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
   const overview = quota.directory ? overviewRows(quota.directory.scopes, botLabels) : undefined;
   const cardOf = new Map(cards.flatMap((card, index) => card.scopes.map(item => [item.id, index] as const)));
   const jumpTo = (scope: QuotaScope) => { const index = cardOf.get(scope.id); if (index !== undefined) document.getElementById(`quota-card-${index}`)?.scrollIntoView({ block: "start", behavior: "smooth" }); };
-  const rowStale = (scope: QuotaScope) => !online || scope.state === "stale" || quotaReadingExpired(scope, now) || (!!scope.observedAt && now - Date.parse(scope.observedAt) >= QUOTA_SHOWN_FOR_MS);
+  const cardScopes = (scope: QuotaScope) => cards[cardOf.get(scope.id) ?? -1]?.scopes ?? [scope];
+  const rowStale = (scope: QuotaScope) => !online || !!quota.error || quota.cachedScopeIds.has(scope.id)
+    || cardScopes(scope).some(member => !!quota.errors[member.id])
+    || scope.state === "stale" || scope.state === "offline" || quotaReadingExpired(scope, now)
+    || (!!scope.observedAt && now - Date.parse(scope.observedAt) >= QUOTA_SHOWN_FOR_MS);
   const oldest = overview?.rows.reduce<string | undefined>((value, row) => row.scope.observedAt && (!value || Date.parse(row.scope.observedAt) < Date.parse(value)) ? row.scope.observedAt : value, undefined);
-  const unreadTargets = overview ? overview.unread.filter(item => item.scope.capability.mode === "active").map(item => item.scope) : [];
-  const readUnread = async () => { for (const scope of unreadTargets) await quota.refresh(scope, [scope.id]); };
+  const unreadTargets = overview?.unread.map(item => item.scope).filter(scope => {
+    const next = quotaRefreshAfter(cardScopes(scope));
+    return scope.capability.mode === "active" && quotaScopeCanRead(scope) && (!next || Date.parse(next) <= now);
+  }) ?? [];
+  const readUnread = async () => {
+    const read = new Set<string>();
+    for (const scope of unreadTargets) {
+      if (read.has(scope.id)) continue;
+      const ids = cardScopes(scope).map(member => member.id);
+      ids.forEach(id => read.add(id));
+      await quota.refresh(scope, ids, true);
+    }
+  };
 
   return <div className="engine-quota">
     <SettingsGroupHeading scope="host" host={host}>{t("原生模型额度")}</SettingsGroupHeading>
@@ -207,10 +222,11 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
         <div className="quota-overview-cols" aria-hidden="true"><span>Bot</span><span>{t("最紧的窗口")}</span><span/><span>{t("剩余")}</span><span>{t("重置")}</span></div>
         {overview.rows.map(row => {
           const old = rowStale(row.scope), tone = old ? undefined : usageTone(row.left);
+          const label = t("{0}：{1}，剩余 {2}%", row.name, row.window, formatNumber(row.left));
           return <button type="button" key={row.key} className="quota-overview-row" data-stale={old || undefined} onClick={() => jumpTo(row.scope)}
-            aria-label={t("{0}：{1}，剩余 {2}%", row.name, row.window, formatNumber(row.left))}>
+            aria-label={old ? t("上次读数：{0}", label) : label}>
             <span className="quota-overview-bot"><strong>{row.name}</strong><small>{engines[row.engine]}</small></span>
-            <span className="quota-overview-window">{row.window}</span>
+            <span className="quota-overview-window">{old && <>{t("待更新")} · </>}{row.window}</span>
             <span className="quota-meter" aria-hidden="true"><span data-tone={tone} style={{ width: `${row.left}%` }}/></span>
             <span className="quota-overview-pct" data-tone={tone}>{formatNumber(row.left)}%</span>
             <span className="quota-overview-reset">{row.resetsAt ? formatResetCountdown(row.resetsAt, now).text : ""}</span>
@@ -246,13 +262,8 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
               ? t("待更新")
               : ({ ready: t("已读取"), stale: t("待更新"), unknown: t("尚无数据"), login_required: t("需要登录"), offline: t("离线"), unavailable: t("暂不可用"), unsupported: t("暂不支持") })[scope.state];
         const passive = scope.capability.mode === "passive";
-        const canRead = scope.capability.mode !== "unsupported" && scope.state !== "offline" && scope.reason !== "offline" && (scope.state !== "unsupported" || scope.capability.mode === "active") && scope.reason !== "host_upgrade_required";
-        const nextRefreshAt = card.scopes.reduce<string | undefined>((latest, item) => {
-          if (!item.nextRefreshAt) return latest;
-          const ms = Date.parse(item.nextRefreshAt);
-          if (!Number.isFinite(ms)) return latest;
-          return !latest || ms > Date.parse(latest) ? item.nextRefreshAt : latest;
-        }, undefined);
+        const canRead = quotaScopeCanRead(scope);
+        const nextRefreshAt = quotaRefreshAfter(card.scopes);
         const cooling = !!nextRefreshAt && Date.parse(nextRefreshAt) > now;
         const reason = waiting ? t("正在等待引擎返回额度，结果到达后会自动更新。") : reasonText(scope.reason ?? scope.capability.reason, scope.engine, scope.authMode);
         const help = (scope.state === "ready" && !stale) || waiting ? "" : helpText(scope.help);

@@ -53,6 +53,7 @@
   "上下文与额度": "Context and quota",
   "上下文可用 {0}%": "Context {0}% available",
   "额度可用 {0}%": "Quota {0}% available",
+  "额度详情": "Quota details",
   "额度可用 {0}%（旧读数 · {1}）": "Quota {0}% available (old · {1})",
   "上次读数（{0}），正在后台重试更新": "Last reading ({0}) — retrying in background",
   "{0} 读取（{1}）": "Read {0} ({1})",
