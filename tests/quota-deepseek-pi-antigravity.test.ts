@@ -608,16 +608,43 @@ describe("Antigravity local language server quota without spawning agy (#78)", (
   });
 
   it("settles promptly on mid-response TCP reset and honors AbortSignal without bricking subsequent refreshes", async () => {
-    const server = net.createServer(socket => {
+    const listen = async (handleConnection: (socket: net.Socket) => void) => {
+      const connections = new Set<net.Socket>();
+      const unexpected: Error[] = [];
+      const server = net.createServer(socket => {
+        connections.add(socket);
+        socket.once("close", () => connections.delete(socket));
+        socket.on("error", (error: NodeJS.ErrnoException) => {
+          // Both fixtures intentionally allow the peer to disconnect during a write.
+          if (error.code !== "ECONNRESET" && error.code !== "EPIPE") unexpected.push(error);
+        });
+        handleConnection(socket);
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => {
+          server.removeListener("error", reject);
+          resolve();
+        });
+      });
+      disposals.push(async () => {
+        const closed = new Promise<void>((resolve, reject) => {
+          server.close(error => error ? reject(error) : resolve());
+        });
+        for (const socket of connections) socket.destroy();
+        await closed;
+        expect(unexpected).toEqual([]);
+      });
+      return (server.address() as net.AddressInfo).port;
+    };
+
+    const port = await listen(socket => {
       socket.once("data", () => {
-        socket.write("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\npartial", () => {
-          socket.resetAndDestroy();
+        socket.write("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\npartial", error => {
+          if (!error && !socket.destroyed) socket.resetAndDestroy();
         });
       });
     });
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-    disposals.push(() => new Promise<void>(resolve => server.close(() => resolve())));
-    const port = (server.address() as net.AddressInfo).port;
 
     const start = performance.now();
     const res = await postLoopbackConnect(port, false, "/test", "{}");
@@ -625,15 +652,12 @@ describe("Antigravity local language server quota without spawning agy (#78)", (
     expect(performance.now() - start).toBeLessThan(1_000);
 
     // Oversized response (> 256 KB) destroys the connection and resolves null.
-    const hugeServer = net.createServer(socket => {
+    const hugePort = await listen(socket => {
       socket.once("data", () => {
         const body = "x".repeat(300 * 1024);
-        socket.write(`HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n\r\n${body}`);
+        socket.end(`HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n\r\n${body}`);
       });
     });
-    await new Promise<void>(resolve => hugeServer.listen(0, "127.0.0.1", resolve));
-    disposals.push(() => new Promise<void>(resolve => hugeServer.close(() => resolve())));
-    const hugePort = (hugeServer.address() as net.AddressInfo).port;
     expect(await postLoopbackConnect(hugePort, false, "/test", "{}")).toBeNull();
 
     // AbortSignal cancellation stops probing between SUMMARY_PATH and STATUS_PATH.
