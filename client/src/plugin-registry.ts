@@ -53,7 +53,7 @@ export const OFFICIAL_PLUGIN_CATALOG: readonly PluginCatalogEntry[] = [
       description: "Lightweight sandboxed scratchpad side panel with device-local storage and one-click copy.",
       descriptionZh: "轻量级沙箱速记侧边栏，支持本机隔离存储与一键复制。",
       icon: "notes",
-      source: { repository: "cloveric/tarobird", commit: "636ada65833c" },
+      source: { repository: "cloveric/tarobird", commit: "6032bb60a4a2" },
       artifact: {
         sha256: "3c586289a286e415047890cb94270b4a8d5c8100da19281aa773156956b3bfbb",
         sizeBytes: 3300,
