@@ -650,8 +650,8 @@ test("verified same-account Bots merge on a real Hub, preserve timeout/cooldown 
     await expect(merged.locator(".quota-bot-chip")).toHaveText(["Coding Bot", "Review Bot"]);
     await expect(merged.locator(".quota-separate-note")).toHaveCount(0);
     const overview = panel.getByRole("region", { name: "全部 Bot 的额度" });
-    await expect(overview.getByRole("button", { name: /^Coding Bot：/ })).toHaveCount(1);
-    await expect(overview.getByRole("button", { name: /^Review Bot：/ })).toHaveCount(1);
+    await expect(overview.getByRole("button", { name: /^Codex（Coding Bot）：/ })).toHaveCount(1);
+    await expect(overview.getByRole("button", { name: /^Codex（Review Bot）：/ })).toHaveCount(1);
     // Selects fresher peer (Review Bot: 20% used -> 80% remaining)
     await expect(merged).toContainText("剩余 80%");
 
@@ -733,16 +733,46 @@ test("overview: every Bot on one table, least left first, numbers only, unreadab
     for (const text of lefts) expect(text).toMatch(/^\d+%$/);
     const values = lefts.map(text => Number.parseInt(text, 10));
     expect([...values].sort((a, b) => a - b)).toEqual(values);
-    await expect(overview.getByRole("button", { name: /^Coding Bot：.*剩余 62%$/ })).toBeVisible();
+    await expect(overview.getByRole("button", { name: /^Codex（Coding Bot）：.*剩余 62%$/ })).toBeVisible();
     // Bots without a percent reading are named together, not given empty rows.
     await expect(overview.locator(".quota-overview-row.is-other")).toContainText("Research Bot");
     // A row jumps to that account's details; the detail shows the number, not a sentence, and no "已用".
     const coder = panel.getByRole("region", { name: "Coding Bot · Codex", exact: true });
-    await overview.getByRole("button", { name: /^Coding Bot：/ }).click();
+    await overview.getByRole("button", { name: /^Codex（Coding Bot）：/ }).click();
     await expect(coder).toBeInViewport();
     await expect(coder.locator(".quota-window-primary [aria-hidden=true]").first()).toHaveText("62%");
     await expect(coder).not.toContainText("已用");
     await page.screenshot({ path: info.outputPath("quota-overview.png") });
+  } finally { await f.close(); }
+});
+
+test("overview groups Bots by model: one row per reading, rows of one model side by side", async ({ page }) => {
+  const f = await fixture(page, false, false, [["ops", "Ops Bot", "codex"], ["night", "Night Bot", "codex"], ["late", "Late Bot", "codex"]]);
+  try {
+    // Visit the middle reset first. Endpoints three minutes apart must never share a row,
+    // while fractional readings that display alike share the earliest matching window.
+    const start = Date.now() + 3_600_000;
+    for (const [id, offset, used] of [["coder", 90_000, 37.6], ["ops", 0, 37.8], ["late", 180_000, 37.7]] as const) {
+      const snapshot = structuredClone(f.records.coder!.snapshot);
+      snapshot.pools[0]!.windows[0]!.resetsAt = new Date(start + offset).toISOString();
+      snapshot.pools[0]!.windows[0]!.usedPercent = used;
+      f.records[id]!.snapshot = snapshot;
+    }
+    const other = structuredClone(f.records.coder!.snapshot); other.pools[0]!.windows[0]!.usedPercent = 50; f.records.night!.snapshot = other;
+    await f.open();
+    const overview = page.locator(".engine-quota:visible").getByRole("region", { name: "全部 Bot 的额度", exact: true });
+    const rows = overview.locator("button.quota-overview-row");
+    await expect(overview.locator(".quota-overview-cols span").first()).toHaveText("模型");
+    await expect(overview.getByRole("button", { name: /^Codex（Coding Bot、Ops Bot）：.*剩余 62%$/ })).toBeVisible();
+    await expect(overview.getByRole("button", { name: /^Codex（Night Bot）：.*剩余 50%$/ })).toBeVisible();
+    await expect(overview.getByRole("button", { name: /^Codex（Review Bot）：.*剩余 0%$/ })).toBeVisible();
+    await expect(overview.getByRole("button", { name: /^Codex（Late Bot）：.*剩余 62%$/ })).toBeVisible();
+    await expect(rows).toHaveCount(4);
+    // The model is the row title; its Bots are listed under it.
+    const shared = rows.filter({ hasText: "Ops Bot" });
+    await expect(shared.locator(".quota-overview-bot strong")).toHaveText("Codex");
+    await expect(shared.locator(".quota-overview-bot small")).toHaveText("Coding Bot、Ops Bot");
+    expect(await rows.locator(".quota-overview-pct").allInnerTexts()).toEqual(["0%", "50%", "62%", "62%"]);
   } finally { await f.close(); }
 });
 
