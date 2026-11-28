@@ -254,6 +254,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   useLayoutEffect(()=>{const node=lastFocus.current;if(!mobile||!node||node.isConnected||document.activeElement&&document.activeElement!==document.body||!activeNow.current||!document.hasFocus())return;(state.state!=="closed"?canvas.current:keyboardButton.current)?.focus({preventScroll:true});},[landscape]);
   const activeRoute = resolveScreenRoute(connState.route?.name);
   const udpRequested = status?.udpStatus?.enabled ?? false;
+  const udpConnected = state.metrics?.udpConnected === true;
   useEffect(() => {
     viewer.current?.setRoute(activeRoute, { udpRequested });
   }, [activeRoute, udpRequested]);
@@ -318,7 +319,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
         onKeyUp={e=>{if(!state.controlling||e.nativeEvent.isComposing||!screenKeyCodeSchema.safeParse(e.code).success)return;e.preventDefault();viewer.current?.input({kind:"key",code:screenControllerCode(e.code,controller,modifierMode,target),down:false});}}
       />
     </div>
-    {showMetrics&&<ScreenMetricsOverlay metrics={state.metrics} activeRoute={activeRoute} udpRequested={udpRequested} udpConnected={false} fallbackWidth={state.width} fallbackHeight={state.height}/>}
+    {showMetrics&&<ScreenMetricsOverlay metrics={state.metrics} activeRoute={activeRoute} udpRequested={udpRequested} udpConnected={udpConnected} fallbackWidth={state.width} fallbackHeight={state.height}/>}
     </div>
 
   </aside>;
