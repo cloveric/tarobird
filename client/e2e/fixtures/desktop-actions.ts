@@ -7,7 +7,7 @@ export async function revealDesktopAction(page: Page, name: string) {
   if (await page.getByRole('button', { name, exact: true }).filter({ visible: true }).count()) return;
   if (['新建对话', '新建 Bot', '新建群组', '新建定时任务'].includes(name)) {
     await page.getByRole('button', { name: '新建', exact: true }).filter({ visible: true }).click();
-  } else if (['连接状态与线路', 'Connection status & routes', '定时任务', '文件中心', 'Skills 与 MCP', '运行状态', '设备与网络', '连接另一台主机', '已归档对话', 'Operations', 'File center', 'Skills & MCP'].includes(name)) {
+  } else if (['连接状态与线路', 'Connection status & routes', '定时任务', '文件中心', 'Skills 与 MCP', '运行状态', '设备与网络', '连接另一台主机', '已归档对话', '插件市场', 'Operations', 'File center', 'Skills & MCP', 'Plugins'].includes(name)) {
     await page.getByRole('button', { name: /^(工作台：|Workspace:)/ }).filter({ visible: true }).click();
   } else if (name === '对话设置' || name === '调整 Bot 思考强度') {
     await page.getByRole('button', { name: '查看对话详情', exact: true }).filter({ visible: true }).click();
