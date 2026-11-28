@@ -38,7 +38,7 @@ export function ScreenControlPanel({ connection, close, returnFocus, backLabel, 
     if (event.target !== event.currentTarget || intentionalClose.current || event.currentTarget.open) return;
     if (busy) event.currentTarget.showModal(); else close();
   }}>
-    {viewing ? <RemoteScreenPanel key={connection.identity.hubPublicKey} connection={connection} hostName={hostName ?? connection.identity.name ?? t("当前主机")} visible standalone close={() => setViewing(false)}/> : <>
+    {viewing ? <RemoteScreenPanel key={connection.identity.hubPublicKey} connection={connection} hostName={hostName ?? connection.identity.name ?? t("当前主机")} visible standalone close={() => setViewing(false)} openSettings={() => setViewing(false)}/> : <>
     <header ref={header} className="preferences-header"><button type="button" className="icon-button" aria-label={backLabel ?? t("关闭屏幕控制设置")} disabled={busy} onClick={requestClose}><ChevronLeft className="connection-back" size={24}/><X className="connection-close" size={20}/></button><h2>{t("屏幕控制设置")}</h2></header>
     <div ref={body} className="settings-content">
       {hostName && <p className="connection-host-name">{t("当前主机：{0}", hostName)}</p>}

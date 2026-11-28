@@ -138,7 +138,7 @@ for(const english of [false,true]) test(`mobile quality menu shows actual stream
     await page.getByRole("button",{name:text("屏幕更多操作"),exact:true}).click();
     const select=page.getByLabel(text("画面清晰度"),{exact:true});
     await expect(select).toHaveValue("smooth");
-    await expect(select.locator("option")).toHaveText(["720p","1080p",text("最高 3K")]);
+    await expect(select.locator("option")).toHaveText(["720p","1080p",text("2K（1440p）"),text("最高 3K")]);
     await expect(page.locator(".screen-quality-actual")).toHaveCount(0);
     await expect(select).toHaveAttribute("title",hint);
     await page.getByRole("button",{name:text("连接屏幕"),exact:true}).click();
@@ -156,5 +156,19 @@ for(const english of [false,true]) test(`mobile quality menu shows actual stream
     await page.getByRole("button",{name:text("断开"),exact:true}).click();
     await expect(page.locator(".screen-quality-actual")).toHaveCount(0);
     await expect(select).toHaveAttribute("title",hint);
+  }finally{await context.close();}
+});
+
+for(const platform of ["ios","android"] as const) test(`mobile ${platform} passes the accepted 2K quality to the native transport`,async({browser})=>{
+  const context=await browser.newContext({viewport:{width:390,height:844},locale:"zh-CN",hasTouch:true,isMobile:true});
+  const page=await context.newPage();
+  try{
+    await page.goto(url(platform));await ready(page);
+    await page.getByRole("button",{name:"屏幕更多操作",exact:true}).click();
+    await page.getByLabel("画面清晰度",{exact:true}).selectOption("qhd");
+    await page.getByRole("button",{name:"连接屏幕",exact:true}).click();
+    await expect(page.getByRole("button",{name:"开始控制",exact:true})).toBeEnabled();
+    expect(await page.evaluate(()=>(window as any).screenMobileFixture.calls.find((v:any)=>v.method==="screenOpen")?.args.join.quality)).toBe("qhd");
+    await expect(page.locator(".screen-quality-actual")).toHaveText("当前 1280×720");
   }finally{await context.close();}
 });

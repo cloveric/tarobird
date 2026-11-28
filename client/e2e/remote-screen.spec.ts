@@ -355,7 +355,7 @@ test("a late fullscreen close cannot remove the same Host viewer reopened after 
 test("quality menu labels options by resolution and shows actual stream resolution in tooltip once connected",async({page})=>{
  const select=page.getByLabel("画面清晰度",{exact:true});
  await expect(select).toHaveValue("balanced");
- await expect(select.locator("option")).toHaveText(["720p","1080p","最高 3K"]);
+ await expect(select.locator("option")).toHaveText(["720p","1080p","2K（1440p）","最高 3K"]);
  await expect(select).toHaveAttribute("title","当前 1280×720 · 720p 节省带宽，最高 3K 保留更多文字细节");
  await page.evaluate(()=>(window as any).screenDenyControl("screen_takeover_unavailable"));
  await expect(page.getByRole("status")).toContainText("目标 Mac 的本机接管检测未就绪");
@@ -388,8 +388,22 @@ test("an unreachable old Host cannot block opening the newly selected Host",asyn
 
 test("a device without the high-resolution decoder disables Sharp while keeping standard viewing usable",async({page})=>{
  await page.goto(server.resolvedUrls!.local[0]+"e2e/fixtures/remote-screen.html?no-sharp");
- await expect(page.getByLabel("画面清晰度",{exact:true}).locator('option[value="sharp"]')).toBeDisabled();
+ const select=page.getByLabel("画面清晰度",{exact:true});
+ await expect(select.locator('option[value="sharp"]')).toBeDisabled();
+ await expect(select.locator('option[value="qhd"]')).toBeEnabled();
+ await select.selectOption("qhd");
  await page.getByRole("button",{name:"连接屏幕",exact:true}).click();await expect(page.getByRole("button",{name:"开始控制",exact:true})).toBeEnabled();
+ expect(await page.evaluate(()=>(window as any).screenFixture.requests.at(-1))).toMatchObject({quality:"qhd",codecs:["h264"]});
+});
+
+test("a Host with only the original quality capability keeps 2K disabled and 3K available",async({page})=>{
+ await page.goto(server.resolvedUrls!.local[0]+"e2e/fixtures/remote-screen.html?old-host");
+ const select=page.getByLabel("画面清晰度",{exact:true});
+ await expect(select.locator('option[value="qhd"]')).toBeDisabled();
+ await expect(select.locator('option[value="sharp"]')).toBeEnabled();
+ await select.selectOption("sharp");
+ await page.getByRole("button",{name:"连接屏幕",exact:true}).click();await expect(page.getByRole("button",{name:"开始控制",exact:true})).toBeEnabled();
+ expect(await page.evaluate(()=>(window as any).screenFixture.requests.at(-1).quality)).toBe("sharp");
 });
 
 test("Fit fills a large fullscreen proportionally and keeps remote pointer coordinates on the actual picture",async({page})=>{
@@ -583,4 +597,13 @@ test("performance overlay tracks live route failovers, keeps desktop control whe
   return{clearsChrome:o.top>=c.bottom-0.5,inside:o.left>=s.left-0.5&&o.right<=s.right+0.5&&o.bottom<=s.bottom+0.5};
  });
  expect(fsLayout).toEqual({clearsChrome:true,inside:true});
+});
+
+test("shows viewers where UDP boost is configured before connecting", async ({ page }) => {
+  await page.getByRole("button", { name: "断开", exact: true }).click();
+  await page.getByRole("button", { name: "屏幕更多操作", exact: true }).click();
+  const menu = page.getByRole("region", { name: "屏幕更多操作", exact: true });
+  await expect(menu.getByText("UDP 加速（实验性）", { exact: true })).toBeVisible();
+  await expect(menu.getByText("在被控电脑的「屏幕控制设置」中更改 UDP 加速。")).toBeVisible();
+  await expect(menu.getByRole("checkbox", { name: /UDP/ })).toHaveCount(0);
 });

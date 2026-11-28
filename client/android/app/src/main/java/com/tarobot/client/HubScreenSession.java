@@ -69,10 +69,13 @@ final class HubScreenSession {
         long expires=integer(join,"expiresAt",0,9007199254740991L), now=integer(join,"serverTime",0,9007199254740991L);
         if(expires<=now || expires-now>30000 || controlTicket.equals(mediaTicket)) throw invalid();
         String quality=join.has("quality")?text(join,"quality"):"balanced";
-        if(!Arrays.asList("smooth","balanced","sharp").contains(quality)) throw invalid();
-        edgeLimit=quality.equals("smooth")?1280:quality.equals("sharp")?3072:1920;
-        areaLimit=quality.equals("smooth")?1280*800:quality.equals("sharp")?3072*1920:1920*1080;
-        h264Only=quality.equals("sharp");
+        switch (quality) {
+            case "smooth": edgeLimit=1280; areaLimit=1280*800; h264Only=false; break;
+            case "balanced": edgeLimit=1920; areaLimit=1920*1080; h264Only=false; break;
+            case "qhd": edgeLimit=2560; areaLimit=2560*1440; h264Only=true; break;
+            case "sharp": edgeLimit=3072; areaLimit=3072*1920; h264Only=true; break;
+            default: throw invalid();
+        }
     }
     private static IOException invalid() { return new IOException("screen_protocol_invalid"); }
     /** A well-formed renew or input after native has seen control end (the Hub withdrew the

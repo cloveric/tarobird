@@ -1,4 +1,4 @@
-import { SCREEN_FLIGHT_MAX, SCREEN_FLIGHT_MIN, SCREEN_HELD_MAX_MS, SCREEN_QUALITY_PROFILES, screenQualityProfile, type ScreenQuality } from "../../src/client-protocol/screen-quality.js";
+import { SCREEN_FLIGHT_MAX, SCREEN_FLIGHT_MIN, SCREEN_HELD_MAX_MS, screenH264Codec, screenQualityProfile, type ScreenQuality } from "../../src/client-protocol/screen-quality.js";
 import { screenStreamSchema, screenViewerEventSchema, type ScreenInputEvent, type ScreenJoin, type ScreenStream } from "../../src/client-protocol/remote-screen.js";
 import { readScreenFrame, SCREEN_HEADER_BYTES } from "../../src/client-protocol/screen-wire.js";
 import { ScreenMetricsTracker, type ScreenPerformanceSnapshot, type ScreenRouteKind } from "../../src/client-protocol/screen-metrics.js";
@@ -347,14 +347,16 @@ export class RemoteScreenViewer {
   }
 }
 export async function supportedScreenCodecs(quality: ScreenQuality = "balanced"): Promise<("h264" | "vp8")[]> {
-  const reason = quality === "sharp" ? "screen_quality_decoder_unavailable" : "screen_decoder_unavailable";
+  const profile = screenQualityProfile(quality);
+  const reason = quality === "qhd" ? "screen_quality_qhd_decoder_unavailable" : quality === "sharp" ? "screen_quality_decoder_unavailable" : "screen_decoder_unavailable";
   if (typeof VideoDecoder === "undefined") throw new Error(reason);
-  if (quality === "sharp") {
-    const profile = SCREEN_QUALITY_PROFILES.sharp, long = profile.longEdge, short = Math.floor(profile.area / long);
-    // Sharp has no VP8/low-resolution fallback. Probe both orientations at the
+  if (profile.h264Only) {
+    const long = profile.longEdge, short = Math.floor(profile.area / long);
+    const codec = screenH264Codec(long, short)!;
+    // Probe both orientations at the
     // negotiated profile's largest bounds before creating a Host session.
     for (const [codedWidth,codedHeight] of [[long,short],[short,long]]) {
-      try { if (!(await VideoDecoder.isConfigSupported({codec:"avc1.640033",codedWidth,codedHeight,optimizeForLatency:true,hardwareAcceleration:"no-preference"})).supported) throw new Error(reason); }
+      try { if (!(await VideoDecoder.isConfigSupported({codec,codedWidth,codedHeight,optimizeForLatency:true,hardwareAcceleration:"no-preference"})).supported) throw new Error(reason); }
       catch { throw new Error(reason); }
     }
     return ["h264"];
