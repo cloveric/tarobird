@@ -53,13 +53,15 @@ function ModelDialog({ connection, bot, online, focusEffort, close, returnFocus 
   const effortRow = useRef<HTMLDivElement>(null), focusedEffort = useRef(false);
   useEffect(() => {
     if (!focusEffort || !data || busy || focusedEffort.current) return;
+    // The saved model determines whether this row contains a selector.
+    if (draft !== data.model || effort !== data.effort) return;
     focusedEffort.current = true;
     const row = effortRow.current;
     const active = document.activeElement;
     if (row && active?.tagName === "H2" && row.closest("dialog")?.contains(active)) {
       (row.querySelector<HTMLSelectElement>("select:not(:disabled)") ?? row).focus();
     }
-  }, [focusEffort, data, busy]);
+  }, [focusEffort, data, busy, draft, effort]);
   useEffect(() => {
     if (!data) return;
     const previous = previousRead.current; previousRead.current = { connection, botId: bot.id, data };

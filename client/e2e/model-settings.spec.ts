@@ -188,6 +188,11 @@ test("Antigravity separates model families and their supported effort on phone a
       await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
       await page.getByLabel("配对码", { exact: true }).waitFor({ state: "hidden" });
       await waitForClientOnline(page); await selectConversation(page, "测试会话"); await openBotSettings(page);
+      await page.getByRole("button", { name: "调整 Bot 思考强度", exact: true }).click();
+      const shortcutEffort = page.getByRole("combobox", { name: "模型思考强度", exact: true });
+      await expect(shortcutEffort).toHaveValue("high");
+      await expect(shortcutEffort).toBeFocused();
+      await page.getByRole("button", { name: "关闭模型设置", exact: true }).click();
       await page.getByRole("button", { name: "调整 Bot 模型", exact: true }).click();
       await expect(page.getByLabel("选择模型", { exact: true }).locator("option:checked")).toHaveText("Gemini 3.8 Flash");
       await expect(page.getByLabel("模型思考强度", { exact: true })).toHaveValue("high");
@@ -235,6 +240,11 @@ test("Antigravity separates model families and their supported effort on phone a
     await expect(phone!.getByText("思考强度：由模型决定", { exact: true })).toBeVisible();
     await phone!.getByRole("button", { name: "关闭模型设置", exact: true }).click();
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ ...config, effort: "high" });
+    await writeFile(file, JSON.stringify({ ...config, model: "" }));
+    await phone!.getByRole("button", { name: "调整 Bot 思考强度", exact: true }).click();
+    const defaultOnlyDialog = phone!.getByRole("dialog", { name: "模型设置", exact: true });
+    await expect(defaultOnlyDialog.locator(":focus")).toHaveText("思考强度：由模型决定");
+    await expect(defaultOnlyDialog.getByRole("combobox", { name: "模型思考强度" })).toHaveCount(0);
     expect(await readFile(path.join(stateDir, "session.json"), "utf8")).toBe("preserved-session");
     expect(await hub.store.db.get("SELECT COUNT(*) AS count FROM messages")).toEqual({ count: 0 });
     expect(engineCalls).toBe(0); expect(errors).toEqual([]);
