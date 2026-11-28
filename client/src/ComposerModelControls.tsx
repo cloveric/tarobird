@@ -5,7 +5,7 @@ import type { Bot, HubConnection } from "./connection.js";
 import { DesktopMenu, DesktopMenuPortalContext } from "./DesktopMenu.js";
 import { useBotSettingsRequest } from "./bot-settings-request.js";
 import { modelSettingsErrorText } from "./ModelControl.js";
-import { modelOptionLabel, modelOptions, selectedModelOption, selectedModelEffort, selectModel, selectModelEffort } from "./model-selection.js";
+import { botEffortLabel, modelOptionLabel, modelOptions, selectedModelOption, selectedModelEffort, selectModel, selectModelEffort } from "./model-selection.js";
 import { t, useLocale } from "./i18n.js";
 import "./composer-model-controls.css";
 import { PiModelCatalogNotice } from "./PiModelSelect.js";
@@ -29,12 +29,13 @@ export function ComposerModelControls({ connection, bot, online, owner }: {
     if (!picker && !saving && restoreFocus.current) { restoreFocus.current.focus({ preventScroll: true }); restoreFocus.current = null; }
   }, [picker, saving]);
   const title = !owner ? t("仅拥有者可修改 Bot 设置") : !online ? t("Bot 当前离线。连接恢复后再调整模型和思考强度。") : bot.engine === "pi" ? t("修改 Bot 默认会用于后续任务；/model 只调整当前对话") : t("此 Bot 的所有对话、群聊和话题共用");
+  const effortLabel = botEffortLabel(bot) || t("跟随默认");
   function open(next: Picker) { if (saving) return; setNotice(""); setPicker(previous => previous === next ? undefined : next); }
   return <div className="composer-model-controls" role="group" aria-label={t("Bot 设置")}>
     <button ref={modelTrigger} type="button" className="composer-model-trigger" aria-label={t("模型设置：{0}", bot.model || t("引擎默认模型"))} aria-controls={picker === "model" ? id : undefined} aria-expanded={picker === "model"} title={title} disabled={!owner || !online || saving} onClick={() => open("model")}><Cpu size={13} aria-hidden="true"/><span>{bot.model || t("引擎默认模型")}</span><ChevronDown size={12} aria-hidden="true"/></button>
-    <button ref={effortTrigger} type="button" className="composer-effort-trigger" aria-label={t("思考强度：{0}", bot.effort || t("跟随默认"))} aria-controls={picker === "effort" ? id : undefined} aria-expanded={picker === "effort"} title={title} disabled={!owner || !online || saving} onClick={() => open("effort")}><Zap size={13} aria-hidden="true"/><span>{bot.effort || t("跟随默认")}</span><ChevronDown size={12} aria-hidden="true"/></button>
+    <button ref={effortTrigger} type="button" className="composer-effort-trigger" aria-label={t("思考强度：{0}", effortLabel)} aria-controls={picker === "effort" ? id : undefined} aria-expanded={picker === "effort"} title={title} disabled={!owner || !online || saving} onClick={() => open("effort")}><Zap size={13} aria-hidden="true"/><span>{effortLabel}</span><ChevronDown size={12} aria-hidden="true"/></button>
     <span className="screen-reader-only" role="status">{notice}</span>
-    {picker && owner && <ComposerModelMenu key={picker} id={id} picker={picker} connection={connection} bot={bot} online={online} trigger={picker === "model" ? modelTrigger : effortTrigger} close={() => setPicker(undefined)} onSaving={setSaving} saved={data => { restoreFocus.current = (picker === "model" ? modelTrigger : effortTrigger).current; setNotice(t("已切换为 {0} · {1}", data.model || t("引擎默认模型"), data.effort || t("跟随默认"))); }}/>}
+    {picker && owner && <ComposerModelMenu key={picker} id={id} picker={picker} connection={connection} bot={bot} online={online} trigger={picker === "model" ? modelTrigger : effortTrigger} close={() => setPicker(undefined)} onSaving={setSaving} saved={data => { restoreFocus.current = (picker === "model" ? modelTrigger : effortTrigger).current; setNotice(t("已切换为 {0} · {1}", data.model || t("引擎默认模型"), botEffortLabel(data) || t("跟随默认"))); }}/>}
   </div>;
 }
 
@@ -64,6 +65,7 @@ function ComposerModelMenu({ id, picker, connection, bot, online, trigger, close
   const selected = data && selectedModelOption(options, data.model);
   const effort = data ? selectedModelEffort(selected, data) : "";
   const levels = selected?.efforts ?? data?.customEfforts ?? [];
+  const defaultOnly = levels.length === 1 && levels[0] === "" && effort === "";
   // An uncertain write must be read back before another choice can be submitted.
   const disabled = busy || !online || error !== undefined || deepSeekCatalogBlocked(data?.engine ?? bot.engine, data?.catalogStatus);
   // The Host refuses "follow default" (and effort changes while following it) when DSH has no usable default.
@@ -84,7 +86,7 @@ function ComposerModelMenu({ id, picker, connection, bot, online, trigger, close
         return <button key={option.id} type="button" data-menu-keep="" aria-pressed={selected?.id === option.id} disabled={disabled || defaultUnavailable && !option.id} onClick={() => choose(selected?.id === option.id ? { model: data.model, effort: data.effort } : next)}><span className="quick-setting-check">{selected?.id === option.id && <Check size={14}/>}</span><span className="desktop-menu-label">{defaultUnavailable && !option.id ? t("引擎默认模型（未设置）") : modelOptionLabel(option, t("引擎默认模型"))}</span><span className="desktop-menu-value">{data.engine === "deepseek" && next.effort === "off" ? t("关闭推理（off）") : next.effort || t("跟随默认")}</span></button>;
       })}
       {data && picker === "model" && !shownOptions.length && <p className="desktop-menu-note" role="status">{t("没有匹配的模型")}</p>}
-      {data && picker === "effort" && levels.map(level => <button key={level} type="button" data-menu-keep="" aria-pressed={effort === level} disabled={disabled || defaultUnavailable && selected?.id === ""} onClick={() => choose(level === effort ? { model: data.model, effort: data.effort } : selectModelEffort(selected, data.model, level))}><span className="quick-setting-check">{effort === level && <Check size={14}/>}</span><span className="desktop-menu-label">{data.engine === "deepseek" && level === "off" ? t("关闭推理（off）") : level || t("跟随默认")}</span></button>)}
+      {data && picker === "effort" && (defaultOnly ? <p className="desktop-menu-note" role="status">{t("由模型决定")}</p> : levels.map(level => <button key={level} type="button" data-menu-keep="" aria-pressed={effort === level} disabled={disabled || defaultUnavailable && selected?.id === ""} onClick={() => choose(level === effort ? { model: data.model, effort: data.effort } : selectModelEffort(selected, data.model, level))}><span className="quick-setting-check">{effort === level && <Check size={14}/>}</span><span className="desktop-menu-label">{data.engine === "deepseek" && level === "off" ? t("关闭推理（off）") : level || t("跟随默认")}</span></button>))}
       {busy && <p className="desktop-menu-note" role="status"><LoaderCircle size={14} className="spin"/>{saving ? t("保存中…") : t("正在读取…")}</p>}
       {error !== undefined && <><p className="quick-setting-error" role="alert">{modelSettingsErrorText(error, data && attempt.current ? { engine: data.engine, ...attempt.current, choices: data.choices } : undefined)}</p><button type="button" data-menu-keep="" disabled={busy || !online} onClick={() => void load()}>{t("重新读取")}</button></>}
       {error === undefined && (data?.engine === "pi" || data?.engine === "omp" || data?.engine === "deepseek") && data.catalogStatus !== "ready" && <button type="button" data-menu-keep="" disabled={busy || !online} onClick={() => void load()}>{t("重新读取")}</button>}

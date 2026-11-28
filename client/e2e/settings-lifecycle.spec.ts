@@ -16,10 +16,11 @@ for (const kind of ["permissions", "effort"] as const) test(`${kind} reads can c
   const root = await mkdtemp(path.join(os.tmpdir(), "settings-lifecycle-"));
   const hub = await HubServer.start({ stateDir: path.join(root, "hub"), clientDir: path.resolve("dist") });
   const gateways: GatewayChannel[] = [], releases: (() => void)[] = [];
-  const title = kind === "permissions" ? "权限与批准" : "思考强度";
+  const title = kind === "permissions" ? "权限与批准" : "模型设置";
+  const routeKind = kind === "permissions" ? kind : "model";
   const trigger = page.getByRole("button", { name: kind === "permissions" ? "调整 Bot 权限" : "调整 Bot 思考强度", exact: true });
   const dialog = page.getByRole("dialog", { name: title, exact: true });
-  const control = dialog.getByRole("combobox", { name: kind === "permissions" ? title : "Effort 档位", exact: true });
+  const control = dialog.getByRole("combobox", { name: kind === "permissions" ? title : "模型思考强度", exact: true });
   const initial = kind === "permissions" ? "bypass" : "high", updated = kind === "permissions" ? "normal" : "low", fallback = kind === "permissions" ? "full-auto" : "high";
   let authorization = "";
   try {
@@ -36,7 +37,7 @@ for (const kind of ["permissions", "effort"] as const) test(`${kind} reads can c
     await selectConversation(page, group.title); await page.getByRole("button", { name: "查看对话详情", exact: true }).click(); await page.getByRole("button", { name: "Bot 设置", exact: true }).click();
     let readStarted = false, heldRead = false;
     const readGate = new Promise<void>(resolve => releases.push(resolve));
-    await page.route(`**/api/bots/alpha/${kind}`, async route => {
+    await page.route(`**/api/bots/alpha/${routeKind}`, async route => {
       authorization = route.request().headers().authorization ?? authorization;
       if (route.request().method() !== "GET" || heldRead) { await route.continue(); return; }
       heldRead = true; const response = await route.fetch(); readStarted = true; await readGate;
@@ -48,11 +49,11 @@ for (const kind of ["permissions", "effort"] as const) test(`${kind} reads can c
     await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0);
     await trigger.click(); await expect(control).toHaveValue(initial);
     releases[0]!(); await expect(control).toHaveValue(initial);
-    await page.unroute(`**/api/bots/alpha/${kind}`);
+    await page.unroute(`**/api/bots/alpha/${routeKind}`);
 
     let savedAtHost = false;
     const saveGate = new Promise<void>(resolve => releases.push(resolve));
-    await page.route(`**/api/bots/alpha/${kind}`, async route => {
+    await page.route(`**/api/bots/alpha/${routeKind}`, async route => {
       if (route.request().method() !== "PUT") { await route.continue(); return; }
       const response = await route.fetch(); savedAtHost = true; await saveGate;
       await route.fulfill({ response }).catch(() => undefined);
@@ -61,6 +62,10 @@ for (const kind of ["permissions", "effort"] as const) test(`${kind} reads can c
     await expect.poll(() => savedAtHost).toBe(true);
     const changed = await fetch(`${hub.url}/api/groups/${group.id}/settings`, { method: "PUT", headers: { authorization }, body: JSON.stringify({ title: group.title, botIds: ["beta"], expectedTitle: group.title, expectedBotIds: ["alpha", "beta"] }) });
     expect(changed.status).toBe(200);
+    if (kind === "effort") {
+      await expect(dialog).toHaveCount(0);
+      await trigger.click();
+    }
     await expect(dialog.locator(".effort-scope strong")).toHaveText("写作助手");
     await expect(control).toHaveValue(fallback);
     releases[1]!();

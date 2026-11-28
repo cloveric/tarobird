@@ -63,20 +63,20 @@ test("phone Back respects nested dialogs, unsaved settings, busy effort saves an
     await mobileHome(page).getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "消息", exact: true }).click();
     await enterMobileChat(page, "返回操作");
     await mobileChatAction(page, "调整 Bot 思考强度");
-    await expect(page.getByLabel("Effort 档位", { exact: true })).toHaveValue("high");
+    await expect(page.getByLabel("模型思考强度", { exact: true })).toHaveValue("high");
     let release!: () => void, held = false;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    await page.route("**/api/bots/alpha/effort", async (route) => { held = true; await gate; await route.continue(); }, { times: 1 });
+    await page.route("**/api/bots/alpha/model", async (route) => { held = true; await gate; await route.continue(); }, { times: 1 });
     try {
-      await page.getByLabel("Effort 档位", { exact: true }).selectOption("xhigh");
+      await page.getByLabel("模型思考强度", { exact: true }).selectOption("xhigh");
       await page.getByRole("button", { name: "保存到此 Bot", exact: true }).click(); await expect.poll(() => held).toBe(true);
       expect(await back(page)).toBe(true);
-      await expect(page.getByRole("dialog", { name: "思考强度", exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "关闭思考强度", exact: true })).toBeDisabled();
+      await expect(page.getByRole("dialog", { name: "模型设置", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "关闭模型设置", exact: true })).toBeDisabled();
     } finally { release(); }
-    await expect(page.getByRole("dialog", { name: "思考强度", exact: true }).getByRole("status")).toContainText("已保存为 xhigh");
+    await expect(page.getByRole("dialog", { name: "模型设置", exact: true }).getByRole("status")).toContainText("已保存为 xhigh");
     expect(await back(page)).toBe(true);
-    await expect(page.getByRole("dialog", { name: "思考强度", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "模型设置", exact: true })).toHaveCount(0);
 
     expect(await back(page)).toBe(true); // Shared Bot settings -> conversation details.
     await mobileChatAction(page, "对话设置");

@@ -29,7 +29,7 @@ test("Bot effort syncs across chats and devices, preserves isolation and rejects
   const desktop = await desktopContext.newPage(), phone = await phoneContext.newPage();
   const gateways: GatewayChannel[] = [], errors: string[] = []; let engineCalls = 0, authorization = "";
   for (const page of [desktop, phone]) page.on("pageerror", (error) => errors.push(error.message));
-  desktop.on("request", (request) => { if (request.url().endsWith("/effort")) authorization = request.headers().authorization ?? authorization; });
+  desktop.on("request", (request) => { if (request.url().endsWith("/model")) authorization = request.headers().authorization ?? authorization; });
   try {
     for (const [id, name, engine, model] of [
       ["alpha", "研究助手", "codex", "gpt-5.5"],
@@ -37,10 +37,10 @@ test("Bot effort syncs across chats and devices, preserves isolation and rejects
       ["gamma", "执行助手", "antigravity", "gemini-3.7-flash-high"],
     ] as const) {
       const stateDir = path.join(root, id), secret = randomBytes(32).toString("base64url"); await mkdir(stateDir);
-      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine, model, effort: "high", locale: "zh", workspacePath: "/preserved/workspace" }));
+      await writeFile(path.join(stateDir, "config.json"), JSON.stringify({ engine, model, ...(engine === "antigravity" ? {} : { effort: "high" }), locale: "zh", workspacePath: "/preserved/workspace" }));
       await writeFile(path.join(stateDir, "session.json"), JSON.stringify({ chats: [] }));
       await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES(?,?,?)", [id, name, hashSecret(secret)]);
-      gateways.push(await attachGateway({ stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: id, engine, model, effort: "high", runtime: createCoreServiceRuntime(), bridge: { handleAuthorizedMessage: async () => { engineCalls++; return { text: "unused" }; } } }));
+      gateways.push(await attachGateway({ stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: id, engine, model, effort: engine === "antigravity" ? "" : "high", runtime: createCoreServiceRuntime(), bridge: { handleAuthorizedMessage: async () => { engineCalls++; return { text: "unused" }; } } }));
     }
     await hub.store.createConversation("owner", ["alpha"], "研究一", "study1");
     await hub.store.createConversation("owner", ["alpha"], "研究二", "study2");
@@ -48,50 +48,54 @@ test("Bot effort syncs across chats and devices, preserves isolation and rejects
     await hub.store.createConversation("owner", ["gamma"], "执行任务", "execution1");
     for (const page of [desktop, phone]) { await pair(page, hub); await select(page, page === desktop ? "研究一" : "研究二"); await page.getByRole("button", { name: "查看对话详情", exact: true }).click(); await page.getByRole("button", { name: "Bot 设置", exact: true }).click(); }
     const trigger = (page: Page) => page.getByRole("button", { name: "调整 Bot 思考强度", exact: true });
-    const level = (page: Page) => page.getByLabel("Effort 档位", { exact: true });
+    const level = (page: Page) => page.getByLabel("模型思考强度", { exact: true });
     const save = (page: Page) => page.getByRole("button", { name: "保存到此 Bot", exact: true });
-    const close = (page: Page) => page.getByRole("button", { name: "关闭思考强度", exact: true }).click();
+    const close = (page: Page) => page.getByRole("button", { name: "关闭模型设置", exact: true }).click();
     await trigger(phone).click(); await expect(level(phone)).toHaveValue("high");
+    await expect(level(phone)).toBeFocused();
     await trigger(desktop).click(); await expect(level(desktop)).toHaveValue("high");
     await expect(level(desktop).locator("option")).toHaveText(["跟随默认（不强制指定）", "low", "medium", "high", "xhigh"]);
-    await expect(desktop.getByRole("dialog", { name: "思考强度", exact: true }).getByText("此 Bot 的所有对话、群聊和话题共用", { exact: true })).toBeVisible();
+    await expect(desktop.getByRole("dialog", { name: "模型设置", exact: true }).getByText("此 Bot 的所有对话、群聊和话题共用", { exact: true })).toBeVisible();
     await level(desktop).selectOption("xhigh"); await save(desktop).click();
-    await expect(desktop.getByRole("dialog", { name: "思考强度", exact: true }).getByRole("status")).toContainText("已保存为 xhigh");
+    await expect(desktop.getByRole("dialog", { name: "模型设置", exact: true }).getByRole("status")).toContainText("已保存为 xhigh");
     await expect(trigger(phone)).toContainText("xhigh"); // Another chat, another device.
     await level(phone).selectOption("low"); await save(phone).click();
     await expect(phone.getByRole("alert")).toContainText("其他设备或本机已修改设置");
     await phone.getByRole("button", { name: "重新读取", exact: true }).click(); await expect(level(phone)).toHaveValue("xhigh");
-    await level(phone).selectOption("low"); await save(phone).click(); await expect(phone.getByRole("dialog", { name: "思考强度", exact: true }).getByRole("status")).toContainText("已保存为 low");
+    await level(phone).selectOption("low"); await save(phone).click(); await expect(phone.getByRole("dialog", { name: "模型设置", exact: true }).getByRole("status")).toContainText("已保存为 low");
     await close(desktop); await expect(trigger(desktop)).toContainText("low");
     for (const [page, device] of [[desktop, "desktop"], [phone, "phone"]] as const) await page.screenshot({ path: info.outputPath(`effort-${device}.png`), animations: "disabled" });
-    await close(phone); await phone.getByRole("button", { name: "关闭 Bot 设置", exact: true }).click(); await select(phone, "项目讨论"); await phone.getByRole("button", { name: "查看对话详情", exact: true }).click(); await phone.getByRole("button", { name: "Bot 设置", exact: true }).click(); await trigger(phone).click();
-    await phone.getByRole("dialog", { name: "思考强度", exact: true }).getByLabel("选择要调整的 Bot", { exact: true }).selectOption("beta");
+    await close(phone); await phone.getByRole("button", { name: "关闭 Bot 设置", exact: true }).click(); await select(phone, "项目讨论"); await phone.getByRole("button", { name: "查看对话详情", exact: true }).click(); await phone.getByRole("button", { name: "Bot 设置", exact: true }).click();
+    const groupBot = phone.getByRole("dialog", { name: "Bot 设置", exact: true }).getByLabel("选择要调整的 Bot", { exact: true });
+    await groupBot.selectOption("beta"); await trigger(phone).click();
     await expect(level(phone)).toHaveValue("high");
     await expect(level(phone).locator("option")).toHaveText(["跟随默认（不强制指定）", "low", "high", "max"]);
-    await level(phone).selectOption(""); await save(phone).click(); await expect(phone.getByRole("dialog", { name: "思考强度", exact: true }).getByRole("status")).toContainText("已保存为 跟随默认");
+    await level(phone).selectOption(""); await save(phone).click(); await expect(phone.getByRole("dialog", { name: "模型设置", exact: true }).getByRole("status")).toContainText("已保存为 跟随默认");
     await desktop.getByRole("button", { name: "关闭 Bot 设置", exact: true }).click(); await select(desktop, "执行任务"); await desktop.getByRole("button", { name: "Bot 设置", exact: true }).click();
-    await phone.getByRole("dialog", { name: "思考强度", exact: true }).getByLabel("选择要调整的 Bot", { exact: true }).selectOption("gamma");
+    await close(phone); await groupBot.selectOption("gamma");
+    await expect(trigger(phone)).toContainText("high");
+    await trigger(phone).click();
     await expect(level(phone)).toHaveValue("high");
-    await expect(level(phone).locator("option")).toHaveText(["沿用模型预设（high）", "high"]);
-    await level(phone).selectOption(""); await save(phone).click();
-    await expect(phone.getByRole("dialog", { name: "思考强度", exact: true }).getByRole("status")).toContainText("已保存为 跟随默认");
-    await expect(trigger(desktop)).toContainText("默认");
+    await expect(level(phone).locator("option")).toHaveText(["low", "medium", "high"]);
+    await level(phone).selectOption("medium"); await save(phone).click();
+    await expect(phone.getByRole("dialog", { name: "模型设置", exact: true }).getByRole("status")).toContainText("已保存为 medium");
+    await expect(trigger(desktop)).toContainText("medium");
     await phone.screenshot({ path: info.outputPath("effort-phone-antigravity-preset.png"), animations: "disabled" });
-    await trigger(desktop).click(); await expect(level(desktop)).toHaveValue("");
+    await trigger(desktop).click(); await expect(level(desktop)).toHaveValue("medium");
     await close(desktop); await desktop.getByRole("button", { name: "关闭 Bot 设置", exact: true }).click(); await select(desktop, "研究一"); await desktop.getByRole("button", { name: "Bot 设置", exact: true }).click();
     const a = JSON.parse(await readFile(path.join(root, "alpha", "config.json"), "utf8")), b = JSON.parse(await readFile(path.join(root, "beta", "config.json"), "utf8"));
     expect(a).toMatchObject({ effort: "low", model: "gpt-5.5", workspacePath: "/preserved/workspace" }); expect(b).not.toHaveProperty("effort");
-    expect(JSON.parse(await readFile(path.join(root, "gamma", "config.json"), "utf8"))).toMatchObject({ model: "gemini-3.7-flash-high", workspacePath: "/preserved/workspace" });
+    expect(JSON.parse(await readFile(path.join(root, "gamma", "config.json"), "utf8"))).toMatchObject({ model: "gemini-3.7-flash-medium", effort: "medium", workspacePath: "/preserved/workspace" });
     expect(await readFile(path.join(root, "gamma", "session.json"), "utf8")).toBe(JSON.stringify({ chats: [] }));
     expect(await readFile(path.join(root, "alpha", "session.json"), "utf8")).toBe(JSON.stringify({ chats: [] }));
     expect((await fetch(`${hub.url}/api/bots/alpha/effort`)).status).toBe(401);
     expect((await fetch(`${hub.url}/api/bots/missing/effort`, { headers: { authorization } })).status).toBe(403);
     const gamma = await (await fetch(`${hub.url}/api/bots/gamma/effort`, { headers: { authorization } })).json();
-    expect(gamma.effort).toBe("");
+    expect(gamma).toMatchObject({ model: "gemini-3.7-flash-medium", effort: "medium" });
     const incompatibleGamma = await fetch(`${hub.url}/api/bots/gamma/effort`, { method: "PUT", headers: { authorization }, body: JSON.stringify({ revision: gamma.revision, effort: "xhigh" }) });
     expect(incompatibleGamma.status).toBe(409);
     expect(await incompatibleGamma.json()).toMatchObject({ error: "effort_incompatible" });
-    expect(JSON.parse(await readFile(path.join(root, "gamma", "config.json"), "utf8"))).not.toHaveProperty("effort");
+    expect(JSON.parse(await readFile(path.join(root, "gamma", "config.json"), "utf8"))).toMatchObject({ model: "gemini-3.7-flash-medium", effort: "medium" });
     const fresh = await (await fetch(`${hub.url}/api/bots/alpha/effort`, { headers: { authorization } })).json();
     expect((await fetch(`${hub.url}/api/bots/alpha/effort`, { method: "PUT", headers: { authorization }, body: JSON.stringify({ revision: fresh.revision, effort: "ultra" }) })).status).toBe(409);
     await hub.store.db.run("UPDATE users SET role='member' WHERE id='owner'");

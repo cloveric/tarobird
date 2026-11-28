@@ -12,7 +12,6 @@ import { useState, useSyncExternalStore, type RefObject } from "react";
 import type { Bot, HubConnection } from "./connection.js";
 import { AvatarEditor } from "./Avatar.js";
 import { CreationDialog } from "./CreationDialog.js";
-import { EffortControl } from "./EffortControl.js";
 import { ModelControl } from "./ModelControl.js";
 import { BotWorkspaceControl } from "./BotWorkspaceControl.js";
 import { t, useLocale } from "./i18n.js";
@@ -38,7 +37,7 @@ export function BotSettings({ connection, bot: initialBot, name: initialName, ch
       <div><dt>{t("引擎")}</dt><dd>{bot.engine || t("未记录")}</dd></div>
     </dl>
     <div className="details-effort"><span>{t("模型")}</span><ModelControl key={`model-${bot.id}`} connection={connection} bot={bot} online={online} owner={state.user?.role === "owner"}/></div>
-    <div className="details-effort"><span>{t("思考强度")}</span><EffortControl connection={connection} bots={controlBots} summary={bot.effort || t("跟随默认")} online={online} owner={state.user?.role === "owner"}/></div>
+    <div className="details-effort"><span>{t("思考强度")}</span><ModelControl key={`effort-${bot.id}`} connection={connection} bot={bot} online={online} owner={state.user?.role === "owner"} focusEffort/></div>
     {state.savedWorkspacesAvailable && <div className="details-effort"><span>{t("默认工作区")}</span><BotWorkspaceControl key={`workspace-${bot.id}`} connection={connection} bot={bot} online={state.status === "online" && (online || !!bot.managed)} owner={state.user?.role === "owner"}/></div>}
     <div className="details-effort"><span>{t("权限与批准")}</span><PermissionControl connection={connection} bots={controlBots} online={online} owner={state.user?.role === "owner"}/></div>
     {isDispatcher(bot) && state.dispatchAvailable && <div className="details-effort"><div className="dispatcher-role-label">{t("幕僚长设置")}<DispatcherRoutingHelp key={`routing-${bot.id}`}/></div><DispatcherSettingsControl key={`dispatch-${bot.id}`} connection={connection} bot={bot} online={state.status === "online"} owner={state.user?.role === "owner"}/></div>}

@@ -52,6 +52,10 @@ export function selectedModelOption(options: readonly ModelOption[], model: stri
 export function selectedModelEffort(option: ModelOption | undefined, selection: Selection): Effort {
   return selection.effort || option?.variants?.find(variant => variant.id === selection.model)?.effort || "";
 }
+
+export function botEffortLabel({ engine, model, effort }: { engine: string; model: string; effort: string }): string {
+  return effort || modelEffortPreset(engine, model)?.effort || "";
+}
 export function selectModel(options: readonly ModelOption[], model: string, previous: Selection, customEfforts: Effort[] = [""]): Selection {
   const option = selectedModelOption(options, model);
   const previousEffort = selectedModelEffort(selectedModelOption(options, previous.model), previous);
@@ -71,8 +75,8 @@ export function selectModelEffort(option: ModelOption | undefined, model: string
   return !option || option.efforts.includes(effort) ? { model, effort } : undefined;
 }
 
-/** Effort-only controls keep the native override contract; explain its preset. */
-export function modelEffortPreset(engine: string, model: string, levels: readonly Effort[]): Selection | undefined {
+/** A known Antigravity model ID encodes its preset even without an override. */
+export function modelEffortPreset(engine: string, model: string, levels?: readonly Effort[]): Selection | undefined {
   const match = engine === "antigravity" && /^(?:gemini|claude|gpt)-/.test(model) && model.match(suffix);
-  return match && levels.includes(match[2] as Effort) ? { model: match[1]!, effort: match[2] as Effort } : undefined;
+  return match && (!levels || levels.includes(match[2] as Effort)) ? { model: match[1]!, effort: match[2] as Effort } : undefined;
 }

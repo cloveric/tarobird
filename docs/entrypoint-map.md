@@ -3665,9 +3665,9 @@ retired; see [scope and regression mapping](adapter-retirement-2026-10-21.md).
   and bindings. Browser regression: `mobile-settings`, `mobile-im`,
   `bot-context-menu`, `conversation-rename`, `conversation-settings`.
   See [mobile settings](client/mobile-settings-2026-10-12.md).
-- `src/runtime/effort-settings.ts`, `src/client-protocol/effort.ts`, `client/src/EffortControl.tsx`
-  Chat-header Bot-wide effort picker; engine/model options reuse the shared
-  validator. Owner-only Hub/Gateway calls, config mutex and revision conflicts,
+- `src/runtime/effort-settings.ts`, `src/client-protocol/effort.ts` retain the Bot-wide effort-only API for existing clients.
+  Bot settings opens the same model dialog from either row. The effort row
+  focuses the engine-advertised level and saves a matching model and level. Owner-only Hub/Gateway calls, config mutex and revision conflicts,
   live Bot metadata sync, no chat messages or session resets. Tests:
   `effort-settings`, native adapter config regressions; browser `effort`.
   Scope, defaults and application timing: [Chat effort](client/effort-settings.md).

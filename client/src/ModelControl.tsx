@@ -2,7 +2,7 @@ import { PiModelSelect, PiModelCatalogNotice } from "./PiModelSelect.js";
 import { DeepSeekModelCatalogNotice, deepSeekCatalogBlocked, deepSeekSettingsErrorText } from "./DeepSeekModelCatalog.js";
 import { decodePiModel } from "../../src/codex/pi-models.js";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Cpu } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { deepSeekDefaultUnavailable, modelSettingsSchema, modelValueSchema, type ModelSettings } from "../../src/client-protocol/model.js";
 import type { Bot, HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
@@ -10,7 +10,7 @@ import { useBotSettingsRequest } from "./bot-settings-request.js";
 import { HubHttpError } from "./http-error.js";
 import { t, useLocale } from "./i18n.js";
 import { piModelSettingsRejectionText } from "./pi-rejection-text.js";
-import { modelOptionLabel, modelOptions, selectedModelOption, selectedModelEffort, selectModel, selectModelEffort } from "./model-selection.js";
+import { botEffortLabel, modelOptionLabel, modelOptions, selectedModelOption, selectedModelEffort, selectModel, selectModelEffort } from "./model-selection.js";
 
 /** `attempt`: the model and effort that were saved, with the catalog read for them, so a Pi refusal can say which part failed. */
 export function modelSettingsErrorText(error: unknown, attempt?: { engine?: string; model: string; effort: string; choices: readonly { id: string; provider?: string; efforts: readonly string[] }[] }) {
@@ -29,20 +29,39 @@ export function modelSettingsErrorText(error: unknown, attempt?: { engine?: stri
     default: return t("未能确认设置结果，请重新读取后核对。不会自动重试保存。");
   }
 }
-export function ModelControl({ connection, bot, online, owner, compact = false }: { connection: HubConnection; bot: Bot; online: boolean; owner: boolean; compact?: boolean }) {
+export function ModelControl({ connection, bot, online, owner, focusEffort = false }: {
+  connection: HubConnection; bot: Bot; online: boolean; owner: boolean; focusEffort?: boolean;
+}) {
   useLocale();
   const [open, setOpen] = useState(false), trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (!owner) setOpen(false); }, [owner]);
-  return <><button ref={trigger} type="button" className={compact ? "composer-model-trigger" : "header-effort"} aria-label={compact ? t("模型设置：{0}", bot.model || t("引擎默认模型")) : t("调整 Bot 模型")} aria-haspopup="dialog" aria-expanded={open} title={!owner ? t("仅拥有者可修改 Bot 设置") : compact && !online ? t("Bot 当前离线。连接恢复后再调整模型和思考强度。") : `${bot.model || t("引擎默认模型")} · ${(bot.engine === "pi" ? t("修改 Pi Bot 默认模型，后续任务生效；/model 可单独调整当前对话") : t("修改此 Bot 的模型，影响它的所有对话"))}`} disabled={!owner || compact && !online} onClick={() => setOpen(true)}>{compact && <Cpu size={13} aria-hidden="true"/>}<span>{bot.model || t("引擎默认模型")}</span><ChevronDown size={12} aria-hidden="true"/></button>
-    {open && owner && <ModelDialog connection={connection} bot={bot} online={online} close={() => setOpen(false)} returnFocus={trigger}/>}
+  const label = focusEffort ? t("调整 Bot 思考强度") : t("调整 Bot 模型");
+  const summary = focusEffort ? botEffortLabel(bot) || t("跟随默认") : bot.model || t("引擎默认模型");
+  return <><button ref={trigger} type="button" className="header-effort" aria-label={label} aria-haspopup="dialog" aria-expanded={open} title={!owner ? t("仅拥有者可修改 Bot 设置") : label} disabled={!owner} onClick={() => setOpen(true)}><span>{summary}</span><ChevronDown size={12} aria-hidden="true"/></button>
+    {open && owner && <ModelDialog connection={connection} bot={bot} online={online} focusEffort={focusEffort} close={() => setOpen(false)} returnFocus={trigger}/>}
   </>;
 }
-function ModelDialog({ connection, bot, online, close, returnFocus }: { connection: HubConnection; bot: Bot; online: boolean; close: () => void; returnFocus: React.RefObject<HTMLButtonElement | null> }) {
+function ModelDialog({ connection, bot, online, focusEffort, close, returnFocus }: {
+  connection: HubConnection; bot: Bot; online: boolean; focusEffort: boolean;
+  close: () => void; returnFocus: React.RefObject<HTMLButtonElement | null>;
+}) {
   const { data, busy, saving, error, saved, load, save } = useBotSettingsRequest(connection, bot.id, "model", modelSettingsSchema, bot.engine === "deepseek");
   const [draft, setDraft] = useState(""), [custom, setCustom] = useState(false), [effort, setEffort] = useState<ModelSettings["effort"]>(""), [adjusted, setAdjusted] = useState(false);
   const previousRead = useRef<{ connection: HubConnection; botId: string; data: ModelSettings }>(undefined);
   // What the last save sent: a refusal is explained for that, not for what the form shows now.
   const attempt = useRef<{ model: string; effort: ModelSettings["effort"] }>(undefined);
+  const effortRow = useRef<HTMLDivElement>(null), focusedEffort = useRef(false);
+  useEffect(() => {
+    if (!focusEffort || !data || busy || focusedEffort.current) return;
+    // The saved model determines whether this row contains a selector.
+    if (draft !== data.model || effort !== data.effort) return;
+    focusedEffort.current = true;
+    const row = effortRow.current;
+    const active = document.activeElement;
+    if (row && active?.tagName === "H2" && row.closest("dialog")?.contains(active)) {
+      (row.querySelector<HTMLSelectElement>("select:not(:disabled)") ?? row).focus();
+    }
+  }, [focusEffort, data, busy, draft, effort]);
   useEffect(() => {
     if (!data) return;
     const previous = previousRead.current; previousRead.current = { connection, botId: bot.id, data };
@@ -55,6 +74,7 @@ function ModelDialog({ connection, bot, online, close, returnFocus }: { connecti
   const models = modelOptions(data?.engine ?? "", data?.choices ?? []), selectedModel = selectedModelOption(models, draft);
   const displayedEffort = selectedModelEffort(selectedModel, { model: draft, effort });
   const levels = selectedModel?.efforts ?? data?.customEfforts ?? [""];
+  const defaultOnly = levels.length === 1 && levels[0] === "" && displayedEffort === "";
   function changeModel(model: string) {
     const next = selectModel(models, model, { model: draft, effort }, data?.customEfforts);
     setDraft(next.model); setEffort(next.effort); setAdjusted(next.effort !== displayedEffort);
@@ -84,14 +104,16 @@ function ModelDialog({ connection, bot, online, close, returnFocus }: { connecti
           if (!choices.includes(effort)) { setEffort(""); setAdjusted(true); }
         }}/></label>}
         {custom && <p className="muted">{data.engine === "pi" || data.engine === "omp" ? t("填写完整的 provider/model；同名模型在不同提供商下是不同选项。") : t("填写该引擎支持的模型 ID；实际可用性由主机上的账号和引擎确认。")}</p>}
-        <label>{t("思考强度")}<select aria-label={t("模型思考强度")} disabled={busy || !online} value={displayedEffort} onChange={event => { const next = selectModelEffort(selectedModel, draft, event.target.value as ModelSettings["effort"]); if (next) { setDraft(next.model); setEffort(next.effort); setAdjusted(false); } }}>
+        <div ref={effortRow} tabIndex={-1}>
+          {defaultOnly ? <p>{t("思考强度：{0}", t("由模型决定"))}</p> : <label>{t("思考强度")}<select aria-label={t("模型思考强度")} disabled={busy || !online} value={displayedEffort} onChange={event => { const next = selectModelEffort(selectedModel, draft, event.target.value as ModelSettings["effort"]); if (next) { setDraft(next.model); setEffort(next.effort); setAdjusted(false); } }}>
           {!levels.includes(displayedEffort) && <option value={displayedEffort} disabled>{displayedEffort} · {catalogBlocked ? t("当前值，未确认兼容") : t("当前模型不支持")}</option>}
           {levels.map(value => <option key={value} value={value}>{data.engine === "deepseek" && value === "off" ? t("关闭推理（off）") : value || t("跟随默认（不强制指定）")}</option>)}
-        </select></label>
+          </select></label>}
+        </div>
         {adjusted && <p className="dashboard-notice">{selectedModel?.variants ? t("已调整为此模型支持的思考强度，请确认。") : t("新模型不支持原思考强度，已选为跟随默认。你也可以选择其他可用档位。")}</p>}
         <p className="muted">{t("后续任务读取新设置；当前任务不打断，后台任务繁忙时可能延后应用。不会新建会话或清空上下文。")}</p>
         {data.activeTurns > 0 && <p className="dashboard-notice">{t("此 Bot 有 {0} 个执行中的任务。", data.activeTurns)}</p>}
-        {saved && draft === data.model && effort === data.effort && <p role="status" className="dashboard-notice">{data.engine === "pi" ? t("已保存 Bot 默认模型，各对话将在下次任务应用。") : t("已保存为 {0}，此 Bot 的其他对话也会沿用。", data.engine === "deepseek" && selectedModel ? modelOptionLabel(selectedModel, t("引擎默认模型")) : data.model || t("引擎默认模型"))}</p>}
+        {saved && draft === data.model && effort === data.effort && <p role="status" className="dashboard-notice">{data.engine === "pi" ? t("已保存 Bot 默认模型，各对话将在下次任务应用。") : t("已保存为 {0}，此 Bot 的其他对话也会沿用。", focusEffort ? displayedEffort || t("跟随默认") : data.engine === "deepseek" && selectedModel ? modelOptionLabel(selectedModel, t("引擎默认模型")) : data.model || t("引擎默认模型"))}</p>}
         {busy && !saving && <p role="status" className="muted">{t("正在读取…")}</p>}
         <div className="effort-actions"><button type="button" disabled={busy || !online} onClick={() => void load()}>{t("重新读取")}</button><button type="submit" className="primary" disabled={writeBlocked || !valid || draft === data.model && effort === data.effort}>{saving ? t("保存中…") : t("保存到此 Bot")}</button></div>
       </form>}

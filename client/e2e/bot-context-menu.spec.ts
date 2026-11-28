@@ -43,9 +43,9 @@ test("Bot right-click settings work before a first chat, preserve drafts and rou
     await page.screenshot({path:info.outputPath("bot-context-menu.png")});await menu.getByRole("menuitem",{name:"Bot 设置",exact:true}).click();
     const settings=page.getByRole("dialog",{name:"Bot 设置",exact:true});await expect(settings).toContainText("研究助手");await expect(settings).toContainText("gpt-5.5");
     await expect(settings.getByRole("button",{name:"设置Bot 头像",exact:true})).toBeEnabled();
-    await settings.getByRole("button",{name:"调整 Bot 思考强度",exact:true}).click();await page.getByLabel("Effort 档位",{exact:true}).selectOption("low");
-    await page.getByRole("button",{name:"保存到此 Bot",exact:true}).click();await expect(page.getByRole("dialog",{name:"思考强度",exact:true}).getByRole("status")).toContainText("已保存为 low");
-    await page.getByRole("button",{name:"关闭思考强度",exact:true}).click();await expect(settings.getByRole("button",{name:"调整 Bot 思考强度",exact:true})).toContainText("low");
+    await settings.getByRole("button",{name:"调整 Bot 思考强度",exact:true}).click();await page.getByLabel("模型思考强度",{exact:true}).selectOption("low");
+    await page.getByRole("button",{name:"保存到此 Bot",exact:true}).click();await expect(page.getByRole("dialog",{name:"模型设置",exact:true}).getByRole("status")).toContainText("已保存为 low");
+    await page.getByRole("button",{name:"关闭模型设置",exact:true}).click();await expect(settings.getByRole("button",{name:"调整 Bot 思考强度",exact:true})).toContainText("low");
     await page.getByRole("button",{name:"关闭 Bot 设置",exact:true}).click();await expect(bot).toBeFocused();await expect(composer).toHaveValue("不要丢失这份草稿");
     expect((await hub.store.conversations("owner")).map(c=>c.id)).toEqual([current.id]);
     expect(JSON.parse(await readFile(path.join(root,"bot/config.json"),"utf8"))).toMatchObject({effort:"low",model:"gpt-5.5"});
@@ -75,10 +75,10 @@ test("Bot settings stay on the clicked host even when Bot IDs collide and anothe
     const row=workspace(page).getByRole("region",{name:"主机：主机甲",exact:true}).getByRole("button",{name:"打开 甲助手",exact:true});
     await row.click({button:"right"});await page.getByRole("menuitem",{name:"Bot 设置",exact:true}).click();
     const dialog=page.getByRole("dialog",{name:"Bot 设置",exact:true});await expect(dialog).toContainText("运行于 主机甲");await expect(dialog).toContainText("甲助手");
-    await dialog.getByRole("button",{name:"调整 Bot 思考强度",exact:true}).click();await page.getByLabel("Effort 档位",{exact:true}).selectOption("low");
-    await page.getByRole("button",{name:"保存到此 Bot",exact:true}).click();await expect(page.getByRole("dialog",{name:"思考强度",exact:true}).getByRole("status")).toContainText("已保存为 low");
+    await dialog.getByRole("button",{name:"调整 Bot 思考强度",exact:true}).click();await page.getByLabel("模型思考强度",{exact:true}).selectOption("low");
+    await page.getByRole("button",{name:"保存到此 Bot",exact:true}).click();await expect(page.getByRole("dialog",{name:"模型设置",exact:true}).getByRole("status")).toContainText("已保存为 low");
     expect(JSON.parse(await readFile(path.join(root,"a/bot/config.json"),"utf8")).effort).toBe("low");expect(JSON.parse(await readFile(path.join(root,"b/bot/config.json"),"utf8")).effort).toBe("high");
-    await page.getByRole("button",{name:"关闭思考强度",exact:true}).click();await page.getByRole("button",{name:"关闭 Bot 设置",exact:true}).click();
+    await page.getByRole("button",{name:"关闭模型设置",exact:true}).click();await page.getByRole("button",{name:"关闭 Bot 设置",exact:true}).click();
     await row.click({button:"right"});await page.setViewportSize({width:390,height:844});await expect(page.getByRole("menu",{name:"Bot 操作",exact:true})).toHaveCount(0);
     expect(await a.store.conversations("owner")).toEqual([]);expect(await b.store.conversations("owner")).toEqual([]);
   } finally {await ga.disconnect();await gb.disconnect();await a.close();await b.close();await rm(root,{recursive:true,force:true});}

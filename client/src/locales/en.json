@@ -3049,6 +3049,7 @@
   "模型 ID": "Model ID",
   "填写该引擎支持的模型 ID；实际可用性由主机上的账号和引擎确认。": "Enter a model ID supported by this engine. Availability depends on the account and engine on the host.",
   "模型思考强度": "Model reasoning effort",
+  "由模型决定": "Managed by the model",
   "新模型不支持原思考强度，已选为跟随默认。你也可以选择其他可用档位。": "The new model does not support the previous reasoning effort, so Follow default is selected. You can choose another available level.",
   "模型、人设与权限 · 所有对话共用": "Model, persona and permissions · Shared across chats",
   "此设备对「{0}」的授权已失效，请在连接管理中重新配对。": "This device no longer has access to “{0}”. Pair again in connection settings.",
