@@ -1,7 +1,56 @@
+import { constants } from "node:fs";
+import { access, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { SessionStore } from "../state/session-store.js";
 import { updateInstanceConfig, type InstanceConfig, type ResumeState } from "../state/instance-config.js";
+
+export class ClaudeTurnWorkspaceUnavailableError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The selected Claude workspace is unavailable. Restore access or choose a valid workspace folder.", options);
+    this.name = "ClaudeTurnWorkspaceUnavailableError";
+  }
+}
+
+async function canEnterWorkspace(workspace: string): Promise<boolean> {
+  if (!(await stat(workspace)).isDirectory()) return false;
+  await access(workspace, constants.X_OK);
+  return true;
+}
+
+async function requireClaudeTurnWorkspace(workspace: string): Promise<string> {
+  try {
+    if (await canEnterWorkspace(workspace)) return workspace;
+  } catch (cause) {
+    throw new ClaudeTurnWorkspaceUnavailableError({ cause });
+  }
+  throw new ClaudeTurnWorkspaceUnavailableError();
+}
+
+/** Select a workspace for one engine turn without changing its saved binding. */
+export async function resolveConversationTurnWorkspace(
+  stateDir: string,
+  config: Pick<InstanceConfig, "engine" | "resume" | "workspacePath">,
+  conversationWorkspace: () => string | undefined | Promise<string | undefined>,
+  workspaceOverride?: string,
+): Promise<string | undefined> {
+  const savedPath = config.resume?.workspacePath;
+  if (config.engine !== "claude" || !savedPath) {
+    return workspaceOverride ?? savedPath ?? await conversationWorkspace() ?? config.workspacePath;
+  }
+  if (workspaceOverride !== undefined) return requireClaudeTurnWorkspace(workspaceOverride);
+
+  const savedAvailable = await canEnterWorkspace(savedPath).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return false;
+    throw error;
+  });
+  if (savedAvailable) return savedPath;
+
+  // Select the configured fallback before validation. An unavailable pin
+  // must never grant access to a different configured or managed folder.
+  const fallback = await conversationWorkspace() ?? config.workspacePath ?? path.join(stateDir, "workspace");
+  return requireClaudeTurnWorkspace(fallback);
+}
 
 export interface ConversationResumeRecord {
   codexSessionId: string;

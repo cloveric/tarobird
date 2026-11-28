@@ -734,6 +734,7 @@ export const HOST_EN = {
   "视频": "video",
   "文件": "file",
   "这个{0} {1}，超过飞书机器人可下载的上限（{2}），请压缩或切分后再发。": "This {0} is {1}, over the {2} a Feishu bot can download. Please compress or split it and send again.",
+  "为恢复 Claude 会话选用的工作区不可用。请恢复原文件夹或修复主机对已配置文件夹的访问权限，然后重试。如需使用其他文件夹，请选择有效的工作区新建对话，再用 /resume 绑定同一个 Claude 会话。": "The selected workspace for this resumed Claude session is unavailable. Restore the original folder or make the configured folder accessible on the host, then retry. To use a different folder, choose a valid workspace folder in a new conversation and bind the same Claude session with /resume.",
   "上一次历史操作的结果尚未确认，请先在会话历史操作中核对结果，再继续。对话和文件已保留。": "The previous history operation is not yet confirmed. Check its result in the conversation history controls before continuing. Your conversation and files are preserved.",
   "会话历史操作仍在处理中，请等待结果确认后再发送消息。": "A conversation history operation is still in progress. Wait for its result before sending another message.",
   "主机上找不到对应的 Codex 原生会话，本次目标操作未执行。App 消息记录仍可查看，请检查主机上的 Codex 历史，恢复原会话或选择其他会话。": "The Codex session could not be found on the host, so this goal operation was not performed. App messages remain available. Check Codex history on the host and restore the original session or select another session.",

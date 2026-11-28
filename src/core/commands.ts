@@ -122,6 +122,7 @@ export type CoreCommandInput = {
   conversationResume?: ResumeState | null;
   isCurrentGoalSession?: () => boolean | Promise<boolean>;
   workspaceOverride?: string;
+  resolveEngineWorkspace?(): Promise<string | undefined>;
   // Live run-card factory, supplied by message-handler. Typed via an erased type-query
   // so commands.ts keeps no runtime import of message-handler.ts (which imports this
   // file — a direct import would be a cycle).
@@ -471,6 +472,22 @@ async function handleCoreLocalEngineCommand(
       cfg.resume,
     )
     : input.conversationResume ?? undefined;
+  let workspacePath = input.workspaceOverride ?? normalized.workspaceOverride ?? cfg.workspacePath;
+  let resume = cfg.resume;
+  if (cfg.engine === "claude" && input.resolveEngineWorkspace) {
+    try {
+      workspacePath = await input.resolveEngineWorkspace();
+      // The command receives a resolved cwd. The Bridge still reads the
+      // existing session ID from the conversation binding.
+      resume = undefined;
+    } catch (error) {
+      await sendCoreCommandMarkdown(input, normalized, commandText, renderCoreUserFacingError(error, "engine", locale));
+      await appendCoreTimelineEvent(input.stateDir, normalized, {
+        type: "turn.completed", outcome: "error", detail: redactCoreErrorDetail(error),
+      });
+      return true;
+    }
+  }
   return await handleLocalEngineCoreCommand({
     stateDir: input.stateDir,
     startedAt: Date.now(),
@@ -480,8 +497,8 @@ async function handleCoreLocalEngineCommand(
       role: cfg.role,
       model: cfg.model,
       disableRuntimeTimeout: cfg.disableRuntimeTimeout === true,
-      workspacePath: input.workspaceOverride ?? normalized.workspaceOverride ?? cfg.workspacePath,
-      resume: cfg.resume,
+      workspacePath,
+      resume,
       ...(cfg.antigravityRuntime ? { antigravityRuntime: cfg.antigravityRuntime } : {}),
     },
     normalized: toSessionCommandMessage(normalized, commandText),

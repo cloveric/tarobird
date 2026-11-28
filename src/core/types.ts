@@ -49,8 +49,9 @@ export interface CoreChannelLike {
   releaseMessageAdmission?(): void;
   /** A Gateway pull may already own this exact message's execution slot. */
   ownsMessageQueueSlot?(chatId: string, messageId: string): boolean;
-  /** Optional authenticated-surface preparation, executed inside the conversation queue. */
-  prepareConversation?(chatId: string): Promise<void>;
+  /** Prepare the authenticated session inside the queue. A group routed to a
+   * member's conversation can return that conversation for engine workspace selection. */
+  prepareConversation?(chatId: string): Promise<void | { boundConversationId: string; workspacePath?: string }>;
   canSteerConversation?(chatId: string): Promise<boolean>;
   conversationWorkspace?(conversationId: string): Promise<string | undefined>;
   profile?: import("./channel-profile.js").ChannelProfile;

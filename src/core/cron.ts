@@ -1,3 +1,4 @@
+import { renderCoreUserFacingError } from "./errors.js";
 import { deliverEngineQuestion } from "./engine-question.js";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
@@ -11,7 +12,7 @@ import { backgroundTaskBody, backgroundTaskContext, backgroundTaskReplyTo } from
 import { renderBackgroundTaskHeader } from "../runtime/background-task-header.js";
 
 import { checkBudgetAvailability, recordBridgeTurnUsage, recordFailedTurnUsage } from "../runtime/bridge-turn.js";
-import { applyConversationResumeScope } from "../runtime/conversation-resume.js";
+import { applyConversationResumeScope, ClaudeTurnWorkspaceUnavailableError, resolveConversationTurnWorkspace } from "../runtime/conversation-resume.js";
 import { CronAccessDeniedError } from "../runtime/cron-errors.js";
 import { createFreshCronSessionId } from "../runtime/cron-session.js";
 import type { CronExecutionResult, CronExecutor } from "../runtime/cron-scheduler.js";
@@ -151,10 +152,6 @@ export function buildCoreCronExecutor(input: {
         const locale = normalizeLocale(job.locale, "zh");
         const cfg = await loadInstanceConfig(input.stateDir);
         await applyConversationResumeScope(input.stateDir, conversationKey, cfg);
-        const workspaceOverride = input.workspaceOverride
-          ?? cfg.resume?.workspacePath
-          ?? (await input.channel.conversationWorkspace?.(job.larkChatId!))
-          ?? resolveInstanceWorkspacePath(cfg);
         const budgetExhausted = await checkBudgetAvailability(input.stateDir, cfg.budgetUsd, locale);
         if (budgetExhausted) {
           await appendTimelineEventBestEffort(input.stateDir, {
@@ -198,8 +195,13 @@ export function buildCoreCronExecutor(input: {
         }
         const scopedRuns = createScopedRunPresentation({ channel: input.channel, chatId: job.larkChatId!,
           conversationKey, ...replyFields, locale });
+        let workspaceOverride: string | undefined;
         let result: Awaited<ReturnType<typeof input.bridge.handleAuthorizedMessage>>;
         try {
+          const conversationWorkspace = () => input.channel.conversationWorkspace?.(job.larkChatId!);
+          workspaceOverride = job.sessionMode === "new_per_run"
+            ? input.workspaceOverride ?? cfg.resume?.workspacePath ?? await conversationWorkspace() ?? resolveInstanceWorkspacePath(cfg)
+            : await resolveConversationTurnWorkspace(input.stateDir, cfg, conversationWorkspace, input.workspaceOverride);
           result = await input.bridge.handleAuthorizedMessage({
             chatId: accessChatId,
             userId: job.userId,
@@ -271,7 +273,9 @@ export function buildCoreCronExecutor(input: {
             if (controller.signal.aborted) {
               await runCard.interrupt().catch(() => {});
             } else {
-              await runCard.fail(hostT(locale, "定时任务执行失败。")).catch(() => {});
+              await runCard.fail(error instanceof ClaudeTurnWorkspaceUnavailableError
+                ? renderCoreUserFacingError(error, "engine", locale)
+                : hostT(locale, "定时任务执行失败。")).catch(() => {});
             }
           }
           throw error;
