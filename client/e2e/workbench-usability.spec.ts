@@ -416,3 +416,23 @@ test("start page: new / recent / plugins sections, reopening from recent, split 
     await expect(market).toContainText("无限画布");
   } finally { await f.close(); }
 });
+
+test("the Workbench All menu returns keyboard focus to its invoking button", async ({ page }) => {
+  const f = await fixture(page, true);
+  try {
+    const wb = panel(page);
+    await wb.locator(".workbench-start").getByRole("button", { name: "笔记", exact: true }).click();
+    await wb.getByRole("tab", { name: "笔记.md", exact: true }).click({ button: "right" });
+    await page.getByRole("button", { name: "关闭标签", exact: true }).click();
+    const recent = wb.getByRole("region", { name: "最近", exact: true }).getByRole("button", { name: "全部 ›", exact: true });
+    const toolbar = wb.getByRole("button", { name: "全部标签和已关闭内容", exact: true });
+    for (const trigger of [recent, toolbar]) {
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(wb.getByRole("menu")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(trigger).toBeFocused();
+      await expect(wb.getByRole("menu")).toBeHidden();
+    }
+  } finally { await f.close(); }
+});
