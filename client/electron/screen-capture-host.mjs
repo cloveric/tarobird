@@ -77,7 +77,9 @@ export class ScreenCaptureHost {
         callback({ video: source });
       }, { useSystemPicker: false });
       const window = new BrowserWindow({ show: false, width: 64, height: 64, skipTaskbar: true, focusable: false, paintWhenInitiallyHidden: true,
-        webPreferences: { preload: this.preload, session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false, nodeIntegrationInWorker: false,
+        webPreferences: { preload: this.preload, session: ses, sandbox: true, contextIsolation: true,
+          // Needed only here to match encoded RTP to the exact captured VideoFrame.
+          enableBlinkFeatures: 'RTCEncodedVideoFrameAdditionalMetadata', nodeIntegration: false, nodeIntegrationInWorker: false,
           nodeIntegrationInSubFrames: false, webviewTag: false, webSecurity: true, backgroundThrottling: false, devTools: false, spellcheck: false } });
       this.#window = window;
       const contents = window.webContents;
@@ -213,6 +215,10 @@ export class ScreenCaptureHost {
   reset(sessionId, streamGeneration, geometryRevision) { if (!this.#sessions.has(sessionId)) return false; this.#send({ type: 'reset', sessionId, streamGeneration, geometryRevision }); return true; }
   pause(sessionId, paused, streamGeneration) { if (!this.#sessions.has(sessionId)) return false; this.#send({ type: 'pause', sessionId, paused, streamGeneration }); return true; }
   credit(sessionId, frameSequence, streamGeneration, heldMs) { if (this.#sessions.has(sessionId)) this.#send({ type: 'credit', sessionId, frameSequence, streamGeneration, ...(heldMs !== undefined ? { heldMs } : {}) }); }
+  rtc(command) {
+    if (!this.#sessions.has(command.sessionId)) return false;
+    this.#send(command); return true;
+  }
   keyframe(sessionId) { if (this.#sessions.has(sessionId)) this.#send({ type: 'keyframe', sessionId }); }
   stop(sessionId) {
     this.#requests.get(sessionId)?.cancel();

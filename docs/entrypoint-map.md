@@ -245,6 +245,12 @@ screen allocations, explicit mobile control and native lifecycle retirement.
 `screen-mobile-transport.ts` shares the document lease from `transport.ts`;
 `HubScreenSession` on each mobile platform bounds its own media/control queues.
 Returning foreground requires a new connection and never replays old input.
+Opt-in WebRTC signaling uses `screen-rtc.ts` and the same Hub session authority.
+`screen-rtc-sender.mjs` supplies the isolated renderer's RTP capture proofs;
+`screen-rtc-receiver.ts` paints packets through the existing viewer and control
+flow. The `screen-udp` relay runs on the shared tunnel port and negotiates
+short-lived paired allocations through mTLS v3. See
+[screen UDP and the real media regression](client/screen-udp-transport.md).
 
 `npm --prefix client run test:electron` runs the main/preload contract tests.
 `electron/tests/packaged.smoke.mjs`, `packaged-migration.smoke.mjs` and the real

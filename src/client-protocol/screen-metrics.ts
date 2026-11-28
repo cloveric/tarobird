@@ -151,6 +151,17 @@ export class ScreenMetricsTracker {
     this.prune(input.nowMs);
   }
 
+  /** Stats from the selected WebRTC inbound video, using byte deltas so TCP
+   * frames never contribute to the active UDP window. */
+  recordRtcStats(input: { nowMs: number; bytes: number; dropped: number; width: number; height: number; codec: "h264" | "vp8" | "" }): void {
+    this.width = input.width;
+    this.height = input.height;
+    this.codec = input.codec;
+    this.droppedFrames += input.dropped;
+    this.receivedSamples.push({ at: input.nowMs, bytes: input.bytes });
+    this.prune(input.nowMs);
+  }
+
   recordFrameSkipped(count = 1): void {
     if (count > 0) this.skippedFrames += count;
   }
@@ -163,11 +174,14 @@ export class ScreenMetricsTracker {
       ? Math.round(input.latencyMs)
       : undefined;
     this.renderedSamples.push({ at: input.nowMs, bytes: 0 });
-    if (latency !== undefined) {
-      this.latencySamples.push({ at: input.nowMs, latencyMs: latency });
-      if (this.latencySamples.length > MAX_LATENCY_SAMPLES) this.latencySamples.shift();
-    }
+    if (latency !== undefined) this.recordFrameLatency(input.nowMs, latency);
     this.prune(input.nowMs);
+  }
+
+  recordFrameLatency(nowMs: number, latencyMs: number): void {
+    if (!Number.isFinite(latencyMs) || latencyMs < 0 || latencyMs > 30_000) return;
+    this.latencySamples.push({ at: nowMs, latencyMs: Math.round(latencyMs) });
+    if (this.latencySamples.length > MAX_LATENCY_SAMPLES) this.latencySamples.shift();
   }
 
   private prune(nowMs: number): void {

@@ -171,6 +171,13 @@ final class HubScreenSession {
         } else {
             if(!controlReady) throw invalid();
             if(type.equals("state")) applyState(value);
+            else if(type.equals("rtc-frame")) {
+                keys(value,"type sessionId generation nonce streamGeneration frameSequence captureMs rtpTimestamp","");
+                if(!sessionId.equals(text(value,"sessionId"))||!generation.equals(text(value,"generation"))
+                    ||!text(value,"nonce").matches("[A-Za-z0-9_-]{43}")) throw invalid();
+                integer(value,"streamGeneration",1,0xffffffffL); integer(value,"frameSequence",0x80000000L,0xffffffffL);
+                integer(value,"captureMs",0,9007199254740991L); integer(value,"rtpTimestamp",0,0xffffffffL);
+            }
             else if(type.equals("frame-ready")) {
                 keys(value,"type sessionId generation streamGeneration frameSequence expiresAt","");
                 if(!sessionId.equals(text(value,"sessionId"))||!generation.equals(text(value,"generation"))) throw invalid();

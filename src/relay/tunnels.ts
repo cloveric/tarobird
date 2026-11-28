@@ -25,6 +25,9 @@ export class RelayTunnels {
     const entries = await Promise.all(configuredRelays(config).map(async ({ id, label, ...relay }) => ({ id, label, tunnel: new RelayTunnel({ ...relay, tls: await loadRelayTls(relay.tls), onWarning: (code) => warning(`${id}: ${code}`), onSource: (socket, source) => sources?.register(socket, id, source) }) })));
     return new RelayTunnels(entries);
   }
+  screenUdpTunnel(routeId?: string): RelayTunnel | undefined {
+    return routeId ? this.entries.find(entry => entry.id === routeId)?.tunnel : this.entries.find(entry => entry.tunnel.screenUdpEndpoint)?.tunnel;
+  }
   start(): void { this.entries.forEach(({ tunnel }) => tunnel.start()); }
   stop(): void { this.entries.forEach(({ tunnel }) => tunnel.stop()); }
   get status() { const servers = this.entries.map(({ id, label, tunnel }) => ({ id, ...(label ? { label } : {}), online: tunnel.online })); return { configured: !!servers.length, online: servers.some((r) => r.online), allOnline: !!servers.length && servers.every((r) => r.online), servers }; }

@@ -83,7 +83,7 @@ import { BACKGROUND_TASK_GROUP_CAPABILITY } from "../../src/client-protocol/back
 import { RUN_SCOPES_CAPABILITY, RUN_TAIL_CAPABILITY } from "../../src/client-protocol/run.js";
 import { desktopNotice, desktopNotificationLocale } from "./message-notification.js";
 import { desktopNotification, type NotificationState } from "./notifications.js";
-import { isNativeAppActive, NATIVE_ACTIVE_EVENT, nativePlatform } from "./native.js";
+import { isNativeAppActive, NATIVE_ACTIVE_EVENT, nativePlatform, verifyEd25519 } from "./native.js";
 import { PRIVATE_NETWORK_CAPABILITY, PRIVATE_NETWORK_RECOVERY_CAPABILITY, networkCanonical, networkCommandSchema, networkCommandResultSchema, networkViewSchema, type NetworkCommandInput, type NetworkView, type SignedNetworkManifest, type SignedNetworkProposal } from "../../src/client-protocol/private-network.js";
 import { hostProfileSchema, type HostProfileState } from "../../src/client-protocol/host-profile.js";
 import { verifyNetworkMembership } from "./network-identity.js";
@@ -91,6 +91,9 @@ import { z } from "zod";
 import { AUDIO_RECORDING_CAPABILITY, CAPABILITIES, REQUEST_LOCALES_CAPABILITY, MAX_FRAME_BYTES, MAX_FILE_BYTES, uploadLimitsSchema, clientFrameSchema, conversationSchema, eventSchema, type ClientFrame, type Conversation, type Json } from "../../src/client-protocol/index.js";
 import { CONVERSATION_SYNC_CAPABILITY, SNAPSHOT_ACTIVITY_CAPABILITY, SYNC_LINEAGE_CAPABILITY, snapshotFrameSchema } from "../../src/client-protocol/snapshot.js";
 import { cache as legacyCache, type ClientCache, type OutboxEntry, type Identity, type Route, type PendingPairing, type PendingPinChange } from "./storage.js";
+import { screenRtcOfferText } from "../../src/client-protocol/screen-rtc.js";
+import { screenViewerRtcAvailable } from "./mobile-screen-viewer-transport.js";
+import { canReceiveScreenRtc, type ScreenRtcSignaling } from "./screen-rtc-receiver.js";
 import { randomNonce, signChallenge, signDeviceAction, verifyHub, verifyRevocation } from "./identity.js";
 import { boundDeviceActionStatement, deviceActionSchema } from "../../src/client-protocol/device-actions.js";
 import { botMessageGrantsCommandSchema, botMessageGrantsSnapshotSchema, type BotMessageGrantsCommand, crossHostMessageGrantsCommandSchema, crossHostMessageGrantsSnapshotSchema, type CrossHostMessageGrantsCommand } from "../../src/client-protocol/bot-message-grants.js";
@@ -1763,11 +1766,25 @@ export class HubConnection {
     const route = this.state.route, epoch = this.httpEpoch;
     if (!route || !this.identity.hubPublicKey) throw new Error("screen_host_offline");
     const openStartMs = Date.now(), openMonoStart = performance.now();
-    const join = screenJoinSchema.parse(await this.screenRequest("/api/screens/sessions?includeWindows=1", { method: "POST", body: JSON.stringify(input) }));
+    const rtc = canReceiveScreenRtc() && await screenViewerRtcAvailable();
+    const join = screenJoinSchema.parse(await this.screenRequest(`/api/screens/sessions?includeWindows=1${rtc ? "&screenRtc=1" : ""}`, { method: "POST", body: JSON.stringify(input) }));
     const openEndMs = Date.now(), openMonoRtt = Math.max(0, performance.now() - openMonoStart);
     const serverTimeOffsetMs = estimateServerTimeOffset(join.serverTime, openStartMs, openEndMs, openMonoRtt);
     if (this.closed || epoch !== this.httpEpoch || this.state.route?.url !== route.url) { void this.screenStop(join.session.id).catch(() => undefined); throw new Error("screen_route_changed"); }
-    return { join, network: { url: route.url, publicKey: this.identity.hubPublicKey, ...routeTrust(route.url, this.identity.hubPublicKey) }, serverTimeOffsetMs };
+    const identity = this.identity, hubKey = identity.hubPublicKey!;
+    const current = () => { if (this.closed || epoch !== this.httpEpoch || this.state.route?.url !== route.url) throw new Error("screen_route_changed"); };
+    const rtcSignaling: ScreenRtcSignaling | undefined = join.rtc && rtc ? {
+      request: (request, signal) => { current(); return this.screenRequest("/api/screens/rtc", { method: "POST", body: JSON.stringify(request), signal }); },
+      signOffer: async (scope, nonce, mode, sdp) => {
+        current();
+        const text = new TextEncoder().encode(screenRtcOfferText({ sessionId: scope.id, generation: scope.generation, deviceId: identity.deviceId, nonce, mode, sdp }));
+        const bytes = sha256(text);
+        const digest = btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+        const sig = await signChallenge(identity, nonce, digest); current(); return sig;
+      },
+      verifyAnswer: (text, signature) => { current(); return verifyEd25519(hubKey, signature, new TextEncoder().encode(text)); },
+    } : undefined;
+    return { join, network: { url: route.url, publicKey: hubKey, ...routeTrust(route.url, hubKey) }, serverTimeOffsetMs, rtcSignaling };
   }
   async screenStop(sessionId?: string) { return this.screenRequest("/api/screens/stop", { method: "POST", body: JSON.stringify({ sessionId }) }); }
 

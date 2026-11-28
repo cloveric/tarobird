@@ -1,26 +1,41 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, createHash, verify } from "node:crypto";
 import {
   SCREEN_FRAME_FRESH_MS, SCREEN_LEASE_MS, SCREEN_MAX_VIEWERS, SCREEN_MEDIA_BYTES_PER_MS, SCREEN_MEDIA_DIRECT_BYTES_PER_MS, SCREEN_TICKET_MS, SCREEN_SERVICE_FLIGHT_FEATURE, SCREEN_SERVICE_PACE_FEATURE, SCREEN_SERVICE_QUALITY_FEATURE,
   screenConfigureSchema, screenConfigureText, screenDesktopSchema, screenOpenSchema, screenPolicySchema, screenViewerCommandSchema, screenStreamSchema,
   type ScreenStream, type ScreenConfigure, type ScreenDesktop, type ScreenJoin, type ScreenPolicy, type ScreenServiceCommand, type ScreenSession, type ScreenStatus,
 } from "../client-protocol/remote-screen.js";
 import type { DeviceActionProof } from "../client-protocol/device-actions.js";
-import { hashSecret, type AuthSession, type HubAuth } from "./auth.js";
+import { deviceProof, hashSecret, parsePublicKey, type AuthSession, type HubAuth } from "./auth.js";
 import { HubError, type HubStore } from "./store.js";
 import type { ScreenFrameHeader } from "../client-protocol/screen-wire.js";
 import { screenQualityProfile, type ScreenQuality } from "../client-protocol/screen-quality.js";
 import type { ScreenRouteKind } from "../client-protocol/screen-metrics.js";
+
+import { screenRtcAnswerText, screenRtcDirection, screenRtcHasRoute, screenRtcOfferText, screenRtcRequestSchema, screenRtcRoute, SCREEN_RTC_FEATURE, SCREEN_RTC_SEQUENCE_START,
+  type ScreenRtcAnswer, type ScreenRtcFrame, type ScreenRtcIce, type ScreenRtcMode } from "../client-protocol/screen-rtc.js";
+import type { ScreenUdpLease } from "../relay/tunnel.js";
+
+const RTC_PREPARE_MS = 15_000, RTC_INACTIVE_MS = 2500;
+
+type RtcRelay = {
+  endpoint: (routeId?: string) => { address: string; port: number } | undefined;
+  lease: (routeId?: string) => Promise<ScreenUdpLease | undefined>;
+};
+type Rtc = {
+  nonce: string; mode: ScreenRtcMode; readyAt: number; deadline: number; offer?: string; activeAt?: number; lastFrame: number;
+  relay?: ScreenUdpLease; targetIce?: ScreenRtcIce; finish?: (sdp?: string) => void;
+};
 
 const POLICY_KEY = "remote-screen:policy:v1", LAST_COMMAND_KEY = "remote-screen:command:v1";
 const secret = () => randomBytes(32).toString("base64url");
 const id = (prefix: string) => `${prefix}_${randomUUID().replaceAll("-", "")}`;
 export type ScreenControlSink = { send(value: unknown): boolean; close(reason: string): void };
 /** What the asking client can read; from the request, never from the signed policy. */
-export type ScreenViewerOptions = { windows?: boolean; udpStatus?: boolean; route?: ScreenRouteKind };
+export type ScreenViewerOptions = { windows?: boolean; udpStatus?: boolean; rtc?: boolean; route?: ScreenRouteKind };
 export type ScreenMediaSink = { send(bytes: Uint8Array): boolean; configure(stream: ScreenStream): boolean; close(reason: string): void };
 type Lease = { id: string; expiresAt: number; ready: boolean; sequence: number; heldKeys: Set<string>; heldButtons: Set<number>; challenge: { nonce: string; validUntil: number; leaseUntil: number } };
-type Frame = { key: boolean; captureMs: number; confirmed: boolean; streamGeneration: number; pendingAck: boolean };
-type Live = { value: ScreenSession; auth: AuthSession; publicKey: string; control?: ScreenControlSink; media?: ScreenMediaSink; frames: Map<number, Frame>; lastFrame: number; lastKeyRequest: number; visible: boolean; started: boolean; direct: boolean; route: ScreenRouteKind; mediaBytesPerMs: number; lease?: Lease; codecs: ("h264" | "vp8")[]; quality?: ScreenQuality; flight?: number; streamGeneration: number; stream?: ScreenStream; awaitingKey: boolean; pendingControl?: number; lastCapture: number; rateAt: number; rateBudget: number };
+type Frame = { rtc?: Rtc; key: boolean; captureMs: number; confirmed: boolean; streamGeneration: number; pendingAck: boolean };
+type Live = { value: ScreenSession; auth: AuthSession; publicKey: string; control?: ScreenControlSink; media?: ScreenMediaSink; frames: Map<number, Frame>; lastFrame: number; lastKeyRequest: number; visible: boolean; started: boolean; direct: boolean; route: ScreenRouteKind; mediaBytesPerMs: number; lease?: Lease; codecs: ("h264" | "vp8")[]; quality?: ScreenQuality; flight?: number; streamGeneration: number; stream?: ScreenStream; awaitingKey: boolean; pendingControl?: number; lastCapture: number; rateAt: number; rateBudget: number; rtcAllowed: boolean; relayId?: string; rtc?: Rtc };
 type Ticket = { kind: "service" | "target-media" | "control" | "media"; id: string; expiresAt: number; epoch?: string };
 
 /** Identity/policy stays in the Host. Frames and ephemeral input never enter
@@ -40,7 +55,7 @@ export class HubRemoteScreen {
   private unlisten: () => void;
   private disposed = false;
   private clockWall: number; private clockMono: number;
-  constructor(readonly store: HubStore, readonly auth: HubAuth, private now = Date.now, private monotonic = () => performance.now()) {
+  constructor(readonly store: HubStore, readonly auth: HubAuth, private now = Date.now, private monotonic = () => performance.now(), private rtcRelay?: RtcRelay) {
     this.clockWall = now(); this.clockMono = monotonic();
     this.unlisten = auth.onRevoke(device => { for (const live of [...this.sessions.values()]) if (live.auth.deviceId === device) this.closeSession(live.value.id, "device_revoked"); });
   }
@@ -75,15 +90,19 @@ export class HubRemoteScreen {
     const visiblePolicy = canManage ? structuredClone(policy) : undefined;
     if (visiblePolicy && !viewer.udpStatus) delete visiblePolicy.udpBoost;
     const udpEnabled = policy.udpBoost === true;
-    const activeRoute = [...this.sessions.values()].find(s => s.auth.deviceId === device.id && s.media)?.route;
-    const route: ScreenRouteKind = activeRoute ?? viewer.route ?? "tcp_default";
+    const visible = [...this.sessions.values()].filter(s => (canManage || s.auth.deviceId === device.id) && s.media);
+    const active = visible.find(s => s.rtc && this.rtcPlaying(s.rtc));
+    const route = active?.rtc ? screenRtcRoute(active.rtc.mode) : visible.find(s => s.auth.deviceId === device.id)?.route ?? viewer.route ?? "tcp_default";
     return { supported: true, enabled: policy.enabled, canManage, permission,
       ...(visiblePolicy ? { policy: visiblePolicy, devices } : {}),
       desktop: (canManage || policy.enabled && permission !== "none") && this.desktop && this.readableBy(viewer) ? structuredClone(this.desktop) : null,
       sessions: [...this.sessions.values()].filter(s => canManage || s.auth.deviceId === device.id).map(s => structuredClone(s.value)), serverTime: this.now(),
       ...(viewer.udpStatus ? {
         udpStatus: udpEnabled
-          ? { enabled: true, state: "fallback_tcp" as const, route, reasonCode: "udp_transport_unavailable" as const }
+          ? active
+            ? { enabled: true, state: "connected" as const, route }
+            : { enabled: true, state: "fallback_tcp" as const, route, reasonCode: !visible.length || this.serviceFeatures.has(SCREEN_RTC_FEATURE) && visible.some(s => s.rtcAllowed || screenQualityProfile(s.quality).h264Only)
+              ? "udp_transport_unavailable" as const : "peer_unsupported" as const }
           : { enabled: false, state: "disabled" as const, route, reasonCode: "disabled" as const },
       } : {}) };
   }
@@ -123,6 +142,7 @@ export class HubRemoteScreen {
       return next;
     });
     if (!this.policy || policy.revision > this.policy.revision) this.policy = policy;
+    if (!this.policy.udpBoost) for (const live of this.sessions.values()) { live.rtcAllowed = false; this.closeRtc(live); }
     const effective = this.policy;
     for (const live of [...this.sessions.values()]) {
       const grant = effective.grants.find(g => g.deviceId === live.auth.deviceId && g.publicKey === live.publicKey);
@@ -198,6 +218,7 @@ export class HubRemoteScreen {
       if (!this.sessions.has(previous.join.session.id)) throw new HubError("screen_session_closed", 410);
       // The same question is asked of a repeated request as of the first one:
       // a receipt admitted with the opt-in is not handed to a request without it.
+      if (previous.join.rtc && !viewer.rtc) throw new HubError("screen_request_conflict", 409);
       if (!this.readableBy(viewer, previous.platform ?? this.desktop?.platform)) throw new HubError("screen_client_update_required", 409);
       return structuredClone(previous.join);
     }
@@ -214,25 +235,122 @@ export class HubRemoteScreen {
     if (this.sessions.size >= SCREEN_MAX_VIEWERS) throw new HubError("screen_viewers_full", 409);
     const value: ScreenSession = { id: id("screen"), desktopId: input.desktopId, generation: id("generation"), display: structuredClone(display),
       deviceId: device.id, deviceName: device.name, controlAllowed: grant.permission === "control", state: "connecting", createdAt: this.now() };
+    const rtcAllowed = viewer.rtc === true && this.policy!.udpBoost === true && this.serviceFeatures.has(SCREEN_RTC_FEATURE)
+      && !screenQualityProfile(input.quality).h264Only;
     const join: ScreenJoin = { session: value, controlTicket: this.issueTicket("control", value.id).ticket, mediaTicket: this.issueTicket("media", value.id).ticket, expiresAt: this.now() + SCREEN_TICKET_MS, serverTime: this.now(),
-      ...(input.quality !== undefined ? { quality: input.quality } : {}) };
-    this.sessions.set(value.id, { value, auth: session, publicKey: device.public_key, frames: new Map(), lastFrame: 0, lastKeyRequest: 0, visible: true, started: false, direct: false, route: viewer.route ?? "tcp_default", mediaBytesPerMs: SCREEN_MEDIA_BYTES_PER_MS, codecs: input.codecs, quality: input.quality, flight: input.flight, streamGeneration: 1, awaitingKey: true, lastCapture: 0, rateAt: this.now(), rateBudget: 180 });
+      ...(input.quality !== undefined ? { quality: input.quality } : {}), ...(rtcAllowed ? { rtc: true } : {}) };
+    this.sessions.set(value.id, { value, auth: session, publicKey: device.public_key, frames: new Map(), lastFrame: 0, lastKeyRequest: 0, visible: true, started: false, direct: false, route: viewer.route ?? "tcp_default", mediaBytesPerMs: SCREEN_MEDIA_BYTES_PER_MS, codecs: input.codecs, quality: input.quality, flight: input.flight, streamGeneration: 1, awaitingKey: true, lastCapture: 0, rateAt: this.now(), rateBudget: 180, rtcAllowed });
     if (this.requests.size >= 128) this.requests.delete(this.requests.keys().next().value!);
     this.requests.set(requestKey, { body, join: structuredClone(join), platform: this.desktop.platform });
     void this.store.audit("screen.connected", session.deviceId, { sessionId: value.id, desktopId: value.desktopId, displayId: display.id, ...(input.quality !== undefined ? { quality: input.quality } : {}) });
     return structuredClone(join);
   }
   /** `origin.direct`: this socket came straight from a local-network address. Only the media socket's origin matters. */
-  async attachViewer(ticket: string, kind: "control" | "media", sink: ScreenControlSink | ScreenMediaSink, origin: { direct?: boolean; route?: ScreenRouteKind } = {}): Promise<string> {
+  async attachViewer(ticket: string, kind: "control" | "media", sink: ScreenControlSink | ScreenMediaSink, origin: { direct?: boolean; route?: ScreenRouteKind; relayId?: string } = {}): Promise<string> {
     const claim = this.takeTicket(ticket, kind), live = this.sessions.get(claim.id);
     if (!live) throw new HubError("screen_session_closed", 410);
     await this.auth.validateSession(live.auth);
     if (this.sessions.get(claim.id) !== live) throw new HubError("screen_session_closed", 410);
     if (kind === "control") { if (live.control) throw new HubError("screen_channel_busy", 409); live.control = sink as ScreenControlSink; }
-    else { if (live.media) throw new HubError("screen_channel_busy", 409); live.media = sink as ScreenMediaSink; live.direct = origin.direct === true; live.route = origin.route ?? (origin.direct ? "tcp_lan_direct" : live.route); }
+    else { if (live.media) throw new HubError("screen_channel_busy", 409); live.media = sink as ScreenMediaSink; live.relayId = origin.relayId; live.direct = origin.direct === true; live.route = origin.route ?? (origin.direct ? "tcp_lan_direct" : live.route); }
     this.startVisible(live);
     this.notify(live); return claim.id;
   }
+  /** The same device, authenticated session, approved screen and capture epoch
+   * own all signaling. A newer attempt invalidates the older SDP and grant. */
+  async rtcRequest(session: AuthSession, raw: unknown) {
+    const request = screenRtcRequestSchema.parse(raw);
+    const live = this.sessions.get(request.sessionId);
+    const device = await this.auth.validateSession(session);
+    if (!live?.rtcAllowed || !this.policy?.udpBoost || live.auth.deviceId !== session.deviceId || live.publicKey !== device.public_key
+      || live.value.generation !== request.generation || !live.visible || !live.started) throw new HubError("screen_rtc_not_authorized", 403);
+    const sessionId = live.value.id;
+    if (this.sessions.get(sessionId) !== live || !live.visible || !this.policy?.udpBoost) throw new HubError("screen_session_closed", 410);
+    if (request.type === "prepare") {
+      if (live.rtc && (live.rtc.activeAt !== undefined || this.now() - live.rtc.readyAt < 500)) throw new HubError("screen_rtc_busy", 409);
+      this.closeRtc(live);
+      const rtc: Rtc = { mode: request.mode, nonce: secret(), readyAt: this.now(), deadline: this.now() + RTC_PREPARE_MS, lastFrame: 0 };
+      live.rtc = rtc;
+      let ice: ScreenRtcIce | undefined;
+      if (request.mode === "relay") {
+        const relay = await this.rtcRelay?.lease(live.relayId);
+        if (live.rtc !== rtc || this.sessions.get(sessionId) !== live) { relay?.close(); throw new HubError("screen_session_closed", 410); }
+        if (!relay) { this.closeRtc(live); throw new HubError("screen_rtc_relay_unavailable", 503); }
+        rtc.relay = relay;
+        const { address, port } = relay;
+        ice = { address, port, ...relay.viewer };
+        rtc.targetIce = { address, port, ...relay.sender };
+      } else if (request.mode === "p2p") {
+        rtc.targetIce = ice = this.rtcRelay?.endpoint(live.relayId);
+        if (!ice) { this.closeRtc(live); throw new HubError("screen_rtc_relay_unavailable", 503); }
+      }
+      return { nonce: rtc.nonce, mode: rtc.mode, ice };
+    }
+    const rtc = live.rtc;
+    if (!rtc || rtc.nonce !== request.nonce) throw new HubError("screen_rtc_attempt_changed", 409);
+    if (request.type === "close") { this.closeRtc(live); return { ok: true }; }
+    if (rtc.offer || rtc.deadline <= this.now() || !screenRtcDirection(request.sdp, "recvonly") || !screenRtcHasRoute(request.sdp, rtc.mode, rtc.targetIce)) throw new HubError("screen_rtc_description_invalid", 409);
+    const proof = screenRtcOfferText({ ...request, deviceId: live.auth.deviceId, mode: rtc.mode });
+    const digest = createHash("sha256").update(proof).digest("base64url");
+    if (!verify(null, deviceProof(live.auth.deviceId, rtc.nonce, digest), parsePublicKey(live.publicKey), Buffer.from(request.signature, "base64"))) throw new HubError("screen_rtc_proof_invalid", 403);
+    rtc.offer = request.sdp;
+    const sdp = await new Promise<string | undefined>(resolve => {
+      const finish = (answer?: string) => { clearTimeout(timer); rtc.finish = undefined; resolve(answer); };
+      const timer = setTimeout(() => finish(), 7000);
+      timer.unref();
+      rtc.finish = finish;
+      if (!this.toService({ type: "rtc-offer", sessionId, nonce: rtc.nonce, sdp: request.sdp, mode: rtc.mode, ...(rtc.targetIce ? { ice: rtc.targetIce } : {}) })) finish();
+    });
+    if (!sdp || live.rtc !== rtc || this.sessions.get(sessionId) !== live) { if (live.rtc === rtc) this.closeRtc(live); throw new HubError("screen_rtc_answer_unavailable", 409); }
+    const answer: ScreenRtcAnswer = { sdp, signature: this.auth.signScreenRtcAnswer(screenRtcAnswerText({
+      ...request, offer: request.sdp, sdp, desktopId: live.value.desktopId, deviceId: live.auth.deviceId, mode: rtc.mode,
+    })) };
+    rtc.deadline = this.now() + 7000;
+    return answer;
+  }
+
+  rtcAnswer(epoch: string, sessionId: string, nonce: string, sdp?: string): void {
+    const live = this.sessions.get(sessionId), rtc = live?.rtc;
+    if (epoch !== this.serviceEpoch || !rtc || rtc.nonce !== nonce) return;
+    if (rtc.finish) rtc.finish(sdp && screenRtcDirection(sdp, "sendonly") && screenRtcHasRoute(sdp, rtc.mode, rtc.targetIce) ? sdp : undefined);
+    else if (!sdp) this.closeRtc(live!);
+  }
+
+  rtcFrame(epoch: string, frame: ScreenRtcFrame): void {
+    const live = this.sessions.get(frame.sessionId), rtc = live?.rtc;
+    const now = this.now();
+    if (epoch !== this.serviceEpoch || !live?.visible || !rtc?.offer || frame.nonce !== rtc.nonce
+      || frame.streamGeneration !== live.streamGeneration || frame.captureMs > now + 250 || now - frame.captureMs > SCREEN_FRAME_FRESH_MS
+      || frame.frameSequence <= rtc.lastFrame) return;
+    rtc.lastFrame = frame.frameSequence;
+    live.frames.set(frame.frameSequence, { rtc, key: false, captureMs: frame.captureMs, confirmed: false, pendingAck: false, streamGeneration: live.streamGeneration });
+    this.pruneFrames(live);
+    if (!live.control?.send({ ...frame, generation: live.value.generation })) this.closeSession(live.value.id, "screen_control_backpressure");
+  }
+
+  private rtcPlaying(rtc: Rtc): boolean {
+    return rtc.activeAt !== undefined && this.now() - rtc.activeAt <= RTC_INACTIVE_MS;
+  }
+
+  private closeRtc(live: Live, closing = false): void {
+    const rtc = live.rtc;
+    if (!rtc) return;
+    live.rtc = undefined;
+    rtc.relay?.close(); rtc.finish?.();
+    for (const [sequence, frame] of live.frames) if (frame.rtc === rtc) live.frames.delete(sequence);
+    if (closing) return;
+    this.toService({ type: "rtc-close", sessionId: live.value.id, nonce: rtc.nonce });
+    if (rtc.activeAt !== undefined) {
+      this.resetStream(live);
+      if (!this.toService({ type: "reset", sessionId: live.value.id, streamGeneration: live.streamGeneration })) this.closeSession(live.value.id, "screen_service_offline");
+      this.notify(live);
+    }
+  }
+
+  private pruneFrames(live: Live): void {
+    for (const [seq, frame] of live.frames) if (this.now() - frame.captureMs > SCREEN_FRAME_FRESH_MS || live.frames.size > 480) live.frames.delete(seq);
+  }
+
   /** This session's viewer named a capacity and the registered target understands it. */
   private wide(live: Live): boolean { return live.flight !== undefined && this.serviceFeatures.has(SCREEN_SERVICE_FLIGHT_FEATURE); }
   /** The byte budget this session's target is held to (fixed when the session started). */
@@ -287,7 +405,8 @@ export class HubRemoteScreen {
     if (!this.service || epoch !== this.serviceEpoch || !live?.started || live.value.generation !== generation) return false;
     if (header.streamGeneration < live.streamGeneration) return true; // Entire retired generation, including its decoder, was discarded.
     const stream = live.stream;
-    if (!live.visible || !stream || header.sequence <= live.lastFrame || header.geometryRevision !== live.value.display.revision || header.captureMs > this.now() + 250
+    if (live.rtc?.activeAt !== undefined) return true;
+    if (!live.visible || !stream || header.sequence >= SCREEN_RTC_SEQUENCE_START || header.sequence <= live.lastFrame || header.geometryRevision !== live.value.display.revision || header.captureMs > this.now() + 250
       || header.captureMs < live.lastCapture || this.now() - header.captureMs > SCREEN_FRAME_FRESH_MS || header.streamGeneration !== live.streamGeneration
       || live.awaitingKey && !header.key || header.codec !== stream.codec || header.width !== stream.width || header.height !== stream.height) {
       this.closeSession(sessionId, "screen_frame_invalid_or_stale"); return false;
@@ -295,7 +414,7 @@ export class HubRemoteScreen {
     live.awaitingKey = false; live.lastFrame = header.sequence; live.lastCapture = header.captureMs;
     if (!live.media?.send(bytes)) { this.closeSession(sessionId, "screen_congested"); return false; }
     live.frames.set(header.sequence, { key: header.key, captureMs: header.captureMs, streamGeneration: header.streamGeneration, confirmed: false, pendingAck: false });
-    for (const [seq, frame] of live.frames) if (this.now() - frame.captureMs > SCREEN_FRAME_FRESH_MS || live.frames.size > 480) live.frames.delete(seq); // 480: four seconds at 120 fps
+    this.pruneFrames(live);
     if (live.value.state === "connecting") { live.value.state = "viewing"; this.notify(live); }
     return true;
   }
@@ -306,11 +425,11 @@ export class HubRemoteScreen {
     if (input.type === "release") { this.release(live, "screen_control_stopped"); return; }
     if (input.type === "ack") {
       // The first receipt of a frame this Hub forwarded is bounded by the stream
-      // itself (one per forwarded frame), so it does not draw on the input
-      // budget: a faster picture never eats into pointer and key allowance.
+      // itself (one per forwarded frame or target RTP proof), so it does not
+      // draw on the input budget: a faster picture never eats into pointer and key allowance.
       // Unknown, repeated or hidden receipts fall through and are charged.
       const frame = live.frames.get(input.frameSequence);
-      if (live.visible && frame && !frame.pendingAck && frame.streamGeneration === live.streamGeneration) {
+      if (live.visible && frame && (frame.rtc ? frame.rtc === live.rtc : live.rtc?.activeAt === undefined) && !frame.pendingAck && frame.streamGeneration === live.streamGeneration) {
         // Decoder receipt returns a bounded encoder credit even after a slow
         // round trip. Input freshness is still checked by the target and below
         // in serviceFrameConfirmed; a late ACK never makes old video controllable.
@@ -324,6 +443,7 @@ export class HubRemoteScreen {
     if (live.rateBudget < 1) { this.closeSession(sessionId, "screen_input_rate_limited"); throw new HubError("screen_input_rate_limited", 429); } live.rateBudget--;
     if (input.type === "visibility") {
       if (live.visible === input.visible) return;
+      if (!input.visible) this.closeRtc(live, true);
       live.visible = input.visible;
       if (!input.visible) this.resetStream(live);
       live.value.state = input.visible ? "connecting" : "paused";
@@ -401,8 +521,20 @@ export class HubRemoteScreen {
     const live = this.sessions.get(sessionId), frame = live?.frames.get(sequence);
     if (epoch !== this.serviceEpoch || !live?.visible || !frame?.pendingAck || frame.confirmed || streamGeneration !== live.streamGeneration || frame.captureMs !== captureMs || this.now() - captureMs > SCREEN_FRAME_FRESH_MS || frame.streamGeneration !== live.streamGeneration) return;
     frame.confirmed = true;
+    if (frame.rtc) {
+      if (frame.rtc !== live.rtc) return;
+      if (frame.rtc.activeAt === undefined) {
+        this.release(live, "screen_stream_changed");
+        for (const [key, other] of live.frames) if (!other.rtc) live.frames.delete(key);
+        if (!this.toService({ type: "rtc-activate", sessionId, nonce: frame.rtc.nonce })) { this.closeSession(sessionId, "screen_service_offline"); return; }
+      }
+      frame.rtc.activeAt = this.now();
+      if (live.value.state === "connecting") { live.value.state = "viewing"; this.notify(live); }
+    }
     if (!live.control?.send({ type: "frame-ready", sessionId, generation: live.value.generation, streamGeneration, frameSequence: sequence, expiresAt: captureMs + SCREEN_FRAME_FRESH_MS })) { this.closeSession(sessionId, "screen_control_backpressure"); return; }
-    if (live.pendingControl && frame.key && live.pendingControl > this.now() && live.value.controlAllowed && this.desktop?.accessibility && !this.desktop.locked) {
+    // The TCP decoder restarts at a keyframe. For RTC the browser keeps its
+    // decoding chain and attests a painted sample of this capture generation.
+    if (live.pendingControl && (frame.key || frame.rtc) && live.pendingControl > this.now() && live.value.controlAllowed && this.desktop?.accessibility && !this.desktop.locked) {
       live.pendingControl = undefined;
       live.lease = { id: secret(), expiresAt: this.now() + SCREEN_LEASE_MS, sequence: 0, heldKeys: new Set(), heldButtons: new Set(), ready: false, challenge: this.renewChallenge() };
       if (!this.toService({ type: "lease", sessionId, generation: live.value.generation, leaseId: live.lease.id, expiresAt: live.lease.expiresAt, frameSequence: sequence, streamGeneration })) this.closeSession(sessionId, "screen_service_offline");
@@ -435,7 +567,7 @@ export class HubRemoteScreen {
   }
   closeSession(sessionId: string, reason: string): void {
     const live = this.sessions.get(sessionId); if (!live) return;
-    this.sessions.delete(sessionId); this.release(live, reason);
+    this.sessions.delete(sessionId); this.closeRtc(live, true); this.release(live, reason);
     this.toService({ type: "stop", sessionId, reason });
     live.value.state = "closed"; live.value.reason = reason;
     live.control?.send({ type: "state", session: live.value, serverTime: this.now() });
@@ -457,6 +589,8 @@ export class HubRemoteScreen {
     if (clockChanged && this.service) { this.serviceLost(this.serviceEpoch, "screen_clock_or_sleep_changed"); return; }
     if (this.service && now - this.serviceSeen > 5000) { this.serviceLost(this.serviceEpoch, "screen_service_timeout"); return; }
     for (const live of [...this.sessions.values()]) {
+      if (live.rtc && (live.rtc.activeAt !== undefined ? !this.rtcPlaying(live.rtc) : live.rtc.deadline <= now)) this.closeRtc(live);
+      if (!this.sessions.has(live.value.id)) continue;
       if (live.auth.expiresAt <= now) this.closeSession(live.value.id, "session_expired");
       else if ((!live.control || !live.media) && now - live.value.createdAt > SCREEN_TICKET_MS) this.closeSession(live.value.id, "screen_connect_timeout");
       else if (live.pendingControl && live.pendingControl <= now) this.release(live, "screen_control_timeout");

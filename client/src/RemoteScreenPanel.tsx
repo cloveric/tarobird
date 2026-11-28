@@ -52,13 +52,8 @@ function formatBitrate(kbps: number): string {
   return `${kbps} kbps`;
 }
 
-function resolveScreenRoute(routeName?: "Direct" | "Tailscale" | "VPS" | "Cloudflare", udpStatus?: ScreenStatus["udpStatus"]): ScreenRouteKind {
-  if (udpStatus?.state === "connected") return udpStatus.route;
-  if (routeName === "VPS") return "tcp_vps_relay";
-  if (routeName === "Tailscale") return "tcp_tailscale";
-  if (routeName === "Direct") return udpStatus?.route === "tcp_tailscale" ? "tcp_tailscale" : "tcp_lan_direct";
-  // Cloudflare Tunnel has no screen route kind of its own: report the generic TCP kind.
-  return udpStatus?.route ?? tcpRouteFromConnectionRoute(routeName === "Cloudflare" ? undefined : routeName);
+function resolveScreenRoute(routeName?: "Direct" | "Tailscale" | "VPS" | "Cloudflare"): ScreenRouteKind {
+  return tcpRouteFromConnectionRoute(routeName === "Cloudflare" ? undefined : routeName);
 }
 
 function ScreenMetricsOverlay({ metrics, activeRoute, udpRequested, udpConnected, fallbackWidth, fallbackHeight }: {
@@ -197,8 +192,8 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
       if(n!==attempt.current||!canvas.current){cleanupOnError=false;await retire();return;}
       if(explicit&&result.join.quality!==requested)throw new Error("screen_quality_unconfirmed");
       setQuality(result.join.quality??SCREEN_DEFAULT_QUALITY);
-      const connectRoute = resolveScreenRoute(connection.state.route?.name, s.udpStatus);
-      const metricsOpts = { routeHint: connectRoute, udpRequested: s.udpStatus?.enabled ?? false, udpConnected: s.udpStatus?.state === "connected", serverTimeOffsetMs };
+      const connectRoute = resolveScreenRoute(connection.state.route?.name);
+      const metricsOpts = { routeHint: connectRoute, udpRequested: s.udpStatus?.enabled ?? false, serverTimeOffsetMs, rtcSignaling: result.rtcSignaling };
       const next=new RemoteScreenViewer(result.join,canvas.current,value=>{if(n===attempt.current){if(mobile&&value.state==="closed")clearPicture();setState(value);}},mobile?{...metricsOpts,transport:mobileScreenViewerTransport,flight,inputActive:()=>activeNow.current&&document.hasFocus()&&document.visibilityState==="visible"&&!!panel.current?.contains(document.activeElement)}:{...metricsOpts,flight});viewer.current=next;
       next.visibility(visibleNow.current&&document.visibilityState==="visible");await next.open(result.network);
       if(n!==attempt.current){next.dispose();cleanupOnError=false;await retire();return;}next.visibility(visibleNow.current&&document.visibilityState==="visible");
@@ -257,12 +252,11 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
   // control, keep focus in the viewer so its input gate stays open.
   const lastFocus=useRef<Element|null>(null);
   useLayoutEffect(()=>{const node=lastFocus.current;if(!mobile||!node||node.isConnected||document.activeElement&&document.activeElement!==document.body||!activeNow.current||!document.hasFocus())return;(state.state!=="closed"?canvas.current:keyboardButton.current)?.focus({preventScroll:true});},[landscape]);
-  const activeRoute = resolveScreenRoute(connState.route?.name, status?.udpStatus);
+  const activeRoute = resolveScreenRoute(connState.route?.name);
   const udpRequested = status?.udpStatus?.enabled ?? false;
-  const udpConnected = status?.udpStatus?.state === "connected";
   useEffect(() => {
-    viewer.current?.setRoute(activeRoute, { udpRequested, udpConnected });
-  }, [activeRoute, udpRequested, udpConnected]);
+    viewer.current?.setRoute(activeRoute, { udpRequested });
+  }, [activeRoute, udpRequested]);
   const settingsShown=state.state==="closed"&&!!openSettings&&!!(blocked||statusError||error);
   const legacyConnect=()=>{setLegacyQuality(true);setQuality(SCREEN_DEFAULT_QUALITY);void connect(SCREEN_DEFAULT_QUALITY,true);};
   const rail=RAIL_LABELS[locale];
@@ -324,7 +318,7 @@ export function RemoteScreenPanel({connection,hostName,visible,close,openSetting
         onKeyUp={e=>{if(!state.controlling||e.nativeEvent.isComposing||!screenKeyCodeSchema.safeParse(e.code).success)return;e.preventDefault();viewer.current?.input({kind:"key",code:screenControllerCode(e.code,controller,modifierMode,target),down:false});}}
       />
     </div>
-    {showMetrics&&<ScreenMetricsOverlay metrics={state.metrics} activeRoute={activeRoute} udpRequested={udpRequested} udpConnected={udpConnected} fallbackWidth={state.width} fallbackHeight={state.height}/>}
+    {showMetrics&&<ScreenMetricsOverlay metrics={state.metrics} activeRoute={activeRoute} udpRequested={udpRequested} udpConnected={false} fallbackWidth={state.width} fallbackHeight={state.height}/>}
     </div>
 
   </aside>;

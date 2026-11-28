@@ -515,3 +515,29 @@ a phone's TLS ends at its own Hub. Each computer also has its own connection
 limit. What they share is the VPS's bandwidth and this one relay process; a flood
 of unauthenticated connections to the tunnel port can hold up new connections for
 all of them while it lasts, as it could for the one before.
+
+## Optional UDP boost for remote screens
+
+Use the current relay and Host runtime. For a dedicated relay, add
+`--screen-udp <VPS public IPv4>` to `hub relay deploy`. The dry run lists the
+shared tunnel port under `screenUdp`. The installer adds that IPv4 UDP rule
+to its dedicated firewall. Open **UDP on the existing tunnel port** in the
+cloud security group. The device HTTPS ports continue to serve TCP.
+
+On a shared VPS, use the existing service and upgrade procedure. In the relay
+runtime configuration, add `"screenUdp": { "address": "<VPS public IPv4>" }`.
+For a pilot, include `"hosts": ["<pilot mTLS client SHA-256 fingerprint>"]`
+in that object. Add the matching UDP rule to the existing firewall and cloud
+security group. Coordinate the relay restart with the operator who owns the
+shared service. To roll back, remove `screenUdp` and its UDP rule, then restart
+using that procedure. Remove the field before rolling back to a runtime that
+parses the TCP-only schema.
+
+Run `tarobird relay screen-udp-check <VPS name or IPv4> <tunnel port>` from
+outside the VPS. This checks for a correlated STUN reply over UDP. Then enable
+**Screen control → UDP boost (experimental)** on the pilot Host and open an
+authorized screen from a different network. Check that the performance overlay
+reports an active UDP route while frames render. The relay's local status reports
+per-Host forwarded bytes and dropped packets. See the
+[screen UDP verification guide](screen-udp-transport.md) for the negative and
+fallback checks.

@@ -4,6 +4,9 @@ import { readScreenFrame, SCREEN_HEADER_BYTES } from "../../src/client-protocol/
 import { ScreenMetricsTracker, type ScreenPerformanceSnapshot, type ScreenRouteKind } from "../../src/client-protocol/screen-metrics.js";
 import { electronScreenViewerTransport, type ScreenViewerChannel, type ScreenViewerPort, type ScreenViewerTransport } from "./screen-viewer-transport.js";
 
+import { SCREEN_RTC_SEQUENCE_START, screenRtcRoute, type ScreenRtcFrame } from "../../src/client-protocol/screen-rtc.js";
+import { ScreenRtcReceiver, type ScreenRtcSignaling, type RtcDraw, type RtcStats } from "./screen-rtc-receiver.js";
+
 export type ViewerState = { state: string; reason?: string; controlAllowed?: boolean; controlling: boolean; pending: boolean; fresh: boolean; width?: number; height?: number; metrics?: ScreenPerformanceSnapshot };
 /** Desktop input validity: this window is focused and visible and the canvas
  * holds focus, so clicking the chat input stops remote control at once. */
@@ -25,6 +28,7 @@ export type RemoteScreenViewerOptions = {
   udpConnected?: boolean;
   /** NTP-midpoint estimated server-minus-client clock offset (ms) from screenOpen. */
   serverTimeOffsetMs?: number;
+  rtcSignaling?: ScreenRtcSignaling;
 };
 /** One controller object per explicit viewing session; never reconnects/replays. */
 export class RemoteScreenViewer {
@@ -32,6 +36,13 @@ export class RemoteScreenViewer {
   private port?: ScreenViewerPort; private decoder?: VideoDecoder; private stream?: ScreenStream;
   private frames = new Map<number, { generation: number; at: number; captureMs: number }>();
   private readonly metricsTracker = new ScreenMetricsTracker();
+  private readonly rtcSignaling?: ScreenRtcSignaling;
+  private rtc?: ScreenRtcReceiver;
+  private rtcActive = false;
+  private rtcStartedAt = 0;
+  private rtcStats?: RtcStats;
+  private tcpRoute: ScreenRouteKind;
+  private udpRequested: boolean;
   private readonly serverTimeOffsetMs: number;
   private lastMetricsAt: number;
   private picture?: { sequence: number; expiresAt: number; at: number };
@@ -46,6 +57,9 @@ export class RemoteScreenViewer {
   private readonly channel: ScreenViewerChannel; private readonly inputActive: (canvas: HTMLCanvasElement) => boolean;
   private readonly flight: number; private readonly reportHeld: boolean;
   constructor(readonly join: ScreenJoin, private canvas: HTMLCanvasElement, private change: (state: ViewerState) => void, options: RemoteScreenViewerOptions = {}) {
+    this.rtcSignaling = options.rtcSignaling;
+    this.tcpRoute = options.routeHint ?? "tcp_default";
+    this.udpRequested = options.udpRequested ?? join.rtc === true;
     this.channel = (options.transport ?? electronScreenViewerTransport)(join);
     this.inputActive = options.inputActive ?? screenCanvasFocused;
     this.reportHeld = options.flight !== undefined;
@@ -63,6 +77,7 @@ export class RemoteScreenViewer {
       const now = performance.now();
       const fresh = !!this.picture && now - this.picture.at < 1500;
       if (!fresh && this.state.fresh) { this.release(); this.update({ fresh: false }); }
+      if (this.rtcActive && now - (this.picture?.at ?? this.rtcStartedAt) > 2200) this.rtc?.stop();
       if (fresh && this.lease && this.visible && this.focused() && this.usedChallenge !== this.lease.challenge) {
         this.usedChallenge = this.lease.challenge;
         this.send({ type: "renew", leaseId: this.lease.id, challenge: this.lease.challenge, frameSequence: this.picture!.sequence });
@@ -74,6 +89,9 @@ export class RemoteScreenViewer {
     }, 500);
   }
   setRoute(route: ScreenRouteKind, options: { udpRequested?: boolean; udpConnected?: boolean } = {}) {
+    this.tcpRoute = route;
+    if (options.udpRequested !== undefined) this.udpRequested = options.udpRequested;
+    if (this.rtcActive) return;
     this.metricsTracker.setRoute(route, options);
     if (!this.disposed && this.port && this.visible && this.state.state !== "closed") {
       const now = performance.now();
@@ -111,12 +129,57 @@ export class RemoteScreenViewer {
     const limit=screenQualityProfile(this.join.quality);
     if(Math.max(value.width,value.height)>limit.longEdge||value.width*value.height>limit.area||limit.h264Only&&value.codec!=="h264")throw new Error("screen_stream_invalid");
   }
+  private startRtc() {
+    if (this.rtc || !this.rtcSignaling || !this.visible || this.disposed) return;
+    this.rtc = new ScreenRtcReceiver(this.join, this.rtcSignaling, picture => this.drawRtc(picture),
+      stamp => this.ackRtc(stamp), stats => this.updateRtcStats(stats), () => this.fallbackRtc());
+    this.rtc.start();
+  }
+  private drawRtc({ picture, width, height, mode, stamp }: RtcDraw) {
+    if (!this.visible || this.disposed) return;
+    if (!this.rtcActive) {
+      if (!stamp || stamp.streamGeneration !== this.minimumGeneration) return;
+      this.rtcActive = true; this.rtcStartedAt = performance.now();
+      this.clearMove(); this.picture = undefined; this.frames.clear(); this.closeDecoder(); this.stream = undefined; ++this.streamEpoch;
+      this.metricsTracker.resetStream(this.minimumGeneration);
+      this.metricsTracker.setRoute(screenRtcRoute(mode), { udpRequested: true, udpConnected: true });
+      this.update({ fresh: false });
+    }
+    if (this.canvas.width !== width) this.canvas.width = width;
+    if (this.canvas.height !== height) this.canvas.height = height;
+    const context = this.canvas.getContext("2d", { alpha: false });
+    if (!context) { this.rtc?.stop(); return; }
+    context.drawImage(picture, 0, 0, width, height);
+    this.update({ width, height });
+    this.metricsTracker.recordFrameRendered({ nowMs: performance.now() });
+    if (stamp) this.ackRtc(stamp);
+  }
+  private ackRtc(stamp: ScreenRtcFrame) {
+    if (!this.rtcActive || !this.visible || stamp.streamGeneration !== this.minimumGeneration) return;
+    const latencyMs = Date.now() + this.serverTimeOffsetMs - stamp.captureMs;
+    this.metricsTracker.recordFrameLatency(performance.now(), latencyMs);
+    this.send({ type: "ack", frameSequence: stamp.frameSequence });
+  }
+  private updateRtcStats(stats: RtcStats) {
+    if (!this.rtcActive || !this.state.width || !this.state.height) return;
+    const before = this.rtcStats; this.rtcStats = stats;
+    this.metricsTracker.recordRtcStats({ nowMs: performance.now(), width: this.state.width, height: this.state.height, codec: stats.codec,
+      bytes: before ? Math.max(0, stats.bytes - before.bytes) : 0, dropped: before ? Math.max(0, stats.dropped - before.dropped) : 0 });
+  }
+  private fallbackRtc() {
+    this.rtcActive = false; this.rtcStats = undefined; this.picture = undefined; this.clearMove(); this.clearWheel();
+    this.lease = undefined; this.controlRequested = false;
+    this.metricsTracker.resetStream(this.minimumGeneration);
+    this.metricsTracker.setRoute(this.tcpRoute, { udpRequested: this.udpRequested, udpConnected: false });
+    if (!this.disposed) this.update({ fresh: false, controlling: false, pending: false, metrics: this.metricsTracker.snapshot(performance.now()) });
+  }
   private async message(value: unknown) {
     if (this.disposed) return;
     if (value instanceof ArrayBuffer) {
       const bytes = new Uint8Array(value), header = readScreenFrame(bytes);
       this.checkQuality(header);
       this.port?.postMessage({ type: "received", sequence: header.sequence });
+      if (this.rtcActive) return;
       if (!this.visible || !this.stream || header.streamGeneration !== this.stream.streamGeneration) { this.metricsTracker.recordFrameSkipped(1); return; }
       if (this.decoder?.state !== "configured" || this.frames.size >= this.flight) throw new Error("screen_decoder_congested");
       const receivedAt = performance.now();
@@ -145,7 +208,10 @@ export class RemoteScreenViewer {
       return;
     }
     if ((value as { type: string }).type === "stream") {
-      const stream = screenStreamSchema.parse(value); this.checkQuality(stream); if (stream.streamGeneration < this.minimumGeneration) return; this.minimumGeneration = stream.streamGeneration; const epoch = ++this.streamEpoch;
+      const stream = screenStreamSchema.parse(value); this.checkQuality(stream);
+      if (stream.streamGeneration < this.minimumGeneration) return;
+      if (this.rtcActive) this.rtc?.stop();
+      this.minimumGeneration = stream.streamGeneration; const epoch = ++this.streamEpoch;
       this.clearMove(); this.picture = undefined; this.frames.clear(); this.closeDecoder(); this.stream = stream;
       this.metricsTracker.resetStream(stream.streamGeneration);
       this.update({ fresh: false, controlling: false, width: stream.width, height: stream.height });
@@ -171,6 +237,7 @@ export class RemoteScreenViewer {
               this.metricsTracker.recordFrameRendered({ nowMs: paintAt, latencyMs });
               this.frames.delete(sequence);
               this.send({ type: "ack", frameSequence: sequence, ...(this.reportHeld ? { heldMs } : {}) });
+              this.startRtc();
             }
           });
         } catch (error) { this.fail(error instanceof Error ? error.message : "screen_decode_failed"); } finally { frame.close(); }
@@ -178,13 +245,19 @@ export class RemoteScreenViewer {
       decoder.configure(config); this.decoder = decoder; return;
     }
     const event = screenViewerEventSchema.parse(value);
-    if (event.type === "frame-ready") {
-      if (!this.visible || event.streamGeneration !== this.stream?.streamGeneration || this.picture && event.frameSequence < this.picture.sequence) return;
+    if (event.type === "rtc-frame") {
+      if (event.sessionId === this.join.session.id && event.generation === this.join.session.generation && event.streamGeneration === this.minimumGeneration) this.rtc?.receive(event);
+    } else if (event.type === "frame-ready") {
+      const rtc = event.frameSequence >= SCREEN_RTC_SEQUENCE_START;
+      if (!this.visible || rtc !== this.rtcActive || event.streamGeneration !== (rtc ? this.minimumGeneration : this.stream?.streamGeneration) || this.picture && event.frameSequence < this.picture.sequence) return;
       this.picture = { sequence: event.frameSequence, expiresAt: event.expiresAt, at: performance.now() };
       this.update({ fresh: true });
     } else if (event.type === "state") {
       if (event.session.generation !== this.join.session.generation || event.session.id !== this.join.session.id) throw new Error("screen_session_changed");
       if (event.streamGeneration && this.stream && event.streamGeneration > this.stream.streamGeneration) { this.clearMove(); this.picture = undefined; this.frames.clear(); this.closeDecoder(); this.stream = undefined; ++this.streamEpoch; this.metricsTracker.resetStream(event.streamGeneration); }
+      if (this.rtcActive && event.streamGeneration && event.streamGeneration > this.minimumGeneration) {
+        this.minimumGeneration = event.streamGeneration; this.rtcStartedAt = performance.now(); this.picture = undefined; this.clearMove(); ++this.streamEpoch;
+      }
       if (!event.session.controlAllowed || event.session.reason && !event.lease && !event.controlPending) this.controlRequested = false;
       const permitted = this.controlRequested && this.visible && (event.streamGeneration ?? 0) >= this.controlGeneration;
       const lease = permitted ? event.lease : undefined;
@@ -198,7 +271,7 @@ export class RemoteScreenViewer {
   }
   control() {
     if (!this.state.controlAllowed || !this.picture || !this.state.fresh || !this.visible || this.state.pending) return;
-    this.canvas.focus(); this.controlRequested = true; this.controlGeneration = (this.stream?.streamGeneration ?? 0) + 1; this.lease = undefined;
+    this.canvas.focus(); this.controlRequested = true; this.controlGeneration = this.minimumGeneration + 1; this.lease = undefined;
     this.update({ controlling: false, pending: true, reason: undefined }); this.send({ type: "control", frameSequence: this.picture.sequence });
   }
   release() { this.clearMove(); this.clearWheel(); this.controlRequested = false; this.send({ type: "release" }); this.lease = undefined; this.usedChallenge = ""; this.update({ controlling: false, pending: false }); }
@@ -206,7 +279,9 @@ export class RemoteScreenViewer {
   private applyVisibility() {
     const visible = this.requestedVisible && this.nativeVisible;
     if (this.visible === visible) return;
-    this.visible = visible; this.release(); this.stream = undefined; this.closeDecoder(); ++this.streamEpoch; this.picture = undefined; this.frames.clear();
+    this.visible = visible; this.release();
+    if (!visible) { this.rtc?.stop(); this.rtc = undefined; }
+    this.stream = undefined; this.closeDecoder(); ++this.streamEpoch; this.picture = undefined; this.frames.clear();
     this.metricsTracker.resetStream(this.minimumGeneration);
     this.sendVisibility(); this.update({ fresh: false });
   }
@@ -266,7 +341,7 @@ export class RemoteScreenViewer {
   }
   private fail(reason: string) { if (this.disposed) return; this.update({ state: "closed", reason, controlling: false, pending: false, fresh: false }); this.dispose(); }
   dispose() {
-    if (this.disposed) return; this.send({ type: "disconnect" }); this.disposed = true;
+    if (this.disposed) return; this.send({ type: "disconnect" }); this.disposed = true; this.rtc?.stop();
     this.clearMove(); this.clearWheel(); clearInterval(this.timer); this.closeDecoder(); this.frames.clear(); this.port?.close();
     this.channel.close();
   }

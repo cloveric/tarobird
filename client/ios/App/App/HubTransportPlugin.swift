@@ -8,7 +8,7 @@ import UIKit
 public final class HubTransportPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "HubTransportPlugin"
     public let jsName = "TaroCubHubTransport"
-    public let pluginMethods: [CAPPluginMethod] = ["document", "allocate", "cancel", "httpOpen", "httpRead", "socketOpen", "socketSend", "socketAck", "socketClose", "screenOpen", "screenSend", "screenRead", "screenAck", "screenClose", "screenWindow"].map {
+    public let pluginMethods: [CAPPluginMethod] = ["document", "allocate", "cancel", "httpOpen", "httpRead", "socketOpen", "socketSend", "socketAck", "socketClose", "screenOpen", "screenSend", "screenRead", "screenAck", "screenClose", "screenWindow", "screenRtc"].map {
         CAPPluginMethod(name: $0, returnType: CAPPluginReturnPromise)
     }
     private var transport: HubTransport?
@@ -176,6 +176,7 @@ public final class HubTransportPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func screenAck(_ call: CAPPluginCall) { perform("screenAck", call) }
     @objc func screenClose(_ call: CAPPluginCall) { perform("screenClose", call) }
     /// The most packets of one stream generation this layer holds for the page (see HubScreenSession.BINARY_WINDOW).
+    @objc func screenRtc(_ call: CAPPluginCall) { call.resolve(["value": true]) }
     @objc func screenWindow(_ call: CAPPluginCall) { call.resolve(["value": HubScreenSession.BINARY_WINDOW]) }
     deinit {
 #if canImport(UIKit)

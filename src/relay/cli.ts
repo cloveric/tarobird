@@ -4,11 +4,21 @@ import { relayServerSchema, loadRelayTls } from "./config.js";
 import { RelayServer } from "./server.js";
 
 export async function runRelayCli(argv: string[]): Promise<void> {
+  if (argv[0] === "screen-udp-check") {
+    const { probeScreenUdp } = await import("./screen-udp-probe.js");
+    const [, address, rawPort] = argv;
+    const port = Number(rawPort);
+    if (!address || !Number.isInteger(port) || port < 1 || port > 65535 || argv.length !== 3) throw new Error("relay screen-udp-check <VPS IPv4 or name> <tunnel port>");
+    const reachable = await probeScreenUdp(address, port);
+    console.log(JSON.stringify({ reachable, port }));
+    if (!reachable) process.exitCode = 1;
+    return;
+  }
   if (argv[0] === "release") { const { runRelayReleaseCli } = await import("./release-cli.js"); await runRelayReleaseCli(argv.slice(1)); return; }
   if (argv[0] === "inspect") { const { inspectRelayCompanions } = await import("./health.js"); console.log(JSON.stringify(await inspectRelayCompanions("/opt/tarocub-relay"))); return; }
   const args = parseArgs({ args: argv, options: { config: { type: "string" }, "lock-held": { type: "boolean" }, help: { type: "boolean", short: "h" } }, allowPositionals: true });
   if (args.positionals[0] === "update" && args.values.config) { const { runRelayUpdate } = await import("./update.js"); await runRelayUpdate(args.values.config, args.values["lock-held"]); return; }
-  if (args.values.help || !args.values.config) { console.log("TaroBird TLS passthrough relay\n  tarobot relay --config <relay.json>\nRequires a dedicated tunnel CA, server certificate and allowed Mac client fingerprint.\nThe Hub domain certificate and private key must remain on the Mac."); return; }
+  if (args.values.help || !args.values.config) { console.log("TaroBird TLS passthrough relay\n  tarobot relay --config <relay.json>\n  tarobot relay screen-udp-check <VPS IPv4 or name> <tunnel port>\nRequires a dedicated tunnel CA, server certificate and allowed Mac client fingerprint.\nThe Hub domain certificate and private key must remain on the Mac."); return; }
   const config = relayServerSchema.parse(JSON.parse(await readFile(args.values.config, "utf8")));
   const relay = await RelayServer.start({ ...config, tls: await loadRelayTls(config.tls), onWarning: (code) => console.error(`Relay: ${code}`) });
   console.log(`TaroBird relay ready: public=${relay.status.publicPort}, tunnel=${relay.status.tunnelPort}`);

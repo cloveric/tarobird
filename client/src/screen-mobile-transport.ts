@@ -147,7 +147,8 @@ export function createMobileScreenViewerTransport(bridge: ScreenNativeBridge): S
           if (lease.signal.aborted) { close(); throw new Error("screen_connection_changed"); }
           lease.signal.addEventListener("abort", retired, { once: true });
           events.attach(port);
-          if (!closed) await bridge.invoke("net_screen_open", { id: lease.id, network, join, events: { onmessage: event } });
+          const { rtc: _rtc, ...nativeJoin } = join;
+          if (!closed) await bridge.invoke("net_screen_open", { id: lease.id, network, join: nativeJoin, events: { onmessage: event } });
         // A session native already ended keeps its own reason over the open call's.
         // Its close event may also still be on the way (Android sends the open
         // call's rejection first): wait for it, bounded, as for any other call.

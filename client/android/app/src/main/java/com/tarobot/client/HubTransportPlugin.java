@@ -109,6 +109,7 @@ public class HubTransportPlugin extends Plugin {
     @PluginMethod public void screenAck(PluginCall call) { screenComplete(call,()->{ transport.screenAck(text(call,"id"),integer(call,"deliverySequence",1,9007199254740991L)); return new JSObject(); },false,false); }
     @PluginMethod public void screenClose(PluginCall call) { screenComplete(call,()->value(transport.screenClose(text(call,"id"))),false,true); }
     /** The most packets of one stream generation this layer holds for the page (see HubScreenSession.BINARY_WINDOW). */
+    @PluginMethod public void screenRtc(PluginCall call) { call.resolve(value(true)); }
     @PluginMethod public void screenWindow(PluginCall call) { call.resolve(value(HubScreenSession.BINARY_WINDOW)); }
     @Override protected void handleOnResume() { screenForeground=true; }
     @Override protected void handleOnPause() { retireScreens("screen_inactive"); }

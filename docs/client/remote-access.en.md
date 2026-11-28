@@ -41,6 +41,11 @@ step 8): reuse its tunnel port, add one public port, install no second relay and
 leave the existing computers' configuration, ports and routes unchanged.
 Otherwise use unused public HTTPS and mutual-TLS tunnel ports. On a shared VPS,
 preserve existing services and do not run the dedicated-VPS firewall installer.
+Ask whether to enable experimental UDP boost for smoother remote screen viewing
+and control. With approval, deploy UDP on the same tunnel port, ask the owner to
+open that UDP rule in the cloud security group, run the external UDP self-check,
+and offer to enable UDP boost on the Host. If declined, deploy TCP only. Follow
+the UDP section of the manual for a shared relay pilot.
 Keep the Hub identity/TLS private keys, API credentials and chat data on the
 original computer. Only the explicit relay server credentials belong on the VPS.
 Configure a trusted public certificate, renewal, safe delivery and loading on

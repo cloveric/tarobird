@@ -2,6 +2,8 @@
 // injected so the generation, credit and race rules are testable without a
 // real screen. The page entry (screen-capture-page.mjs) passes real globals.
 import { SCREEN_FLIGHT_MAX, SCREEN_FLIGHT_MIN, screenH264Codec, screenH264EncoderCodec, screenRateLadder } from '../../src/client-protocol/screen-quality.ts';
+import { SCREEN_RTC_SEQUENCE_START } from '../../src/client-protocol/screen-rtc.ts';
+import { ScreenRtcSender } from './screen-rtc-sender.mjs';
 /** Frames kept unacknowledged at once (the flight window). Three for any
  * viewer. A viewer that says it can hold more (`flight`) and reports how long
  * it held each frame lets the window follow the path: the frames really in
@@ -65,7 +67,7 @@ function encoderProfile(fps, profile) {
 
 export function createCaptureCore(env) {
   const { send, getDisplayMedia, VideoEncoder, VideoFrame, OffscreenCanvas, MediaStreamTrackProcessor, writeScreenFrame,
-    now = Date.now, perf = () => performance.now(), timers = globalThis } = env;
+    now = Date.now, perf = () => performance.now(), timers = globalThis, rtcEnv } = env;
   const sessions = new Map(), chains = new Map(), cancelled = new Set();
 
   function fail(session, reason, error) {
@@ -99,8 +101,24 @@ export function createCaptureCore(env) {
       case 'reset': if (session) await restart(session, message.streamGeneration, message.geometryRevision); return;
       case 'pause':
         if (!session) return;
-        if (message.paused) { retire(session); session.paused = true; return; }
+        if (message.paused) { session.rtc?.close(); session.rtc = undefined; session.rtcOnly = false; retire(session); session.paused = true; return; }
         session.paused = false; await restart(session, message.streamGeneration, session.geometryRevision); return;
+      case 'rtc-offer': {
+        if (!session || session.paused || !rtcEnv) { send({ type: 'rtc-failed', sessionId: message.sessionId, nonce: message.nonce }); return; }
+        session.rtc?.close();
+        const rtc = new ScreenRtcSender({ command: message, send, nextSequence: () => session.nextRtcSequence++,
+          encode: session.encode, profile: session.profile, VideoFrame, OffscreenCanvas, now, perf, rtcEnv });
+        session.rtc = rtc;
+        // Gathering must not delay pause, reset or local takeover.
+        void rtc.open().catch(() => rtc.fail());
+        return;
+      }
+      case 'rtc-activate':
+        if (session?.rtc?.command.nonce === message.nonce && !session.rtc.abort.signal.aborted) { session.rtcOnly = true; retire(session); }
+        return;
+      case 'rtc-close':
+        if (session?.rtc?.command.nonce === message.nonce) { session.rtc.close(); session.rtc = undefined; session.rtcOnly = false; }
+        return;
       case 'credit': if (session) credit(session, message); return;
       case 'keyframe': if (session) session.needKey = true; return;
       default: throw new Error('screen_capture_command');
@@ -112,7 +130,7 @@ export function createCaptureCore(env) {
     if (cancelled.delete(sessionId)) return;
     if (sessions.has(sessionId)) throw new Error('screen_capture_duplicate');
     const settings = encoderProfile(fps, profile);
-    const session = { sessionId, codecs, encode, profile: settings, interval: 1000 / settings.fps, sequence: 0, outstanding: new Map(), pendingOutput: [],
+    const session = { sessionId, codecs, encode, profile: settings, interval: 1000 / settings.fps, sequence: 0, nextRtcSequence: SCREEN_RTC_SEQUENCE_START, outstanding: new Map(), pendingOutput: [],
       geometryRevision, streamGeneration: 0, paused: false, needKey: true, qp: settings.qpBase, crowded: 0, encoded: 0, calm: 0, held: undefined, dueAt: -Infinity, epoch: 0,
       // The viewer's capacity, the shortest network round trip its receipts have shown and the pace they come back at
       // (session-wide: the path and the viewer do not change with a generation).
@@ -184,6 +202,7 @@ export function createCaptureCore(env) {
     retire(session);
     const epoch = session.epoch;
     session.streamGeneration = streamGeneration; session.geometryRevision = geometryRevision; session.needKey = true; session.chainStarted = false;
+    if (session.rtcOnly) return;
     const chosen = session.chosen ?? await config(session);
     // A stop, pause or newer reset that ran while we awaited wins.
     if (!live(session, epoch) || session.paused) return;
@@ -212,8 +231,10 @@ export function createCaptureCore(env) {
       try { result = await reader.read(); } catch (error) { if (sessions.get(session.sessionId) === session) fail(session, 'screen_capture_failed', error); return; }
       if (result.done) { if (sessions.get(session.sessionId) === session) fail(session, 'screen_capture_failed', new Error('capture_done')); return; }
       const frame = result.value, captureMs = now();
-      if (sessions.get(session.sessionId) !== session || session.paused || !session.encoder) { frame.close(); if (sessions.get(session.sessionId) !== session) return; continue; }
+      if (sessions.get(session.sessionId) !== session || session.paused || !session.encoder && !session.rtc) { frame.close(); if (sessions.get(session.sessionId) !== session) return; continue; }
       send({ type: 'captured', sessionId: session.sessionId, captureMs });
+      try { session.rtc?.sample(frame, captureMs, session.streamGeneration); } catch { session.rtc?.fail(); }
+      if (!session.encoder) { frame.close(); continue; }
       // Latest wins: a frame that never got its turn is dropped before encode.
       // Only one the viewer or the encoder held up counts as crowding, not one
       // the schedule or the byte budget skipped.
@@ -372,6 +393,7 @@ export function createCaptureCore(env) {
     session.crowded = 0; session.starved = 0; session.encoded = 0;
   }
   function close(session) {
+    session.rtc?.close();
     sessions.delete(session.sessionId);
     timers.clearInterval(session.adapt);
     retire(session);

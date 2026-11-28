@@ -854,6 +854,18 @@ there is no clipboard synchronization. Each session has a byte budget; only a
 viewer whose own address is on the local network (not loopback, not Tailscale)
 gets the larger one.
 
+The opt-in UDP transport uses this same screen session. A fresh enrolled-device
+signature binds the offered DTLS fingerprint and SDP to the viewer and its
+attempt. The Hub signs the answer with its pinned identity and binds the reply
+to both descriptions and the target desktop. The target service gets SDP over
+its authenticated local socket. A control lease over UDP requires a confirmed
+recent RTP frame from the same capture generation and geometry. Switching
+transport retires the old control lease. The VPS receives only encrypted
+datagrams for the two allocations in a short-lived per-Host grant. Its
+authenticated tunnel endpoint issues and revokes the pair; its limits and
+accounting apply across each Host's allocations.
+[UDP transport and verification](client/screen-udp-transport.md).
+
 On the target, input runs with the App's own rights. macOS requires the
 user-granted Screen Recording, Accessibility and Input Monitoring permissions.
 Windows input runs at the App's integrity level, without elevation or desktop

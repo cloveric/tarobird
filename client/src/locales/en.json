@@ -5034,7 +5034,7 @@
   "UDP 媒体通道已连通，对本机所有查看设备生效。可在查看器中开启性能数据覆盖层查看实时链路指标。": "UDP media transport is connected for all viewing devices on this Host. Toggle the viewer performance overlay to inspect live route metrics.",
   "中继服务器的 UDP 端口未开放，请在云安全组放行已配置的 UDP 中继端口。未连通期间自动保持 TCP 传输，不会黑屏或断线。": "The configured UDP relay port is not open on the relay server. Allow it in your cloud security group. TCP stays active automatically with no black screen or disconnect.",
   "当前查看端或对端暂不支持 UDP 媒体通道，已自动回退 TCP 传输（不会黑屏或断线）。请更新两端应用后重试。": "This viewer or peer does not support UDP media transport yet; TCP fallback is active with no black screen or disconnect. Update both apps and try again.",
-  "当前主机或中继尚未启用 UDP 媒体通道，已自动回退 TCP 传输（不会黑屏或断线）。开启查看器性能数据覆盖层可对比链路指标。": "UDP media transport is not yet active on this Host or relay; TCP fallback is active with no black screen or disconnect. Toggle the viewer performance overlay to inspect route metrics.",
+  "当前没有收到 UDP 画面，查看器使用 TCP。通过 VPS 中继观看时，请检查云安全组是否放行原隧道端口的 UDP，并运行中继自检。": "The viewer uses TCP while UDP frames are unavailable. For a VPS relay, check that the security group allows UDP on the existing tunnel port and run the relay self-check.",
   "显示性能数据": "Show performance overlay",
   "隐藏性能数据": "Hide performance overlay",
   "性能数据覆盖层": "Performance overlay",

@@ -3,6 +3,7 @@ import { SCREEN_MAC_KEYCODES, SCREEN_TARGET_PLATFORMS } from "./screen-keys.js";
 import { idSchema } from "./index.js";
 import { deviceActionProofSchema } from "./device-actions.js";
 import { SCREEN_FLIGHT_MAX, SCREEN_FLIGHT_MIN, SCREEN_HELD_MAX_MS, SCREEN_QUALITIES, SCREEN_STREAM_MAX_AREA, SCREEN_STREAM_MAX_EDGE } from "./screen-quality.js";
+import { screenRtcServiceCommands, screenRtcServiceEvents, screenRtcViewerFrameSchema } from "./screen-rtc.js";
 import { screenUdpStatusSchema, type ScreenUdpStatus } from "./screen-metrics.js";
 export { screenUdpStatusSchema, type ScreenUdpStatus } from "./screen-metrics.js";
 
@@ -107,7 +108,7 @@ export const screenStatusSchema = z.object({
 export type ScreenStatus = z.infer<typeof screenStatusSchema>;
 /** `quality` is present only when the open requested it and the Host and its
  * target accepted it; it is that session's fixed quality. */
-export const screenJoinSchema = z.object({ session: screenSessionSchema, controlTicket: token, mediaTicket: token, expiresAt: integer, serverTime: integer, quality: screenQualitySchema.optional() }).strict();
+export const screenJoinSchema = z.object({ session: screenSessionSchema, controlTicket: token, mediaTicket: token, expiresAt: integer, serverTime: integer, quality: screenQualitySchema.optional(), rtc: z.literal(true).optional() }).strict();
 export type ScreenJoin = z.infer<typeof screenJoinSchema>;
 
 const point = { x: z.number().finite().min(0).max(1), y: z.number().finite().min(0).max(1) };
@@ -142,6 +143,7 @@ export type ScreenViewerCommand = z.infer<typeof screenViewerCommandSchema>;
 
 /** Each input is authorized again at the target; a queued command is not a lease. */
 export const screenServiceCommandSchema = z.discriminatedUnion("type", [
+  ...screenRtcServiceCommands,
   // `quality` is sent only to a target whose hello advertised SCREEN_SERVICE_QUALITY_FEATURE,
   // `mediaBytesPerMs` (a budget other than the default) only to one that advertised SCREEN_SERVICE_PACE_FEATURE.
   z.object({ type: z.literal("start"), session: screenSessionSchema, mediaTicket: token, streamGeneration: revision, codecs: z.array(z.enum(["h264", "vp8"])).min(1).max(2), quality: screenQualitySchema.optional(),
@@ -172,6 +174,7 @@ export const screenStreamSchema = z.object({
   && s.width * s.height <= SCREEN_STREAM_MAX_AREA && s.contentRect.width === s.width && s.contentRect.height === s.height, "screen_stream_invalid");
 export type ScreenStream = z.infer<typeof screenStreamSchema>;
 export const screenServiceEventSchema = z.discriminatedUnion("type", [
+  ...screenRtcServiceEvents,
   z.object({ type: z.literal("status"), desktop: screenDesktopSchema }).strict(),
   z.object({ type: z.literal("lease-ready"), sessionId: idSchema, leaseId: token }).strict(),
   z.object({ type: z.literal("lease-denied"), sessionId: idSchema, leaseId: token, reason: z.enum(["screen_frame_stale", "screen_lease_invalid", "screen_input_denied", "screen_geometry_changed", "screen_locked", "screen_takeover_unavailable"]) }).strict(),
@@ -185,6 +188,7 @@ export const screenServiceHelloSchema = screenHelloSchema.extend({ desktop: scre
   features: z.array(z.string().regex(/^[a-z0-9.-]{1,32}$/)).max(16).optional() }).strict();
 export const screenStopSchema = z.object({ sessionId: idSchema.optional() }).strict();
 export const screenViewerEventSchema = z.discriminatedUnion("type", [
+  screenRtcViewerFrameSchema,
   z.object({ type: z.literal("attached"), sessionId: idSchema }).strict(),
   z.object({ type: z.literal("state"), session: screenSessionSchema, serverTime: integer, controlPending: z.boolean().optional(), streamGeneration: revision.optional(),
     lease: z.object({ id: token, expiresAt: integer, challenge: token, challengeExpiresAt: integer }).strict().optional() }).strict(),
