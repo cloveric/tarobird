@@ -342,6 +342,13 @@ test("Files panel says where the Bot works and what this turn changed; 文件 is
     const panel = page.locator("aside.workspace-files-panel");
     await expect(panel).toBeVisible();
 
+    // The panel's header rule continues the conversation header's rule.
+    const ruleY = async (selector: string) => page.locator(selector).evaluate((node) => Math.round(node.getBoundingClientRect().bottom));
+    for (const width of [1360, 820, 1360]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(async () => (await ruleY("aside.workspace-files-panel .wf-header")) - (await ruleY(".host-workspace:not([hidden]) .conversation-header"))).toBe(0);
+    }
+
     // The left edge resizes the panel like the other side panels.
     const handle = panel.getByRole("separator", { name: "调整文件面板宽度", exact: true });
     await expect(handle).toBeVisible();
