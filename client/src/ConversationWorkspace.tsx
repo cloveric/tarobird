@@ -46,7 +46,8 @@ import {
 } from "./workspace-replying.js";
 import { listWorkbenchLibrary, type WorkbenchLibraryEntry } from "./workbench-library.js";
 import type { WorkbenchFileTarget } from "./workbench-library-context.js";
-import { usageTone, type ContextView } from "./usage-readings.js";
+import { usageTone, type ContextView, type QuotaView } from "./usage-readings.js";
+import { formatQuotaWindowLabel, formatResetCountdown } from "./quota-ui.js";
 import {
   approvalPlainSummary,
   EmptyStateArt,
@@ -231,6 +232,8 @@ export interface ConversationWorkspaceProps {
   hostName: string;
   connectionSummary: string;
   contextUsage?: ContextView;
+  /** The direct Bot's engine quota (tightest window), when the Host can read it; same reading as the composer battery. */
+  quotaUsage?: QuotaView;
   streamingBots: string[];
   messages: Message[];
   comms: ConversationBotComms | undefined;
@@ -261,6 +264,7 @@ export function ConversationWorkspace({
   hostName,
   connectionSummary,
   contextUsage,
+  quotaUsage,
   streamingBots,
   messages,
   comms,
@@ -1134,6 +1138,24 @@ export function ConversationWorkspace({
                     </span>
                     <span className={`workspace-memory-pct is-${usageTone(contextUsage.left)}`}>
                       {t("剩 {0}%", contextUsage.left)}
+                    </span>
+                  </div>
+                )}
+                {directBot && quotaUsage && (
+                  <div
+                    className={`workspace-memory-row workspace-quota-row${quotaUsage.stale ? " is-stale" : ""}`}
+                    title={quotaUsage.windows.map(window => {
+                      const name = formatQuotaWindowLabel(window, quotaUsage.windows);
+                      const reset = window.resetsAt ? formatResetCountdown(window.resetsAt, Date.now()).text : "";
+                      return reset ? t("{0} 剩 {1}%，{2}", name, window.left, reset) : t("{0} 剩 {1}%", name, window.left);
+                    }).join("\n")}
+                  >
+                    <span className="workspace-memory-label">{t("额度")}</span>
+                    <span className="workspace-memory-bar" role="meter" aria-label={t("额度")} aria-valuemin={0} aria-valuemax={100} aria-valuenow={quotaUsage.left}>
+                      <i className={`is-${usageTone(quotaUsage.left)}`} style={{ width: `${quotaUsage.left}%` }} />
+                    </span>
+                    <span className={`workspace-memory-pct is-${usageTone(quotaUsage.left)}`}>
+                      {t("剩 {0}%", quotaUsage.left)}
                     </span>
                   </div>
                 )}

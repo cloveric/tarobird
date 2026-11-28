@@ -516,3 +516,31 @@ test("stale low/empty quota progress bars render grey, cold offline reload shows
     expect(savedAfter403).not.toContain("alpha");
   } finally { await f.dispose(); }
 });
+
+test("workspace env card: quota row beside the context row, plain latency, and a small status tag", async ({ page }) => {
+  const f = await fixture(page);
+  try {
+    await selectConversation(page, "有读数");
+    await expect(workspace(page).locator(".usage-indicators [data-usage=quota]")).toHaveText("80%");
+    await workspace(page).getByRole("button", { name: "会话工作区", exact: true }).click();
+    const card = page.locator("aside.conversation-workspace-rail .workspace-env-card");
+    await expect(card.locator(".workspace-memory-row").first()).toContainText("剩 62%");
+    const quotaRow = card.locator(".workspace-quota-row");
+    await expect(quotaRow).toContainText("额度");
+    await expect(quotaRow).toContainText("剩 80%");
+    await expect(quotaRow.getByRole("meter", { name: "额度" })).toHaveAttribute("aria-valuenow", "80");
+    // Every window and its reset are in the tooltip; the row shows the tightest one.
+    const title = await quotaRow.getAttribute("title");
+    expect(title?.split("\n")).toHaveLength(2);
+    expect(title).toContain("剩 80%"); expect(title).toContain("剩 90%"); expect(title).toContain("后重置");
+    // Latency is just a number (or a connection word), never an adjective.
+    await expect(card.locator(".workspace-env-signal")).toHaveText(/^(\d+ms|已连上)$/);
+    // The workspace picker's 32px chip rule no longer leaks into the card's status tag.
+    const chip = await card.locator(".workspace-env-meta .workspace-chip.is-online").evaluate(node => { const style = getComputedStyle(node); return { height: node.getBoundingClientRect().height, minHeight: style.minHeight }; });
+    expect(chip.minHeight).not.toBe("32px"); expect(chip.height).toBeLessThan(24);
+    // A Bot whose quota cannot be read has no quota row.
+    await selectConversation(page, "读不到");
+    await expect(page.locator("aside.conversation-workspace-rail .workspace-env-card")).toBeVisible();
+    await expect(page.locator("aside.conversation-workspace-rail .workspace-quota-row")).toHaveCount(0);
+  } finally { await f.dispose(); }
+});

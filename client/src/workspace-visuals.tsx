@@ -82,10 +82,12 @@ export function signalStrength(status: "online" | "connecting" | "offline", late
   if (status === "connecting") return { bars: 1, tone: "warn", label: t("正在连接…") };
   if (latency === undefined || !Number.isFinite(latency)) return { bars: 4, tone: "ok", label: t("已连上") };
   const ms = Math.max(0, Math.round(latency));
-  if (ms <= 80) return { bars: 4, tone: "ok", label: t("很好 · {0}ms", ms) };
-  if (ms <= 220) return { bars: 3, tone: "ok", label: t("不错 · {0}ms", ms) };
-  if (ms <= 500) return { bars: 2, tone: "warn", label: t("有点慢 · {0}ms", ms) };
-  return { bars: 1, tone: "bad", label: t("较卡顿 · {0}ms", ms) };
+  // Bars and colour carry the quality; the label is just the number.
+  const label = `${ms}ms`;
+  if (ms <= 80) return { bars: 4, tone: "ok", label };
+  if (ms <= 220) return { bars: 3, tone: "ok", label };
+  if (ms <= 500) return { bars: 2, tone: "warn", label };
+  return { bars: 1, tone: "bad", label };
 }
 
 /** Plain-language summary of what a Bot is asking permission to do. */
