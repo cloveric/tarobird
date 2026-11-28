@@ -140,12 +140,13 @@ test.describe("Plugin System E2E Regressions (#101)", () => {
 
       const trigger = page.locator(".conversation-header .plugin-panel-trigger").first();
       await expect(trigger).toBeVisible();
+      // Icon-only, like the other header icons; the name is in aria-label and title.
       const triggerBox = await trigger.boundingBox();
-      const labelBox = await trigger.locator("span").boundingBox();
-      expect(triggerBox!.width).toBeGreaterThan(60);
-      expect(triggerBox!.height).toBeLessThanOrEqual(36);
-      expect(labelBox!.height).toBeLessThan(30);
-      expect(labelBox!.y).toBeGreaterThanOrEqual(0);
+      expect(triggerBox!.width).toBeLessThanOrEqual(34);
+      expect(triggerBox!.height).toBeLessThanOrEqual(34);
+      await expect(trigger).toHaveText("");
+      await expect(trigger).toHaveAttribute("aria-label", "速记面板");
+      await expect(trigger).toHaveAttribute("title", "速记面板");
 
       // Open Quick Scratchpad side panel
       await trigger.click();
