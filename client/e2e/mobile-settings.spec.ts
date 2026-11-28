@@ -15,7 +15,7 @@ import { mobileHome, selectConversation, waitForClientOnline } from './fixtures/
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
 const workspace = (page: Page) => page.locator('.host-workspace:not([hidden])');
 const settings = (page: Page) => page.getByRole('dialog', { name: 'Bot 设置', exact: true });
-const effort = (page: Page) => page.getByRole('dialog', { name: '思考强度', exact: true });
+const effort = (page: Page) => page.getByRole('dialog', { name: '模型设置', exact: true });
 const back = (page: Page) => page.evaluate(() => !window.dispatchEvent(new Event('tarocub-native-back', { cancelable: true })));
 async function pair(page: Page, hub: HubServer, name: string) {
   await hub.profile.update({ name, revision: (await hub.profile.read()).revision });
@@ -44,7 +44,7 @@ async function openSettingsFromChat(page: Page) {
 async function saveEffort(page: Page, value: string) {
   await settings(page).getByRole('button', { name: '调整 Bot 思考强度', exact: true }).click();
   await expectSettingsPage(effort(page), page.viewportSize()!.width, page.viewportSize()!.height);
-  await effort(page).getByLabel('Effort 档位', { exact: true }).selectOption(value);
+  await effort(page).getByLabel('模型思考强度', { exact: true }).selectOption(value);
   await effort(page).getByRole('button', { name: '保存到此 Bot', exact: true }).click();
   await expect(effort(page).getByRole('status')).toContainText(`已保存为 ${value}`);
 }
@@ -82,8 +82,8 @@ test('phone chat menu renames durably, keeps drafts and selects engine-specific 
     const select = settings(page).getByLabel('选择要调整的 Bot', { exact: true });
     await select.selectOption('beta');
     await settings(page).getByRole('button', { name: '调整 Bot 思考强度', exact: true }).click();
-    await expect(effort(page).getByLabel('Effort 档位', { exact: true }).locator('option')).toHaveText(['跟随默认（不强制指定）', 'low', 'high', 'max']);
-    await effort(page).getByLabel('Effort 档位', { exact: true }).selectOption('max');
+    await expect(effort(page).getByLabel('模型思考强度', { exact: true }).locator('option')).toHaveText(['跟随默认（不强制指定）', 'low', 'high', 'max']);
+    await effort(page).getByLabel('模型思考强度', { exact: true }).selectOption('max');
     await effort(page).getByRole('button', { name: '保存到此 Bot', exact: true }).click();
     await expect(effort(page).getByRole('status')).toContainText('已保存为 max');
     expect(await back(page)).toBe(true);
@@ -92,7 +92,7 @@ test('phone chat menu renames durably, keeps drafts and selects engine-specific 
     await page.screenshot({ path: info.outputPath('phone-group-bot-settings.png'), animations: 'disabled' });
     await select.selectOption('alpha');
     await settings(page).getByRole('button', { name: '调整 Bot 思考强度', exact: true }).click();
-    await expect(effort(page).getByLabel('Effort 档位', { exact: true }).locator('option')).toHaveText(['跟随默认（不强制指定）', 'low', 'medium', 'high', 'xhigh']);
+    await expect(effort(page).getByLabel('模型思考强度', { exact: true }).locator('option')).toHaveText(['跟随默认（不强制指定）', 'low', 'medium', 'high', 'xhigh']);
     expect(await back(page)).toBe(true);
     expect(await back(page)).toBe(true);
     await expect(settings(page)).toHaveCount(0);

@@ -6,10 +6,10 @@ it. Other Bots retain their own settings. Creating a conversation starts separat
 context but inherits the Bot's model/effort, workspace and durable memory rules.
 There is no per-conversation effort override in this implementation.
 
-Click the model/effort line below the chat title to open the picker. The whole
-title area is a touch target. In a group, choose the Bot first. The dialog states
-its scope before the level selector. Saving uses a settings request, so it creates
-neither a chat message nor a model session. It does not cancel active work.
+Open Bot settings and select Model or Thinking effort. Both open Model settings.
+The Thinking effort shortcut focuses the level selector after loading. In a group,
+choose the Bot in Bot settings first. The desktop composer also offers quick
+selection. Saving uses a settings request and takes effect at the next safe task boundary.
 
 Each native adapter reads saved settings at its existing safe boundary. Active
 Codex requests and Claude/Kimi background tasks can defer application. A save
@@ -43,10 +43,11 @@ and Kimi's fallback are not a universal off switch.
 
 ## Transport and integrity
 
-- Owner-only authenticated `GET/PUT /api/bots/:id/effort` calls the Bot's Gateway;
-  an offline Bot cannot be edited through this control.
-- Strict schemas; the client cannot submit a path, engine, model or other config
-  fields. An unreadable configuration is refused, never reset/repaired.
+- The App uses the owner-only `GET/PUT /api/bots/:id/model` endpoint. With an
+  Antigravity preset, changing the level saves the matching model ID and effort
+  together. The effort-only endpoint remains available to existing clients.
+- The schema limits settings writes to compatible model and effort values. An
+  offline Bot or an unreadable configuration blocks saving.
 - Saves share the native config file mutex, use atomic writes, retain unrelated
   settings, and read back the result. A revision includes engine/model/effort and
   a nonce, so stale clients cannot overwrite newer UI changes.

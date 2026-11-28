@@ -1115,7 +1115,7 @@
 /*
  * Opt-in chat header for the phone IM shell: add `mobile-im-chat` to the chat
  * root while the mobile layout is active. Back + title + more only gain
- * sizing here; nothing is hidden (EffortControl and conversation settings stay).
+ * sizing here; nothing is hidden (model and conversation settings stay).
  */
 @media (max-width: 760px) {
   .mobile-im-chat .conversation-header {

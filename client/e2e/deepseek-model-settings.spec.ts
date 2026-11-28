@@ -36,7 +36,7 @@ async function fixture(page: Page, english: boolean, initialModel = "alpha/org/s
   const gateway = await attachGateway({ stateDir, url: hub.instanceUrl.replace("http", "ws") + "/instance", secret, botId: "deepseek_fixture", engine: "deepseek", model: config.model, effort: config.effort, runtime: createCoreServiceRuntime(), bridge: { handleAuthorizedMessage: async () => { engineCalls++; throw new Error("fixture_model_call_forbidden"); } } });
   const f = {
     settings: { scope: "bot", revision: "a".repeat(64), engine: "deepseek", model: config.model, effort: "high", choices, customEfforts: [""], activeTurns: 0, catalogStatus: "ready" } as ModelSettings,
-    reads: 0, catalogRequests: [] as string[], writes: [] as Record<string, unknown>[], effortWrites: [] as Record<string, unknown>[], creates: [] as Record<string, unknown>[], failure: false, effortFailure: "",
+    reads: 0, catalogRequests: [] as string[], writes: [] as Record<string, unknown>[], creates: [] as Record<string, unknown>[], failure: false, writeFailure: "",
     hold: undefined as Promise<void> | undefined,
     text: (key: string) => english ? (en as Record<string, string>)[key] || key : key,
     async close() {
@@ -49,18 +49,10 @@ async function fixture(page: Page, english: boolean, initialModel = "alpha/org/s
   await page.route("**/api/bots/deepseek_fixture/model", async route => {
     if (route.request().method() === "PUT") {
       const input = route.request().postDataJSON(); f.writes.push(input);
+      if (f.writeFailure) return route.fulfill({ status: 409, json: { error: f.writeFailure } });
       f.settings = { ...f.settings, model: input.model, effort: input.effort, revision: "b".repeat(64) };
     } else { f.reads++; await f.hold; }
     await route.fulfill(f.failure ? { status: 503, json: { error: "model_catalog_unavailable" } } : { json: f.settings });
-  });
-  await page.route("**/api/bots/deepseek_fixture/effort", async route => {
-    if (route.request().method() === "PUT") {
-      f.effortWrites.push(route.request().postDataJSON());
-      if (f.effortFailure) return route.fulfill({ status: 409, json: { error: f.effortFailure } });
-      f.settings = { ...f.settings, effort: route.request().postDataJSON().effort };
-    }
-    const { scope, revision, engine, model, effort, activeTurns, catalogStatus } = f.settings;
-    await route.fulfill({ json: { scope, revision, engine, model, effort, activeTurns, catalogStatus, choices: f.settings.choices.find(c => c.id === model)?.efforts ?? [""] } });
   });
   await page.route("**/api/bots/catalog*", async route => { f.catalogRequests.push(route.request().url()); await f.hold; await route.fulfill(f.failure ? { status: 503, json: { error: "unavailable" } } : { json: { engines: [{ id: "deepseek", available: true, models: f.settings.choices, defaultModel: "", defaultEffort: "", catalogStatus: f.settings.catalogStatus }] } }); });
   await page.route("**/api/bots", async route => {
@@ -282,22 +274,22 @@ test("DeepSeek older Hosts retain manual options without advertising new effort 
   } finally { await f.close(); }
 });
 
-test("DeepSeek effort-only settings explain catalog failure and retain an unsubmitted choice", async ({ page }) => {
+test("DeepSeek effort shortcut explain catalog failure and retain an unsubmitted choice", async ({ page }) => {
   const f = await fixture(page, false);
   try {
     await openModel(page, f); await page.getByRole("button", { name: "关闭模型设置", exact: true }).click();
     f.settings = { ...f.settings, catalogStatus: "unavailable" };
     await page.getByRole("button", { name: "调整 Bot 思考强度", exact: true }).click();
-    const effort = page.getByLabel("Effort 档位", { exact: true }), save = page.getByRole("button", { name: "保存到此 Bot", exact: true });
+    const effort = page.getByLabel("模型思考强度", { exact: true }), save = page.getByRole("button", { name: "保存到此 Bot", exact: true });
     await expect(page.getByRole("status").filter({ hasText: "暂未完整读取 DeepSeek 模型目录" })).toBeVisible();
     await effort.selectOption("off"); await expect(save).toBeDisabled();
     f.settings = { ...f.settings, catalogStatus: "ready" };
     await page.getByRole("button", { name: "重新读取", exact: true }).click(); await expect(effort).toHaveValue("off"); await expect(save).toBeEnabled();
-    f.effortFailure = "effort_model_unavailable"; await save.click();
+    f.writeFailure = "model_unavailable"; await save.click();
     await expect(page.getByRole("alert")).toContainText("所选模型已不在主机目录中"); await expect(save).toBeDisabled();
-    expect(f.effortWrites).toHaveLength(1); expect(f.effortWrites[0]).toMatchObject({ effort: "off" });
-    f.effortFailure = ""; await page.getByRole("button", { name: "重新读取", exact: true }).click();
-    await expect(effort).toHaveValue("off"); expect(f.effortWrites).toHaveLength(1);
+    expect(f.writes).toHaveLength(1); expect(f.writes[0]).toMatchObject({ model: f.settings.model, effort: "off" });
+    f.writeFailure = ""; await page.getByRole("button", { name: "重新读取", exact: true }).click();
+    await expect(effort).toHaveValue("off"); expect(f.writes).toHaveLength(1);
   } finally { await f.close(); }
 });
 

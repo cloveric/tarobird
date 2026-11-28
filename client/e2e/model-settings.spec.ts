@@ -48,7 +48,8 @@ test("Kimi native catalog and default effort work on desktop and phone", async (
       await model.selectOption("kimi-code/k3.1-pro");
       await expect(effort).toHaveValue(width === 1360 ? "max" : "");
       await model.selectOption("kimi-code/kimi-for-coding-highspeed");
-      await expect(effort.locator("option")).toHaveCount(1); await expect(effort).toHaveValue("");
+      await expect(effort).toHaveCount(0);
+      await expect(page.getByText("思考强度：由模型决定", { exact: true })).toBeVisible();
       await model.selectOption("");
       await expect(effort.locator("option")).toHaveText(["跟随默认（不强制指定）", "low", "high", "max"]);
       for (const theme of ["light", "dark"]) {
@@ -230,7 +231,8 @@ test("Antigravity separates model families and their supported effort on phone a
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ ...config, effort: "high" });
     await phone!.getByLabel("选择模型", { exact: true }).selectOption("__custom__");
     await phone!.getByLabel("模型 ID", { exact: true }).fill("provider/custom-high");
-    await expect(phone!.getByLabel("模型思考强度", { exact: true }).locator("option")).toHaveText(["跟随默认（不强制指定）"]);
+    await expect(phone!.getByLabel("模型思考强度", { exact: true })).toHaveCount(0);
+    await expect(phone!.getByText("思考强度：由模型决定", { exact: true })).toBeVisible();
     await phone!.getByRole("button", { name: "关闭模型设置", exact: true }).click();
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ ...config, effort: "high" });
     expect(await readFile(path.join(stateDir, "session.json"), "utf8")).toBe("preserved-session");

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { modelOptionLabel, modelOptions, selectedModelOption, selectedModelEffort, selectModel, selectModelEffort, modelEffortPreset } from "../client/src/model-selection.js";
+import { botEffortLabel, modelOptionLabel, modelOptions, selectedModelOption, selectedModelEffort, selectModel, selectModelEffort, modelEffortPreset } from "../client/src/model-selection.js";
+
+it("shows the saved Antigravity preset when the separate effort override is absent", () => {
+  expect(botEffortLabel({ engine: "antigravity", model: "gemini-4-neon-high", effort: "" })).toBe("high");
+  expect(botEffortLabel({ engine: "antigravity", model: "gemini-4-neon", effort: "xhigh" })).toBe("xhigh");
+  expect(botEffortLabel({ engine: "claude", model: "claude-fixture-high", effort: "" })).toBe("");
+});
 import { parseAntigravityModels } from "../src/codex/antigravity-models.js";
 
 const catalog = parseAntigravityModels([

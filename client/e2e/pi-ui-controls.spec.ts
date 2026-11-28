@@ -566,15 +566,12 @@ test("Pi Bot default dialogs: a refusal keeps naming what was refused after the 
       { id: "deepseek/deepseek-v4-pro", provider: "deepseek", modelId: "deepseek-v4-pro", label: "DeepSeek V4 Pro · deepseek", efforts: ["", "off", "high"] },
     ],
   };
-  const effort = { scope: "bot", revision, engine: "pi", model: "anthropic/claude-sonnet", effort: "", choices: ["", "low", "high"], activeTurns: 0, catalogStatus: "ready" };
+  let effortEntry = false;
   try {
     await hub.store.createConversation("owner", ["pi_default"], "Pi default refusal", "pi_default_refusal");
     await page.route("**/api/bots/pi_default/model", route => route.request().method() === "GET"
-      ? route.fulfill({ json: model })
-      : route.fulfill({ status: 409, json: { error: "model_unavailable" } }));
-    await page.route("**/api/bots/pi_default/effort", route => route.request().method() === "GET"
-      ? route.fulfill({ json: effort })
-      : route.fulfill({ status: 409, json: { error: "effort_incompatible" } }));
+      ? route.fulfill({ json: effortEntry ? { ...model, model: "anthropic/claude-sonnet" } : model })
+      : route.fulfill({ status: 409, json: { error: effortEntry ? "model_effort_incompatible" : "model_unavailable" } }));
     await pairClient(page, hub, false);
     await openChat(page, "Pi default refusal", 1360, false);
     await openBotSettings(page);
@@ -593,8 +590,9 @@ test("Pi Bot default dialogs: a refusal keeps naming what was refused after the 
     await expect(alert).toHaveText(refusedModel);
     await page.getByRole("button", { name: "关闭模型设置", exact: true }).click();
 
+    effortEntry = true;
     await page.getByRole("button", { name: "调整 Bot 思考强度", exact: true }).click();
-    const level = page.getByLabel("Effort 档位", { exact: true });
+    const level = page.getByLabel("模型思考强度", { exact: true });
     await level.selectOption("high");
     await page.getByRole("button", { name: "保存到此 Bot", exact: true }).click();
     // The refused level is not offered back as available.
