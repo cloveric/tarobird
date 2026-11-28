@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   AtSign,
@@ -216,6 +216,20 @@ export function WorkspaceFilesPanel({
 }) {
   useLocale();
   const panelRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!visible || phone || !panel) return;
+    const header = panel.parentElement?.querySelector<HTMLElement>(":scope > .conversation-main > .conversation-header");
+    if (!header) return;
+    const syncHeight = () => panel.style.setProperty("--files-header-height", `${header.getBoundingClientRect().height}px`);
+    syncHeight();
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(header, { box: "border-box" });
+    return () => {
+      observer.disconnect();
+      panel.style.removeProperty("--files-header-height");
+    };
+  }, [visible, phone]);
   const [workspaceName, setWorkspaceName] = useState("workspace");
   const [displayPath, setDisplayPath] = useState<string>();
   const runFiles = useRunChangeFiles(connection, changesMessage, visible);

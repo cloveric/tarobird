@@ -327,7 +327,10 @@ test("Files panel says where the Bot works and what this turn changed; 文件 is
 
     // The panel's header rule continues the conversation header's rule.
     const ruleY = async (selector: string) => page.locator(selector).evaluate((node) => Math.round(node.getBoundingClientRect().bottom));
-    expect(await ruleY("aside.workspace-files-panel .wf-header")).toBe(await ruleY(".host-workspace:not([hidden]) .conversation-header"));
+    for (const width of [1360, 820, 1360]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(async () => (await ruleY("aside.workspace-files-panel .wf-header")) - (await ruleY(".host-workspace:not([hidden]) .conversation-header"))).toBe(0);
+    }
 
     // Where the Bot works: the real directory, not only its name.
     const root = panel.locator(".wf-crumb-root");
