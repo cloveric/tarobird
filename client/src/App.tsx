@@ -44,6 +44,7 @@ import { FolderTree, Hourglass, Layers, ListOrdered, Network as AgentBusIcon } f
 import { WorkspaceFilesPanel, WORKSPACE_FILE_DRAG_MIME, formatWorkspaceFileMention } from "./WorkspaceFilesPanel.js";
 import { recordedRunChanges } from "./DiffViewerTrigger.js";
 import { RunChangesEntryContext } from "./run-changes-entry.js";
+import { useFilesChangesSeen } from "./use-files-changes-seen.js";
 import { TurnStopContext, useTurnStop } from "./use-turn-stop.js";
 import { timeoutSignal } from "./abort-signals.js";
 import { DisconnectedBotsSwitch, SidebarLayoutSwitch, SidebarUnreadFilter } from "./SidebarLayoutSwitch.js";
@@ -586,23 +587,16 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   const filesBotId = filesChangesMessage?.authorId ?? current?.botIds[0];
   const filesEligible = !pane && !!selected && !!filesBotId && !!state.user && state.user.role === "owner" && !connection.isReadOnly && !current?.archived && !!state.workspaceFilesAvailable;
   const filesVisible = filesEligible && rightMode === "files" && visible && !details && searchResults === undefined && !sidebar;
-  const latestChangedFiles = latestRunChanges ? recordedRunChanges(latestRunChanges).summary?.files ?? 0 : 0;
-  // The header count works like unread: opening the Files panel marks this run's changes as seen (kept locally per
-  // conversation), and a newer run — or more files in the same run — brings it back.
-  const latestFilesMark = latestRunChanges && latestChangedFiles > 0 ? `${latestRunChanges.id}:${latestChangedFiles}` : undefined;
-  const [filesSeen, setFilesSeen] = useState<Record<string, string>>(() => {
-    try { const stored = JSON.parse(localStorage.getItem("tarobird.filesChangesSeen") ?? "{}"); return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {}; } catch { return {}; }
-  });
-  useEffect(() => {
-    if (!filesVisible || !selected || !latestFilesMark || filesSeen[selected] === latestFilesMark) return;
-    setFilesSeen(previous => {
-      const next = { ...previous, [selected]: latestFilesMark }, keys = Object.keys(next);
-      for (const key of keys.slice(0, Math.max(0, keys.length - 200))) delete next[key];
-      try { localStorage.setItem("tarobird.filesChangesSeen", JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }, [filesVisible, selected, latestFilesMark, filesSeen]);
-  const unseenChangedFiles = latestFilesMark && selected && filesSeen[selected] !== latestFilesMark ? latestChangedFiles : 0;
+  const latestFilesSummary = latestRunChanges && recordedRunChanges(latestRunChanges).summary;
+  const latestChangedFiles = latestFilesSummary?.files ?? 0;
+  const latestFilesRunId = latestFilesSummary?.runId;
+  const latestFilesMark = useMemo(() => filesEligible && latestRunChanges && latestFilesRunId && latestChangedFiles > 0
+    ? { id: latestRunChanges.id, createdAt: latestRunChanges.createdAt, version: latestRunChanges.version, runId: latestFilesRunId, files: latestChangedFiles }
+    : undefined, [filesEligible, latestRunChanges, latestFilesRunId, latestChangedFiles]);
+  const filesSeenScope = latestFilesMark ? JSON.stringify([connection.identity.hubPublicKey, connection.identity.deviceId, state.user?.id, selected]) : undefined;
+  const { seen: latestFilesSeen, markSeen: markLatestFilesSeen } = useFilesChangesSeen(filesSeenScope, selected, latestFilesMark);
+  const unseenChangedFiles = latestFilesSeen ? 0 : latestChangedFiles;
+  const onFilesChangesSeen = latestFilesMark && filesChangesMessage?.id === latestRunChanges?.id ? markLatestFilesSeen : undefined;
   const workbench = useWorkbench(connection, selected, state.user?.id, workbenchVisible);
   const workbenchLibrary = useContext(WorkbenchLibraryContext);
   const [localLibraryRequest, setLocalLibraryRequest] = useState<WorkbenchFileRequest>();
@@ -2529,7 +2523,7 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
   {terminalEligible && <TerminalPanel connection={connection} conversationId={selected} hostName={hostName} visible={terminalVisible && sideWindowLayout !== "pending"} close={() => setRightMode("side")} onUnauthorized={() => setTerminalAccess({ connection, allowed: false })}/>}
   {screenOpened && <RemoteScreenPanel connection={connection} hostName={hostName} visible={screenVisible && (!!pane || sideWindowLayout !== "pending")} close={closeScreen} openSettings={() => { setSettingsFromMenu(false); setSettingsSection("screen"); setSettings(true); }}/> }
   {workbench.controller ? <Suspense fallback={workbenchLoading}><Workbench id={workbenchId} compact={!!pane && paneWorkbenchCompact} controller={workbench.controller} pluginRegistry={activePluginRegistry ?? undefined} visible={workbenchVisible && (phone || sideWindowLayout !== "pending")} phone={phone} onManageFiles={() => { setSettingsFromMenu(false); setSettingsSection("workbench"); setSettings(true); }} onOpenPlugins={() => setPluginsOpen(true)} onAnnotate={annotateWorkbench} onDesignCompose={composeDesign} onCompose={dispatchWidgetCompose} onRequestInstallPlugin={(pluginId) => { setPluginInstallId(pluginId); setPluginsOpen(true); }} onClose={() => { designOpener.revoke(); setRightMode("side"); workbenchTrigger.current?.focus({preventScroll:true}); }}/></Suspense> : !phone && !pane ? workbenchLoading : null}
-  {filesEligible && selected && filesBotId && <WorkspaceFilesPanel id={filesId} connection={connection} conversationId={selected} botId={filesBotId} visible={filesVisible && (phone || sideWindowLayout !== "pending")} phone={phone} turnVersion={messages.length + connection.conversationRevision(selected)} onMentionFile={mentionWorkspaceFile} changesMessage={filesChangesMessage} focusChanges={focusedRunChanges ? filesFocus?.token : undefined} onClose={() => { setFilesFocus(undefined); setRightMode("side"); filesTrigger.current?.focus({ preventScroll: true }); }}/>}
+  {filesEligible && selected && filesBotId && <WorkspaceFilesPanel id={filesId} connection={connection} conversationId={selected} botId={filesBotId} visible={filesVisible && (phone || sideWindowLayout !== "pending")} phone={phone} turnVersion={messages.length + connection.conversationRevision(selected)} onMentionFile={mentionWorkspaceFile} changesMessage={filesChangesMessage} focusChanges={focusedRunChanges ? filesFocus?.token : undefined} onChangesSeen={onFilesChangesSeen} onClose={() => { setFilesFocus(undefined); setRightMode("side"); filesTrigger.current?.focus({ preventScroll: true }); }}/>}
   {activePluginRegistry && pluginSideVisible && activePluginRecord && activePluginPanel && <aside id={pluginSidePanelId} ref={pluginSidePanelRef} className="conversation-side-panel plugin-side-panel" hidden={sideWindowLayout === "pending"} aria-label={activePluginPanel.title}><SidePanelResize panel={pluginSidePanelRef} visible={pluginSideVisible && sideWindowLayout !== "pending"} controls={pluginSidePanelId} label={t("调整插件面板宽度")}/><header className="plugin-side-panel-header"><span className="plugin-side-panel-title"><Puzzle size={16}/><strong>{activePluginPanel.title}</strong></span><button type="button" className="icon-button" aria-label={t("关闭侧边面板")} onClick={() => { setRightMode("side"); setActivePluginPanel(undefined); }}><X size={16}/></button></header><div className="plugin-side-panel-body"><PluginSandboxFrame plugin={activePluginRecord} title={activePluginPanel.title} registry={activePluginRegistry} connection={connection} conversationId={selected}/></div></aside>}
   {activePluginRegistry && phone && !pane && visible && mobilePluginPanel && mobilePluginRecord?.enabled && <MobilePluginSheet plugin={mobilePluginRecord} title={mobilePluginPanel.title} registry={activePluginRegistry} connection={connection} conversationId={selected} close={() => setMobilePluginPanel(undefined)}/>}
   {pluginsOpen && <PluginsModal platform={phone ? "phone" : "desktop"} registry={activePluginRegistry} connection={connection} initialInstallId={pluginInstallId} close={() => { setPluginsOpen(false); setPluginInstallId(undefined); }} onOpenContribution={openPluginContribution}/>}

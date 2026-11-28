@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFile as execFileCallback } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { HubServer } from "../../src/hub/server.js";
 import { RunJournal } from "../../src/hub/run-journal.js";
 import { hashSecret } from "../../src/hub/auth.js";
 import { preparePairing } from "./fixtures/pairing-invite.js";
+import { clickAppAction } from "./fixtures/desktop-actions.js";
 import { enterMobileChat, mobileHome, selectConversation, showDisconnectedBots, waitForClientOnline } from "./fixtures/mobile.js";
 
 const execFile = promisify(execFileCallback);
@@ -30,7 +31,7 @@ async function git(cwd: string, ...args: string[]): Promise<void> {
   });
 }
 
-async function createFixture(page: Page, options: { phone?: boolean } = {}) {
+async function createFixture(page: Page, options: { phone?: boolean; addFrom?: string } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "workspace-files-e2e-"));
   const stateDir = path.join(root, "hub");
   const wsA = path.join(root, "workspace-a");
@@ -62,7 +63,9 @@ async function createFixture(page: Page, options: { phone?: boolean } = {}) {
   await writeFile(path.join(botAState, "config.json"), JSON.stringify({ workspacePath: wsA }));
   await writeFile(path.join(botBState, "config.json"), JSON.stringify({ workspacePath: wsB }));
 
-  const hub = await HubServer.start({ stateDir, clientDir: path.resolve("dist") });
+  const hub = await HubServer.start({
+    stateDir, clientDir: path.resolve("dist"), origins: options.addFrom ? [options.addFrom] : undefined,
+  });
   (hub as unknown as { botManager: unknown }).botManager = {
     owns: async (id: string) => id === "bot_a" || id === "bot_b",
     beginShutdown: () => {},
@@ -80,7 +83,10 @@ async function createFixture(page: Page, options: { phone?: boolean } = {}) {
   if (options.phone) await page.setViewportSize({ width: 390, height: 844 });
   else await page.setViewportSize({ width: 1360, height: 900 });
 
-  await page.goto(hub.url);
+  if (options.addFrom) {
+    await clickAppAction(page, "连接另一台主机");
+    await page.getByLabel("Hub 地址", { exact: true }).fill(hub.url);
+  } else await page.goto(hub.url);
   await preparePairing(page, hub);
   await page.getByRole("button", { name: "配对此设备", exact: true }).click();
   await hub.auth.approve(await page.getByLabel("配对码", { exact: true }).innerText(), "local-owner");
@@ -98,6 +104,22 @@ async function createFixture(page: Page, options: { phone?: boolean } = {}) {
       await rm(root, { recursive: true, force: true });
     },
   };
+}
+
+async function publishChanges(hub: HubServer, conversationId: string, id: string, files: number) {
+  const at = Date.now();
+  return hub.store.publishBotMessage("bot_a", {
+    id,
+    conversationId,
+    status: "complete",
+    blocks: [{
+      type: "card", title: "完成", elements: [{ type: "markdown", text: "已改好。" }],
+      extra: {
+        nativeRun: { version: 1, id, revision: 1, phase: "done", startedAt: at - 1000, updatedAt: at, endedAt: at, count: files, completed: files, failed: 0, truncated: false },
+        runChanges: { v: 1, runId: id, revision: 1, files, edits: files, additions: files, deletions: 0, unavailable: 0, partial: false, childEdits: 0 },
+      },
+    }],
+  });
 }
 
 test("desktop Files panel hides cleanly when closed, coexists with Workspace rail, guards preview/switch races, and mentions safely in groups", async ({ page }) => {
@@ -437,5 +459,89 @@ test("group reply changes open the workspace of the Bot that made them", async (
   } finally {
     await page.close();
     await f.close();
+  }
+});
+
+test("Files keeps the latest count while an older turn or a file preview is showing", async ({ page }) => {
+  const f = await createFixture(page);
+  try {
+    const old = await publishChanges(f.hub, f.convA.id, "older_changes", 1);
+    await selectConversation(page, f.convA.title);
+    const trigger = page.locator(".conversation-header .files-trigger");
+    const panel = page.locator("aside.workspace-files-panel");
+    const summary = panel.getByRole("region", { name: "这轮改动", exact: true });
+    const count = trigger.locator(".workspace-rail-trigger-badge");
+    const close = panel.getByRole("button", { name: "关闭文件面板", exact: true });
+    await expect(count).toHaveText("1");
+    await publishChanges(f.hub, f.convA.id, "latest_changes", 2);
+    await expect(count).toHaveText("2");
+
+    await page.locator(`[data-message-id="${old.id}"]`).getByRole("button", { name: "本轮改动", exact: true }).click();
+    await expect(summary).toContainText("这轮改动 · 1 个文件");
+    await expect(count).toHaveText("2");
+
+    await publishChanges(f.hub, f.convA.id, "newest_changes", 3);
+    await expect(count).toHaveText("3");
+    await expect(summary).toContainText("这轮改动 · 1 个文件");
+
+    await close.click();
+    await trigger.click();
+    await expect(summary).toContainText("这轮改动 · 3 个文件");
+    await expect(count).toHaveCount(0);
+
+    await panel.locator(".wf-row-main", { hasText: "Makefile" }).click();
+    const backToTree = panel.getByRole("button", { name: "返回目录", exact: true });
+    await expect(backToTree).toBeVisible();
+    await publishChanges(f.hub, f.convA.id, "changes_during_preview", 4);
+    await expect(count).toHaveText("4");
+    await expect(summary).toHaveCount(0);
+    await backToTree.click();
+    await expect(summary).toContainText("这轮改动 · 4 个文件");
+    await expect(count).toHaveCount(0);
+  } finally { await f.close(); }
+});
+
+test("Files seen marks persist for both mounted hosts", async ({ page }) => {
+  const a = await createFixture(page);
+  let b: Awaited<ReturnType<typeof createFixture>> | undefined;
+  try {
+    b = await createFixture(page, { addFrom: a.hub.url });
+    const activeHost = page.locator(".host-workspace:not([hidden])");
+    const trigger = activeHost.locator(".conversation-header .files-trigger");
+    const count = trigger.locator(".workspace-rail-trigger-badge");
+    const panel = activeHost.locator("aside.workspace-files-panel");
+    const turnA = await publishChanges(a.hub, a.convA.id, "first_host_changes", 1);
+    const turnB = await publishChanges(b.hub, b.convA.id, "second_host_changes", 2);
+    const choose = async (hub: HubServer, conversationId: string, messageId: string) => {
+      const host = `hub_${createHash("sha256").update(Buffer.from(hub.auth.publicKey, "base64")).digest("hex")}`;
+      const hash = new URLSearchParams({ host, conversation: conversationId, message: messageId }).toString();
+      await page.evaluate(value => { location.hash = value; }, hash);
+      await expect(activeHost).toHaveAttribute("data-active-host", host);
+      await expect(activeHost.locator(`[data-message-id="${messageId}"]`)).toBeVisible();
+    };
+    const acknowledge = async () => {
+      await trigger.click();
+      await expect(panel.getByRole("region", { name: "这轮改动", exact: true })).toBeVisible();
+      await expect(count).toHaveCount(0);
+      await panel.getByRole("button", { name: "关闭文件面板", exact: true }).click();
+    };
+
+    // Both Workspace instances are mounted before either one writes.
+    await choose(a.hub, a.convA.id, turnA.id);
+    await expect(count).toHaveText("1");
+    await acknowledge();
+    await choose(b.hub, b.convA.id, turnB.id);
+    await expect(count).toHaveText("2");
+    await acknowledge();
+
+    await page.reload();
+    await waitForClientOnline(page);
+    await choose(b.hub, b.convA.id, turnB.id);
+    await expect(trigger).toHaveAccessibleName("文件");
+    await choose(a.hub, a.convA.id, turnA.id);
+    await expect(trigger).toHaveAccessibleName("文件");
+  } finally {
+    await page.close();
+    await Promise.all([a.close(), b?.close()]);
   }
 });

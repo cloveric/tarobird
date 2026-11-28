@@ -198,6 +198,7 @@ export function WorkspaceFilesPanel({
   onClose,
   changesMessage,
   focusChanges,
+  onChangesSeen,
 }: {
   id: string;
   connection: HubConnection;
@@ -213,6 +214,7 @@ export function WorkspaceFilesPanel({
   changesMessage?: Message;
   /** Changes when a reply's 「本轮改动」 opens the panel: the panel shows the tree and scrolls to 「这轮改动」. */
   focusChanges?: number;
+  onChangesSeen?: () => void;
 }) {
   useLocale();
   const panelRef = useRef<HTMLElement>(null);
@@ -817,6 +819,32 @@ export function WorkspaceFilesPanel({
   }, [focusChanges, visible, selectedPath, changedOnly, filter]);
 
   const showingPreview = Boolean(selectedPath);
+  const summary = runFiles.summary;
+  const showingChanges = !showingPreview && !changedOnly && !normalizedFilter
+    && changesMessage && summary && summary.files > 0;
+
+  // A visible panel can still show a preview or have the change summary
+  // outside its scroll viewport. Acknowledge only when the summary appears.
+  useEffect(() => {
+    const section = changesSection.current;
+    if (!visible || !showingChanges || !section || !onChangesSeen) return;
+    let active = true, inView = false;
+    const acknowledge = () => {
+      if (active && inView && document.visibilityState === "visible") onChangesSeen();
+    };
+    const observer = new IntersectionObserver(entries => {
+      const entry = entries.at(-1);
+      inView = entry?.isIntersecting === true && entry.intersectionRect.height > 0;
+      acknowledge();
+    }, { threshold: 0.01 });
+    observer.observe(section);
+    document.addEventListener("visibilitychange", acknowledge);
+    return () => {
+      active = false;
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", acknowledge);
+    };
+  }, [visible, showingChanges, onChangesSeen]);
 
   return <aside
     ref={panelRef}
@@ -898,9 +926,9 @@ export function WorkspaceFilesPanel({
     <div className="wf-body">
       {!showingPreview ? (
         <>
-          {!changedOnly && !normalizedFilter && changesMessage && runFiles.summary && runFiles.summary.files > 0 && <section className="wf-run-changes" ref={changesSection} aria-label={t("这轮改动")}>
+          {showingChanges && <section className="wf-run-changes" ref={changesSection} aria-label={t("这轮改动")}>
             <h3 className="wf-section-title">
-              <span>{t("这轮改动 · {0} 个文件", runFiles.summary.files)}</span>
+              <span>{t("这轮改动 · {0} 个文件", summary.files)}</span>
               <DiffViewerTrigger connection={connection} message={changesMessage}><span className="wf-section-link">{t("看全部变更")}<ChevronRight size={12} aria-hidden="true"/></span></DiffViewerTrigger>
             </h3>
             <div className="wf-run-changes-list">
@@ -916,8 +944,8 @@ export function WorkspaceFilesPanel({
                 : <DiffViewerTrigger connection={connection} message={changesMessage}>
                   <span className="wf-run-change">
                     <File size={13} aria-hidden="true"/>
-                    <span className="wf-run-change-name">{t("改动 {0} 个文件", runFiles.summary.files)}</span>
-                    <DiffCounts additions={runFiles.summary.additions} deletions={runFiles.summary.deletions} className="wf-run-change-counts"/>
+                    <span className="wf-run-change-name">{t("改动 {0} 个文件", summary.files)}</span>
+                    <DiffCounts additions={summary.additions} deletions={summary.deletions} className="wf-run-change-counts"/>
                   </span>
                 </DiffViewerTrigger>}
               {runFiles.files && runFiles.files.length > 8 && <p className="wf-run-change-more">{t("还有 {0} 个文件", runFiles.files.length - 8)}</p>}
@@ -937,7 +965,7 @@ export function WorkspaceFilesPanel({
             <span>{t("正在加载工作区文件…")}</span>
           </div>
         ) : <>
-          {!changedOnly && !normalizedFilter && changesMessage && runFiles.summary && runFiles.summary.files > 0 && <h3 className="wf-section-title"><span>{t("全部文件")}</span></h3>}
+          {showingChanges && <h3 className="wf-section-title"><span>{t("全部文件")}</span></h3>}
           {renderDir("", 0)}
           <dl className="wf-hint">
             <dt>{t("单击")}</dt><dd>{t("预览文件")}</dd>
