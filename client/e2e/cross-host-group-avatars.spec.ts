@@ -31,6 +31,16 @@ async function expectPortrait(avatar: Locator, presets: (string | null)[]) {
   )).toBe(true);
 }
 
+async function expectCustomTile(image: Locator, color: number) {
+  await expect(image).toHaveAttribute("src", /^blob:/);
+  // Sample the displayed image to catch coincident Bot IDs resolving to the wrong Host.
+  expect(await image.evaluate(node => {
+    const context = new OffscreenCanvas(1, 1).getContext("2d")!;
+    context.drawImage(node as HTMLImageElement, 0, 0);
+    return context.getImageData(0, 0, 1, 1).data[0];
+  })).toBe(color);
+}
+
 test("members see the mixed-host portrait on desktop and phone without a directory lookup", async ({ browser }, info) => {
   test.setTimeout(90_000);
   const root = await mkdtemp(path.join(os.tmpdir(), "cross-host-portraits-"));
@@ -62,7 +72,9 @@ test("members see the mixed-host portrait on desktop and phone without a directo
     await home.store.sendMessage("owner", { conversationId: localGroup.id, clientMsgId: "local_sample", text: "整理本机项目的任务清单。", attachments: [] });
 
     const customTarget = { kind: "bot", id: "assistant" } as const;
-    await new HubAvatars(peerB.store).set("owner", customTarget, { expectedRevision: 0, dataUrl: avatarDataUrl(avatarFixture(256, 256, 190)) });
+    const homeAvatars = new HubAvatars(home.store);
+    const localColor = 55, remoteColor = 190;
+    await new HubAvatars(peerB.store).set("owner", customTarget, { expectedRevision: 0, dataUrl: avatarDataUrl(avatarFixture(256, 256, remoteColor)) });
     for (const [peer, hostId] of [[peerA, "peer_a"], [peerB, "peer_b"]] as const) {
       home.crossHostGroups.registerPeer({ hostId, hostName: hostId, publicKey: peer.auth.publicKey, url: peer.url });
       peer.crossHostGroups.registerPeer({ hostId: "home", hostName: "示例主机", publicKey: home.auth.publicKey, url: home.url });
@@ -87,6 +99,8 @@ test("members see the mixed-host portrait on desktop and phone without a directo
     const row = (page: Page, id: string) => (page === phone ? mobileHome(page).locator(".mh-row") : page.locator(".sidebar .conversation-row"))
       .locator(`[data-avatar="group:${id}"]`).filter({ visible: true });
     const fallback = defaultBotAvatar(second.memberKey).id;
+    const localImage = (page: Page) => row(page, group.id).locator('[data-avatar="bot:assistant"] img');
+    const remoteImage = (page: Page) => row(page, group.id).locator('[data-avatar="remote:peer_b:assistant"] img');
     for (const page of [desktop, phone]) {
       await expectPortrait(row(page, group.id), ["taro", "orange-cat", fallback]);
       await expectPortrait(row(page, localGroup.id), ["taro", "sky-cloud"]);
@@ -104,8 +118,14 @@ test("members see the mixed-host portrait on desktop and phone without a directo
     await pairMember(desktop, peerB, "示例远端");
     await desktop.locator(".host-workspace:not([hidden]) .sidebar .conversation-row").filter({ hasText: group.title }).click();
     await expect(desktop.getByRole("heading", { name: group.title, exact: true, level: 1 })).toBeVisible();
-    await expectPortrait(row(desktop, group.id), ["taro", "orange-cat", fallback]);
-    expect(imageRequests).toEqual([]);
+    await homeAvatars.set("owner", customTarget, { expectedRevision: 0, dataUrl: avatarDataUrl(avatarFixture(256, 256, localColor)) });
+    await Promise.all([desktop.reload(), phone.reload()]);
+    for (const page of [desktop, phone]) {
+      await expectPortrait(row(page, group.id), [null, "orange-cat", fallback]);
+      await expectCustomTile(localImage(page), localColor);
+      await expect(remoteImage(page)).not.toHaveAttribute("src", /^blob:/);
+    }
+    expect(imageRequests).toEqual([home.url, home.url]);
 
     await peerB.store.db.run("INSERT INTO bot_grants VALUES('member','assistant')");
     await desktop.reload();
@@ -114,18 +134,17 @@ test("members see the mixed-host portrait on desktop and phone without a directo
     await pairMember(phone, peerB, "示例远端");
     await mobileHome(phone).getByRole("navigation", { name: "主导航" }).getByRole("button", { name: /^消息/ }).click();
     for (const page of [desktop, phone]) {
-      await expectPortrait(row(page, group.id), ["taro", "orange-cat", null]);
-      const image = row(page, group.id).locator('[data-avatar="remote:peer_b:assistant"] img');
-      await expect(image).toHaveAttribute("src", /^blob:/);
-      // Sample the displayed image to catch coincident Bot IDs resolving to the wrong Host.
-      expect(await image.evaluate(node => {
-        const context = new OffscreenCanvas(1, 1).getContext("2d")!;
-        context.drawImage(node as HTMLImageElement, 0, 0);
-        return context.getImageData(0, 0, 1, 1).data[0];
-      })).toBe(190);
+      await expectPortrait(row(page, group.id), [null, "orange-cat", null]);
+      await expectCustomTile(localImage(page), localColor);
+      await expectCustomTile(remoteImage(page), remoteColor);
     }
-    expect(imageRequests).toEqual([peerB.url, peerB.url]);
+    expect(imageRequests).toEqual([home.url, home.url, peerB.url, peerB.url]);
     expect(directoryRequests).toEqual([]);
+
+    // Capture the reported layout with two presets and one custom picture.
+    await homeAvatars.set("owner", customTarget, { expectedRevision: 1, dataUrl: null });
+    await Promise.all([desktop.reload(), phone.reload()]);
+    for (const page of [desktop, phone]) await expectPortrait(row(page, group.id), ["taro", "orange-cat", null]);
     await desktop.screenshot({ path: info.outputPath("cross-host-group-desktop.png"), animations: "disabled" });
     await phone.screenshot({ path: info.outputPath("cross-host-group-phone.png"), animations: "disabled" });
 
