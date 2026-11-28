@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import { BotManager } from "../src/hub/bot-manager.js";
 import { messageHostId } from "../src/hub/bot-messages.js";
 import { desktopTls } from "../src/hub/desktop-tls.js";
 import { buildBatchSummaryText, parseSplitTaskSpec, planSplitBatches } from "../src/hub/dispatch-planner.js";
-import { readLocalHostLoad, updateCrossHostDispatchGrants } from "../src/hub/dispatch-remote.js";
+import { handleRemoteDispatchRequest, readLocalHostLoad, updateCrossHostDispatchGrants, type RemoteDispatchContext } from "../src/hub/dispatch-remote.js";
 import { HubPromptQueue } from "../src/hub/prompt-queue.js";
 import { networkId } from "../src/hub/private-network.js";
 import { HubServer } from "../src/hub/server.js";
@@ -653,6 +653,57 @@ it("guards ask-mode split plans, supports remote stop over TLS, and exposes CLI 
   } finally {
     await closeA();
   }
+});
+
+it("creates only the accepted remote workspace when equivalent requests arrive concurrently", async () => {
+  await authorizeStudioFromMac();
+  const directory = path.join(bDir, "remote-ticket-fixture");
+  await mkdir(path.join(directory, "retained"), { recursive: true });
+  await writeFile(path.join(directory, "retained", "existing.txt"), "Existing work");
+  let workersEntered = 0;
+  let releaseWorkers!: () => void;
+  const bothPastLookup = new Promise<void>(resolve => { releaseWorkers = resolve; });
+  const workspace = vi.fn(async (_sourceHostId: string, ticketId: string) => {
+    const selected = path.join(directory, ticketId);
+    await mkdir(selected);
+    return selected;
+  });
+  const conversationCreated = vi.fn();
+  const context: RemoteDispatchContext = {
+    store: b.store, auth: b.auth, network: b.network, attachments: b.attachments, conversationCreated,
+    stop: async () => undefined,
+    workers: {
+      catalog: b.dispatch.workers!.catalog,
+      remoteDispatchWorker: async () => {
+        if (++workersEntered === 2) releaseWorkers();
+        await bothPastLookup;
+        return "w_remote_codex";
+      },
+      remoteTicketWorkspace: workspace,
+    },
+  };
+  const source = { hostId: macId, hostName: "Source", botId: "d", botName: "Dispatcher", requestId: "remote_call", hops: 1 };
+  const payload = { remoteRequestId: "same_remote_request", title: "Fixture work", request: "Complete the fixture task", engine: "codex", model: "", effort: "" };
+  const run = (input = payload) => handleRemoteDispatchRequest(
+    context, a.auth.publicKey, source, REMOTE_DISPATCH_TARGET_BOT, "/api/bot-messages/dispatch/run", input,
+  );
+
+  const [first, second] = await Promise.all([run(), run()]);
+  expect(second).toEqual(first);
+  const accepted = first as { remoteTicketId: string; conversationId: string; messageId: string };
+  expect(workersEntered).toBe(2);
+  expect(workspace).toHaveBeenCalledExactlyOnceWith(macId, accepted.remoteTicketId);
+  expect(await readdir(directory)).toEqual(expect.arrayContaining(["retained", accepted.remoteTicketId]));
+  expect(await readdir(directory)).toHaveLength(2);
+  expect(conversationCreated).toHaveBeenCalledTimes(1);
+  expect(await b.store.db.all("SELECT id, conversation_id, input_message_id FROM remote_dispatch_tickets")).toEqual([
+    { id: accepted.remoteTicketId, conversation_id: accepted.conversationId, input_message_id: accepted.messageId },
+  ]);
+
+  await expect(run({ ...payload, request: "A different task" })).rejects.toThrow("idempotency_conflict");
+  context.workerCapable = () => false;
+  await expect(run({ ...payload, remoteRequestId: "unsupported_worker" })).rejects.toThrow("bot_message_worker_update_required");
+  expect(workspace).toHaveBeenCalledTimes(1);
 });
 
 it("blocks ordinary Bot chat grants from escalating to remote dispatch, enforces isBotControl, model regex, effort checks, and rate limits", async () => {

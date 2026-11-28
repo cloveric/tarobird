@@ -417,7 +417,6 @@ export async function handleRemoteDispatchRequest(
       });
     }
 
-    const remoteTicketId = newId("rtk");
     if (!ctx.workers?.remoteDispatchWorker) throw new HubError("dispatch_worker_unavailable", 409);
     const validate = async () => {
       if (!await isRemoteDispatchAuthorizedInTransaction(ctx, sourceKey, source.botId, targetBot)) {
@@ -426,10 +425,6 @@ export async function handleRemoteDispatchRequest(
       await localAdmission?.();
     };
     const workerId = await ctx.workers.remoteDispatchWorker(source.hostId, input.engine, validate);
-    const workspace = ctx.workers?.remoteTicketWorkspace
-      ? await ctx.workers.remoteTicketWorkspace(source.hostId, remoteTicketId)
-      : undefined;
-
     const events: HubEvent[] = [];
     let createdConversation: Conversation | undefined;
     const response = await ctx.store.db.transaction(async (): Promise<RemoteDispatchRunResponse> => {
@@ -464,6 +459,10 @@ export async function handleRemoteDispatchRequest(
       const rateRow = await ctx.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key=?", [rateKey]);
       const times = (rateRow ? JSON.parse(rateRow.value) as number[] : []).filter(t => t > now - REMOTE_DISPATCH_RATE_WINDOW_MS);
       if (times.length >= REMOTE_DISPATCH_RATE_LIMIT) throw new HubError("bot_message_rate_limit", 429);
+      // Only the request that wins the transactional idempotency check may
+      // allocate a per-ticket workspace.
+      const remoteTicketId = newId("rtk");
+      const workspace = await ctx.workers?.remoteTicketWorkspace?.(source.hostId, remoteTicketId);
       await ctx.store.db.run(
         "INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         [rateKey, JSON.stringify([...times, now])],
