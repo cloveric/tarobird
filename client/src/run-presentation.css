@@ -7,20 +7,21 @@
 .native-run-status.is-interrupted{color:var(--red)}
 .native-run-prose{margin:8px 0;overflow-wrap:anywhere}.native-run-prose:empty{display:none}
 .native-run-prose>.card-text+.card-text{margin-top:1em}
-/* Public thinking summary: a tinted panel in the theme's hue, newest three lines only. */
-.run-thinking-preview{--think:var(--accent);margin:10px 0 12px;padding:10px 14px 11px;border-left:3px solid var(--think);border-radius:12px;background:color-mix(in srgb,var(--think) 16%,var(--raised,var(--bg)));color:var(--text);font-size:12.5px;line-height:1.7;overflow-wrap:anywhere}
+/* Public thinking summary: a soft thought bubble trailing from the run status by two small dots, newest three lines only. */
+.run-thinking-preview{--think:var(--accent);--think-soft:color-mix(in srgb,var(--think) 11%,var(--raised,var(--bg)));position:relative;margin:16px 0 14px 12px;padding:10px 14px 11px;border-radius:16px;background:var(--think-soft);color:var(--grey);font-size:12.5px;line-height:1.7;overflow-wrap:anywhere}
+.run-thinking-preview::before,.run-thinking-preview::after{content:"";position:absolute;border-radius:50%;background:var(--think-soft)}
+.run-thinking-preview::before{left:-8px;top:-8px;width:10px;height:10px}
+.run-thinking-preview::after{left:-14px;top:-15px;width:5px;height:5px}
 :root[data-palette=mono] .run-thinking-preview{--think:var(--mono-mark,var(--muted))}
 :root[data-palette=cli] .run-thinking-preview{border-radius:0}
+:root[data-palette=cli] .run-thinking-preview::before,:root[data-palette=cli] .run-thinking-preview::after{display:none}
 .run-thinking-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:color-mix(in srgb,var(--think) 45%,var(--text))}
 .run-thinking-dots{display:inline-flex;gap:3px}
 .run-thinking-dots>b{width:3.5px;height:3.5px;border-radius:50%;background:currentColor;animation:run-thinking-dot 1.2s ease-in-out infinite}
 .run-thinking-dots>b:nth-child(2){animation-delay:.15s}.run-thinking-dots>b:nth-child(3){animation-delay:.3s}
 .run-thinking-preview>p{margin:5px 0 0;display:flex;flex-direction:column;justify-content:flex-end;max-height:calc(1.7em * 3);overflow:hidden;white-space:pre-line}
-.run-thinking-preview>p[data-multiline]{-webkit-mask-image:linear-gradient(to bottom,#0006 0,#000 2.2em);mask-image:linear-gradient(to bottom,#0006 0,#000 2.2em)}
-.run-thinking-preview[data-live]>p>span::after{content:"";display:inline-block;width:2px;height:1.05em;margin-left:3px;vertical-align:-.18em;border-radius:1px;background:var(--think);animation:run-thinking-caret 1s steps(1) infinite}
 @keyframes run-thinking-dot{0%,60%,100%{transform:none;opacity:.45}30%{transform:translateY(-3px);opacity:1}}
-@keyframes run-thinking-caret{50%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.run-thinking-dots>b,.run-thinking-preview[data-live]>p>span::after{animation:none}}
+@media (prefers-reduced-motion:reduce){.run-thinking-dots>b{animation:none}}
 .native-run-status>svg,.native-run-status>time{flex-shrink:0}
 .native-run-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px;margin-top:8px}
 .native-run-actions button{display:flex;flex-shrink:0;max-width:100%;min-width:0;align-items:center;gap:6px;background:transparent;border:0;min-height:32px;padding:4px 0;font-size:12px;color:var(--muted);text-align:left;white-space:normal;overflow-wrap:anywhere}

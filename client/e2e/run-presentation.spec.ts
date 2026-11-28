@@ -18,7 +18,6 @@ async function expectPausedThinking(preview: ReturnType<Page["locator"]>, text: 
   await expect(preview).toContainText(text);
   await expect(preview.locator(".run-thinking-label")).toHaveText("公开思考摘要");
   await expect(preview.locator(".run-thinking-dots")).toHaveCount(0);
-  expect(await preview.locator("p > span").evaluate(node => getComputedStyle(node, "::after").content)).toBe("none");
 }
 
 async function pair(page: Page, hub: HubServer) {
@@ -60,10 +59,12 @@ for (const width of [390, 1360]) test(`live foreground thinking preview updates 
     await expect(preview).toContainText("先检查归档位置。");
     await expect(preview.locator(".run-thinking-label")).toHaveText("思考中");
     await expect(preview.locator(".run-thinking-dots")).toHaveCount(1);
-    const caretAnimation = () => preview.locator("p > span").evaluate(node => getComputedStyle(node, "::after").animationName);
-    expect(await caretAnimation()).toBe("run-thinking-caret");
+    // A thought bubble: rounded, tinted, no side bar, two small trailing dots up toward the run status.
+    const bubble = await preview.evaluate(node => { const style = getComputedStyle(node), small = getComputedStyle(node, "::after"), large = getComputedStyle(node, "::before");
+      return { radius: style.borderTopLeftRadius, side: style.borderLeftWidth, large: [large.width, large.borderTopLeftRadius], small: [small.width, small.borderTopLeftRadius] }; });
+    expect(bubble).toEqual({ radius: "16px", side: "0px", large: ["10px", "50%"], small: ["5px", "50%"] });
+    await expect(preview.locator(".run-thinking-dots > b").first()).not.toHaveCSS("animation-name", "none");
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect.poll(caretAnimation).toBe("none");
     await expect(preview.locator(".run-thinking-dots > b").first()).toHaveCSS("animation-name", "none");
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await emit({ type: "thinking", text: "已找到归档记录，接下来核对文件对应关系。", delta: true });
