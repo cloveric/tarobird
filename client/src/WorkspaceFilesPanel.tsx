@@ -13,6 +13,7 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
+  GripVertical,
   LoaderCircle,
   Lock,
   RefreshCw,
@@ -775,7 +776,7 @@ export function WorkspaceFilesPanel({
                 title={isDeletedUnavailable ? t("文件已删除，无法预览") : entry.path}
               >
                 <span className={`wf-caret${isDir ? "" : " is-leaf"}${isOpen ? " is-open" : ""}`} aria-hidden="true">
-                  {isLoading ? <LoaderCircle size={12} className="spin"/> : isDir ? <ChevronRight size={13}/> : null}
+                  {isLoading ? <LoaderCircle size={12} className="spin"/> : isDir ? <ChevronRight size={13}/> : !phone ? <GripVertical size={12} className="wf-drag-grip"/> : null}
                 </span>
                 <span className={`wf-icon ${toneClass}`} aria-hidden="true">{icon}</span>
                 <span className="wf-name">{entry.name}</span>
@@ -783,11 +784,20 @@ export function WorkspaceFilesPanel({
                 {entry.changed && <span className={`wf-git-badge is-${entry.changed}`} title={changeBadgeTitle(entry.changed)}>{changeBadgeLabel(entry.changed)}</span>}
                 {!entry.changed && entry.hasChangedChildren && <span className="wf-git-dot" title={t("包含改动文件")} aria-label={t("包含改动文件")}/>}
               </button>
+              {!phone && !isDir && !isDeletedUnavailable && <button
+                type="button"
+                className="wf-preview-btn"
+                aria-label={t("预览文件：{0}", entry.path)}
+                title={t("预览")}
+                onClick={(event) => { event.stopPropagation(); void fetchPreview(entry.path, false); }}
+              >
+                <Eye size={13}/>
+              </button>}
               <button
                 type="button"
                 className="wf-mention-btn"
                 aria-label={t("引用文件：{0}", entry.path)}
-                title={t("引用给 Bot")}
+                title={phone ? t("引用给 Bot") : t("引用给 Bot（也可直接拖到输入框）")}
                 onClick={(event) => { event.stopPropagation(); onMentionFile(entry.path); }}
               >
                 <AtSign size={13}/>
@@ -966,11 +976,6 @@ export function WorkspaceFilesPanel({
         ) : <>
           {showingChanges && <h3 className="wf-section-title"><span>{t("全部文件")}</span></h3>}
           {renderDir("", 0)}
-          <dl className="wf-hint">
-            <dt>{t("单击")}</dt><dd>{t("预览文件")}</dd>
-            {!phone && <><dt>{t("拖到输入框")}</dt><dd>{t("把文件引用给 Bot")}</dd></>}
-            <dt><AtSign size={12} aria-label="@"/></dt><dd>{t("同样引用给 Bot")}</dd>
-          </dl>
         </>}
         </>
       ) : (
