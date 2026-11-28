@@ -62,6 +62,15 @@ if (fixtureQuery.get("shape") === "swarm") {
     updatedAt: Date.now(),
   };
 }
+if (swarm && fixtureQuery.has("ended")) {
+  swarm.active = false;
+  stopScope = "foreground";
+  tasks[0]!.status = "unknown";
+  tasks[0]!.swarmState = swarm.members[0]!.state = "unknown";
+  tasks[3]!.status = "error";
+  delete tasks[3]!.swarmState;
+  swarm.members[3]!.state = "unknown";
+}
 const count = ["kimi", "swarm"].includes(fixtureQuery.get("shape") ?? "") ? tasks.length : Math.min(30, Number(fixtureQuery.get("count")) || 3);
 for (let i = tasks.length; i < count; i++) tasks.push({ ...tasks[0]!, id: `extra-${i + 1}`, label: `Kimi film 场景 ${i + 1} · 检查画面与字幕`, startedAt: Date.now() + i, progress: "检查画面、字幕与音频同步。" });
 const hub = { identity: { hubPublicKey: "host", deviceId: "device" }, http: async (route: string, init?: RequestInit) => {
@@ -73,7 +82,7 @@ const hub = { identity: { hubPublicKey: "host", deviceId: "device" }, http: asyn
   return { supported: true, tasks: structuredClone(tasks), foregroundStopScope: stopScope, recovery, ...(swarm ? { swarm: structuredClone(swarm) } : {}) };
 } } as unknown as HubConnection;
 function Fixture() {
-  const [active, setActive] = useState(true), [online, setOnline] = useState(true), [scope, setScope] = useState("chat"), [activity, setActivity] = useState(fixtureQuery.get("shape") === "swarm" ? "running" : "");
+  const [active, setActive] = useState(true), [online, setOnline] = useState(true), [scope, setScope] = useState("chat"), [activity, setActivity] = useState(swarm?.active ? "running" : "");
   const [openRequest, setOpenRequest] = useState(fixtureQuery.get("openTab") ? 1 : 0);
   const [openTab, setOpenTab] = useState<"tasks" | "board" | undefined>((fixtureQuery.get("openTab") as "tasks" | "board" | null) ?? undefined);
   const [draft, setDraft] = useState("");

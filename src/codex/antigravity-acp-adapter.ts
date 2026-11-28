@@ -40,6 +40,7 @@ import {
   resolveAntigravityBrainDir,
   snapshotSwarmMembersFileSync,
   swarmMembersToEngineTasks,
+  toSwarmV1Snapshot,
   type AcpSwarmState,
   type ParsedSwarmFiles,
   type SwarmBoardFileCache,
@@ -813,15 +814,9 @@ export class AntigravityAcpAdapter implements CodexAdapter {
     return ok;
   }
 
-  /**
-   * Background commands and swarm workers still running in this session. ACP has
-   * no per-task stop (only session/cancel and session/close), so each entry is
-   * read-only (`canStop: false`); stopping the conversation or swarm closes the session.
-   */
-  async listTasks(sessionId: string): Promise<EngineTaskSnapshot> {
-    const worker = this.liveWorker(sessionId);
+  private async loadSwarmBoard(sessionId: string, worker: Worker | undefined) {
     const effectiveSessionId = worker?.sessionId ?? (!isLogicalSessionId(sessionId) ? sessionId : undefined);
-    if (!effectiveSessionId) return { supported: true, tasks: [] };
+    if (!effectiveSessionId) return { effectiveSessionId, swarm: undefined };
 
     const rawFileSwarm = await readSwarmBoardFiles(this.brainDir, effectiveSessionId);
     const fileSwarm = worker ? this.syncSwarmFromFileResult(worker, rawFileSwarm) : rawFileSwarm;
@@ -842,6 +837,18 @@ export class AntigravityAcpAdapter implements CodexAdapter {
       worker.swarm.active = swarm.active;
       this.syncSwarmCeilingTimer(worker);
     }
+    return { effectiveSessionId, swarm };
+  }
+
+  /**
+   * Background commands and swarm workers still running in this session. ACP has
+   * no per-task stop (only session/cancel and session/close), so each entry is
+   * read-only (`canStop: false`); stopping the conversation or swarm closes the session.
+   */
+  async listTasks(sessionId: string): Promise<EngineTaskSnapshot> {
+    const worker = this.liveWorker(sessionId);
+    const { effectiveSessionId, swarm } = await this.loadSwarmBoard(sessionId, worker);
+    if (!effectiveSessionId) return { supported: true, tasks: [] };
     const tasks: EngineTask[] = swarmMembersToEngineTasks(effectiveSessionId, swarm, worker?.swarm?.startedAt);
 
     if (worker) {
@@ -870,7 +877,7 @@ export class AntigravityAcpAdapter implements CodexAdapter {
       supported: true,
       tasks: tasks.slice(-128),
       ...(swarm?.active ? { foregroundStopScope: "all" as const } : {}),
-      ...(swarm ? { swarm } : {}),
+      ...(swarm ? { swarm: toSwarmV1Snapshot(swarm) } : {}),
     };
   }
 
@@ -979,9 +986,9 @@ export class AntigravityAcpAdapter implements CodexAdapter {
         return { text: renderSwarmUnavailableMessage("version", input.locale), sessionId };
       }
       if (swarmCmd.subcommand === "board" && swarmCmd.task.toLowerCase() === "board") {
-        const snap = await this.listTasks(sessionId);
+        const { swarm } = await this.loadSwarmBoard(sessionId, this.liveWorker(sessionId));
         const { renderSwarmBoardSummary } = await import("./antigravity-swarm.js");
-        return { text: renderSwarmBoardSummary(snap.swarm, input.locale === "zh" ? "zh" : "en"), sessionId };
+        return { text: renderSwarmBoardSummary(swarm, input.locale === "zh" ? "zh" : "en"), sessionId };
       }
       if (!swarmCmd.task) {
         return {
@@ -1462,11 +1469,11 @@ export class AntigravityAcpAdapter implements CodexAdapter {
           if (merged && !merged.active) {
             worker.swarm.active = false;
             this.clearSwarmCeilingTimer(worker);
-            for (const fileMember of fileSwarm.members) {
-              const key = fileMember.name.toLowerCase();
+            for (const member of merged.members) {
+              const key = member.name.toLowerCase();
               const existing = worker.swarm.members.get(key);
-              if (existing && (existing.inferredState || (fileMember.updatedAt ?? 0) >= (existing.updatedAt ?? 0))) {
-                worker.swarm.members.set(key, { ...existing, state: fileMember.state, updatedAt: Math.max(existing.updatedAt ?? 0, fileMember.updatedAt ?? 0) });
+              if (existing && member.state !== "unknown") {
+                worker.swarm.members.set(key, { ...existing, state: member.state, inferredState: false, updatedAt: member.updatedAt });
               }
             }
           }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AtSign, Bot, Check, ChevronRight, CircleStop, GitBranch, LayoutList, MoreHorizontal, RefreshCw, Terminal } from "lucide-react";
 import { engineTaskControlResultSchema, engineTaskSnapshotSchema, type EngineTask, type EngineTaskSnapshot, type SwarmMember, type SwarmMemberState, type SwarmSnapshot } from "../../src/client-protocol/engine-tasks.js";
+import { swarmMemberStatusCopy } from "../../src/client-protocol/swarm-member-status.js";
 import type { HubConnection } from "./connection.js";
 import { CreationDialog } from "./CreationDialog.js";
 import { randomNonce } from "./identity.js";
@@ -13,19 +14,12 @@ import "./engine-tasks.css";
 type StopReceipt = { requestId: string; state: "waiting" | "accepted" | "unknown" | "rejected"; retryable?: boolean };
 const receipts = new WeakMap<HubConnection, Map<string, StopReceipt>>();
 function requestStore(connection: HubConnection) { let values = receipts.get(connection); if (!values) { values = new Map(); receipts.set(connection, values); } return values; }
-export function swarmMemberStateLabel(state: SwarmMemberState): string {
-  switch (state) {
-    case "working": return t("工作中");
-    case "waiting": return t("等待中");
-    case "killed": return t("已终止");
-    case "done": return t("已完成");
-    case "paused": return t("受配额暂停");
-    case "unknown": return t("状态待确认");
-  }
+export function swarmMemberStateLabel(state: SwarmMemberState, active?: boolean): string {
+  return t(swarmMemberStatusCopy(state, active).zh);
 }
 
-export function engineTaskStatus(task: EngineTask) {
-  if (task.swarmState) return swarmMemberStateLabel(task.swarmState);
+export function engineTaskStatus(task: EngineTask, swarmActive?: boolean) {
+  if (task.swarmState) return swarmMemberStateLabel(task.swarmState, swarmActive);
   return t(task.status === "running" ? "执行中" : task.status === "done" ? "已完成" : task.status === "stopped" ? "已停止" : task.status === "error" ? "失败" : "状态待确认");
 }
 
@@ -225,7 +219,7 @@ export function EngineTasks({ connection, conversationId, botId, active, online,
       <div className="engine-task-title">
         {task.kind === "shell" ? <Terminal size={16}/> : task.helper ? <Bot size={16}/> : <GitBranch size={16}/>}
         <strong>{task.label}</strong>
-        <span className="engine-task-status">{(task.status === "done" || task.swarmState === "done") && <Check size={12}/>} {engineTaskStatus(task)}</span>
+        <span className="engine-task-status">{(task.status === "done" || task.swarmState === "done") && <Check size={12}/>} {engineTaskStatus(task, swarm?.active)}</span>
       </div>
       {(task.role || task.model) && (
         <div className="engine-task-chips">

@@ -14,11 +14,13 @@ import {
 } from "../src/codex/antigravity-acp-adapter.js";
 import { antigravityVersionSupportsSwarm, resolveAntigravityExecutable } from "../src/codex/antigravity-acp-support.js";
 import {
+  applySwarmAcpUpdate,
   extractWorkerAttribution,
   mergeSwarmSnapshots,
   readSwarmBoardFiles,
   renderSwarmBoardSummary,
   swarmMembersToEngineTasks,
+  type AcpSwarmState,
 } from "../src/codex/antigravity-swarm.js";
 import { renderCoreApprovalCard } from "../src/core/card-renderer.js";
 import { abortCoreConversation, requestCoreApproval, stopCoreConversation } from "../src/core/card-actions.js";
@@ -352,6 +354,39 @@ describe("antigravity swarm parser & helpers", () => {
     expect(bad.members).toEqual([]);
   });
 
+  it("keeps explicit ACP outcomes separate from tool completion and a stale active roster", async () => {
+    const { brainDir } = await setupEnv();
+    const swarm: AcpSwarmState = {
+      active: true, stoppedByUser: false, startedAt: 1, updatedAt: 1, members: new Map(), posts: [],
+    };
+    applySwarmAcpUpdate(swarm, {
+      sessionUpdate: "swarm_member", member: { name: "worker", phase: "FAILED" },
+    });
+    applySwarmAcpUpdate(swarm, {
+      sessionUpdate: "swarm_member", member: { name: "worker", role: "worker" },
+    });
+    applySwarmAcpUpdate(swarm, {
+      sessionUpdate: "tool_call_update", name: "read_file", status: "completed", _meta: { workerName: "observer" },
+    });
+    applySwarmAcpUpdate(swarm, {
+      sessionUpdate: "tool_call_update", name: "swarm", status: "failed", rawInput: { action: "kill", name: "worker" },
+    });
+    applySwarmAcpUpdate(swarm, { sessionUpdate: "swarm_status", status: "completed" });
+    await writeSwarmFiles(brainDir, "stale-board", {
+      members: { status: "running", members: { worker: { role: "worker", phase: "RUNNING" } } },
+    });
+    const files = await readSwarmBoardFiles(brainDir, "stale-board");
+    const snapshot = mergeSwarmSnapshots(swarm, files);
+    expect(snapshot).toMatchObject({
+      active: false,
+      members: [{ name: "worker", state: "failed" }, { name: "observer", state: "unknown" }],
+    });
+    expect(swarmMembersToEngineTasks("stale-board", snapshot)).toMatchObject([
+      { label: "worker", status: "error" },
+      { label: "observer", status: "unknown" },
+    ]);
+  });
+
   it("extracts worker attribution from ACP metadata, rawInput, and prefixed titles", () => {
     expect(extractWorkerAttribution({ _meta: { workerName: "auth-fix" } })).toBe("auth-fix");
     expect(extractWorkerAttribution({ toolCall: { rawInput: { memberName: "@ui-check" } } })).toBe("ui-check");
@@ -361,6 +396,77 @@ describe("antigravity swarm parser & helpers", () => {
 });
 
 describe("AntigravityAcpAdapter /swarm lifecycle", () => {
+  it("reads an empty, running, then ended native roster through the local board command", async () => {
+    const env = await setupEnv();
+    const harness = createSwarmHarness();
+    const adapter = new AntigravityAcpAdapter("agy", { ...env, spawnFn: harness.spawnFn });
+    adapters.push(adapter);
+    const sessionId = "board-session";
+    const board = (locale: "en" | "zh") => adapter.sendUserMessage(sessionId, {
+      text: "/swarm board", files: [], locale, onApprovalRequest: async () => ({ behavior: "deny" }),
+    });
+    expect((await board("en")).text).toContain("No swarm is active or recorded");
+
+    const coordinator = { role: "coordinator", desired_state: "RUNNING", phase: "RUNNING", killed: false };
+    const running = { role: "worker", desired_state: "RUNNING", phase: "RUNNING", killed: false };
+    const members = {
+      coordinator,
+      reader: running,
+      waiting: { ...running, wake_mode: "waiting" },
+      reviewer: { role: "worker", phase: "COMPLETED" },
+      reporter: { role: "worker", state: "failed" },
+      observer: { role: "worker", desired_state: "KILLED" },
+    };
+    await writeSwarmFiles(env.brainDir, sessionId, {
+      members: { title: "Read a sample file", members },
+      boardLines: [JSON.stringify({ seq: 1, agent: "reader", text: "Sample result", time: "2026-01-01T00:00:00Z" })],
+    });
+    const active = await board("en");
+    expect(active.text).toContain("(Active)");
+    expect(active.text).toContain("`@reader` (worker) [Working]");
+    expect(active.text).toContain("`@waiting` (worker) [Waiting]");
+    expect(active.text).toContain("`@observer` (worker) [Status unconfirmed]");
+
+    await writeSwarmFiles(env.brainDir, sessionId, {
+      members: { title: "Read a sample file", members: {
+        ...members,
+        reader: { ...running, phase: "KILLED", killed: true },
+        waiting: { ...running, killed: true },
+      } },
+    });
+    const ended = await board("zh");
+    expect(ended.text).toContain("(已结束)");
+    expect(ended.text).toContain("`@coordinator` (coordinator) [Swarm 已结束，成员结果未确认]");
+    expect(ended.text).toContain("`@reader` (worker) [已终止]");
+    expect(ended.text).toContain("`@waiting` (worker) [已终止]");
+    expect(ended.text).toContain("`@reviewer` (worker) [已完成]");
+    expect(ended.text).toContain("`@reporter` (worker) [失败]");
+    expect(ended.text).toContain("**reader**: Sample result");
+    expect(ended.text).not.toContain("[unknown]");
+    expect((await board("en")).text).toContain("[Swarm ended, member outcome unconfirmed]");
+    expect(harness.children).toHaveLength(0);
+  });
+
+  it("honors an explicitly ended legacy board and keeps known member outcomes", async () => {
+    const { brainDir } = await setupEnv();
+    await writeSwarmFiles(brainDir, "legacy-board", {
+      members: { status: "completed", roster: {
+        lead: { role: "coordinator", status: "running" },
+        worker: { status: "stopped" },
+        verifier: { state: "done" },
+        pending: { role: "worker" },
+      } },
+    });
+    const files = await readSwarmBoardFiles(brainDir, "legacy-board");
+    const snapshot = mergeSwarmSnapshots(undefined, files);
+    expect(snapshot?.active).toBe(false);
+    const summary = renderSwarmBoardSummary(snapshot, "en");
+    expect(summary).toContain("`@lead` (coordinator) [Swarm ended, member outcome unconfirmed]");
+    expect(summary).toContain("`@worker` [Killed]");
+    expect(summary).toContain("`@verifier` [Completed]");
+    expect(summary).toContain("`@pending` (worker) [Swarm ended, member outcome unconfirmed]");
+  });
+
   it("rejects /swarm when agy version < 1.5.5 or ACP session omits /swarm without sending prompt", async () => {
     const env = await setupEnv();
     const oldHarness = createSwarmHarness();

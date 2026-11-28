@@ -1,5 +1,5 @@
 import { generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { WebSocket } from "ws";
@@ -8,6 +8,9 @@ import { z } from "zod";
 import { type Json } from "../src/client-protocol/index.js";
 import { nodeFrameReader } from "../src/client-protocol/fragments-node.js";
 import { SWARM_TASKS_CAPABILITY } from "../src/client-protocol/engine-tasks.js";
+import { AntigravityAcpAdapter } from "../src/codex/antigravity-acp-adapter.js";
+import { gatewayEngineTasks } from "../src/gateway/engine-tasks.js";
+import type { GatewayChannel } from "../src/gateway/channel.js";
 import { deviceProof, hashSecret, parsePublicKey, serverProof } from "../src/hub/auth.js";
 import { HubServer } from "../src/hub/server.js";
 import { bootstrapTrusted } from "./helpers/pairing-invite.js";
@@ -33,6 +36,46 @@ const legacyEngineTaskSnapshotSchema = z.object({
   foregroundStopScope: z.enum(["foreground", "subagents", "all"]).optional(),
   recovery: z.object({ token: legacyId, reason: z.literal("stop_unconfirmed") }).strict().optional(),
 }).strict();
+
+// Freeze the pre-fix Swarm v1 reader independently of the current wire schema.
+const oldV1MemberState = z.enum(["working", "waiting", "killed", "done", "paused", "unknown"]);
+const oldV1Task = legacyEngineTaskSchema.extend({
+  role: z.string().min(1).max(64).optional(),
+  swarmState: oldV1MemberState.optional(),
+  model: z.string().min(1).max(160).optional(),
+  helper: z.boolean().optional(),
+});
+const oldV1Member = z.object({
+  name: z.string().min(1).max(128),
+  role: z.string().min(1).max(64).optional(),
+  helper: z.boolean().optional(),
+  state: oldV1MemberState,
+  model: z.string().min(1).max(160).optional(),
+  latestActivity: z.string().max(2000).optional(),
+  updatedAt: z.number().nonnegative().optional(),
+}).strict();
+const oldV1Post = z.object({
+  id: z.string().min(1).max(128),
+  author: z.string().min(1).max(128),
+  mentions: z.array(z.string().min(1).max(128)).max(32).optional(),
+  title: z.string().max(300).optional(),
+  content: z.string().max(16_000),
+  kind: z.string().max(64).optional(),
+  createdAt: z.number().nonnegative(),
+}).strict();
+const oldV1Snapshot = legacyEngineTaskSnapshotSchema.extend({
+  tasks: z.array(oldV1Task).max(128),
+  swarm: z.object({
+    active: z.boolean(),
+    title: z.string().max(300).optional(),
+    statusText: z.string().max(500).optional(),
+    source: z.enum(["acp", "files", "merged"]),
+    formatUnknown: z.boolean().optional(),
+    members: z.array(oldV1Member).max(64),
+    posts: z.array(oldV1Post).max(200),
+    updatedAt: z.number().nonnegative(),
+  }).strict().optional(),
+});
 
 type Frame = Record<string, Json>;
 
@@ -75,7 +118,7 @@ class Peer {
   }
 }
 
-describe("Hub /tasks 1.6.0 Swarm compatibility", () => {
+describe("Hub and Gateway /tasks Swarm compatibility", () => {
   let directory: string;
   let hub: HubServer;
   const sockets: WebSocket[] = [];
@@ -93,12 +136,12 @@ describe("Hub /tasks 1.6.0 Swarm compatibility", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  async function connectClient() {
+  async function connectClient(capabilities = ["cards.v1"]) {
     await bootstrapTrusted(hub.auth, { deviceId: "device", name: "Test browser", platform: "web", publicKey });
     const peer = await Peer.connect(hub.url.replace("http", "ws") + "/ws");
     sockets.push(peer.ws);
     const clientNonce = randomBytes(32).toString("base64url");
-    peer.send({ type: "hello", deviceId: "device", nonce: clientNonce, protocolVersions: [1], capabilities: ["cards.v1"], cursors: {} });
+    peer.send({ type: "hello", deviceId: "device", nonce: clientNonce, protocolVersions: [1], capabilities, cursors: {} });
     const challenge = await peer.next("challenge");
     expect(verify(null, serverProof("device", challenge.nonce as string, clientNonce), parsePublicKey(hub.auth.publicKey), Buffer.from(challenge.signature as string, "base64"))).toBe(true);
     peer.send({ type: "auth", signature: sign(null, deviceProof("device", challenge.nonce as string, clientNonce), keypair.privateKey).toString("base64") });
@@ -168,5 +211,61 @@ describe("Hub /tasks 1.6.0 Swarm compatibility", () => {
     const optInCall = await bot.next("instance.call");
     bot.send({ type: "instance.result", id: optInCall.id, result: swarmPayload });
     expect(await (await optInReq).json()).toEqual(swarmPayload);
+  });
+  it("keeps a known failure readable by old Swarm v1 clients and pre-Swarm Hosts", async () => {
+    const sessionId = "board-session";
+    const brainDir = path.join(directory, "brain");
+    const boardDir = path.join(brainDir, sessionId, ".system_generated", "swarm");
+    await mkdir(boardDir, { recursive: true });
+    await writeFile(path.join(boardDir, "members.json"), JSON.stringify({
+      title: "Sample board",
+      members: {
+        reader: { role: "worker", phase: "FAILED", error: "Synthetic native diagnostic" },
+        verifier: { role: "worker", phase: "COMPLETED" },
+      },
+    }));
+    await writeFile(path.join(boardDir, "board.jsonl"), JSON.stringify({ agent: "verifier", text: "Sample board post" }));
+
+    const adapter = new AntigravityAcpAdapter("agy", { brainDir, workspacePath: directory });
+    try {
+      const bridge = { handleAuthorizedMessage: async () => {}, listTasks: () => adapter.listTasks(sessionId) };
+      const callGateway = (capabilities: string[], conversationId: string) => gatewayEngineTasks(bridge, {
+        canSteerConversation: async () => true,
+        transport: { capabilities },
+      } as GatewayChannel, directory)("tasks.list", { conversationId });
+
+      const secret = randomBytes(32).toString("base64url");
+      await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES(?,?,?)", ["agy", "agy", hashSecret(secret)]);
+      const chat = await hub.store.createConversation("owner", ["agy"], "Old v1 reader", "old_v1_reader");
+      const bot = await Peer.connect(hub.instanceUrl.replace("http", "ws") + "/instance");
+      sockets.push(bot.ws);
+      bot.send({ type: "instance.hello", botId: "agy", secret, engine: "antigravity", model: "", effort: "", capabilities: ["conversations.tasks.v1"] });
+      const ready = await bot.next("instance.ready");
+      const { token } = await connectClient(["cards.v1", "conversations.tasks.swarm.v1"]);
+
+      const payload = await callGateway(ready.capabilities as string[], chat.id);
+      const req = fetch(`${hub.url}/api/conversations/${chat.id}/tasks?botId=agy&swarmTasks=1`, { headers: { Authorization: `Bearer ${token}` } });
+      const call = await bot.next("instance.call");
+      bot.send({ type: "instance.result", id: call.id, result: payload });
+      const response = await req;
+      expect(response.status).toBe(200);
+      const snapshot = oldV1Snapshot.parse(await response.json());
+      expect(snapshot.tasks).toMatchObject([{ label: "reader", status: "error" }, { label: "verifier", status: "done", swarmState: "done" }]);
+      expect(snapshot.tasks[0]).not.toHaveProperty("swarmState");
+      expect(snapshot.swarm).toMatchObject({
+        active: false,
+        members: [{ name: "reader", state: "unknown" }, { name: "verifier", state: "done" }],
+        posts: [{ author: "verifier", content: "Sample board post" }],
+      });
+      expect(JSON.stringify(snapshot)).not.toContain("Synthetic native diagnostic");
+
+      for (const capabilities of [["conversations.tasks.swarm.v1"], ["runs.v1"]]) {
+        const oldHostResult = await callGateway(capabilities, chat.id);
+        const reader = capabilities.includes("conversations.tasks.swarm.v1") ? oldV1Snapshot : legacyEngineTaskSnapshotSchema;
+        expect(reader.parse(oldHostResult).tasks).toMatchObject([{ label: "reader", status: "error" }, { label: "verifier", status: "done" }]);
+      }
+    } finally {
+      await adapter.destroy();
+    }
   });
 });
