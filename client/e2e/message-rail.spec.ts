@@ -75,13 +75,20 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
       return before - vp.scrollTop;
     });
     expect(wheelDelta).toBeGreaterThanOrEqual(30);
-    await page.evaluate(() => {
-      const vp = document.querySelector<HTMLElement>(".message-scroll");
-      if (vp) vp.scrollTop = vp.scrollHeight;
-    });
+    const viewport = page.locator(".message-scroll").filter({ visible: true });
+    const lastTick = rail.locator(`[data-rail-message-id="${userMessageIds[turnCount - 1]}"]`);
+    const scrollToLatest = () => expect.poll(async () => {
+      // Virtual row measurement can extend the list after the initial scroll.
+      // Once at its true end, the last tick must become active without another input.
+      await viewport.evaluate(element => {
+        const end = element.scrollHeight - element.clientHeight;
+        if (element.scrollTop < end - 1) element.scrollTop = end;
+      });
+      return lastTick.getAttribute("class");
+    }).toMatch(/is-active/);
 
-    // Initially at bottom -> last turn tick is active, and Turn 1 is NOT mounted in the DOM yet (virtualized).
-    await expect(rail.locator(`[data-rail-message-id="${userMessageIds[turnCount - 1]}"]`)).toHaveClass(/is-active/);
+    // At the bottom the first turn is no longer mounted.
+    await scrollToLatest();
     await expect(page.locator(`[data-message-id="${userMessageIds[0]}"]`)).toHaveCount(0);
 
     // Hovering first tick displays the preview card with both prompt and reply preview.
@@ -128,11 +135,7 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
     expect(inViewport).toBe(true);
 
     // Scrolling back down updates the active tick to follow the scroll position.
-    await page.evaluate(() => {
-      const vp = document.querySelector<HTMLElement>(".message-scroll");
-      if (vp) vp.scrollTop = vp.scrollHeight;
-    });
-    await expect(rail.locator(`[data-rail-message-id="${userMessageIds[turnCount - 1]}"]`)).toHaveClass(/is-active/);
+    await scrollToLatest();
 
     // Narrow dashes (4px, the current turn 7px). Woken by scrolling alone, the rail stays at half strength;
     // pointing at it brings it to full strength.
@@ -140,11 +143,8 @@ test("desktop message rail jumps to unrendered earlier messages in a long conver
     await page.evaluate(() => { const vp = document.querySelector<HTMLElement>(".message-scroll")!; vp.scrollTop = vp.scrollHeight / 2; });
     await expect(rail).toHaveClass(/is-awake/);
     await expect.poll(() => rail.evaluate(node => getComputedStyle(node).opacity)).toBe("0.5");
-    const widths = await rail.evaluate(node => ({
-      plain: getComputedStyle(node.querySelector(".message-rail-tick:not(.is-active) .message-rail-bar")!).width,
-      active: getComputedStyle(node.querySelector(".message-rail-tick.is-active .message-rail-bar")!).width,
-    }));
-    expect(widths).toEqual({ plain: "4px", active: "7px" });
+    await expect(rail.locator(".message-rail-tick:not(.is-active) .message-rail-bar").first()).toHaveCSS("width", "4px");
+    await expect(rail.locator(".message-rail-tick.is-active .message-rail-bar")).toHaveCSS("width", "7px");
     await rail.hover();
     await expect.poll(() => rail.evaluate(node => getComputedStyle(node).opacity)).toBe("1");
 
