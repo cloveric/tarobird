@@ -249,6 +249,46 @@ it("splits N-item tasks cleanly and honors #88 preferences, quota health, and ma
   expect(summary).toContain("scripts.tar.gz");
 });
 
+it.each([
+  { label: "total one without per-node", fields: { totalItems: 1 }, counts: [1], total: 1 },
+  { label: "total one with per-node one", fields: { totalItems: 1, perNode: 1 }, counts: [1], total: 1 },
+  { label: "total one below per-node capacity", fields: { totalItems: 1, perNode: 3 }, counts: [1], total: 1 },
+  { label: "per-node without a total", fields: { perNode: 2 }, counts: [2, 2], total: 4 },
+  { label: "explicit items", fields: { totalItems: 1, perNode: 2, items: ["Alpha", "Beta", "Gamma"] }, counts: [2, 1], total: 3 },
+  { label: "larger total", fields: { totalItems: 5, perNode: 2 }, counts: [2, 2, 1], total: 5 },
+])("agrees on preview and persisted tickets for $label", async ({ fields, counts, total }) => {
+  await authorizeStudioFromMac();
+  const { settings, revision } = await a.dispatch.settings("owner", "d");
+  await a.dispatch.updateSettings("owner", "d", { settings: { ...settings, mode: "ask" }, expectedRevision: revision });
+  const nodes = await a.dispatch.nodes(owner, "d");
+  expect(nodes.nodes.filter(node => node.eligible).map(node => node.hostId)).toEqual([macId, studioId]);
+
+  const input = { requestId: "count-plan", request: "Prepare example output", engine: "codex", ...fields };
+  const preview = await a.dispatch.plan(owner, "d", input);
+  expect(preview.tickets).toBeUndefined();
+  expect(await a.store.db.get("SELECT 1 FROM dispatch_tickets WHERE batch_id=?", [preview.batchId])).toBeUndefined();
+  expect(await a.store.db.get("SELECT 1 FROM dispatch_requests WHERE request_id=?", [`plan_${preview.batchId}`])).toBeUndefined();
+
+  const created = await a.dispatch.plan(owner, "d", { ...input, create: true });
+  const persisted = await a.store.db.all<{ id: string; host_id: string }>(
+    "SELECT id,host_id FROM dispatch_tickets WHERE batch_id=? ORDER BY batch_index", [preview.batchId],
+  );
+  for (const plan of [preview, created]) {
+    expect.soft(plan.totalItems).toBe(total);
+    expect.soft(plan.batches.map(batch => batch.itemCount)).toEqual(counts);
+    expect.soft(plan.batches.map(batch => batch.itemStart)).toEqual(counts.map((_, i) => 1 + counts.slice(0, i).reduce((sum, count) => sum + count, 0)));
+    expect.soft(plan.batches.at(-1)?.itemEnd).toBe(total);
+  }
+  expect.soft(created.tickets).toHaveLength(counts.length);
+  expect.soft(persisted).toHaveLength(counts.length);
+  expect(persisted).toEqual(created.tickets?.map(ticket => ({ id: ticket.id, host_id: ticket.hostId })));
+  expect(created.tickets?.every(ticket => ticket.status === "queued" && ticket.attempts.length === 0)).toBe(true);
+  if (fields.items) {
+    expect(created.tickets?.[0]?.request).toContain("1. Alpha\n2. Beta");
+    expect(created.tickets?.[1]?.request).toContain("3. Gamma");
+  }
+});
+
 it("enforces remote authorization, dispatches across 2 real TLS Hubs in parallel, collects artifacts, and publishes one consolidated summary", async () => {
   // 1. Before authorization: studio-b is online but unauthorized.
   const preNodes = dispatchNodesResponseSchema.parse(await a.dispatch.nodes(owner, "d"));
@@ -364,10 +404,16 @@ it("enforces remote authorization, dispatches across 2 real TLS Hubs in parallel
 
   // The remote notice and the one summary belong to the originating group.
   const msgs1 = await a.store.db.all<{ id: string; blocks_json: string }>("SELECT id,blocks_json FROM messages WHERE conversation_id=? ORDER BY created_at,rowid", [origin.id]);
+  const localMessage = msgs1.find(message => message.blocks_json.includes("Completed local items 1-2 cleanly."))!;
+  expect((await a.store.messageForUser("owner", localMessage.id)).botSource).toEqual({
+    hostId: macId, hostName: "macmini", botId: "w_local_codex", botName: "Chancellor · codex", requestId: localTicket.id, hops: 1,
+  });
   expect(msgs1.some(message => message.blocks_json.includes("Completed remote items 3-4 on studio-b."))).toBe(true);
   expect(await a.store.db.get("SELECT 1 FROM messages WHERE conversation_id=? AND blocks_json LIKE '%Completed remote items 3-4 on studio-b.%'", [defaultChat.id])).toBeUndefined();
   const summaryMsgs = msgs1.filter(m => m.blocks_json.includes("跨主机任务汇总"));
   expect(summaryMsgs).toHaveLength(1);
+  expect(await a.store.messageForUser("owner", summaryMsgs[0]!.id)).toMatchObject({ authorType: "bot", authorId: "d" });
+  expect((await a.store.messageForUser("owner", summaryMsgs[0]!.id)).botSource).toBeUndefined();
   expect(summaryMsgs[0]!.blocks_json).toContain("macmini");
   expect(summaryMsgs[0]!.blocks_json).toContain("studio-b");
   expect(summaryMsgs[0]!.blocks_json).toContain(updatedRemote.artifacts![0]!.localAttachmentId!);
@@ -376,6 +422,78 @@ it("enforces remote authorization, dispatches across 2 real TLS Hubs in parallel
   await a.dispatch.sweep();
   const msgs2 = await a.store.db.all<{ id: string }>("SELECT id FROM messages WHERE conversation_id=? AND blocks_json LIKE '%跨主机任务汇总%'", [origin.id]);
   expect(msgs2).toHaveLength(1);
+});
+
+it.each([
+  { delivery: "immediate", outcome: "completed" },
+  { delivery: "immediate", outcome: "failed" },
+  { delivery: "after restart", outcome: "completed" },
+  { delivery: "after restart", outcome: "failed" },
+  { delivery: "legacy pending with matching attempt", outcome: "failed" },
+  { delivery: "legacy pending without matching attempt", outcome: "completed" },
+] as const)("attributes a $outcome remote result delivered $delivery", async ({ delivery, outcome }) => {
+  await a.dispatch.stop();
+  await authorizeStudioFromMac();
+  const ticket = await a.dispatch.create(owner, "d", { requestId: "source-create", title: "Example task", request: "Prepare example output" });
+  const working = await a.dispatch.dispatch(owner, "d", { requestId: "source-run", ticketId: ticket.id, engine: "codex", hostId: studioId });
+  const attempt = working.attempts.at(-1)!;
+  expect(attempt).toMatchObject({ hostId: studioId, hostName: "studio-b", botId: "w_remote_codex", remoteBotName: "Remote · codex" });
+  // The status reply supplies result text. The sender is the identity recorded at dispatch.
+  await b.store.db.run("UPDATE bots SET name='Renamed worker' WHERE id=?", [attempt.botId]);
+  const text = `Example result: ${outcome}`;
+  await b.store.publishBotMessage(attempt.botId, {
+    conversationId: attempt.conversationId, replyTo: attempt.inputMessageId,
+    blocks: [{ type: "text", text }], status: outcome === "completed" ? "complete" : "error",
+  });
+  await b.store.db.run("UPDATE deliveries SET status=? WHERE message_id=? AND bot_id=?",
+    [outcome === "completed" ? "accepted" : "failed", attempt.inputMessageId, attempt.botId]);
+
+  const deferred = delivery !== "immediate";
+  const key = `remote_settle_${attempt.id}`;
+  const pendingKey = `dispatch:pending-notice:${key}`;
+  const clientMsgId = `tn_${createHash("sha256").update(key).digest("hex").slice(0, 40)}`;
+  const resultRows = () => a.store.db.all<{ id: string }>(
+    "SELECT id FROM messages WHERE conversation_id=? AND client_msg_id=?", [ticket.conversationId, clientMsgId],
+  );
+  if (deferred) await a.store.updateConversation("owner", ticket.conversationId, { archived: true });
+  await a.dispatch.sweep();
+  expect(await a.dispatch.show(owner, ticket.id)).toMatchObject({
+    status: outcome === "completed" ? "needs_review" : "blocked",
+    result: text,
+    attempts: [{ outcome }],
+  });
+
+  if (deferred) {
+    expect(await resultRows()).toEqual([]);
+    const pending = await a.store.db.get<{ value: string }>("SELECT value FROM meta WHERE key=?", [pendingKey]);
+    expect(pending).toBeDefined();
+    if (delivery.startsWith("legacy pending")) {
+      const legacy = { ...JSON.parse(pending!.value), from: { botId: attempt.botId, botName: attempt.remoteBotName } };
+      await a.store.db.run("UPDATE meta SET value=? WHERE key=?", [JSON.stringify(legacy), pendingKey]);
+    }
+    if (delivery === "legacy pending without matching attempt") {
+      await a.store.db.run("UPDATE dispatch_tickets SET attempts_json='[]' WHERE id=?", [ticket.id]);
+    }
+    // Flush from the persisted database with the execution Hub offline.
+    await b.close();
+    await a.close();
+    a = await HubServer.start({ stateDir: aDir });
+    await a.dispatch.stop();
+    await a.store.updateConversation("owner", ticket.conversationId, { archived: false });
+    await a.dispatch.sweep();
+  }
+
+  const expectedSource = delivery === "legacy pending without matching attempt"
+    ? { hostId: macId, hostName: "macmini", botId: "d", botName: "Chancellor" }
+    : { hostId: studioId, hostName: "studio-b", botId: "w_remote_codex", botName: "Remote · codex" };
+  const rows = await resultRows();
+  expect(rows).toHaveLength(1);
+  const message = await a.store.messageForUser("owner", rows[0]!.id);
+  expect(message.blocks).toEqual([expect.objectContaining({ type: "text", text: expect.stringContaining(text) })]);
+  expect(message.botSource).toEqual({ ...expectedSource, requestId: ticket.id, hops: 1 });
+  expect(await a.store.db.get("SELECT 1 FROM meta WHERE key=?", [pendingKey])).toBeUndefined();
+  await a.dispatch.sweep();
+  expect(await resultRows()).toEqual(rows);
 });
 
 it("negotiates strict legacy ticket and settings payloads and preserves node settings on legacy writes", async () => {
@@ -455,6 +573,13 @@ it("preserves completed remote batches and reassigns unfinished batches when a r
   expect(after2.status).toBe("working");
   expect(after2.hostId).toBe(macId);
   expect(after2.hostName).toBe("macmini");
+  const offlineNotice = await a.store.db.get<{ id: string }>(
+    "SELECT id FROM messages WHERE conversation_id=? AND blocks_json LIKE ?",
+    [after2.conversationId, `%【需要改派】%${after2.id}%`],
+  );
+  expect((await a.store.messageForUser("owner", offlineNotice!.id)).botSource).toEqual({
+    hostId: macId, hostName: "macmini", botId: "d", botName: "Chancellor", requestId: after2.id, hops: 1,
+  });
 
   // Bulk pause -> resume -> cancel across all open batch tickets.
   await a.dispatch.bulkAction("owner", "d", { requestId: "bulk-pause", action: "pause" });

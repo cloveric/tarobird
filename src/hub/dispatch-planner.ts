@@ -279,7 +279,7 @@ export function planSplitBatches(
         reason: picked.evaluation.reason,
       });
     }
-  } else if (parsed.totalItems && parsed.totalItems > 1) {
+  } else if (parsed.totalItems !== undefined) {
     const total = parsed.totalItems;
     const batchCount = parsed.perNode
       ? Math.ceil(total / parsed.perNode)
