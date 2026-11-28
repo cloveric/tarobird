@@ -10,6 +10,9 @@ Plugins → Open-source licenses. The same texts appear in the App
 acknowledgements.
 
 `node scripts/build-infinite-canvas-plugin.mjs` builds the optional artifact.
+Use `--candidate` to build the two-line sidebar brand locally under
+`dist/plugins/tarobird.infinite-canvas/1.0.1-preview.1/`. The default still
+reproduces the catalog-pinned 1.0.0 bundle.
 Set `TAROBIRD_INFINITE_CANVAS_SOURCE` to a local Git checkout containing the
 same commit to build from the review fixture. The build reads the committed
 tree and never modifies that checkout. The builder requires the pinned pnpm
