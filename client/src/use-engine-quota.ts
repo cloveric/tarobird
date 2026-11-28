@@ -302,6 +302,7 @@ export function useEngineQuota(connection: HubConnection, options: {
     if (before.connection !== connection || before.userId !== userId || before.error === "permission" || !showsScope(connection, before.directory, scope)) return;
     // A queued bulk read may outlive the overview state that made it eligible.
     if (respectCooldown && before.directory) {
+      if (memberIds.some(id => latePolls.current.has(id))) return;
       const currentScopes = projectQuotaDirectory(connection, {
         ...before.directory, scopes: before.directory.scopes.filter(item => memberIds.includes(item.id)),
       }).directory.scopes;

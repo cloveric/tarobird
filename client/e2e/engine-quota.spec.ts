@@ -339,6 +339,14 @@ test("model quotas auto-read stale/empty cards on open and update automatically 
     await expect(writer.locator(".quota-state")).toHaveText("正在读取…");
     await expect(writer).not.toContainText("读取原生额度超时");
 
+    // The gateway cooldown lasts 60s but the late-answer poll lasts 90s.
+    await page.clock.setFixedTime(new Date(now + 65_000));
+    await expect(writer.locator(".quota-state")).toHaveText("正在读取…");
+    await expect(writer.getByText(/后可再刷新/)).toHaveCount(0);
+    await expect(panel.locator(".quota-overview").getByRole("button", { name: "读取", exact: true })).toHaveCount(0);
+
+    await page.clock.setFixedTime(new Date(now + 5_000));
+
     // Late answer arrives on the Host cache; the Settings card picks it up automatically.
     claudeAnswerReady = true;
     await expect(writer).toContainText("剩余 74%", { timeout: 10_000 });

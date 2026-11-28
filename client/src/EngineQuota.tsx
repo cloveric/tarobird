@@ -189,7 +189,9 @@ export function EngineQuota({ connection, active }: { connection: HubConnection;
     || (!!scope.observedAt && now - Date.parse(scope.observedAt) >= QUOTA_SHOWN_FOR_MS);
   const oldest = overview?.rows.reduce<string | undefined>((value, row) => row.scope.observedAt && (!value || Date.parse(row.scope.observedAt) < Date.parse(value)) ? row.scope.observedAt : value, undefined);
   const unreadTargets = overview?.unread.map(item => item.scope).filter(scope => {
-    const next = quotaRefreshAfter(cardScopes(scope));
+    const members = cardScopes(scope);
+    if (members.some(member => quota.waitingLate.includes(member.id))) return false;
+    const next = quotaRefreshAfter(members);
     return scope.capability.mode === "active" && quotaScopeCanRead(scope) && (!next || Date.parse(next) <= now);
   }) ?? [];
   const readUnread = async () => {
