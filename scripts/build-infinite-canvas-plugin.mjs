@@ -10,7 +10,7 @@ import { patchUpstream } from '../integrations/infinite-canvas/patch-upstream.mj
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const integration = path.join(repoRoot, 'integrations/infinite-canvas');
 const catalog = JSON.parse(await readFile(path.join(repoRoot, 'client/src/infinite-canvas-catalog.json'), 'utf8'));
-const outDirDefault = path.join(repoRoot, 'dist/plugins', catalog.id, catalog.version);
+const candidateVersion = '1.0.1-preview.1';
 const files = [
   'LICENSE', 'VERSION', 'CHANGELOG.md', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
   'apps/web', 'packages/workbench', 'packages/shared', 'packages/model-runtime', 'packages/plugin-sdk',
@@ -21,7 +21,8 @@ const command = (file, args, options) => execFileSync(file, args, { stdio: 'inhe
 
 export async function buildInfiniteCanvasPlugin({
   sourceRepository = process.env.TAROBIRD_INFINITE_CANVAS_SOURCE,
-  outDir = outDirDefault,
+  candidate = false,
+  outDir = path.join(repoRoot, 'dist/plugins', catalog.id, candidate ? candidateVersion : catalog.version),
   refreshNotices = false,
 } = {}) {
   const upstream = JSON.parse(await readFile(path.join(integration, 'UPSTREAM.json'), 'utf8'));
@@ -52,7 +53,8 @@ export async function buildInfiniteCanvasPlugin({
     const pnpmVersion = execFileSync('pnpm', ['--version'], { cwd: extracted, env, encoding: 'utf8' }).trim();
     if (`pnpm@${pnpmVersion}` !== upstream.packageManager) throw Error('infinite_canvas_pnpm_version_mismatch');
     command('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: extracted, env });
-    await patchUpstream(extracted);
+    const version = candidate ? candidateVersion : catalog.version;
+    await patchUpstream(extracted, version);
     const { bytes: bundle, notices } = await buildUpstreamEditor(extracted);
 
     const noticeFile = path.join(integration, 'notices/BUNDLED_DEPENDENCIES.txt');
@@ -64,7 +66,7 @@ export async function buildInfiniteCanvasPlugin({
 
     const digest = sha256(bundle);
     const sizeBytes = bundle.byteLength;
-    const manifest = { ...catalog, artifact: { sha256: digest, sizeBytes } };
+    const manifest = { ...catalog, version, artifact: { sha256: digest, sizeBytes } };
     await mkdir(outDir, { recursive: true });
     await writeFile(path.join(outDir, 'bundle.html'), bundle);
     await writeFile(path.join(outDir, 'THIRD_PARTY_NOTICES.txt'), notices);
@@ -77,5 +79,5 @@ export async function buildInfiniteCanvasPlugin({
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  console.log(JSON.stringify(await buildInfiniteCanvasPlugin({ refreshNotices: process.argv.includes('--refresh-notices') })));
+  console.log(JSON.stringify(await buildInfiniteCanvasPlugin({ candidate: process.argv.includes('--candidate'), refreshNotices: process.argv.includes('--refresh-notices') })));
 }
