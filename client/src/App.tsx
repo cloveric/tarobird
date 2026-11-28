@@ -2128,9 +2128,8 @@ export function Workspace({ connection, forget, shell, pane }: WorkspaceProps) {
     setRightMode("files");
   };
   const filesButton = filesEligible && <button ref={filesTrigger} className="icon-button files-trigger" aria-label={t("文件")} title={t("工作区文件")} aria-expanded={filesVisible} aria-controls={filesId} onClick={() => { if (filesVisible) setRightMode("side"); else openFiles(); }}><FolderTree size={18}/></button>;
-  const rightPanelSwitcher = (workbenchButton && filesButton)
-    ? <div className="right-panel-switcher" role="group" aria-label={t("右侧面板")}>{workbenchButton}{filesButton}</div>
-    : <>{workbenchButton}{filesButton}</>;
+  // Two ordinary header icons, spaced like the others: no shared frame around them.
+  const rightPanelSwitcher = <>{workbenchButton}{filesButton}</>;
   const mentionWorkspaceFile = useCallback((relativePath: string) => {
     const token = formatWorkspaceFileMention(relativePath);
     const next = draft ? `${draft}${/\s$/.test(draft) ? "" : " "}${token} ` : `${token} `;
