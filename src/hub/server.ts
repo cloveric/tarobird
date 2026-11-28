@@ -447,11 +447,12 @@ export class HubServer {
       loopbackTarget: () => this.edgeHttp.listening ? this.edgeUrl : `http://127.0.0.1:${options.edgePort ?? 0}`,
       listenerUnavailable: () => this.edgeListenerError,
     });
-    const conversationsCreated = (userId: string, conversations: Conversation[]) => {
+    const conversationsCreated = (userId: string, conversations: Conversation[], includeGroupMembers = false) => {
       for (const conversation of conversations) {
         this.trackTask(this.broadcastConversation(
           conversation,
-          c => c.session?.userId === userId && (!conversation.hidden || c.capabilities.includes(DISPATCH_CAPABILITY)),
+          c => (c.session?.userId === userId || includeGroupMembers && conversation.type === "group" && c.conversationIds.has(conversation.id))
+            && (!conversation.hidden || c.capabilities.includes(DISPATCH_CAPABILITY)),
           undefined,
           true,
         ).catch(() => undefined));
@@ -589,7 +590,7 @@ export class HubServer {
           }));
       },
       requireNetworkPeerInTransaction: (publicKey) => this.network.requireMessagePeerInTransaction(publicKey),
-      onConversationsChanged: (userId, conversations) => conversationsCreated(userId, conversations),
+      onConversationsChanged: (userId, conversations) => conversationsCreated(userId, conversations, true),
       onGroupStopLocal: async (groupId, userId) => {
         await this.groupDiscussions.endActiveForGroup(groupId, userId).catch(() => options.onWarning?.("group_discussion_settle_failed"));
         const targets = await this.store.db.serial(async () => {

@@ -7,6 +7,14 @@ export const CROSS_HOST_GROUPS_CAPABILITY = "groups.cross-host.v1" as const;
 export const GROUP_MAX_TOTAL_MEMBERS = 32;
 export const GROUP_MAX_REMOTE_MEMBERS = 31;
 
+export const GROUP_AVATAR_LIMIT = 9;
+export const remoteGroupAvatarMemberSchema = z.object({
+  memberKey: z.string().regex(/^remote:[A-Za-z0-9_-]{1,128}:[A-Za-z0-9_-]{1,128}$/),
+  preset: z.string().max(64).optional(),
+  profile: z.object({ hostId: z.string().regex(/^hub_[a-f0-9]{64}$/), botId: id }).strict().optional(),
+}).strict();
+export type RemoteGroupAvatarMember = z.infer<typeof remoteGroupAvatarMemberSchema>;
+
 export const groupHistoryVisibilitySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("none") }).strict(),
   z.object({ kind: z.literal("recent"), count: z.number().int().min(1).max(200) }).strict(),

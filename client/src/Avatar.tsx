@@ -1,8 +1,10 @@
 import { BotName } from "./BotName.js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Bot, Camera, MessageSquare, UserRound, Users } from "lucide-react";
-import { avatarKey, type AvatarTarget } from "../../src/client-protocol/avatars.js";
+import { avatarKey, type AvatarTarget, type ProfileAvatar } from "../../src/client-protocol/avatars.js";
 import type { Conversation } from "../../src/client-protocol/index.js";
+import { GROUP_AVATAR_LIMIT, type RemoteGroupAvatarMember } from "../../src/client-protocol/group-members.js";
+import { BotMessageHostsContext, botMessageHostId } from "./bot-message-hosts.js";
 import { HubConnection, type ConnectionState } from "./connection.js";
 import { t } from "./i18n.js";
 import { defaultBotAvatar, type BotAvatar } from "./bot-avatar-catalog.js";
@@ -57,38 +59,46 @@ export function releaseAvatarUrl(key: string, entry: SharedAvatarUrl): void {
     if (entry.resolved) URL.revokeObjectURL(entry.resolved);
   }, AVATAR_URL_LINGER_MS);
 }
-export function Avatar({ kind, id, name, size = 32, fallback, appearance }: AvatarTarget & { name: string; size?: number; fallback?: ReactNode; appearance?: "conversation" }) {
-  const context = useContext(Profiles), [loaded, setLoaded] = useState<{ key: string; url: string }>();
-  const avatar = context?.state.avatars.find((a) => a.kind === kind && a.id === id);
-  const key = avatar?.hasImage ? `${context?.connection.identity.hubPublicKey}:${avatarKey(avatar)}:${avatar.revision}` : "";
-  // A loaded picture is kept across reconnects; only a missing one retries
-  // when the connection status changes.
-  const retry = loaded?.key === key ? "" : context?.state.status;
+function useAvatarImage(connection: HubConnection | undefined, avatar: ProfileAvatar | undefined) {
+  const [loaded, setLoaded] = useState<{ key: string; url: string }>();
+  const identity = connection?.identity;
+  const key = identity && avatar?.hasImage ? `${identity.hubPublicKey}:${identity.deviceId}:${avatarKey(avatar)}:${avatar.revision}` : "";
+  // Keep loaded pictures across reconnects. Missing pictures retry on a status change.
+  const url = key && loaded?.key === key ? loaded.url : undefined;
+  const retry = url ? "" : connection?.state.status;
   useEffect(() => {
-    if (!context || !avatar?.hasImage || !key) return;
+    if (!connection || !avatar?.hasImage || !key) return;
     let alive = true;
-    const entry = acquireAvatarUrl(key, () => context.connection.avatarBlob(avatar));
+    const entry = acquireAvatarUrl(key, () => connection.avatarBlob(avatar));
     void entry.url.then((url) => { if (alive) setLoaded({ key, url }); }).catch(() => undefined);
     return () => { alive = false; releaseAvatarUrl(key, entry); };
-  }, [context?.connection, key, retry]);
+  }, [connection, key, retry]);
+  return url;
+}
+export function Avatar({ kind, id, name, size = 32, fallback, appearance }: AvatarTarget & { name: string; size?: number; fallback?: ReactNode; appearance?: "conversation" }) {
+  const context = useContext(Profiles);
+  const avatar = context?.state.avatars.find((a) => a.kind === kind && a.id === id);
+  const url = useAvatarImage(context?.connection, avatar);
   const Icon = kind === "user" ? UserRound : kind === "group" ? Users : Bot;
   // Custom pictures win, including while loading. Default mascots use the
   // Host-persisted choice, with the legacy Bot-ID fallback for older Hosts/Bots.
   const preset = kind === "bot" && !fallback && !avatar?.hasImage ? defaultBotAvatar(id, context?.defaults.get(id)) : undefined;
   // Derive from this host's live/cached membership, never a saved collage.
   // Individual Avatars retain authenticated custom pictures and revision updates.
-  const memberIds = kind === "group" && !avatar?.hasImage && !fallback
-    ? [...new Set(context?.conversations.find(c => c.id === id)?.botIds ?? [])].slice(0, 9) : [];
-  const tone = kind === "group" && !avatar?.hasImage && !memberIds.length ? hue(id) : undefined;
+  const group = kind === "group" && !avatar?.hasImage && !fallback ? context?.conversations.find(c => c.id === id) : undefined;
+  const localMembers = group ? [...new Set(group.botIds)].slice(0, GROUP_AVATAR_LIMIT) : [];
+  const remoteMembers = group?.remoteAvatarMembers?.slice(0, GROUP_AVATAR_LIMIT - localMembers.length) ?? [];
+  const memberCount = localMembers.length + remoteMembers.length;
+  const tone = kind === "group" && !avatar?.hasImage && !memberCount ? hue(id) : undefined;
   // A list row in a non-idle state redraws the picture's eyes when it has any.
   const agent = useContext(AgentAvatarContext);
-  const face = useAvatarFace(agent ? key && loaded?.key === key ? loaded.url : preset ? botAvatarImage(preset).url : undefined : undefined);
+  const face = useAvatarFace(agent ? url ?? (preset ? botAvatarImage(preset).url : undefined) : undefined);
   // Dispatcher Bots (and a dispatcher's own conversation picture) carry a static
   // star; list rows and group collages draw or suppress it outside this box.
   const starBot = kind === "bot" ? id : appearance === "conversation" ? context?.conversations.find(c => c.id === id)?.botIds[0] : undefined;
   const suppressed = useContext(RoleStarSuppressed), star = !suppressed && !!starBot && !!context?.dispatchers.has(starBot);
-  return <span className={`profile-avatar profile-avatar-${kind}${appearance === "conversation" ? " profile-avatar-conversation" : ""}${memberIds.length ? " profile-avatar-composite" : ""}${face ? " has-agent-face" : ""}`} style={{ width: size, height: size }} data-avatar={`${kind}:${id}`} data-preset={preset?.id} data-hue={tone} data-composite={memberIds.length || undefined} data-role={star ? "dispatcher" : undefined} role={memberIds.length ? "img" : undefined} aria-label={memberIds.length ? t("{0}的头像", name) : undefined}>
-    <RoleStarSuppressed.Provider value={star || suppressed}>{key && loaded?.key === key ? <img src={loaded.url} alt={t("{0}的头像", name)} draggable={false}/> : preset ? <BotPortrait avatar={preset} alt={t("{0}的头像", name)}/> : memberIds.length ? <GroupPortrait size={size} members={memberIds.map(id => ({ id, name: context?.state.bots.find(bot => bot.id === id)?.name ?? id }))}/> : fallback ?? <Icon size={Math.round(size * .56)} aria-hidden="true"/>}</RoleStarSuppressed.Provider>
+  return <span className={`profile-avatar profile-avatar-${kind}${appearance === "conversation" ? " profile-avatar-conversation" : ""}${memberCount ? " profile-avatar-composite" : ""}${face ? " has-agent-face" : ""}`} style={{ width: size, height: size }} data-avatar={`${kind}:${id}`} data-preset={preset?.id} data-hue={tone} data-composite={memberCount || undefined} data-role={star ? "dispatcher" : undefined} role={memberCount ? "img" : undefined} aria-label={memberCount ? t("{0}的头像", name) : undefined}>
+    <RoleStarSuppressed.Provider value={star || suppressed}>{url ? <img src={url} alt={t("{0}的头像", name)} draggable={false}/> : preset ? <BotPortrait avatar={preset} alt={t("{0}的头像", name)}/> : memberCount ? <GroupPortrait size={size} locals={localMembers.map(id => ({ id, name: context?.state.bots.find(bot => bot.id === id)?.name ?? id }))} remotes={remoteMembers}/> : fallback ?? <Icon size={Math.round(size * .56)} aria-hidden="true"/>}</RoleStarSuppressed.Provider>
     {face && <AgentFace face={face}/>}
     {star && <RoleStar/>}
   </span>;
@@ -111,12 +121,32 @@ export function canEditConversationAvatar(state: Pick<ConnectionState, "status" 
   return state.status === "online" && !conversation.parentId && !conversation.archived &&
     (conversation.type === "group" ? state.user?.role === "owner" || state.user?.id === conversation.ownerId : !!state.conversationAvatarsAvailable && state.user?.id === conversation.ownerId);
 }
-function GroupPortrait({ members, size }: { members: { id: string; name: string }[]; size: number }) {
-  const columns = members.length === 1 ? 1 : members.length <= 4 ? 2 : 3;
+function GroupPortrait({ locals, remotes, size }: { locals: { id: string; name: string }[]; remotes: RemoteGroupAvatarMember[]; size: number }) {
+  const count = locals.length + remotes.length;
+  const columns = count === 1 ? 1 : count <= 4 ? 2 : 3;
   const padding = Math.max(2, Math.round(size * .06)), gap = Math.max(1, Math.round(size * .025));
   const edge = (size - padding * 2 - gap * (columns - 1)) / columns;
   return <span className="group-avatar-members" aria-hidden="true" style={{ padding, gap }}>
-    <AgentAvatarContext.Provider value={undefined}><RoleStarSuppressed.Provider value={true}>{members.map(member => <Avatar key={member.id} kind="bot" id={member.id} name={member.name} size={edge}/>)}</RoleStarSuppressed.Provider></AgentAvatarContext.Provider>
+    <AgentAvatarContext.Provider value={undefined}><RoleStarSuppressed.Provider value={true}>
+      {locals.map(member => <Avatar key={member.id} kind="bot" id={member.id} name={member.name} size={edge}/>)}
+      {remotes.map(member => <RemoteGroupPortrait key={member.memberKey} member={member} size={edge}/>)}
+    </RoleStarSuppressed.Provider></AgentAvatarContext.Provider>
+  </span>;
+}
+function RemoteGroupPortrait({ member, size }: { member: RemoteGroupAvatarMember; size: number }) {
+  const profiles = useContext(Profiles);
+  const hosts = useContext(BotMessageHostsContext);
+  const profile = member.profile;
+  const peer = profile && hosts.find(entry => botMessageHostId(entry.host.publicKey) === profile.hostId);
+  const candidate = peer?.connection;
+  const connection = candidate && candidate !== profiles?.connection && !peer?.host.networkBlocked
+    && !candidate.isClosed && !candidate.isReadOnly ? candidate : undefined;
+  // The paired Host has already authorized this profile metadata for this device.
+  const avatar = profile && connection?.state.avatars.find(a => a.kind === "bot" && a.id === profile.botId);
+  const url = useAvatarImage(connection, avatar);
+  const preset = url ? undefined : defaultBotAvatar(member.memberKey, member.preset);
+  return <span className="profile-avatar profile-avatar-bot" style={{ width: size, height: size }} data-avatar={member.memberKey} data-preset={preset?.id}>
+    {url ? <img src={url} alt="" draggable={false}/> : preset && <BotPortrait avatar={preset} alt=""/>}
   </span>;
 }
 export function BotPortrait({ avatar, alt }: { avatar: BotAvatar; alt: string }) {

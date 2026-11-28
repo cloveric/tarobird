@@ -31,6 +31,7 @@ import { MessageActivityIndex, readConversationActivity, type MessageActivity } 
 import { HubAudit } from "./audit.js";
 import { localDesktopControllersInTransaction } from "./local-controller.js";
 import { groupSettingsSchema, type GroupSettingsInput } from "../client-protocol/groups.js";
+import { GROUP_AVATAR_LIMIT, makeGroupMemberKey, type RemoteGroupAvatarMember } from "../client-protocol/group-members.js";
 import { GROUP_DISCUSSION_MAX_MEMBERS, GROUP_DISCUSSION_MIN_MEMBERS, automaticGroupDiscussion, defaultGroupDiscussionPolicy, groupDiscussionPolicySchema, type GroupDiscussionPolicy, type GroupSettingsSnapshot } from "../client-protocol/group-discussion.js";
 import { renameBotSchema, type RenameBotInput } from "../client-protocol/bots.js";
 
@@ -249,11 +250,35 @@ export class HubStore {
     for (const event of result.events) this.emit(event);
     return result.conversations;
   }
+  private async remoteGroupAvatarMembers(groupId: string, limit: number): Promise<RemoteGroupAvatarMember[]> {
+    const rows = await this.db.all<{ host_id: string; host_public_key: string | null; bot_id: string; avatar_snapshot: string | null }>(
+      `SELECT host_id, host_public_key, bot_id, avatar_snapshot FROM group_session_members
+       WHERE group_id=? AND conversation_id=? AND active=1 AND kind='remote'
+       ORDER BY host_id, bot_id, joined_at, session_id`,
+      [groupId, groupId],
+    );
+    const members = new Map<string, RemoteGroupAvatarMember>();
+    for (const row of rows) {
+      const memberKey = makeGroupMemberKey("remote", row.host_id, row.bot_id);
+      const hostId = row.host_public_key ? `hub_${createHash("sha256").update(Buffer.from(row.host_public_key, "base64")).digest("hex")}` : undefined;
+      const identity = hostId ? makeGroupMemberKey("remote", hostId, row.bot_id) : memberKey;
+      if (members.has(identity)) continue;
+      const preset = botAvatarById(row.avatar_snapshot)?.id;
+      // The snapshot is a catalog ID or a reference, never image bytes or a route.
+      const profile = hostId && row.avatar_snapshot?.startsWith(`profile:bot:${row.bot_id}:v`)
+        ? { hostId, botId: row.bot_id } : undefined;
+      members.set(identity, { memberKey, ...(preset ? { preset } : {}), ...(profile ? { profile } : {}) });
+      if (members.size === limit) break;
+    }
+    return [...members.values()];
+  }
   private async conversationRow(id: string, includeWorkspace = true): Promise<Conversation> {
     const row = await this.db.get<ConversationRow>("SELECT * FROM conversations WHERE id=?", [id]);
     if (!row) throw new HubError("conversation_not_found", 404);
     const bots = await this.db.all<{ member_id: string }>("SELECT member_id FROM conversation_members WHERE conversation_id=? AND member_type='bot' ORDER BY member_id", [id]);
-    return conversationSchema.parse({ ...(row.history_origin_json ? { historyOrigin: JSON.parse(row.history_origin_json) } : {}), id: row.id, type: row.type, title: row.title, ownerId: row.owner_id, ...(row.parent_id ? { parentId: row.parent_id } : {}), botIds: bots.map((b) => b.member_id), archived: !!row.archived, ...(row.session_id ? { sessionId: row.session_id } : {}), ...(row.binding_id ? { bindingId: row.binding_id } : {}), ...(includeWorkspace && row.workspace_path ? { workspacePath: row.workspace_path } : {}), createdAt: row.created_at,
+    const remoteAvatarMembers = row.type === "group" && !row.parent_id && bots.length < GROUP_AVATAR_LIMIT
+      ? await this.remoteGroupAvatarMembers(id, GROUP_AVATAR_LIMIT - bots.length) : undefined;
+    return conversationSchema.parse({ ...(remoteAvatarMembers?.length ? { remoteAvatarMembers } : {}), ...(row.history_origin_json ? { historyOrigin: JSON.parse(row.history_origin_json) } : {}), id: row.id, type: row.type, title: row.title, ownerId: row.owner_id, ...(row.parent_id ? { parentId: row.parent_id } : {}), botIds: bots.map((b) => b.member_id), archived: !!row.archived, ...(row.session_id ? { sessionId: row.session_id } : {}), ...(row.binding_id ? { bindingId: row.binding_id } : {}), ...(includeWorkspace && row.workspace_path ? { workspacePath: row.workspace_path } : {}), createdAt: row.created_at,
       ...(row.hidden ? { hidden: true } : {}), ...(row.ticket_json ? { ticket: conversationTicketSchema.parse(JSON.parse(row.ticket_json)) } : {}) });
   }
   conversationWorkspacePath(conversationId: string): Promise<string | undefined> {

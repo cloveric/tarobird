@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -128,6 +128,48 @@ describe("Cross-host group chat, session-based members & Orca-style group settin
     while (dirs.length) {
       await fs.rm(dirs.pop()!, { recursive: true, force: true }).catch(() => undefined);
     }
+  });
+
+  it("projects only distinct active remote portraits into visible group conversations", async () => {
+    const { hub } = await startHub("portrait-fixture");
+    await hub.store.db.run("INSERT INTO users(id,name,role) VALUES('member','Member','member'),('outsider','Outsider','member')");
+    await hub.store.db.run("INSERT INTO bots(id,name,secret_hash) VALUES('assistant','Local assistant','fixture')");
+    const group = await hub.store.createConversation("owner", ["assistant"], "Mixed group", "mixed_group", { type: "group" });
+    await hub.store.db.run("INSERT INTO conversation_members VALUES(?,'user','member',0)", [group.id]);
+    const topic = await hub.store.createConversation("owner", [], "Topic", "topic", { parentId: group.id });
+    const localGroup = await hub.store.createConversation("owner", ["assistant"], "Local group", "local_group", { type: "group" });
+
+    await hub.store.db.run("INSERT INTO conversation_members VALUES(?,'user','member',0)", [localGroup.id]);
+
+    const addSnapshot = (hostId: string, sessionId: string, avatar: string | null, joinedAt: number, active = 1, publicKey: string | null = null) =>
+      hub.store.db.run(
+        `INSERT INTO group_session_members(conversation_id,group_id,member_key,kind,host_id,host_name,host_public_key,bot_id,session_id,
+          session_title,name_snapshot,avatar_snapshot,engine_snapshot,joined_at,joined_after_seq,history_visibility_json,active)
+         VALUES(?,?,?,'remote',?,'Fixture host',?,'assistant',?,'Private direct chat','Remote assistant',?,'codex',?,0,'{"kind":"none"}',?)`,
+        [group.id, group.id, `remote:${hostId}:assistant`, hostId, publicKey, sessionId, avatar, joinedAt, active],
+      );
+    await addSnapshot("peer_a", "private_a", "orange-cat", 1);
+    await addSnapshot("peer_a", "private_a_duplicate", "pink-bunny", 2);
+    await addSnapshot("peer_removed", "private_removed", "taro", 3, 0);
+    const peerKey = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "der" });
+    await addSnapshot("peer_b", "private_b", "profile:bot:assistant:v1", 4, 1, peerKey.toString("base64"));
+    await addSnapshot("peer_duplicate_alias", "private_b_alias", "taro", 4, 1, peerKey.toString("base64"));
+    for (let i = 0; i < 8; i++) await addSnapshot(`peer_extra_${i}`, `private_extra_${i}`, null, 5 + i);
+
+    const ownerConversations = await hub.store.conversations("owner");
+    const memberConversations = await hub.store.conversations("member");
+    const expected = [
+      { memberKey: "remote:peer_a:assistant", preset: "orange-cat" },
+      { memberKey: "remote:peer_b:assistant", profile: { hostId: `hub_${createHash("sha256").update(peerKey).digest("hex")}`, botId: "assistant" } },
+      ...Array.from({ length: 6 }, (_, i) => ({ memberKey: `remote:peer_extra_${i}:assistant` })),
+    ];
+    for (const conversations of [ownerConversations, memberConversations]) {
+      expect(conversations.find(c => c.id === group.id)).toMatchObject({ botIds: ["assistant"] });
+      expect(conversations.find(c => c.id === group.id)).toHaveProperty("remoteAvatarMembers", expected);
+      expect(conversations.find(c => c.id === topic.id)).not.toHaveProperty("remoteAvatarMembers");
+      expect(conversations.find(c => c.id === localGroup.id)).not.toHaveProperty("remoteAvatarMembers");
+    }
+    expect(await hub.store.conversations("outsider")).toEqual([]);
   });
 
   it("supports joining by existing session, different sessions per group, and auto-creating a session when none exists", async () => {
