@@ -5,7 +5,7 @@ export const SWARM_TASKS_CAPABILITY = "conversations.tasks.swarm.v1";
 /** Display-only metadata on a saved scoped reply; never a control target. */
 export const scopedTaskLabelSchema = z.object({ version: z.literal(1), label: z.string().min(1).max(500), kind: z.enum(["subagent", "background"]) }).strict();
 const id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_-]+$/);
-export const swarmMemberStateSchema = z.enum(["working", "waiting", "killed", "done", "paused", "unknown"]);
+export const swarmMemberStateSchema = z.enum(["working", "waiting", "killed", "done", "failed", "paused", "unknown"]);
 export const swarmMemberSchema = z.object({
   name: z.string().min(1).max(128),
   role: z.string().min(1).max(64).optional(),

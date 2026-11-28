@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { EngineTask, SwarmMember, SwarmMemberState, SwarmPost, SwarmSnapshot } from "../client-protocol/engine-tasks.js";
+import { isTerminalSwarmMemberState, swarmMemberStatusCopy } from "../client-protocol/swarm-member-status.js";
 
 const MAX_MEMBERS_FILE_BYTES = 1024 * 1024;
 const MAX_BOARD_READ_BYTES = 2 * 1024 * 1024;
@@ -28,7 +29,7 @@ export type SwarmBoardFileCache = {
 export type AcpSwarmMember = SwarmMember & {
   startedAt?: number;
   conversationId?: string;
-  /** True when the member's state was inferred solely from a generic tool call rather than explicit swarm state. */
+  /** True when a tool call suggests activity without recording a member state. */
   inferredState?: boolean;
 };
 
@@ -36,6 +37,7 @@ export type AcpSwarmState = {
   active: boolean;
   stoppedByUser: boolean;
   timedOut?: boolean;
+  explicitlyEnded?: boolean;
   title?: string;
   startedAt: number;
   updatedAt: number;
@@ -111,6 +113,7 @@ export function normalizeSwarmMemberState(raw: unknown): SwarmMemberState {
   if (["waiting", "idle", "asleep", "sleeping", "sleep", "blocked", "pending"].includes(value)) return "waiting";
   if (["killed", "stopped", "cancelled", "canceled", "terminated", "dead", "aborted"].includes(value)) return "killed";
   if (["done", "completed", "finished", "complete", "succeeded", "success"].includes(value)) return "done";
+  if (value === "failed" || value === "error") return "failed";
   if (["paused", "quota_paused", "quota_exhausted", "rate_limited"].includes(value)) return "paused";
   return "unknown";
 }
@@ -125,6 +128,8 @@ export function swarmStateToEngineStatus(state: SwarmMemberState): EngineTask["s
       return "stopped";
     case "done":
       return "done";
+    case "failed":
+      return "error";
     default:
       return "unknown";
   }
@@ -250,6 +255,8 @@ function readBoundedTextSync(filePath: string, maxBytes: number, fromTail = fals
 function hasMemberFields(record: Record<string, unknown>): boolean {
   return record.state !== undefined
     || record.status !== undefined
+    || typeof record.phase === "string"
+    || typeof record.killed === "boolean"
     || record.role !== undefined
     || record.model !== undefined
     || record.modelId !== undefined
@@ -274,6 +281,19 @@ function normalizeMemberName(raw: string): string {
   return raw.trim().replace(/^@+/, "").slice(0, 128);
 }
 
+function recordedMemberState(record: Record<string, unknown>, role?: string): SwarmMemberState {
+  if (record.killed === true) return "killed";
+  const phase = normalizeSwarmMemberState(record.phase);
+  if (isTerminalSwarmMemberState(phase)) return phase;
+  const legacy = [record.state, record.status].map(normalizeSwarmMemberState).find(state => state !== "unknown");
+  if (legacy) return legacy;
+  // agy can leave the coordinator's roster phase RUNNING after the workers
+  // exit and the coordinator replies. This phase does not track its turn.
+  if (role?.toLowerCase() === "coordinator") return "unknown";
+  const wakeMode = normalizeSwarmMemberState(record.wake_mode);
+  return phase === "working" && isSwarmMemberActive(wakeMode) ? wakeMode : phase;
+}
+
 function normalizeMemberEntry(raw: unknown, fallbackName?: string, now = Date.now()): AcpSwarmMember | null {
   const record = asRecord(raw);
   if (!record) return null;
@@ -286,7 +306,7 @@ function normalizeMemberEntry(raw: unknown, fallbackName?: string, now = Date.no
   const name = rawName ? normalizeMemberName(rawName) : "";
   if (!name) return null;
   const role = nonEmptyString(record.role, 64) ?? nonEmptyString(record.type, 64);
-  const state = normalizeSwarmMemberState(record.state ?? record.status);
+  const state = recordedMemberState(record, role);
   const model = nonEmptyString(record.model, 160) ?? nonEmptyString(record.modelId, 160);
   const latestActivity = nonEmptyString(record.latestActivity, 2000)
     ?? nonEmptyString(record.activity, 2000)
@@ -348,6 +368,7 @@ function normalizePostEntry(raw: unknown, index: number, fallbackTime: number): 
     ?? nonEmptyString(record.member, 128)
     ?? nonEmptyString(record.worker, 128)
     ?? nonEmptyString(record.name, 128)
+    ?? nonEmptyString(record.agent, 128)
     ?? "system";
   const author = normalizeMemberName(authorRaw) || "system";
   const createdAt = parseTimestamp(record.createdAt ?? record.created_at ?? record.timestamp ?? record.ts ?? record.time, fallbackTime + index);
@@ -477,9 +498,9 @@ function parseSwarmBoardContents(membersRaw: BoundedFileRead | null, boardRaw: B
   }
 
   const hasLiveMember = members.some((m) => isSwarmMemberActive(m.state));
-  const explicitlyStopped = explicitStatus !== undefined && ["done", "completed", "stopped", "killed", "finished"].includes(explicitStatus);
+  const explicitlyStopped = explicitStatus !== undefined && ["done", "completed", "stopped", "killed", "finished", "ended", "failed"].includes(explicitStatus);
   const explicitlyActive = explicitStatus !== undefined && ["running", "active", "working"].includes(explicitStatus);
-  const active = explicitlyStopped ? false : (hasLiveMember || (explicitlyActive && members.length === 0));
+  const active = !explicitlyStopped && (hasLiveMember || explicitlyActive);
   const fileMtimeMs = Math.max(membersRaw?.mtimeMs ?? 0, boardRaw?.mtimeMs ?? 0) || undefined;
 
   return {
@@ -576,15 +597,22 @@ export function mergeSwarmSnapshots(
         const memberUpdated = member.updatedAt ?? 0;
         const existingUpdated = existing.updatedAt ?? 0;
         const acpNewer = memberUpdated > existingUpdated;
+        // A last activity timestamp or one tool's result cannot displace a
+        // recorded member outcome.
+        const preferAcpState = member.state !== "unknown" && (
+          existing.state === "unknown" || (!member.inferredState && (
+            isTerminalSwarmMemberState(member.state) !== isTerminalSwarmMemberState(existing.state)
+              ? isTerminalSwarmMemberState(member.state)
+              : acpNewer
+          ))
+        );
+        const preferred = preferAcpState ? member : existing;
         byName.set(key, {
           name: existing.name || member.name,
           role: (acpNewer ? member.role : existing.role) ?? member.role ?? existing.role,
           ...(existing.helper || member.helper ? { helper: true } : {}),
-          state: terminated && isSwarmMemberActive(existing.state)
-            ? "killed"
-            : member.inferredState && existing.state !== "unknown"
-              ? existing.state
-              : (acpNewer && member.state !== "unknown" ? member.state : existing.state !== "unknown" ? existing.state : member.state),
+          state: preferred.state,
+          inferredState: preferred.inferredState,
           model: (acpNewer ? member.model : existing.model) ?? member.model ?? existing.model,
           latestActivity: (acpNewer ? member.latestActivity : existing.latestActivity) ?? member.latestActivity ?? existing.latestActivity,
           startedAt: existing.startedAt ?? member.startedAt,
@@ -594,8 +622,16 @@ export function mergeSwarmSnapshots(
     }
   }
 
-  const members = [...byName.values()].map((m): SwarmMember => {
-    const state = terminated && isSwarmMemberActive(m.state) ? "killed" : m.state;
+  const roster = [...byName.values()];
+  const hasLiveMember = roster.some((m) => isSwarmMemberActive(m.state));
+  const ended = terminated || fileSwarm.explicitlyStopped || acpSwarm?.explicitlyEnded;
+  const active = !ended && Boolean(hasLiveMember || fileSwarm.active || (acpSwarm?.active && roster.length === 0));
+  const members = roster.map((m): SwarmMember => {
+    let state = m.state;
+    if (!active) {
+      if (m.inferredState) state = "unknown";
+      else if (isSwarmMemberActive(state)) state = terminated ? "killed" : "unknown";
+    }
     return {
       name: m.name,
       ...(m.role ? { role: m.role } : {}),
@@ -612,10 +648,6 @@ export function mergeSwarmSnapshots(
   if (acpSwarm) for (const post of acpSwarm.posts) postMap.set(post.id, post);
   const posts = [...postMap.values()].sort((a, b) => a.createdAt - b.createdAt).slice(-MAX_SWARM_POSTS);
 
-  const hasLiveMember = members.some((m) => isSwarmMemberActive(m.state));
-  const active = terminated
-    ? false
-    : Boolean(hasLiveMember || fileSwarm.active || (acpSwarm?.active && members.length === 0));
   const title = fileSwarm.title ?? acpSwarm?.title;
   const source: SwarmSnapshot["source"] = acpSwarm && fileSwarm.found ? "merged" : fileSwarm.found ? "files" : "acp";
   const updatedAt = Math.max(
@@ -714,25 +746,37 @@ export function applySwarmAcpUpdate(
     swarm.updatedAt = now;
     const title = nonEmptyString(update.title, 300) ?? nonEmptyString(update.goal, 300);
     if (title) swarm.title = title;
-    const status = nonEmptyString(update.status, 64)?.toLowerCase();
-    const hasExplicitStatus = Boolean(status);
-    if (status && ["done", "completed", "stopped", "killed", "finished"].includes(status)) swarm.active = false;
-    else if (status && ["running", "active", "working"].includes(status)) swarm.active = true;
+    const status = update.member || update.name ? undefined : nonEmptyString(update.status, 64)?.toLowerCase();
+    if (status && ["done", "completed", "stopped", "killed", "finished", "ended", "failed"].includes(status)) {
+      swarm.active = false;
+      swarm.explicitlyEnded = true;
+    } else if (status && ["running", "active", "working"].includes(status)) {
+      swarm.active = true;
+      swarm.explicitlyEnded = false;
+    }
+
+    const saveMember = (member: AcpSwarmMember) => {
+      const key = member.name.toLowerCase();
+      const previous = swarm.members.get(key);
+      swarm.members.set(key, member.state === "unknown" && previous
+        ? { ...previous, ...member, state: previous.state }
+        : { ...member, inferredState: false });
+    };
 
     let updatedMembers = false;
     if (Array.isArray(update.members)) {
       updatedMembers = true;
       for (const item of update.members) {
         const m = normalizeMemberEntry(item, undefined, now);
-        if (m) swarm.members.set(m.name.toLowerCase(), { ...m, inferredState: false });
+        if (m) saveMember(m);
       }
     }
     const singleMember = normalizeMemberEntry(update.member ?? (update.name && (update.state || update.status) ? update : undefined), undefined, now);
     if (singleMember) {
       updatedMembers = true;
-      swarm.members.set(singleMember.name.toLowerCase(), { ...singleMember, inferredState: false });
+      saveMember(singleMember);
     }
-    if (updatedMembers && !hasExplicitStatus && swarm.members.size > 0) {
+    if (updatedMembers && !status && swarm.members.size > 0) {
       swarm.active = [...swarm.members.values()].some((m) => isSwarmMemberActive(m.state));
     }
 
@@ -764,21 +808,17 @@ export function applySwarmAcpUpdate(
         const role = nonEmptyString(rawInput?.role, 64) ?? existing?.role;
         const model = nonEmptyString(rawInput?.model, 160) ?? existing?.model;
         const isKill = action === "kill" || toolName.includes("kill") || toolName.includes("stop");
-        const explicitState = rawInput?.state ?? rawOutput?.state;
-        const state = isKill
-          ? "killed"
-          : explicitState !== undefined
-            ? normalizeSwarmMemberState(explicitState)
-            : update.status === "failed" && !existing
-              ? "done"
-              : (existing?.state ?? "working");
+        const explicitState = normalizeSwarmMemberState(rawOutput?.state ?? rawInput?.state);
+        const knownState = isKill && update.status === "completed" ? "killed" : explicitState;
+        const state = knownState !== "unknown" ? knownState
+          : existing?.state ?? (isKill || update.status === "failed" ? "unknown" : "working");
         const activity = nonEmptyString(rawInput?.brief, 500) ?? nonEmptyString(rawInput?.task, 500) ?? nonEmptyString(rawInput?.prompt, 500) ?? nonEmptyString(update.title, 500) ?? existing?.latestActivity;
         swarm.members.set(clean.toLowerCase(), {
           name: existing?.name ?? clean,
           ...(role ? { role } : {}),
           ...(isSwarmHelperRole(role, clean) ? { helper: true } : {}),
           state,
-          inferredState: false,
+          inferredState: knownState === "unknown" && (existing ? existing.inferredState : true),
           ...(model ? { model } : {}),
           ...(activity ? { latestActivity: activity } : {}),
           startedAt: existing?.startedAt ?? now,
@@ -801,8 +841,9 @@ export function applySwarmAcpUpdate(
     const explicitState = meta?.state ?? rawOutput?.state;
     let state: SwarmMemberState;
     let inferredState: boolean;
-    if (explicitState !== undefined) {
-      state = normalizeSwarmMemberState(explicitState);
+    const normalizedState = normalizeSwarmMemberState(explicitState);
+    if (normalizedState !== "unknown") {
+      state = normalizedState;
       inferredState = false;
     } else if (toolFinished) {
       if (!options.hasOtherOpenWorkerTools && (!existing || existing.inferredState)) {
@@ -853,10 +894,11 @@ export function renderSwarmBoardSummary(snapshot: SwarmSnapshot | undefined, loc
       const model = m.model ? ` · \`${m.model}\`` : "";
       const role = m.role ? ` (${m.role})` : "";
       const activity = m.latestActivity ? ` — ${m.latestActivity.slice(0, 120)}` : "";
-      lines.push(`- \`@${m.name}\`${role} [${m.state}]${model}${activity}`);
+      const memberStatus = swarmMemberStatusCopy(m.state, snapshot.active)[locale];
+      lines.push(`- \`@${m.name}\`${role} [${memberStatus}]${model}${activity}`);
     }
   } else if (snapshot.formatUnknown) {
-    lines.push("", locale === "en" ? "Swarm is running (board file format not recognized)." : "Swarm 正在运行（看板文件格式暂无法解析）。");
+    lines.push("", locale === "en" ? "Board file format not recognized." : "看板文件格式暂无法解析。");
   }
   if (snapshot.posts.length) {
     lines.push("", locale === "en" ? "**Recent board posts**" : "**最近看板动态**");

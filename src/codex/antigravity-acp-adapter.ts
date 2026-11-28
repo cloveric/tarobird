@@ -1459,11 +1459,11 @@ export class AntigravityAcpAdapter implements CodexAdapter {
           if (merged && !merged.active) {
             worker.swarm.active = false;
             this.clearSwarmCeilingTimer(worker);
-            for (const fileMember of fileSwarm.members) {
-              const key = fileMember.name.toLowerCase();
+            for (const member of merged.members) {
+              const key = member.name.toLowerCase();
               const existing = worker.swarm.members.get(key);
-              if (existing && (existing.inferredState || (fileMember.updatedAt ?? 0) >= (existing.updatedAt ?? 0))) {
-                worker.swarm.members.set(key, { ...existing, state: fileMember.state, updatedAt: Math.max(existing.updatedAt ?? 0, fileMember.updatedAt ?? 0) });
+              if (existing && member.state !== "unknown") {
+                worker.swarm.members.set(key, { ...existing, state: member.state, inferredState: false, updatedAt: member.updatedAt });
               }
             }
           }

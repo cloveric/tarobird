@@ -6130,6 +6130,7 @@
   "Swarm 状态": "Swarm の状態",
   "Swarm · {0} 运行中": "Swarm · {0} 実行中",
   "Swarm 已结束": "Swarm 終了",
+  "Swarm 已结束，成员结果未确认": "Swarm は終了しましたが、メンバーの結果は未確認です",
   "Swarm 已停止": "Swarm 停止済み",
   "停止 Swarm": "Swarm を停止",
   "工作中": "作業中",

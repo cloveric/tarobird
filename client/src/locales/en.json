@@ -6130,6 +6130,7 @@
   "Swarm 状态": "Swarm status",
   "Swarm · {0} 运行中": "Swarm · {0} running",
   "Swarm 已结束": "Swarm finished",
+  "Swarm 已结束，成员结果未确认": "Swarm ended, member outcome unconfirmed",
   "Swarm 已停止": "Swarm stopped",
   "停止 Swarm": "Stop Swarm",
   "工作中": "Working",
