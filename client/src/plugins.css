@@ -1089,53 +1089,6 @@ dialog.plugins-modal-dialog::backdrop {
   background: color-mix(in srgb, var(--panel-entry-accent) 25%, transparent);
 }
 
-.sidebar-plugins-strip {
-  padding: 4px 0 2px;
-  flex-shrink: 0;
-}
-
-.sidebar-plugins-entry {
-  width: 100%;
-  min-height: 34px;
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 9px;
-  border-radius: var(--radius, 8px);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--grey, var(--muted));
-  font-size: 13px;
-  font-weight: 500;
-  text-align: left;
-}
-
-.sidebar-plugins-entry:hover:not(:disabled) {
-  background: var(--canvas-hover, var(--hover));
-  color: var(--text);
-}
-
-.sidebar-plugins-entry > svg {
-  flex-shrink: 0;
-  color: var(--muted);
-}
-
-.sidebar-plugins-entry:hover:not(:disabled) > svg {
-  color: var(--accent, var(--blue));
-}
-
-.sidebar-plugins-count {
-  margin-left: auto;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-
 /* Keep marketplace buttons compact inside SettingsPanel (.settings-content sets min-height: 40px) */
 .settings-content .plugins-view button {
   min-height: 0;
