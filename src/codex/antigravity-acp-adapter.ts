@@ -69,6 +69,7 @@ import { EngineSessionRestarts, observeEngineProcessExit } from "./engine-sessio
 import { extractAntigravityTaskPlan, parseAcpPlanSummary, type AntigravityTodoItem } from "./antigravity-task-plan.js";
 import { renderPrivateTurnInstructions } from "./turn-instructions.js";
 import { isChineseLocale } from "../runtime/locale.js";
+import { discoverAntigravityModels } from "./antigravity-models.js";
 
 type SpawnOptions = {
   stdio: ["pipe", "pipe", "pipe"];
@@ -731,6 +732,8 @@ export class AntigravityAcpAdapter implements CodexAdapter {
       cache: this.quotaCache, scope, options, captureScope,
       preferredPids,
       localProbe,
+      // Real spawners only, like the local probe: injected fakes stay hermetic.
+      modelCatalog: !this.options.quotaSpawnFn && !this.options.spawnFn ? () => discoverAntigravityModels(this.childEnv) : undefined,
     });
   }
 

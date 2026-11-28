@@ -32,6 +32,9 @@ function unixTime(value: unknown): string | undefined {
 function isoTime(value: unknown): string | undefined {
   if (value == null) return undefined;
   if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT/.test(value) || !Number.isFinite(Date.parse(value))) throw new QuotaReadError("invalid_response");
+  // agy reports an unused pool's reset as the Unix epoch. That means "no reset scheduled", not a reset in 1970;
+  // kept, it would mark every reading expired the moment it arrives (#205).
+  if (Date.parse(value) <= 0) return undefined;
   return new Date(value).toISOString();
 }
 function observed(now: number) { return { observedAt: new Date(now).toISOString(), expiresAt: new Date(now + QUOTA_TTL_MS).toISOString() }; }
@@ -279,6 +282,26 @@ function antigravityGroupModels(name: string, description: unknown): string[] {
   // Any other description (prose, several lines, not text) simply states no list; it never fails the reading.
   const listed = typeof description === "string" ? /^Models within this group:[ \t]*([^\x00-\x1f\x7f]+)$/.exec(description)?.[1]?.split(",").map(item => item.trim()).filter(Boolean) : undefined;
   return listed?.length && listed.length <= 32 && listed.every(item => item.length <= 120) ? listed : [name];
+}
+
+const plainName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+const ANTIGRAVITY_EFFORT_WORDS = ["low", "medium", "high", "xhigh", "max", "ultra"];
+/** `/usage` names a group's models by their `agy models` display name ("Orchestrator (Neon)"), while a Bot stores
+ * the model id ("gemini-pro-orchestrator-neon"); not every id spells its display name. Add the ids whose display
+ * name is one of the group's names, with or without an effort word, so a reading can be matched to the Bot (#205). */
+export function withAntigravityModelIds(snapshot: QuotaSnapshot, catalog: readonly { id: string; label?: string }[]): QuotaSnapshot {
+  if (!catalog.length) return snapshot;
+  const pools = snapshot.pools.map(pool => {
+    if (!pool.models?.length) return pool;
+    const names = pool.models.map(plainName).filter(Boolean);
+    const ids = catalog.filter(model => {
+      const label = model.label ? plainName(model.label) : "";
+      return label !== "" && names.some(name => label === name || ANTIGRAVITY_EFFORT_WORDS.some(word => label === name + word));
+    }).map(model => model.id);
+    const models = [...new Set([...pool.models, ...ids])].slice(0, 32);
+    return models.length === pool.models.length ? pool : { ...pool, models };
+  });
+  return { ...snapshot, pools };
 }
 
 /** Parses `agy -p /usage --output-format json`. Requires `num_turns === 0` so a model turn is never accepted as quota. */
